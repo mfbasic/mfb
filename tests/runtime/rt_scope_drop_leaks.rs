@@ -6600,3 +6600,37 @@ fn condition_temps_that_already_had_an_owner_stay_flat() {
         36,
     );
 }
+
+/// bug-620, found while fixing it: a `FOR EACH` over a fresh collection keeps it as a pending
+/// temp of the loop statement, so a `RETURN` from the body — which never reaches that
+/// statement's end drop — leaked the whole list (192 B per call for a three-item split). The
+/// returned item is a copy, so the list is freed under the escaping-value guard.
+#[cfg(unix)]
+#[test]
+fn a_return_from_a_for_each_frees_its_fresh_collection() {
+    assert_condition_temps_freed(
+        "for_each_return_item",
+        "FUNC pick(s AS String) AS String\n  FOR EACH x IN strings::split(s, \",\")\n    IF strings::lower(x) = \"b\" THEN RETURN x\n  NEXT\n  RETURN \"\"\nEND FUNC",
+        "len(pick(\"a,B,c\"))",
+        1,
+    );
+    assert_condition_temps_freed(
+        "for_each_return_derived",
+        "FUNC g(s AS String) AS Integer\n  FOR EACH x IN strings::split(s, \",\")\n    IF x = \"b\" THEN RETURN len(x & \"!\")\n  NEXT\n  RETURN 0\nEND FUNC",
+        "g(\"a,b,c\")",
+        2,
+    );
+}
+
+/// bug-620 × bug-621: a `RETURN` from a `WHILE` body whose condition allocates on every pass
+/// returns a fresh value built from the same input.
+#[cfg(unix)]
+#[test]
+fn a_return_from_a_while_with_a_condition_temp_frees_every_block() {
+    assert_condition_temps_freed(
+        "while_condition_return",
+        "FUNC g(s AS String) AS String\n  MUT i AS Integer = 0\n  WHILE strings::mid(s, i, 1) <> \"=\"\n    IF strings::mid(s, i, 1) = \"c\" THEN RETURN strings::left(s, i)\n    i = i + 1\n  END WHILE\n  RETURN s\nEND FUNC",
+        "len(g(\"abcd=\"))",
+        2,
+    );
+}

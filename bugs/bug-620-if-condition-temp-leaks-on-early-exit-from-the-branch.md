@@ -123,6 +123,11 @@ Compiler paths (search: the `NirOp::If` arm and every exit emitter in
 - `EXIT DO`/`EXIT FOR`/`EXIT WHILE`/`CONTINUE` inside such a branch — fixed by this bug.
 - `MATCH`/`SELECT` scrutinee temps with an exit inside a `CASE` — same statement-scope
   structure; audit in Phase 1, fixed here if it leaks.
+- `RETURN` from a `FOR EACH` body over a fresh collection (`FOR EACH x IN strings::split(s, ",")`)
+  — **found while fixing this bug**, same mechanism: the collection is a pending temp of the
+  `FOR EACH` statement and the `ret` skips its end drop. Measured on main `af7d9b778`: 192 B
+  per call (`fe_retitem`, returning the item), 176 B (`fe_retlen`). `EXIT FOR` was already flat
+  (it lands on `for_end`, above the drop). Fixed by the same RETURN change.
 - A raised error inside the branch — unaffected: `emit_call_error_exit` already frees every
   pending temp in place (`emit_pending_temp_frees_in_place`).
 - Loop conditions re-evaluated each pass — bug-621.
@@ -156,6 +161,9 @@ body may read the temp's contents in future shapes.
 
 - [ ] `rt_scope_drop_leaks.rs`: the repro, `r7_block`, `ct_close`, and `EXIT FOR` / `CONTINUE`
       / `ELSEIF` / `MATCH` variants, each N vs 2N on `live_bytes`; confirm each fails.
+- [x] Found while fixing: `RETURN` from a `FOR EACH` over a fresh collection leaks the collection;
+      cases `a_return_from_a_for_each_frees_its_fresh_collection` and
+      `a_return_from_a_while_with_a_condition_temp_frees_every_block` (bug-620 × bug-621).
 - [x] Audit `MATCH`/`SELECT` scrutinee temps with an exit inside a `CASE`; record the verdict.
       Verdict: not affected. `MATCH strings::lower(s)` / `CASE "p"` / `RETURN 1` measured flat
       (`live_bytes` 0 → 0 at N=1000/2000, `alloc_calls` = `free_calls`): the IR desugar binds the
