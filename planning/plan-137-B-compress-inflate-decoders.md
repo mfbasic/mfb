@@ -352,7 +352,7 @@ hostile input.
   `cargo test --test rt_compress_interop --test rt_compress_bounds` → `2 passed` and `5 passed`, 0 failed;
   `scripts/test-accept.sh target/release/mfb /tmp/p137b3acc 'compress' 'compress-*'` → `acceptance tests passed
   (9 test(s) ran)`.)
-Commit: —
+Commit: b4424ae15
 
 ### Phase 4 — speed record, docs
 
@@ -365,8 +365,13 @@ Commit: —
       exceptions and their oracle evidence, the decided behaviours (trailing bytes, `ignoreChecksum`,
       `FDICT`) and the gzip next-member rule, bounds, end-position shape
       chosen and why, throughput recorded as a dated measurement.
-- [ ] `tests/byte-identity/compress/` program extended to call the decoders; regenerate its eight
+- [x] `tests/byte-identity/compress/` program extended to call the decoders; regenerate its eight
       goldens; confirm no other package's `.ncodesum` moved.
+      (The program now also calls `inflate`, `zlibDecode` with an explicit `maxBytes`, and `gzipDecode` with
+      `ignoreChecksum`. `scripts/sync-goldens.sh target/release/mfb 'compress'` → `.ast`/`.ir`/`build.log`;
+      `bash scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/compress` → `5 build(s), 5 golden(s)
+      rewritten, 0 failure(s)`; `scripts/artifact-gate.sh target/release/mfb compress` → `7 golden(s) checked, 0 diff(s)`.
+      Only `tests/byte-identity/compress/` goldens changed — `git status` shows no other fixture.)
 
 Acceptance: decoders are faster than canvas's inflate on the Phase 1 stream; docs render and
 examples run; byte-identity drift is confined to `tests/byte-identity/compress/`.

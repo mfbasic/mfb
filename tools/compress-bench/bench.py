@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import gzip
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,12 +37,22 @@ RUNS = 5
 LINEAR_LIMIT = 4.4
 
 
-def python_crc32(data):
-    return str(zlib.crc32(data))
+def described(out):
+    return f"{len(out)} {zlib.crc32(out)}"
 
 
+def raw_deflate(data):
+    c = zlib.compressobj(6, zlib.DEFLATED, -15)
+    return c.compress(data) + c.flush()
+
+
+# op -> (turn the corpus into the op's input, the Python op over that input). MiB/s is measured
+# over the corpus size: bytes checksummed for crc32, bytes of output for a decoder.
 OPS = {
-    "crc32": python_crc32,
+    "crc32": (lambda corpus: corpus, lambda data: str(zlib.crc32(data))),
+    "inflate": (raw_deflate, lambda data: described(zlib.decompressobj(-15).decompress(data))),
+    "zlibDecode": (lambda corpus: zlib.compress(corpus, 6), lambda data: described(zlib.decompress(data))),
+    "gzipDecode": (lambda corpus: gzip.compress(corpus, 6, mtime=0), lambda data: described(zlib.decompress(data, 31))),
 }
 
 
@@ -121,23 +132,25 @@ def main():
         paths = {}
         for kind in KINDS:
             for size in SIZES:
-                paths[(kind, size)] = os.path.join(work, f"{kind}-{size}.bin")
-                with open(paths[(kind, size)], "wb") as f:
-                    f.write(corpus(kind, size))
+                raw = corpus(kind, size)
+                for op in ops:
+                    paths[(op, kind, size)] = os.path.join(work, f"{op}-{kind}-{size}.bin")
+                    with open(paths[(op, kind, size)], "wb") as f:
+                        f.write(OPS[op][0](raw))
 
         mfb_times, py_times, mismatches = {}, {}, {}
         for _ in range(rounds):
             for op in ops:
                 for kind in KINDS:
                     for size in SIZES:
-                        with open(paths[(kind, size)], "rb") as f:
+                        with open(paths[(op, kind, size)], "rb") as f:
                             data = f.read()
-                        times, py_value = run_python(OPS[op], data)
+                        times, py_value = run_python(OPS[op][1], data)
                         py_times.setdefault((op, kind, size), []).extend(times)
                         del data
                         for level in levels:
                             key = (op, kind, size, level)
-                            times, mfb_value = run_mfb(exes[level], op, paths[(kind, size)])
+                            times, mfb_value = run_mfb(exes[level], op, paths[(op, kind, size)])
                             mfb_times.setdefault(key, []).extend(times)
                             if mfb_value != py_value:
                                 mismatches[key] = f"MISMATCH mfb={mfb_value} py={py_value}"

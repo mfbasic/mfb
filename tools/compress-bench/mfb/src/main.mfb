@@ -1,20 +1,25 @@
 ' The MFB side of tools/compress-bench.
 '
 ' Reads BENCH_FILE, then runs BENCH_OP on it five times, timing each run with
-' datetime::monotonicNanos around the operation alone (not the file read), and
-' prints `run <nanoseconds> <result>` per run. With no BENCH_FILE it prints nothing
-' and exits 0, which is how bench.py checks that a built flavor runs on this host.
+' datetime::monotonicNanos around the operation alone (not the file read, and not the
+' result check), and prints `run <nanoseconds> <result>` per run. With no BENCH_FILE it
+' prints nothing and exits 0, which is how bench.py checks that a built flavor runs.
+'
+' crc32's result is the checksum; a decoder's result is `<output length> <CRC-32 of output>`,
+' computed after the timed section.
 IMPORT compress
 IMPORT datetime
 IMPORT fs
 IMPORT io
 IMPORT os
 
-FUNC runOnce(op AS String, data AS List OF Byte) AS String
-  IF op = "crc32" THEN
-    RETURN toString(compress::crc32(data))
+FUNC decode(op AS String, data AS List OF Byte) AS List OF Byte
+  IF op = "inflate" THEN
+    RETURN compress::inflate(data)
+  ELSEIF op = "zlibDecode" THEN
+    RETURN compress::zlibDecode(data)
   END IF
-  RETURN "unknown-op"
+  RETURN compress::gzipDecode(data)
 END FUNC
 
 SUB main()
@@ -28,9 +33,19 @@ SUB main()
   fs::close(h)
   MUT i AS Integer = 0
   WHILE i < 5
-    LET started AS Integer = datetime::monotonicNanos()
-    LET result AS String = runOnce(op, data)
-    LET elapsed AS Integer = datetime::monotonicNanos() - started
+    MUT result AS String = "unknown-op"
+    MUT elapsed AS Integer = 0
+    IF op = "crc32" THEN
+      LET started AS Integer = datetime::monotonicNanos()
+      LET c AS Integer = compress::crc32(data)
+      elapsed = datetime::monotonicNanos() - started
+      result = toString(c)
+    ELSEIF op = "inflate" OR op = "zlibDecode" OR op = "gzipDecode" THEN
+      LET started AS Integer = datetime::monotonicNanos()
+      LET out AS List OF Byte = decode(op, data)
+      elapsed = datetime::monotonicNanos() - started
+      result = toString(len(out)) & " " & toString(compress::crc32(out))
+    END IF
     io::print("run " & toString(elapsed) & " " & result)
     i = i + 1
   END WHILE

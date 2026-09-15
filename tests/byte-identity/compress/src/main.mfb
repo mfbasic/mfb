@@ -1,6 +1,7 @@
-' Byte-identity coverage for the compress package (plan-137-A): every member's
-' injected source reaches native codegen on every target.
+' Byte-identity coverage for the compress package (plan-137-A, extended by plan-137-B): every
+' member's injected source reaches native codegen on every target.
 IMPORT compress
+IMPORT encoding
 IMPORT io
 IMPORT strings
 
@@ -9,4 +10,8 @@ SUB main()
   LET whole AS Integer = compress::crc32(data)
   LET half AS Integer = compress::crc32(strings::toBytes(" and then some more bytes"), compress::crc32(strings::toBytes("123456789")))
   io::print(toString(whole) & " " & toString(half))
+  LET raw AS List OF Byte = compress::inflate(encoding::hexDecode("cb48cdc9c9d751c840a21492f3730b8a528b8b01"))
+  LET zl AS List OF Byte = compress::zlibDecode(encoding::hexDecode("789ccb48cdc9c9d751c840a21492f3730b8a528b8b0191f40a61"), 1024)
+  LET gz AS List OF Byte = compress::gzipDecode(encoding::hexDecode("1f8b08000000000000ffcb48cdc9c9d751c840a21492f3730b8a528b8b018d6147741c000000"), 1024, TRUE)
+  io::print(toString(len(raw)) & " " & toString(len(zl)) & " " & toString(len(gz)))
 END SUB
