@@ -210,7 +210,7 @@ Acceptance: §2 rows filled with pasted evidence.
   Check: the commands in §2 (est. 10 min).
   (2026-09-14: `curl -sSfL …/v1.2.12/deflate.c` then `grep -n "configuration_table\[10\]" -A12` → the rows above; the
   Python/Node level sweep → the mapping above.)
-Commit: —
+Commit: 23a447a9f
 
 ### Phase 2 — raw `deflate`, levels 0–9
 
@@ -239,7 +239,7 @@ Acceptance: zlib decodes every raw stream we produce, at every level and edge si
   Check: `tools/oracles/compress/run.sh target/release/mfb encode-raw` → exit 0 (est. 15 min).
   (2026-09-14: exit 0, 120 cases, 0 failures; re-run on the Phase 3 core with its `prefix` parameter → 120/120 against
   both judges again.)
-Commit: —
+Commit: 9c75bf7f0
 
 ### Phase 3 — framing, tests, docs
 
@@ -290,7 +290,7 @@ Acceptance: zlib decodes every framed stream; output identical on macOS and 2223
   `scripts/man-run-examples.sh compress --run` → pass (est. 25 min).
   (2026-09-14: the three encode modes exit 0; interop `ok. 6 passed; 0 failed`; `compress-*` acceptance 10 passed; man examples
   12/12 ran; box 2223 9 passed.)
-Commit: —
+Commit: 9c75bf7f0
 
 ## Validation Plan
 
