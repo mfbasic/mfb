@@ -1,6 +1,6 @@
 # plan-137-A: `compress::` builtin package + `crc32`
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Overall Effort: huge (>3d) — the whole plan-137 feature: a library-free, in-memory `compress::` (gzip / zlib / raw DEFLATE, both directions, plus `crc32`), and canvas's PNG decoder moved onto it
 Effort: medium (1h–2h)
 Depends on: nothing inside plan-137 (see Prerequisites for the whole-feature gate)
@@ -57,11 +57,11 @@ These gate the **whole** plan-137 feature. Letters B–E point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-621 fixed (append growth reserves data per element width) — B's decoder and D/E's encoders build multi-MiB outputs by in-place append; with bug-621 open a 64 MiB decode reserves ~19 B per output byte and every RSS bound in this plan would pin the bug | `ls bugs/completed/bug-621-*` → one file | NOT MET |
-| Release compiler builds | `cargo build --release --bin mfb` → exit 0 | UNMEASURED — run before starting |
-| zlib oracles present on the dev host | `python3 -c "import zlib; print(zlib.ZLIB_RUNTIME_VERSION)"` → a version; `node -e "console.log(process.versions.zlib)"` → a version | MET (2026-09-13: Python 3.14.5 / zlib 1.2.12; Node v24.12.0 / zlib 1.3.1-470d3a2) |
-| `flate2` resolves offline for the in-CI interop test | `grep -n -A3 '^name = "flate2"' Cargo.lock` → `1.1.9`, deps `crc32fast`, `miniz_oxide 0.8.9` | MET (2026-09-13) |
-| No `compress` package exists yet | `ls src/codegen/builtins \| grep -c compress` → 0 | MET (2026-09-13) |
+| bug-621 fixed (append growth reserves data per element width) — B's decoder and D/E's encoders build multi-MiB outputs by in-place append; with bug-621 open a 64 MiB decode reserves ~19 B per output byte and every RSS bound in this plan would pin the bug | `ls bugs/completed/bug-621-*` → one file | MET (2026-09-14 re-run after merging main into `worktree-P-137` at `55dc9a626`: `bugs/completed/bug-621-append-growth-over-reserves-data-capacity.md`, `Status: Fixed`) |
+| Release compiler builds | `cargo build --release --bin mfb` → exit 0 | MET (2026-09-14 re-run in `.claude/worktrees/P-137` at `55dc9a626`: exit 0, `Finished release profile [optimized] target(s) in 1m 28s`) |
+| zlib oracles present on the dev host | `python3 -c "import zlib; print(zlib.ZLIB_RUNTIME_VERSION)"` → a version; `node -e "console.log(process.versions.zlib)"` → a version | MET (2026-09-14 re-run: zlib `1.2.12` / Node zlib `1.3.1-470d3a2`) |
+| `flate2` resolves offline for the in-CI interop test | `grep -n -A3 '^name = "flate2"' Cargo.lock` → `1.1.9`, deps `crc32fast`, `miniz_oxide 0.8.9` | MET (2026-09-14 re-run: `Cargo.lock:1142 version = "1.1.9"`) |
+| No `compress` package exists yet | `ls src/codegen/builtins \| grep -c compress` → 0 | MET (2026-09-14 re-run: `0`; `ls packages \| grep -c '^compress$'` → `0`) |
 
 If bug-621 is not complete, plan-137 cannot start, full stop. This plan does not work around
 it (no pre-sized output buffers invented to dodge the growth policy, no "smaller cap until
@@ -190,9 +190,13 @@ Everything below is written against the world where these hold.
   `encoding`/`net`/`http`/`color` skips). `bits`/`collections`/`strings` have empty or
   parse-time companions, so `compress` importing them needs no late pass; **canvas importing
   `compress` does** (letter C).
-- UNVERIFIED: that a `FUNC` taking `List OF Byte` and returning `Integer` from a
-  `Body::Rewrite` member compiles to a call with no list copy on entry. Task in Phase 2
-  (inspect `--ncode` of the fixture for a block copy on the call path).
+- **A `Body::Rewrite` member taking `List OF Byte` and returning `Integer` is called with
+  no list copy on entry.** Verified 2026-09-14 (Phase 2): `mfb build --ncode` of
+  `tests/byte-identity/compress` (macos-aarch64); every `bl _mfb_ifn_compress_5Fcrc32` in
+  `_mfb_fn_main` is preceded only by `ldr_u64 x8, [sp, slot]` / `mov x0, x8` (the list
+  pointer) and the `running` load into `x1`; the callee's entry stores `x0`/`x1` into its
+  frame, and its first `bl` (`_mfb_arena_alloc`) is the `FAIL error(77050002, …)` record on
+  the out-of-range-`running` branch, not a copy of `data`.
 
 ## 3. Design Overview (whole feature)
 
@@ -264,12 +268,15 @@ crypto's, `register` calls per file, and an in-module `#[cfg(test)]` block count
   (written with `bits::bxor` / `band` / `sr`). The remaining 0–7 bytes use the byte step
   `crc = bxor(sr(crc, 8), T0[band(bxor(crc, byte), 255)])`. `crc` starts as
   `bxor(running, 0xFFFFFFFF)`; the result is `bxor(crc, 0xFFFFFFFF)`.
-- `T0..T7` live in one module-level `LET __COMPRESS_CRC32_TABLES AS List OF Integer = [...]` of
+- `T0..T7` live in one module-level `LET __COMPRESS_CRC32_TABLES AS List OF Integer = __compress_crc32Tables()` of
   2,048 entries (`T_k[i]` at index `k*256 + i`), so each lookup is one `collections::get` at a
   computed index. `T0` is the standard table for `0xEDB88320`;
-  `T_k[i] = bxor(sr(T_(k-1)[i], 8), T0[band(T_(k-1)[i], 255)])`. The literal is **generated**,
-  not typed: a `#[cfg(test)]` test in `compress/mod.rs` computes all eight tables and asserts the
-  helper source's literal equals them, so a typo cannot survive.
+  `T_k[i] = bxor(sr(T_(k-1)[i], 8), T0[band(T_(k-1)[i], 255)])`. **Corrected 2026-09-14:** the
+  tables are **computed at program start** by an MFB builder, not written as a 2,048-element
+  literal — the literal cost +379,772 B per binary for no speed gain (Corrections). The builder's
+  one constant is pinned by a `#[cfg(test)]` test that derives it from the catalogue polynomial;
+  every entry is judged against independent CRC-32 implementations by the interop test and the
+  oracle, over random data that reaches every index.
 - One function owns the loop; the input list is only read. Because slicing-by-8 has two code
   paths (8-byte steps and the tail), every test set includes each length 0–17, so every tail
   length is exercised with and without a preceding 8-byte step.
@@ -294,7 +301,7 @@ program.
   letter; A adds `crc32` (random lengths 0..1 MiB, random split points for chaining).
 - `tools/compress-bench/` — `README.md`, `run.sh <mfb>`: generates a fixed corpus (seeded
   pseudo-random, repetitive text, all-zero; 1 / 4 / 16 MiB), builds an MFB bench program,
-  times each op by median of 5 runs with `/usr/bin/time`, and prints MiB/s beside Python
+  times each op by median of 5 runs with `/usr/bin/time` (**corrected:** in-process `datetime::monotonicNanos` around the op, interleaved rounds — Corrections), and prints MiB/s beside Python
   `zlib` on the same bytes. A adds the `crc32` row.
 
 ## Compatibility / Format Impact
@@ -312,85 +319,133 @@ program.
 
 ### Phase 1 — re-verify the gate and the numbering
 
-- [ ] Re-run every Prerequisites command; update statuses.
-- [ ] `ls packages | grep -c '^compress$'` → 0; `grep -rn '"compress"' src/codegen/builtins/mod.rs` → no hits.
-- [ ] Record the spec page number: next free `NN` in `ls src/docs/spec/stdlib` (20 at authoring)
+- [x] Re-run every Prerequisites command; update statuses. (2026-09-14: all five rows MET, outputs in the table.)
+- [x] `ls packages | grep -c '^compress$'` → 0; `grep -rn '"compress"' src/codegen/builtins/mod.rs` → no hits. (2026-09-14: `0`; grep printed nothing.)
+- [x] Record the spec page number: next free `NN` in `ls src/docs/spec/stdlib` (20 at authoring)
       and on all refs (`git log --all --name-only --format= | grep "docs/spec/stdlib/20_"` → none).
+      (2026-09-14: highest is `19_big.md`; the `git log` grep printed nothing → **20**, `20_compress.md`.)
 
 Acceptance: every Prerequisites row reads MET with today's output pasted in the table.
   Check: the commands above (est. 3 min, plus the release build if stale).
-Commit: —
+Commit: f54d3d4b6
 
 ### Phase 2 — package skeleton + `crc32`
 
-- [ ] `src/codegen/builtins/compress/{mod.rs, func_crc32.rs, helper_crc32.rs, helper_crc32_table.rs}`
+- [x] `src/codegen/builtins/compress/{mod.rs, func_crc32.rs, helper_crc32.rs, helper_crc32_table.rs}`
       per §4.1–4.3; `Body::Rewrite("__compress_crc32")`; `errors: vec!["ErrInvalidArgument"]`.
-- [ ] `src/codegen/builtins/mod.rs`: `pub(crate) mod compress;`, `"compress"` in `BUILTIN_IMPORTS`
+      (`cargo build --release --bin mfb` → `Finished`, no warnings; `compress-crc32-valid` built
+      and ran: `check=3421780262` = catalogue `0xcbf43926`. See Corrections for the helper
+      `IMPORT` lines a `WhenUsed` helper needs.)
+- [x] `src/codegen/builtins/mod.rs`: `pub(crate) mod compress;`, `"compress"` in `BUILTIN_IMPORTS`
       (sorted) and in `ARGUMENT_CHECKED_PACKAGES`.
-- [ ] `src/codegen/registry/mod.rs` `build()`: `crate::codegen::builtins::compress::register(&mut r);`.
-- [ ] `src/docs/spec/language/18_builtin-functions.md`: add `compress` to the package sentence.
-- [ ] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test.
-- [ ] Resolve the §2 UNVERIFIED call-copy property: `mfb build --ncode` the fixture below and
+- [x] `src/codegen/registry/mod.rs` `build()`: `crate::codegen::builtins::compress::register(&mut r);`.
+- [x] `src/docs/spec/language/18_builtin-functions.md`: add `compress` to the package sentence.
+      (`cargo test --bin mfb spec_section_18_package_list_matches_is_builtin_import` → `1 passed`.)
+- [x] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test. Revised after the
+      table rewrite (Corrections): the literal-equality test is replaced by
+      `crc32_table_builder_uses_the_reflected_polynomial`. (`cargo test --bin mfb compress` →
+      `crc32_table_builder_uses_the_reflected_polynomial ... ok`, `compress_registered_on_the_clean_room_registry ... ok`.)
+      (`cargo test --bin mfb compress` → `crc32_tables_literal_matches_the_polynomial`,
+      `crc32_tables_produce_the_catalogue_check_value`, `compress_registered_on_the_clean_room_registry` ok.)
+- [x] Resolve the §2 UNVERIFIED call-copy property: `mfb build --ncode` the fixture below and
       confirm no block copy of `data` on the `__compress_crc32` call path; write the verdict
-      into Verified properties.
+      into Verified properties. (Verified: no copy — §2 Verified properties.)
 
 Acceptance: `crc32` is callable, rejects a bad `running`, and its table is machine-checked.
   Check: `cargo test --bin mfb compress` → the new unit tests pass;
   `cargo test --bin mfb spec_section_18_package_list_matches_is_builtin_import` → pass (est. 6 min).
-Commit: —
+Commit: 33eefae9b
 
 ### Phase 3 — tests
 
-- [ ] `tests/rt-behavior/compress/compress-crc32-valid/` — prints `crc32` of the fetched catalogue
+- [x] `tests/rt-behavior/compress/compress-crc32-valid/` — prints `crc32` of the fetched catalogue
       check string, of `[]`, of `[]` with `running := 12345`, and a three-way split chain; four
       goldens (`build.log`, `.ast`, `.ir`, `.run`) created by `touch` first, then
       `scripts/sync-goldens.sh target/release/mfb 'tests/rt-behavior/compress/compress-crc32-valid'`,
       then **read** `build.log` and compare the check value to the catalogue by eye.
-- [ ] `tests/rt-error/compress/compress-crc32-running-invalid/` — `running := -1` raises
+      (sync: `synced 10 golden file(s) across 4 test(s)`; `build.log` reads `check=3421780262`
+      = catalogue `check=0xcbf43926`, `empty=0`, `empty-running=12345`, `split=3421780262`;
+      it also chains a 43-byte string split 16/19/8: `long=long-split=1095738169`.)
+- [x] `tests/rt-error/compress/compress-crc32-running-invalid/` — `running := -1` raises
       `ErrInvalidArgument` (sibling layout: `tests/rt-error/crypto/crypto-ec-invalid`).
-- [ ] `tests/syntax/compress/compress-crc32-arity-invalid/` — wrong arity gets the argument
+      (`build.log`: `before` / `Error: 7-705-0002` / `compress::crc32: running must be 0..4294967295` / `[exit 255]`.)
+- [x] `tests/syntax/compress/compress-crc32-arity-invalid/` — wrong arity gets the argument
       diagnostic (proves `ARGUMENT_CHECKED_PACKAGES`); golden `build.log` only.
-- [ ] `tests/byte-identity/compress/` — one program calling `crc32`; eight goldens via
+      (`build.log`: `TYPE_CALL_ARITY_MISMATCH` "Call to `compress.crc32` has 0 argument(s), expected 1 to 2"
+      and "has 3 argument(s)"; `TYPE_CALL_ARGUMENT_MISMATCH` "(String), expected List OF Byte[, Integer]".)
+- [x] `tests/byte-identity/compress/` — one program calling `crc32`; eight goldens via
       `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/compress`.
-- [ ] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
+      (`build.log`/`.ast`/`.ir` by `sync-goldens.sh`; `bash scripts/regen-native-goldens.sh …` →
+      `5 build(s), 5 golden(s) rewritten, 0 failure(s)`; `scripts/artifact-gate.sh target/release/mfb compress`
+      → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`. Re-run after the §4.2 table rewrite, which
+      changes the injected source and so every compress `.ir` and `.ncodesum`: `sync-goldens.sh` →
+      `synced 10 golden file(s) across 4 test(s)`; regen → `5 golden(s) rewritten, 0 failure(s)`;
+      artifact-gate → `7 golden(s) checked, 0 diff(s)`.)
+- [x] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
       `flate2 = "1"` in `[dev-dependencies]` with the "already in the lockfile" comment; test
       `crc32_matches_crc32fast_over_a_generated_corpus` (every length 0–17, then seeded LCG lengths 0..100,000, 200 cases,
       one MFB process fed a job file, compared to `crc32fast::hash`/`Hasher` via `flate2`'s
       re-export or a direct `crc32fast` dev-dep if `flate2` does not re-export it — record which).
+      (Recorded: `flate2::Crc`, which is `crc32fast::Hasher` because `flate2`'s `zlib-rs` feature is
+      off (`flate2-1.1.9/src/crc.rs` `#[cfg(not(feature = "zlib-rs"))] pub use impl_crc32fast::Crc`);
+      `cargo tree -i flate2` → `png` → `image` → `mfb`, so the `Cargo.lock` diff is one line adding
+      `flate2` to `mfb`'s dependency list. 218 cases (18 + 200) plus `running` probes at
+      4294967295 / 4294967296 / -1: `cargo test --test rt_compress_interop` → `1 passed` in 58.88 s;
+      re-run after the table rewrite → `1 passed` in 116.29 s under host load.)
 
 Acceptance: fixtures green; the in-CI interop agrees with an independent implementation.
-  Check: `scripts/test-accept.sh target/release/mfb /tmp/p137a 'compress'` → 0 mismatches;
+  Check: `scripts/test-accept.sh target/release/mfb /tmp/p137a 'compress' 'compress-*'` → 0 mismatches
+  (2026-09-14: `acceptance tests passed (4 test(s) ran)`, and again after the table rewrite; glob corrected, see Corrections);
   `cargo test --test rt_compress_interop` → pass (est. 8 min).
-Commit: —
+Commit: 0e4fbe738
 
 ### Phase 4 — oracle + bench harnesses
 
-- [ ] `tools/oracles/compress/` per §4.4 with mode `crc32`; README states it is not in CI.
-- [ ] `tools/compress-bench/` per §4.4 with the `crc32` row.
-- [ ] Record the bench output (MiB/s at 1/4/16 MiB, `-O1` and `-O3`, macos-aarch64) in this
-      file's Corrections section as the `crc32` baseline.
+- [x] `tools/oracles/compress/` per §4.4 with mode `crc32`; README states it is not in CI.
+      (`python/gen.py`, `mfb/`, `python/oracle.py`, `node/oracle.mjs`, `run.sh` on
+      `tools/oracles/crypto/_lib/harness.sh`; indexed in `tools/oracles/README.md`. `run.sh target/release/mfb crc32`
+      → `crc32: 118/118 agreed with python`, `118/118 agreed with node`, `118 case(s), 0 failure(s)`, exit 0 —
+      before and after the §4.2 table rewrite.)
+- [x] `tools/compress-bench/` per §4.4 with the `crc32` row. (`run.sh` → `bench.py` + `mfb/`; every row's
+      MFB result must equal Python's.)
+- [x] Record the bench output (MiB/s at 1/4/16 MiB, `-O1` and `-O3`, macos-aarch64) in this
+      file's Corrections section as the `crc32` baseline. (Corrections, "crc32 baseline".)
 
 Acceptance: `tools/oracles/compress/run.sh target/release/mfb crc32` exits 0 with the declared
 case count; the bench prints three sizes with linear time (16 MiB ≤ 4.4× the 4 MiB time).
   Check: those two commands (est. 5 min).
-Commit: —
+  (2026-09-14: oracle exit 0 with 118 declared cases; bench exit 0, every row `ok`, 16 MiB / 4 MiB
+  = 3.99–4.03 across three corpora and both levels.)
+Commit: f6384ac9e
 
 ### Phase 5 — docs
 
-- [ ] Descriptor prose: `MODULE_INTRO`/`MODULE_DESC` and `crc32`'s `intro`/`desc`/`example`/`Parameter.desc`
+- [x] Descriptor prose: `MODULE_INTRO`/`MODULE_DESC` and `crc32`'s `intro`/`desc`/`example`/`Parameter.desc`
       per `.ai/man-content.md`. Describe only what exists after this letter — the package and
       `crc32`. No mention of decoders or encoders that later letters add; each letter extends the
       intro when its members land.
-- [ ] `src/docs/spec/stdlib/20_compress.md`: the CRC-32 model (polynomial, reflection, init/xorout,
+      (Written in Phase 2's `mod.rs` / `func_crc32.rs`; `mfb man compress crc32` renders. `scripts/man-run-examples.sh
+      compress --run` → `examples: 2 built: 2 ran: 2 not run: 0 failed: 0`, both printing `3421780262`;
+      `scripts/man-census.sh --fill compress` → INTRO 1, DESC 1, EXAMPLE 1, PARAM-DESC 2/2, PKGDOC 11;
+      `--memory-scope compress` → `unclassified memory-vocabulary hits: 0`.)
+- [x] `src/docs/spec/stdlib/20_compress.md`: the CRC-32 model (polynomial, reflection, init/xorout,
       `running` semantics and range), the MFBASIC-source/no-native guarantee, the gating rule,
       `[[src/codegen/builtins/compress/mod.rs:COMPRESS]]` provenance; reading-order bullet in
       `src/docs/spec/stdlib/spec.md`.
-- [ ] Size-gate measurement (§4.3) recorded in the spec page's contributor section.
+      (`mfb spec stdlib compress` renders with 0 `[[` markers; `scripts/spec-census.sh --citations stdlib` →
+      `MISS-SYMBOL 0`, `--links stdlib` → `TOTAL links=138 unresolved=0`; the one `--render` "leak" is the
+      `big::Int[[7, 0], FALSE]` literal in `19_big.md`, not a marker; `touch build.rs && cargo test --bin mfb spec`
+      → `43 passed; 0 failed`.)
+- [x] Size-gate measurement (§4.3) recorded in the spec page's contributor section. ("Source injection
+      and size": 66,600 / 66,604 / 83,116 B and the 4 B build-string explanation.)
+- [x] (Added 2026-09-14) Record the two durable lessons this letter hit in `.ai/resources-packages.md`:
+      a `WhenUsed` helper needs its own `IMPORT`s, and a list literal costs ≈26 init instructions per
+      element. (Two paragraphs before "Writing the native backend".)
 
 Acceptance: pages render and their examples run.
   Check: `scripts/man-run-examples.sh compress --run` → all pass; `scripts/man-census.sh --fill compress`
   and `--memory-scope` → 0 unclassified; `cargo test --bin mfb spec` → pass (est. 6 min).
-Commit: —
+Commit: 5b9aaa579
 
 ## Validation Plan
 
@@ -400,6 +455,9 @@ Commit: —
   every public member is exercised by at least one executed fixture (`grep -rn "compress::" tests/rt-behavior/compress tests/interop/rt_compress_interop.rs`).
 - Runtime proof: the `compress-crc32-valid` program on macos-aarch64 (acceptance) and cross-built
   for `linux-aarch64` on box 2223 via `scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64 glibc` with `FILTER=compress`.
+  (2026-09-14, after the §4.2 table rewrite: `linux runtime proof: linux-aarch64/glibc on port 2223 — 2 passed,
+  0 failed, 0 not run` — `compress-crc32-valid` and `compress-crc32-running-invalid` against their `build.log`
+  goldens.)
 - Doc sync: man descriptors **and** `20_compress.md` + `spec.md` reading order + §18 sentence.
 - Final gate: runs once at the end of plan-137 (plan-137-E). This letter's checks stay scoped.
 
@@ -429,9 +487,86 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
 
 ## Corrections
 
-<Filled in during execution: every place the plan was wrong — the claim, what was true, the
-evidence — and whether another letter's scope used the wrong number. Also the recorded bench
-baselines.>
+- **§4.3 / Phase 2 — a `WhenUsed`-gated helper is injected as its own source file, so its body
+  must carry its own `IMPORT` lines.** The plan's `pkg.add_imports(...)` alone is not enough:
+  the first build of `compress-crc32-valid` failed with `SYMBOL_UNKNOWN_IMPORT` "Package `bits`
+  is used but not imported in this file" at `builtins/compress_crc32.mfb:7`. Crypto's gated
+  argon2id helper already does this (`helper_argon2id.rs` BODY opens with `IMPORT crypto` /
+  `IMPORT bits` / `IMPORT collections`). Every gated `compress` helper in B–E needs the same
+  header. Fixed by adding the header to `helper_crc32.rs` and `helper_crc32_table.rs`.
+- **§4.2 — a 2,048-element list literal is the wrong shape for the CRC table; build it at program
+  start.** The plan chose a generated literal. Measured after Phase 3: `mfb build --ncode` of
+  `tests/byte-identity/compress` has 59,725 instructions, 53,317 of them in the global initializer
+  `_mfb_fn__5F_5Fmfb_5Finit_5Fglobals_…` (≈26 instructions per literal element) against 2,031 in
+  `__compress_crc32`; the one-call size probe was +396,292 B over `IMPORT io`. A one-off probe
+  (`/tmp/p137table.py`: the same user-space slicing-by-8 program, table as a literal vs built by a
+  256×8 + 1,792-step MFB loop) gave **677,704 B vs 297,932 B** (−379,772 B), both agreeing with
+  `zlib.crc32` on lengths 0–17, 100,000 and 16 MiB, and **195.7 ms vs 187.4 ms** for 16 MiB
+  (same within noise). Replaced the literal with `__compress_crc32Tables()`; the literal-parsing
+  unit test became `crc32_table_builder_uses_the_reflected_polynomial` (derives `0xEDB88320` as
+  `0x04C11DB7.reverse_bits()` and requires the builder to use it). **Other letters:** plan-137-D
+  §4.1's 512-entry bit-reverse literal (≈13,000 init instructions by the same rate) and plan-137-B
+  §4.2's length/distance base/extra literals (118 elements) are corrected there to prefer a builder.
+  The per-element literal cost is a codegen property, not a correctness bug; noted here, not filed.
+- **Size gate measured (§4.3), 2026-09-14, macos-aarch64** (`/tmp/p137size.py`, `/tmp/p137size2.py`,
+  the `.ai/resources-packages.md` probe): `IMPORT io` 66,600 B; `+ IMPORT compress`, no call,
+  66,604 B; with one `crc32` call 83,116 B (+16,516 B, after the table rewrite; +396,292 B
+  before it). The 4 B are not code: the only printable string that differs is the embedded
+  project name (`mfb.szpcompress` vs `mfb.szpio`), and `IMPORT bits` / `IMPORT term` under
+  same-length names both measure 66,600 B.
+- **Found, pre-existing: 41 stale `[[ ]]` citations in other stdlib spec topics.**
+  `scripts/spec-census.sh --citations stdlib` → `MISS-SYMBOL 41 (stale-by-move 39,
+  stale-by-deletion 2)` across `01_regex` (2), `02_datetime` (8), `04_json` (3), `05_http` (21),
+  `06_url` (16), `09_vector` (1); none in `20_compress.md`. Not caused by this plan; fixed in its
+  own commit on this branch before the merge (the as-is rule: re-point the 39, re-verify the
+  claims behind the 2 deletions). **Fixed in `8d17be496`:** 33 plain `__pkg_*` helper moves re-pointed (43 markers);
+  the other 8 re-verified before re-citing — datetime's rewrite seam and clock intrinsics
+  (`errors` lists, `RESULT_OK_TAG`), http's `__http_dechunkBytes` framing errors, json's registry
+  injection and variant-record acceptance (probe `json::stringify(json::JsonStr["hi"])` → `"hi"`),
+  regex's script-name helper (reached only from `__regex_canonProp`) and `start` padding
+  (`registry::default_argument_padding`, called from `src/ir/lower.rs`). Two sentences were
+  rewritten because their mechanism was gone (json's `json_package.mfb` / `uses_package` injection
+  and `is_json_value_type`). `--citations stdlib` → `MISS-SYMBOL 0` over 253 citations.
+- **crc32 baseline (Phase 4), 2026-09-14, macos-aarch64**, `tools/compress-bench/run.sh target/release/mfb`
+  (median of 3 interleaved rounds × 5 runs, in-process), after the §4.2 table rewrite:
+
+  | corpus | -O | 1 MiB | 4 MiB | 16 MiB | Python zlib |
+  |---|---|---|---|---|---|
+  | random | 1 | 86.8 MiB/s | 86.7 | 86.4 | ≈32,000 MiB/s |
+  | random | 3 | 101.6 | 101.8 | 101.6 | |
+  | text | 1 | 86.6 | 86.6 | 86.4 | |
+  | text | 3 | 101.8 | 101.4 | 101.7 | |
+  | zero | 1 | 86.8 | 86.7 | 86.2 | |
+  | zero | 3 | 104.4 | 103.9 | 103.1 | |
+
+  16 MiB / 4 MiB: 4.01 / 4.01 / 4.01 / 3.99 / 4.03 / 4.03. Python's `zlib.crc32` is ≈370× faster (native
+  SIMD/CRC32 instructions); MFB at −O1 is ≈27× the SHA-256 number in §2.
+- **§4.4 bench timing — `/usr/bin/time` replaced by in-process timing, and the rows interleaved.**
+  `/usr/bin/time -p` resolves 10 ms, too coarse for a 1 MiB crc32 (≈12 ms), and times file reads and
+  start-up too; the bench program times each run with `datetime::monotonicNanos` around the op. The
+  first bench run (rows timed back to back, each kind right after generating its corpus) **failed**
+  linearity on text and zero (5.12–6.92×) while random passed. A data-independent loop cannot be
+  content-dependent, so it was treated as a harness bug: `/tmp/p137lin.py` ran the same binary on zero
+  and random files interleaved — 16 MiB medians 182.8 / 184.8 ms, 4 MiB 45.5 / 46.2 ms, ratios 4.02 /
+  4.00 — while `uptime` showed load average 19.56 with a QEMU guest at 323% CPU. `bench.py` now writes
+  every corpus before timing anything and runs `ROUNDS` (default 3) interleaved rounds; re-run: all
+  rows linear.
+- **`tools/oracles/crypto/_lib/harness.sh` located the repo root as "up four directories"**, which is
+  right only for `tools/oracles/crypto/<name>/run.sh`; `tools/oracles/compress/run.sh` sits one level
+  higher. Changed to `git -C "$HERE" rev-parse --show-toplevel`; `git -C tools/oracles/crypto/keys
+  rev-parse --show-toplevel` → the worktree root, and the compress oracle builds and runs through it.
+- **Phase 3 check glob.** `scripts/test-accept.sh … 'compress'` selects only
+  `byte-identity/compress`: a glob matches a test's relative path or its basename, and the other
+  three fixtures are `compress-crc32-*`. Corrected to `'compress' 'compress-*'` (4 tests ran). The
+  same glob in plan-137-B Phase 3's check is corrected there.
+- **`scripts/regen-native-goldens.sh` is not executable** (`permission denied` when run as
+  `scripts/regen-native-goldens.sh`); it runs as `bash scripts/regen-native-goldens.sh`. Every later
+  letter's byte-identity regen step needs the `bash` prefix.
+- **`.run` goldens are empty markers**, not transcripts: `scripts/test-accept.sh` (the
+  "A `<pkg>.run` golden forces the full `mfb build`" block) never compares their contents, and
+  `sync-goldens.sh` wrote them 0 bytes. The run output is pinned in `build.log`.
+- **Prerequisites, 2026-09-14:** bug-621 landed on main (`a3f7cb06a`); `main` merged into
+  `worktree-P-137` at `55dc9a626` before the gate re-run.
 
 ## Summary
 

@@ -1,0 +1,14 @@
+' Streams generated with Python 3.14 zlib 1.2.12 from
+' t = b'compress decode fixture: the quick brown fox jumps over the lazy dog. ' * 3
+' (210 bytes, CRC-32 4278531953): raw = zlib.compressobj(6, zlib.DEFLATED, -15),
+' zlib = zlib.compress(t, 6), gzip = gzip.compress(t, 6, mtime=0).
+' 210 bytes of output against maxBytes 209: ErrTooLarge.
+IMPORT compress
+IMPORT encoding
+IMPORT io
+
+SUB main()
+  io::print("before")
+  LET out AS List OF Byte = compress::inflate(encoding::hexDecode("cdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901"), 209)
+  io::print("after=" & toString(len(out)))
+END SUB

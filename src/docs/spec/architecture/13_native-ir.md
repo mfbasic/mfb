@@ -79,7 +79,7 @@ and a wrapped value) and otherwise a 1:1 mapping.
 | `Trap` | `trap` | `name`, `body[]` | error-handler region |
 
 `LoopKind` serializes as the lowercase strings `for` / `do` / `while`.
-[[src/target/shared/nir/json.rs:loop_kind_name]]
+[[src/ast/types.rs:LoopKind]]
 
 A `Match` case is a `NirMatchPattern` (`Else`, `Value(v)`, or `OneOf([v…])`),
 an optional guard value, and a body. Patterns serialize with `"kind"` of

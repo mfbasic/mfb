@@ -75,7 +75,6 @@ mod helper_font;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
-mod helper_inflate;
 mod helper_items;
 mod helper_paint_defaults;
 mod helper_png;
@@ -191,10 +190,13 @@ pub(crate) fn register(r: &mut Registry) {
     // `color::toLinear`/`color::fromLinear` rather than a canvas-local sRGB table.
     // canvas already has a non-empty companion and already pays a companion cost, so
     // this adds `color`'s 33,024 bytes but does not change canvas's cost *class*.
+    // `compress` (plan-137-C): the PNG decoder inflates IDAT through
+    // `compress::zlibDecode`; its gated helpers ride in by `compress`'s late pass.
     pkg.add_imports(vec![
         "canvas",
         "collections",
         "color",
+        "compress",
         "math",
         "os",
         "fs",
@@ -1055,7 +1057,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
-    helper_inflate::register(&mut pkg);
     helper_png::register(&mut pkg);
     helper_geometry::register(&mut pkg);
     helper_items::register(&mut pkg);

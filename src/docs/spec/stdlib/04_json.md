@@ -48,22 +48,22 @@ out-of-range or unparseable tokens fail (see grammar).
 ## AST injection (front-end seam)
 
 `json::` is not linked as a precompiled object. Its behaviour is injected MFBASIC
-source: when the program imports `json`, the parsed package file is appended into
-the project AST before the rest of the front end runs. The augmented project clones the original and
-pushes `source_file()` (the parsed `json_package.mfb`) only if `uses_package`
-finds an `IMPORT json`; otherwise the project is returned unchanged. The package
+source: when the program imports `json`, the registry reassembles the package's
+records, its `Json` union and its `__json_*` helper and member bodies into synthetic
+source files and appends them to the project AST before the rest of the front end runs;
+a program that does not import `json` gets its project back unchanged. The package
 source then flows through the same resolver / monomorphization / codegen path as
-user code. [[src/codegen/builtins/json/mod.rs:augmented_project]]
+user code. [[src/codegen/registry/mod.rs:augment_project]] [[src/codegen/builtins/json/mod.rs:register]]
 
-The seam also models the four public calls (`json.parse`, `json.stringify`,
+The registry also describes the four public calls (`json.parse`, `json.stringify`,
 `json.get`, `json.getOr`; `parse` and `stringify` each carry overloads) for type
-resolution: `resolve_call` maps an exact
-argument-type signature to a return type, and `implementation_name` rewrites each
-public call to its `__json_*` source FUNC. The `Json*` family is registered as
-built-in types, and `is_json_value_type` treats `Json` and all six variant record
-names as acceptable wherever a `Json` argument is expected (so a bare `JsonObj`
-may be passed where `Json` is wanted). [[src/codegen/builtins/json/mod.rs:resolve_call]]
-[[src/codegen/builtins/json/mod.rs:is_json_value_type]]
+resolution: `resolve_call` selects the overload whose parameter types match the
+argument types and yields its return type, and the selected implementation names the
+`__json_*` source FUNC the call is rewritten onto. The six `Json*` records and the
+`Json` union are registered as package types, and a bare variant record is accepted
+wherever a `Json` argument is expected — `json::stringify(json::JsonStr["hi"])` builds
+and prints `"hi"`. [[src/codegen/registry/mod.rs:resolve_call]]
+[[src/codegen/builtins/json/mod.rs:register]]
 
 See `./mfb spec architecture frontend` for the injection ordering and
 `./mfb spec architecture monomorphization` for how the generic `List OF Json` /

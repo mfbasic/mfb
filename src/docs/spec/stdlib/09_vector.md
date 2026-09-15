@@ -69,7 +69,7 @@ land in `{-1, 0, 1}`) but mathematically defined and kept per the requested
 The deterministic rounding integer square root is `__vector_isqrtRound`: it takes
 the floor sqrt by Newton's method, then rounds up exactly when the remainder
 exceeds the floor (the exact half `(f + 0.5)² = f² + f + 0.25` is never an
-integer, so there is never a tie). [[src/codegen/builtins/vector/mod.rs:__vector_isqrtRound]]
+integer, so there is never a tie). [[src/codegen/builtins/vector/helper_isqrt_round.rs:__vector_isqrtRound]]
 
 ## Function formulas
 

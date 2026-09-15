@@ -152,7 +152,7 @@ FE-04). A tab is kept verbatim. [[src/rules/mod.rs:safe_source_line]]
 diagnostics are rendered per process; the rest are counted, and when the
 command's diagnostic stream is complete the CLI prints the withheld total once
 (bug-505): [[src/rules/mod.rs:MAX_RENDERED_DIAGNOSTICS]]
-[[src/rules/mod.rs:report_suppressed_diagnostics]] [[src/cli/dispatch.rs:exit_after_diagnostics]]
+[[src/rules/mod.rs:report_suppressed_diagnostics]] [[src/cli/dispatch.rs:close_diagnostics]]
 
 ```text
 ... and N more diagnostics not shown (only the first 100 are rendered)

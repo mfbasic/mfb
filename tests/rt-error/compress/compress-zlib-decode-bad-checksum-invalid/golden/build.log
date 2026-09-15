@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid
+Wrote AST to tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid/compress-zlib-decode-bad-checksum-invalid.ast
+Wrote IR to tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid/compress-zlib-decode-bad-checksum-invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid
+Wrote executable to tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid/build/compress-zlib-decode-bad-checksum-invalid.out
+[exit 0]
+$ tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid/build/compress-zlib-decode-bad-checksum-invalid.out
+before
+Error: 7-705-0003
+compress::zlibDecode: incorrect data check
+[exit 255]

@@ -1,0 +1,139 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "compress-crc32-running-invalid",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "#COMPRESS_CRC32_TABLES", "line": 33, "visibility": "public", "mutable": false, "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#compress_crc32Tables", "args": [] } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#compress_crc32", "args": [{ "kind": "call", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "abc" }] }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r" }] } }] } }
+    ]
+  },
+  {
+    "name": "#compress_crc32Tables",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": true, "name": "t", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 10, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 11,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "256" } },
+      "body": [
+      { "op": "bind", "line": 12, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "local", "name": "i" } },
+      { "op": "bind", "line": 13, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      {
+        "op": "while",
+        "line": 14,
+        "loop": "while",
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "8" } },
+        "body": [
+        {
+          "op": "if",
+          "line": 15,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+          "then": [
+          { "op": "assign", "line": 16, "name": "c", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "const", "type": "Integer", "value": "3988292384" }] } }
+          ],
+          "else": [
+          { "op": "assign", "line": 18, "name": "c", "value": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "1" }] } }
+          ]
+        },
+        { "op": "assign", "line": 20, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ]
+      },
+      { "op": "assign", "line": 22, "name": "t", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "c" }] } },
+      { "op": "assign", "line": 23, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    {
+      "op": "while",
+      "line": 25,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2048" } },
+      "body": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "prev", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "t" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "256" } }] } },
+      { "op": "assign", "line": 27, "name": "t", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "t" }, { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "prev" }, { "kind": "const", "type": "Integer", "value": "8" }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "t" }, { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "prev" }, { "kind": "const", "type": "Integer", "value": "255" }] }] }] }] } },
+      { "op": "assign", "line": 28, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 30, "value": { "kind": "local", "name": "t" } }
+    ]
+  },
+  {
+    "name": "#compress_crc32",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "data", "line": 6, "type": "List OF Byte", "default": null },
+    { "name": "running", "line": 6, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 7,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "running" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "running" }, "right": { "kind": "const", "type": "Integer", "value": "4294967295" } } },
+      "then": [
+      { "op": "fail", "line": 8, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "compress::crc32: running must be 0..4294967295" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/compress_crc32.mfb" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 10, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "data" }] } },
+    { "op": "bind", "line": 11, "mutable": true, "name": "crc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "running" }, { "kind": "const", "type": "Integer", "value": "4294967295" }] } },
+    { "op": "bind", "line": 12, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "stop8", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "8" } } },
+    {
+      "op": "while",
+      "line": 14,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "stop8" } },
+      "body": [
+      { "op": "bind", "line": 15, "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "crc" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "local", "name": "i" }] }] }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "256" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "65536" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] }] } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "16777216" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }] }] } } }] } },
+      { "op": "bind", "line": 16, "mutable": false, "name": "hi", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1792" }, "right": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "255" }] } }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1536" }, "right": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "8" }] }, { "kind": "const", "type": "Integer", "value": "255" }] } }] }] }, { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1280" }, "right": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "16" }] }, { "kind": "const", "type": "Integer", "value": "255" }] } }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1024" }, "right": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "24" }] } }] }] }] } },
+      { "op": "bind", "line": 17, "mutable": false, "name": "lo", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "768" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }] }] } }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "512" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }] }] } }] }] }, { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "256" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }] }] } }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "7" } }] }] }] }] }] } },
+      { "op": "assign", "line": 18, "name": "crc", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "hi" }, { "kind": "local", "name": "lo" }] } },
+      { "op": "assign", "line": 19, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "8" } } }
+      ]
+    },
+    {
+      "op": "while",
+      "line": 21,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "assign", "line": 22, "name": "crc", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "crc" }, { "kind": "const", "type": "Integer", "value": "8" }] }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "global", "name": "#COMPRESS_CRC32_TABLES" }, { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "crc" }, { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "local", "name": "i" }] }] }] }, { "kind": "const", "type": "Integer", "value": "255" }] }] }] } },
+      { "op": "assign", "line": 23, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 25, "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "crc" }, { "kind": "const", "type": "Integer", "value": "4294967295" }] } }
+    ]
+  }
+  ]
+}

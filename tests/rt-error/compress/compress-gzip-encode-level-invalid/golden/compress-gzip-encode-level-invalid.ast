@@ -1,0 +1,30 @@
+{
+  "project": "compress-gzip-encode-level-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "compress", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "strings", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "packed", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.gzipEncode", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "hello" }] }, { "kind": "named", "name": "level", "value": { "kind": "number", "value": "10" } }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "packed" }] }] } }] }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid
+Wrote AST to tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid/compress-zlib-decode-preset-dictionary-invalid.ast
+Wrote IR to tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid/compress-zlib-decode-preset-dictionary-invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid
+Wrote executable to tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid/build/compress-zlib-decode-preset-dictionary-invalid.out
+[exit 0]
+$ tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid/build/compress-zlib-decode-preset-dictionary-invalid.out
+before
+Error: 7-705-0003
+compress::zlibDecode: preset dictionary is not supported
+[exit 255]

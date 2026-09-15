@@ -26,7 +26,7 @@ and advertises only the common `pkg` (`add`/`update`/`install`/`verify`) and
 screen of their own: `init`, `init-pkg`, `pkg`, `repo`, `build`, `test`, `fmt`,
 `audit`, `info`, `doc`, `man`, and `spec`. A usage error in one of those prints that
 command's screen rather than the top-level one.
-[[src/main.rs:PKG_HELP]] [[src/main.rs:BUILD_HELP]] [[src/main.rs:USAGE]]
+[[src/cli/help.rs:PKG_HELP]] [[src/cli/help.rs:BUILD_HELP]] [[src/cli/help.rs:USAGE]]
 
 ## Commands and Exit Codes
 
@@ -69,7 +69,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `man` | `mfb man [package] [function] [--all]` | 0 ok; 2 unknown package/function, `--all` with a function, or >2 positionals |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
 
-The usage block printed by `help` is the `USAGE` constant.[[src/main.rs:USAGE]]
+The usage block printed by `help` is the `USAGE` constant.[[src/cli/help.rs:USAGE]]
 `init` writes `project.json` (kind `executable`) + a `main.mfb` under the `src`
 source root; `init-pkg` writes `project.json` (kind `package`) + a `lib.mfb`
 under `src`. Both refuse to overwrite
