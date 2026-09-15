@@ -6344,3 +6344,302 @@ fn a_looped_unbound_recursive_json_temp_runs_at_constant_rss() {
         800_000,
     );
 }
+
+// ------------------------------------------------- bug-620 / bug-621: condition temps
+
+/// bug-620 / bug-621: a condition's heap temps are measured on the `--debug` report's main-arena
+/// `live_bytes`, which is exact where peak RSS is paged: a program that frees every block it
+/// allocates reports the same number at both counts. `{N}` is the call count; `per_call` is the
+/// value `g` contributes per call, so the printed total pins the behaviour too.
+#[cfg(unix)]
+fn condition_temp_report(name: &str, function: &str, call: &str, count: u64) -> (String, u64, u64) {
+    let source = format!(
+        "IMPORT io\nIMPORT strings\nIMPORT collections\n\
+TYPE Tag\n  tag AS String\n  depth AS Integer\nEND TYPE\n\
+{function}\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {count}\n\
+    total = total + {call}\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n"
+    );
+    let case = format!("{name}_{count}");
+    let exe = common::debug_report::build_debug(&case, &source);
+    let (stdout, stderr) = common::debug_report::run_ok(&case, &exe);
+    let lines = common::debug_report::arena_lines(&case, &stderr);
+    (
+        stdout.trim().to_string(),
+        common::debug_report::counter(&case, &lines, 0, "live_bytes"),
+        common::debug_report::counter(&case, &lines, 0, "double_free_skips"),
+    )
+}
+
+/// Assert `g` frees every condition temp it allocates: equal `live_bytes` at 1000 and 2000
+/// calls, no double free skipped, and the right total.
+#[cfg(unix)]
+fn assert_condition_temps_freed(name: &str, function: &str, call: &str, per_call: i64) {
+    let (out_small, live_small, skips_small) = condition_temp_report(name, function, call, 1000);
+    let (out_large, live_large, skips_large) = condition_temp_report(name, function, call, 2000);
+    assert_eq!(
+        out_small,
+        format!("total={}", per_call * 1000),
+        "{name}: wrong value"
+    );
+    assert_eq!(
+        out_large,
+        format!("total={}", per_call * 2000),
+        "{name}: wrong value"
+    );
+    assert_eq!(
+        (skips_small, skips_large),
+        (0, 0),
+        "{name}: the arena skipped a double free"
+    );
+    assert_eq!(
+        live_small,
+        live_large,
+        "{name}: main-arena live_bytes grew {} B between 1000 and 2000 calls — a condition \
+         temp is not freed on some path out of its statement",
+        live_large.saturating_sub(live_small)
+    );
+}
+
+/// bug-620's reproduction: the one-line `IF … THEN RETURN` leaves past the `IF`'s drop.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_when_the_branch_returns() {
+    assert_condition_temps_freed(
+        "cond_if_return",
+        "FUNC g(s AS String) AS Integer\n  IF strings::lower(s) <> \"zz\" THEN RETURN 0\n  RETURN 1\nEND FUNC",
+        "g(\"p\")",
+        0,
+    );
+}
+
+/// bug-620 `r7_block`: the block form.
+#[cfg(unix)]
+#[test]
+fn a_block_if_condition_temp_is_freed_when_the_branch_returns() {
+    assert_condition_temps_freed(
+        "cond_if_block_return",
+        "FUNC g(s AS String) AS Integer\n  IF strings::lower(s) <> \"zz\" THEN\n    RETURN 1\n  END IF\n  RETURN 0\nEND FUNC",
+        "g(\"p\")",
+        1,
+    );
+}
+
+/// bug-620: an `ELSEIF` is a nested `If` in the else body — same hole.
+#[cfg(unix)]
+#[test]
+fn an_elseif_condition_temp_is_freed_when_the_branch_returns() {
+    assert_condition_temps_freed(
+        "cond_elseif_return",
+        "FUNC g(s AS String) AS Integer\n  IF len(s) > 5 THEN\n    RETURN 2\n  ELSEIF strings::lower(s) <> \"zz\" THEN\n    RETURN 1\n  END IF\n  RETURN 0\nEND FUNC",
+        "g(\"p\")",
+        1,
+    );
+}
+
+/// bug-620: the returned value is itself a fresh block, so the enclosing condition temp is
+/// freed alongside an escaping value.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_when_the_branch_returns_a_fresh_string() {
+    assert_condition_temps_freed(
+        "cond_if_return_fresh",
+        "FUNC h(s AS String) AS String\n  IF strings::lower(s) <> \"zz\" THEN RETURN strings::upper(s) & \"!\"\n  RETURN s\nEND FUNC",
+        "len(h(\"p\"))",
+        2,
+    );
+}
+
+/// bug-620 `ct_close`: a record copy in the condition, left by `EXIT DO`.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_record_temp_is_freed_on_exit_do() {
+    assert_condition_temps_freed(
+        "cond_if_exit_do",
+        "FUNC g(name AS String) AS Integer\n  LET stack AS List OF Tag = [Tag[\"a\", 1], Tag[\"b\", 2], Tag[\"c\", 3]]\n  MUT k AS Integer = -1\n  MUT s AS Integer = 2\n  DO WHILE s >= 0\n    IF collections::get(stack, s).tag = name THEN\n      k = s\n      EXIT DO\n    END IF\n    s = s - 1\n  LOOP\n  RETURN k\nEND FUNC",
+        "g(\"b\")",
+        1,
+    );
+}
+
+/// bug-620: `EXIT FOR`.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_on_exit_for() {
+    assert_condition_temps_freed(
+        "cond_if_exit_for",
+        "FUNC g(s AS String) AS Integer\n  MUT k AS Integer = 0\n  FOR j = 1 TO 3\n    IF strings::lower(s) = \"p\" THEN EXIT FOR\n    k = k + j\n  NEXT\n  RETURN k\nEND FUNC",
+        "g(\"P\")",
+        0,
+    );
+}
+
+/// bug-620: `EXIT WHILE`.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_on_exit_while() {
+    assert_condition_temps_freed(
+        "cond_if_exit_while",
+        "FUNC g(s AS String) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < 3\n    IF strings::lower(s) = \"p\" THEN EXIT WHILE\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC",
+        "g(\"P\")",
+        0,
+    );
+}
+
+/// bug-620: `CONTINUE WHILE`, taken on every pass.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_on_continue_while() {
+    assert_condition_temps_freed(
+        "cond_if_continue_while",
+        "FUNC g(s AS String) AS Integer\n  MUT k AS Integer = 0\n  MUT n AS Integer = 0\n  WHILE k < 3\n    k = k + 1\n    IF strings::lower(s) = \"p\" THEN CONTINUE WHILE\n    n = n + 1\n  END WHILE\n  RETURN k + n\nEND FUNC",
+        "g(\"P\")",
+        3,
+    );
+}
+
+/// bug-620: `CONTINUE FOR`.
+#[cfg(unix)]
+#[test]
+fn an_if_condition_temp_is_freed_on_continue_for() {
+    assert_condition_temps_freed(
+        "cond_if_continue_for",
+        "FUNC g(s AS String) AS Integer\n  MUT n AS Integer = 0\n  FOR j = 1 TO 3\n    IF strings::lower(s) = \"p\" THEN CONTINUE FOR\n    n = n + 1\n  NEXT\n  RETURN n\nEND FUNC",
+        "g(\"P\")",
+        0,
+    );
+}
+
+/// bug-620: a `CONTINUE WHILE` from inside a `FOR` leaves two `IF`s and the `FOR`, and must
+/// free both conditions' temps.
+#[cfg(unix)]
+#[test]
+fn a_continue_out_of_a_nested_loop_frees_every_enclosing_condition_temp() {
+    assert_condition_temps_freed(
+        "cond_nested_continue",
+        "FUNC g(s AS String) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < 3\n    k = k + 1\n    IF strings::lower(s) = \"p\" THEN\n      FOR j = 1 TO 2\n        IF strings::upper(s) = \"P\" THEN CONTINUE WHILE\n      NEXT\n    END IF\n  END WHILE\n  RETURN k\nEND FUNC",
+        "g(\"P\")",
+        3,
+    );
+}
+
+/// bug-621's reproduction: `DO WHILE`, nine passes per call.
+#[cfg(unix)]
+#[test]
+fn a_do_while_condition_temp_is_freed_on_every_pass() {
+    assert_condition_temps_freed(
+        "cond_do_while",
+        "FUNC g(s AS String) AS Integer\n  LET n AS Integer = len(s)\n  MUT i AS Integer = 0\n  DO WHILE i < n AND strings::mid(s, i, 1) <> \"=\"\n    i = i + 1\n  LOOP\n  RETURN i\nEND FUNC",
+        "g(\"abcdefgh=\")",
+        8,
+    );
+}
+
+/// bug-621 `r10_whileend`: `WHILE … END WHILE`.
+#[cfg(unix)]
+#[test]
+fn a_while_condition_temp_is_freed_on_every_pass() {
+    assert_condition_temps_freed(
+        "cond_while",
+        "FUNC g(s AS String) AS Integer\n  LET n AS Integer = len(s)\n  MUT i AS Integer = 0\n  WHILE i < n AND strings::mid(s, i, 1) <> \"=\"\n    i = i + 1\n  END WHILE\n  RETURN i\nEND FUNC",
+        "g(\"abcdefgh=\")",
+        8,
+    );
+}
+
+/// bug-621: `DO … LOOP UNTIL` tests its condition after the body.
+#[cfg(unix)]
+#[test]
+fn a_loop_until_condition_temp_is_freed_on_every_pass() {
+    assert_condition_temps_freed(
+        "cond_loop_until",
+        "FUNC g(s AS String) AS Integer\n  MUT i AS Integer = 0\n  DO\n    i = i + 1\n  LOOP UNTIL strings::mid(s, i, 1) = \"=\"\n  RETURN i\nEND FUNC",
+        "g(\"abcdefgh=\")",
+        8,
+    );
+}
+
+/// bug-621: a record copy in the condition.
+#[cfg(unix)]
+#[test]
+fn a_while_condition_record_temp_is_freed_on_every_pass() {
+    assert_condition_temps_freed(
+        "cond_while_record",
+        "FUNC g(name AS String) AS Integer\n  LET xs AS List OF Tag = [Tag[\"a\", 1], Tag[\"b\", 2], Tag[\"c\", 3], Tag[\"d\", 4]]\n  MUT i AS Integer = 0\n  WHILE i < 4 AND collections::get(xs, i).tag <> name\n    i = i + 1\n  END WHILE\n  RETURN i\nEND FUNC",
+        "g(\"d\")",
+        3,
+    );
+}
+
+/// POSITIVE pins that were flat before bug-620/621: a false condition falls through to the
+/// `IF`'s own drop; a `LET`-bound temp is an owned local; a `MATCH` scrutinee is bound to a
+/// `$match` local; a `FOR … TO` bound is evaluated once into a synthetic local.
+#[cfg(unix)]
+#[test]
+fn condition_temps_that_already_had_an_owner_stay_flat() {
+    assert_condition_temps_freed(
+        "cond_if_false",
+        "FUNC g(s AS String) AS Integer\n  IF strings::lower(s) <> \"zz\" THEN RETURN 0\n  RETURN 1\nEND FUNC",
+        "g(\"ZZ\")",
+        1,
+    );
+    assert_condition_temps_freed(
+        "cond_bound_first",
+        "FUNC g(s AS String) AS Integer\n  LET l AS String = strings::lower(s)\n  IF l <> \"zz\" THEN RETURN 0\n  RETURN 1\nEND FUNC",
+        "g(\"p\")",
+        0,
+    );
+    assert_condition_temps_freed(
+        "cond_match_scrutinee",
+        "FUNC g(s AS String) AS Integer\n  MATCH strings::lower(s)\n    CASE \"p\"\n      RETURN 1\n    CASE ELSE\n      RETURN 0\n  END MATCH\n  RETURN 2\nEND FUNC",
+        "g(\"P\")",
+        1,
+    );
+    assert_condition_temps_freed(
+        "cond_for_bound",
+        "FUNC g(s AS String) AS Integer\n  MUT n AS Integer = 0\n  FOR j = 1 TO len(strings::lower(s))\n    n = n + j\n  NEXT\n  RETURN n\nEND FUNC",
+        "g(\"abcdefgh\")",
+        36,
+    );
+}
+
+/// bug-620, found while fixing it: a `FOR EACH` over a fresh collection keeps it as a pending
+/// temp of the loop statement, so a `RETURN` from the body — which never reaches that
+/// statement's end drop — leaked the whole list (192 B per call for a three-item split). The
+/// returned item is a copy, so the list is freed under the escaping-value guard.
+#[cfg(unix)]
+#[test]
+fn a_return_from_a_for_each_frees_its_fresh_collection() {
+    assert_condition_temps_freed(
+        "for_each_return_item",
+        "FUNC pick(s AS String) AS String\n  FOR EACH x IN strings::split(s, \",\")\n    IF strings::lower(x) = \"b\" THEN RETURN x\n  NEXT\n  RETURN \"\"\nEND FUNC",
+        "len(pick(\"a,B,c\"))",
+        1,
+    );
+    assert_condition_temps_freed(
+        "for_each_return_derived",
+        "FUNC g(s AS String) AS Integer\n  FOR EACH x IN strings::split(s, \",\")\n    IF x = \"b\" THEN RETURN len(x & \"!\")\n  NEXT\n  RETURN 0\nEND FUNC",
+        "g(\"a,b,c\")",
+        2,
+    );
+}
+
+/// bug-620 × bug-621: a `RETURN` from a `WHILE` body whose condition allocates on every pass
+/// returns a fresh value built from the same input.
+#[cfg(unix)]
+#[test]
+fn a_return_from_a_while_with_a_condition_temp_frees_every_block() {
+    assert_condition_temps_freed(
+        "while_condition_return",
+        "FUNC g(s AS String) AS String\n  MUT i AS Integer = 0\n  WHILE strings::mid(s, i, 1) <> \"=\"\n    IF strings::mid(s, i, 1) = \"c\" THEN RETURN strings::left(s, i)\n    i = i + 1\n  END WHILE\n  RETURN s\nEND FUNC",
+        "len(g(\"abcd=\"))",
+        2,
+    );
+}
