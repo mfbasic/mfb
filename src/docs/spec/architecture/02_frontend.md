@@ -104,25 +104,36 @@ checkers consume the full project (prelude included), so `Pair` and
 
 ## Built-in Package Augmentation
 
-Before name resolution, the resolver runs the parsed AST
-through a fixed chain of built-in source-package augmenters, each of which may
-inject the package's MFBASIC source companion (and, for `json`, expand
-`Json`-typed declarations) when the project uses that package. The order is
-load-bearing:
+Before name resolution, the resolver runs the parsed AST through a fixed chain that
+injects built-in packages' MFBASIC source.
+[[src/resolver/mod.rs:augment_project]] [[src/resolver/mod.rs:resolve_project_with]]
 
-```text
-json -> csv -> regex -> datetime -> vector -> http -> net -> crypto -> encoding
-```
+The chain has two stages:
 
-`http` is augmented before `net` because `http`'s source companion
-imports `net`; the `net` augmenter must see http's source
-already present so the `net` dependency is detected and its companion injected.
-For the same reason `crypto` is augmented before `encoding` (`crypto_package.mfb`
-imports `encoding`). `vector` has no ordering dependency (it imports only the
-intrinsic `math` package).
-Each augmenter takes the previous augmenter's output, so the augmented AST that
-reaches the resolver is the cumulative result of the whole chain. (The
-`collections` package is injected earlier, during `parse_project`.)[[src/resolver/mod.rs:resolve_project_with]]
+1. **The registry's generic pass** injects the source companion of every registry package the program
+   imports, and each gated helper whose gate the program opens. This covers `json`, `csv`, `regex`,
+   `datetime`, `vector`, `crypto`, `canvas` and most other packages.
+   [[src/codegen/registry/mod.rs:augment_project]]
+2. **Late passes, in a fixed order:**
+
+   ```text
+   http -> net -> encoding -> color -> compress
+   ```
+
+   The order is load-bearing. The generic pass reads the pre-injection AST, so it cannot see a package
+   that only another builtin's injected source uses. So each late pass sees the source the passes before
+   it added:
+   - `http`'s companion imports `net`, so `net` follows `http`;
+   - crypto's injected source and the strings scalar seam import `encoding`, so `encoding` follows them;
+   - canvas's companion imports `color`, so `color` follows the generic pass;
+   - canvas's PNG decoder calls `compress::zlibDecode`, so `compress` comes last.
+
+   A late pass injects the package's companion plus the gated helpers its own view opens, and skips a file
+   the project already has, so nothing is injected twice. [[src/codegen/registry/mod.rs:late_pass_files]]
+
+Each pass takes the previous one's output, so the AST that reaches the resolver is the cumulative result.
+The `collections` package is injected earlier, during `parse_project`, because the monomorphizer needs its
+generic source.
 
 ## Name Resolution
 
@@ -145,7 +156,7 @@ sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
 
 Before resolving, the resolver runs the built-in package augmentation chain
 described above (see "Built-in Package Augmentation"), so the rest of resolution
-sees the augmented AST.[[src/codegen/builtins/json/mod.rs:augmented_project]]
+sees the augmented AST.[[src/resolver/mod.rs:augment_project]]
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate

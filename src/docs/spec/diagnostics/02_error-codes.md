@@ -157,11 +157,11 @@ rejects unqualified or unknown names. [[src/codegen/registry/mod.rs:constant_val
 
 ## Drift Guard
 
-The `errorCode` constants are generated at build time directly from the
-**Constant Registry** table above — this topic is the single source of truth
-for the runtime registry. [[build.rs:generate_errorcode_table]] A drift-guard
-test re-parses the same table and asserts the generated table reproduces every
-row with the integer equal to the hyphen-stripped code, so the generated
+The `errorCode` constants are a hand-maintained table in the package's
+`register`, which must reproduce the **Constant Registry** table above — this
+topic is the single source of truth for the runtime registry. [[src/codegen/builtins/errorcode/mod.rs:register]] A drift-guard
+test re-parses the same table and asserts the registered table reproduces every
+row with the integer equal to the hyphen-stripped code, so the registered
 constants cannot drift from this registry. [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## See Also

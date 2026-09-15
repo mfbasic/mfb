@@ -31,7 +31,7 @@ Sleeping is not in this set: it is `_mfb_rt_os_os_sleep`, the body behind
 `Sleeping inside a worker` below).
 
 These helpers are compiler-owned runtime helpers. They are not source-level
-`LINK` imports and do not appear as package dependencies. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_helper]]
+`LINK` imports and do not appear as package dependencies. [[src/codegen/builtins/thread/mod.rs:register]] [[src/target/shared/runtime/mod.rs:symbol_for_call]]
 
 ## Direction split
 
