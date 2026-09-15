@@ -253,7 +253,7 @@ Acceptance: docs cite no deleted symbol.
   `cargo test -p mfb --bins citations_resolve` → pass (est. 5 min).
   (2026-09-14: the grep, excluding `compress/`'s own unrelated `helper_inflate.rs` / `helper_inflate_core.rs`, → exit 1,
   no match; `cargo test -p mfb --bins citations_resolve` → `spec_citations_resolve ... ok`, `1 passed`.)
-Commit: —
+Commit: 06013af2d
 
 ## Validation Plan
 
