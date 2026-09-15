@@ -457,10 +457,9 @@ fn have_openssl_peer() -> bool {
         .unwrap_or(false)
 }
 
-/// Serve a fresh self-signed `localhost` identity with `openssl s_server` on a loopback port
-/// (plus any `extra` s_server arguments, e.g. `-rev`), and return the child once a handshake
-/// completes against it.
-fn serve_tls(root: &Path, extra: &[&str]) -> (std::process::Child, u16) {
+/// Serve a fresh self-signed `localhost` identity with `openssl s_server` on a loopback port,
+/// and return the child once a handshake completes against it.
+fn serve_tls(root: &Path) -> (std::process::Child, u16) {
     use std::process::{Command, Stdio};
     fs::create_dir_all(root).expect("create tls scratch");
     let cert = root.join("cert.pem");
@@ -489,7 +488,6 @@ fn serve_tls(root: &Path, extra: &[&str]) -> (std::process::Child, u16) {
             .port();
         let mut child = Command::new("openssl")
             .args(["s_server", "-quiet", "-accept", &port.to_string()])
-            .args(extra)
             .arg("-cert")
             .arg(&cert)
             .arg("-key")
@@ -530,7 +528,7 @@ fn a_tls_connect_close_loop_keeps_live_bytes_constant() {
         return;
     }
     let root = std::env::temp_dir().join(format!("mfb_soak_tls_{}", common::unique_nonce()));
-    let (mut server, port) = serve_tls(&root, &[]);
+    let (mut server, port) = serve_tls(&root);
     let run = |n: u64| {
         let project = common::temp_project(
             "soak_tls_close",
@@ -787,77 +785,6 @@ fn a_resource_union_aliasing_a_binding_keeps_live_bytes_constant() {
     );
 }
 
-/// Every `arena.N.alloc_bytes` / `arena.N.free_bytes` pair in a `--debug` report, by slot.
-fn arena_alloc_free_bytes(stderr: &str) -> Vec<(u64, u64, u64)> {
-    let mut slots: std::collections::BTreeMap<u64, (u64, u64)> = std::collections::BTreeMap::new();
-    for line in stderr.lines() {
-        let Some(rest) = line.strip_prefix("arena.") else {
-            continue;
-        };
-        let mut parts = rest.splitn(2, '.');
-        let (Some(slot), Some(tail)) = (parts.next(), parts.next()) else {
-            continue;
-        };
-        let Ok(slot) = slot.parse::<u64>() else {
-            continue;
-        };
-        let mut words = tail.split_whitespace();
-        let (Some(name), Some(value)) = (words.next(), words.next()) else {
-            continue;
-        };
-        let Ok(value) = value.parse::<u64>() else {
-            continue;
-        };
-        let entry = slots.entry(slot).or_insert((0, 0));
-        match name {
-            "alloc_bytes" => entry.0 = value,
-            "free_bytes" => entry.1 = value,
-            _ => {}
-        }
-    }
-    slots.into_iter().map(|(slot, (a, f))| (slot, a, f)).collect()
-}
-
-/// Found by bug-623's fix: on macOS a `tls::poll` that buffers plaintext stashes it in a
-/// block the polling thread's arena allocates (`CTX_PEND_BUF`), and the connection ctx
-/// moves to another thread VERBATIM on `thread::transfer`. The receiver's `tls::read` (or
-/// `tls::close`) then `arena_free`d that block into its OWN arena — a block it never
-/// allocated. No arena may free more than it allocated.
-#[test]
-#[cfg(target_os = "macos")]
-fn a_transferred_tls_socket_never_frees_a_block_from_another_arena() {
-    if !have_openssl_peer() {
-        eprintln!("skipping: no OpenSSL `openssl` CLI to serve TLS");
-        return;
-    }
-    let root = std::env::temp_dir().join(format!("mfb_xfer_pend_{}", common::unique_nonce()));
-    let (mut server, port) = serve_tls(&root, &["-rev"]);
-    let project = common::temp_project(
-        "xfer_pend",
-        &format!(
-            "IMPORT io\nIMPORT tls\nIMPORT thread\nIMPORT strings\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  LET got AS List OF Byte = tls::read(s, 100)\n  RETURN len(got)\nEND FUNC\n\nSUB main()\n  RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n  tls::write(c, strings::toBytes(\"abcdef\\n\"))\n  LET ready AS Boolean = tls::poll(c, 5000)\n  LET a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n  thread::transfer(a, c)\n  io::print(\"ready=\" & toString(ready) & \" read=\" & toString(thread::waitFor(a)))\nEND SUB\n"
-        ),
-    );
-    let exe = build_debug_project("xfer_pend", &project);
-    let (stdout, stderr) = run_ok("xfer_pend", &exe);
-    let _ = server.kill();
-    let _ = server.wait();
-    let _ = fs::remove_dir_all(&root);
-    assert!(
-        stdout.contains("ready=TRUE") && !stdout.contains("read=0"),
-        "the poll must buffer the peer's reply and the worker must read it:\n{stdout}"
-    );
-    let slots = arena_alloc_free_bytes(&stderr);
-    assert!(slots.len() >= 2, "expected the main and worker arenas:\n{stderr}");
-    for (slot, alloc, free) in slots {
-        assert!(
-            free <= alloc,
-            "arena {slot} freed {free} B but allocated only {alloc} B — a block from another \
-             thread's arena was freed into it (CTX_PEND_BUF on a transferred tls::Socket)"
-        );
-    }
-}
-
 /// `arena.0` counters from a `--debug` report: `(alloc_calls, free_calls, live_bytes,
 /// double_free_skips)`.
 fn main_arena_calls(name: &str, stderr: &str) -> (u64, u64, u64, u64) {
@@ -946,5 +873,43 @@ fn a_union_alias_in_an_inner_scope_leaves_the_outer_handle_open() {
     assert!(
         at_large.saturating_sub(at_small) < BLOCK_BOUND,
         "union_scope_alias: live_bytes grew {at_small} -> {at_large} between 50 and 100"
+    );
+}
+
+/// Found while settling the cross-arena question for bug-623: a macOS `tls::Socket` handed to
+/// a worker with `thread::transfer` and closed there never frees its connection ctx. The
+/// close skips the free when `CTX_OWNER` differs from the closing thread's arena, but a free
+/// of another arena's block is sound here — `arena_free` pushes onto the FREEING thread's
+/// bins and never asks which arena carved the block, and no arena but the main one is ever
+/// destroyed (`.ai/canvas-threading.md` §2; bug-498's hand-over relies on it) — so the skip
+/// only leaked the 216 B ctx the connecting thread allocated, once per transferred socket.
+#[test]
+#[cfg(target_os = "macos")]
+fn a_tls_socket_closed_on_another_thread_keeps_live_bytes_constant() {
+    if !have_openssl_peer() {
+        eprintln!("skipping: no OpenSSL `openssl` CLI to serve TLS");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mfb_soak_tls_xfer_{}", common::unique_nonce()));
+    let (mut server, port) = serve_tls(&root);
+    let run = |n: u64| {
+        let project = common::temp_project(
+            "soak_tls_xfer_close",
+            &format!(
+                "IMPORT io\nIMPORT tls\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  tls::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    LET a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+            ),
+        );
+        main_live_bytes(&format!("soak_tls_xfer_close_{n}"), &project)
+    };
+    let at_small = run(30);
+    let at_large = run(60);
+    let _ = server.kill();
+    let _ = server.wait();
+    let _ = fs::remove_dir_all(&root);
+    let grew = at_large.saturating_sub(at_small);
+    assert!(
+        grew < BLOCK_BOUND,
+        "soak_tls_xfer_close: main-arena live_bytes grew {grew} B between 30 and 60 transferred \
+         sockets ({at_small} -> {at_large}); a transferred tls::Socket's ctx is never freed (bug-623)"
     );
 }
