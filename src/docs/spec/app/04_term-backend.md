@@ -680,8 +680,8 @@ scroll, and no cursor commit. One emitter, two specializations, so `io::write` a
 [[src/target/linux_gtk/term_draw.rs:TermWriteMode]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
-pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters
-agree across backends. [[src/target/linux_gtk/mod.rs:ARENA_REG]]
+pinned arena register (the arch-neutral `abi::ARENA`, `x19` on AArch64) so `isOn`
+and the attribute getters agree across backends. [[src/target/shared/abi.rs:ARENA]]
 
 ## Windows: GDI memDC (immediate mode)
 

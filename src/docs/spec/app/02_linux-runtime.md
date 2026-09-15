@@ -285,10 +285,10 @@ and homes the cursor; and the six positioned drawing members (`drawHLine`,
 plus a call to a worker-side helper that stamps the cell arrays — they read their
 row-before-column arguments straight out of the incoming ABI argument registers,
 so the dispatcher neither restages nor reorders them (bug-539; see
-`mfb spec app term-backend`). The pinned arena base is `ARENA_REG = "x19"` (term
-helpers run on the worker thread).
+`mfb spec app term-backend`). The pinned arena base is the arch-neutral `abi::ARENA` token (realized as `x19`
+on AArch64 and `r15` on x86-64; term helpers run on the worker thread).
 [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
-[[src/target/linux_gtk/mod.rs:ARENA_REG]]
+[[src/target/shared/abi.rs:ARENA]]
 
 > `term::terminalSize` **is** implemented here (`OK({columns@0, rows@8})` from the
 > derived grid size), unlike the `io::terminalSize` divergence below.

@@ -1,0 +1,10 @@
+' plan-137-D: a compression level outside 0..9 raises ErrInvalidArgument before any compressing.
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+SUB main()
+  io::print("before")
+  LET packed AS List OF Byte = compress::gzipEncode(strings::toBytes("hello"), level := 10)
+  io::print("after=" & toString(len(packed)))
+END SUB

@@ -52,7 +52,7 @@ so no surrogate pair encoding arises. [[src/audit/json.rs:write_string]]
 
 Exit `2` is raised by the caller when option parsing fails; exit `3` is returned
 when any front-end stage fails; `0`/`1` are decided by whether any finding has
-`severity == "error"`.[[src/main.rs:parse_options]] [[src/audit/mod.rs:run]]
+`severity == "error"`.[[src/cli/dispatch.rs:dispatch]] [[src/audit/mod.rs:parse_options]] [[src/audit/mod.rs:run]]
 
 ## JSON Document Shape
 

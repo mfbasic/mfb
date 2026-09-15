@@ -440,6 +440,10 @@ different bug surfaces. Resolve it in the plan: either point canvas at `compress
 state explicitly why PNG keeps its own (canvas may need it without a zlib dependency on
 some target). Not a defect at HEAD — a design question for the plan.
 
+**Resolved 2026-09-14 by plan-137-C:** canvas's PNG decoder inflates through `compress::zlibDecode`
+and `helper_inflate.rs` is deleted; `compress::` is pure MFBASIC (no zlib dependency), so there is
+one inflate in the tree.
+
 ---
 
 **Every normal ending already passes through `_mfb_shutdown`:** normal return, `EXIT PROGRAM`, untrapped errors, and SIGINT/SIGTERM on Unix console builds.

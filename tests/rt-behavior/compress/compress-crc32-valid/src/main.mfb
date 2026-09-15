@@ -1,0 +1,25 @@
+' compress::crc32 (plan-137-A). The check value is CRC-32/ISO-HDLC's catalogue
+' entry, fetched 2026-09-14 from https://reveng.sourceforge.io/crc-catalogue/17plus.htm:
+'   width=32 poly=0x04c11db7 init=0xffffffff refin=true refout=true
+'   xorout=0xffffffff check=0xcbf43926   (0xcbf43926 = 3421780262)
+' The empty-data lines prove `crc32([], r) = r`; the split lines prove chaining
+' across a three-way split equals the one-shot value, with each piece shorter than
+' the eight-byte slicing step so the byte-at-a-time tail carries the running value.
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+SUB main()
+  LET check AS List OF Byte = strings::toBytes("123456789")
+  io::print("check=" & toString(compress::crc32(check)))
+  io::print("empty=" & toString(compress::crc32([])))
+  io::print("empty-running=" & toString(compress::crc32([], 12345)))
+  LET a AS Integer = compress::crc32(strings::toBytes("123"))
+  LET b AS Integer = compress::crc32(strings::toBytes("4567"), a)
+  io::print("split=" & toString(compress::crc32(strings::toBytes("89"), b)))
+  LET long AS List OF Byte = strings::toBytes("The quick brown fox jumps over the lazy dog")
+  LET p AS Integer = compress::crc32(strings::toBytes("The quick brown "))
+  LET q AS Integer = compress::crc32(strings::toBytes("fox jumps over the "), p)
+  io::print("long=" & toString(compress::crc32(long)))
+  io::print("long-split=" & toString(compress::crc32(strings::toBytes("lazy dog"), q)))
+END SUB

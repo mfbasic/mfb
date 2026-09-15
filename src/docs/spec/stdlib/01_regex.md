@@ -11,10 +11,11 @@ The scalar-keyed Unicode properties are **data, not code**: `regex::genCat` and
 `regex::scriptOf` are internal native members that binary-search a read-only run table
 emitted with the program (`unicode_gencat_ranges.txt`, `unicode_script_ranges.txt`, both
 pinned to Unicode 16.0.0), so a category or script query costs `O(log runs)` and adds
-nothing to the compiled program beyond the table. One generated companion file remains
-intra-file with the engine — `unicode_script_names.mfb`, the canonical spelling of each
-script name, which is looked up once per pattern compile rather than per
-scalar.[[src/codegen/builtins/regex/mod.rs:source_file]]
+nothing to the compiled program beyond the table. One generated MFBASIC file remains —
+`unicode_script_names.mfb`, `__regex_scriptCanonName`, the canonical spelling of each
+script name — injected as an always-on helper and reached only while a `\p{…}`
+property name is resolved, so it runs once per pattern compile rather than per
+scalar.[[src/codegen/builtins/regex/mod.rs:register]][[src/codegen/builtins/regex/helper_canon_prop.rs:BODY]]
 
 ## Public Surface
 
@@ -22,7 +23,7 @@ Eight built-in calls are recognized and rewritten to internal entry points durin
 front end. Their signatures and return types are fixed (resolved by exact arg-type
 match); `find`/`findAll`/`findMatch`/`findAllMatches`/`count` take an optional `start`
 that is
-padded to `0` during IR lowering.[[src/codegen/builtins/regex/mod.rs:resolve_call]][[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
+padded to `0` during IR lowering.[[src/codegen/registry/mod.rs:resolve_call]][[src/codegen/registry/mod.rs:default_argument_padding]]
 
 | Call | Internal | Returns | Args |
 |------|----------|---------|------|

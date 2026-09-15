@@ -5,7 +5,7 @@ formatting, and parsing are written in MFBASIC as internal `__datetime_*`
 functions, and only the OS clock and the local-zone table are platform state.
 A compiler seam owns registration, the checkers' metadata, and the rewrite from
 each public `datetime::` call onto its internal implementation; the MFBASIC
-source owns the algorithm. [[src/codegen/builtins/datetime/mod.rs:implementation_name]] This topic specifies the
+source owns the algorithm. [[src/codegen/builtins/datetime/mod.rs:register]] [[src/codegen/builtins/datetime/func_add_days.rs:register]] This topic specifies the
 **model** — the record shapes, the civil-calendar math, the clock/zone seam, and
 the parse/format grammar. The per-function API surface is owned by
 `./mfb man datetime`.
@@ -55,7 +55,7 @@ normalizing — `instant`/`duration` accept 1..5 trailing `Integer` arguments
 each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 (`add`, `subtract`, `between`, `plus`, `minus`, `negate`) adds or subtracts the
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
-`equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/mod.rs:__datetime_normInstant]]
+`equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/helper_norm_instant.rs:__datetime_normInstant]]
 The builders with more than one argument and every arithmetic member use checked
 `Integer` arithmetic, so a sum or product outside the `Integer` range raises
 `ErrOverflow` (`77050010`). The one-argument `instant`/`duration` store the value
@@ -92,7 +92,7 @@ All date math is platform-independent and runs in MFBASIC. The epoch-day
 conversions use Howard Hinnant's branch-free civil ↔ days algorithm, valid
 across the full `Integer` range; the explicit era adjustments keep every divisor
 operand non-negative so truncating division equals flooring.
-[[src/codegen/builtins/datetime/mod.rs:__datetime_daysFromCivil]]
+[[src/codegen/builtins/datetime/helper_days_from_civil.rs:__datetime_daysFromCivil]]
 
 * `daysFromCivil(y, m, d)` → days since `1970-01-01` (the `719468` constant
   shifts from the `0000-03-01` internal era origin to the Unix epoch).
@@ -127,7 +127,7 @@ negative epoch-second into a day index and a second-of-day requires *flooring*.
 The package defines `floorDiv` / `floorMod` (adjust the truncated quotient down
 when the remainder is negative) and uses them whenever a value can be negative —
 day-of-epoch splitting, weekday index, and `addMonths` month rollover.
-[[src/codegen/builtins/datetime/mod.rs:__datetime_floorDiv]]
+[[src/codegen/builtins/datetime/helper_floor_div.rs:__datetime_floorDiv]]
 
 ## Zones, projection, and the OS clock/zone seam
 
@@ -146,7 +146,7 @@ helpers
 (`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code.
 `nowNanos` and `monotonicNanos` take no failure path — each returns an `Integer`
 with the OK tag set. `localOffset` uses the same result form but can fail (see
-below). [[src/codegen/builtins/datetime/mod.rs:NOW_NANOS]]
+below). [[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]] [[src/codegen/builtins/datetime/func_local_offset.rs:lower_local_offset]]
 
 Platform notes from the native lowering: `CLOCK_REALTIME` is `0` on both Linux
 and macOS; `CLOCK_MONOTONIC` is `1` on Linux but `6` on Darwin. `localOffset`
@@ -190,7 +190,7 @@ hard case is a `Local` zone where the offset depends on the very instant being
 constructed. `resolveLocal` handles a single DST transition near the local time:
 it probes the offset one day on each side to bracket the transition, then
 applies the §"DST policy" below. `withZone(dt, z)` re-projects through
-`resolve` then `inZone`. [[src/codegen/builtins/datetime/mod.rs:__datetime_resolveLocal]]
+`resolve` then `inZone`. [[src/codegen/builtins/datetime/helper_resolve_local.rs:__datetime_resolveLocal]]
 
 The two are the package's opposite zone operations and are easy to confuse
 (bug-518 was `withZone`'s own parameter row asserting the wrong one).
@@ -227,7 +227,7 @@ month's length (e.g. Jan 31 + 1 month → Feb 28/29). `startOfDay` is `civil` at
 unchanged, copying single-quoted runs verbatim (`''` is a literal quote), and
 expanding **runs** of a recognized letter (the run length selects width/style).
 An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
-[[src/codegen/builtins/datetime/mod.rs:__datetime_formatToken]]
+[[src/codegen/builtins/datetime/helper_format_token.rs:__datetime_formatToken]]
 
 | Token | Meaning | Run-length behavior |
 | --- | --- | --- |
@@ -262,7 +262,7 @@ epoch/zero defaults (`year=1970, month=1, day=1`, all time fields `0`). A
 structural mismatch — wrong literal, missing digits, bad AM/PM, bad month name,
 bad offset, or text left over after the pattern ends — fails `ErrInvalidFormat`
 (`77050003`). The pattern must consume the whole value. The pattern letters
-mirror `format`. [[src/codegen/builtins/datetime/mod.rs:__datetime_parseFields]]
+mirror `format`. [[src/codegen/builtins/datetime/helper_parse_fields.rs:__datetime_parseFields]]
 
 Field-read rules:
 

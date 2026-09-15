@@ -1,0 +1,441 @@
+//! `__compress_deflateCore` — the raw DEFLATE (RFC 1951) encoder behind every `compress` encoder.
+//!
+//! One function owns all encoder state as locals, as the decoder core does (plan-137-B §4.1, whose
+//! Phase 1 measurements chose one function over helpers called per symbol): the LSB-first bit
+//! buffer, the output list, the match finder's `head` / `prev` hash chains, and the current block's
+//! symbols and frequencies. Helpers are called once per block (code lengths, codes, header, costs),
+//! never per symbol.
+//!
+//! - **Level 0** writes stored blocks of at most 65,535 bytes; empty input is one final empty
+//!   stored block. Unchanged from plan-137-D.
+//! - **Levels 1–9** gather one block per 65,535 bytes of input — the most one stored block holds, so a
+//!   block that ends up stored needs a single `LEN`/`NLEN` header: a block ends at the first symbol that
+//!   starts at or past 65,535 bytes after its first, so a match may run past the boundary. The block's
+//!   symbols are buffered (a literal as its byte, a match as `length * 65536 + distance`) with their
+//!   literal/length and distance frequencies and extra bits. The block is then written as the
+//!   cheapest of stored, fixed Huffman and dynamic Huffman by exact bit count (plan-137-E §4.2); ties
+//!   prefer fixed, then stored. A stored block longer than 65,535 bytes is written as several.
+//! - **Matching** is over hash chains of the next three bytes. Each position is looked up before it
+//!   is inserted, so its own `prev` slot still links the position 32,768 bytes back and a match at
+//!   the full RFC distance of 32,768 is found. A chain is followed for at most the level's
+//!   `max_chain` candidates and stops at the first match of `nice_length` or longer. The per-level
+//!   numbers are zlib 1.2.12's `configuration_table`, fetched and pasted in plan-137-D §2.
+//! - **Levels 1–3 match greedily**, as zlib's `deflate_fast` does: a match is emitted where it is
+//!   found, and the positions inside it are inserted only when it is no longer than the level's
+//!   `max_lazy` column (`max_insert_length`).
+//! - **Levels 4–9 match lazily**, as zlib's `deflate_slow` does (`deflate.c` 1974–2081, fetched for
+//!   plan-137-E). The match found at a position is held back, and the next position is searched
+//!   too, but only while the held match is shorter than `max_lazy`, only for a longer match, and with
+//!   the chain budget quartered once the held match reaches `good_length`. A three-byte match more
+//!   than 4,096 bytes back (`TOO_FAR`) is dropped. If the next position does no better, the held
+//!   match is emitted and every position inside it inserted; otherwise the held position becomes a
+//!   literal. Unlike zlib, a byte still held when a block ends is emitted as a literal in that block,
+//!   so a block holds exactly the bytes its symbols cover.
+//!
+//! The output starts as `prefix` — a zlib or gzip header, or empty for raw DEFLATE — so a framing
+//! helper never copies the compressed data to put a header in front of it. Written by in-place
+//! `append` / same-size `set` on locals only (`.ai/collections.md`).
+//!
+//! Registered via `add_helper` under [`HelperGate::WhenUsed`] on the encoders. A gated helper
+//! is injected as its own file, so the body carries its own `IMPORT`s.
+//! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
+
+use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"IMPORT compress
+IMPORT bits
+IMPORT collections
+
+FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS List OF Byte) AS List OF Byte
+  LET n AS Integer = len(data)
+  MUT out AS List OF Byte = prefix
+  MUT pos AS Integer = 0
+  MUT final AS Boolean = FALSE
+  IF level = 0 THEN
+    WHILE final = FALSE
+      MUT chunk AS Integer = n - pos
+      IF chunk > 65535 THEN
+        chunk = 65535
+      END IF
+      final = pos + chunk >= n
+      IF final THEN
+        out = collections::append(out, toByte(1))
+      ELSE
+        out = collections::append(out, toByte(0))
+      END IF
+      out = collections::append(out, toByte(bits::band(chunk, 255)))
+      out = collections::append(out, toByte(bits::sr(chunk, 8)))
+      out = collections::append(out, toByte(bits::band(65535 - chunk, 255)))
+      out = collections::append(out, toByte(bits::sr(65535 - chunk, 8)))
+      MUT k AS Integer = 0
+      WHILE k < chunk
+        out = collections::append(out, collections::get(data, pos + k))
+        k = k + 1
+      END WHILE
+      pos = pos + chunk
+    END WHILE
+    RETURN out
+  END IF
+
+  ' zlib 1.2.12 configuration_table columns: max_chain, nice_length, max_lazy.
+  LET chains AS List OF Integer = [0, 4, 8, 32, 16, 32, 128, 256, 1024, 4096]
+  LET nices AS List OF Integer = [0, 8, 16, 32, 16, 32, 128, 128, 258, 258]
+  LET lazies AS List OF Integer = [0, 4, 5, 6, 4, 16, 16, 32, 128, 258]
+  LET goods AS List OF Integer = [0, 4, 4, 4, 4, 8, 8, 8, 32, 32]
+  LET maxLazy AS Integer = collections::get(lazies, level)
+  LET good AS Integer = collections::get(goods, level)
+  LET maxChain AS Integer = collections::get(chains, level)
+  LET nice AS Integer = collections::get(nices, level)
+  MUT maxInsert AS Integer = collections::get(lazies, level)
+  IF level >= 4 THEN
+    maxInsert = 258
+  END IF
+
+  ' --- match finder: head[hash] is the latest position with that hash, prev[p MOD 32768] the
+  ' position before p with the same hash; -1 is none ---
+  MUT head AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 32768
+    head = collections::append(head, 0 - 1)
+    i = i + 1
+  END WHILE
+  MUT prevSize AS Integer = n
+  IF prevSize > 32768 THEN
+    prevSize = 32768
+  END IF
+  MUT prev AS List OF Integer = []
+  i = 0
+  WHILE i < prevSize
+    prev = collections::append(prev, 0 - 1)
+    i = i + 1
+  END WHILE
+  ' --- bit writer: bitCount bits pending in bitBuf, least significant first ---
+  MUT bitBuf AS Integer = 0
+  MUT bitCount AS Integer = 0
+  ' --- lazy matching (levels 4-9): the match found at pos - 1, not yet emitted ---
+  MUT matchLength AS Integer = 2
+  MUT matchDist AS Integer = 0
+  MUT prevLength AS Integer = 2
+  MUT prevDist AS Integer = 0
+  MUT matchAvailable AS Boolean = FALSE
+  ' --- the current block ---
+  MUT symbols AS List OF Integer = []
+  MUT litFreq AS List OF Integer = []
+  MUT distFreq AS List OF Integer = []
+
+  WHILE final = FALSE
+    LET blockStart AS Integer = pos
+    LET blockEnd AS Integer = pos + 65535
+    final = blockEnd >= n
+    symbols = []
+    litFreq = __compress_zeroList(286)
+    distFreq = __compress_zeroList(30)
+    MUT extraBits AS Integer = 0
+    IF level <= 3 THEN
+      WHILE pos < blockEnd AND pos < n
+        MUT bestLen AS Integer = 0
+        MUT bestDist AS Integer = 0
+        MUT maxLen AS Integer = n - pos
+        IF maxLen > 258 THEN
+          maxLen = 258
+        END IF
+        IF maxLen >= 3 THEN
+          LET h AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, pos)), 10), bits::sl(toInt(collections::get(data, pos + 1)), 5)), toInt(collections::get(data, pos + 2))), 32767)
+          LET limit AS Integer = pos - 32768
+          MUT cand AS Integer = collections::get(head, h)
+          MUT chain AS Integer = maxChain
+          bestLen = 2
+          WHILE cand >= limit AND cand >= 0 AND chain > 0
+            IF collections::get(data, cand + bestLen) = collections::get(data, pos + bestLen) THEN
+              MUT k AS Integer = 0
+              WHILE k < maxLen AND collections::get(data, cand + k) = collections::get(data, pos + k)
+                k = k + 1
+              END WHILE
+              IF k > bestLen THEN
+                bestLen = k
+                bestDist = pos - cand
+                IF k >= nice OR k >= maxLen THEN
+                  EXIT WHILE
+                END IF
+              END IF
+            END IF
+            cand = collections::get(prev, bits::band(cand, 32767))
+            chain = chain - 1
+          END WHILE
+          prev = collections::set(prev, bits::band(pos, 32767), collections::get(head, h))
+          head = collections::set(head, h, pos)
+        END IF
+        IF bestLen >= 3 THEN
+          symbols = collections::append(symbols, bestLen * 65536 + bestDist)
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, bestLen)
+          litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
+          LET d1 AS Integer = bestDist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
+          extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+          IF bestLen <= maxInsert THEN
+            MUT q AS Integer = pos + 1
+            LET qEnd AS Integer = pos + bestLen
+            WHILE q < qEnd
+              IF q + 2 < n THEN
+                LET hq AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, q)), 10), bits::sl(toInt(collections::get(data, q + 1)), 5)), toInt(collections::get(data, q + 2))), 32767)
+                prev = collections::set(prev, bits::band(q, 32767), collections::get(head, hq))
+                head = collections::set(head, hq, q)
+              END IF
+              q = q + 1
+            END WHILE
+          END IF
+          pos = pos + bestLen
+        ELSE
+          LET literal AS Integer = toInt(collections::get(data, pos))
+          symbols = collections::append(symbols, literal)
+          litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
+          pos = pos + 1
+        END IF
+      END WHILE
+    ELSE
+      WHILE pos < blockEnd AND pos < n
+        MUT maxLen AS Integer = n - pos
+        IF maxLen > 258 THEN
+          maxLen = 258
+        END IF
+        prevLength = matchLength
+        prevDist = matchDist
+        matchLength = 2
+        IF maxLen >= 3 THEN
+          LET h AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, pos)), 10), bits::sl(toInt(collections::get(data, pos + 1)), 5)), toInt(collections::get(data, pos + 2))), 32767)
+          ' longest_match: only a match longer than the one at pos - 1 counts.
+          IF prevLength < maxLazy AND prevLength < maxLen THEN
+            LET limit AS Integer = pos - 32768
+            MUT cand AS Integer = collections::get(head, h)
+            MUT chain AS Integer = maxChain
+            IF prevLength >= good THEN
+              chain = chain / 4
+            END IF
+            MUT bestLen AS Integer = prevLength
+            MUT bestDist AS Integer = 0
+            WHILE cand >= limit AND cand >= 0 AND chain > 0
+              IF collections::get(data, cand + bestLen) = collections::get(data, pos + bestLen) THEN
+                MUT k AS Integer = 0
+                WHILE k < maxLen AND collections::get(data, cand + k) = collections::get(data, pos + k)
+                  k = k + 1
+                END WHILE
+                IF k > bestLen THEN
+                  bestLen = k
+                  bestDist = pos - cand
+                  IF k >= nice OR k >= maxLen THEN
+                    EXIT WHILE
+                  END IF
+                END IF
+              END IF
+              cand = collections::get(prev, bits::band(cand, 32767))
+              chain = chain - 1
+            END WHILE
+            IF bestDist > 0 THEN
+              matchLength = bestLen
+              matchDist = bestDist
+              ' TOO_FAR: a three-byte match more than 4096 bytes back costs more than its literals.
+              IF matchLength = 3 AND matchDist > 4096 THEN
+                matchLength = 2
+              END IF
+            END IF
+          END IF
+          prev = collections::set(prev, bits::band(pos, 32767), collections::get(head, h))
+          head = collections::set(head, h, pos)
+        END IF
+        IF prevLength >= 3 AND matchLength <= prevLength THEN
+          ' The match at pos - 1 is no worse than this one: emit it.
+          symbols = collections::append(symbols, prevLength * 65536 + prevDist)
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, prevLength)
+          litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
+          LET d1 AS Integer = prevDist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
+          extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+          ' pos - 1 and pos are already in the chains; insert the rest of the match.
+          MUT q AS Integer = pos + 1
+          LET qEnd AS Integer = pos - 1 + prevLength
+          WHILE q < qEnd
+            IF q + 2 < n THEN
+              LET hq AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, q)), 10), bits::sl(toInt(collections::get(data, q + 1)), 5)), toInt(collections::get(data, q + 2))), 32767)
+              prev = collections::set(prev, bits::band(q, 32767), collections::get(head, hq))
+              head = collections::set(head, hq, q)
+            END IF
+            q = q + 1
+          END WHILE
+          pos = qEnd
+          matchAvailable = FALSE
+          matchLength = 2
+        ELSEIF matchAvailable THEN
+          ' No match at pos - 1, or a longer one here: pos - 1 is a literal.
+          LET literal AS Integer = toInt(collections::get(data, pos - 1))
+          symbols = collections::append(symbols, literal)
+          litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
+          pos = pos + 1
+        ELSE
+          matchAvailable = TRUE
+          pos = pos + 1
+        END IF
+      END WHILE
+      ' A block holds exactly the bytes its symbols cover, so the byte still pending is a literal here.
+      IF matchAvailable THEN
+        LET literal AS Integer = toInt(collections::get(data, pos - 1))
+        symbols = collections::append(symbols, literal)
+        litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
+        matchAvailable = FALSE
+        matchLength = 2
+      END IF
+    END IF
+    ' End of block.
+    litFreq = collections::set(litFreq, 256, 1)
+
+    ' --- choose the block type by exact bit count; ties prefer fixed, then stored ---
+    LET litLens AS List OF Integer = __compress_codeLengths(litFreq, 15)
+    LET distLens AS List OF Integer = __compress_codeLengths(distFreq, 15)
+    LET header AS List OF Integer = __compress_dynamicHeader(litLens, distLens)
+    LET dynamicBits AS Integer = 3 + __compress_headerBits(header) + __compress_treeBits(litFreq, litLens) + __compress_treeBits(distFreq, distLens) + extraBits
+    LET fixedBits AS Integer = 3 + __compress_fixedLitBits(litFreq, distFreq) + extraBits
+    LET storedBits AS Integer = __compress_storedBits(pos - blockStart, bitCount)
+    MUT btype AS Integer = 2
+    IF fixedBits <= storedBits AND fixedBits <= dynamicBits THEN
+      btype = 1
+    ELSEIF storedBits <= dynamicBits THEN
+      btype = 0
+    END IF
+    MUT finalBit AS Integer = 0
+    IF final THEN
+      finalBit = 1
+    END IF
+
+    IF btype = 0 THEN
+      MUT at AS Integer = blockStart
+      MUT first AS Boolean = TRUE
+      WHILE first OR at < pos
+        first = FALSE
+        MUT chunk AS Integer = pos - at
+        IF chunk > 65535 THEN
+          chunk = 65535
+        END IF
+        IF at + chunk >= pos THEN
+          bitBuf = bits::bor(bitBuf, bits::sl(finalBit, bitCount))
+        END IF
+        bitCount = bitCount + 3
+        bitCount = bitCount + (8 - bitCount MOD 8) MOD 8
+        WHILE bitCount >= 8
+          out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+          bitBuf = bits::sr(bitBuf, 8)
+          bitCount = bitCount - 8
+        END WHILE
+        out = collections::append(out, toByte(bits::band(chunk, 255)))
+        out = collections::append(out, toByte(bits::sr(chunk, 8)))
+        out = collections::append(out, toByte(bits::band(65535 - chunk, 255)))
+        out = collections::append(out, toByte(bits::sr(65535 - chunk, 8)))
+        MUT k AS Integer = 0
+        WHILE k < chunk
+          out = collections::append(out, collections::get(data, at + k))
+          k = k + 1
+        END WHILE
+        at = at + chunk
+      END WHILE
+    ELSE
+      bitBuf = bits::bor(bitBuf, bits::sl(finalBit + btype * 2, bitCount))
+      bitCount = bitCount + 3
+      MUT litCodes AS List OF Integer = __COMPRESS_FIXED_LIT
+      MUT distCodes AS List OF Integer = []
+      IF btype = 2 THEN
+        litCodes = __compress_canonicalCodes(litLens)
+        distCodes = __compress_canonicalCodes(distLens)
+        MUT e AS Integer = 0
+        WHILE e < len(header)
+          LET entry AS Integer = collections::get(header, e)
+          bitBuf = bits::bor(bitBuf, bits::sl(entry / 32, bitCount))
+          bitCount = bitCount + entry MOD 32
+          WHILE bitCount >= 8
+            out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+            bitBuf = bits::sr(bitBuf, 8)
+            bitCount = bitCount - 8
+          END WHILE
+          e = e + 1
+        END WHILE
+      ELSE
+        distCodes = __COMPRESS_FIXED_DIST
+      END IF
+      MUT si AS Integer = 0
+      LET symbolCount AS Integer = len(symbols)
+      WHILE si < symbolCount
+        LET sym AS Integer = collections::get(symbols, si)
+        IF sym < 65536 THEN
+          LET litCode AS Integer = collections::get(litCodes, sym)
+          bitBuf = bits::bor(bitBuf, bits::sl(litCode / 16, bitCount))
+          bitCount = bitCount + litCode MOD 16
+        ELSE
+          LET length AS Integer = sym / 65536
+          LET dist AS Integer = sym MOD 65536
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, length)
+          LET lengthCode AS Integer = collections::get(litCodes, 257 + li)
+          bitBuf = bits::bor(bitBuf, bits::sl(lengthCode / 16, bitCount))
+          bitCount = bitCount + lengthCode MOD 16
+          bitBuf = bits::bor(bitBuf, bits::sl(length - collections::get(__COMPRESS_LEN_BASE, li), bitCount))
+          bitCount = bitCount + collections::get(__COMPRESS_LEN_EXTRA, li)
+          LET d1 AS Integer = dist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          MUT distCode AS Integer = 0
+          IF btype = 2 THEN
+            distCode = collections::get(distCodes, dsym)
+          ELSE
+            distCode = collections::get(distCodes, dsym) * 16 + 5
+          END IF
+          bitBuf = bits::bor(bitBuf, bits::sl(distCode / 16, bitCount))
+          bitCount = bitCount + distCode MOD 16
+          bitBuf = bits::bor(bitBuf, bits::sl(dist - collections::get(__COMPRESS_DIST_BASE, dsym), bitCount))
+          bitCount = bitCount + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+        END IF
+        WHILE bitCount >= 8
+          out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+          bitBuf = bits::sr(bitBuf, 8)
+          bitCount = bitCount - 8
+        END WHILE
+        si = si + 1
+      END WHILE
+      LET eob AS Integer = collections::get(litCodes, 256)
+      bitBuf = bits::bor(bitBuf, bits::sl(eob / 16, bitCount))
+      bitCount = bitCount + eob MOD 16
+      WHILE bitCount >= 8
+        out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+        bitBuf = bits::sr(bitBuf, 8)
+        bitCount = bitCount - 8
+      END WHILE
+    END IF
+  END WHILE
+  IF bitCount > 0 THEN
+    out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+  END IF
+  RETURN out
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper {
+        name: "compress_deflate_core",
+        gate: HelperGate::WhenUsed(&["deflate", "zlibEncode", "gzipEncode"]),
+        body: Some(BODY),
+        import_name: None,
+        natively_called: false,
+    });
+}

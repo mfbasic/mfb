@@ -196,6 +196,10 @@ pub fn lower_project_with_external_functions(
     // see (plan-122-B).
     let augmented = crate::codegen::builtins::color::augmented_project(&augmented)
         .expect("built-in color package source must parse");
+    // `compress` after it: canvas's injected PNG decoder calls `compress::zlibDecode`
+    // (plan-137-C).
+    let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)
+        .expect("built-in compress package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
