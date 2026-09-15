@@ -1,6 +1,6 @@
 # plan-137-D: `deflate` / `zlibEncode` / `gzipEncode` — stored + fixed-Huffman LZ77
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Effort: large (3h–1d)
 Depends on: plan-137-C (and through it B and A). If plan-137-C is not complete, this plan cannot
 start, full stop. Whole-feature prerequisites: plan-137-A §Prerequisites.
@@ -35,7 +35,7 @@ See plan-137-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-137-C complete | `ls planning/completed/plan-137-C-*` → one file | NOT MET (2026-09-13 re-run: `ls planning/completed | grep -c plan-137` → 0; blocked on plan-137-A's bug-621 row) |
+| plan-137-C complete | `ls planning/completed/plan-137-C-*` → one file | MET (2026-09-14 re-run: `planning/completed/plan-137-C-canvas-inflate-cutover.md`, archived in `821859191`). plan-137-A §Prerequisites re-run the same day. `ls bugs/completed/bug-621-*` → the append-growth fix (`bug-621-append-growth-over-reserves-data-capacity.md`) plus a second, unrelated `bug-621-loop-condition-temps-freed-once-per-loop-not-per-pass.md` that main reused the number for; the row's file is present. Release build → see Phase 1. Python zlib `1.2.12`, Node zlib `1.3.1-470d3a2`. `Cargo.lock:1142` flate2 `1.1.9`. `compress` present: plan-137-A's own "no package yet" row was its pre-start gate, and A created the package. |
 
 ## 1. Goal
 
@@ -65,9 +65,80 @@ See plan-137-A §Prerequisites. Additionally:
 
 | What | Count | Command |
 |---|---|---|
-| zlib `configuration_table` rows | UNMEASURED (fetch) | Phase 1: fetch `deflate.c` for the Python-reported zlib version, paste the table here |
-| Python zlib `FLEVEL` and gzip `XFL` per level | UNMEASURED | Phase 1: `python3 -c "import zlib; [print(l, zlib.compress(b'x', l)[:2].hex()) for l in range(10)]"` and the `gzip` module equivalent |
-| Encoder function emitted size (±1 MiB AArch64 branch range) | UNMEASURED | Phase 3: `--ncode` |
+| zlib `configuration_table` rows | 10 rows (2026-09-14), pasted below the table | Phase 1: fetch `deflate.c` for the Python-reported zlib version, paste the table here |
+| Python zlib `FLEVEL` and gzip `XFL` per level | Measured 2026-09-14 (Python zlib 1.2.12, Node zlib 1.3.1-470d3a2, identical). zlib header: levels 0–1 `7801`, 2–5 `785e`, 6 `789c`, 7–9 `78da`. gzip `XFL`: levels 0–1 `4`, 2–8 `0`, 9 `2`. `OS` is `255` from Python `gzip.compress` (pure-Python header) and `19` from zlib's own gzip wrapper (`wbits=31`, Python and Node): the zlib wrapper writes its build's `OS_CODE`, and `255` "unknown" is what §1 specifies | Phase 1: `python3 -c "import zlib; [print(l, zlib.compress(b'x', l)[:2].hex()) for l in range(10)]"` and the `gzip` module equivalent (run: `zlib.compress(b'x', l)[:2]`, `gzip.compress(b'x', compresslevel=l, mtime=0)[8:10]`, `zlib.compressobj(l, DEFLATED, 31)` output `[8:10]`, Node `deflateSync`/`gzipSync` with `{level}`) |
+| Encoder function emitted size (±1 MiB AArch64 branch range) | UNMEASURED — measured in Phase 3 by design | Phase 3: `--ncode` |
+
+**zlib 1.2.12 facts, fetched 2026-09-14** from `https://raw.githubusercontent.com/madler/zlib/v1.2.12/deflate.c`
+(sha256 `824ff399fae1934f57e48de6d5cac4410f36f709021e8ee79655f927b9bd0bce`) and `…/deflate.h`
+(sha256 `9dd7224b61b43c6a336b30b867418372186ee34a1d1a9a51c338ee1adc2f530d`). The version is the one Python reports:
+`zlib.ZLIB_RUNTIME_VERSION` → `1.2.12`. The text below is verbatim from those files:
+
+```c
+/* deflate.c:134 */
+local const config configuration_table[10] = {
+/*      good lazy nice chain */
+/* 0 */ {0,    0,  0,    0, deflate_stored},  /* store only */
+/* 1 */ {4,    4,  8,    4, deflate_fast}, /* max speed, no lazy matches */
+/* 2 */ {4,    5, 16,    8, deflate_fast},
+/* 3 */ {4,    6, 32,   32, deflate_fast},
+
+/* 4 */ {4,    4, 16,   16, deflate_slow},  /* lazy matches */
+/* 5 */ {8,   16, 32,   32, deflate_slow},
+/* 6 */ {8,   16, 128, 128, deflate_slow},
+/* 7 */ {8,   32, 128, 256, deflate_slow},
+/* 8 */ {32, 128, 258, 1024, deflate_slow},
+/* 9 */ {32, 258, 258, 4096, deflate_slow}}; /* max compression */
+
+/* deflate.c:860–870, the zlib header */
+if (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2)
+    level_flags = 0;
+else if (s->level < 6)
+    level_flags = 1;
+else if (s->level == 6)
+    level_flags = 2;
+else
+    level_flags = 3;
+header |= (level_flags << 6);
+
+/* deflate.c:904, the gzip header (no gzhead) */
+put_byte(s, s->level == 9 ? 2 :
+         (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2 ?
+          4 : 0));
+
+/* deflate.c:1924, deflate_fast: insert inside a match only when it is short */
+if (s->match_length <= s->max_insert_length &&
+    s->lookahead >= MIN_MATCH) {
+    s->match_length--; /* string at strstart already in table */
+    do {
+        s->strstart++;
+        INSERT_STRING(s, s->strstart, hash_head);
+    } while (--s->match_length != 0);
+    s->strstart++;
+} else
+{
+    s->strstart += s->match_length;
+    s->match_length = 0;
+    ...
+}
+
+/* deflate.h:182 */ #   define max_insert_length  max_lazy_match
+/* deflate.h:279 */ #define MIN_LOOKAHEAD (MAX_MATCH+MIN_MATCH+1)
+/* deflate.h:284 */ #define MAX_DIST(s)  ((s)->w_size-MIN_LOOKAHEAD)
+/* deflate.c:1314 (longest_match) */ chain_length >>= 2;   /* when prev_length >= good_match */
+/* deflate.c:1319 */ if ((uInt)nice_match > s->lookahead) nice_match = (int)s->lookahead;
+```
+
+What D takes from these facts:
+- **Chain budget and early stop:** the `chain` and `nice` columns per level.
+- **Insertion inside a match (levels 1–3):** levels 1–3 insert every position inside a match only when the match
+  length is ≤ the level's `lazy` column (`max_insert_length` is `max_lazy_match`); longer matches skip insertion.
+  Levels 4–9 insert every position, which is the `deflate_slow` behaviour; D keeps greedy matching there, and E adds
+  lazy evaluation.
+- **zlib `FLEVEL`:** `0` for levels 0–1, `1` for 2–5, `2` for 6, `3` for 7–9. This matches the measured headers.
+- **gzip `XFL`:** `2` at level 9, `4` at levels 0–1, else `0`. This matches the measured bytes.
+- **Match window:** zlib stops a match `MIN_LOOKAHEAD` (262) short of its 32,768 window (`MAX_DIST`). DEFLATE allows
+  32,768, and D's §4.2 uses the full RFC distance: a decoder accepts any distance ≤ 32,768.
 
 ## 3. Design Overview
 
@@ -130,10 +201,15 @@ New public functions `deflate`, `zlibEncode`, `gzipEncode`. No existing change.
 
 ### Phase 1 — fetch and measure the external facts
 
-- [ ] Fill the UNMEASURED rows in §2 (configuration table, FLEVEL/XFL mapping).
+- [x] Fill the UNMEASURED rows in §2 (configuration table, FLEVEL/XFL mapping).
+      (2026-09-14: both rows filled. The table and the `FLEVEL`/`XFL` expressions are pasted verbatim from the fetched
+      1.2.12 sources with their sha256, and the per-level bytes are measured in Python and Node. The encoder-size row is
+      Phase 3's by design.)
 
 Acceptance: §2 rows filled with pasted evidence.
   Check: the commands in §2 (est. 10 min).
+  (2026-09-14: `curl -sSfL …/v1.2.12/deflate.c` then `grep -n "configuration_table\[10\]" -A12` → the rows above; the
+  Python/Node level sweep → the mapping above.)
 Commit: —
 
 ### Phase 2 — raw `deflate`, levels 0–9
