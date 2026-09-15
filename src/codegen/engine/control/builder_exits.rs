@@ -498,19 +498,27 @@ impl CodeBuilder<'_> {
         // local's is retired. The runtime identity skip cannot catch it: the escaping
         // value is the union box, not `u`'s record.
         //
-        // Both removals are path-local. A RETURN of a resource-union local also
-        // deactivates the union's own cleanup inside `emit_return_exit_inner`; left
-        // permanent, a sibling path that does not take this RETURN (`IF give THEN RETURN
-        // c END IF`, then `RETURN other`) never frees the union's box. So a union-typed
-        // return restores the whole cleanup list it started with once the exit is
-        // emitted — the same save/restore `plan_returned_move` does for an owned value.
-        let union_return_snapshot = value
-            .and_then(|value| match value {
-                NirValue::Local(name) => self.locals.get(name),
-                _ => None,
-            })
-            .filter(|local| self.resource_union_cleanup(&local.type_).is_some())
-            .map(|_| self.active_cleanups.clone());
+        // Every removal a RETURN makes is PATH-LOCAL. `emit_return_exit_inner` retires
+        // the returned local's close (a concrete resource, a resource union, a thread
+        // handle, an owned-list container) with a `deactivate_*` call, which removes the
+        // cleanup from the builder's compile-time list. That list is shared by the code
+        // lowered AFTER this statement — a sibling `RETURN b` after `IF give THEN RETURN a
+        // END IF`, the rest of a loop body whose `RETURN s` only fires on one iteration,
+        // a later TRAP route, the block's own scope exit — none of which returned the
+        // local, so each must still close it. Left permanent, the removal leaked one
+        // descriptor and one record per call on those paths (`udp::bind` failing with
+        // 7-707-0003 under a 128-fd limit). So a `RETURN <local>` restores the cleanup
+        // list it started with once its exit is emitted, the same save/restore
+        // `plan_returned_move` does for an owned value.
+        //
+        // No double close follows: this path's emitted cleanup sequence ran without
+        // the returned local's cleanup, and code after a RETURN on this path is
+        // unreachable, so the restored entry is only ever emitted on paths that did not
+        // return the local. The caller stays its one closer on the path that did.
+        let return_snapshot = match value {
+            Some(NirValue::Local(_)) => Some(self.active_cleanups.clone()),
+            _ => None,
+        };
         if let Some(root) = value.and_then(|value| self.returned_union_alias_root(value)) {
             if let Some(index) = self
                 .active_cleanups
@@ -526,7 +534,7 @@ impl CodeBuilder<'_> {
         if let Some(saved) = restore_cleanups {
             self.active_cleanups = saved;
         }
-        if let Some(saved) = union_return_snapshot {
+        if let Some(saved) = return_snapshot {
             self.active_cleanups = saved;
         }
         result
