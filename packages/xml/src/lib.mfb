@@ -9,6 +9,36 @@
 IMPORT collections
 
 ' ---------------------------------------------------------------------------
+' Reading.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC parse
+  GROUP Reading
+  DESC Read one XML 1.0 document from `text` and return its tree.
+  DESC
+  DESC Every well-formedness violation is refused rather than repaired, and so
+  DESC is everything outside this reader's scope: any `<!DOCTYPE`, any encoding
+  DESC other than UTF-8, and any version other than 1.0. Namespace prefixes are
+  DESC checked against the declarations in scope but never resolved: names stay
+  DESC as the raw `prefix:local` text.
+  DESC
+  DESC Whitespace-only text nodes between elements are kept in the tree. They
+  DESC are formatting rather than content, and `xml::stringify` re-indents
+  DESC freely, but the reader does not decide that for you.
+  ARG text The XML text. Reading a file is the caller's job: pass `fs::readText(path)`.
+  RET The parsed `xml::Document`.
+  ERROR 77050003 The XML is malformed, or breaks a namespace-prefix constraint.
+  ERROR 77050007 The document uses a construct outside this reader's scope: a DOCTYPE, an encoding other than UTF-8, or a version other than 1.0.
+  ERROR 77050005 An element has two attributes with the same name, or the same expanded name.
+  ERROR 77050024 Elements nest more than 256 levels deep.
+  ERROR 93140001 The document holds more than 1,000,000 nodes.
+END DOC
+EXPORT FUNC parse(text AS String) AS Document
+  RETURN parseWithLimits(text, NODE_LIMIT)
+END FUNC
+
+' ---------------------------------------------------------------------------
 ' Constructors. Each widens a record to `Node` through a typed binding, so a
 ' caller never has to name the variant record type.
 ' ---------------------------------------------------------------------------

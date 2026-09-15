@@ -447,16 +447,20 @@ Commit: —
 
 ### Phase 4 — reader
 
-- [ ] `packages/xml/src/read.mfb` — every row of the §7 table, building the tree with the Phase 1
+- [x] `packages/xml/src/read.mfb` — every row of the §7 table, building the tree with the Phase 1
       design; namespace scope as a stack of (prefix → URI) frames pushed per element.
-- [ ] `packages/xml/src/lib.mfb` — `EXPORT FUNC parse(text AS String) AS Document`.
-- [ ] Tests: `packages/xml/src/test_read.mfb` — one accepting case per §7 row (with the tree it must
+- [x] `packages/xml/src/lib.mfb` — `EXPORT FUNC parse(text AS String) AS Document`.
+- [x] Tests: `packages/xml/src/test_read.mfb` — one accepting case per §7 row (with the tree it must
       produce, whitespace-only text nodes present); `packages/xml/src/test_refuse.mfb` — one refusal
       per §7 refusal cell, asserting the error code.
 
 Acceptance: every §7 row has a passing accept case and every refusal cell a passing refusal case.
   Check: `target/release/mfb test packages/xml` → all pass; `grep -c "CASE" packages/xml/src/test_refuse.mfb`
   ≥ the number of refusal cells in §7 (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 102  Pass: 102  Fail: 0`, exit 0 (73 added
+  here). `grep -c "TCASE" packages/xml/src/test_refuse.mfb` → 72 (36 cases, each line counted with its
+  `END TCASE`) and `grep -c "expectTrap" …` → 97 assertions, against the 10 construct rows of §7 —
+  every refusal cell has at least one case, most have several.
 Commit: —
 
 ### Phase 5 — limits and the 100k gate
@@ -548,6 +552,24 @@ inside `positionText(bytes, offset)`, which only ever runs while a failure is be
 observable contract §6 asks for is unchanged — `xml: line L, column C: <what>`, 1-based, counted in
 scalars — and `test_chars.mfb` "column counts scalars, not bytes, after a multi-byte character"
 pins it.
+
+**Phase 4 — §6's UTF-8 refusals are unreachable through `parse(text AS String)`.** §6 requires
+overlong forms, surrogates, values above `10FFFF` and truncated sequences to fail as
+`ErrInvalidFormat`. They do — but not from `parse`, because an MFBASIC `String` is valid UTF-8 by
+construction: building one from bad bytes fails first with `77020004`
+(`expectTrap(toString(badBytes), 77020004)` in `test_refuse.mfb`, where `badBytes` is
+`strings::toBytes("<a>")` plus byte `255`). The decoder refusals are therefore pinned where they are
+reachable — at the byte level in `test_chars.mfb` ("an overlong form is refused rather than folded to
+its short form", "a surrogate half is refused", "a scalar above U+10FFFF is refused", "a truncated or
+stray continuation sequence is refused") — and `test_refuse.mfb` pins the boundary itself, so the
+decoder's tests are never mistaken for dead code. The acceptance criterion is unchanged and not
+weakened: every refusal §6 names still has a passing test.
+
+**Phase 4 — the §7 namespace row's expanded-name collision uses `ErrInvalidFormat`, as written.**
+Two attributes whose prefixes bind to the same URI with equal local parts is a namespace constraint,
+and §7 puts the whole namespace row on `ErrInvalidFormat`; the first implementation raised
+`ErrAlreadyExists` (which `packages/xml/src/read.mfb` reserves for a literally duplicated attribute
+name). Corrected to follow the plan.
 
 Consequences for the rest of the plan: Phase 4 builds with this design ("the Phase 1 design").
 §3's "Design uncertainty concentrates in the builder" is now settled, and the §3 rejected-alternatives

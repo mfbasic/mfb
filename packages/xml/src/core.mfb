@@ -43,6 +43,21 @@ PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
 PUBLIC LET ERR_DEPTH AS Integer = 77050024
 
 ' ---------------------------------------------------------------------------
+' Node accounting.
+' ---------------------------------------------------------------------------
+
+' Charge one newly built node against the node budget. `limit` is a parameter
+' rather than NODE_LIMIT directly so the tests can exercise the boundary at a
+' small limit: a guard that is never reached protects nothing.
+PUBLIC FUNC chargeNode(nodes AS Integer, limit AS Integer) AS Integer
+  LET total AS Integer = nodes + 1
+  IF total > limit THEN
+    FAIL error(ErrorNodeLimit, "xml: the document holds more than " & toString(limit) & " nodes")
+  END IF
+  RETURN total
+END FUNC
+
+' ---------------------------------------------------------------------------
 ' Byte constants. Every XML delimiter is ASCII, so a byte compare is exact and
 ' never splits a multi-byte scalar.
 ' ---------------------------------------------------------------------------

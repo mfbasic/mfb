@@ -1,0 +1,272 @@
+' ---------------------------------------------------------------------------
+' Tests: the reader, accepting side — one case per row of the plan's grammar
+' table, each asserting the TREE the document must produce rather than merely
+' that it parsed. A reader that accepts the right documents and builds the
+' wrong tree passes every "does it parse" test there is.
+'
+' Trees are compared through `render`, which writes the whole tree as one
+' string: e(name{attr=value}[children]), t(text), c(comment), p(target|data).
+' Whitespace-only text nodes are rendered like any other text, because the
+' reader keeps them (the content projection, not the parser, calls them
+' layout).
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC render(n AS Node) AS String
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      out = "e(" & e.name
+      IF len(e.attributes) > 0 THEN
+        out = out & "{"
+        MUT first AS Boolean = TRUE
+        FOR EACH a IN e.attributes
+          IF NOT first THEN out = out & ","
+          out = out & a.name & "=" & a.value
+          first = FALSE
+        NEXT
+        out = out & "}"
+      END IF
+      out = out & "["
+      MUT firstKid AS Boolean = TRUE
+      FOR EACH k IN e.children
+        IF NOT firstKid THEN out = out & ","
+        out = out & render(k)
+        firstKid = FALSE
+      NEXT
+      out = out & "])"
+    CASE Text(t)
+      out = "t(" & t.text & ")"
+    CASE Comment(c)
+      out = "c(" & c.text & ")"
+    CASE ProcessingInstruction(p)
+      out = "p(" & p.target & "|" & p.data & ")"
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC renderDocument(doc AS Document) AS String
+  MUT out AS String = ""
+  MUT first AS Boolean = TRUE
+  FOR EACH n IN doc.children
+    IF NOT first THEN out = out & ","
+    out = out & render(n)
+    first = FALSE
+  NEXT
+  RETURN out
+END FUNC
+
+' The rendered tree of `text`.
+PRIVATE FUNC treeOf(text AS String) AS String
+  RETURN renderDocument(parse(text))
+END FUNC
+
+TESTING
+  TGROUP "the XML declaration"
+    TCASE "a document with no declaration parses"
+      expectString(treeOf("<a/>"), "e(a[])")
+    END TCASE
+
+    TCASE "version, encoding and standalone are accepted and not stored"
+      expectString(treeOf("<?xml version=\"1.0\"?><a/>"), "e(a[])")
+      expectString(treeOf("<?xml version=\"1.0\" encoding=\"UTF-8\"?><a/>"), "e(a[])")
+      expectString(treeOf("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?><a/>"), "e(a[])")
+      expectString(treeOf("<?xml version=\"1.0\" standalone=\"no\"?><a/>"), "e(a[])")
+      ' Single quotes are as good as double ones.
+      expectString(treeOf("<?xml version='1.0'?><a/>"), "e(a[])")
+    END TCASE
+
+    TCASE "a leading BOM is accepted before the declaration"
+      LET bom AS String = toString(toScalar(65279))
+      expectString(treeOf(bom & "<?xml version=\"1.0\"?><a/>"), "e(a[])")
+      expectString(treeOf(bom & "<a/>"), "e(a[])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "elements"
+    TCASE "a start and end tag pair, and the empty-element form"
+      expectString(treeOf("<a></a>"), "e(a[])")
+      expectString(treeOf("<a/>"), "e(a[])")
+      expectString(treeOf("<a />"), "e(a[])")
+    END TCASE
+
+    TCASE "nested elements keep document order"
+      expectString(treeOf("<a><b/><c/><b/></a>"), "e(a[e(b[]),e(c[]),e(b[])])")
+    END TCASE
+
+    TCASE "whitespace between elements is kept as a text node"
+      expectString(treeOf("<a> <b/> </a>"), "e(a[t( ),e(b[]),t( )])")
+      expectString(treeOf("<a>\n  <b/>\n</a>"), "e(a[t(\n  ),e(b[]),t(\n)])")
+    END TCASE
+
+    TCASE "whitespace outside the root element is not stored"
+      expectString(treeOf("  <a/>  "), "e(a[])")
+      expectString(treeOf("\n<a/>\n"), "e(a[])")
+    END TCASE
+
+    TCASE "a non-ASCII element name is accepted"
+      expectString(treeOf("<élément/>"), "e(élément[])")
+    END TCASE
+
+    TCASE "whitespace is allowed before the > of an end tag"
+      expectString(treeOf("<a></a >"), "e(a[])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "attributes"
+    TCASE "attributes take either quote and keep document order"
+      expectString(treeOf("<a id=\"1\" class='x'/>"), "e(a{id=1,class=x}[])")
+    END TCASE
+
+    TCASE "whitespace around an attribute's = and between attributes is allowed"
+      expectString(treeOf("<a  id = \"1\"   class=\"x\" />"), "e(a{id=1,class=x}[])")
+      expectString(treeOf("<a\n  id=\"1\"\n  class=\"x\"\n/>"), "e(a{id=1,class=x}[])")
+    END TCASE
+
+    TCASE "an attribute value may be empty"
+      expectString(treeOf("<a id=\"\"/>"), "e(a{id=}[])")
+    END TCASE
+
+    TCASE "a literal tab, line feed or space in a value normalizes to one space"
+      ' §3.3.3: every literal whitespace character becomes #x20.
+      expectString(treeOf("<a id=\"x\ty\"/>"), "e(a{id=x y}[])")
+      expectString(treeOf("<a id=\"x\ny\"/>"), "e(a{id=x y}[])")
+      ' A CR is already an LF by §2.11, and then a space by §3.3.3.
+      expectString(treeOf("<a id=\"x\ry\"/>"), "e(a{id=x y}[])")
+    END TCASE
+
+    TCASE "a character reference in a value is NOT whitespace-normalized"
+      ' This is the whole point of writing one: &#10; survives as a line feed.
+      expectString(treeOf("<a id=\"x&#10;y\"/>"), "e(a{id=x\ny}[])")
+      expectString(treeOf("<a id=\"x&#9;y\"/>"), "e(a{id=x\ty}[])")
+    END TCASE
+
+    TCASE "the five named entities expand in a value"
+      expectString(treeOf("<a id=\"&lt;&gt;&amp;&apos;&quot;\"/>"), "e(a{id=<>&'\"}[])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "character data and references"
+    TCASE "text becomes one text node"
+      expectString(treeOf("<a>hello</a>"), "e(a[t(hello)])")
+    END TCASE
+
+    TCASE "a reference splits no text: the runs around it merge"
+      expectString(treeOf("<a>x&amp;y</a>"), "e(a[t(x&y)])")
+      expectString(treeOf("<a>&lt;tag&gt;</a>"), "e(a[t(<tag>)])")
+    END TCASE
+
+    TCASE "decimal and hexadecimal character references expand"
+      expectString(treeOf("<a>&#65;&#x42;&#x43;</a>"), "e(a[t(ABC)])")
+      ' Above the BMP: U+10348.
+      expectString(treeOf("<a>&#x10348;</a>"), "e(a[t(𐍈)])")
+    END TCASE
+
+    TCASE "a lone ] or ]] is ordinary character data"
+      expectString(treeOf("<a>]</a>"), "e(a[t(])])")
+      expectString(treeOf("<a>a]]b</a>"), "e(a[t(a]]b)])")
+    END TCASE
+
+    TCASE "CRLF and a lone CR in text both become one LF"
+      expectString(treeOf("<a>x\r\ny</a>"), "e(a[t(x\ny)])")
+      expectString(treeOf("<a>x\ry</a>"), "e(a[t(x\ny)])")
+    END TCASE
+
+    TCASE "text around a child element stays in document order"
+      expectString(treeOf("<p>Hello <b>x</b> there</p>"), "e(p[t(Hello ),e(b[t(x)]),t( there)])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "CDATA"
+    TCASE "a CDATA section merges into the text around it"
+      expectString(treeOf("<a><![CDATA[x<y&z]]></a>"), "e(a[t(x<y&z)])")
+      expectString(treeOf("<a>before<![CDATA[ mid ]]>after</a>"), "e(a[t(before mid after)])")
+    END TCASE
+
+    TCASE "an empty CDATA section contributes nothing"
+      expectString(treeOf("<a><![CDATA[]]></a>"), "e(a[])")
+    END TCASE
+
+    TCASE "markup inside CDATA is text, not markup"
+      expectString(treeOf("<a><![CDATA[<b/>]]></a>"), "e(a[t(<b/>)])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "comments and processing instructions"
+    TCASE "a comment is kept in the tree"
+      expectString(treeOf("<a><!-- note --></a>"), "e(a[c( note )])")
+      expectString(treeOf("<a><!----></a>"), "e(a[c()])")
+    END TCASE
+
+    TCASE "a processing instruction keeps its target and data"
+      expectString(treeOf("<a><?target data?></a>"), "e(a[p(target|data)])")
+      expectString(treeOf("<a><?target?></a>"), "e(a[p(target|)])")
+      ' The whitespace after the target is a separator, not data.
+      expectString(treeOf("<a><?target   x  ?></a>"), "e(a[p(target|x  )])")
+    END TCASE
+
+    TCASE "comments and PIs are allowed before and after the root element"
+      expectString(treeOf("<!--before--><a/><!--after-->"), "c(before),e(a[]),c(after)")
+      expectString(treeOf("<?pi one?><a/><?pi two?>"), "p(pi|one),e(a[]),p(pi|two)")
+    END TCASE
+
+    TCASE "a comment between two text runs splits them into separate nodes"
+      ' The parser keeps them apart; merging them is the content projection's
+      ' job, not the reader's.
+      expectString(treeOf("<a>x<!--c-->y</a>"), "e(a[t(x),c(c),t(y)])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "namespace prefixes"
+    TCASE "a declared prefix is accepted and the name keeps it verbatim"
+      expectString(treeOf("<p:a xmlns:p=\"urn:x\"/>"), "e(p:a{xmlns:p=urn:x}[])")
+      expectString(treeOf("<p:a xmlns:p=\"urn:x\"><p:b/></p:a>"), "e(p:a{xmlns:p=urn:x}[e(p:b[])])")
+    END TCASE
+
+    TCASE "a declaration is in scope for descendants"
+      expectString(treeOf("<a xmlns:p=\"urn:x\"><p:b p:c=\"1\"/></a>"), "e(a{xmlns:p=urn:x}[e(p:b{p:c=1}[])])")
+    END TCASE
+
+    TCASE "the default namespace is an ordinary attribute, and may be undeclared"
+      expectString(treeOf("<a xmlns=\"urn:x\"/>"), "e(a{xmlns=urn:x}[])")
+      expectString(treeOf("<a xmlns=\"urn:x\"><b xmlns=\"\"/></a>"), "e(a{xmlns=urn:x}[e(b{xmlns=}[])])")
+    END TCASE
+
+    TCASE "the xml prefix is bound everywhere without a declaration"
+      expectString(treeOf("<a xml:lang=\"en\"/>"), "e(a{xml:lang=en}[])")
+      expectString(treeOf("<a xml:space=\"preserve\"/>"), "e(a{xml:space=preserve}[])")
+    END TCASE
+
+    TCASE "the same prefix may be rebound on an inner element"
+      expectString(treeOf("<p:a xmlns:p=\"urn:x\"><p:b xmlns:p=\"urn:y\"/></p:a>"), "e(p:a{xmlns:p=urn:x}[e(p:b{xmlns:p=urn:y}[])])")
+    END TCASE
+
+    TCASE "two attributes with the same local name but different URIs are fine"
+      expectString(treeOf("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:y\" p:id=\"1\" q:id=\"2\"/>"), "e(a{xmlns:p=urn:x,xmlns:q=urn:y,p:id=1,q:id=2}[])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "realistic documents"
+    TCASE "an element-only document with layout whitespace keeps every text node"
+      LET xml AS String = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed>\n  <entry id=\"1\">first</entry>\n  <entry id=\"2\">second</entry>\n</feed>\n"
+      expectString(treeOf(xml), "e(feed[t(\n  ),e(entry{id=1}[t(first)]),t(\n  ),e(entry{id=2}[t(second)]),t(\n)])")
+    END TCASE
+
+    TCASE "a whitespace-only element keeps its text, since it may be data"
+      expectString(treeOf("<a>   </a>"), "e(a[t(   )])")
+    END TCASE
+
+    TCASE "deep nesting inside the depth limit parses"
+      MUT xml AS String = ""
+      FOR i = 1 TO 200
+        xml = xml & "<d>"
+      NEXT
+      FOR i = 1 TO 200
+        xml = xml & "</d>"
+      NEXT
+      expectNTrap(parse(xml))
+    END TCASE
+  END TGROUP
+END TESTING
