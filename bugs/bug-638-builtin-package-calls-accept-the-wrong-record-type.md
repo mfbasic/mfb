@@ -1,4 +1,4 @@
-# bug-629: a built-in package member accepts an argument of the wrong record type (`datetime::toMillis(DateTime)` compiles and returns garbage)
+# bug-638: a built-in package member accepts an argument of the wrong record type (`datetime::toMillis(DateTime)` compiles and returns garbage)
 
 Last updated: 2026-09-14
 Effort: medium

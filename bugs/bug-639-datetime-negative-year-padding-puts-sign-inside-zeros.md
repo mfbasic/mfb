@@ -1,4 +1,4 @@
-# bug-632: `datetime::format` `yyyy` and `datetime::toIso` zero-pad a negative year with the sign inside the zeros (`00-1`)
+# bug-639: `datetime::format` `yyyy` and `datetime::toIso` zero-pad a negative year with the sign inside the zeros (`00-1`)
 
 Last updated: 2026-09-15
 Effort: small

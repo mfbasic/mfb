@@ -463,8 +463,8 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       Rejected in round three: withZone #1, the "input is unchanged" class;
       nowNanos's suggestion to "use `datetime::now` for the full range" (applied
       without it, since `now` is built from `nowNanos` and shares its limit).
-      Bugs filed in round three: bug-633, `nowNanos`/`now` wrap negative after 2262
-      on macOS and Linux (unchecked multiply); bug-632, a negative year pads with the
+      Bugs filed in round three: bug-640, `nowNanos`/`now` wrap negative after 2262
+      on macOS and Linux (unchecked multiply); bug-639, a negative year pads with the
       sign inside the zeros (`00-1`) in `format` `yyyy` and `toIso`.
       Documented as-is, not filed: parse leniency (`yy` takes one digit, `EEE` takes
       zero letters, `parseIso` takes a bare `.`); `toIso` years outside 0..9999 do not
@@ -488,7 +488,7 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       DST gap starts at midnight returns `01:00` (Havana, 2026-03-08); the "OS
       intrinsic" wording is removed from `withZone` too; the signed-comparison
       sentence is fixed on all four comparison pages.
-      Probing found bug-629: a built-in member accepts an argument of the wrong
+      Probing found bug-638: a built-in member accepts an argument of the wrong
       record type, e.g. `toMillis(DateTime)` compiles and returns garbage. Also
       as-is and documented, not filed: records built directly are not validated;
       `compare`/`equals` read stored fields; `daysInMonth` returns 31 for any
@@ -605,7 +605,7 @@ row in `planning/plan-125-belongs-in-spec.md` (rows 28–43).
 | monotonicNanos | 1 | CONFIRMED (scope cut) | "OS-seam intrinsic" is lowering vocabulary | reworded (row 37) |
 | negate | 1 | CONFIRMED | `dtneg`: `negate(d)` equals `minus(duration(0), d)` for (0, 1), (90, 0), (−5, 250000), (0, 0); `dtrest`: `negate` of the most negative seconds → `ErrOverflow` | `zero` → `datetime::duration(0)`; "traps" → `ErrOverflow` |
 | now | 1 | CONFIRMED | the clock lowering reads `CLOCK_REALTIME` (a host clock adjustment is not probeable) | clock-adjustment sentence and `monotonic` pointer |
-| nowNanos | 1 | CONFIRMED in part → **bug-633** | `gen_shared.rs:112-121` multiplies and adds unchecked; `errors: vec![]`. The suggestion to use `now` for the full range is REJECTED: `now` is built from `nowNanos` | DESC: wraps negative after 2262 on macOS and Linux; `now` shares the limit |
+| nowNanos | 1 | CONFIRMED in part → **bug-640** | `gen_shared.rs:112-121` multiplies and adds unchecked; `errors: vec![]`. The suggestion to use `now` for the full range is REJECTED: `now` is built from `nowNanos` | DESC: wraps negative after 2262 on macOS and Linux; `now` shares the limit |
 | offsetAt | 1 | CONFIRMED (scope cut) | `dtoff`: a raw `Zone[0, 2, "raw"]` → `-14400` | "internally zone kind `2`" cut (row 38) |
 | offsetAt | 2 | CONFIRMED (scope cut) | `dtoff`: UTC and `fixedOffset(5, 30)` at `Integer` max → `0`, `19800`, no error | stored-offset wording cut (row 39) |
 | offsetAt | 3 | CONFIRMED (scope cut) | `dtoff`: raw `Instant[1772953199, 1_000_000_000]` → `-18000`, so `nanos` is ignored | "OS intrinsic" reworded (row 35) |
@@ -645,10 +645,10 @@ row in `planning/plan-125-belongs-in-spec.md` (rows 28–43).
 | withZone | 2, 3 | CONFIRMED | `dtlast`: a local zone at 7×10^16 → `77050002`; `Integer` max into `+01:00` → `77050010` | errors paragraph |
 
 Found while probing, not raised by a reviewer:
-- **bug-629**: a built-in member accepts an argument of the wrong record type.
+- **bug-638**: a built-in member accepts an argument of the wrong record type.
   `toMillis(DateTime)` compiles and returns `32000`; a user function with the same
   signature is rejected (`dtconfuse`, `dtconfuse2`).
-- **bug-632**: a negative year pads with the sign inside the zeros (`00-1`) in
+- **bug-639**: a negative year pads with the sign inside the zeros (`00-1`) in
   `format` `yyyy` and `toIso` (`dtnegyear`); the `toIso` page documents it as-is.
 - `startOfDay`'s midnight-gap sentence was added from `dthavana` before that page's
   own review, which then confirmed it.
@@ -669,8 +669,8 @@ Measured at the closing commit:
   example (`dtoverview`);
 - all 46 units render with exit 0 and none of the retired phrasings.
 
-Bugs filed from this phase: bug-629 (wrong record type accepted), bug-633
-(`nowNanos` wraps after 2262), bug-632 (negative-year padding).
+Bugs filed from this phase: bug-638 (wrong record type accepted), bug-640
+(`nowNanos` wraps after 2262), bug-639 (negative-year padding).
 Belongs-in-spec rows appended: 28–43 from this phase; rows 44 and 45 back-fill
 Phase 2's `utf8Decode` and `punycodeEncode` scope cuts.
 Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)

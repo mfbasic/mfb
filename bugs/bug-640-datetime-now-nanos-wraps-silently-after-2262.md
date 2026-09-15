@@ -1,4 +1,4 @@
-# bug-633: `datetime::nowNanos` / `datetime::now` wrap to a negative reading after 2262 instead of raising
+# bug-640: `datetime::nowNanos` / `datetime::now` wrap to a negative reading after 2262 instead of raising
 
 Last updated: 2026-09-15
 Effort: small
