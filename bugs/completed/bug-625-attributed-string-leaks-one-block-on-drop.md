@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1); tests/runtime/rt_debug_soak.rs (`a_paint_loop_keeps_live_bytes_constant`, plan-133-A)
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs (AttributedString shapes, defaulted record, native EC and software-curve generate loops)
+
+> **STATUS: FIXED (fb262ea48)** — `astrings::fromString` frees the empty spans list it byte-copies into the record. **Additions from the `emit_build_inlined_record` audit:** (B) a defaulted record frees its inlined default field blocks; (C) the native EC `crypto::generate` paths free the key lists they copy into `KeyPair`; (D) `crypto::randomBytes` releases its entropy scratch buffer (it leaked n bytes per call); (E) the Linux OpenSSL generate path frees its SEC1/SPKI/raw scratch; (F) the Windows CNG path frees its export blob and raw scratch. All flat at N and 2N; generate_ec/soft and randomBytes flat on linux-aarch64, linux-x86_64 and windows-x86_64, and generated keys sign and verify on all three. The rows name `rt_debug_soak.rs`, not `rt_scope_drop_leaks.rs` (whose helpers measure RSS); `a_paint_loop_keeps_live_bytes_constant` passes under its 1 MiB bound and is a guard, not the gate.
 
 Every `AttributedString` built by `astrings::fromString` leaves one 48-byte block live after
 the value is dropped. The block is the empty `spans` list the constructor builds and copies
@@ -127,30 +129,30 @@ separate block.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: the three shapes above, plus a value with an attribute, N vs 2N;
+- [x] `rt_scope_drop_leaks.rs`: the three shapes above, plus a value with an attribute, N vs 2N;
       confirm each fails.
-- [ ] Confirm the Root Cause by measurement (a throwaway free of the list in
+- [x] Confirm the Root Cause by measurement (a throwaway free of the list in
       `lower_astrings_from_string` makes `as2_single` flat), and give each of the 11
       `emit_build_inlined_record` call sites a verdict.
 
 Acceptance: the cases fail for the documented reason; the audit list has a verdict per site.
-Commit: —
+Commit: 461a20569
 
 ### Phase 2 — the fix
 
-- [ ] Free the source `spans` list in `lower_astrings_from_string`, and in any audited sibling
+- [x] Free the source `spans` list in `lower_astrings_from_string`, and in any audited sibling
       builder found to leak the same way.
 
 Acceptance: Phase 1 cases flat; `double_free_skips 0`; `astrings` suites green.
-Commit: —
+Commit: fb262ea48, fc4ebe68a, cdca2775c, 95f8d6659
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`; plan-133-A paint stage
+- [x] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`; plan-133-A paint stage
       re-run.
 
 Acceptance: full suite green; the paint stage's remainder drops to 0.
-Commit: —
+Commit: 2b3326107
 
 ## Validation Plan
 

@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (resource lifetime)
 
-Status: Open
+Status: Fixed
 Regression Test: tests/runtime/rt_debug_soak.rs (`a_resource_not_returned_on_a_sibling_path_is_still_closed`)
+
+> **STATUS: FIXED (a481a3535)** — `emit_return_exit` saves and restores the cleanup list around every `RETURN <local>`, so the returned local is retired only on the path that returns it; the sibling path, loop body, TRAP routes and normal exit still close it. 600 calls under a 128-descriptor limit exit 0 with `ok=600`, flat `live_bytes`, `double_free_skips 0`; nested-IF, RETURN-in-FOR and TRAP-handler shapes probed. Audit: `EXIT`/`CONTINUE`/TRAP routing copy the list and `EXIT SUB` retires nothing. Folded into bug-623's integration branch; implemented by a subagent, reviewed on the main thread.
 
 A function that owns two resources and returns one of them on each of two paths closes only
 one of them. The resource that the fall-through path does not return is never closed, so
@@ -105,26 +107,26 @@ is retired only on the path that returns it.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `a_resource_not_returned_on_a_sibling_path_is_still_closed` (setrlimit 128 + flat
+- [x] `a_resource_not_returned_on_a_sibling_path_is_still_closed` (setrlimit 128 + flat
       `live_bytes`); confirm RED.
-- [ ] Audit every cleanup-removing exit.
+- [x] Audit every cleanup-removing exit.
 
 Acceptance: RED for the documented reason; audit verdicts recorded.
-Commit: —
+Commit: dcfc9b73a
 
 ### Phase 2 — the fix
 
-- [ ] Path-local cleanup removal for concrete returns (and any audited sibling exit).
+- [x] Path-local cleanup removal for concrete returns (and any audited sibling exit).
 
 Acceptance: the test passes; the bug-623 soak cases and resource neighbours stay green.
-Commit: —
+Commit: a481a3535
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate shifted codegen goldens (inspect the delta); full suite.
+- [x] Regenerate shifted codegen goldens (inspect the delta); full suite.
 
 Acceptance: full suite green; golden deltas are only the restored closes.
-Commit: —
+Commit: 2b3326107
 
 ## Validation Plan
 

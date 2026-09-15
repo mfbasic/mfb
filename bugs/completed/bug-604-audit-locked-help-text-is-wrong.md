@@ -5,8 +5,10 @@ Effort: small (<1h)
 Severity: LOW
 Class: Documentation (CLI help text)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: src/cli/help.rs (`cli::help::tests::audit_help_describes_locked_as_the_lockfile_gate`)
+
+> **STATUS: FIXED (f03beaa31)** — `mfb audit --help` now says `--locked  Treat a missing or stale mfb.lock as an error, not a warning`, and no help text names `project.lock`. The RED test (a content assertion on `AUDIT_HELP`) and the one-line fix landed in one commit; RED at `9b5e5b55f`, GREEN after. No deviation from the documented fix.
 
 `mfb audit --help` says:
 
@@ -65,10 +67,10 @@ Nothing tests the help text against the option's behavior.
 ## Fix
 
 Phase 1 — a test that `AUDIT_HELP` contains `mfb.lock` and not `project.lock` (RED).
-Commit:
+Commit: f03beaa31
 
 Phase 2 — correct the `--locked` line in `src/cli/help.rs:AUDIT_HELP` (GREEN); run
-the `cli` tests. Commit:
+the `cli` tests. Commit: f03beaa31
 
 ## Phase 1 findings (fix-bug, 2026-09-15)
 

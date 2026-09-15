@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/cli (to add, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_package_private_type_collision.rs
+
+> **STATUS: FIXED (fd91e164b)** — A package's private types are scoped by identity at merge (`ir::package::scope_private_types` renames each referenced private type to `#<package id>$<name>` and rewrites every reference; exported surface, builtin types and unreferenced declarations keep their names), so a program type of the same name no longer collides — flat, recursive and swapped shapes, source and `.mfp` forms. **Addition (sub-issue B):** a package whose exported declaration names a non-exported type now fails its own build with `2-203-0139 EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, instead of building a `.mfp` every importer rejected (`ir::shape::export_names_non_exported_type_diagnostics`). Private ENUMs collided too and are covered. Implemented by subagents; reviewed and applied on the main thread.
 
 A program that declares a `TYPE` whose name matches a **private** (non-`EXPORT`) type inside a
 package it imports fails to build. The package's own code is checked against the program's
@@ -112,26 +114,26 @@ so lookups from package code and program code can never see each other's private
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] A CLI test building the repro (source package), and the `.mfp` form; confirm both fail.
-- [ ] Locate where private type names enter the program's type table; record it here.
+- [x] A CLI test building the repro (source package), and the `.mfp` form; confirm both fail.
+- [x] Locate where private type names enter the program's type table; record it here.
 
 Acceptance: tests fail for the documented reason; root cause cited.
-Commit: —
+Commit: ca58e41bb, e79c55430
 
 ### Phase 2 — the fix
 
-- [ ] Package-scoped private type names at merge.
+- [x] Package-scoped private type names at merge.
 
 Acceptance: Phase 1 tests pass.
-Commit: —
+Commit: fd91e164b, 6a6c68484, ca6fcf06e
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate any `.mfp`/IR goldens whose private type names change; full suite;
+- [x] Regenerate any `.mfp`/IR goldens whose private type names change; full suite;
       `scripts/test-accept.sh`.
 
 Acceptance: full suite green; golden deltas are only private-name qualification.
-Commit: —
+Commit: 9318db53b (no golden shifted; artifact-gate all 0 diffs; full suite green)
 
 ## Validation Plan
 

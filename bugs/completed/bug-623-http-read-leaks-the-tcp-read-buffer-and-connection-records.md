@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs (tcp/udp/tls/http live_bytes loops, union and passthrough ownership, transferred-socket and sibling-RETURN cases); tests/codegen/codegen_helper_scratch_release.rs
+
+> **STATUS: FIXED (29a902e03)** — `tcp::read` and the OpenSSL / Schannel `tls::read` free their read buffers on every exit; tcp/udp/tls socket and listener records are freed by the OWNING binding's drop (`resource/cleanup/record_ownership.rs`, fail-safe: unproven ownership closes and leaks, never double-frees); the macOS TLS ctx/lctx live on the C heap and are freed at close; Schannel frees STATE/WORK/OUTBUF and, on connect, the 64 KiB server name and the failure-path STATE/record/handles. Every soak case is flat at N and 2N with `double_free_skips 0`; udp/tcp flat on linux-aarch64, linux-x86_64 and windows-x86_64; Schannel failed connect flat on windows-x86_64. **Deviations and additions:** (B) the first fix double-freed a record returned through a `RES` parameter — fixed by the ownership pass, which also moves a returned union's box instead of copying it (the 112 B `http::read` residual); (C) Schannel connect leaks found by a Windows remote proof; the resource-union alias class (a union wrapping a live local closed the owner's handle — a use-after-free once records were freed) fixed in `38e620ddb`; (D) a transferred `tls::Socket` leaked 416 B — the sender's tombstone record is now freed at its drop and the TLS ctx moved to the C heap; the sibling-`RETURN` close leak (bug-632) fixed in `a481a3535`. The earlier `CTX_PEND_BUF` cross-arena finding was withdrawn: a cross-arena free is sound by design (`.ai/canvas-threading.md` §2). Spec synced (`memory/04_arenas.md`, `03_heap-values.md`). Still open, filed separately: bug-633–637 (union variant helper declaration, TRAP-bound resource leak, STATE union, owned union list drain, queued transfer copy).
 
 Repeated `http::read` calls grow the arena. Over plain HTTP each call leaks ≈62 KB; over
 HTTPS ≈384 B. A long-running client (a crawler, a poller, the browser example following links)
@@ -105,28 +107,28 @@ exactly once, zeroing the handle slot.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: loopback `tcp` server + `tcp::read` loop; `http::read` over
+- [x] `rt_scope_drop_leaks.rs`: loopback `tcp` server + `tcp::read` loop; `http::read` over
       loopback; `tcp`/`tls` connect-close loops. Confirm each fails; confirm hypothesis 1 with
       the throwaway read-size change.
-- [ ] Audit udp socket records and the poll list.
+- [x] Audit udp socket records and the poll list.
 
 Acceptance: cases fail for the documented reason; hypotheses confirmed or replaced.
-Commit: —
+Commit: 461a20569, 87ab9cc5c, 3fda5ee87, 3434d3a80
 
 ### Phase 2 — the fix
 
-- [ ] Buffer free in `lower_net_read_helper`; record frees in the close paths.
+- [x] Buffer free in `lower_net_read_helper`; record frees in the close paths.
 
 Acceptance: Phase 1 cases flat; net suites green.
-Commit: —
+Commit: 29a902e03, d8003a394, 42a7b2374, 38e620ddb, a9a14985e, a481a3535, 24a5b20d2
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`; Linux box run of the
+- [x] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`; Linux box run of the
       loopback case.
 
 Acceptance: full suite green; the loops flat on macOS and Linux.
-Commit: —
+Commit: ac41ac77d, 2b3326107, 9318db53b
 
 ## Validation Plan
 

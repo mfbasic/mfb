@@ -5,8 +5,10 @@ Effort: small–medium
 Severity: MED
 Class: Correctness (registry error declaration) / Documentation
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: src/codegen/builtins/udp/mod.rs and src/codegen/builtins/net/mod.rs (`members_declare_the_errors_they_raise`)
+
+> **STATUS: FIXED (883bec900)** — Every `udp` form and every `net` member declares the errors its lowering raises (per-form raise-site audit; lists spelled as `tcp`'s descriptors for the same helpers); `mfb man udp receive` / `udp poll` / `net toUrl` / `net ping` render Errors tables. **Deviations:** (1) the Blast-radius audit widened the fix to `net` (`percentDecode`, `toUrl`, `lookup`, `ping`; `parseQuery` correctly stays empty — its helper RECOVERs); a runtime probe trapped 77050003 from `percentDecode`/`toUrl` and 77050007 from `toUrl`. (2) Phase 1's Errors-table render test and loopback `ErrTimeout` inline-TRAP test were not added: the declared-errors unit tests pin exactly the lists the man renderer reads, and the fallibility concern did not apply — `udp`/`net` members are `abi_function` bodies, not `AbiInline`, so the inline-TRAP census never read their `errors`, and a measured `udp::receive` TRAP handler already ran, so a TRAP test could not have been RED.
 
 Nine `udp` forms register `errors: vec![]`: `bind`, `receive`, `localAddress`,
 both `send` forms, both `poll` forms, `setReadTimeout`, `setWriteTimeout`
@@ -71,10 +73,10 @@ against the errors its lowering raises.
 ## Fix
 
 Phase 1 — per-form raise-site audit; RED tests: the Errors-table presence for
-each form, and the loopback `ErrTimeout` inline-TRAP repro. Commit:
+each form, and the loopback `ErrTimeout` inline-TRAP repro. Commit: 883bec900
 
 Phase 2 — declare the audited errors on each descriptor (GREEN); check goldens
-that carry error lists; full suite. Commit:
+that carry error lists; full suite. Commit: 883bec900
 
 ## Phase 1 findings (fix-bug, 2026-09-15)
 
