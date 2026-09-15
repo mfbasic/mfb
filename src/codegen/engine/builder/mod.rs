@@ -674,6 +674,10 @@ pub(crate) struct LoopLabels {
     pub(crate) continue_label: String,
     pub(crate) exit_label: String,
     pub(crate) cleanup_depth: usize,
+    /// `pending_temp_frees.len()` when the body starts. An `EXIT`/`CONTINUE` jumps past the
+    /// statement-end drop of every statement it leaves inside the body — an `IF` whose
+    /// condition made a temp — so it frees the pending temps above this depth (bug-620).
+    pub(crate) temp_depth: usize,
 }
 
 #[derive(Clone)]
