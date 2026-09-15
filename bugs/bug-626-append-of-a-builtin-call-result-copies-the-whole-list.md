@@ -84,6 +84,28 @@ Confirmed by reading the code:
 
 The bound form is immune because `NirValue::Local` resolves through `self.locals`.
 
+Re-measured at `af7d9b778` (`/tmp/b626/run626.sh`, `--debug` release builds): `nest` 100 → 200
+`alloc_bytes` 26,687,264 → 104,174,464 (×3.90), `str` (`fs::readText` into `List OF String`)
+26,471,264 → 103,342,464 (×3.90), `bound` 2,386,832 → 5,401,056 (×2.26).
+
+### Phase 1 audit
+
+- **Gates.** `static_item_type` has 15 callers (`grep -rn "static_item_type(" src/codegen`), all
+  in-place recognisers (`builder_inplace_assign.rs` ×14, `builder_control.rs` bulk append ×1).
+  Every one only compares the answer for EQUALITY with the element, key or collection type
+  and declines otherwise, and each arm re-checks the lowered `type_` as a hard `Err`. A
+  wider answer can therefore only admit an operand whose type genuinely matches: each gate is
+  **safe to widen**, the single-element / bulk split included (a `List OF T` result still
+  differs from `T`).
+- **Aliasing.** A widened gate lowers the operand with `lower_value_stored`. No `Call`,
+  `CallResult` or `RuntimeCall` is an aliasing source (`value_is_aliasing_source`), and user
+  and package function calls already reach these arms through the return-type lookup, so a
+  builtin result adds no new ownership case.
+- **Untyped builtins.** Every builtin not in `static_type_name`'s table was untyped here (the
+  whole `fs`, `strings`, `collections`, `json`, … surface). The registry resolver
+  `builtins::resolve_call_return_type_typed` types all of them, and `static_type_name_for_fold`
+  and `overload_arg_type` already use it.
+
 ## Goal
 
 - `append(keep, fs::readText(…))` and `append(keep, fs::readBytes(…))` into same-function

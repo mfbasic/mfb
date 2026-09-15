@@ -635,12 +635,20 @@ name = "rt_big_int"
 path = "tests/runtime/rt_big_int.rs"
 
 [[test]]
+name = "rt_inplace_append_builtin_call"
+path = "tests/runtime/rt_inplace_append_builtin_call.rs"
+
+[[test]]
 name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
 
 [[test]]
 name = "rt_list_append_growth_bounds"
 path = "tests/runtime/rt_list_append_growth_bounds.rs"
+
+[[test]]
+name = "rt_list_set_widening_linear"
+path = "tests/runtime/rt_list_set_widening_linear.rs"
 
 [[test]]
 name = "rt_native_float_pow_operator_runtime"

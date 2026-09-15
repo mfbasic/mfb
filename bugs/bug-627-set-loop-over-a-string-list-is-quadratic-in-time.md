@@ -61,7 +61,27 @@ END FUNC
 
 ## Root Cause
 
-Not found. What was checked:
+**Hypothesis 1, confirmed.** `lower_list_set_in_place`
+(`src/codegen/collection/list/list_mutate.rs`) writes a replacement of a different length
+where the old payload lies (plan-121-F): it shifts every data byte after the old span
+(`emit_block_copy_backward`, `set_inplace_widen`) and then walks the whole entry table moving
+each offset past it (`emit_offset_expansion_fixup`, `set_inplace_widenfix`). Both are O(N) per
+write, so widening each element of an N-element list front to back is O(N²).
+
+Measured at `af7d9b778` with normal (not `--debug`) release builds (`/tmp/b626/run627.sh`),
+wall seconds:
+
+| Loop body | N = 25,000 | 50,000 | 100,000 |
+|---|---:|---:|---:|
+| `set` of a 39–43-byte string over `"x"` (widening) | 0.58 | 1.81 | 6.69 |
+| `set` of `"y"` over `"x"` (same size) | — | 0.16 | 0.18 |
+| the same string built, no `set` | — | 0.23 | 0.17 |
+
+The same-size and no-`set` loops are flat, which rules out hypotheses 3 (the concatenation)
+and 4 (`--debug`). Hypothesis 2 is ruled out by allocation growing only ×2 with N: the
+copying path would allocate a whole list per write.
+
+What was checked first:
 
 - `try_inplace_set_assign` (`src/codegen/collection/assign/builder_inplace_assign.rs`)
   requires a non-`by_ref` local, a three-argument `set` whose first argument is that local,
