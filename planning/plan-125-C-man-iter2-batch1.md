@@ -463,7 +463,7 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       Rejected in round three: withZone #1, the "input is unchanged" class;
       nowNanos's suggestion to "use `datetime::now` for the full range" (applied
       without it, since `now` is built from `nowNanos` and shares its limit).
-      Bugs filed in round three: bug-631, `nowNanos`/`now` wrap negative after 2262
+      Bugs filed in round three: bug-633, `nowNanos`/`now` wrap negative after 2262
       on macOS and Linux (unchecked multiply); bug-632, a negative year pads with the
       sign inside the zeros (`00-1`) in `format` `yyyy` and `toIso`.
       Documented as-is, not filed: parse leniency (`yy` takes one digit, `EEE` takes
@@ -605,7 +605,7 @@ row in `planning/plan-125-belongs-in-spec.md` (rows 28–43).
 | monotonicNanos | 1 | CONFIRMED (scope cut) | "OS-seam intrinsic" is lowering vocabulary | reworded (row 37) |
 | negate | 1 | CONFIRMED | `dtneg`: `negate(d)` equals `minus(duration(0), d)` for (0, 1), (90, 0), (−5, 250000), (0, 0); `dtrest`: `negate` of the most negative seconds → `ErrOverflow` | `zero` → `datetime::duration(0)`; "traps" → `ErrOverflow` |
 | now | 1 | CONFIRMED | the clock lowering reads `CLOCK_REALTIME` (a host clock adjustment is not probeable) | clock-adjustment sentence and `monotonic` pointer |
-| nowNanos | 1 | CONFIRMED in part → **bug-631** | `gen_shared.rs:112-121` multiplies and adds unchecked; `errors: vec![]`. The suggestion to use `now` for the full range is REJECTED: `now` is built from `nowNanos` | DESC: wraps negative after 2262 on macOS and Linux; `now` shares the limit |
+| nowNanos | 1 | CONFIRMED in part → **bug-633** | `gen_shared.rs:112-121` multiplies and adds unchecked; `errors: vec![]`. The suggestion to use `now` for the full range is REJECTED: `now` is built from `nowNanos` | DESC: wraps negative after 2262 on macOS and Linux; `now` shares the limit |
 | offsetAt | 1 | CONFIRMED (scope cut) | `dtoff`: a raw `Zone[0, 2, "raw"]` → `-14400` | "internally zone kind `2`" cut (row 38) |
 | offsetAt | 2 | CONFIRMED (scope cut) | `dtoff`: UTC and `fixedOffset(5, 30)` at `Integer` max → `0`, `19800`, no error | stored-offset wording cut (row 39) |
 | offsetAt | 3 | CONFIRMED (scope cut) | `dtoff`: raw `Instant[1772953199, 1_000_000_000]` → `-18000`, so `nanos` is ignored | "OS intrinsic" reworded (row 35) |
@@ -669,7 +669,7 @@ Measured at the closing commit:
   example (`dtoverview`);
 - all 46 units render with exit 0 and none of the retired phrasings.
 
-Bugs filed from this phase: bug-629 (wrong record type accepted), bug-631
+Bugs filed from this phase: bug-629 (wrong record type accepted), bug-633
 (`nowNanos` wraps after 2262), bug-632 (negative-year padding).
 Belongs-in-spec rows appended: 28–43 from this phase; rows 44 and 45 back-fill
 Phase 2's `utf8Decode` and `punycodeEncode` scope cuts.
