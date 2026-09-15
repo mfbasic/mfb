@@ -729,7 +729,11 @@ impl CodeBuilder<'_> {
             .pending_temp_frees
             .split_off(watermark.min(self.pending_temp_frees.len()));
         let enclosing = self.pending_temp_frees.clone();
-        for temp in interior.into_iter().rev().chain(enclosing.into_iter().rev()) {
+        for temp in interior
+            .into_iter()
+            .rev()
+            .chain(enclosing.into_iter().rev())
+        {
             let kept = match parked {
                 Some(escaping_slot) => {
                     let kept = self.label("return_temp_escaped");

@@ -1799,7 +1799,11 @@ impl CodeBuilder<'_> {
             return Ok(condition.location);
         }
         let slot = self.allocate_stack_object("loop_condition", 8);
-        self.emit(abi::store_u64(&condition.location, abi::stack_pointer(), slot));
+        self.emit(abi::store_u64(
+            &condition.location,
+            abi::stack_pointer(),
+            slot,
+        ));
         self.drop_pending_temps_to(watermark)?;
         let reloaded = self.allocate_register();
         self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));

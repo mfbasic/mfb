@@ -6384,15 +6384,24 @@ END SUB\n"
 fn assert_condition_temps_freed(name: &str, function: &str, call: &str, per_call: i64) {
     let (out_small, live_small, skips_small) = condition_temp_report(name, function, call, 1000);
     let (out_large, live_large, skips_large) = condition_temp_report(name, function, call, 2000);
-    assert_eq!(out_small, format!("total={}", per_call * 1000), "{name}: wrong value");
-    assert_eq!(out_large, format!("total={}", per_call * 2000), "{name}: wrong value");
+    assert_eq!(
+        out_small,
+        format!("total={}", per_call * 1000),
+        "{name}: wrong value"
+    );
+    assert_eq!(
+        out_large,
+        format!("total={}", per_call * 2000),
+        "{name}: wrong value"
+    );
     assert_eq!(
         (skips_small, skips_large),
         (0, 0),
         "{name}: the arena skipped a double free"
     );
     assert_eq!(
-        live_small, live_large,
+        live_small,
+        live_large,
         "{name}: main-arena live_bytes grew {} B between 1000 and 2000 calls — a condition \
          temp is not freed on some path out of its statement",
         live_large.saturating_sub(live_small)

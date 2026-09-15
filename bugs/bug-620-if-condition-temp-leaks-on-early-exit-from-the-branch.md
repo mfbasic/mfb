@@ -159,7 +159,7 @@ body may read the temp's contents in future shapes.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: the repro, `r7_block`, `ct_close`, and `EXIT FOR` / `CONTINUE`
+- [x] `rt_scope_drop_leaks.rs`: the repro, `r7_block`, `ct_close`, and `EXIT FOR` / `CONTINUE`
       / `ELSEIF` / `MATCH` variants, each N vs 2N on `live_bytes`; confirm each fails.
 - [x] Found while fixing: `RETURN` from a `FOR EACH` over a fresh collection leaks the collection;
       cases `a_return_from_a_for_each_frees_its_fresh_collection` and
@@ -171,19 +171,20 @@ body may read the temp's contents in future shapes.
       frees. Pinned in `condition_temps_that_already_had_an_owner_stay_flat`.
 
 Acceptance: every new case fails for the documented reason; the audit list has a verdict.
-Commit: —
+Commit: ee4da1dba (RED on main af7d9b778: 14 failed on the live_bytes assertion, positive pin
+passed), 21bd00f4c (FOR EACH RETURN, RED 192,000 B)
 
 ### Phase 2 — the fix
 
-- [ ] Temp watermark per enclosing construct; drop on `RETURN`/`EXIT`/`CONTINUE`
+- [x] Temp watermark per enclosing construct; drop on `RETURN`/`EXIT`/`CONTINUE`
       (`builder_control.rs`, `builder_exits.rs`).
 
 Acceptance: Phase 1 cases pass; the contrast cases stay flat; `double_free_skips 0`.
-Commit: —
+Commit: dc3b3d80a
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate the goldens the new frees shift (`scripts/sync-goldens.sh`); confirm each
+- [x] Regenerate the goldens the new frees shift (`scripts/sync-goldens.sh`); confirm each
       delta is a free on an exit edge.
 - [ ] Full suite and `scripts/test-accept.sh`.
 - [ ] Re-run plan-133-A's `resolve` and `parse` stages; record the new per-call leak.

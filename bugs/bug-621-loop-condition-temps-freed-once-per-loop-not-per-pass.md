@@ -120,7 +120,7 @@ statement's list so the drop after `while_end` does not free them again.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: the repro, `WHILE … END WHILE`, `LOOP UNTIL`, and a record
+- [x] `rt_scope_drop_leaks.rs`: the repro, `WHILE … END WHILE`, `LOOP UNTIL`, and a record
       temp (`collections::get`) in the condition; confirm each fails.
 - [x] Audit `FOR … TO` bound temps; record the verdict.
       Verdict: not affected. `FOR j = 1 TO len(strings::lower(s))` measured flat (`live_bytes`
@@ -130,18 +130,21 @@ statement's list so the drop after `while_end` does not free them again.
       Pinned in `condition_temps_that_already_had_an_owner_stay_flat`.
 
 Acceptance: the cases fail for the documented reason; the audit has a verdict.
-Commit: —
+Commit: ee4da1dba (RED on main af7d9b778: DO WHILE / WHILE 128,000 B, LOOP UNTIL 112,000 B,
+record condition 96,000 B growth between 1000 and 2000 calls)
 
 ### Phase 2 — the fix
 
-- [ ] Per-pass condition temp drop on both condition edges (`builder_control.rs`).
+- [x] Per-pass condition temp drop on both condition edges (`builder_control.rs`).
+      Deviation: one free before the branch instead of one per edge — the value is spilled
+      across the frees and reloaded (`lower_loop_condition`), so no edge needs its own free.
 
 Acceptance: Phase 1 cases pass; `double_free_skips 0`; contrast cases unchanged.
-Commit: —
+Commit: dc3b3d80a
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate the goldens the per-pass frees shift; confirm each delta is a condition-edge
+- [x] Regenerate the goldens the per-pass frees shift; confirm each delta is a condition-edge
       free.
 - [ ] Full suite and `scripts/test-accept.sh`.
 - [ ] Re-run plan-133-A's `parse`, `resolve` and `pt_layout` stages.
