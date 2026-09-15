@@ -147,3 +147,18 @@ Commit: —
 ## Summary
 
 A name-scoping bug at package merge; the audit of the `.mfp` form is where the surprises would be.
+
+## Phase 1 findings (fix-bug, 2026-09-15)
+
+- Reproduced at main `9b5e5b55f` in both forms: the source package and a prebuilt
+  `file:packages/pk.mfp` fail identically with `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH: Argument 2
+  for Frame has type List OF Integer, expected List OF String for field kids.`
+- Root cause confirmed by reading: `merge_packages` (`src/target/shared/nir/lower.rs`) calls
+  `ir::prefix_package_symbols` (`src/ir/package.rs`), which identity-prefixes a package's
+  functions, globals and LINK aliases but documents "Types are left unqualified", then
+  `ir::merge_package` merges `types` with `push_unique(|a, b| a.name == b.name)` — first wins.
+  The program's `Frame` is already in `merged.types`, so the package's private `Frame` is
+  dropped and `verify_semantics` checks the package's constructor against the program's type.
+- RED tests: `tests/runtime/rt_package_private_type_collision.rs` — flat/flat, recursive
+  package/flat program (the `dom` shape) and flat package/recursive program, each from the
+  source and the `.mfp` form.
