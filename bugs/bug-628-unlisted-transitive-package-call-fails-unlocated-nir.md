@@ -159,6 +159,7 @@ Commit: —
 1. Merge a package's own dependencies transitively (the importer never lists them) vs. require the
    importer to declare them and refuse with a located diagnostic. Recommended: merge transitively —
    a package's dependencies are its implementation, and the importer already trusts that package.
+   Decisions: do no work until we talk about this. the language as a whole does not merge dependencies transitively at the moment.
 
 ## Summary
 
