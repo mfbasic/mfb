@@ -75,3 +75,42 @@ each form, and the loopback `ErrTimeout` inline-TRAP repro. Commit:
 
 Phase 2 — declare the audited errors on each descriptor (GREEN); check goldens
 that carry error lists; full suite. Commit:
+
+## Phase 1 findings (fix-bug, 2026-09-15)
+
+- Reproduced at main `9b5e5b55f`: `mfb man udp <form>` has no Errors section for
+  `bind`, `receive`, `localAddress`, `send`, `poll`, `setReadTimeout`, `setWriteTimeout`
+  (only `close` has one).
+- **Fallibility: not affected (measured).** A loopback program binding a socket, setting a
+  10 ms read timeout and calling `udp::receive(s, 100) TRAP(e)` builds with no
+  `TYPE_INLINE_TRAP_DEAD_HANDLER` warning and prints `trapped Operation did not complete
+  before its deadline.` The inline census (`builtins::inline_builtin_is_infallible` via
+  `registry::native_member_declares_error`) only reads `errors` for `Body::AbiInline`
+  members; every `udp` form is a `native_body` (`abi_function`), for which it returns
+  `None`. So the defect is the missing declarations and Errors tables, not a deleted handler.
+- Raise-site audit, per form (declared lists spelled as `tcp`'s descriptors for the same helpers):
+  - `bind` — `gen_io.rs:lower_net_bind_udp_helper`: ErrAddressInvalid, ErrNetworkFailed, ErrOutOfMemory.
+  - `receive` — `gen_io.rs:lower_net_receive_from_helper`: ErrAddressInvalid, ErrInvalidArgument,
+    ErrMessageTooLarge, ErrNetworkFailed, ErrOutOfMemory, ErrResourceClosed, ErrTimeout.
+  - `send` — `gen_io.rs:lower_net_send_to_helper`: ErrAddressNotFound, ErrMessageTooLarge,
+    ErrNetworkFailed, ErrOutOfMemory, ErrResourceClosed, ErrTimeout; the byte form adds
+    ErrInvalidArgument (`bad_payload`, bug-497, `if !text`).
+  - `poll` — `os/socket/poll.rs:lower_net_poll_helper`: ErrInvalidArgument, ErrResourceClosed;
+    list form `lower_net_poll_list_helper`: + ErrOutOfMemory, ErrTimeout.
+  - `localAddress` — `os/socket/shared.rs:lower_net_address_helper`: ErrAddressInvalid,
+    ErrOutOfMemory, ErrResourceClosed.
+  - `setReadTimeout` / `setWriteTimeout` — `os/socket/poll.rs:lower_net_set_timeout_helper`:
+    ErrInvalidArgument, ErrResourceClosed.
+- Blast radius: `tcp` and `tls` declare no empty list (`grep -n 'errors: vec!\[\]' src/codegen/builtins/{tcp,tls}/*.rs`
+  is empty), and `tcp`'s lists for the shared helpers match the sites above. **`net` has the
+  same defect (sub-issue B, fixed here):** every member declares `errors: vec![]`, but
+  - `percentDecode` reaches `FAIL error(77050003)` (ErrInvalidFormat) in `__net_percentDecodeImpl`;
+  - `toUrl` reaches `FAIL error(77050003)` / `FAIL error(77050007)` (ErrInvalidFormat, ErrUnsupported),
+    including through `__net_parsePort`;
+  - `lookup` — `gen_io.rs:lower_net_lookup_helper`: ErrAddressInvalid, ErrAddressNotFound, ErrOutOfMemory;
+  - `ping` (both overloads; the resolve step is not gated on the Address form) —
+    `gen_ping.rs:lower_ping_posix` / `lower_ping_windows`: ErrAddressInvalid, ErrInvalidArgument,
+    ErrNetworkFailed, ErrOutOfMemory;
+  - `parseQuery` correctly declares none: `__net_decodeQueryComponent` `RECOVER`s the decode error.
+- RED tests: `codegen::builtins::udp::tests::members_declare_the_errors_they_raise`,
+  `codegen::builtins::net::tests::members_declare_the_errors_they_raise`.

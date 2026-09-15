@@ -383,3 +383,55 @@ pub(crate) fn augmented_hir_project(
 ) -> Result<crate::hir::HirProject, ()> {
     crate::codegen::registry::inject_late_pass_hir(hir, "net", SOURCE_LABEL, SOURCE_DOC)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::codegen::registry::registry;
+
+    /// bug-608 (net): every member's declared errors, per overload, are exactly the errors
+    /// it can raise; the Errors table on `mfb man net <member>` is rendered from these
+    /// lists. `percentDecode` and `toUrl` reach `FAIL error(77050003)` (ErrInvalidFormat)
+    /// directly or through `__net_percentDecodeImpl` / `__net_parsePort`, and `toUrl` also
+    /// `FAIL error(77050007)` (ErrUnsupported). `lookup` raises in
+    /// `gen_io.rs:lower_net_lookup_helper`, `ping` in `gen_ping.rs` (both overloads share
+    /// the resolve step). `parseQuery` raises nothing: `__net_decodeQueryComponent`
+    /// `RECOVER`s the decode error.
+    #[test]
+    fn members_declare_the_errors_they_raise() {
+        const PING: &[&str] = &[
+            "ErrAddressInvalid",
+            "ErrInvalidArgument",
+            "ErrNetworkFailed",
+            "ErrOutOfMemory",
+        ];
+        let cases: &[(&str, &[&[&str]])] = &[
+            ("net.percentDecode", &[&["ErrInvalidFormat"]]),
+            ("net.parseQuery", &[&[]]),
+            ("net.toUrl", &[&["ErrInvalidFormat", "ErrUnsupported"]]),
+            (
+                "net.lookup",
+                &[&["ErrAddressInvalid", "ErrAddressNotFound", "ErrOutOfMemory"]],
+            ),
+            ("net.ping", &[PING, PING]),
+        ];
+        assert_eq!(
+            cases.len(),
+            registry()
+                .resolve_package("net")
+                .expect("net")
+                .functions()
+                .len(),
+            "every public member is listed"
+        );
+        for (member, expected) in cases {
+            let function = registry().resolve_func(member).expect(member).function;
+            let declared: Vec<Vec<&str>> = function
+                .implementations
+                .iter()
+                .map(|implementation| implementation.errors.clone())
+                .collect();
+            let expected: Vec<Vec<&str>> = expected.iter().map(|errors| errors.to_vec()).collect();
+            assert_eq!(declared, expected, "{member} declared errors per overload");
+        }
+    }
+}

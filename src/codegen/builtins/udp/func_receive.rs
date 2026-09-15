@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: ParameterType::named(super::DATAGRAM_TYPE),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrInvalidArgument", "ErrMessageTooLarge", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout"],
             body: super::native_body(lower_receive, &[]),
         }],
     });
