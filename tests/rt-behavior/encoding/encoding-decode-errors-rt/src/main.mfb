@@ -1,0 +1,155 @@
+' bug-606: the raising inputs behind each encoding member's declared ErrInvalidFormat.
+' Every line prints TRUE when the call raised the code its descriptor lists.
+IMPORT io
+IMPORT encoding
+IMPORT errorCode
+
+FUNC report(name AS String, code AS Integer) AS Integer
+  io::print(name & "=" & toString(code = errorCode::ErrInvalidFormat))
+  RETURN 0
+END FUNC
+
+FUNC percentDecode AS Integer
+  LET v AS String = encoding::percentDecode("%")
+  RETURN report("percentDecode", 0)
+  TRAP(err)
+    RETURN report("percentDecode", err.code)
+  END TRAP
+END FUNC
+
+FUNC formUrlDecode AS Integer
+  LET v AS String = encoding::formUrlDecode("%zz")
+  RETURN report("formUrlDecode", 0)
+  TRAP(err)
+    RETURN report("formUrlDecode", err.code)
+  END TRAP
+END FUNC
+
+FUNC base32Decode AS Integer
+  LET v AS List OF Byte = encoding::base32Decode("A")
+  RETURN report("base32Decode", 0)
+  TRAP(err)
+    RETURN report("base32Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC base64Decode AS Integer
+  LET v AS List OF Byte = encoding::base64Decode("!!!!")
+  RETURN report("base64Decode", 0)
+  TRAP(err)
+    RETURN report("base64Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC base64UrlDecode AS Integer
+  LET v AS List OF Byte = encoding::base64UrlDecode("A")
+  RETURN report("base64UrlDecode", 0)
+  TRAP(err)
+    RETURN report("base64UrlDecode", err.code)
+  END TRAP
+END FUNC
+
+FUNC hexDecode AS Integer
+  LET v AS List OF Byte = encoding::hexDecode("abc")
+  RETURN report("hexDecode", 0)
+  TRAP(err)
+    RETURN report("hexDecode", err.code)
+  END TRAP
+END FUNC
+
+FUNC htmlUnescape AS Integer
+  LET v AS String = encoding::htmlUnescape("&nope;")
+  RETURN report("htmlUnescape", 0)
+  TRAP(err)
+    RETURN report("htmlUnescape", err.code)
+  END TRAP
+END FUNC
+
+FUNC sleb128Decode AS Integer
+  LET truncated AS List OF Byte = [0x80]
+  LET v AS Integer = encoding::sleb128Decode(truncated)
+  RETURN report("sleb128Decode", 0)
+  TRAP(err)
+    RETURN report("sleb128Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC uleb128Decode AS Integer
+  LET truncated AS List OF Byte = [0x80]
+  LET v AS Integer = encoding::uleb128Decode(truncated)
+  RETURN report("uleb128Decode", 0)
+  TRAP(err)
+    RETURN report("uleb128Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC uleb128Encode AS Integer
+  LET v AS List OF Byte = encoding::uleb128Encode(-1)
+  RETURN report("uleb128Encode", 0)
+  TRAP(err)
+    RETURN report("uleb128Encode", err.code)
+  END TRAP
+END FUNC
+
+FUNC utf16Decode AS Integer
+  LET lone AS List OF Integer = [0xD800]
+  LET v AS String = encoding::utf16Decode(lone)
+  RETURN report("utf16Decode", 0)
+  TRAP(err)
+    RETURN report("utf16Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC utf32Decode AS Integer
+  LET surrogate AS List OF Integer = [0xD800]
+  LET v AS String = encoding::utf32Decode(surrogate)
+  RETURN report("utf32Decode", 0)
+  TRAP(err)
+    RETURN report("utf32Decode", err.code)
+  END TRAP
+END FUNC
+
+FUNC utf8DecodeBytes AS Integer
+  LET invalid AS List OF Byte = [0xFF]
+  LET v AS String = encoding::utf8Decode(invalid)
+  RETURN report("utf8Decode(List OF Byte)", 0)
+  TRAP(err)
+    RETURN report("utf8Decode(List OF Byte)", err.code)
+  END TRAP
+END FUNC
+
+FUNC utf8DecodeInts AS Integer
+  LET outOfRange AS List OF Integer = [300]
+  LET v AS String = encoding::utf8Decode(outOfRange)
+  RETURN report("utf8Decode(List OF Integer)", 0)
+  TRAP(err)
+    RETURN report("utf8Decode(List OF Integer)", err.code)
+  END TRAP
+END FUNC
+
+FUNC varintDecode AS Integer
+  LET truncated AS List OF Byte = [0x80]
+  LET v AS Integer = encoding::varintDecode(truncated)
+  RETURN report("varintDecode", 0)
+  TRAP(err)
+    RETURN report("varintDecode", err.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  LET r1 AS Integer = percentDecode()
+  LET r2 AS Integer = formUrlDecode()
+  LET r3 AS Integer = base32Decode()
+  LET r4 AS Integer = base64Decode()
+  LET r5 AS Integer = base64UrlDecode()
+  LET r6 AS Integer = hexDecode()
+  LET r7 AS Integer = htmlUnescape()
+  LET r8 AS Integer = sleb128Decode()
+  LET r9 AS Integer = uleb128Decode()
+  LET r10 AS Integer = uleb128Encode()
+  LET r11 AS Integer = utf16Decode()
+  LET r12 AS Integer = utf32Decode()
+  LET r13 AS Integer = utf8DecodeBytes()
+  LET r14 AS Integer = utf8DecodeInts()
+  LET r15 AS Integer = varintDecode()
+END SUB
