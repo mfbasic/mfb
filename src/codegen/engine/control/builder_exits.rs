@@ -492,10 +492,41 @@ impl CodeBuilder<'_> {
         // path so the block moves to the caller uncopied. Restore the live cleanup
         // set afterward so a sibling return path or the block's normal exit still
         // frees the binding.
+        // Resource-union alias class: `RETURN c` where `c` wraps a live concrete binding
+        // `u` hands `u`'s record to the caller inside the union, so this path must not
+        // close it — retire `u`'s cleanup for this return exactly as a returned concrete
+        // local's is retired. The runtime identity skip cannot catch it: the escaping
+        // value is the union box, not `u`'s record.
+        //
+        // Both removals are path-local. A RETURN of a resource-union local also
+        // deactivates the union's own cleanup inside `emit_return_exit_inner`; left
+        // permanent, a sibling path that does not take this RETURN (`IF give THEN RETURN
+        // c END IF`, then `RETURN other`) never frees the union's box. So a union-typed
+        // return restores the whole cleanup list it started with once the exit is
+        // emitted — the same save/restore `plan_returned_move` does for an owned value.
+        let union_return_snapshot = value
+            .and_then(|value| match value {
+                NirValue::Local(name) => self.locals.get(name),
+                _ => None,
+            })
+            .filter(|local| self.resource_union_cleanup(&local.type_).is_some())
+            .map(|_| self.active_cleanups.clone());
+        if let Some(root) = value.and_then(|value| self.returned_union_alias_root(value)) {
+            if let Some(index) = self
+                .active_cleanups
+                .iter()
+                .rposition(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+            {
+                self.active_cleanups.remove(index);
+            }
+        }
         let restore_cleanups = self.plan_returned_move(value);
         let result =
             self.emit_return_exit_inner(value, restore_cleanups.is_some(), interior_temp_watermark);
         if let Some(saved) = restore_cleanups {
+            self.active_cleanups = saved;
+        }
+        if let Some(saved) = union_return_snapshot {
             self.active_cleanups = saved;
         }
         result

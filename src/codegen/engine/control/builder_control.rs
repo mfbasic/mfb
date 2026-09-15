@@ -884,6 +884,9 @@ impl CodeBuilder<'_> {
                             // Gated on the resource-typed cleanups alone so a
                             // plain aliasing bind of a flat value still takes the
                             // `owns_freeable_value` branch below and is freed.
+                            if let Some(NirValue::Local(src)) = value {
+                                self.live_resource_aliases.insert(name.clone(), src.clone());
+                            }
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
@@ -898,16 +901,54 @@ impl CodeBuilder<'_> {
                             // A resource union drops by dispatching on its tag to
                             // the active variant's registered close op, then frees
                             // the active variant record's uniform STATE (plan-74).
+                            //
+                            // Resource-union alias class: a union wrapping an aliasing
+                            // source (`RES c AS Union = u`, a field, an extract, a
+                            // borrowed element) does not own that record. Its drop
+                            // frees only its own box; the record's owner closes it.
+                            let wrapped = match value {
+                                Some(NirValue::UnionWrap { value: inner, .. }) => {
+                                    Some(inner.as_ref())
+                                }
+                                _ => None,
+                            };
+                            let alias_wrap = wrapped.is_some_and(|inner| {
+                                matches!(inner, NirValue::UnionExtract { .. })
+                                    || Self::value_aliases_live_resource(inner)
+                            });
+                            if let Some(NirValue::Local(src)) = wrapped {
+                                self.live_union_wraps.insert(name.clone(), src.clone());
+                                // A STATE the alias attaches rides the wrapped record, so
+                                // its owner frees it after its close (the union's drop no
+                                // longer does). A root with no live cleanup (a parameter)
+                                // keeps the STATE for the caller's owner.
+                                if let Some(state) = type_.state() {
+                                    let root = self.resource_alias_root(src);
+                                    if let Some(ActiveCleanup::Resource(owner)) = self
+                                        .active_cleanups
+                                        .iter_mut()
+                                        .rev()
+                                        .find(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+                                    {
+                                        if owner.state_type.is_none() {
+                                            owner.state_type = Some(state);
+                                        }
+                                    }
+                                }
+                            }
                             self.active_cleanups.push(ActiveCleanup::ResourceUnion(
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
                                     state_type: type_.state(),
-                                    record_free_tags: if self.record_owning_locals.contains(name) {
+                                    record_free_tags: if !alias_wrap
+                                        && self.record_owning_locals.contains(name)
+                                    {
                                         self.resource_union_record_free_tags(type_)
                                     } else {
                                         Vec::new()
                                     },
+                                    closes_variant: !alias_wrap,
                                 },
                             ));
                         } else if owns_freeable_value {

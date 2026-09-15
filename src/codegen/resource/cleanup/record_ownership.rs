@@ -28,6 +28,14 @@
 //!   root owns the record and hands it over at `RETURN` (the identity skip);
 //! * a call to a user function whose every `RETURN` value is fresh by these rules,
 //!   inside that function (a parameter is never fresh; a cycle is not fresh).
+//!
+//! A union wrapping a local (`RES c AS Union = u`) is an ALIAS of `u`'s record: its own
+//! cleanup frees only its box, and it never owns the record. Returned, it is fresh for
+//! the caller exactly when the `RETURN` retires `u`'s close (`builder_exits`), which the
+//! codegen does from bind-time alias maps. So a wrap counts as fresh only under the
+//! conditions that make those maps coincide with this pass: the union local has that one
+//! store, every bare-local hop to the wrapped root has one store, and the root itself is
+//! fresh and has not floated into a collection.
 
 use crate::codegen::engine::builder::CodeBuilder;
 use crate::target::shared::nir::visit::{walk_op, NirVisitor};
@@ -49,6 +57,8 @@ pub(crate) struct RecordOwnership {
 enum Source {
     Fresh,
     Local(String),
+    /// A union wrap of a bare local: an alias of that local's record.
+    WrapLocal(String),
     ResultOf(String),
     UserCall(String),
     Unknown,
@@ -78,7 +88,7 @@ fn classify(value: Option<&NirValue>, functions: &HashMap<String, &NirFunction>)
         },
         NirValue::UnionWrap { value, .. } => match value.as_ref() {
             // `RES c AS Union = u`: the record belongs to `u`.
-            NirValue::Local(_) => Source::Unknown,
+            NirValue::Local(name) => Source::WrapLocal(name.clone()),
             inner => classify(Some(inner), functions),
         },
         NirValue::Call { target, .. }
@@ -152,6 +162,9 @@ fn collect(f: &NirFunction, functions: &HashMap<String, &NirFunction>) -> Stores
 struct Resolver<'m, 'f, 'p> {
     functions: &'m HashMap<String, &'f NirFunction>,
     record_type: &'p dyn Fn(&ParameterType) -> bool,
+    /// The floated locals of each function being resolved, innermost last: a local whose
+    /// close obligation floated into a collection never owns its record.
+    floats: Vec<HashSet<String>>,
     memo: HashMap<String, bool>,
     visiting_functions: HashSet<String>,
 }
@@ -174,11 +187,14 @@ impl Resolver<'_, '_, '_> {
         }
         let stores = collect(function, self.functions);
         let params: HashSet<String> = function.params.iter().map(|p| p.name.clone()).collect();
+        // A callee's floats are its own: a local that floated there is never fresh.
+        self.floats.push(float_set(function));
         let fresh = !stores.returns.is_empty()
             && stores
                 .returns
                 .iter()
                 .all(|source| self.source_fresh(source, &stores, &params, &mut HashSet::new()));
+        self.floats.pop();
         self.visiting_functions.remove(name);
         self.memo.insert(name.to_string(), fresh);
         fresh
@@ -191,10 +207,21 @@ impl Resolver<'_, '_, '_> {
         params: &HashSet<String>,
         visiting: &mut HashSet<String>,
     ) -> bool {
-        if params.contains(name) || !visiting.insert(name.to_string()) {
+        let floated = self.floats.last().is_some_and(|f| f.contains(name));
+        if params.contains(name) || floated || !visiting.insert(name.to_string()) {
             return false;
         }
         let fresh = match stores.stores.get(name) {
+            // An alias union: fresh only through the strict single-store wrap walk.
+            Some(sources) if sources.iter().any(|s| matches!(s, Source::WrapLocal(_))) => {
+                match sources.as_slice() {
+                    [Source::WrapLocal(src)] => match wrap_root(src, stores) {
+                        Some(root) => self.local_fresh(&root, stores, params, visiting),
+                        None => false,
+                    },
+                    _ => false,
+                }
+            }
             Some(sources) if !sources.is_empty() => sources
                 .iter()
                 .all(|source| self.source_fresh(source, stores, params, visiting)),
@@ -213,13 +240,38 @@ impl Resolver<'_, '_, '_> {
     ) -> bool {
         match source {
             Source::Fresh => true,
-            Source::Local(name) | Source::ResultOf(name) => {
+            Source::Local(name) | Source::ResultOf(name) | Source::WrapLocal(name) => {
                 self.local_fresh(name, stores, params, visiting)
             }
             Source::UserCall(target) => self.function_returns_fresh(target),
             Source::Unknown => false,
         }
     }
+}
+
+/// The locals of `function` whose close obligation floated into a collection.
+fn float_set(function: &NirFunction) -> HashSet<String> {
+    function
+        .resource_owners
+        .iter()
+        .filter(|(_, owner)| matches!(owner, crate::ir::resource_escape::ResOwner::Float(_)))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// The concrete binding a wrap of `src` aliases: follow bare-local hops, each of which
+/// must be that local's only store. `None` when a hop has another store (a name reused in
+/// sibling scopes), so the pass and the codegen's bind-time maps cannot disagree.
+fn wrap_root(src: &str, stores: &Stores) -> Option<String> {
+    let mut current = src.to_string();
+    for _ in 0..64 {
+        match stores.stores.get(&current).map(Vec::as_slice) {
+            Some([Source::Local(next)]) => current = next.clone(),
+            Some([_]) => return Some(current),
+            _ => return None,
+        }
+    }
+    None
 }
 
 /// The record-ownership facts for `function`. `record_type` answers whether a binding
@@ -235,11 +287,20 @@ pub(crate) fn record_ownership(
     let mut resolver = Resolver {
         functions,
         record_type,
+        floats: vec![float_set(function)],
         memo: HashMap::new(),
         visiting_functions: HashSet::new(),
     };
     let mut owning_locals = HashSet::new();
     for (name, type_) in &stores.types {
+        // An alias union never owns the record, whatever its root does.
+        let wraps = stores
+            .stores
+            .get(name)
+            .is_some_and(|s| s.iter().any(|s| matches!(s, Source::WrapLocal(_))));
+        if wraps {
+            continue;
+        }
         if record_type(type_) && resolver.local_fresh(name, &stores, &params, &mut HashSet::new()) {
             owning_locals.insert(name.clone());
         }

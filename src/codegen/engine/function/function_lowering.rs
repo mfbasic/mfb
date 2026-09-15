@@ -968,6 +968,8 @@ pub(crate) fn lower_function(
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1459,6 +1461,8 @@ pub(crate) fn lower_abi_function_helper(
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1622,6 +1626,8 @@ pub(crate) fn lower_thread_copy_function(
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.

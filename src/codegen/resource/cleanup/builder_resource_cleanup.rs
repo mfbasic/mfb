@@ -164,6 +164,45 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Resource-union alias class: the concrete binding `name` aliases, following the
+    /// bind-time bare-local alias map (`RES v = u` hops) to its root.
+    pub(crate) fn resource_alias_root(&self, name: &str) -> String {
+        let mut current = name;
+        for _ in 0..64 {
+            match self.live_resource_aliases.get(current) {
+                Some(next) => current = next.as_str(),
+                None => break,
+            }
+        }
+        current.to_string()
+    }
+
+    /// Resource-union alias class: when `RETURN value` returns a union that aliases a
+    /// live concrete binding (`RES c AS Union = u` then `RETURN c`, possibly through
+    /// bare-local aliases on either side), that binding's name — its close obligation
+    /// moves to the caller with the returned union, so this frame must not close it.
+    /// `None` for any other return, including a union around a parameter (no live
+    /// close to move).
+    pub(crate) fn returned_union_alias_root(&self, value: &NirValue) -> Option<String> {
+        let NirValue::Local(name) = value else {
+            return None;
+        };
+        let mut current = name.as_str();
+        let mut src = None;
+        for _ in 0..64 {
+            if let Some(wrapped) = self.live_union_wraps.get(current) {
+                src = Some(wrapped.as_str());
+                break;
+            }
+            current = self.live_resource_aliases.get(current)?.as_str();
+        }
+        let root = self.resource_alias_root(src?);
+        self.active_cleanups
+            .iter()
+            .any(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+            .then_some(root)
+    }
+
     pub(crate) fn resource_union_cleanup(
         &self,
         type_: &ParameterType,
@@ -366,13 +405,17 @@ impl CodeBuilder<'_> {
         // still owns and frees. The slot is zeroed so a re-reached drop skips on
         // the null guard. The null and escaping-value skips branch past it.
         let dropped = self.label("resource_union_drop_box");
-        self.emit_union_tag_dispatch_drop(
-            &union_ptr,
-            &cleanup.variants,
-            cleanup.state_type.as_ref(),
-            &cleanup.record_free_tags,
-            &dropped,
-        )?;
+        // Resource-union alias class: an alias union (`closes_variant == false`) does not
+        // own the record, so it neither closes it nor frees its STATE — only its box.
+        if cleanup.closes_variant {
+            self.emit_union_tag_dispatch_drop(
+                &union_ptr,
+                &cleanup.variants,
+                cleanup.state_type.as_ref(),
+                &cleanup.record_free_tags,
+                &dropped,
+            )?;
+        }
         self.emit(abi::label(&dropped));
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));

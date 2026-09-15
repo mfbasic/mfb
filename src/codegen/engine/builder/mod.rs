@@ -219,6 +219,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// bug-623 B: locals whose single store is a bare `Local(src)` — followed by a
     /// `RETURN` to find the binding that owns a returned union's box.
     pub(crate) resource_alias_sources: HashMap<String, String>,
+    /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
+    /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
+    /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
+    pub(crate) live_resource_aliases: HashMap<String, String>,
+    /// Resource-union alias class: bind-time `name -> src` for a union wrapping a local
+    /// (`RES c AS Union = u`) — the alias whose `RETURN` retires `src`'s close.
+    pub(crate) live_union_wraps: HashMap<String, String>,
     /// plan-118-D: record types this module constructs often enough to get their
     /// own `construct.T` function. A construction of a type in here marshals and
     /// calls instead of inlining the allocation, the failure block, the field
@@ -580,6 +587,8 @@ impl<'a> CodeBuilder<'a> {
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
+            live_resource_aliases: HashMap::new(),
+            live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
@@ -745,6 +754,10 @@ pub(crate) struct ResourceUnionCleanup {
     /// owns the record (`record_owning_locals`). Empty for a union wrapping a live
     /// binding, whose record that binding frees.
     pub(crate) record_free_tags: Vec<usize>,
+    /// Resource-union alias class: whether the drop closes the active variant (and frees
+    /// its STATE). False for a union wrapping an aliasing source (`RES c AS Union = u`),
+    /// whose record another binding owns: that drop frees only the union's own box.
+    pub(crate) closes_variant: bool,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
