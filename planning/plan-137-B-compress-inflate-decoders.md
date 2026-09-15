@@ -169,6 +169,10 @@ Fixed-Huffman tables are built once per `__compress_inflateCore` call, not per b
 
 Length base/extra and distance base/extra are module-level `LET` tables (read-only), generated
 by a `#[cfg(test)]` check against the RFC 1951 §3.2.5 formula, not typed from memory.
+**Corrected by plan-137-A Corrections (2026-09-14):** a list literal lowers to ≈26 init
+instructions per element (+379,772 B for crc32's 2,048-entry literal vs a builder), so prefer
+computing these tables at program start with an MFB builder and pin the builder's constants in
+the `#[cfg(test)]` check; a literal is acceptable only with its measured size delta recorded.
 
 ### 4.3 Framing
 

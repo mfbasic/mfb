@@ -74,52 +74,17 @@ mod tests {
         assert_eq!(pkg.functions().len(), 1);
     }
 
-    /// The eight slicing-by-8 tables, computed from the reflected polynomial
-    /// `0xEDB88320`: table 0 is the byte table, table `k` is table `k-1` advanced by
-    /// one zero byte.
-    fn crc32_tables() -> Vec<u64> {
-        let mut t = vec![0u64; 8 * 256];
-        for i in 0..256u64 {
-            let mut c = i;
-            for _ in 0..8 {
-                c = if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
-            }
-            t[i as usize] = c;
-        }
-        for k in 1..8 {
-            for i in 0..256 {
-                let prev = t[(k - 1) * 256 + i];
-                t[k * 256 + i] = (prev >> 8) ^ t[(prev & 255) as usize];
-            }
-        }
-        t
-    }
-
+    /// The one magic number in the table builder is the reflected CRC-32/ISO-HDLC
+    /// polynomial. It is derived here from the catalogue's normal form (CRC RevEng:
+    /// `poly=0x04c11db7 refin=true`, fetched 2026-09-14) rather than restated, and the
+    /// builder must spell exactly that decimal value. The table entries it produces are
+    /// judged against independent implementations by `tests/interop/rt_compress_interop.rs`.
     #[test]
-    fn crc32_tables_literal_matches_the_polynomial() {
+    fn crc32_table_builder_uses_the_reflected_polynomial() {
+        let reflected = 0x04C1_1DB7u32.reverse_bits();
         let body = super::helper_crc32_table::BODY;
-        let open = body.find('[').expect("table literal opens");
-        let close = body.rfind(']').expect("table literal closes");
-        let literal: Vec<u64> = body[open + 1..close]
-            .split(',')
-            // Each row break is a `_` line continuation, which lands on the next entry.
-            .map(|entry| entry.replace('_', ""))
-            .map(|entry| entry.trim().parse().expect("decimal table entry"))
-            .collect();
-        assert_eq!(literal.len(), 2048);
-        assert_eq!(literal, crc32_tables());
-    }
-
-    /// Table 0 against the one value everyone publishes: the CRC-32/ISO-HDLC check
-    /// of "123456789" is 0xCBF43926 (CRC RevEng catalogue, fetched 2026-09-14),
-    /// computed here byte-at-a-time from the generated table.
-    #[test]
-    fn crc32_tables_produce_the_catalogue_check_value() {
-        let t = crc32_tables();
-        let mut crc = 0xFFFF_FFFFu64;
-        for &b in b"123456789" {
-            crc = (crc >> 8) ^ t[((crc ^ b as u64) & 255) as usize];
-        }
-        assert_eq!(crc ^ 0xFFFF_FFFF, 0xCBF4_3926);
+        assert!(body.contains(&format!("c = bits::bxor(bits::sr(c, 1), {reflected})")));
+        // 256 byte-table entries, then 7 x 256 derived entries.
+        assert!(body.contains("WHILE i < 256") && body.contains("WHILE i < 2048"));
     }
 }

@@ -268,12 +268,15 @@ crypto's, `register` calls per file, and an in-module `#[cfg(test)]` block count
   (written with `bits::bxor` / `band` / `sr`). The remaining 0–7 bytes use the byte step
   `crc = bxor(sr(crc, 8), T0[band(bxor(crc, byte), 255)])`. `crc` starts as
   `bxor(running, 0xFFFFFFFF)`; the result is `bxor(crc, 0xFFFFFFFF)`.
-- `T0..T7` live in one module-level `LET __COMPRESS_CRC32_TABLES AS List OF Integer = [...]` of
+- `T0..T7` live in one module-level `LET __COMPRESS_CRC32_TABLES AS List OF Integer = __compress_crc32Tables()` of
   2,048 entries (`T_k[i]` at index `k*256 + i`), so each lookup is one `collections::get` at a
   computed index. `T0` is the standard table for `0xEDB88320`;
-  `T_k[i] = bxor(sr(T_(k-1)[i], 8), T0[band(T_(k-1)[i], 255)])`. The literal is **generated**,
-  not typed: a `#[cfg(test)]` test in `compress/mod.rs` computes all eight tables and asserts the
-  helper source's literal equals them, so a typo cannot survive.
+  `T_k[i] = bxor(sr(T_(k-1)[i], 8), T0[band(T_(k-1)[i], 255)])`. **Corrected 2026-09-14:** the
+  tables are **computed at program start** by an MFB builder, not written as a 2,048-element
+  literal — the literal cost +379,772 B per binary for no speed gain (Corrections). The builder's
+  one constant is pinned by a `#[cfg(test)]` test that derives it from the catalogue polynomial;
+  every entry is judged against independent CRC-32 implementations by the interop test and the
+  oracle, over random data that reaches every index.
 - One function owns the loop; the input list is only read. Because slicing-by-8 has two code
   paths (8-byte steps and the tail), every test set includes each length 0–17, so every tail
   length is exercised with and without a preceding 8-byte step.
@@ -338,7 +341,10 @@ Commit: f54d3d4b6
 - [x] `src/codegen/registry/mod.rs` `build()`: `crate::codegen::builtins::compress::register(&mut r);`.
 - [x] `src/docs/spec/language/18_builtin-functions.md`: add `compress` to the package sentence.
       (`cargo test --bin mfb spec_section_18_package_list_matches_is_builtin_import` → `1 passed`.)
-- [x] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test.
+- [x] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test. Revised after the
+      table rewrite (Corrections): the literal-equality test is replaced by
+      `crc32_table_builder_uses_the_reflected_polynomial`. (`cargo test --bin mfb compress` →
+      `crc32_table_builder_uses_the_reflected_polynomial ... ok`, `compress_registered_on_the_clean_room_registry ... ok`.)
       (`cargo test --bin mfb compress` → `crc32_tables_literal_matches_the_polynomial`,
       `crc32_tables_produce_the_catalogue_check_value`, `compress_registered_on_the_clean_room_registry` ok.)
 - [x] Resolve the §2 UNVERIFIED call-copy property: `mfb build --ncode` the fixture below and
@@ -371,7 +377,10 @@ Commit: 33eefae9b
       `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/compress`.
       (`build.log`/`.ast`/`.ir` by `sync-goldens.sh`; `bash scripts/regen-native-goldens.sh …` →
       `5 build(s), 5 golden(s) rewritten, 0 failure(s)`; `scripts/artifact-gate.sh target/release/mfb compress`
-      → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`.)
+      → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`. Re-run after the §4.2 table rewrite, which
+      changes the injected source and so every compress `.ir` and `.ncodesum`: `sync-goldens.sh` →
+      `synced 10 golden file(s) across 4 test(s)`; regen → `5 golden(s) rewritten, 0 failure(s)`;
+      artifact-gate → `7 golden(s) checked, 0 diff(s)`.)
 - [x] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
       `flate2 = "1"` in `[dev-dependencies]` with the "already in the lockfile" comment; test
       `crc32_matches_crc32fast_over_a_generated_corpus` (every length 0–17, then seeded LCG lengths 0..100,000, 200 cases,
@@ -381,13 +390,14 @@ Commit: 33eefae9b
       off (`flate2-1.1.9/src/crc.rs` `#[cfg(not(feature = "zlib-rs"))] pub use impl_crc32fast::Crc`);
       `cargo tree -i flate2` → `png` → `image` → `mfb`, so the `Cargo.lock` diff is one line adding
       `flate2` to `mfb`'s dependency list. 218 cases (18 + 200) plus `running` probes at
-      4294967295 / 4294967296 / -1: `cargo test --test rt_compress_interop` → `1 passed` in 58.88 s.)
+      4294967295 / 4294967296 / -1: `cargo test --test rt_compress_interop` → `1 passed` in 58.88 s;
+      re-run after the table rewrite → `1 passed` in 116.29 s under host load.)
 
 Acceptance: fixtures green; the in-CI interop agrees with an independent implementation.
   Check: `scripts/test-accept.sh target/release/mfb /tmp/p137a 'compress' 'compress-*'` → 0 mismatches
-  (2026-09-14: `acceptance tests passed (4 test(s) ran)`; glob corrected, see Corrections);
+  (2026-09-14: `acceptance tests passed (4 test(s) ran)`, and again after the table rewrite; glob corrected, see Corrections);
   `cargo test --test rt_compress_interop` → pass (est. 8 min).
-Commit: —
+Commit: 0e4fbe738
 
 ### Phase 4 — oracle + bench harnesses
 
@@ -412,6 +422,9 @@ Commit: —
       `[[src/codegen/builtins/compress/mod.rs:COMPRESS]]` provenance; reading-order bullet in
       `src/docs/spec/stdlib/spec.md`.
 - [ ] Size-gate measurement (§4.3) recorded in the spec page's contributor section.
+- [x] (Added 2026-09-14) Record the two durable lessons this letter hit in `.ai/resources-packages.md`:
+      a `WhenUsed` helper needs its own `IMPORT`s, and a list literal costs ≈26 init instructions per
+      element. (Two paragraphs before "Writing the native backend".)
 
 Acceptance: pages render and their examples run.
   Check: `scripts/man-run-examples.sh compress --run` → all pass; `scripts/man-census.sh --fill compress`
@@ -462,6 +475,32 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
   argon2id helper already does this (`helper_argon2id.rs` BODY opens with `IMPORT crypto` /
   `IMPORT bits` / `IMPORT collections`). Every gated `compress` helper in B–E needs the same
   header. Fixed by adding the header to `helper_crc32.rs` and `helper_crc32_table.rs`.
+- **§4.2 — a 2,048-element list literal is the wrong shape for the CRC table; build it at program
+  start.** The plan chose a generated literal. Measured after Phase 3: `mfb build --ncode` of
+  `tests/byte-identity/compress` has 59,725 instructions, 53,317 of them in the global initializer
+  `_mfb_fn__5F_5Fmfb_5Finit_5Fglobals_…` (≈26 instructions per literal element) against 2,031 in
+  `__compress_crc32`; the one-call size probe was +396,292 B over `IMPORT io`. A one-off probe
+  (`/tmp/p137table.py`: the same user-space slicing-by-8 program, table as a literal vs built by a
+  256×8 + 1,792-step MFB loop) gave **677,704 B vs 297,932 B** (−379,772 B), both agreeing with
+  `zlib.crc32` on lengths 0–17, 100,000 and 16 MiB, and **195.7 ms vs 187.4 ms** for 16 MiB
+  (same within noise). Replaced the literal with `__compress_crc32Tables()`; the literal-parsing
+  unit test became `crc32_table_builder_uses_the_reflected_polynomial` (derives `0xEDB88320` as
+  `0x04C11DB7.reverse_bits()` and requires the builder to use it). **Other letters:** plan-137-D
+  §4.1's 512-entry bit-reverse literal (≈13,000 init instructions by the same rate) and plan-137-B
+  §4.2's length/distance base/extra literals (118 elements) are corrected there to prefer a builder.
+  The per-element literal cost is a codegen property, not a correctness bug; noted here, not filed.
+- **Size gate measured (§4.3), 2026-09-14, macos-aarch64** (`/tmp/p137size.py`, `/tmp/p137size2.py`,
+  the `.ai/resources-packages.md` probe): `IMPORT io` 66,600 B; `+ IMPORT compress`, no call,
+  66,604 B; with one `crc32` call 83,116 B (+16,516 B, after the table rewrite; +396,292 B
+  before it). The 4 B are not code: the only printable string that differs is the embedded
+  project name (`mfb.szpcompress` vs `mfb.szpio`), and `IMPORT bits` / `IMPORT term` under
+  same-length names both measure 66,600 B.
+- **Found, pre-existing: 41 stale `[[ ]]` citations in other stdlib spec topics.**
+  `scripts/spec-census.sh --citations stdlib` → `MISS-SYMBOL 41 (stale-by-move 39,
+  stale-by-deletion 2)` across `01_regex` (2), `02_datetime` (8), `04_json` (3), `05_http` (21),
+  `06_url` (16), `09_vector` (1); none in `20_compress.md`. Not caused by this plan; fixed in its
+  own commit on this branch before the merge (the as-is rule: re-point the 39, re-verify the
+  claims behind the 2 deletions).
 - **Phase 3 check glob.** `scripts/test-accept.sh … 'compress'` selects only
   `byte-identity/compress`: a glob matches a test's relative path or its basename, and the other
   three fixtures are `compress-crc32-*`. Corrected to `'compress' 'compress-*'` (4 tests ran). The
