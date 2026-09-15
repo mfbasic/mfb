@@ -224,6 +224,107 @@ TESTING
     END TCASE
   END TGROUP
 
+  TGROUP "pretty output"
+    TCASE "element-only content goes on its own lines, one level deeper"
+      expectString(stringify(parse("<a><b/><c/></a>"), 2), "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<a>\n  <b/>\n  <c/>\n</a>")
+      expectString(stringify(rootNode("<a><b><c/></b></a>"), 2), "<a>\n  <b>\n    <c/>\n  </b>\n</a>")
+    END TCASE
+
+    TCASE "layout whitespace is replaced by the writer's own indentation"
+      ' The reader kept the newlines and spaces; the writer discards them and
+      ' lays the element out itself.
+      expectString(stringify(rootNode("<a>\n      <b/>\n</a>"), 2), "<a>\n  <b/>\n</a>")
+      expectString(stringify(rootNode("<a> <b/> </a>"), 2), "<a>\n  <b/>\n</a>")
+    END TCASE
+
+    TCASE "an indent string is used verbatim"
+      expectString(stringify(rootNode("<a><b/></a>"), "\t"), "<a>\n\t<b/>\n</a>")
+      expectString(stringify(rootNode("<a><b><c/></b></a>"), "\t"), "<a>\n\t<b>\n\t\t<c/>\n\t</b>\n</a>")
+    END TCASE
+
+    TCASE "mixed content is left inline, because indenting it would change the text"
+      expectString(stringify(rootNode("<p>Hello <b>x</b> there</p>"), 2), "<p>Hello <b>x</b> there</p>")
+      expectString(stringify(rootNode("<a>text</a>"), 2), "<a>text</a>")
+      ' Nested inside an element-only parent, the mixed element still goes on
+      ' its own line -- but its own insides are untouched.
+      expectString(stringify(rootNode("<a><p>Hi <b>x</b></p></a>"), 2), "<a>\n  <p>Hi <b>x</b></p>\n</a>")
+    END TCASE
+
+    TCASE "an element whose only child is whitespace is left inline: that is data"
+      expectString(stringify(rootNode("<a>   </a>"), 2), "<a>   </a>")
+      expectString(stringify(rootNode("<a>\n</a>"), 2), "<a>\n</a>")
+    END TCASE
+
+    TCASE "comments and processing instructions each get their own line"
+      expectString(stringify(rootNode("<a><!--c--><b/></a>"), 2), "<a>\n  <!--c-->\n  <b/>\n</a>")
+      expectString(stringify(rootNode("<a><?p d?><b/></a>"), 2), "<a>\n  <?p d?>\n  <b/>\n</a>")
+    END TCASE
+
+    TCASE "an element holding only comments or PIs is left inline"
+      ' It has no ELEMENT child, so plan-138-A §4 step 3 does not call
+      ' whitespace-only text layout here: any newline the writer added would
+      ' read back as the element's data and change its content.
+      expectString(stringify(rootNode("<a><!--c--></a>"), 2), "<a><!--c--></a>")
+      expectString(stringify(rootNode("<a><?p d?></a>"), 2), "<a><?p d?></a>")
+      expectString(stringify(rootNode("<a><!--c--><?p d?></a>"), 2), "<a><!--c--><?p d?></a>")
+      LET withComment AS Document = parse("<a><!-- note --></a>")
+      expectString(contentKey(parse(stringify(withComment, 2))), contentKey(withComment))
+    END TCASE
+
+    TCASE "the declaration and each top-level node get their own line"
+      expectString(stringify(parse("<!--before--><a/><!--after-->"), 2), "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--before-->\n<a/>\n<!--after-->")
+      ' No trailing newline, matching json::stringify.
+      expectEqual(strings::endsWith(stringify(parse("<a><b/></a>"), 2), "</a>"), TRUE)
+    END TCASE
+
+    TCASE "an empty element stays in the short form at any indent"
+      expectString(stringify(rootNode("<a/>"), 2), "<a/>")
+      expectString(stringify(rootNode("<a></a>"), 2), "<a/>")
+    END TCASE
+  END TGROUP
+
+  TGROUP "indent clamping"
+    TCASE "0 and the empty string are byte-identical to compact"
+      FOR EACH fixture IN fixtures()
+        LET doc AS Document = parse(fixture)
+        expectString(stringify(doc, 0), stringify(doc))
+        expectString(stringify(doc, ""), stringify(doc))
+      NEXT
+      expectString(stringify(rootNode("<a><b/></a>"), 0), stringify(rootNode("<a><b/></a>")))
+      expectString(stringify(rootNode("<a><b/></a>"), ""), stringify(rootNode("<a><b/></a>")))
+    END TCASE
+
+    TCASE "a count clamps to ten spaces"
+      expectString(stringify(rootNode("<a><b/></a>"), 11), "<a>\n" & strings::repeat(" ", 10) & "<b/>\n</a>")
+      expectString(stringify(rootNode("<a><b/></a>"), 10), stringify(rootNode("<a><b/></a>"), 11))
+      ' A negative count is compact, not an error.
+      expectString(stringify(rootNode("<a><b/></a>"), -1), stringify(rootNode("<a><b/></a>")))
+    END TCASE
+
+    TCASE "an indent string is truncated to its first ten characters"
+      expectString(stringify(rootNode("<a><b/></a>"), "abcdefghijkl"), "<a>\nabcdefghij<b/>\n</a>")
+      expectString(stringify(rootNode("<a><b/></a>"), "abcdefghij"), stringify(rootNode("<a><b/></a>"), "abcdefghijkl"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "pretty output preserves content"
+    TCASE "every fixture keeps its content at indent 2 and at a tab"
+      FOR EACH fixture IN fixtures()
+        LET original AS Document = parse(fixture)
+        expectString(contentKey(parse(stringify(original, 2))), contentKey(original))
+        expectString(contentKey(parse(stringify(original, "\t"))), contentKey(original))
+      NEXT
+    END TCASE
+
+    TCASE "pretty output is itself readable, and stable when written again"
+      FOR EACH fixture IN fixtures()
+        LET once AS String = stringify(parse(fixture), 2)
+        expectNTrap(parse(once))
+        expectString(stringify(parse(once), 2), once)
+      NEXT
+    END TCASE
+  END TGROUP
+
   TGROUP "the content projection itself"
     TCASE "comments and processing instructions are not content"
       expectString(contentKey(parse("<a><!--c--></a>")), contentKey(parse("<a/>")))

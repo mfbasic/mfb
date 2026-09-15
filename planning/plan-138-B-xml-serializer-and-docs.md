@@ -160,19 +160,24 @@ Acceptance: compact output is exact and content-preserving on every reader fixtu
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
   MET: `./target/release/mfb test packages/xml` → `Tests: 141  Pass: 141  Fail: 0`, exit 0 (27 added
   here, over the 114 letter A left).
-Commit: —
+Commit: `904071bea`
 
 ### Phase 2 — pretty writer
 
-- [ ] `write.mfb` — §5 formatting; `stringify(doc, count AS Integer)` and
+- [x] `write.mfb` — §5 formatting; `stringify(doc, count AS Integer)` and
       `stringify(doc, indent AS String)` (and Node forms).
-- [ ] Tests: in `test_write.mfb` — exact expected output for element-only nesting, mixed content
+- [x] Tests: in `test_write.mfb` — exact expected output for element-only nesting, mixed content
       left inline, `<a>  </a>` left inline, comments/PIs on their own lines; the clamp rules
       (`11` → 10 spaces, `"abcdefghijkl"` → first 10, `0`/`""` byte-equal to compact); content
       equality for every reader fixture at indent `2` and `"\t"`.
+- [x] Added task: a case pinning an element whose children are ONLY comments or processing
+      instructions as inline at any indent — the Corrections entry below is a content bug the fixture
+      loop caught, and this pins it directly rather than leaving it to one fixture inside a loop.
 
 Acceptance: pretty output matches the exact expectations and preserves content on every fixture.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 154  Pass: 154  Fail: 0`, exit 0 (13 added
+  here). The run before the §5 correction was `Pass: 153  Fail: 1`, failing exactly on content.
 Commit: —
 
 ### Phase 3 — documentation
@@ -218,6 +223,16 @@ the first `EXPORT FUNC` and carries the union of the `ARG` lines, which is what 
 already does for its two `toIso` overloads (`packages/timezones/src/lib.mfb:189-224`: one block,
 `ARG dt` / `ARG digits` / `ARG name`). §8's table lists the six `stringify` forms as separate rows;
 that is the API surface, not six doc blocks.
+
+**Phase 2 — §5's indent condition was incomplete: it must also require an ELEMENT child.** §5 says an
+element's children go on their own lines "only when the element has no data text child". That is not
+sufficient. An element whose children are only comments or processing instructions has no data text
+child, so the rule as written indents it — but it also has no *element* child, and plan-138-A §4
+step 3 counts whitespace-only text as layout only when the parent **also has an element child**. The
+newlines the writer added therefore read back as DATA. Caught by the Phase 2 content test on the
+`<a><!-- note --></a>` fixture: `expected e(a[]), got e(a[t(` — the content projection saw the
+writer's own indentation as the element's text. The condition is now "has an element child, and no
+data text child"; `<a><!--c--><b/></a>` still indents, because it has one.
 
 **Phase 1 — `root(doc)` returns an `Element` record, so `stringify(root(doc))` matches no overload.**
 `stringify` is declared over `Document` and `Node`; `Element` is a variant record of `Node`, and the

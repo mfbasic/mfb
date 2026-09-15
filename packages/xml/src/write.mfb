@@ -215,3 +215,139 @@ PUBLIC FUNC writeDocumentCompact(doc AS Document) AS String
   NEXT
   RETURN strings::join(parts, "")
 END FUNC
+
+' ---------------------------------------------------------------------------
+' Pretty printing.
+'
+' The rule that keeps pretty output CONTENT-identical to compact output: an
+' element's children go on their own lines only when the element has no data
+' text child. Indenting inside mixed content would insert text that was never
+' there -- `<p>Hello <b>x</b></p>` pretty-printed across lines reads back with
+' different text -- so an element holding data text is written exactly as
+' compact, children and all.
+'
+' A whitespace-only text node is layout ONLY when the element also has an
+' element child (plan-138-A §4 step 3). `<a>   </a>` therefore holds data, and
+' is left inline; `<a> <b/> </a>` holds layout, which is dropped and replaced by
+' the writer's own newlines and indentation.
+' ---------------------------------------------------------------------------
+
+' The indentation a count asks for: clamped to 0..=10 spaces, matching
+' json::stringify. 0 means compact.
+PUBLIC FUNC indentOfCount(count AS Integer) AS String
+  MUT n AS Integer = count
+  IF n < 0 THEN n = 0
+  IF n > 10 THEN n = 10
+  RETURN strings::repeat(" ", n)
+END FUNC
+
+' An explicit indent string, truncated to its first 10 characters, matching
+' json::stringify. "" means compact.
+PUBLIC FUNC clampIndent(indent AS String) AS String
+  IF len(indent) <= 10 THEN RETURN indent
+  RETURN strings::mid(indent, 0, 10)
+END FUNC
+
+' TRUE when any child is an element.
+PRIVATE FUNC holdsElement(children AS List OF Node) AS Boolean
+  FOR EACH k IN children
+    MATCH k
+      CASE Element(e)
+        RETURN TRUE
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' TRUE when `s` is non-empty and entirely XML whitespace.
+PRIVATE FUNC isAllSpace(s AS String) AS Boolean
+  IF len(s) = 0 THEN RETURN FALSE
+  FOR EACH sc IN strings::toScalars(s)
+    IF NOT isSpace(toInt(sc)) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' TRUE when these children hold text that is DATA rather than layout -- which
+' is what forbids re-indenting them.
+PRIVATE FUNC holdsDataText(children AS List OF Node) AS Boolean
+  LET withElement AS Boolean = holdsElement(children)
+  FOR EACH k IN children
+    MATCH k
+      CASE Text(t)
+        IF NOT withElement THEN RETURN TRUE
+        IF NOT isAllSpace(t.text) THEN RETURN TRUE
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Write one node at `level` indents deep. `indent` is already clamped and
+' non-empty.
+PUBLIC FUNC writeNodePretty(n AS Node, indent AS String, depth AS Integer, level AS Integer) AS String
+  IF depth > DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+  END IF
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      requireWritableName("element name", e.name)
+      LET head AS String = "<" & e.name & writeAttributes(e.attributes)
+      IF len(e.children) = 0 THEN
+        out = head & "/>"
+      ELSEIF holdsDataText(e.children) OR NOT holdsElement(e.children) THEN
+        ' Two cases write exactly as compact, adding nothing inside.
+        '
+        ' Data text is the obvious one. The second is subtler: an element whose
+        ' children are only comments or processing instructions has NO element
+        ' child, and plan-138-A §4 step 3 calls whitespace-only text layout only
+        ' when the parent also has an element child. So newlines added here
+        ' would read back as DATA, changing the content -- `<a><!--c--></a>`
+        ' pretty-printed across lines comes back as `<a>` + text + `</a>`.
+        out = writeNodeCompact(n, depth)
+      ELSE
+        MUT parts AS List OF String = []
+        parts = collections::append(parts, head & ">")
+        LET inner AS String = strings::repeat(indent, level + 1)
+        FOR EACH k IN e.children
+          MUT layout AS Boolean = FALSE
+          MATCH k
+            CASE Text(t)
+              layout = TRUE
+            CASE ELSE
+          END MATCH
+          IF NOT layout THEN
+            parts = collections::append(parts, "\n" & inner & writeNodePretty(k, indent, depth + 1, level + 1))
+          END IF
+        NEXT
+        parts = collections::append(parts, "\n" & strings::repeat(indent, level) & "</" & e.name & ">")
+        out = strings::join(parts, "")
+      END IF
+    CASE ELSE
+      ' Text, comments and processing instructions have no inner structure to
+      ' indent, so they are written exactly as compact.
+      out = writeNodeCompact(n, depth)
+  END MATCH
+  RETURN out
+END FUNC
+
+' A whole document with `indent` per level. An empty indent is compact, and
+' byte-identical to `writeDocumentCompact`.
+PUBLIC FUNC writeDocumentPretty(doc AS Document, indent AS String) AS String
+  IF indent = "" THEN RETURN writeDocumentCompact(doc)
+  requireWritableDocument(doc)
+  MUT parts AS List OF String = []
+  parts = collections::append(parts, DECLARATION)
+  FOR EACH n IN doc.children
+    parts = collections::append(parts, "\n" & writeNodePretty(n, indent, 1, 0))
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' One node with `indent` per level, as a fragment: no declaration.
+PUBLIC FUNC writeNodeIndented(n AS Node, indent AS String) AS String
+  IF indent = "" THEN RETURN writeNodeCompact(n, 1)
+  RETURN writeNodePretty(n, indent, 1, 0)
+END FUNC

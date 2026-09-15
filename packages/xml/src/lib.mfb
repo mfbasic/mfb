@@ -62,8 +62,16 @@ DOC
   DESC holding a character XML 1.0 forbids, a comment holding `--`, a
   DESC processing instruction whose data would close it early, or a document
   DESC without exactly one root element.
+  DESC With `count` or `indent`, the output is pretty-printed instead: each
+  DESC element's children go on their own lines, one level deeper. An element
+  DESC holding text is left exactly as it is written compactly, because
+  DESC indenting inside text would change the text. A `count` clamps to 0..10
+  DESC spaces and an `indent` string is truncated to its first 10 characters;
+  DESC `0` and `""` mean compact, byte for byte.
   ARG doc The document to write.
   ARG n The node to write, with everything below it.
+  ARG count How many spaces to indent each level, 0 to 10. 0 is compact.
+  ARG indent The text to indent each level with, such as two spaces or a tab. Empty is compact.
   RET The XML text.
   ERROR 77050002 The tree could not be written as XML that reads back the same.
   ERROR 77050024 The tree nests more than 256 levels deep.
@@ -74,6 +82,22 @@ END FUNC
 
 EXPORT FUNC stringify(n AS Node) AS String
   RETURN writeNodeCompact(n, 1)
+END FUNC
+
+EXPORT FUNC stringify(doc AS Document, count AS Integer) AS String
+  RETURN writeDocumentPretty(doc, indentOfCount(count))
+END FUNC
+
+EXPORT FUNC stringify(doc AS Document, indent AS String) AS String
+  RETURN writeDocumentPretty(doc, clampIndent(indent))
+END FUNC
+
+EXPORT FUNC stringify(n AS Node, count AS Integer) AS String
+  RETURN writeNodeIndented(n, indentOfCount(count))
+END FUNC
+
+EXPORT FUNC stringify(n AS Node, indent AS String) AS String
+  RETURN writeNodeIndented(n, clampIndent(indent))
 END FUNC
 
 ' ---------------------------------------------------------------------------
