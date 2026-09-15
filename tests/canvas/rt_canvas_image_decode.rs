@@ -589,6 +589,60 @@ fn a_header_no_png_could_have_is_refused_before_any_decoding() {
     }
 }
 
+/// A PNG whose IDAT carries every pixel correctly but ends in a wrong Adler-32.
+fn png_with_bad_adler32() -> Vec<u8> {
+    let px = truth();
+    let mut z = zlib_stored(&filtered_rgba(&px, W, H, 0));
+    let last = z.len() - 1;
+    z[last] ^= 0x01;
+    let mut file = SIGNATURE.to_vec();
+    file.extend_from_slice(&chunk(b"IHDR", &ihdr(W as u32, H as u32, 6, 8)));
+    file.extend_from_slice(&chunk(b"IDAT", &z));
+    file.extend_from_slice(&chunk(b"IEND", &[]));
+    file
+}
+
+#[test]
+fn a_png_whose_zlib_adler32_is_wrong_is_refused() {
+    // audit-3 DEC-57, the Adler half: the zlib stream inside IDAT ends in an Adler-32 of the
+    // inflated bytes, and a decoder that never compares it accepts a file whose pixels were
+    // damaged in a way the DEFLATE structure alone cannot show. Here the data is intact and
+    // only the checksum is wrong, so the refusal can only come from checking it.
+    match decode("canvas_png_bad_adler32", &png_with_bad_adler32()) {
+        Ok((w, h, _)) => panic!("a PNG with a wrong zlib Adler-32 decoded as a {w}x{h} image"),
+        Err(message) => assert!(message.contains("malformed"), "wrong message: {message}"),
+    }
+}
+
+/// A 1x1 8-bit greyscale PNG whose IDAT is a zlib stream with an OVER-SUBSCRIBED Huffman code.
+///
+/// The literal/length code gives symbol 0 a 1-bit code and symbols 256 (end-of-block), 257
+/// and 258 2-bit codes: 1/2 + 3/4 > 1. The block emits two literal zeros (filter byte 0, one
+/// grey pixel of 0) and end-of-block; the distance code is all zero lengths and never used.
+/// The Adler-32 is correct, so the only fault is the code set. Generated with
+/// `tools/oracles/compress/python/probe_streams.py`'s `dynamic_block(lit, [0], [("lit", 0),
+/// ("lit", 0), ("eob",)])` (lit = 259 lengths: `lit[0] = 1`, `lit[256..=258] = 2`) wrapped as
+/// `78 01` + block + Adler-32 of `[0, 0]`. Verified 2026-09-14: Python zlib 1.2.12 refuses it
+/// with "invalid literal/lengths set", and a line-by-line transcription of canvas's
+/// `__canvas_huffDecode` decodes it to `[0, 0]` — the third 2-bit code is simply never reached.
+const OVERSUBSCRIBED_IDAT: &str = "780115c0010800000040a0abaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2a4400020001";
+
+#[test]
+fn a_png_whose_huffman_tree_is_oversubscribed_is_refused() {
+    // audit-3 DEC-58: an over-subscribed code set assigns more codes than its lengths can
+    // hold, so which symbol a bit pattern means is decided by the decoder's walk order rather
+    // than by the format. zlib refuses such a set; a decoder that accepts it turns a malformed
+    // file into whichever image its walk happens to produce.
+    let mut file = SIGNATURE.to_vec();
+    file.extend_from_slice(&chunk(b"IHDR", &ihdr(1, 1, 0, 8)));
+    file.extend_from_slice(&chunk(b"IDAT", &unhex(OVERSUBSCRIBED_IDAT)));
+    file.extend_from_slice(&chunk(b"IEND", &[]));
+    match decode("canvas_png_oversubscribed_tree", &file) {
+        Ok((w, h, _)) => panic!("a PNG with an over-subscribed Huffman code decoded as a {w}x{h} image"),
+        Err(message) => assert!(message.contains("malformed"), "wrong message: {message}"),
+    }
+}
+
 // --- decompression bombs (bug-509, DEC-50/51/52) ---------------------------------------
 //
 // Every size the decoder derives from the file is capped before it is allocated or

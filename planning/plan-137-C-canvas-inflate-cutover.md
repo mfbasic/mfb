@@ -156,10 +156,16 @@ Commit: —
 
 ### Phase 2 — failing tests first
 
-- [ ] `tests/canvas/rt_canvas_image_decode.rs`: `a_png_whose_zlib_adler32_is_wrong_is_refused` and
+- [x] `tests/canvas/rt_canvas_image_decode.rs`: `a_png_whose_zlib_adler32_is_wrong_is_refused` and
       `a_png_whose_huffman_tree_is_oversubscribed_is_refused` (build the PNGs with the test file's
       own `crc32`/`adler32`/`zlib_stored` helpers plus a hand-built dynamic block); assert
       `ErrBadImageFile` with the `"malformed"` message. Confirm both **fail** today (canvas decodes them).
+      (2026-09-14, on the post-merge tree `0d3229ee9`: `cargo test --test rt_canvas_image_decode -- adler32_is_wrong
+      oversubscribed` → `0 passed; 2 failed`, panics `a PNG with a wrong zlib Adler-32 decoded as a 7x5 image` and
+      `a PNG with an over-subscribed Huffman code decoded as a 1x1 image`, the documented reason. The over-subscribed
+      IDAT is a fixed hex stream, `OVERSUBSCRIBED_IDAT`, rather than one assembled by a builder: one dynamic block whose
+      literal/length lengths over-subscribe the tree. Python `zlib.decompress` refuses it, and a transcription of
+      canvas's bit walker decodes it to `[0, 0]`.)
 
 Acceptance: the two new tests fail against HEAD for the documented reason.
   Check: `cargo test --test rt_canvas_image_decode -- adler32_is_wrong oversubscribed` → 2 failed (est. 6 min).
