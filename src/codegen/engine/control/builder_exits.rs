@@ -239,6 +239,12 @@ impl CodeBuilder<'_> {
         if move_elided {
             return Ok((self.lower_value(value)?, true));
         }
+        // bug-623 B: a resource union whose box is already this function's alone
+        // moves to the caller as-is. Reporting it standalone keeps the exit from
+        // re-materializing a copy and orphaning the original 16 B box.
+        if self.returned_resource_union_owns_box(value) {
+            return Ok((self.lower_value(value)?, true));
+        }
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;
             if self.is_freeable_flat_value(&lowered.type_) {

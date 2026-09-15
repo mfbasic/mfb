@@ -891,7 +891,8 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(type_),
-                                    frees_record: Self::resource_record_freed_at_drop(type_),
+                                    frees_record: Self::resource_record_freed_at_drop(type_)
+                                        && self.record_owning_locals.contains(name),
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -902,6 +903,11 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     variants,
                                     state_type: type_.state(),
+                                    record_free_tags: if self.record_owning_locals.contains(name) {
+                                        self.resource_union_record_free_tags(type_)
+                                    } else {
+                                        Vec::new()
+                                    },
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -1217,7 +1223,7 @@ impl CodeBuilder<'_> {
                                     has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
                                     frees_record: Self::resource_record_freed_at_drop(
                                         &result.type_,
-                                    ),
+                                    ) && self.record_owning_locals.contains(name),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)

@@ -47,6 +47,11 @@ impl CodeBuilder<'_> {
     /// Other kinds keep the tombstone: their producers include records this
     /// analysis has not audited (native `LINK` thunks, `audio`, `process`), and
     /// `fs::File` shares the record with the drop's buffer reclaim.
+    ///
+    /// bug-623 B: the kind is necessary, not sufficient. A binding frees the record
+    /// only when it also OWNS it (`record_owning_locals`, computed by
+    /// `resource::cleanup::record_ownership`): a union wrapping a live binding, or a
+    /// call that hands back a parameter's record, holds a record another binding frees.
     pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
         let base = type_.without_state();
         ["tcp.Socket", "tcp.Listener", "udp.Socket", "tls.Socket", "tls.Listener"]
@@ -90,6 +95,75 @@ impl CodeBuilder<'_> {
     /// (`Stream STATE PendingState`) names the same union as its bare form, so it
     /// must register the same tag-dispatched close — otherwise a stateful union
     /// binding would register no cleanup at all and leak its handle.
+    /// bug-623 B: the union variant tags whose record a drop may free — the
+    /// `resource_record_freed_at_drop` variants. Empty for a non-union.
+    pub(crate) fn resource_union_record_free_tags(&self, type_: &ParameterType) -> Vec<usize> {
+        let base = type_.without_state();
+        if !self.type_model.union_names.contains(&base) {
+            return Vec::new();
+        }
+        self.type_model
+            .variants_for_union(&base)
+            .filter(|variant| Self::resource_record_freed_at_drop(variant))
+            .filter_map(|variant| self.type_model.union_variant_tags.get(variant).copied())
+            .collect()
+    }
+
+    /// bug-623 B: whether a binding of `type_` can ever have a record freed at drop —
+    /// the domain `record_ownership` resolves.
+    pub(crate) fn record_freeable_type(&self, type_: &ParameterType) -> bool {
+        Self::resource_record_freed_at_drop(type_)
+            || !self.resource_union_record_free_tags(type_).is_empty()
+    }
+
+    /// bug-623 B: whether a returned resource-union value's `{tag, record}` box already
+    /// belongs to this function alone, so `RETURN` may hand it to the caller uncopied.
+    ///
+    /// The copy `lower_returned_value` otherwise makes orphaned the original box: 16 B
+    /// per `RETURN s` of an owned union local (whose cleanup the return deactivates, so
+    /// nothing frees the original) and per `RETURN f()` (a temp nobody frees) — the
+    /// 16 B of `http::read`'s 112 B per call. It stays for a parameter or any other
+    /// alias, where the caller's own argument still owns the box.
+    ///
+    /// Owned here: a union wrap (a box allocated for this value), a direct call to a
+    /// user function returning a resource union (whose box that function either moved
+    /// out or copied, so it is exclusively this frame's), and a local — or a bare-local
+    /// alias chain — rooted at a binding with a live union cleanup (its box moves; the
+    /// `RETURN` deactivation or the identity skip retires that cleanup).
+    pub(crate) fn returned_resource_union_owns_box(&self, value: &NirValue) -> bool {
+        match value {
+            NirValue::UnionWrap { union_type, .. } => {
+                self.resource_union_cleanup(union_type).is_some()
+            }
+            NirValue::Call { target, .. } => {
+                !self.locals.contains_key(target)
+                    && self
+                        .functions
+                        .get(target.as_str())
+                        .is_some_and(|f| self.resource_union_cleanup(&f.returns).is_some())
+            }
+            NirValue::Local(name) => {
+                let mut root = name.as_str();
+                let mut hops = 0;
+                while let Some(src) = self.resource_alias_sources.get(root) {
+                    root = src.as_str();
+                    hops += 1;
+                    if hops > 64 {
+                        return false;
+                    }
+                }
+                let Some(local) = self.locals.get(root) else {
+                    return false;
+                };
+                self.resource_union_cleanup(&local.type_).is_some()
+                    && self.active_cleanups.iter().any(|cleanup| {
+                        matches!(cleanup, ActiveCleanup::ResourceUnion(u) if u.name == root)
+                    })
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn resource_union_cleanup(
         &self,
         type_: &ParameterType,
@@ -296,6 +370,7 @@ impl CodeBuilder<'_> {
             &union_ptr,
             &cleanup.variants,
             cleanup.state_type.as_ref(),
+            &cleanup.record_free_tags,
             &dropped,
         )?;
         self.emit(abi::label(&dropped));
@@ -326,6 +401,7 @@ impl CodeBuilder<'_> {
         union_ptr: &VirtualRegister,
         variants: &[(usize, String)],
         state_type: Option<&ParameterType>,
+        record_free_tags: &[usize],
         done_label: &str,
     ) -> Result<(), String> {
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
@@ -379,6 +455,40 @@ impl CodeBuilder<'_> {
             // Ordered after the close, mirroring the concrete resource path.
             if let Some(state_type) = state_type {
                 self.emit_free_resource_state_block(payload_slot, state_type)?;
+            }
+            if record_free_tags.contains(tag) {
+                // bug-623 B: the union owns this variant's record (`record_free_tags`
+                // is empty otherwise), so after the close and the STATE free the
+                // record itself goes back to the arena — the same last step the
+                // concrete drop takes. A moved record belongs to the receiver.
+                let skip = self.label("resource_union_record_free_skip");
+                let record = self.allocate_register();
+                self.emit(abi::load_u64(&record, abi::stack_pointer(), payload_slot));
+                let flags = self.allocate_register();
+                self.emit(abi::load_u64(&flags, &record, FILE_OFFSET_CLOSED));
+                let moved_mask = self.allocate_register();
+                self.emit(abi::move_immediate(
+                    &moved_mask,
+                    "Integer",
+                    &(1u64 << RESOURCE_MOVED_BIT).to_string(),
+                ));
+                self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
+                self.emit(abi::compare_immediate(&moved_mask, "0"));
+                self.emit(abi::branch_ne(&skip));
+                let record_arg = self.allocate_register();
+                self.emit(abi::load_u64(
+                    &record_arg,
+                    abi::stack_pointer(),
+                    payload_slot,
+                ));
+                self.emit(abi::move_register(abi::c_arg(0), &record_arg));
+                self.emit(abi::move_immediate(
+                    abi::c_arg(1),
+                    "Integer",
+                    RESOURCE_RECORD_SIZE,
+                ));
+                self.emit_arena_free_call();
+                self.emit(abi::label(&skip));
             }
             self.emit(abi::branch(done_label));
             self.emit(abi::label(&next));

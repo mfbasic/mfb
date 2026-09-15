@@ -212,6 +212,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
+    /// bug-623 B: locals that provably own the resource record they hold
+    /// (`resource::cleanup::record_ownership`). Only these free the record at drop;
+    /// any other resource binding keeps the close and leaves the record alone.
+    pub(crate) record_owning_locals: HashSet<String>,
+    /// bug-623 B: locals whose single store is a bare `Local(src)` — followed by a
+    /// `RETURN` to find the binding that owns a returned union's box.
+    pub(crate) resource_alias_sources: HashMap<String, String>,
     /// plan-118-D: record types this module constructs often enough to get their
     /// own `construct.T` function. A construction of a type in here marshals and
     /// calls instead of inlining the allocation, the failure block, the field
@@ -571,6 +578,8 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_result: false,
             borrow_get_armed: false,
             current_returns_param_borrow: false,
+            record_owning_locals: HashSet::new(),
+            resource_alias_sources: HashMap::new(),
             current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
@@ -731,6 +740,11 @@ pub(crate) struct ResourceUnionCleanup {
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
     pub(crate) state_type: Option<ParameterType>,
+    /// bug-623 B: the variant tags whose record this binding's drop frees after the
+    /// close — the `resource_record_freed_at_drop` variants, and only when the binding
+    /// owns the record (`record_owning_locals`). Empty for a union wrapping a live
+    /// binding, whose record that binding frees.
+    pub(crate) record_free_tags: Vec<usize>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources

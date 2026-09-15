@@ -206,10 +206,13 @@ impl CodeBuilder<'_> {
                 let node_done = self.label("owned_list_union_node_done");
                 self.emit(abi::compare_immediate(&union_ptr, "0"));
                 self.emit(abi::branch_eq(&node_done));
+                // No record frees here: a floated element's record ownership is not
+                // resolved (bug-623 B), so the drain keeps its close-only behaviour.
                 self.emit_union_tag_dispatch_drop(
                     &union_ptr,
                     variants,
                     state_type.as_ref(),
+                    &[],
                     &node_done,
                 )?;
                 self.emit(abi::label(&node_done));
