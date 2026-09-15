@@ -3,7 +3,9 @@
 //! Pure-MFB rewrite onto `__compress_gzipDecode` (registered by [`super::helper_gzip_frame`]), which
 //! reads every member's header, runs the shared decoder core and verifies each CRC-32 and length.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Decompress gzip data — a `.gz` file or a gzip-encoded response — checking every member's checksum and length."#;
 const DESC: &str = r#"`compress::gzipDecode(data, maxBytes, ignoreChecksum)` decompresses `data` in the gzip

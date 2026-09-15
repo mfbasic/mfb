@@ -4,7 +4,9 @@
 //! validates the level and runs the shared encoder core ([`super::helper_deflate_core`]). No
 //! native code: the same bytes and the same errors on every target.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Compress bytes into raw DEFLATE data — the compressed format inside zlib, gzip, zip and PNG."#;
 const DESC: &str = r#"`compress::deflate(data, level)` compresses `data` and returns raw DEFLATE data, with no

@@ -4,7 +4,9 @@
 //! runs the shared decoder core ([`super::helper_inflate_core`]) and removes its end-position
 //! trailer. No native code: the same bytes and the same errors on every target.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Decompress raw DEFLATE data — the compressed format inside zlib, gzip, zip and PNG — refusing anything malformed."#;
 const DESC: &str = r#"`compress::inflate(data, maxBytes)` decompresses `data`, which must be raw DEFLATE

@@ -3,7 +3,9 @@
 //! Pure-MFB rewrite onto `__compress_zlibDecode` (registered by [`super::helper_zlib_frame`]), which
 //! checks the zlib header, runs the shared decoder core and verifies the Adler-32 trailer.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Decompress zlib data — DEFLATE data with a two-byte header and an Adler-32 checksum — checking that it arrived intact."#;
 const DESC: &str = r#"`compress::zlibDecode(data, maxBytes, ignoreChecksum)` decompresses `data` in the zlib

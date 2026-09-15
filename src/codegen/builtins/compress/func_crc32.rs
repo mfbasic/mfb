@@ -5,7 +5,9 @@
 //! [`super::helper_crc32_table`]. No native code: the same bytes and the same errors
 //! on every target.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Compute the CRC-32 checksum of a list of bytes, optionally continuing from an earlier checksum."#;
 const DESC: &str = r#"`compress::crc32(data, running)` returns the CRC-32 checksum of `data` as an

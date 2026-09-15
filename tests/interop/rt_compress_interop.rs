@@ -151,9 +151,14 @@ fn crc32_matches_crc32fast_over_a_generated_corpus() {
     let job_path = project.join("job.bin");
     std::fs::write(&job_path, &job).expect("write job file");
 
-    let (code, stdout, stderr) =
-        run_capture_with_env(&exe, &[("MFB_COMPRESS_JOB", job_path.display().to_string())]);
-    assert_eq!(code, 0, "program failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    let (code, stdout, stderr) = run_capture_with_env(
+        &exe,
+        &[("MFB_COMPRESS_JOB", job_path.display().to_string())],
+    );
+    assert_eq!(
+        code, 0,
+        "program failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 
     let mut seen = 0;
     let mut failures = Vec::new();
@@ -161,7 +166,11 @@ fn crc32_matches_crc32fast_over_a_generated_corpus() {
         let fields: Vec<&str> = line.split(' ').collect();
         let index: usize = fields[0].parse().expect("case index");
         let (data, split) = &cases[index];
-        assert_eq!(fields[1], data.len().to_string(), "case {index} read the wrong length");
+        assert_eq!(
+            fields[1],
+            data.len().to_string(),
+            "case {index} read the wrong length"
+        );
         let expected = reference_crc32(data).to_string();
         if fields[2] != expected || fields[3] != expected {
             failures.push(format!(
@@ -173,8 +182,16 @@ fn crc32_matches_crc32fast_over_a_generated_corpus() {
         }
         seen += 1;
     }
-    assert_eq!(seen, EXPECTED_CRC32_CASES, "program stopped early\nstderr:\n{stderr}");
-    assert!(failures.is_empty(), "{} disagreement(s):\n{}", failures.len(), failures.join("\n"));
+    assert_eq!(
+        seen, EXPECTED_CRC32_CASES,
+        "program stopped early\nstderr:\n{stderr}"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} disagreement(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 
     assert!(stdout.contains("running-max ok 4294967295\n"), "{stdout}");
     assert!(
@@ -294,15 +311,24 @@ fn decode_with_mfb(name: &str, cases: &[(Vec<u8>, u32)]) -> Vec<String> {
     }
     let job_path = project.join("job.bin");
     std::fs::write(&job_path, &job).expect("write job file");
-    let (code, stdout, stderr) =
-        run_capture_with_env(&exe, &[("MFB_COMPRESS_JOB", job_path.display().to_string())]);
-    assert_eq!(code, 0, "decode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    let (code, stdout, stderr) = run_capture_with_env(
+        &exe,
+        &[("MFB_COMPRESS_JOB", job_path.display().to_string())],
+    );
+    assert_eq!(
+        code, 0,
+        "decode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     let lines: Vec<String> = stdout
         .lines()
         .filter_map(|l| l.strip_prefix("case "))
         .map(|l| l.split_once(' ').expect("case index").1.to_string())
         .collect();
-    assert_eq!(lines.len(), cases.len(), "program stopped early\nstderr:\n{stderr}");
+    assert_eq!(
+        lines.len(),
+        cases.len(),
+        "program stopped early\nstderr:\n{stderr}"
+    );
     lines
 }
 
@@ -370,7 +396,13 @@ fn flate2_streams_decode_at_every_level_and_format() {
     assert_eq!(cases.len(), EXPECTED_ENCODE_CASES);
     let got = decode_with_mfb("rt_compress_decode_levels", &cases);
     for (i, line) in got.iter().enumerate() {
-        assert_eq!(line, &ok(&corpus), "case {i}: format {} level {}", i / 10, i % 10);
+        assert_eq!(
+            line,
+            &ok(&corpus),
+            "case {i}: format {} level {}",
+            i / 10,
+            i % 10
+        );
     }
 }
 
@@ -471,21 +503,55 @@ fn decided_behaviours_hold() {
 
     let mut cases: Vec<(Vec<u8>, u32, String, &str)> = vec![
         (bad_adler.clone(), ZLIB, refused(), "bad Adler-32"),
-        (bad_adler, ZLIB | LENIENT, ok(&corpus), "bad Adler-32, ignoreChecksum"),
+        (
+            bad_adler,
+            ZLIB | LENIENT,
+            ok(&corpus),
+            "bad Adler-32, ignoreChecksum",
+        ),
         (bad_crc.clone(), GZIP, refused(), "bad CRC-32"),
-        (bad_crc, GZIP | LENIENT, ok(&corpus), "bad CRC-32, ignoreChecksum"),
+        (
+            bad_crc,
+            GZIP | LENIENT,
+            ok(&corpus),
+            "bad CRC-32, ignoreChecksum",
+        ),
         (bad_isize.clone(), GZIP, refused(), "bad ISIZE"),
-        (bad_isize, GZIP | LENIENT, ok(&corpus), "bad ISIZE, ignoreChecksum"),
-        (gzip_with_fhcrc(&corpus, 0), GZIP, ok(&corpus), "correct FHCRC"),
+        (
+            bad_isize,
+            GZIP | LENIENT,
+            ok(&corpus),
+            "bad ISIZE, ignoreChecksum",
+        ),
+        (
+            gzip_with_fhcrc(&corpus, 0),
+            GZIP,
+            ok(&corpus),
+            "correct FHCRC",
+        ),
         (gzip_with_fhcrc(&corpus, 1), GZIP, refused(), "bad FHCRC"),
-        (gzip_with_fhcrc(&corpus, 1), GZIP | LENIENT, ok(&corpus), "bad FHCRC, ignoreChecksum"),
-        (bad_nlen, ZLIB | LENIENT, refused(), "bad NLEN, ignoreChecksum"),
+        (
+            gzip_with_fhcrc(&corpus, 1),
+            GZIP | LENIENT,
+            ok(&corpus),
+            "bad FHCRC, ignoreChecksum",
+        ),
+        (
+            bad_nlen,
+            ZLIB | LENIENT,
+            refused(),
+            "bad NLEN, ignoreChecksum",
+        ),
         (fdict.clone(), ZLIB, refused(), "FDICT"),
         (fdict, ZLIB | LENIENT, refused(), "FDICT, ignoreChecksum"),
     ];
     for extra in [1usize, 7, 1000] {
         let junk: Vec<u8> = (0..extra).map(|i| 0x5a ^ (i as u8)).collect();
-        for (stream, format, label) in [(&raw, RAW, "raw"), (&zlib, ZLIB, "zlib"), (&gzip, GZIP, "gzip")] {
+        for (stream, format, label) in [
+            (&raw, RAW, "raw"),
+            (&zlib, ZLIB, "zlib"),
+            (&gzip, GZIP, "gzip"),
+        ] {
             let mut s = stream.clone();
             s.extend(&junk);
             cases.push((s, format, ok(&corpus), label));
@@ -502,7 +568,10 @@ fn decided_behaviours_hold() {
     cases.push((false_member, GZIP, refused(), "1f 8b then garbage"));
     assert_eq!(cases.len(), EXPECTED_DECIDED_CASES);
 
-    let job: Vec<(Vec<u8>, u32)> = cases.iter().map(|(d, aux, _, _)| (d.clone(), *aux)).collect();
+    let job: Vec<(Vec<u8>, u32)> = cases
+        .iter()
+        .map(|(d, aux, _, _)| (d.clone(), *aux))
+        .collect();
     let got = decode_with_mfb("rt_compress_decode_decided", &job);
     let wrong: Vec<String> = got
         .iter()
@@ -713,18 +782,27 @@ fn encoders_output_decodes_with_flate2_and_is_deterministic() {
                 ("MFB_COMPRESS_OUT", out_path.display().to_string()),
             ],
         );
-        assert_eq!(code, 0, "encode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        assert_eq!(
+            code, 0,
+            "encode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
         let lines = stdout
             .lines()
             .filter_map(|l| l.strip_prefix("case "))
             .map(|l| l.split_once(' ').expect("case index").1.to_string())
             .collect();
-        (lines, std::fs::read(&out_path).expect("read encoder output"))
+        (
+            lines,
+            std::fs::read(&out_path).expect("read encoder output"),
+        )
     };
     let (lines, first) = run("produced-1.bin");
     let (_, second) = run("produced-2.bin");
     assert_eq!(lines.len(), cases.len(), "program stopped early");
-    assert!(first == second, "two runs of the encoders wrote different bytes");
+    assert!(
+        first == second,
+        "two runs of the encoders wrote different bytes"
+    );
 
     let produced = read_job(&first);
     assert_eq!(produced.len(), cases.len());
@@ -734,7 +812,9 @@ fn encoders_output_decodes_with_flate2_and_is_deterministic() {
         assert_eq!(*aux, format * 16 + level);
         // MFBASIC prints a Boolean as `TRUE` / `FALSE`.
         if lines[i] != "TRUE" {
-            failures.push(format!("case {i} (format {format}, level {level}): two calls differ"));
+            failures.push(format!(
+                "case {i} (format {format}, level {level}): two calls differ"
+            ));
         }
         let mut decoded = Vec::new();
         let result = match format {

@@ -64,8 +64,17 @@ fn a_decompression_bomb_is_refused_at_the_limit_in_bounded_memory() {
         "decoding a 64 MiB + 1 zlib bomb did not finish",
     );
     let _ = std::fs::remove_dir_all(&project);
-    assert!(status.success(), "{}:\n{stdout}", common::exit_description(&status));
-    assert_eq!(stdout.trim(), format!("raised {ERR_TOO_LARGE}"), "bomb of {} compressed bytes", bomb.len());
+    assert!(
+        status.success(),
+        "{}:\n{stdout}",
+        common::exit_description(&status)
+    );
+    assert_eq!(
+        stdout.trim(),
+        format!("raised {ERR_TOO_LARGE}"),
+        "bomb of {} compressed bytes",
+        bomb.len()
+    );
     let rss = rss.expect("unix reports ru_maxrss");
     assert!(
         rss < 320 * 1024 * 1024,
@@ -114,8 +123,16 @@ fn content(bytes: usize) -> Vec<u8> {
     let mut state = 0x0137_5CA1u64;
     let mut i = 0u64;
     while out.len() < bytes {
-        out.extend(format!("line {i}: value {} of the quick brown fox\n", (i * 7919) % 100_003).bytes());
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        out.extend(
+            format!(
+                "line {i}: value {} of the quick brown fox\n",
+                (i * 7919) % 100_003
+            )
+            .bytes(),
+        );
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         out.push((state >> 33) as u8);
         i += 1;
     }
@@ -136,9 +153,17 @@ fn decode_time_is_linear_in_output_size() {
     let dir = binary.parent().unwrap();
     std::fs::write(dir.join("n.z"), zlib(&content(n), 6)).expect("write n");
     std::fs::write(dir.join("4n.z"), zlib(&content(4 * n), 6)).expect("write 4n");
-    let (status, stdout) = common::run_bounded(&binary, Duration::from_secs(240), "linearity decode did not finish");
+    let (status, stdout) = common::run_bounded(
+        &binary,
+        Duration::from_secs(240),
+        "linearity decode did not finish",
+    );
     let _ = std::fs::remove_dir_all(&project);
-    assert!(status.success(), "{}:\n{stdout}", common::exit_description(&status));
+    assert!(
+        status.success(),
+        "{}:\n{stdout}",
+        common::exit_description(&status)
+    );
     let times = |label: &str| -> Vec<u64> {
         stdout
             .lines()

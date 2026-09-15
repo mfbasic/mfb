@@ -4,9 +4,12 @@
 //! which validates the level, writes the header, runs the shared encoder core and appends the
 //! CRC-32 and length trailer. No native code: the same bytes and the same errors on every target.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
-const INTRO: &str = r#"Compress bytes into gzip data — the format of `.gz` files and of gzip-encoded HTTP bodies."#;
+const INTRO: &str =
+    r#"Compress bytes into gzip data — the format of `.gz` files and of gzip-encoded HTTP bodies."#;
 const DESC: &str = r#"`compress::gzipEncode(data, level)` compresses `data` into the gzip format, the format of
 `.gz` files and of the `gzip` HTTP content encoding. The result is one gzip member: a ten-byte
 header, DEFLATE data, and a trailer holding a CRC-32 checksum of `data` and its length.

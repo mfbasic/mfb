@@ -639,7 +639,9 @@ fn a_png_whose_huffman_tree_is_oversubscribed_is_refused() {
     file.extend_from_slice(&chunk(b"IDAT", &unhex(OVERSUBSCRIBED_IDAT)));
     file.extend_from_slice(&chunk(b"IEND", &[]));
     match decode("canvas_png_oversubscribed_tree", &file) {
-        Ok((w, h, _)) => panic!("a PNG with an over-subscribed Huffman code decoded as a {w}x{h} image"),
+        Ok((w, h, _)) => {
+            panic!("a PNG with an over-subscribed Huffman code decoded as a {w}x{h} image")
+        }
         Err(message) => assert!(message.contains("malformed"), "wrong message: {message}"),
     }
 }

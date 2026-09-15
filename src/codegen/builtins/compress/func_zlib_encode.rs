@@ -4,7 +4,9 @@
 //! which validates the level, writes the header, runs the shared encoder core and appends the
 //! Adler-32 trailer. No native code: the same bytes and the same errors on every target.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Compress bytes into zlib data — DEFLATE data with a two-byte header and an Adler-32 checksum, so it can be checked on arrival."#;
 const DESC: &str = r#"`compress::zlibEncode(data, level)` compresses `data` into the zlib format: DEFLATE data
