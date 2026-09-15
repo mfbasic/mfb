@@ -457,9 +457,10 @@ fn have_openssl_peer() -> bool {
         .unwrap_or(false)
 }
 
-/// Serve a fresh self-signed `localhost` identity with `openssl s_server` on a loopback port,
-/// and return the child once a handshake completes against it.
-fn serve_tls(root: &Path) -> (std::process::Child, u16) {
+/// Serve a fresh self-signed `localhost` identity with `openssl s_server` on a loopback port
+/// (plus any `extra` s_server arguments, e.g. `-rev`), and return the child once a handshake
+/// completes against it.
+fn serve_tls(root: &Path, extra: &[&str]) -> (std::process::Child, u16) {
     use std::process::{Command, Stdio};
     fs::create_dir_all(root).expect("create tls scratch");
     let cert = root.join("cert.pem");
@@ -488,6 +489,7 @@ fn serve_tls(root: &Path) -> (std::process::Child, u16) {
             .port();
         let mut child = Command::new("openssl")
             .args(["s_server", "-quiet", "-accept", &port.to_string()])
+            .args(extra)
             .arg("-cert")
             .arg(&cert)
             .arg("-key")
@@ -528,7 +530,7 @@ fn a_tls_connect_close_loop_keeps_live_bytes_constant() {
         return;
     }
     let root = std::env::temp_dir().join(format!("mfb_soak_tls_{}", common::unique_nonce()));
-    let (mut server, port) = serve_tls(&root);
+    let (mut server, port) = serve_tls(&root, &[]);
     let run = |n: u64| {
         let project = common::temp_project(
             "soak_tls_close",
@@ -782,5 +784,167 @@ fn a_resource_union_aliasing_a_binding_keeps_live_bytes_constant() {
                 ),
             )
         },
+    );
+}
+
+/// Every `arena.N.alloc_bytes` / `arena.N.free_bytes` pair in a `--debug` report, by slot.
+fn arena_alloc_free_bytes(stderr: &str) -> Vec<(u64, u64, u64)> {
+    let mut slots: std::collections::BTreeMap<u64, (u64, u64)> = std::collections::BTreeMap::new();
+    for line in stderr.lines() {
+        let Some(rest) = line.strip_prefix("arena.") else {
+            continue;
+        };
+        let mut parts = rest.splitn(2, '.');
+        let (Some(slot), Some(tail)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let Ok(slot) = slot.parse::<u64>() else {
+            continue;
+        };
+        let mut words = tail.split_whitespace();
+        let (Some(name), Some(value)) = (words.next(), words.next()) else {
+            continue;
+        };
+        let Ok(value) = value.parse::<u64>() else {
+            continue;
+        };
+        let entry = slots.entry(slot).or_insert((0, 0));
+        match name {
+            "alloc_bytes" => entry.0 = value,
+            "free_bytes" => entry.1 = value,
+            _ => {}
+        }
+    }
+    slots.into_iter().map(|(slot, (a, f))| (slot, a, f)).collect()
+}
+
+/// Found by bug-623's fix: on macOS a `tls::poll` that buffers plaintext stashes it in a
+/// block the polling thread's arena allocates (`CTX_PEND_BUF`), and the connection ctx
+/// moves to another thread VERBATIM on `thread::transfer`. The receiver's `tls::read` (or
+/// `tls::close`) then `arena_free`d that block into its OWN arena — a block it never
+/// allocated. No arena may free more than it allocated.
+#[test]
+#[cfg(target_os = "macos")]
+fn a_transferred_tls_socket_never_frees_a_block_from_another_arena() {
+    if !have_openssl_peer() {
+        eprintln!("skipping: no OpenSSL `openssl` CLI to serve TLS");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mfb_xfer_pend_{}", common::unique_nonce()));
+    let (mut server, port) = serve_tls(&root, &["-rev"]);
+    let project = common::temp_project(
+        "xfer_pend",
+        &format!(
+            "IMPORT io\nIMPORT tls\nIMPORT thread\nIMPORT strings\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  LET got AS List OF Byte = tls::read(s, 100)\n  RETURN len(got)\nEND FUNC\n\nSUB main()\n  RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n  tls::write(c, strings::toBytes(\"abcdef\\n\"))\n  LET ready AS Boolean = tls::poll(c, 5000)\n  LET a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n  thread::transfer(a, c)\n  io::print(\"ready=\" & toString(ready) & \" read=\" & toString(thread::waitFor(a)))\nEND SUB\n"
+        ),
+    );
+    let exe = build_debug_project("xfer_pend", &project);
+    let (stdout, stderr) = run_ok("xfer_pend", &exe);
+    let _ = server.kill();
+    let _ = server.wait();
+    let _ = fs::remove_dir_all(&root);
+    assert!(
+        stdout.contains("ready=TRUE") && !stdout.contains("read=0"),
+        "the poll must buffer the peer's reply and the worker must read it:\n{stdout}"
+    );
+    let slots = arena_alloc_free_bytes(&stderr);
+    assert!(slots.len() >= 2, "expected the main and worker arenas:\n{stderr}");
+    for (slot, alloc, free) in slots {
+        assert!(
+            free <= alloc,
+            "arena {slot} freed {free} B but allocated only {alloc} B — a block from another \
+             thread's arena was freed into it (CTX_PEND_BUF on a transferred tls::Socket)"
+        );
+    }
+}
+
+/// `arena.0` counters from a `--debug` report: `(alloc_calls, free_calls, live_bytes,
+/// double_free_skips)`.
+fn main_arena_calls(name: &str, stderr: &str) -> (u64, u64, u64, u64) {
+    let lines = arena_lines(name, stderr);
+    (
+        counter(name, &lines, 0, "alloc_calls"),
+        counter(name, &lines, 0, "free_calls"),
+        counter(name, &lines, 0, "live_bytes"),
+        counter(name, &lines, 0, "double_free_skips"),
+    )
+}
+
+/// Build `source` (with `{n}` substituted) as a `--debug` project, run it, and return its
+/// stdout and main-arena counters.
+fn debug_run(case: &str, source: &str, n: u64) -> (String, (u64, u64, u64, u64)) {
+    let name = format!("{case}_{n}");
+    let project = common::temp_project(case, &source.replace("{n}", &n.to_string()));
+    let exe = build_debug_project(&name, &project);
+    let (stdout, stderr) = run_ok(&name, &exe);
+    let counters = main_arena_calls(&name, &stderr);
+    (stdout, counters)
+}
+
+/// bug-623 regression (introduced by the record free, fixed by the ownership pass): a
+/// function that returns its `RES` parameter hands the caller back the caller's own
+/// record, and the caller's second binding must not free it again. Before the ownership
+/// pass: `free_calls` 752 against `alloc_calls` 600 and `double_free_skips` 152 at N=300.
+#[test]
+fn a_resource_passed_through_a_function_is_freed_once() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC passthru(RES u AS udp::Socket) AS RES udp::Socket\n  RETURN u\nEND FUNC\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES b AS udp::Socket = passthru(a)\n  NEXT\n  io::print(\"done\")\nEND SUB\n";
+    for n in [300u64, 600] {
+        let (_, (allocs, frees, _, skips)) = debug_run("res_passthru", SOURCE, n);
+        assert!(
+            skips == 0 && frees <= allocs,
+            "res_passthru N={n}: double_free_skips {skips}, free_calls {frees} > alloc_calls \
+             {allocs} — a passed-through record was freed twice (bug-623)"
+        );
+    }
+    let (_, (_, _, at_small, _)) = debug_run("res_passthru_flat", SOURCE, 300);
+    let (_, (_, _, at_large, _)) = debug_run("res_passthru_flat", SOURCE, 600);
+    assert!(
+        at_large.saturating_sub(at_small) < BLOCK_BOUND,
+        "res_passthru: live_bytes grew {at_small} -> {at_large} between 300 and 600 (bug-623)"
+    );
+}
+
+/// Found by bug-623 (pre-existing; a use-after-free since the record free): a function that
+/// returns a resource union wrapping its OWN owned local handed the caller a closed handle
+/// — `udp::localAddress` on it raised `7-703-0004` and the program exited 255 — because the
+/// callee's scope drop closed (and now freed) the record the union still pointed at.
+#[test]
+fn a_returned_union_wrapping_an_owned_local_stays_open_in_the_caller() {
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC open() AS RES Chan\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES c AS Chan = u\n  RETURN c\nEND FUNC\n\nFUNC portOf(RES c AS Chan) AS Integer\n  MUT port AS Integer = -1\n  MATCH c\n    CASE udp::Socket(s)\n      LET a AS net::Address = udp::localAddress(s)\n      port = a.port\n    CASE fs::File(f)\n      port = -2\n  END MATCH\n  RETURN port\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan = open()\n    IF portOf(c) > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    let (stdout_small, (_, _, at_small, skips_small)) = debug_run("ret_union_owned", SOURCE, 50);
+    let (stdout_large, (_, _, at_large, skips_large)) = debug_run("ret_union_owned", SOURCE, 100);
+    assert!(
+        stdout_small.contains("ok=50") && stdout_large.contains("ok=100"),
+        "every returned union must still be an open socket:\n{stdout_small}\n{stdout_large}"
+    );
+    assert!(
+        skips_small == 0 && skips_large == 0,
+        "ret_union_owned: double_free_skips {skips_small}/{skips_large}"
+    );
+    assert!(
+        at_large.saturating_sub(at_small) < BLOCK_BOUND,
+        "ret_union_owned: live_bytes grew {at_small} -> {at_large} between 50 and 100"
+    );
+}
+
+/// Found by bug-623 (pre-existing, same class): a resource union aliasing an outer binding
+/// in an inner scope closed the OUTER handle when the inner scope ended — the union
+/// registered its own close. `udp::localAddress(u)` afterwards raised `7-703-0004`.
+#[test]
+fn a_union_alias_in_an_inner_scope_leaves_the_outer_handle_open() {
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    MUT flag AS Boolean = 1 > 0\n    IF flag THEN\n      RES c AS Chan = u\n    END IF\n    LET a AS net::Address = udp::localAddress(u)\n    IF a.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    let (stdout_small, (_, _, at_small, skips_small)) = debug_run("union_scope_alias", SOURCE, 50);
+    let (stdout_large, (_, _, at_large, skips_large)) = debug_run("union_scope_alias", SOURCE, 100);
+    assert!(
+        stdout_small.contains("ok=50") && stdout_large.contains("ok=100"),
+        "the outer handle must stay open after the inner alias's scope ends:\n{stdout_small}\n{stdout_large}"
+    );
+    assert!(
+        skips_small == 0 && skips_large == 0,
+        "union_scope_alias: double_free_skips {skips_small}/{skips_large}"
+    );
+    assert!(
+        at_large.saturating_sub(at_small) < BLOCK_BOUND,
+        "union_scope_alias: live_bytes grew {at_small} -> {at_large} between 50 and 100"
     );
 }
