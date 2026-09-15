@@ -21,9 +21,10 @@ and the scope is long.
 image.** A scene carries the id, not the image, so destroying the image leaves
 the scene intact — the runtime simply stops drawing that item.
 
-Calling `destroyImage` again on an image it already closed does nothing — unlike
-`fs::close` or `tcp::close`, which raise `ErrResourceClosed` for a second close.
-Any other use of a closed image raises `ErrResourceClosed`.
+Calling `destroyImage` again on an image it already closed raises
+`ErrResourceClosed`, exactly as a second `fs::close` does, and so does any other use
+of a closed image. Destroying an image and then letting its binding go out of scope
+is safe: the close at scope end does nothing.
 
 Unlike the rest of `canvas`, `destroyImage` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to close the images it made, and
@@ -43,10 +44,10 @@ END SUB
 
 /// `canvas::destroyImage(image)` — set the closed bit.
 ///
-/// Double-close must be a no-op rather than an error (the universal resource
-/// contract), so this is an unconditional store of the closed flag: storing `1` over
-/// `1` changes nothing, and testing first would only add a branch to reach the same
-/// state. The OS-side free is deliberately not here — it is gated on
+/// An already-closed image raises `ErrResourceClosed`, the one contract every close
+/// follows (`mfb spec language resource-management` §15, bug-610). The scope-drop
+/// routes here too and treats that code as a benign no-op, so a drop after an
+/// explicit destroy stays silent. The OS-side free is deliberately not here — it is gated on
 /// `closed AND lastUsedFrame < lastCompletedFrame` and belongs to the backend
 /// (plan-98-D), because only the backend knows when the GPU is done reading.
 pub(crate) fn lower_destroy_image(
@@ -61,6 +62,10 @@ pub(crate) fn lower_destroy_image(
         .location
         .clone();
 
+    let closed = builder.label("canvas_destroy_image_closed");
+    let done = builder.label("canvas_destroy_image_done");
+    super::gen_image::emit_closed_guard(builder, &record, &closed);
+
     let flag = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&flag, "Integer", "1"));
     builder.emit(abi::store_u64(&flag, &record, RESOURCE_OFFSET_CLOSED));
@@ -69,6 +74,12 @@ pub(crate) fn lower_destroy_image(
         "Integer",
         RESULT_OK_TAG,
     ));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&closed));
+    builder.raise_error_bare("ErrResourceClosed")?;
+
+    builder.emit(abi::label(&done));
     builder.emit(abi::return_());
 
     Ok(ValueResult {
@@ -90,14 +101,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "image",
-                desc: "The image to destroy. Safe to call twice, and safe while a \
-                       presented scene still draws it.",
+                desc: "The image to destroy. Must not already be destroyed; safe \
+                       while a presented scene still draws it.",
                 aliases: &[],
                 ty: ParameterType::named(super::IMAGE_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrResourceClosed"],
             body: Body::abi_function(lower_destroy_image),
         }],
     });
