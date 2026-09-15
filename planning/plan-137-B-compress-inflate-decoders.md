@@ -142,11 +142,16 @@ trailer or the next gzip member). Two candidate shapes, chosen in Phase 2 by mea
 
 Record the choice and its measured cost in Corrections. A shape that copies `out` per block or
 per symbol is rejected outright.
+**Decided 2026-09-14 by measurement: shape (b).** Interleaved paired ratios on the 67 MiB stream:
+trailer/none 1.011 (`bits -O1`), 1.016 (`bits -O3`); rescan/none 1.608 and 1.639 (Corrections).
 
 **Bit reader.** Refill a byte at a time while `bitCount < need` (need ≤ 15 + 13 extra):
 `bitBuf = bor(bitBuf, sl(byte, bitCount))`. Peek `band(bitBuf, mask)`; consume
 `bitBuf = sr(bitBuf, n)`. Phase 1 measures `sl`/`sr` (count-checked branches) against `*`/`/`
 by table powers of two; take the faster, record both numbers.
+**Decided 2026-09-14 by measurement: `bits::sl`/`sr`/`band`/`bor`.** Paired `*`/`/`-over-`bits` time
+ratio 1.191 at `-O1` and 1.074 at `-O3` (Corrections) — the back-to-back runner had shown the reverse,
+which the interleaved rounds identify as host-load ordering bias.
 
 **Output.** `out = collections::append(out, b)` for literals; back-references copy byte by byte
 from `getOr(out, len(out) - dist)` so overlapping matches work by construction. Before any
@@ -238,12 +243,19 @@ Nothing existing changes.
       `decode_bounded` helpers). Record decode ms and the PNG's inflated size.
       (§2 row: 43,691.6 ms for 67,112,960 B inflated ≈ 1.47 MiB/s, timed in-program with
       `datetime::monotonicNanos` around `canvas::loadImage`, `MFB_*APP_HEADLESS=1`.)
-- [ ] Prototype `__compress_inflateCore` (fixed + dynamic blocks, stored blocks, no framing) in
+- [x] Prototype `__compress_inflateCore` (fixed + dynamic blocks, stored blocks, no framing) in
       a scratch builtin build; measure the same stream: `sl`/`sr` vs `*`/`/` bit buffer, and the
       §4.1 (a)/(b) end-position shapes. Record MiB/s for each variant at `-O1` and `-O3`.
+      (Corrections, "Phase 1 prototype measurements": both flavours pass 9 correctness streams at `-O1`/`-O3`;
+      interleaved 5-round medians on the 67,112,960 B PNG stream — `bits` 15.24 MiB/s `-O1`, 18.32 MiB/s `-O3`;
+      paired trailer/none 1.011–1.022, rescan/none 1.608–1.697, arith/bits 1.191 `-O1` / 1.074 `-O3`.)
 
 Acceptance: every UNMEASURED row in §2 filled; the oracle's declared-divergence list and §4.2's
 code-set exceptions each cite the probe output behind them.
+  (2026-09-14: §2's two Phase 1 rows filled — canvas baseline and the Python/Node probe; the third row is
+  Phase 2's by its own Command column. `tools/oracles/compress/README.md` "Declared divergences" and §4.2's
+  "Confirmed 2026-09-14" paragraph cite `probe.sh`; `probe.sh` and the prototype runner print their tables;
+  bench numbers are in Corrections.)
   Check: the probe scripts print their tables; bench numbers pasted in Corrections (est. 45 min —
   it is the plan's design experiment; nothing smaller can measure the decoder's speed).
 Commit: —
@@ -330,8 +342,9 @@ Commit: —
 
 ## Open Decisions
 
-- End-position reporting shape (a) re-scan vs (b) appended trailer — decided in Phase 2 by
-  measured cost; (b) expected cheaper.
+- ~~End-position reporting shape (a) re-scan vs (b) appended trailer — decided in Phase 2 by
+  measured cost; (b) expected cheaper.~~ Decided in Phase 1 (2026-09-14): (b), +1–2% vs +61–70%
+  (§4.1, Corrections).
 
 ## Corrections
 
@@ -359,6 +372,41 @@ Commit: —
   7,204 ms ≈ none although it decodes twice, and none's own runs spread 6,274–7,718 ms (host load, as
   plan-137-A's first bench run). The shape and flavour decisions use `/tmp/p137proto/interleave.py`:
   every (flavour, level, shape) visited once per round in rotated order, paired per-round ratios.
+- **Phase 1 prototype measurements** (2026-09-14, macos-aarch64, `/tmp/p137proto/interleave.py`, 5
+  interleaved rounds on the 67,112,960 B PNG stream; every run's length and CRC-32 checked). The
+  back-to-back runner disagreed about the flavour (`arith` faster); with ordering bias removed `bits`
+  is faster at both levels, so the back-to-back flavour ranking is superseded, not averaged.
+
+| flavour | -O | shape | median ms | MiB/s | min ms | spread ms |
+|---|---|---|---|---|---|---|
+| `bits` | 1 | none | 4,198.5 | 15.24 | 4,032.6 | 431.3 |
+| `bits` | 1 | trailer | 4,195.9 | 15.25 | 4,122.4 | 279.8 |
+| `bits` | 1 | rescan | 6,797.0 | 9.42 | 6,483.1 | 547.1 |
+| `bits` | 3 | none | 3,493.7 | 18.32 | 3,433.8 | 231.1 |
+| `bits` | 3 | trailer | 3,560.9 | 17.97 | 3,434.8 | 287.3 |
+| `bits` | 3 | rescan | 5,856.3 | 10.93 | 5,606.1 | 399.3 |
+| `arith` | 1 | none | 5,086.3 | 12.58 | 4,956.9 | 272.6 |
+| `arith` | 1 | trailer | 5,198.9 | 12.31 | 5,009.0 | 336.9 |
+| `arith` | 1 | rescan | 8,448.6 | 7.58 | 8,183.1 | 552.6 |
+| `arith` | 3 | none | 3,749.7 | 17.07 | 3,659.4 | 279.2 |
+| `arith` | 3 | trailer | 3,768.0 | 16.99 | 3,738.9 | 238.8 |
+| `arith` | 3 | rescan | 6,410.6 | 9.98 | 6,246.6 | 390.4 |
+
+| paired ratio | median | range |
+|---|---|---|
+| bits -O1 trailer /none | 1.011 | 0.981–1.031 |
+| bits -O1 rescan /none | 1.608 | 1.575–1.640 |
+| bits -O3 trailer /none | 1.016 | 0.997–1.019 |
+| bits -O3 rescan /none | 1.639 | 1.626–1.712 |
+| arith -O1 trailer /none | 1.022 | 0.975–1.049 |
+| arith -O1 rescan /none | 1.669 | 1.644–1.694 |
+| arith -O3 trailer /none | 1.014 | 1.002–1.030 |
+| arith -O3 rescan /none | 1.697 | 1.666–1.751 |
+| arith/bits -O1 none | 1.191 | 1.172–1.240 |
+| arith/bits -O3 none | 1.074 | 1.048–1.087 |
+
+  **Result:** shape (b) and the `bits::` bit buffer (§4.1). The prototype decodes the literal-heavy stream
+  at 15.24 MiB/s at `-O1`, ≈10.4× canvas's 1.47 MiB/s through `loadImage` (§2), and 18.32 MiB/s at `-O3`.
 
 
 ## Summary
