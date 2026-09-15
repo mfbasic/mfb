@@ -123,7 +123,10 @@ fn run_consumer(case: &str, decls: &str, body: &str) -> Vec<String> {
         .to_string();
     let run = Command::new(&exe).output().expect("run app");
     let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
-    assert!(run.status.success(), "case `{case}`: app crashed:\n{stdout}");
+    assert!(
+        run.status.success(),
+        "case `{case}`: app crashed:\n{stdout}"
+    );
     stdout.lines().map(str::to_string).collect()
 }
 

@@ -6,7 +6,7 @@ Severity: MEDIUM
 Class: Correctness
 
 Status: Open
-Regression Test: tests/runtime/rt_imported_overload_imported_field_argument.rs (to add, Phase 1)
+Regression Test: tests/runtime/rt_imported_overload_imported_field_argument.rs
 
 A consumer that calls an **overloaded function exported by a package** fails to build when the
 argument's type comes from **a field of a record type the consumer imported**. That covers the
@@ -265,36 +265,36 @@ overloaded or generic function with an imported field argument; Phase 3 checks.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_imported_overload_imported_field_argument.rs`, modelled on
+- [x] Add `tests/runtime/rt_imported_overload_imported_field_argument.rs`, modelled on
       `tests/runtime/rt_imported_record_map_field_keys.rs` (builds the package and consumer from
       source in a temp root). One case per ✗ row of the reproduction table, each asserting the build
       succeeds and the program prints the expected output; plus the ✓ rows as guards. Register it
       the way `rt_imported_record_map_field_keys.rs` is registered.
-- [ ] Add rows for the latent blast-radius sites: a local overload set called with `h.first`; a
+- [x] Add rows for the latent blast-radius sites: a local overload set called with `h.first`; a
       generic `FUNC id OF T(x AS T) AS T` called with `h.first`; constructing `ov::Holder` with an
       untyped `[]` field; a consumer-local `TYPE A` coexisting with `ov::A`. Record each observed
       result in this document's Blast Radius section (✗ becomes in-scope; ✓ becomes "unaffected
       because …").
-- [ ] Confirm every ✗ case fails with `TYPE_OVERLOAD_AMBIGUOUS` (or the latent case's own error).
+- [x] Confirm every ✗ case fails with `TYPE_OVERLOAD_AMBIGUOUS` (or the latent case's own error).
 
 Acceptance: the new test fails only on the documented cases, each for the documented reason.
   Check: `cargo test --test rt_imported_overload_imported_field_argument` → the ✗ cases fail with
   `TYPE_OVERLOAD_AMBIGUOUS`, the ✓ guards pass (est. 3 min).
-Commit: —
+Commit: 73ab94edc
 
 ### Phase 2 — the fix
 
-- [ ] `src/monomorph/lower.rs:Monomorphizer::new` (and whatever constructs it with the project's
+- [x] `src/monomorph/lower.rs:Monomorphizer::new` (and whatever constructs it with the project's
       installed packages) — load `imported_type_defs` for the consumer's dependencies and make their
       record layouts visible to `record_fields`, per Fix Design (separate map if `concrete_types` is
       emitted from).
-- [ ] `src/monomorph/lower.rs:record_fields` — consult the imported layouts after `concrete_types`.
-- [ ] Apply to every in-scope latent site Phase 1 confirmed.
+- [x] `src/monomorph/lower.rs:record_fields` — consult the imported layouts after `concrete_types`.
+- [x] Apply to every in-scope latent site Phase 1 confirmed.
 
 Acceptance: the Phase 1 test passes; bug-36's tests pass unmodified.
   Check: `cargo test --test rt_imported_overload_imported_field_argument` → all pass;
   `cargo test --bin mfb monomorph` → all pass (est. 5 min).
-Commit: —
+Commit: 73ab94edc
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -302,7 +302,7 @@ Commit: —
       golden diff is a bug-hunt trigger). No golden is re-baselined without the four answers
       AGENTS.md requires.
 - [ ] Run the full suite.
-- [ ] Re-run the reproduction table end to end with the rebuilt `target/release/mfb`; every row
+- [x] Re-run the reproduction table end to end with the rebuilt `target/release/mfb`; every row
       prints its expected output.
 - [ ] Update `planning/plan-138-B-xml-serializer-and-docs.md` Prerequisites status to MET.
 
