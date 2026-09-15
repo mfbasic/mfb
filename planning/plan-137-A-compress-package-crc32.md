@@ -190,9 +190,13 @@ Everything below is written against the world where these hold.
   `encoding`/`net`/`http`/`color` skips). `bits`/`collections`/`strings` have empty or
   parse-time companions, so `compress` importing them needs no late pass; **canvas importing
   `compress` does** (letter C).
-- UNVERIFIED: that a `FUNC` taking `List OF Byte` and returning `Integer` from a
-  `Body::Rewrite` member compiles to a call with no list copy on entry. Task in Phase 2
-  (inspect `--ncode` of the fixture for a block copy on the call path).
+- **A `Body::Rewrite` member taking `List OF Byte` and returning `Integer` is called with
+  no list copy on entry.** Verified 2026-09-14 (Phase 2): `mfb build --ncode` of
+  `tests/byte-identity/compress` (macos-aarch64); every `bl _mfb_ifn_compress_5Fcrc32` in
+  `_mfb_fn_main` is preceded only by `ldr_u64 x8, [sp, slot]` / `mov x0, x8` (the list
+  pointer) and the `running` load into `x1`; the callee's entry stores `x0`/`x1` into its
+  frame, and its first `bl` (`_mfb_arena_alloc`) is the `FAIL error(77050002, …)` record on
+  the out-of-range-`running` branch, not a copy of `data`.
 
 ## 3. Design Overview (whole feature)
 
@@ -324,16 +328,22 @@ Commit: —
 
 ### Phase 2 — package skeleton + `crc32`
 
-- [ ] `src/codegen/builtins/compress/{mod.rs, func_crc32.rs, helper_crc32.rs, helper_crc32_table.rs}`
+- [x] `src/codegen/builtins/compress/{mod.rs, func_crc32.rs, helper_crc32.rs, helper_crc32_table.rs}`
       per §4.1–4.3; `Body::Rewrite("__compress_crc32")`; `errors: vec!["ErrInvalidArgument"]`.
-- [ ] `src/codegen/builtins/mod.rs`: `pub(crate) mod compress;`, `"compress"` in `BUILTIN_IMPORTS`
+      (`cargo build --release --bin mfb` → `Finished`, no warnings; `compress-crc32-valid` built
+      and ran: `check=3421780262` = catalogue `0xcbf43926`. See Corrections for the helper
+      `IMPORT` lines a `WhenUsed` helper needs.)
+- [x] `src/codegen/builtins/mod.rs`: `pub(crate) mod compress;`, `"compress"` in `BUILTIN_IMPORTS`
       (sorted) and in `ARGUMENT_CHECKED_PACKAGES`.
-- [ ] `src/codegen/registry/mod.rs` `build()`: `crate::codegen::builtins::compress::register(&mut r);`.
-- [ ] `src/docs/spec/language/18_builtin-functions.md`: add `compress` to the package sentence.
-- [ ] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test.
-- [ ] Resolve the §2 UNVERIFIED call-copy property: `mfb build --ncode` the fixture below and
+- [x] `src/codegen/registry/mod.rs` `build()`: `crate::codegen::builtins::compress::register(&mut r);`.
+- [x] `src/docs/spec/language/18_builtin-functions.md`: add `compress` to the package sentence.
+      (`cargo test --bin mfb spec_section_18_package_list_matches_is_builtin_import` → `1 passed`.)
+- [x] Table-generation unit test in `compress/mod.rs` (§4.2) and the member-count test.
+      (`cargo test --bin mfb compress` → `crc32_tables_literal_matches_the_polynomial`,
+      `crc32_tables_produce_the_catalogue_check_value`, `compress_registered_on_the_clean_room_registry` ok.)
+- [x] Resolve the §2 UNVERIFIED call-copy property: `mfb build --ncode` the fixture below and
       confirm no block copy of `data` on the `__compress_crc32` call path; write the verdict
-      into Verified properties.
+      into Verified properties. (Verified: no copy — §2 Verified properties.)
 
 Acceptance: `crc32` is callable, rejects a bad `running`, and its table is machine-checked.
   Check: `cargo test --bin mfb compress` → the new unit tests pass;
@@ -430,9 +440,15 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
 
 ## Corrections
 
-<Filled in during execution: every place the plan was wrong — the claim, what was true, the
-evidence — and whether another letter's scope used the wrong number. Also the recorded bench
-baselines.>
+- **§4.3 / Phase 2 — a `WhenUsed`-gated helper is injected as its own source file, so its body
+  must carry its own `IMPORT` lines.** The plan's `pkg.add_imports(...)` alone is not enough:
+  the first build of `compress-crc32-valid` failed with `SYMBOL_UNKNOWN_IMPORT` "Package `bits`
+  is used but not imported in this file" at `builtins/compress_crc32.mfb:7`. Crypto's gated
+  argon2id helper already does this (`helper_argon2id.rs` BODY opens with `IMPORT crypto` /
+  `IMPORT bits` / `IMPORT collections`). Every gated `compress` helper in B–E needs the same
+  header. Fixed by adding the header to `helper_crc32.rs` and `helper_crc32_table.rs`.
+- **Prerequisites, 2026-09-14:** bug-621 landed on main (`a3f7cb06a`); `main` merged into
+  `worktree-P-137` at `55dc9a626` before the gate re-run.
 
 ## Summary
 

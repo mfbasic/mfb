@@ -10,6 +10,7 @@ pub(crate) mod bits;
 pub(crate) mod canvas;
 pub(crate) mod collections;
 pub(crate) mod color;
+pub(crate) mod compress;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
@@ -70,6 +71,7 @@ pub(crate) const BUILTIN_IMPORTS: &[&str] = &[
     "canvas",
     "collections",
     "color",
+    "compress",
     "crypto",
     "csv",
     "datetime",
@@ -584,7 +586,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
     "encoding", "astrings", "crypto", "strings", "math", "bits", "big", "fs", "os", "net", "tcp",
     "tls", "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http",
-    "udp", "vector", "color",
+    "udp", "vector", "color", "compress",
 ];
 
 /// Whether a builtin call (canonical `package.member` name) is checked by the
