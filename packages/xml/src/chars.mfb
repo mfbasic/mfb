@@ -1,0 +1,164 @@
+' ---------------------------------------------------------------------------
+' xml/chars.mfb — UTF-8 decoding and the XML 1.0 (Fifth Edition) character
+' classes.
+'
+' Decoding is done by hand rather than by handing the bytes to `strings`,
+' because XML's well-formedness constraints are stated over SCALARS and the
+' reader must refuse the encodings a lenient decoder would repair: an overlong
+' form, a surrogate half, a value above #x10FFFF, or a truncated sequence. A
+' reader that silently substitutes U+FFFD for any of those accepts a document
+' the oracles refuse, and changes its content while doing it.
+'
+' The classes below are the grammar's own ranges, not a letter/digit
+' approximation: `dom`'s `isNameChar` (an ASCII table) is the counter-example
+' this package must not follow, since it would refuse every non-ASCII name XML
+' allows.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' One decoded scalar: its code point and how many bytes it occupied. `code` is
+' -1 when the bytes at that offset are not valid UTF-8, and then `size` is the
+' number of bytes the caller should report as bad (always 1, so a scanner can
+' still advance); the positioned failure is raised by scan.mfb, which knows the
+' line and column.
+PUBLIC TYPE Decoded
+  code AS Integer
+  size AS Integer
+END TYPE
+
+PRIVATE FUNC bad() AS Decoded
+  RETURN Decoded[-1, 1]
+END FUNC
+
+' The byte at `i`, or -1 past the end.
+PUBLIC FUNC byteAt(bytes AS List OF Byte, i AS Integer) AS Integer
+  IF i < 0 OR i >= len(bytes) THEN RETURN -1
+  RETURN toInt(collections::get(bytes, i))
+END FUNC
+
+' TRUE for a UTF-8 continuation byte (10xxxxxx).
+PRIVATE FUNC isContinuation(b AS Integer) AS Boolean
+  RETURN b >= 128 AND b <= 191
+END FUNC
+
+' Decode the scalar starting at byte offset `i`.
+'
+' Arithmetic rather than bit operations: a lead byte's payload is its value
+' less the range base, and each continuation byte contributes 6 bits, so the
+' code point is a base-64 number. The rejections are the four the XML reader
+' may never repair:
+'   * an overlong form (C0/C1 anywhere; E0 followed by < A0; F0 followed by < 90)
+'   * a surrogate D800-DFFF (ED followed by >= A0)
+'   * a value above 10FFFF (F4 followed by > 8F, or a lead byte above F4)
+'   * a truncated or missing continuation byte
+PUBLIC FUNC decodeAt(bytes AS List OF Byte, i AS Integer) AS Decoded
+  LET b0 AS Integer = byteAt(bytes, i)
+  IF b0 < 0 THEN RETURN bad()
+  IF b0 < 128 THEN RETURN Decoded[b0, 1]
+  ' A continuation byte or an overlong two-byte lead cannot start a scalar.
+  IF b0 < 194 THEN RETURN bad()
+  IF b0 <= 223 THEN
+    LET b1 AS Integer = byteAt(bytes, i + 1)
+    IF NOT isContinuation(b1) THEN RETURN bad()
+    RETURN Decoded[(b0 - 192) * 64 + (b1 - 128), 2]
+  END IF
+  IF b0 <= 239 THEN
+    LET b1 AS Integer = byteAt(bytes, i + 1)
+    IF NOT isContinuation(b1) THEN RETURN bad()
+    IF b0 = 224 AND b1 < 160 THEN RETURN bad()
+    IF b0 = 237 AND b1 > 159 THEN RETURN bad()
+    LET b2 AS Integer = byteAt(bytes, i + 2)
+    IF NOT isContinuation(b2) THEN RETURN bad()
+    RETURN Decoded[(b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128), 3]
+  END IF
+  IF b0 <= 244 THEN
+    LET b1 AS Integer = byteAt(bytes, i + 1)
+    IF NOT isContinuation(b1) THEN RETURN bad()
+    IF b0 = 240 AND b1 < 144 THEN RETURN bad()
+    IF b0 = 244 AND b1 > 143 THEN RETURN bad()
+    LET b2 AS Integer = byteAt(bytes, i + 2)
+    IF NOT isContinuation(b2) THEN RETURN bad()
+    LET b3 AS Integer = byteAt(bytes, i + 3)
+    IF NOT isContinuation(b3) THEN RETURN bad()
+    RETURN Decoded[(b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128), 4]
+  END IF
+  RETURN bad()
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Character classes.
+' ---------------------------------------------------------------------------
+
+' XML 1.0 §2.2 Char: the scalars a document may contain at all.
+' #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+PUBLIC FUNC isChar(code AS Integer) AS Boolean
+  IF code = 9 OR code = 10 OR code = 13 THEN RETURN TRUE
+  IF code >= 32 AND code <= 55295 THEN RETURN TRUE
+  IF code >= 57344 AND code <= 65533 THEN RETURN TRUE
+  IF code >= 65536 AND code <= 1114111 THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' XML 1.0 §2.3 S: the four characters XML counts as whitespace.
+PUBLIC FUNC isSpace(code AS Integer) AS Boolean
+  RETURN code = 32 OR code = 9 OR code = 13 OR code = 10
+END FUNC
+
+' XML 1.0 §2.3 NameStartChar:
+' ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] |
+' [#x370-#x37D] | [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] |
+' [#x2C00-#x2FEF] | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD] |
+' [#x10000-#xEFFFF]
+PUBLIC FUNC isNameStartChar(code AS Integer) AS Boolean
+  IF code = 58 OR code = 95 THEN RETURN TRUE
+  IF code >= 65 AND code <= 90 THEN RETURN TRUE
+  IF code >= 97 AND code <= 122 THEN RETURN TRUE
+  IF code >= 192 AND code <= 214 THEN RETURN TRUE
+  IF code >= 216 AND code <= 246 THEN RETURN TRUE
+  IF code >= 248 AND code <= 767 THEN RETURN TRUE
+  IF code >= 880 AND code <= 893 THEN RETURN TRUE
+  IF code >= 895 AND code <= 8191 THEN RETURN TRUE
+  IF code >= 8204 AND code <= 8205 THEN RETURN TRUE
+  IF code >= 8304 AND code <= 8591 THEN RETURN TRUE
+  IF code >= 11264 AND code <= 12271 THEN RETURN TRUE
+  IF code >= 12289 AND code <= 55295 THEN RETURN TRUE
+  IF code >= 63744 AND code <= 64975 THEN RETURN TRUE
+  IF code >= 65008 AND code <= 65533 THEN RETURN TRUE
+  IF code >= 65536 AND code <= 983039 THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' XML 1.0 §2.3 NameChar: NameStartChar | "-" | "." | [0-9] | #xB7 |
+' [#x0300-#x036F] | [#x203F-#x2040]
+PUBLIC FUNC isNameChar(code AS Integer) AS Boolean
+  IF isNameStartChar(code) THEN RETURN TRUE
+  IF code = 45 OR code = 46 OR code = 183 THEN RETURN TRUE
+  IF code >= 48 AND code <= 57 THEN RETURN TRUE
+  IF code >= 768 AND code <= 879 THEN RETURN TRUE
+  IF code >= 8255 AND code <= 8256 THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' XML 1.0 §2.3 Name: a NameStartChar followed by NameChars. Used by the writer
+' and by the namespace checks; the reader scans names itself, byte by byte.
+PUBLIC FUNC isName(s AS String) AS Boolean
+  LET bytes AS List OF Byte = strings::toBytes(s)
+  LET total AS Integer = len(bytes)
+  IF total = 0 THEN RETURN FALSE
+  MUT i AS Integer = 0
+  MUT first AS Boolean = TRUE
+  DO WHILE i < total
+    LET sc AS Decoded = decodeAt(bytes, i)
+    IF sc.code < 0 THEN RETURN FALSE
+    IF first THEN
+      IF NOT isNameStartChar(sc.code) THEN RETURN FALSE
+      first = FALSE
+    ELSE
+      IF NOT isNameChar(sc.code) THEN RETURN FALSE
+    END IF
+    i = i + sc.size
+  LOOP
+  RETURN TRUE
+END FUNC

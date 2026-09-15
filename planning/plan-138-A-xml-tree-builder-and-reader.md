@@ -406,7 +406,7 @@ Acceptance: a builder design is recorded here with all three shapes measured ≤
   flat 0.12–0.13 s (`nodes=99999 depth=2`), deep 0.12 s (`nodes=100000 depth=256`),
   wide 0.11 s (`nodes=100000 depth=2`) — every run ≤ 0.13 s against a 3.00 s budget.
   NOT met by the planned pending-children builder: all three shapes hit the 30 s alarm.
-Commit: — (plan update only)
+Commit: `edccdd311` (plan update only; the spike itself stays in `/tmp`)
 
 ### Phase 2 — package skeleton and tree model
 
@@ -424,20 +424,25 @@ Commit: — (plan update only)
 Acceptance: the tree API works from TESTING blocks.
   Check: `target/release/mfb test packages/xml` → all cases pass, exit 0 (est. 1 min).
   MET: `./target/release/mfb test packages/xml` → `Tests: 11  Pass: 11  Fail: 0`, exit 0.
-Commit: —
+Commit: `edccdd311`
 
 ### Phase 3 — scanner and character classes
 
-- [ ] `packages/xml/src/chars.mfb` — UTF-8 decode with the §6 refusals; `isChar`, `isNameStartChar`,
+- [x] `packages/xml/src/chars.mfb` — UTF-8 decode with the §6 refusals; `isChar`, `isNameStartChar`,
       `isNameChar`, `isSpace` over scalars using the 5th-edition ranges.
-- [ ] `packages/xml/src/scan.mfb` — cursor over the byte list with line/column, BOM skip, line-end
+- [x] `packages/xml/src/scan.mfb` — cursor over the byte list with line/column, BOM skip, line-end
       normalization, `textOf`-style slicing, and the `xml: line L, column C:` error formatter.
-- [ ] Tests: `packages/xml/src/test_chars.mfb` — each `NameStartChar` range boundary in and one past
+      (Line/column is computed at failure time rather than carried on a cursor — see Corrections.)
+- [x] Tests: `packages/xml/src/test_chars.mfb` — each `NameStartChar` range boundary in and one past
       out; `#xFFFE`/`#xFFFF`/`#x0`/lone surrogate bytes refused; overlong `C0 80` refused; CRLF and
       lone CR become LF; line/column correct after a multi-byte scalar.
+- [x] Added task: `isName` (§2.3 `Name` over a whole String), needed by the namespace-prefix checks
+      in Phase 4 and by plan-138-B's writer refusals.
 
 Acceptance: character and scanner rules hold at every range boundary.
   Check: `target/release/mfb test packages/xml` → all cases pass (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 29  Pass: 29  Fail: 0`, exit 0 (11 from
+  Phase 2, 18 added here).
 Commit: —
 
 ### Phase 4 — reader
@@ -528,6 +533,21 @@ element's children are collected in a **frame-local** `MUT kids AS List OF Node`
 finished `Element` is returned up to the caller's own local list. Recursion depth is bounded by
 `DEPTH_LIMIT` (§7), which is what makes recursive descent safe here; the 256-level deep shape
 measures it.
+
+**Phase 3 — `Scalar` is a built-in type name, so the decoded-scalar record is `Decoded`.** §6 does
+not name the record, but the obvious spelling collides: `Scalar` is one of the language's own
+printable types (`mfb man testing` lists "a number, Boolean, String, Byte, Scalar, or List OF Byte"),
+so `PUBLIC TYPE Scalar` compiled and then every field read failed with
+`error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD] … got \`Scalar\``. The record is `Decoded`
+(`code`, `size`); the function that validates one is still `requireScalar`.
+
+**Phase 3 — line and column are computed at failure time, not carried on a cursor.** §6 says
+"cursor over the byte list with line/column". Tracking both on every scalar would charge every
+parse for the errors it does not hit, so `scan.mfb` instead counts from the start of the input
+inside `positionText(bytes, offset)`, which only ever runs while a failure is being raised. The
+observable contract §6 asks for is unchanged — `xml: line L, column C: <what>`, 1-based, counted in
+scalars — and `test_chars.mfb` "column counts scalars, not bytes, after a multi-byte character"
+pins it.
 
 Consequences for the rest of the plan: Phase 4 builds with this design ("the Phase 1 design").
 §3's "Design uncertainty concentrates in the builder" is now settled, and the §3 rejected-alternatives
