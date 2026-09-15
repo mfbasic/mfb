@@ -285,7 +285,6 @@ fn a_paint_loop_keeps_live_bytes_constant() {
 /// The browser's copy-back stage: a worker returning a record that holds a recursive tree,
 /// started and waited for N times (5,268,592 B per page load in the browser, plan-133-A § 2).
 #[test]
-#[ignore = "bug-622: thread::start and thread::waitFor leak the result copy and the thread plumbing in the parent arena; run with --include-ignored"]
 fn a_thread_copy_back_loop_keeps_live_bytes_constant() {
     let source = |n: u64| {
         format!(
