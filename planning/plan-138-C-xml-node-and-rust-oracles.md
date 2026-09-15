@@ -276,18 +276,32 @@ Commit: —
 
 ### Phase 3 — `xmlconf`
 
-- [ ] `fetch-xmlconf.sh` — download `https://www.w3.org/XML/Test/xmlts20130923.tar.gz` into
+- [x] `fetch-xmlconf.sh` — download `https://www.w3.org/XML/Test/xmlts20130923.tar.gz` into
       `xmlconf/` (git-ignored) and unpack; `XMLCONF_URL` override (mustache's `MUSTACHE_SPEC_REF`
-      pattern).
-- [ ] `diff.mjs xmlconf` — walk the suite's test catalogs and apply the §4 rules; print counts per
+      pattern). → `unpacked 3078 xml files`.
+- [x] `diff.mjs xmlconf` — walk the suite's test catalogs and apply the §4 rules; print counts per
       outcome, including the `NAMESPACE="no"` skip count.
-- [ ] Record each oracle disagreement in `divergences.json` with the spec section or test id that
+- [x] Record each oracle disagreement in `divergences.json` with the spec section or test id that
       decides it; fix each package defect as in Phase 2.
+      **`divergences.json` is still empty, and that is the stronger outcome.** The first run
+      disagreed on 22 of 2,458 cases. Every one was resolved by fixing the side that was wrong —
+      one package defect, three defects in this plan's own policy rules, and nine gaps in the Rust
+      wrapper — rather than by declaring a divergence to make the run green. A divergence entry
+      records a decision the specification settles; none of these needed one, because the W3C suite
+      and the Node oracle together settled each case outright.
 
 Acceptance: the suite agrees under the §4 rules.
   Check: `packages/xml/oracle/fetch-xmlconf.sh && node packages/xml/oracle/diff.mjs xmlconf` → exit 0,
-  with the printed skip count equal to the number of `NAMESPACE="no"` tests
-  (`grep -rho 'NAMESPACE="no"' packages/xml/oracle/xmlconf --include='*.xml' | wc -l`) (est. 5 min).
+  with the printed skip count equal to the number of `NAMESPACE="no"` tests.
+  **Corrected:** the count is **14**, and the plan's original command
+  (`grep -rho 'NAMESPACE="no"' … | wc -l` → 11) undercounts it, because `oasis/oasis.xml` writes its
+  attributes with SINGLE quotes (`NAMESPACE='no'`, `URI='p01pass2.xml'`). The command that measures
+  it is the census in Corrections, which accepts both quote styles. A skip count of 11 would now be
+  the failing answer, not the passing one.
+  MET: `node packages/xml/oracle/diff.mjs xmlconf` → `ok   xmlconf: 2140 case(s) agreed three ways`,
+  exit 0, printing `71 accepted, 2069 refused by policy; skipped 14 NAMESPACE=no, 27 TYPE=error,
+  87 not UTF-8`. The skip count **is** the corrected 14. `TYPE=error` reports 27 rather than the
+  census's 33 because the encoding skip is applied first and six of those files are not UTF-8.
 Commit: —
 
 ### Phase 4 — writers, `fuzz-read`, `fuzz-write`, `roundtrip`
@@ -334,7 +348,76 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**Phase 3 — the suite found a real package defect: a colon in a processing-instruction target.**
+Namespaces in XML 1.0, erratum NE08, makes a PI target an NCName, so `<?a:b bogus?>` is not
+namespace-well-formed — the suite's `rmt-ns10-042`, `TYPE="not-wf"`. The reader checked QNames for
+element and attribute names but not for PI targets, and accepted it; the Node oracle refused it. Two
+independent authorities against the package, so the package was wrong. Fixed in
+`packages/xml/src/read.mfb` behind a failing case first (`test_refuse.mfb`, "a colon in a
+processing-instruction target is refused", which also pins that a colon-free target still parses);
+`mfb test packages/xml` went 157 → 158. **This is the oracle's first real find, and it owes a row in
+the README's "What it found" table in Phase 5.**
+
+**Phase 3 — three of this plan's own §4 policy rules were wrong, and the suite proved it.**
+
+1. *`<!DOCTYPE` cannot be detected by a substring scan.* `o-p15pass1`, `o-p16pass1` and `o-p18pass1`
+   carry the literal text `<!DOCTYPE` inside a comment, a processing instruction and a CDATA section
+   respectively, and are well-formed DTD-less documents. The rule now strips comments, PIs and CDATA
+   before looking. The same mistake bit the Rust wrapper's character-reference check, where `&#c`
+   inside a PI and inside CDATA (`o-p16pass1`, `o-p18pass1`) read as a malformed reference.
+2. *`RECOMMENDATION="XML1.1"` does not mean "refuse".* `rmt-016` and `rmt-019` assert name characters
+   "illegal in XML 1.0" — but that is the FOURTH edition. XML 1.0 **Fifth Edition**, which this
+   package implements, adopted XML 1.1's name rules, so `U+1D032` and `U+EFFFF` are legal here and
+   accepting them is correct. The suite says so itself through `EDITION="1 2 3 4"`: a test that names
+   the editions it applies to, and omits the fifth, does not apply. The rule now skips those and keys
+   the version policy off what the DOCUMENT declares.
+3. *`NS1.1` tests are skipped, not refused* — this reader implements Namespaces 1.0.
+
+**Phase 3 — roxmltree is more permissive than the policy, so the wrapper enforces it.** The Rust side
+accepted nine things the package and Node both refused: reserved `xml`/`XML`/`xmL` PI targets, a PI
+target not followed by whitespace (`<?pitarget+++?>` — the target is a *Name*, so taking "everything
+up to whitespace" hid it), a colon in a PI target, `<:foo/>` (roxmltree splits it into an empty
+prefix and local `foo`, so no colon survives in the parsed tree — only the source shows it),
+`xmlns:a=""` undeclaration (Namespaces 1.1 only), and `xmlns:xmlns`. The wrapper now checks each
+itself, exactly as it already checked version and encoding, so agreement never rests on how
+permissive a library happens to be. One more needed `Node::range()`: an explicitly declared
+`xmlns:xml` never reaches `namespaces()` because roxmltree treats the prefix as pre-bound, so it is
+recovered from the element's own start tag (`rmt-ns10-028`).
+
+**Phase 3 — the suite uses both quote styles, so the acceptance grep undercounts `NAMESPACE="no"`.**
+`oasis/oasis.xml` writes every attribute single-quoted (`<TEST TYPE='valid' … URI='p01pass2.xml'>`),
+and the plan's acceptance command matches only double quotes. Measured with a census that accepts
+both (run over `packages/xml/oracle/xmlconf/xmlconf`):
+
+| What | Value |
+|---|---|
+| `TEST` entries across 21 catalogs | 2,586 |
+| entries with no `URI` attribute | 0 |
+| entries whose file is missing on disk | 0 |
+| `TYPE` | `not-wf` 1,499 · `valid` 812 · `invalid` 242 · `error` 33 |
+| `NAMESPACE` | absent 2,493 · `yes` 79 · **`no` 14** |
+| `RECOMMENDATION` | absent 1,821 · `XML1.0-errata4e` 393 · `XML1.1` 266 · `NS1.0` 48 · `XML1.0-errata2e` 34 · `XML1.0-errata3e` 13 · `NS1.1` 8 · `NS1.0-errata1e` 3 |
+
+A double-quote-only grep reports 11 of those 14, and reports 348 of the oasis entries as having no
+`URI` at all. Every `URI` resolves against its own catalog's directory, so `xml:base` — which appears
+only in `eduni/xmlconf.xml`, a wrapper that includes sub-catalogs — never needs handling: the mode
+walks the 21 catalogs that actually hold `TEST` entries.
+
+**Phase 3 — 87 test files cannot be sent to the three sides at all, and need their own skip count.**
+§4 provides for skipping `NAMESPACE="no"` but says nothing about encoding. Of the 2,586 test files,
+42 begin with a UTF-16 BOM and 45 are not valid UTF-8 (census above). They cannot cross the JSON
+string boundary the job protocol uses, and MFBASIC's `String` cannot hold them in the first place —
+letter A's Corrections already records that invalid UTF-8 is unreachable through `parse(text)`. They
+are skipped with a printed count, exactly as the namespace tests are, rather than being silently
+counted as agreement. The package's UTF-8-only policy is pinned where it is reachable, in
+`test_chars.mfb`.
+
+**Phase 3 — nearly every `valid`/`invalid` test is a DOCTYPE policy refusal.** 2,144 of the 2,499
+UTF-8 test files hold a `<!DOCTYPE`: 794 of 812 `valid`, 165 of 242 `invalid`, 1,161 of 1,499
+`not-wf`, 24 of 33 `error`. Under §4's rule that any file with a DOCTYPE must be refused by all three
+sides, the suite therefore exercises the DOCTYPE policy far more than it exercises the grammar. That
+is worth stating rather than discovering later from a suspiciously green run: the mode prints the
+breakdown so the number of tests that reached the grammar at all is visible.
 
 ## Summary
 

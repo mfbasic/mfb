@@ -23,10 +23,6 @@ use std::process::ExitCode;
 
 use serde_json::{json, Value};
 
-/// The namespace URI the `xml` prefix is bound to everywhere by the
-/// specification. It is never written as a declaration.
-const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
-
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let (Some(op), Some(path)) = (args.next(), args.next()) else {
@@ -120,6 +116,88 @@ fn check_declaration(text: &str) -> Option<(&'static str, String)> {
             ));
         }
     }
+    // roxmltree does not check the standalone value, and the suite tests it
+    // (`standalone="YES"` is not well formed: §2.9 admits only yes and no).
+    if let Some(standalone) = pseudo_attribute(declaration, "standalone") {
+        if standalone != "yes" && standalone != "no" {
+            return Some((
+                "parse",
+                format!("standalone must be yes or no, not {standalone}"),
+            ));
+        }
+    }
+    None
+}
+
+/// The source with comments, CDATA sections and processing instructions blanked
+/// out, so a scan for markup cannot be fooled by text that merely looks like it.
+///
+/// The suite proves this is needed: `o-p16pass1` holds `&#c` inside a PI and
+/// `o-p18pass1` holds it inside CDATA, and both are well-formed documents. A
+/// raw scan reads those as malformed character references.
+fn without_ignorable(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let rest = &text[at..];
+        let skip = if rest.starts_with("<!--") {
+            rest.find("-->").map(|end| end + 3)
+        } else if rest.starts_with("<![CDATA[") {
+            rest.find("]]>").map(|end| end + 3)
+        } else if rest.starts_with("<?") {
+            rest.find("?>").map(|end| end + 2)
+        } else {
+            None
+        };
+        match skip {
+            Some(length) => {
+                // Keep the length so any offset the caller reports still lines
+                // up with the source.
+                out.push_str(&" ".repeat(rest[..length].chars().count()));
+                at += length;
+            }
+            None => {
+                let character = rest.chars().next().expect("non-empty");
+                out.push(character);
+                at += character.len_utf8();
+            }
+        }
+    }
+    out
+}
+
+/// Refuse a character reference naming something XML 1.0 forbids.
+///
+/// roxmltree expands references itself and does not police §2.2 for them, so
+/// `&#55298;` (a surrogate half) survives.
+fn check_character_references(source: &str) -> Option<(&'static str, String)> {
+    let text = &without_ignorable(source);
+    let bytes = text.as_bytes();
+    let mut at = 0;
+    while let Some(found) = text[at..].find("&#") {
+        let start = at + found + 2;
+        let (digits, radix) = if bytes.get(start) == Some(&b'x') || bytes.get(start) == Some(&b'X') {
+            (start + 1, 16)
+        } else {
+            (start, 10)
+        };
+        let end = match text[digits..].find(';') {
+            Some(offset) => digits + offset,
+            None => return Some(("parse", "a character reference is not terminated".into())),
+        };
+        match u32::from_str_radix(&text[digits..end], radix) {
+            Ok(code) if is_char(code) => {}
+            Ok(code) => {
+                return Some((
+                    "parse",
+                    format!("a character reference names U+{code:04X}, which XML 1.0 does not allow"),
+                ))
+            }
+            Err(_) => return Some(("parse", "a character reference is malformed".into())),
+        }
+        at = end;
+    }
     None
 }
 
@@ -151,13 +229,38 @@ fn qualified(node: roxmltree::Node, namespace: Option<&str>, local: &str) -> Str
     }
 }
 
+/// The raw spelling of an ELEMENT's name.
+///
+/// Unlike an attribute, an element may take its namespace from the DEFAULT
+/// declaration, and then it was written with no prefix at all. `lookup_prefix`
+/// returns whichever prefix is bound to that URI, which need not be the
+/// spelling used: in the suite's `rmt-ns10-039`, `xmlns` and `xmlns:a` are bound
+/// to the SAME URI, so `<foo>` came back as `a:foo`. When the URI matches the
+/// default in scope, the name was written bare.
+fn qualified_element(node: roxmltree::Node) -> String {
+    let local = node.tag_name().name();
+    match node.tag_name().namespace() {
+        None => local.to_string(),
+        Some(uri) => {
+            let default = node
+                .namespaces()
+                .find(|ns| ns.name().is_none())
+                .map(|ns| ns.uri());
+            if default == Some(uri) {
+                return local.to_string();
+            }
+            qualified(node, Some(uri), local)
+        }
+    }
+}
+
 /// The namespace declarations made ON this element.
 ///
 /// `Node::namespaces()` yields everything IN SCOPE — a probe confirmed that an
 /// element declaring nothing still reports its ancestors' declarations — so the
 /// ones written here are the difference from the parent's scope. The package
 /// keeps `xmlns` and `xmlns:p` as ordinary attributes, so they are added back.
-fn declarations(node: roxmltree::Node) -> Vec<(String, String)> {
+fn declarations(node: roxmltree::Node, source: &str) -> Vec<(String, String)> {
     let mine: Vec<(Option<&str>, &str)> =
         node.namespaces().map(|ns| (ns.name(), ns.uri())).collect();
     let parent: BTreeSet<(Option<&str>, &str)> = node
@@ -167,10 +270,12 @@ fn declarations(node: roxmltree::Node) -> Vec<(String, String)> {
 
     let mut out = Vec::new();
     for (prefix, uri) in &mine {
-        // The `xml` prefix is bound everywhere and is never declared.
-        if *prefix == Some("xml") || *uri == XML_NS {
-            continue;
-        }
+        // The `xml` prefix is NOT skipped: roxmltree does not synthesise an
+        // implicit binding for it (a probe confirmed an element using no
+        // declarations reports none), so an entry here was written in the
+        // source — and the package keeps it as an ordinary attribute. The
+        // suite's `rmt-ns10-028` declares `xmlns:xml` explicitly and expects it
+        // to survive.
         if parent.contains(&(*prefix, *uri)) {
             continue;
         }
@@ -187,11 +292,204 @@ fn declarations(node: roxmltree::Node) -> Vec<(String, String)> {
     if default_before && !default_now {
         out.push(("xmlns".to_string(), String::new()));
     }
+
+    // An explicitly declared `xmlns:xml` never reaches namespaces(): roxmltree
+    // treats the xml prefix as pre-bound and drops the declaration. The package
+    // keeps it as an ordinary attribute (the suite's `rmt-ns10-028` declares it
+    // and expects it to survive), so it is recovered from the element's OWN
+    // start tag — Node::range() gives exactly that span, so a declaration on an
+    // ancestor or a descendant cannot be mistaken for this element's.
+    let range = node.range();
+    let start_tag = source.get(range.start..range.end).unwrap_or("");
+    let start_tag = &start_tag[..start_tag.find('>').map(|at| at + 1).unwrap_or(0)];
+    if let Some(at) = start_tag.find("xmlns:xml") {
+        let rest = &start_tag[at + "xmlns:xml".len()..];
+        if rest.trim_start().starts_with('=') {
+            if let Some(value) = rest
+                .trim_start()
+                .strip_prefix('=')
+                .map(str::trim_start)
+                .and_then(|value| {
+                    let quote = value.chars().next()?;
+                    let body = &value[quote.len_utf8()..];
+                    body.find(quote).map(|end| body[..end].to_string())
+                })
+            {
+                out.push(("xmlns:xml".to_string(), value));
+            }
+        }
+    }
     out
 }
 
+/// Refuse the processing instructions roxmltree accepts but the policy does not.
+///
+/// The wrapper owns the policy checks — as it already does for version,
+/// encoding and standalone — so agreement between the three sides never rests
+/// on how permissive a particular library happens to be.
+///
+///   * a target matching `[Xx][Mm][Ll]` is reserved (§2.6), except the XML
+///     declaration itself, which may appear only at the very start;
+///   * a target may not hold a colon (Namespaces 1.0 erratum NE08);
+///   * the target must be followed by whitespace or by `?>`.
+fn check_processing_instructions(source: &str) -> Option<(&'static str, String)> {
+    let text = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let bytes = text.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        let rest = &text[at..];
+        // Comments and CDATA may hold anything, including `<?`.
+        if rest.starts_with("<!--") {
+            match rest.find("-->") {
+                Some(end) => {
+                    at += end + 3;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        if rest.starts_with("<![CDATA[") {
+            match rest.find("]]>") {
+                Some(end) => {
+                    at += end + 3;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        if !rest.starts_with("<?") {
+            at += rest.chars().next().map(char::len_utf8).unwrap_or(1);
+            continue;
+        }
+
+        let body = &rest[2..];
+        let end = match body.find("?>") {
+            Some(end) => end,
+            None => return Some(("parse", "a processing instruction is not closed".into())),
+        };
+        // The target is a NAME, not "everything up to whitespace": the suite's
+        // `o-p16fail3` is `<?pitarget+++?>`, where swallowing the `+++` into the
+        // target would hide the fact that nothing separates it from the data.
+        let target: String = body[..end]
+            .chars()
+            .take_while(|c| is_name_char(*c))
+            .collect();
+        let is_declaration = at == 0 && target == "xml";
+
+        if !is_declaration && target.eq_ignore_ascii_case("xml") {
+            return Some((
+                "parse",
+                format!("`{target}` is a reserved processing-instruction target"),
+            ));
+        }
+        if target.contains(':') {
+            return Some((
+                "parse",
+                format!("a processing-instruction target may not hold a colon (`{target}`)"),
+            ));
+        }
+        let after = &body[target.len()..end];
+        if !after.is_empty() && !after.starts_with(char::is_whitespace) {
+            return Some((
+                "parse",
+                "a processing instruction's target must be followed by whitespace or `?>`".into(),
+            ));
+        }
+        at += 2 + end + 2;
+    }
+    None
+}
+
+/// Refuse a name that is not a legal QName.
+///
+/// roxmltree accepts `:foo` (the suite's `rmt-ns10-015`, TYPE="not-wf"), keeping
+/// the colon in the local part. Any colon surviving in a local name means the
+/// name was not a well-formed QName.
+fn check_names(document: &roxmltree::Document) -> Option<(&'static str, String)> {
+    for node in document.descendants().filter(|n| n.is_element()) {
+        let local = node.tag_name().name();
+        if local.contains(':') || local.is_empty() {
+            return Some(("parse", format!("`{local}` is not a valid QName")));
+        }
+        for attribute in node.attributes() {
+            if attribute.name().contains(':') || attribute.name().is_empty() {
+                return Some((
+                    "parse",
+                    format!("`{}` is not a valid QName", attribute.name()),
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// XML 1.0 §2.3 NameChar, which is what a processing-instruction target is made
+/// of. Only the classes the checks here need to tell apart, not a full table:
+/// anything outside ASCII is a NameChar in the Fifth Edition's ranges.
+fn is_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == ':' || !c.is_ascii()
+}
+
+/// Refuse a name written with an EMPTY prefix, such as `<:foo/>`.
+///
+/// roxmltree splits `:foo` into an empty prefix and the local name `foo`, so no
+/// colon survives for `check_names` to find — the parsed tree looks exactly like
+/// plain `<foo/>`. The source still shows it. (The suite's `rmt-ns10-015`,
+/// TYPE="not-wf".)
+fn check_empty_prefix(source: &str) -> Option<(&'static str, String)> {
+    let text = without_ignorable(source);
+    let bytes = text.as_bytes();
+    for (at, _) in text.match_indices('<') {
+        let mut next = at + 1;
+        if bytes.get(next) == Some(&b'/') {
+            next += 1;
+        }
+        if bytes.get(next) == Some(&b':') {
+            return Some(("parse", "a name may not begin with a colon".into()));
+        }
+    }
+    None
+}
+
+/// Refuse the namespace declarations Namespaces 1.0 forbids and roxmltree
+/// hides: a non-default prefix may not be undeclared (`xmlns:a=""`, added only
+/// in Namespaces 1.1), and `xmlns` may not itself be declared as a prefix.
+fn check_declarations(source: &str) -> Option<(&'static str, String)> {
+    let text = without_ignorable(source);
+    for capture in text.match_indices("xmlns:") {
+        let rest = &text[capture.0 + "xmlns:".len()..];
+        let name: String = rest
+            .chars()
+            .take_while(|c| *c != '=' && !c.is_whitespace())
+            .collect();
+        let after = &rest[name.len()..];
+        let value = after
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+            .and_then(|value| {
+                let quote = value.chars().next()?;
+                if quote != '"' && quote != '\'' {
+                    return None;
+                }
+                let body = &value[quote.len_utf8()..];
+                body.find(quote).map(|end| &body[..end])
+            });
+        if name == "xmlns" {
+            return Some(("parse", "the prefix `xmlns` may not be declared".into()));
+        }
+        if value == Some("") {
+            return Some((
+                "parse",
+                format!("namespace prefix `{name}` may not be bound to an empty URI"),
+            ));
+        }
+    }
+    None
+}
+
 /// plan-138-A §4's content projection over one child list.
-fn project(children: &[roxmltree::Node]) -> Vec<Value> {
+fn project(children: &[roxmltree::Node], source: &str) -> Vec<Value> {
     let has_element = children.iter().any(|child| child.is_element());
     let mut out: Vec<Value> = Vec::new();
     let mut pending = String::new();
@@ -223,8 +521,8 @@ fn project(children: &[roxmltree::Node]) -> Vec<Value> {
         }
         flush(&mut out, &mut pending, has_element);
 
-        let name = qualified(*child, child.tag_name().namespace(), child.tag_name().name());
-        let mut attributes: Vec<(String, String)> = declarations(*child);
+        let name = qualified_element(*child);
+        let mut attributes: Vec<(String, String)> = declarations(*child, source);
         for attribute in child.attributes() {
             attributes.push((
                 qualified(*child, attribute.namespace(), attribute.name()),
@@ -238,7 +536,7 @@ fn project(children: &[roxmltree::Node]) -> Vec<Value> {
             .collect();
 
         let grandchildren: Vec<roxmltree::Node> = child.children().collect();
-        out.push(json!(["e", name, attributes, project(&grandchildren)]));
+        out.push(json!(["e", name, attributes, project(&grandchildren, source)]));
     }
     flush(&mut out, &mut pending, has_element);
     out
@@ -249,6 +547,18 @@ fn read_case(case: &Value) -> Value {
     let text = case.get("xml").and_then(Value::as_str).unwrap_or("");
 
     if let Some((kind, reason)) = check_declaration(text) {
+        return refuse(id, kind, reason);
+    }
+    if let Some((kind, reason)) = check_character_references(text) {
+        return refuse(id, kind, reason);
+    }
+    if let Some((kind, reason)) = check_processing_instructions(text) {
+        return refuse(id, kind, reason);
+    }
+    if let Some((kind, reason)) = check_declarations(text) {
+        return refuse(id, kind, reason);
+    }
+    if let Some((kind, reason)) = check_empty_prefix(text) {
         return refuse(id, kind, reason);
     }
     for character in text.chars() {
@@ -273,8 +583,12 @@ fn read_case(case: &Value) -> Value {
         Err(error) => return refuse(id, "parse", error),
     };
 
+    if let Some((kind, reason)) = check_names(&document) {
+        return refuse(id, kind, reason);
+    }
+
     let children: Vec<roxmltree::Node> = document.root().children().collect();
-    json!({ "id": id, "ok": true, "content": ["doc", project(&children)] })
+    json!({ "id": id, "ok": true, "content": ["doc", project(&children, text)] })
 }
 
 /// Answer one `write` case. Filled in by Phase 4.

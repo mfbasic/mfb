@@ -143,7 +143,195 @@ function runCorpus() {
   return { count: job.cases.length, failures, diverged };
 }
 
-const MODES = { corpus: runCorpus };
+// ---------------------------------------------------------------------------
+// xmlconf: the W3C XML Conformance Test Suite, under this package's policy.
+// ---------------------------------------------------------------------------
+
+const XMLCONF = join(HERE, "xmlconf/xmlconf");
+
+/** One attribute of a TEST tag, in either quote style. */
+function attribute(tag, name) {
+  const double = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`).exec(tag);
+  if (double) return double[1];
+  const single = new RegExp(`\\b${name}\\s*=\\s*'([^']*)'`).exec(tag);
+  return single ? single[1] : null;
+}
+
+/** Every catalog file that actually holds TEST entries, walked recursively. */
+function catalogFiles(directory) {
+  const out = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...catalogFiles(path));
+      continue;
+    }
+    if (!entry.name.endsWith(".xml")) continue;
+    const text = readFileSync(path, "latin1");
+    if (text.includes("<TEST ")) out.push(path);
+  }
+  return out;
+}
+
+/**
+ * Read the suite's catalogs into test descriptors.
+ *
+ * Each URI resolves against its own catalog's directory, which is why xml:base
+ * never needs handling: it appears only in eduni/xmlconf.xml, a wrapper that
+ * includes sub-catalogs rather than holding tests itself.
+ */
+export function loadSuite() {
+  const tests = [];
+  for (const catalog of catalogFiles(XMLCONF)) {
+    const text = readFileSync(catalog, "utf8");
+    const base = dirname(catalog);
+    for (const match of text.matchAll(/<TEST\b[\s\S]*?>/g)) {
+      const tag = match[0];
+      const uri = attribute(tag, "URI");
+      if (!uri) continue;
+      tests.push({
+        id: attribute(tag, "ID") ?? uri,
+        type: attribute(tag, "TYPE"),
+        namespace: attribute(tag, "NAMESPACE"),
+        recommendation: attribute(tag, "RECOMMENDATION"),
+        edition: attribute(tag, "EDITION"),
+        version: attribute(tag, "VERSION"),
+        path: resolve(base, uri),
+      });
+    }
+  }
+  return tests;
+}
+
+/**
+ * What this package's policy says about one test, before anyone parses it.
+ *
+ * Returns "accept", "refuse", or a skip reason. The rules are §4's:
+ *   - XML 1.1 / Namespaces 1.1 tests: refused, by the version policy;
+ *   - any file holding a DOCTYPE: refused, by the no-DTD policy, whatever the
+ *     suite says the file is;
+ *   - not-wf: refused;
+ *   - valid/invalid without a DOCTYPE: accepted, with equal content;
+ *   - error: reported only, never asserted.
+ */
+export function expectationFor(test, text) {
+  if (test.namespace === "no") return { skip: "NAMESPACE=no" };
+  if (test.type === "error") return { skip: "TYPE=error" };
+
+  // A test that names the editions it applies to, and does not name the fifth,
+  // is testing a rule this reader does not implement. XML 1.0 Fifth Edition
+  // adopted XML 1.1's name characters, so `rmt-016` (a Byzantine Musical Symbol
+  // in a name, "illegal in XML 1.0") is legal HERE: U+1D032 falls in
+  // [#x10000-#xEFFFF]. Refusing it would mean implementing the 4th edition.
+  if (test.edition && !test.edition.split(/\s+/).includes("5")) {
+    return { skip: "EDITION excludes 5" };
+  }
+  // Namespaces 1.1 adds prefix undeclaration; this reader implements 1.0.
+  if (test.recommendation === "NS1.1") return { skip: "NS1.1" };
+
+  // The version policy keys off what the DOCUMENT declares, not off which
+  // recommendation the test was written for: an XML1.1 test whose file declares
+  // version="1.0" is read as 1.0 and must be treated as such.
+  if (/<\?xml[^>]*\bversion\s*=\s*["']1\.1["']/.test(text)) return { expect: "refuse" };
+
+  if (hasDoctype(text)) return { expect: "refuse" };
+  if (test.type === "not-wf") return { expect: "refuse" };
+  return { expect: "accept" };
+}
+
+/**
+ * Does this document actually have a DOCTYPE declaration?
+ *
+ * A raw substring scan is wrong, and the suite proves it: `o-p15pass1`,
+ * `o-p16pass1` and `o-p18pass1` hold the text `<!DOCTYPE` inside a comment, a
+ * processing instruction and a CDATA section respectively, and are perfectly
+ * well-formed DTD-less documents. Those constructs are removed before looking.
+ */
+export function hasDoctype(text) {
+  const stripped = text
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    .replace(/<\?[\s\S]*?\?>/g, "");
+  return stripped.includes("<!DOCTYPE");
+}
+
+function runXmlconf() {
+  if (!existsSync(XMLCONF)) {
+    throw new Error(`no suite at ${XMLCONF} — run packages/xml/oracle/fetch-xmlconf.sh first`);
+  }
+  const declared = loadDivergences();
+  const suite = loadSuite();
+
+  const skipped = { "NAMESPACE=no": 0, "TYPE=error": 0, "not UTF-8": 0 };
+  const cases = [];
+  const expectations = new Map();
+  for (const test of suite) {
+    const raw = readFileSync(test.path);
+    // A UTF-16 or otherwise non-UTF-8 file cannot cross the JSON job boundary,
+    // and MFBASIC's String cannot hold one. Skipped with a count, never
+    // silently counted as agreement.
+    if (
+      (raw[0] === 0xff && raw[1] === 0xfe) ||
+      (raw[0] === 0xfe && raw[1] === 0xff) ||
+      !isValidUtf8(raw)
+    ) {
+      skipped["not UTF-8"] += 1;
+      continue;
+    }
+    const text = raw.toString("utf8");
+    const decision = expectationFor(test, text);
+    if (decision.skip) {
+      skipped[decision.skip] += 1;
+      continue;
+    }
+    expectations.set(test.id, decision.expect);
+    cases.push({ id: test.id, xml: text });
+  }
+
+  const job = { cases };
+  const probe = asked.probe("read", job);
+  const rust = asked.rust("read", job);
+  const node = asked.node("read", job);
+
+  const failures = [];
+  let diverged = 0;
+  let accepted = 0;
+  for (let index = 0; index < cases.length; index += 1) {
+    const id = cases[index].id;
+    const results = [probe[index], node[index], rust[index]];
+    const problem = compare(id, results);
+    const wanted = expectations.get(id);
+
+    if (problem) {
+      if (declared[id]) diverged += 1;
+      else failures.push(problem);
+      continue;
+    }
+    if (declared[id]) {
+      failures.push(`${id}: declared divergent in divergences.json, but all three now agree — remove the entry`);
+      continue;
+    }
+    // They agree with each other; do they agree with the policy?
+    const got = results[0].ok ? "accept" : "refuse";
+    if (got !== wanted) {
+      failures.push(`${id}: all three ${got}ed, but this package's policy says ${wanted}`);
+      continue;
+    }
+    if (got === "accept") accepted += 1;
+  }
+  const note =
+    `${accepted} accepted, ${cases.length - accepted} refused by policy; ` +
+    `skipped ${skipped["NAMESPACE=no"]} NAMESPACE=no, ${skipped["TYPE=error"]} TYPE=error, ` +
+    `${skipped["not UTF-8"]} not UTF-8`;
+  return { count: cases.length, failures, diverged, note };
+}
+
+/** Node's Buffer has no "is this valid UTF-8" predicate; round-tripping tells. */
+function isValidUtf8(raw) {
+  return Buffer.compare(Buffer.from(raw.toString("utf8"), "utf8"), raw) === 0;
+}
+
+const MODES = { corpus: runCorpus, xmlconf: runXmlconf };
 
 function main() {
   const requested = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
@@ -156,14 +344,17 @@ function main() {
       console.error(`unknown mode \`${mode}\` (have: ${Object.keys(MODES).join(", ")})`);
       process.exit(2);
     }
-    const { count, failures, diverged } = run();
+    const { count, failures, diverged, note } = run();
     const declared = diverged > 0 ? `, ${diverged} declared divergent` : "";
+    // The mode's own counts — for xmlconf these include the skip counts the
+    // acceptance check reads, so they print on success as well as on failure.
+    const detail = note ? `\n     ${note}` : "";
     if (failures.length === 0) {
-      console.log(`ok   ${mode}: ${count} case(s) agreed three ways${declared}`);
+      console.log(`ok   ${mode}: ${count} case(s) agreed three ways${declared}${detail}`);
       continue;
     }
     failed = true;
-    console.log(`FAIL ${mode}: ${failures.length} of ${count} case(s) disagreed${declared}`);
+    console.log(`FAIL ${mode}: ${failures.length} of ${count} case(s) disagreed${declared}${detail}`);
     for (const failure of failures) console.log(failure.replace(/^/gm, "     "));
   }
   process.exit(failed ? 1 : 0);

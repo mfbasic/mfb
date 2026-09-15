@@ -402,6 +402,13 @@ PRIVATE FUNC readProcessingInstruction(bytes AS List OF Byte, from AS Integer, s
   IF strings::lower(target) = "xml" THEN
     failAt(bytes, targetStart, ERR_FORMAT, "`" & target & "` is a reserved processing-instruction target")
   END IF
+  ' Namespaces in XML 1.0 (erratum NE08): a processing-instruction target is an
+  ' NCName, so it may not hold a colon. This reader checks namespace
+  ' constraints, so it refuses one -- as the W3C suite's `rmt-ns10-042`
+  ' (`<?a:b bogus?>`, TYPE="not-wf") requires.
+  IF strings::contains(target, ":") THEN
+    failAt(bytes, targetStart, ERR_FORMAT, "a processing-instruction target may not hold a colon (`" & target & "`)")
+  END IF
   LET close AS Integer = findFrom(bytes, "?>", targetEnd)
   IF close < 0 OR close >= stop THEN
     failAt(bytes, from, ERR_FORMAT, "a processing instruction is not closed by `?>`")

@@ -257,6 +257,16 @@ TESTING
       expectTrap(parse("<a xmlns:p=\"urn:x\" p:q:r=\"1\"/>"), 77050003)
     END TCASE
 
+    TCASE "a colon in a processing-instruction target is refused"
+      ' Namespaces in XML 1.0 erratum NE08: a PI target is an NCName. Found by
+      ' the W3C conformance suite (`rmt-ns10-042`, TYPE="not-wf"), which this
+      ' reader accepted until the oracle ran it.
+      expectTrap(parse("<doc><?a:b bogus?></doc>"), 77050003)
+      expectTrap(parse("<?a:b bogus?><doc/>"), 77050003)
+      ' A target with no colon is still fine.
+      expectNTrap(parse("<doc><?ab bogus?></doc>"))
+    END TCASE
+
     TCASE "two attributes with the same expanded name are refused"
       ' Different prefixes, same URI, same local name.
       expectTrap(parse("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:x\" p:id=\"1\" q:id=\"2\"/>"), 77050003)
