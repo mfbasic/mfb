@@ -554,6 +554,7 @@ impl LinuxPlan<'_> {
                 "pthread_attr_init",
                 "pthread_attr_setstacksize",
                 "pthread_detach",
+                "pthread_join",
                 "pthread_mutex_init",
                 "pthread_mutex_lock",
                 "pthread_mutex_unlock",

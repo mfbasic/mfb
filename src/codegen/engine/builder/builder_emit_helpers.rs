@@ -482,14 +482,10 @@ impl CodeBuilder<'_> {
             });
         }
 
-        let register = if matches!(
-            target,
-            "thread.waitFor"
-                | "thread.read"
-                | "thread.receive"
-                | "thread.acceptResource"
-                | "thread.readResource"
-        ) {
+        // bug-622 A: the value these calls yield is this copy, a fresh block in the
+        // CURRENT arena — the same predicate makes it owned downstream
+        // (`value_is_runtime_managed`, `mark_runtime_helper_result_fresh`).
+        let register = if Self::runtime_call_result_is_copied_at_call_site(target) {
             self.reset_temporary_registers();
             self.copy_value_to_current_arena(result_type, RESULT_VALUE_REGISTER)?
         } else {
@@ -503,8 +499,9 @@ impl CodeBuilder<'_> {
         // binds nothing and a bare `String` needs freshness provenance before
         // `register_pending_temp` will free it. Mark it here, on the operand this
         // value returns, so the statement-scope temp list claims it — under the same
-        // gate the `Bind` path applies, which excludes `thread.*` (another arena's
-        // block) and everything `is_freeable_flat_value` refuses.
+        // gate the `Bind` path applies, which excludes a raw `thread.*` block (another
+        // arena's) and everything `is_freeable_flat_value` refuses. A call-site-copied
+        // `thread.*` result is marked: `register` is the copy above, not the raw block.
         self.mark_runtime_helper_result_fresh(
             target,
             result_type,

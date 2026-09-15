@@ -790,6 +790,7 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_attr_init",
                 "_pthread_attr_setstacksize",
                 "_pthread_detach",
+                "_pthread_join",
                 "_pthread_mutex_init",
                 "_pthread_mutex_lock",
                 "_pthread_mutex_unlock",
