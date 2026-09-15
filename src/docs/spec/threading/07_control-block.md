@@ -44,6 +44,32 @@ the spawning thread's arena. Neither is used to allocate a boundary value into t
 *other* side's arena: a message is copied in the sender's own arena and handed
 across (see `queue-semantics`, bug-498).
 
+## Lifetime
+
+`thread::start` carves the control block, the worker arena-state block (arena state
+plus the program's writable globals, `worker_arena_state_size`) and the four queue
+records with their value rings out of the *spawning* thread's arena. The parent
+`Thread` binding owns them all, and they are freed exactly once, by the parent's
+`thread.drop`, and only after the worker has been **joined** — the trampoline still
+unlocks the outbound mutex after publishing `COMPLETED`, and a live worker's pinned
+arena and current-thread registers point into these blocks. The join happens in one
+of two places:
+
+- `thread::waitFor` joins the worker (instead of detaching it) once the result is
+  ready, and zeroes `OS handle` (offset 56). A `CLOSED` block with a zero OS handle
+  and non-null queues is therefore a joined, retrieved thread, and the drop that
+  follows frees its plumbing. The `TRAP`-path closed handle (bug-479) has null
+  queues, so it is never taken for one.
+- `thread.drop` of a handle whose worker is already `COMPLETED` joins it itself and
+  frees the same blocks.
+
+A drop of a still-`RUNNING` worker cancels and detaches it; its plumbing stays live
+for the rest of the process (see `os-integration`). The worker arena's own chunks
+are never reclaimed by either path. The cleanup call nulls the binding's slot after
+the drop, so no later exit edge hands the freed block over again.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:emit_release_thread_plumbing]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_thread_cleanup_call]]
+
 ## Plane queues
 
 There are four queue handle fields — two for the data plane (offsets 40/48) and

@@ -235,6 +235,52 @@ pub(crate) fn emit_debug_arena_slot(
     ]);
 }
 
+/// bug-622: retire the registry slot of the arena state at `state` — a joined worker whose
+/// state block is about to be freed — by clearing its `state_ptr`. The slot keeps its kind
+/// and counters, so the report still prints the worker; what changes is that the lookup in
+/// [`emit_debug_arena_slot`] no longer matches it, so a later worker whose state block
+/// reuses the freed address counts into its own slot instead of the dead one's.
+///
+/// Unlocked, like the lookup: the only thread that ever matched this slot has exited, and
+/// registration only appends past `count`. Call-free; clobbers the four `scratch`
+/// registers only. `from` is the emitting helper's symbol (labels and relocation).
+pub(crate) fn emit_debug_arena_unregister(
+    from: &str,
+    state: &str,
+    scratch: [&str; 4],
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let [base, count, slot, word] = scratch;
+    // A helper may retire arenas from more than one site; the emission point keeps the
+    // labels unique.
+    let site = instructions.len();
+    let scan = format!("{from}_dbg_unregister_{site}_scan");
+    let next = format!("{from}_dbg_unregister_{site}_next");
+    let done = format!("{from}_dbg_unregister_{site}_done");
+    push_symbol_address(from, ARENA_BASE_SYMBOL, base, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(base, base, 0),
+        abi::compare_immediate(base, "0"),
+        abi::branch_eq(&done),
+        abi::load_u64(count, base, REGION_COUNT_OFFSET),
+        abi::add_immediate(slot, base, REGION_HEADER_SIZE),
+        abi::label(&scan),
+        abi::compare_immediate(count, "0"),
+        abi::branch_eq(&done),
+        abi::load_u64(word, slot, 0),
+        abi::compare_registers(word, state),
+        abi::branch_ne(&next),
+        abi::store_u64(abi::ZERO, slot, 0),
+        abi::branch(&done),
+        abi::label(&next),
+        abi::add_immediate(slot, slot, SLOT_SIZE),
+        abi::subtract_immediate(count, count, 1),
+        abi::branch(&scan),
+        abi::label(&done),
+    ]);
+}
+
 /// `[slot + counter] += 1` when `slot` is non-zero. `tag` keeps labels distinct.
 pub(crate) fn emit_debug_arena_bump(
     from: &str,

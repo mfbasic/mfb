@@ -656,11 +656,11 @@ impl CodeBuilder<'_> {
         // resource path carries for the identical hazard (bug-246); the bind site
         // zeroes the slot and lists it for prologue zero-init so it reads 0 rather
         // than stack garbage.
-        let done = match self
+        let slot = self
             .locals
             .get(&cleanup.name)
-            .map(|local| local.stack_offset)
-        {
+            .map(|local| local.stack_offset);
+        let done = match slot {
             Some(offset) => {
                 let done = self.label("thread_cleanup_done");
                 let handle = self.allocate_register();
@@ -677,6 +677,13 @@ impl CodeBuilder<'_> {
             std::slice::from_ref(&arg),
             "thread_drop_arg",
         )?;
+        // bug-622: `thread.drop` frees a finished thread's control block, so this binding
+        // must never hand it over twice. Null the slot: the guard above then makes a later
+        // drop of the same binding — a trap route or an exit edge after the one that
+        // already ran — a no-op instead of a read of a freed block.
+        if let Some(offset) = slot {
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
+        }
         if let Some(done) = done {
             self.emit(abi::label(&done));
         }

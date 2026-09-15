@@ -75,19 +75,155 @@ pub(crate) fn emit_thread_deadline(
     Ok(())
 }
 
+/// The byte size of a worker's arena-state block: the arena state, the entry's seed
+/// scratch word and the program's writable globals (bug-369). `thread::start` allocates it
+/// from the spawning thread's arena at this size and `thread.drop` frees it at the same
+/// size (bug-622).
+pub(crate) fn worker_arena_state_size(arena_global_slots: usize) -> usize {
+    ENTRY_GLOBALS_OFFSET + arena_global_slots * 8
+}
+
+/// bug-622: what `thread.drop` needs to free a finished thread's plumbing — the worker
+/// arena state's size, and whether that arena is in the `--debug` arena registry.
+#[derive(Clone, Copy)]
+pub(crate) struct ThreadRelease {
+    pub(crate) worker_arena_size: usize,
+    pub(crate) debug_arena_registry: bool,
+}
+
+/// bug-622: free a finished thread's plumbing — everything `thread::start` carved out of
+/// the spawning thread's arena: the four queues (each queue record, its value ring and the
+/// orphaned message copies parked on its pending-free list), the worker arena-state block,
+/// and last the control block itself.
+///
+/// Sound only once the worker has been JOINED: the trampoline still unlocks the outbound
+/// mutex after publishing `COMPLETED`, and the worker's pinned arena register points into
+/// the state block until it returns. Emitted on the calling helper's frame — the handle is
+/// parked at `handle_offset` and `queue_offset` is a free scratch word — and every
+/// `arena_free` clobbers the caller-saved registers, so both are reloaded after each call.
+///
+/// A pending-free node was carved by whichever side's send failed; freeing it here adopts
+/// it into this thread's arena, exactly as the queue read's drain already does
+/// (bug-147.5b), and with the worker joined nothing can race it. The worker arena's own
+/// chunks are not reachable from here and stay mapped (`planning/todo.md` Bucket List 1).
+fn emit_release_thread_plumbing(
+    ctx: &mut EmitCtx,
+    handle_offset: usize,
+    queue_offset: usize,
+    release: ThreadRelease,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    // `thread.drop` releases from two sites (a handle `waitFor` joined, and one it joins
+    // itself), so every label carries the emission point to stay unique in the helper.
+    let site = ctx.instructions.len();
+    for cb_queue_offset in [
+        THREAD_OFFSET_INBOUND_QUEUE,
+        THREAD_OFFSET_OUTBOUND_QUEUE,
+        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
+        THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
+    ] {
+        let absent = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_absent");
+        let drain = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drain");
+        let drained = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drained");
+        ctx.instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+            abi::load_u64("%v9", "%v8", cb_queue_offset),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&absent),
+            abi::store_u64("%v9", abi::stack_pointer(), queue_offset),
+            abi::label(&drain),
+            abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+            abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_eq(&drained),
+            abi::load_u64("%v11", "%v10", 0),
+            abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+            abi::load_u64(abi::c_arg(1), "%v10", 8),
+            abi::move_register(abi::c_arg(0), "%v10"),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        ctx.relocations
+            .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        // The value ring: `capacity * 8` bytes, the size `emit_thread_queue_alloc` gave it.
+        ctx.instructions.extend([
+            abi::branch(&drain),
+            abi::label(&drained),
+            abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+            abi::load_u64("%v10", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
+            abi::move_immediate("%v11", "Integer", "8"),
+            abi::multiply_registers(abi::c_arg(1), "%v10", "%v11"),
+            abi::load_u64(abi::c_arg(0), "%v9", THREAD_QUEUE_VALUES_OFFSET),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        ctx.relocations
+            .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        ctx.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), queue_offset),
+            abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                &THREAD_QUEUE_BLOCK_SIZE.to_string(),
+            ),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        ctx.relocations
+            .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        ctx.instructions.push(abi::label(&absent));
+    }
+    let no_worker_arena = format!("{symbol}_release_{site}_no_worker_arena");
+    ctx.instructions.extend([
+        abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+        abi::load_u64("%v9", "%v8", THREAD_OFFSET_ARENA_STATE),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&no_worker_arena),
+    ]);
+    if release.debug_arena_registry {
+        crate::codegen::debug::arena::emit_debug_arena_unregister(
+            symbol,
+            "%v9",
+            ["%v10", "%v11", "%v12", "%v13"],
+            ctx.instructions,
+            ctx.relocations,
+        );
+    }
+    ctx.instructions.extend([
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &release.worker_arena_size.to_string(),
+        ),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    ctx.instructions.extend([
+        abi::label(&no_worker_arena),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), handle_offset),
+        abi::move_immediate(abi::c_arg(1), "Integer", &THREAD_BLOCK_SIZE.to_string()),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    Ok(())
+}
+
 pub(crate) fn simple_thread_handle_helper(
     symbol: &str,
     op: ThreadSimpleOp,
+    release: ThreadRelease,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
-    const FRAME_SIZE: usize = 48;
+    const FRAME_SIZE: usize = 64;
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
     const TAG_OFFSET: usize = 24;
     const ERROR_OFFSET: usize = 32;
     // WaitFor only: origin ErrorLoc of a propagated worker error (0 otherwise).
     const SOURCE_OFFSET: usize = 40;
+    // Drop only: the queue whose blocks `emit_release_thread_plumbing` is freeing.
+    const RELEASE_QUEUE_OFFSET: usize = 48;
 
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
@@ -271,9 +407,16 @@ pub(crate) fn simple_thread_handle_helper(
                 },
                 "pthread_mutex_unlock",
             )?;
+            // bug-622: join, not detach. `COMPLETED` is stored under the outbound mutex,
+            // but the trampoline still unlocks that mutex and returns after it, so the
+            // handle's plumbing is not free-able until the worker has exited — and the
+            // join is the one point the parent knows it has. It is prompt: nothing is
+            // left for the worker to do but return. The zeroed OS handle then marks the
+            // handle JOINED, which is what licenses `thread.drop` to free its blocks.
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::move_immediate(abi::c_arg(1), "Integer", "0"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -283,9 +426,11 @@ pub(crate) fn simple_thread_handle_helper(
                     instructions: &mut instructions,
                     relocations: &mut relocations,
                 },
-                "pthread_detach",
+                "pthread_join",
             )?;
             instructions.extend([
+                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::store_u64(abi::ZERO, "%v8", THREAD_OFFSET_OS_HANDLE),
                 abi::load_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
                     abi::stack_pointer(),
@@ -688,7 +833,46 @@ pub(crate) fn simple_thread_handle_helper(
                 },
                 HANDLE_OFFSET,
             )?;
+            // bug-622: a worker this drop saw `COMPLETED` (the state parked at
+            // `VALUE_OFFSET` was read under the outbound mutex) has nothing left to do
+            // but unlock and return, so join it and free its plumbing. A RUNNING worker
+            // is cancelled and detached as before: it still holds pointers into the
+            // control block and its arena state, so nothing can be freed from here
+            // (a running worker's plumbing is reclaimed at process exit).
+            let detach = format!("{symbol}_detach");
             instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
+                abi::branch_ne(&detach),
+                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+            ]);
+            emit_thread_external_call(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                "pthread_join",
+            )?;
+            emit_release_thread_plumbing(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                HANDLE_OFFSET,
+                RELEASE_QUEUE_OFFSET,
+                release,
+            )?;
+            instructions.extend([
+                abi::branch(&done),
+                abi::label(&detach),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
@@ -844,13 +1028,43 @@ pub(crate) fn simple_thread_handle_helper(
     instructions.push(abi::branch(&precheck_done));
     instructions.push(abi::label(&precheck_closed));
     match op {
-        // `thread.drop` on an already-closed handle is a no-op that succeeds --
-        // the same answer its own `already_closed` path gives below.
-        ThreadSimpleOp::Drop => instructions.push(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_OK_TAG,
-        )),
+        // `thread.drop` on an already-closed handle succeeds -- the same answer its
+        // own `already_closed` path gives below.
+        //
+        // bug-622: and the handle `thread::waitFor` closed is the common one. That
+        // handle was also JOINED (waitFor zeroes the OS handle after the join), so no
+        // worker can touch its blocks any more, and it still owns its queues — which
+        // is what tells it apart from the `TRAP`-path closed handle, whose queues are
+        // null and whose OS handle is zero too. Free the plumbing here: this drop is
+        // the binding's last word on the handle (the cleanup call nulls its slot).
+        ThreadSimpleOp::Drop => {
+            let keep = format!("{symbol}_precheck_keep");
+            instructions.extend([
+                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("%v9", "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::compare_immediate("%v9", "0"),
+                abi::branch_ne(&keep),
+                abi::load_u64("%v9", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::compare_immediate("%v9", "0"),
+                abi::branch_eq(&keep),
+            ]);
+            emit_release_thread_plumbing(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                HANDLE_OFFSET,
+                RELEASE_QUEUE_OFFSET,
+                release,
+            )?;
+            instructions.extend([
+                abi::label(&keep),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            ]);
+        }
         _ => {
             raise_error_into(
                 symbol,

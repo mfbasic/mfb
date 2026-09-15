@@ -288,6 +288,25 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ctx.instructions
                 .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
+        // pthread_join(handle=x0, NULL) → WaitForSingleObject(handle, INFINITE), then
+        // CloseHandle(handle) — a joined POSIX thread holds no further reference either
+        // (bug-622). The handle rides the frame across the first call: rcx is volatile.
+        "pthread_join" => {
+            ctx.instructions.extend([
+                abi::subtract_stack(0x30),
+                abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 0x20),
+                abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+                abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 1), // INFINITE = (DWORD)-1
+            ]);
+            call(ctx, from, "WaitForSingleObject")?;
+            ctx.instructions
+                .push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x20));
+            call(ctx, from, "CloseHandle")?;
+            ctx.instructions.extend([
+                abi::add_stack(0x30),
+                abi::move_immediate(abi::c_return(0), "Integer", "0"),
+            ]);
+        }
         // Stack-size attr is set directly on CreateThread (see the spawn helper);
         // these are inert on Windows.
         "pthread_attr_init" | "pthread_attr_setstacksize" | "pthread_attr_destroy" => {
@@ -608,8 +627,8 @@ pub(crate) fn lower_thread_start_helper(
     // corruption for a store. Sized to `ENTRY_GLOBALS_OFFSET` (not
     // `ARENA_STATE_SIZE`) so the entry's one seed-scratch word between the state
     // and the globals is present too, keeping the slot offsets identical on both
-    // paths.
-    let worker_arena_size = ENTRY_GLOBALS_OFFSET + arena_global_slots * 8;
+    // paths. `thread.drop` frees the block at the same size (bug-622).
+    let worker_arena_size = worker_arena_state_size(arena_global_slots);
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");

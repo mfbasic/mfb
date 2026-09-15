@@ -6827,6 +6827,66 @@ fn a_waited_for_thread_leaves_nothing_in_the_parent_arena() {
     );
 }
 
+/// A handle moved into a function that waits for it: the callee's parameter is the only owner,
+/// so the plumbing is freed once, by the callee's drop — the caller's must not run as well.
+const B622_MOVED_TO_CALLEE: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + finish(t)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A `MUT Thread` reassigned every pass: each reassignment drops the waited-for old handle.
+const B622_REASSIGNED: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  MUT t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  WHILE i < {N}\n\
+    total = total + thread::waitFor(t)\n\
+    t = thread::start(work, \"abc\")\n\
+    i = i + 1\n\
+  END WHILE\n\
+  total = total + thread::waitFor(t)\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// bug-622 Part B positive pins: the free happens exactly once whichever binding holds the
+/// handle last — a callee parameter it was moved into, or a `MUT` binding reassigned over it.
+/// A second drop of a freed block would show as a skipped double free or a wrong value.
+#[cfg(unix)]
+#[test]
+fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
+    let moved = thread_loop_growth(
+        "b622_moved_to_callee",
+        B622_MOVED_TO_CALLEE,
+        "total=150",
+        "total=300",
+    );
+    assert_eq!(
+        moved, 0,
+        "main-arena live_bytes grew {moved} B between 50 and 100 handles moved into a callee"
+    );
+    let reassigned = thread_loop_growth(
+        "b622_reassigned",
+        B622_REASSIGNED,
+        "total=153",
+        "total=303",
+    );
+    assert_eq!(
+        reassigned, 0,
+        "main-arena live_bytes grew {reassigned} B between 50 and 100 reassigned handles"
+    );
+}
+
 /// bug-622 Part B: the same for a completed thread whose handle is dropped without `waitFor`.
 #[cfg(unix)]
 #[test]

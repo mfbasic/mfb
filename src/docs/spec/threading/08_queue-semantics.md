@@ -151,13 +151,16 @@ The compiler lowers ordinary lexical ownership cleanup for every live parent
 errors, and trap routing run the same drop helper (`thread.drop`,
 `_mfb_rt_thread_thread_drop`) in reverse declaration order. The drop helper marks
 the control block `CLOSED` (state 2), sets the cancellation flag, closes and
-clears both data queues (broadcasting their waiters), and `pthread_detach`s the OS
-thread so the runtime reclaims it on exit. Reassigning a `MUT Thread` evaluates the
-new value first, then drops the old handle before storing the replacement.
-Bindings that have moved out through return or another consuming operation are
-removed from the cleanup set. Handles closed by `thread::waitFor(t)` remain safe
-for compiler-generated cleanup; the drop helper is idempotent for an already
-closed handle.
+clears both data queues (broadcasting their waiters) and wakes the resource plane.
+A worker still running is then `pthread_detach`ed; a worker that had already
+completed is `pthread_join`ed and the thread's plumbing — queues, worker arena
+state, control block — is freed (bug-622, `control-block` § Lifetime). Reassigning
+a `MUT Thread` evaluates the new value first, then drops the old handle before
+storing the replacement. Bindings that have moved out through return or another
+consuming operation are removed from the cleanup set. A handle closed by
+`thread::waitFor(t)` was joined by it, so the drop of such a handle frees its
+plumbing and does nothing else; the cleanup call nulls the binding's slot after
+any drop, so a later exit edge never drops the same handle twice.
 
 The same scope-drop cleanup mechanism also frees ordinary owned **values** with
 one `arena_free` each, in the same reverse order on the same exit paths — the
