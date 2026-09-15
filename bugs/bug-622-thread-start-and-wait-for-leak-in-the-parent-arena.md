@@ -139,29 +139,62 @@ the outbound queue mutex after `COMPLETED`, and the worker arena state lives ins
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: the three result shapes above, N vs 2N on the main arena's
-      `live_bytes` (a `--debug` build); confirm they fail.
-- [ ] Audit `thread.read`/`receive`/`acceptResource`/`readResource` and the worker-error copy.
+- [x] `rt_scope_drop_leaks.rs`: the three result shapes above, N vs 2N on the main arena's
+      `live_bytes` (a `--debug` build); confirm they fail. Landed as
+      `a_waited_for_thread_leaves_nothing_in_the_parent_arena`,
+      `a_completed_thread_dropped_without_waitfor_leaves_nothing_in_the_parent_arena` (Part B)
+      and `a_thread_result_copy_is_freed_by_its_owner` (Part A: bound/unbound/trapped String,
+      recursive union, record, parent `thread::receive`, each against the scalar-result
+      baseline's growth). RED as documented: 348,800 B between 50 and 100 threads for both
+      Part B cases (6,976 B/thread); `b622_string_bound` 800 B over the baseline (16 B/thread).
+- [x] Audit `thread.read`/`receive`/`acceptResource`/`readResource` and the worker-error copy.
+      - `thread.receive`/`thread.read` — same call-site copy, fixed by Part A
+        (`runtime_call_result_is_copied_at_call_site`; the `b622_receive` case).
+      - `thread.acceptResource`/`thread.readResource` — same predicate; a resource is neither
+        freeable-flat nor a graph, so a plain bind is unchanged. A trapped
+        `thread::accept(…) TRAP` now gets the bug-593 wrapper drop of its own `Result` block
+        (this frame's allocation) — covered by the full suite's transfer fixtures, not measured.
+      - `emit_finalize_worker_error_source` — unaffected: the message and `ErrorLoc` are copied
+        into the caller's arena before any drop, and `thread.drop` never touches the worker
+        arena's chunks; its comment claimed the drop frees the worker arena and was corrected.
+      - `t.result` (`MemberAccess "result"`, rejected at source by `TYPE_THREAD_RESULT_REMOVED`)
+        — unchanged, stays runtime-managed.
+      - Found, out of scope: `thread::send` leaks its argument temp and the queued copy in the
+        sender's arena → bug-629. `thread::waitFor(thread::start(…))` does not compile
+        (`native inlined field size not available for type 'Out'`, pre-existing on an older
+        main build) → bug-630.
 
 Acceptance: the cases fail for the documented reason; the audit list has a verdict per site.
-Commit: —
+Commit: 7d5d04cf0
 
 ### Phase 2 — Part A, the result copy
 
-- [ ] Owned classification for the call-site copy (`builder_values.rs`,
-      `builder_emit_helpers.rs`).
+- [x] Owned classification for the call-site copy (`builder_values.rs`,
+      `builder_emit_helpers.rs`): `runtime_call_result_is_copied_at_call_site` names the five
+      copied reads; `value_is_runtime_managed` and `mark_runtime_helper_result_fresh` treat
+      their value as owned; `runtime_call_result_is_foreign_arena` (the raw block) unchanged.
 
-Acceptance: per-thread growth drops by the result's size; cross-arena guards still pass.
-Commit: —
+Acceptance: per-thread growth drops by the result's size; cross-arena guards still pass
+(`cargo test --bin mfb registry` 93 passed; `rt_scope_drop_leaks trap` 24 passed;
+`codegen_raw_helper_result_drop` 5 passed).
+Commit: 4ee20d9e0
 
 ### Phase 3 — Part B, the plumbing
 
-- [ ] Join in `waitFor`; free control block, queues and worker arena state; the same on drop
+- [x] Join in `waitFor`; free control block, queues and worker arena state; the same on drop
       of a completed handle (`runtime_helpers.rs`, `runtime_helpers_thread.rs`); spec update
-      in `07_control-block.md` / `08_queue-semantics.md`.
+      in `07_control-block.md` / `08_queue-semantics.md` (and `09_os-integration.md`).
+      Also: the thread cleanup call nulls the binding's slot after the drop; the `--debug`
+      arena registry retires a freed worker's slot; `pthread_join` imported for `thread.*`
+      on macOS/Linux, `WaitForSingleObject` + `CloseHandle` on Windows. Positive pin:
+      `a_moved_or_reassigned_thread_handle_is_freed_exactly_once`.
 
-Acceptance: Phase 1 cases flat; threading suites green.
-Commit: —
+Acceptance: Phase 1 cases flat; threading suites green (`rt_debug_arena` 8, 
+`rt_thread_send_cross_arena` 2, `rt_recursive_thread_transfer` 1 passed). Runtime proof on
+macOS aarch64, Linux aarch64 glibc (box 2223) and Windows x86_64 (box 2230): `tw_int` and
+`tw_drop` at N=100/200 report `arena.0.live_bytes 0`, `alloc_calls == free_calls`,
+`double_free_skips 0`.
+Commit: eb467c304
 
 ### Phase 4 — expected outputs + full validation
 

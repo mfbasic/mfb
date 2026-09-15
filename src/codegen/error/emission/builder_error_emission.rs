@@ -369,11 +369,13 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    /// Finalize a `thread::waitFor` error so it survives the worker arena being
-    /// freed by the impending `thread.drop` cleanup. A propagated worker error
-    /// arrives with its origin `ErrorLoc` in `x3` and its message in `x2`, both
-    /// living in the worker arena which is still alive at this point — so they are
-    /// deep-copied into the caller arena here. `waitFor`'s own errors arrive with
+    /// Finalize a `thread::waitFor` error into the caller's arena. A propagated worker
+    /// error arrives with its origin `ErrorLoc` in `x3` and its message in `x2`, both
+    /// living in the WORKER arena, which this thread may not free into or own — so they
+    /// are deep-copied into the caller arena here and the copies travel with the error.
+    /// (The worker arena's chunks are never reclaimed; the impending `thread.drop` frees
+    /// only the thread's plumbing in the parent arena — bug-622 — so the raw inputs stay
+    /// readable for these copies either way.) `waitFor`'s own errors arrive with
     /// `x3 == 0` (their message is a static string) and are stamped with this call
     /// site. All raw inputs are saved to the stack first because every copy/alloc
     /// clobbers the caller-saved registers.
