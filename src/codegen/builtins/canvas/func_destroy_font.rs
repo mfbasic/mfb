@@ -23,9 +23,10 @@ font.** Text in a presented scene that names a released font draws as nothing
 rather than faulting. Measuring a released font with `canvas::measureText` raises
 `ErrResourceClosed`.
 
-Calling `destroyFont` again on a font it already closed does nothing — unlike
-`fs::close` or `tcp::close`, which raise `ErrResourceClosed` for a second close.
-Any other use of a closed font raises `ErrResourceClosed`.
+Calling `destroyFont` again on a font it already closed raises `ErrResourceClosed`,
+exactly as a second `fs::close` does, and so does any other use of a closed font.
+Releasing a font and then letting its binding leave scope is safe: the close at scope
+end does nothing.
 
 Unlike the rest of `canvas`, `destroyFont` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to close what it opened, and closing
@@ -44,11 +45,11 @@ END SUB
 
 /// `canvas::destroyFont(font)` — set the closed bit.
 ///
-/// Unconditional, like `destroyImage`: double-close must be a no-op rather than an
-/// error (the universal resource contract), so storing `1` over `1` is the whole
-/// operation and testing first would only add a branch to reach the same state. The
-/// font bytes are arena-owned and reclaimed with the arena; there is no OS handle to
-/// give back.
+/// Guarded, like `destroyImage`: an already-closed font raises `ErrResourceClosed`
+/// (`mfb spec language resource-management` §15, bug-610), and the scope-drop that
+/// routes here treats that code as a benign no-op. The guard runs before the
+/// unregister so a second close touches no table. The font bytes are arena-owned and
+/// reclaimed with the arena; there is no OS handle to give back.
 pub(crate) fn lower_destroy_font(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -60,6 +61,10 @@ pub(crate) fn lower_destroy_font(
         .ok_or_else(|| format!("'{symbol}' expects the font argument"))?
         .location
         .clone();
+
+    let closed = builder.label("canvas_destroy_font_closed");
+    let done = builder.label("canvas_destroy_font_done");
+    super::gen_image::emit_closed_guard(builder, &record, &closed);
 
     // Unpublish before closing: a renderer that looked the handle up between the two
     // would find a block whose resource is already closed, and the whole point of the
@@ -76,6 +81,12 @@ pub(crate) fn lower_destroy_font(
         "Integer",
         RESULT_OK_TAG,
     ));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&closed));
+    builder.raise_error_bare("ErrResourceClosed")?;
+
+    builder.emit(abi::label(&done));
     builder.emit(abi::return_());
 
     Ok(ValueResult {
@@ -97,14 +108,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "font",
-                desc: "The font to release. Safe to call twice, and safe while a \
-                       presented scene still draws text in it.",
+                desc: "The font to release. Must not already be released; safe \
+                       while a presented scene still draws text in it.",
                 aliases: &[],
                 ty: ParameterType::named(super::FONT_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrResourceClosed"],
             body: Body::abi_function(lower_destroy_font),
         }],
     });
