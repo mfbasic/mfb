@@ -211,21 +211,21 @@ pub(crate) fn lower_random_bytes(
         let zero_loop = format!("{symbol}_{tag}zero_loop");
         let zero_end = format!("{symbol}_{tag}zero_end");
         instructions.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), BUF_OFFSET),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_eq(&zero_skip),
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate(&v11, "Integer", "0"),
-        abi::label(&zero_loop),
-        abi::compare_registers(&v11, &v10),
-        abi::branch_eq(&zero_end),
-        abi::store_u8(abi::ZERO, &v9, 0),
-        abi::add_immediate(&v9, &v9, 1),
-        abi::add_immediate(&v11, &v11, 1),
-        abi::branch(&zero_loop),
-        abi::label(&zero_end),
-        abi::label(&zero_skip),
-    ]);
+            abi::load_u64(&v9, abi::stack_pointer(), BUF_OFFSET),
+            abi::compare_immediate(&v9, "0"),
+            abi::branch_eq(&zero_skip),
+            abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+            abi::move_immediate(&v11, "Integer", "0"),
+            abi::label(&zero_loop),
+            abi::compare_registers(&v11, &v10),
+            abi::branch_eq(&zero_end),
+            abi::store_u8(abi::ZERO, &v9, 0),
+            abi::add_immediate(&v9, &v9, 1),
+            abi::add_immediate(&v11, &v11, 1),
+            abi::branch(&zero_loop),
+            abi::label(&zero_end),
+            abi::label(&zero_skip),
+        ]);
     };
     wipe(&mut builder.instructions, "");
 

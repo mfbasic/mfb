@@ -155,7 +155,10 @@ fn project(name: &str, package: &str, program: &str, form: Form) -> (PathBuf, Pa
                 .output()
                 .expect("run mfb build on the package");
             let text = combined(&output);
-            assert!(output.status.success(), "the package failed to build:\n{text}");
+            assert!(
+                output.status.success(),
+                "the package failed to build:\n{text}"
+            );
             let built = text
                 .lines()
                 .find_map(|line| line.strip_prefix("Wrote package to "))
@@ -229,7 +232,12 @@ fn a_private_flat_mfp_type_and_a_flat_program_type_are_distinct() {
 #[test]
 fn a_private_recursive_package_type_and_a_flat_program_type_are_distinct() {
     assert_eq!(
-        run("private_rec_src", RECURSIVE_PACKAGE, FLAT_PROGRAM, Form::Source),
+        run(
+            "private_rec_src",
+            RECURSIVE_PACKAGE,
+            FLAT_PROGRAM,
+            Form::Source
+        ),
         "mine 4"
     );
 }
@@ -237,7 +245,12 @@ fn a_private_recursive_package_type_and_a_flat_program_type_are_distinct() {
 #[test]
 fn a_private_recursive_mfp_type_and_a_flat_program_type_are_distinct() {
     assert_eq!(
-        run("private_rec_mfp", RECURSIVE_PACKAGE, FLAT_PROGRAM, Form::Mfp),
+        run(
+            "private_rec_mfp",
+            RECURSIVE_PACKAGE,
+            FLAT_PROGRAM,
+            Form::Mfp
+        ),
         "mine 4"
     );
 }
@@ -245,7 +258,12 @@ fn a_private_recursive_mfp_type_and_a_flat_program_type_are_distinct() {
 #[test]
 fn a_private_flat_package_type_and_a_recursive_program_type_are_distinct() {
     assert_eq!(
-        run("private_swap_src", FLAT_PACKAGE, RECURSIVE_PROGRAM, Form::Source),
+        run(
+            "private_swap_src",
+            FLAT_PACKAGE,
+            RECURSIVE_PROGRAM,
+            Form::Source
+        ),
         "mine 4"
     );
 }
@@ -253,7 +271,12 @@ fn a_private_flat_package_type_and_a_recursive_program_type_are_distinct() {
 #[test]
 fn a_private_flat_mfp_type_and_a_recursive_program_type_are_distinct() {
     assert_eq!(
-        run("private_swap_mfp", FLAT_PACKAGE, RECURSIVE_PROGRAM, Form::Mfp),
+        run(
+            "private_swap_mfp",
+            FLAT_PACKAGE,
+            RECURSIVE_PROGRAM,
+            Form::Mfp
+        ),
         "mine 4"
     );
 }
@@ -313,6 +336,12 @@ fn an_exported_signature_naming_a_non_exported_type_is_rejected_at_the_package_b
 fn an_exported_type_naming_an_exported_type_still_builds_and_imports() {
     const PACKAGE: &str = "EXPORT TYPE Inner\n  n AS Integer\nEND TYPE\n\nEXPORT TYPE Pub\n  h AS Inner\nEND TYPE\n\nEXPORT FUNC mk(n AS Integer) AS Pub\n  RETURN Pub[Inner[n]]\nEND FUNC\n";
     const PROGRAM: &str = "IMPORT io\nIMPORT pk\n\nSUB main()\n  LET p AS pk::Pub = pk::mk(4)\n  io::print(\"mine \" & toString(p.h.n))\nEND SUB\n";
-    assert_eq!(run("export_names_export_src", PACKAGE, PROGRAM, Form::Source), "mine 4");
-    assert_eq!(run("export_names_export_mfp", PACKAGE, PROGRAM, Form::Mfp), "mine 4");
+    assert_eq!(
+        run("export_names_export_src", PACKAGE, PROGRAM, Form::Source),
+        "mine 4"
+    );
+    assert_eq!(
+        run("export_names_export_mfp", PACKAGE, PROGRAM, Form::Mfp),
+        "mine 4"
+    );
 }

@@ -464,7 +464,15 @@ fn serve_tls(root: &Path) -> (std::process::Child, u16) {
     let cert = root.join("cert.pem");
     let key = root.join("key.pem");
     let made = Command::new("openssl")
-        .args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=localhost"])
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-subj",
+            "/CN=localhost",
+        ])
         .args(["-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"])
         .args(["-addext", "extendedKeyUsage=serverAuth", "-days", "397"])
         .arg("-keyout")

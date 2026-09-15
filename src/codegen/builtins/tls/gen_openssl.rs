@@ -2289,7 +2289,12 @@ pub(crate) fn lower_tls_read_openssl(
         abi::add_registers(abi::return_register(), &v12, &v10),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &result_alloc_fail);
+    emit_alloc(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        &result_alloc_fail,
+    );
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),

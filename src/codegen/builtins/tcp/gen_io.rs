@@ -662,7 +662,12 @@ pub(crate) fn lower_net_read_helper(
             abi::add_registers(abi::return_register(), &v12, &v10),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &result_alloc_fail);
+        emit_alloc(
+            symbol,
+            &mut instructions,
+            &mut relocations,
+            &result_alloc_fail,
+        );
         instructions.extend([
             abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
             abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)

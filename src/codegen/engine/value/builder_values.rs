@@ -1026,9 +1026,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn value_is_runtime_managed(value: &NirValue) -> bool {
         let target = match value {
             NirValue::CallResult { .. } => return false,
-            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
-                target.as_str()
-            }
+            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => target.as_str(),
             NirValue::MemberAccess { member, .. } if member == "result" => return true,
             _ => return false,
         };
