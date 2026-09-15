@@ -25,6 +25,12 @@ use std::path::{Path, PathBuf};
 /// `http::read`, is 62 KB per call × 20 extra calls) and above allocator noise.
 const FLAT_BOUND: u64 = 1024 * 1024;
 
+/// Allowed growth for a loop whose leak is one small block per iteration (bug-623's 96 B
+/// socket record, bug-625's 48 B list). `live_bytes` counts exactly, so a loop that frees
+/// what it allocates reports the same number at N and 2N; this is only headroom for a
+/// one-off block, far below N x 48 B for every case that uses it.
+const BLOCK_BOUND: u64 = 4096;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -107,11 +113,23 @@ fn assert_live_bytes_flat(
     owner: &str,
     make: impl Fn(u64) -> PathBuf,
 ) {
+    assert_live_bytes_within(case, small, large, FLAT_BOUND, owner, make);
+}
+
+/// [`assert_live_bytes_flat`] with an explicit growth `bound`.
+fn assert_live_bytes_within(
+    case: &str,
+    small: u64,
+    large: u64,
+    bound: u64,
+    owner: &str,
+    make: impl Fn(u64) -> PathBuf,
+) {
     let at_small = main_live_bytes(&format!("{case}_{small}"), &make(small));
     let at_large = main_live_bytes(&format!("{case}_{large}"), &make(large));
     let grew = at_large.saturating_sub(at_small);
     assert!(
-        grew < FLAT_BOUND,
+        grew < bound,
         "{case}: main-arena live_bytes grew {grew} B between {small} and {large} iterations \
          ({at_small} -> {at_large}); {owner}"
     );
@@ -263,7 +281,6 @@ fn a_resolve_styles_loop_keeps_live_bytes_constant() {
 /// The browser's paint stage (layout + canvas) on a small styled page, N=2000 vs 4000
 /// (960 B per paint: 720 B layout, 240 B canvas, plan-133-A § 2).
 #[test]
-#[ignore = "bug-625: an AttributedString leaks one block on drop (bug-620/621 layout temps fixed); run with --include-ignored"]
 fn a_paint_loop_keeps_live_bytes_constant() {
     assert_live_bytes_flat(
         "soak_paint",
@@ -326,7 +343,6 @@ fn serve_http(count: u64) -> u16 {
 
 /// The browser's fetch stage, over loopback plain HTTP (62,435 B per call, plan-133-A § 2).
 #[test]
-#[ignore = "bug-623: http::read leaks the tcp::read buffer and per-connection records; run with --include-ignored"]
 fn an_http_read_loop_keeps_live_bytes_constant() {
     let run = |n: u64| {
         let port = serve_http(n);
@@ -345,5 +361,306 @@ fn an_http_read_loop_keeps_live_bytes_constant() {
         grew < FLAT_BOUND,
         "soak_http: main-arena live_bytes grew {grew} B between 20 and 40 reads \
          ({at_small} -> {at_large}); http::read leaks (bug-623)"
+    );
+}
+
+/// Accept `count` connections on a loopback port; write `reply` to each, then close it.
+fn serve_tcp(count: u64, reply: &'static [u8]) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("local addr").port();
+    std::thread::spawn(move || {
+        for _ in 0..count {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let _ = stream.write_all(reply);
+        }
+    });
+    port
+}
+
+/// bug-623: `tcp::read` frees its capped read buffer, and `tcp::close` the socket record.
+/// Measured before the fix: 65,536 B buffer + 96 B record per iteration.
+#[test]
+fn a_tcp_read_loop_keeps_live_bytes_constant() {
+    static REPLY: [u8; 6839] = [b'x'; 6839];
+    assert_live_bytes_within(
+        "soak_tcp_read",
+        200,
+        400,
+        BLOCK_BOUND,
+        "tcp::read leaks its read buffer or tcp::close its socket record (bug-623)",
+        |n| {
+            let port = serve_tcp(n, &REPLY);
+            common::temp_project(
+                "soak_tcp_read",
+                &format!(
+                    "IMPORT io\nIMPORT tcp\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    LET got AS List OF Byte = tcp::read(c, 65536)\n    total = total + len(got)\n    tcp::close(c)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+                ),
+            )
+        },
+    );
+}
+
+/// bug-623: a `tcp::connect` / `tcp::close` pair frees the socket record (96 B each before
+/// the fix).
+#[test]
+fn a_tcp_connect_close_loop_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_tcp_close",
+        300,
+        600,
+        BLOCK_BOUND,
+        "tcp::close leaks the socket record (bug-623)",
+        |n| {
+            let port = serve_tcp(n, b"");
+            common::temp_project(
+                "soak_tcp_close",
+                &format!(
+                    "IMPORT io\nIMPORT tcp\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    tcp::close(c)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                ),
+            )
+        },
+    );
+}
+
+/// bug-623's udp audit: a `udp::bind` / `udp::close` pair frees the socket record (96 B each
+/// before the fix).
+#[test]
+fn a_udp_bind_close_loop_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_udp_close",
+        300,
+        600,
+        BLOCK_BOUND,
+        "udp::close leaks the socket record (bug-623)",
+        |n| {
+            common::temp_project(
+                "soak_udp_close",
+                &format!(
+                    "IMPORT io\nIMPORT udp\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    udp::close(s)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                ),
+            )
+        },
+    );
+}
+
+/// An OpenSSL (not LibreSSL) `openssl` CLI to serve TLS, as `rt_tls_connect_allow_self_signed`
+/// requires of its peer.
+fn have_openssl_peer() -> bool {
+    std::process::Command::new("openssl")
+        .arg("version")
+        .output()
+        .map(|out| {
+            out.status.success() && String::from_utf8_lossy(&out.stdout).starts_with("OpenSSL")
+        })
+        .unwrap_or(false)
+}
+
+/// Serve a fresh self-signed `localhost` identity with `openssl s_server` on a loopback port,
+/// and return the child once a handshake completes against it.
+fn serve_tls(root: &Path) -> (std::process::Child, u16) {
+    use std::process::{Command, Stdio};
+    fs::create_dir_all(root).expect("create tls scratch");
+    let cert = root.join("cert.pem");
+    let key = root.join("key.pem");
+    let made = Command::new("openssl")
+        .args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=localhost"])
+        .args(["-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"])
+        .args(["-addext", "extendedKeyUsage=serverAuth", "-days", "397"])
+        .arg("-keyout")
+        .arg(&key)
+        .arg("-out")
+        .arg(&cert)
+        .output()
+        .expect("run openssl req");
+    assert!(
+        made.status.success(),
+        "openssl req: {}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+    for _ in 0..10 {
+        let guard = common::PortGate::acquire();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .expect("bind an ephemeral port")
+            .local_addr()
+            .expect("local addr")
+            .port();
+        let mut child = Command::new("openssl")
+            .args(["s_server", "-quiet", "-accept", &port.to_string()])
+            .arg("-cert")
+            .arg(&cert)
+            .arg("-key")
+            .arg(&key)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn openssl s_server");
+        for _ in 0..200 {
+            if child.try_wait().expect("poll s_server").is_some() {
+                break;
+            }
+            let probe = Command::new("openssl")
+                .args(["s_client", "-connect", &format!("127.0.0.1:{port}")])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if probe.map(|status| status.success()).unwrap_or(false) {
+                drop(guard);
+                return (child, port);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    panic!("openssl s_server never began accepting");
+}
+
+/// bug-623: a `tls::connect` / `tls::close` pair frees the TLS context and socket records
+/// (384 B per HTTPS read before the fix, plan-133-A).
+#[test]
+fn a_tls_connect_close_loop_keeps_live_bytes_constant() {
+    if !have_openssl_peer() {
+        eprintln!("skipping: no OpenSSL `openssl` CLI to serve TLS");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mfb_soak_tls_{}", common::unique_nonce()));
+    let (mut server, port) = serve_tls(&root);
+    let run = |n: u64| {
+        let project = common::temp_project(
+            "soak_tls_close",
+            &format!(
+                "IMPORT io\nIMPORT tls\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    tls::close(conn)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+            ),
+        );
+        main_live_bytes(&format!("soak_tls_close_{n}"), &project)
+    };
+    let at_small = run(100);
+    let at_large = run(200);
+    let _ = server.kill();
+    let _ = server.wait();
+    let _ = fs::remove_dir_all(&root);
+    let grew = at_large.saturating_sub(at_small);
+    assert!(
+        grew < BLOCK_BOUND,
+        "soak_tls_close: main-arena live_bytes grew {grew} B between 100 and 200 connections \
+         ({at_small} -> {at_large}); tls::close leaks its connection records (bug-623)"
+    );
+}
+
+/// A loop of `n` iterations running `body` (which may use `i` and `total`), with `decls`
+/// above `main`.
+fn astrings_project(case: &str, n: u64, decls: &str, body: &str) -> PathBuf {
+    common::temp_project(
+        case,
+        &format!(
+            "IMPORT io\nIMPORT astrings\nIMPORT collections\n\n{decls}\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{body}\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+        ),
+    )
+}
+
+/// bug-625: `astrings::fromString` frees the empty `spans` list it byte-copies into the
+/// record (48 B per value before the fix).
+#[test]
+fn a_bound_attributed_string_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_as_single",
+        1000,
+        2000,
+        BLOCK_BOUND,
+        "astrings::fromString leaks its spans list (bug-625)",
+        |n| {
+            astrings_project(
+                "soak_as_single",
+                n,
+                "",
+                "    LET a AS AttributedString = astrings::fromString(\"ab\" & toString(i))\n    total = total + 1",
+            )
+        },
+    );
+}
+
+/// bug-625: the same leak once per list element.
+#[test]
+fn a_list_of_attributed_strings_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_as_list",
+        1000,
+        2000,
+        BLOCK_BOUND,
+        "astrings::fromString leaks its spans list (bug-625)",
+        |n| {
+            astrings_project(
+                "soak_as_list",
+                n,
+                "",
+                "    LET l AS List OF AttributedString = [astrings::fromString(\"a\" & toString(i)), astrings::fromString(\"c\" & toString(i))]\n    total = total + len(l)",
+            )
+        },
+    );
+}
+
+/// bug-625: the same leak through a record field built by a helper.
+#[test]
+fn a_record_of_attributed_strings_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_as_record",
+        1000,
+        2000,
+        BLOCK_BOUND,
+        "astrings::fromString leaks its spans list (bug-625)",
+        |n| {
+            astrings_project(
+                "soak_as_record",
+                n,
+                "TYPE AsResult\n  rows AS List OF AttributedString\n  count AS Integer\nEND TYPE\n\nFUNC build(texts AS List OF String) AS AsResult\n  MUT out AS List OF AttributedString = []\n  FOR EACH t IN texts\n    out = collections::append(out, astrings::fromString(t))\n  NEXT\n  RETURN AsResult[out, len(texts)]\nEND FUNC\n",
+                "    LET r AS AsResult = build([\"one\" & \"!\", \"two\" & \"!\", \"three\" & \"!\", \"four\" & \"!\"])\n    total = total + len(r.rows)",
+            )
+        },
+    );
+}
+
+/// bug-625: an attributed value (a non-empty `spans` list) is freed completely too.
+#[test]
+fn an_attributed_string_with_an_attribute_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_as_attr",
+        1000,
+        2000,
+        BLOCK_BOUND,
+        "astrings::fromString / addAttribute leak (bug-625)",
+        |n| {
+            astrings_project(
+                "soak_as_attr",
+                n,
+                "",
+                "    LET a AS AttributedString = astrings::fromString(\"hello \" & toString(i))\n    LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::bold())\n    total = total + 1",
+            )
+        },
+    );
+}
+
+/// bug-625 B: a defaulted record frees the default field values it byte-copies inline
+/// (48 B per record before the fix — the `fromString` hazard in `lower_default_value`'s
+/// record arm, `builder_value_semantics.rs`).
+#[test]
+fn a_defaulted_record_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_default_record",
+        1000,
+        2000,
+        BLOCK_BOUND,
+        "a defaulted record leaks its default field values (bug-625)",
+        |n| {
+            common::temp_project(
+                "soak_default_record",
+                &format!(
+                    "IMPORT io\n\nTYPE Rec\n  name AS String\n  items AS List OF Integer\nEND TYPE\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT r AS Rec\n    total = total + len(r.items) + len(r.name) + 1\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+                ),
+            )
+        },
     );
 }

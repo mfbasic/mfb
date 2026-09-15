@@ -143,3 +143,23 @@ Commit: —
 
 Two small frees in native transport code; the care is freeing on every failure label exactly
 once.
+
+## Phase 1 findings (fix-bug, 2026-09-15)
+
+Measured at main `9b5e5b55f`, `target/release/mfb build --debug`, macOS:
+
+- `h_local` loop over a loopback `python3 -m http.server`: N=20 `live_bytes 1314240`
+  (`alloc 4402` / `free 4302`), N=40 `2628480` (`8802` / `8602`) — **65,712 B and 5 blocks per
+  call**. That is exactly the 65,536 B `__http_pump` read buffer + 176 B, so hypothesis 1 is
+  confirmed without the throwaway read-size build (the doc's 62,435 B figure predates it).
+- `tcp::connect` + `tcp::close` loop (accept-and-close loopback peer): N=200 `19200`
+  (`400` / `200`), N=400 `38400` — **96 B, one block per connection**: hypothesis 2's socket
+  record, confirmed.
+- `udp::bind` + `udp::close` loop: N=200 `19200`, N=400 `38400` — the same 96 B record per
+  socket. The udp audit finds the same leak.
+- RED tests (`tests/runtime/rt_debug_soak.rs`, live_bytes, not RSS — the doc named
+  `rt_scope_drop_leaks.rs`, whose helpers measure RSS and cannot see a 96 B block):
+  `an_http_read_loop_keeps_live_bytes_constant` (its `#[ignore]` removed),
+  `a_tcp_read_loop_keeps_live_bytes_constant`, `a_tcp_connect_close_loop_keeps_live_bytes_constant`,
+  `a_udp_bind_close_loop_keeps_live_bytes_constant`, `a_tls_connect_close_loop_keeps_live_bytes_constant`
+  (an OpenSSL `s_server` loopback peer; skipped where only LibreSSL is present).

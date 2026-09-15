@@ -167,3 +167,31 @@ Commit: —
 
 A single missing free in one builtin type's drop. The only care needed is covering every path
 that drops the type.
+
+## Phase 1 findings (fix-bug, 2026-09-15)
+
+- Reproduced at main `9b5e5b55f`: `as2_single` N=1000 `live_bytes 61520` (`alloc 4004` /
+  `free 3002`), N=2000 `109520` (`8004` / `6002`) — 48 B, one block per value, as documented.
+- **Audit of the `emit_build_inlined_record` call sites:**
+  - `astrings/gen_astrings.rs:lower_astrings_from_string` — **leaks** (this bug).
+  - `astrings/gen_astrings.rs:lower_astrings_write_spans` — safe: the spans list arrives
+    through `lower_value` as a pending temp; the text is an alias.
+  - `engine/value/builder_values.rs` (record constructor) — safe: `drop_pending_temps_to`.
+  - `memory/marshal/construct_helpers.rs` (`construct.T`) — safe: its callers' arguments are
+    the constructor's pending temps.
+  - `collections/func_partition.rs`, `collections/func_zip.rs` — safe: free their sources.
+  - `vector/builder_vector_inline.rs` — safe: float lanes, no blocks.
+  - `memory/value/builder_value_semantics.rs`, the `WITH` rebuild — safe: kept fields are
+    aliases of the target; replaced fields are the statement's temps.
+  - `memory/value/builder_value_semantics.rs:lower_default_value_inner`, record arm —
+    **leaks (sub-issue B, new):** it builds each field's default (`lower_empty_collection` for a
+    collection) and byte-copies it inline without freeing it. Measured: a loop of
+    `MUT r AS Rec` (`name AS String`, `items AS List OF Integer`) N=1000 `live_bytes 48000`
+    (`alloc 2002` / `free 1002`), N=2000 `96000` — 48 B per record. A String default is the
+    shared empty-string constant (`load_empty_string_constant`), not an arena block.
+  - `crypto/func_generate.rs` (3 sites) — a separate native helper of the same name; verdict
+    recorded with the fix.
+- RED tests (`tests/runtime/rt_debug_soak.rs`, live_bytes): `a_bound_attributed_string_…`,
+  `a_list_of_attributed_strings_…`, `a_record_of_attributed_strings_…`,
+  `an_attributed_string_with_an_attribute_…`, `a_defaulted_record_…`, and
+  `a_paint_loop_keeps_live_bytes_constant` (its `#[ignore]` removed).
