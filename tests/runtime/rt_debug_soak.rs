@@ -199,7 +199,6 @@ fn a_json_parse_loop_keeps_live_bytes_constant() {
 /// The browser's parse stage on the saved 603,614-byte Wikipedia `BASIC` page
 /// (8,318,848 B left per parse, plan-133-A § 2). N=1 vs 2: one parse takes ~40 s.
 #[test]
-#[ignore = "bug-620/bug-621: IF-condition temps leak on RETURN/EXIT and loop-condition temps leak per pass; run with --include-ignored"]
 fn a_dom_parse_loop_keeps_live_bytes_constant() {
     let html = repo_root().join("tests/runtime/data/rt_debug_soak_basic.html");
     assert_live_bytes_flat(
@@ -223,7 +222,6 @@ fn a_dom_parse_loop_keeps_live_bytes_constant() {
 /// The browser's resolve-styles stage on a generated page: 400 elements × 60 class and
 /// descendant rules (718,525,504 B per call on the `BASIC` page, plan-133-A § 2).
 #[test]
-#[ignore = "bug-620/bug-621: selector matching leaks its condition temps; run with --include-ignored"]
 fn a_resolve_styles_loop_keeps_live_bytes_constant() {
     let mut html = String::from("<html><head><style>");
     for r in 0..60 {
@@ -265,7 +263,7 @@ fn a_resolve_styles_loop_keeps_live_bytes_constant() {
 /// The browser's paint stage (layout + canvas) on a small styled page, N=2000 vs 4000
 /// (960 B per paint: 720 B layout, 240 B canvas, plan-133-A § 2).
 #[test]
-#[ignore = "bug-620/bug-621 (layout condition temps) and bug-625 (an AttributedString leaks one block on drop); run with --include-ignored"]
+#[ignore = "bug-625: an AttributedString leaks one block on drop (bug-620/621 layout temps fixed); run with --include-ignored"]
 fn a_paint_loop_keeps_live_bytes_constant() {
     assert_live_bytes_flat(
         "soak_paint",
