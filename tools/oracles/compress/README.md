@@ -29,6 +29,7 @@ install and no pip install.
 | Mode | Cases | What is compared |
 |---|---|---|
 | `crc32` | 118: lengths 0–17, then 100 random lengths up to 1 MiB | `compress::crc32(data)` in one call, and chained across a random split (`crc32(tail, crc32(head))`), against `zlib.crc32` |
+| `decode-raw` | 150: 3 corpora (text, random, mixed runs) × levels 0–9 × 5 strategies (default, filtered, Huffman-only, RLE, fixed) | length and CRC-32 of `compress::inflate` over Python zlib's raw DEFLATE (`wbits -15`), against Python `zlib.decompressobj(-15)` and Node `inflateRawSync` |
 
 ## How it fits together
 

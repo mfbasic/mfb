@@ -18,6 +18,7 @@ subject printed.
 import random
 import struct
 import sys
+import zlib
 
 SEED = 137
 
@@ -30,6 +31,29 @@ def crc32_cases(rng):
     for n in lengths:
         data = rng.randbytes(n)
         cases.append((data, rng.randrange(0, n + 1)))
+    return cases
+
+
+def corpora(rng):
+    """Three payloads with different statistics: text, incompressible, and a mix with long runs."""
+    text = b"".join(f"record {i}: the quick brown fox {i % 97} jumps over {i * 7 % 1000}\n".encode()
+                    for i in range(1200))
+    noise = rng.randbytes(30000)
+    mixed = text[:40000] + bytes(30000) + rng.randbytes(20000) + text[40000:50000] * 3
+    return [text, noise, mixed]
+
+
+STRATEGIES = [zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED, zlib.Z_HUFFMAN_ONLY, zlib.Z_RLE, zlib.Z_FIXED]
+
+
+def decode_raw_cases(rng):
+    """Python zlib raw DEFLATE (wbits -15) of each corpus at every level and strategy."""
+    cases = []
+    for payload in corpora(rng):
+        for level in range(10):
+            for strategy in STRATEGIES:
+                c = zlib.compressobj(level, zlib.DEFLATED, -15, 8, strategy)
+                cases.append((c.compress(payload) + c.flush(), 0))
     return cases
 
 
@@ -50,6 +74,7 @@ def probe_cases(_rng, names_path):
 MODES = {
     "crc32": crc32_cases,
     "probe": probe_cases,
+    "decode-raw": decode_raw_cases,
 }
 
 

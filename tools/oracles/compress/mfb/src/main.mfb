@@ -26,6 +26,14 @@ FUNC crc32Case(data AS List OF Byte, split AS Integer) AS String
   RETURN toString(whole) & " " & toString(chained)
 END FUNC
 
+' decode-raw: length and CRC-32 of compress::inflate's output, or the raised code.
+FUNC inflateCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::inflate(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
 SUB runJob(mode AS String, job AS List OF Byte)
   LET count AS Integer = u32At(job, 0)
   MUT offset AS Integer = 4 + 8 * count
@@ -37,6 +45,8 @@ SUB runJob(mode AS String, job AS List OF Byte)
     MUT fields AS String = "unknown-mode " & mode
     IF mode = "crc32" THEN
       fields = crc32Case(data, aux)
+    ELSEIF mode = "decode-raw" THEN
+      fields = inflateCase(data)
     END IF
     io::print("case " & toString(i) & " " & fields)
     offset = offset + n

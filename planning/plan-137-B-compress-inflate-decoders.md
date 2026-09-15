@@ -101,7 +101,7 @@ plan-137-A §2 holds the shared facts. Specific to this letter:
 |---|---|---|
 | Canvas inflate throughput on the bench corpus | Measured 2026-09-14, macos-aarch64, `-O1` headless `--app`: `canvas::loadImage` of a 4096×4096 RGBA8 PNG (one IDAT, Python `zlib.compress(raw, 6)`, 38,120,016 B → 67,112,960 B inflated, ratio 1.8) in **43,691.6 ms ≈ 1.47 MiB/s** (whole `loadImage`: inflate + unfilter + RGBA; wall 43.80 s). Scaling: 256² 203.4 ms, 1024² 3,274.6 ms, 4096² 43,691.6 ms — linear. | `/tmp/p137canvas/{genpng.py,run.py,app}` (one-off probe) |
 | Python / Node decode behaviour on trailing bytes (sets the oracle's declared divergences), a wrong `FHCRC`, `FDICT`, the one-distance-code block, the no-distance-code block, an incomplete literal set | Measured 2026-09-14 (`tools/oracles/compress/probe.sh`; Python zlib 1.2.12, Node zlib 1.3.1). **Trailing bytes:** raw and zlib after 1/7/1000 junk bytes → both `ok out=224` (Python `unused=1/7/1000`); gzip + junk → Python `decompressobj(31)` ok (`unused`), Python `gzip.decompress` `BadGzipFile: Not a gzipped file`, Node `gunzipSync` `Z_BUF_ERROR` (1 byte) / `incorrect header check` (7, 1000); two gzip members → `gzip.decompress` and Node `out=237`; member + `1f 8b 00 00junk` → both refuse. **Flags/checks:** `FDICT` → Python `Error 2`, Node `Z_NEED_DICT`; `CINFO=8` → `invalid window size`; bad `FHCRC` → zlib `header crc mismatch` (Python `gzip.decompress` accepts — pure-Python header parse); reserved gzip flag → zlib `unknown header flags set` (`gzip.decompress` accepts); bad Adler-32 / CRC-32 → `incorrect data check`; bad `ISIZE` → `incorrect length check`. **Code sets:** one distance code of length 1, used → `ok out=6`, unused → `ok out=1`; no distance codes, unused → `ok out=2`, used → `invalid distance code`; lone end-of-block code of length 1 → `ok out=0`; incomplete literal set (three 2-bit codes) and over-subscribed literal set → `invalid literal/lengths set`; over-subscribed distances → `invalid distances set`; no end-of-block code → `invalid code -- missing end-of-block`; distance before output start → `invalid distance too far back`; stored `LEN ≠ ~NLEN` → `invalid stored block lengths`; `BTYPE=3` → `invalid block type`. Python and Node agree on every zlib-level case. | `tools/oracles/compress/probe.sh` |
-| Emitted code size of the inflate core function (AArch64 conditional-branch range is ±1 MiB per function) | UNMEASURED | Phase 2: `mfb build --ncode` of the fixture, count the function's instructions × 4 B |
+| Emitted code size of the inflate core function (AArch64 conditional-branch range is ±1 MiB per function) | Measured 2026-09-14 (`/tmp/p137size3.py`, `mfb build --ncode` of a one-`inflate` program): `_mfb_ifn_compress_5FinflateCore` **19,457 instructions on macos-aarch64 and linux-aarch64 = 77,828 B ≈ 76 KiB**, 13.5× under 1 MiB and outside the 4× (256 KiB) split threshold, so no split; linux-x86_64 18,374, windows-x86_64 18,382, linux-riscv64 20,419 instructions. `__compress_buildTable` 7,058 (AArch64). | Phase 2: `mfb build --ncode` of the fixture, count the function's instructions × 4 B |
 
 ## 3. Design Overview
 
@@ -258,19 +258,31 @@ code-set exceptions each cite the probe output behind them.
   bench numbers are in Corrections.)
   Check: the probe scripts print their tables; bench numbers pasted in Corrections (est. 45 min —
   it is the plan's design experiment; nothing smaller can measure the decoder's speed).
-Commit: —
+Commit: bcc0909aa
 
 ### Phase 2 — the core and `inflate`
 
-- [ ] `compress/helper_inflate_core.rs`, `helper_huffman_table.rs`, `helper_deflate_tables.rs`
+- [x] `compress/helper_inflate_core.rs`, `helper_huffman_table.rs`, `helper_deflate_tables.rs`
       (+ table-check tests), `func_inflate.rs`; `ErrTooLarge` row in `errorcode/mod.rs` and
       `02_error-codes.md`; `errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument"]`.
-- [ ] Gate helpers `WhenUsed(&["inflate", "zlibDecode", "gzipDecode"])`.
-- [ ] Record the core's emitted size (§2 row); if within 4× of the ±1 MiB AArch64 limit, split
+      (Plus `helper_inflate.rs` — `__compress_inflate`, the `maxBytes` check and trailer removal — which the
+      list did not name; see Corrections. The core and table builder are the Phase 1 `bits` prototype
+      transformed by `/tmp/p137b_helpers.py` with asserted substitution counts. `ErrTooLarge` = 77050027.
+      `cargo build --release --bin mfb` → `Finished`, no warnings; `cargo test --bin mfb errorcode` → `6 passed`;
+      `cargo test --bin mfb compress` → `deflate_tables_builder_matches_rfc1951 ... ok`,
+      `compress_registered_on_the_clean_room_registry ... ok` (2 members); `scripts/man-run-examples.sh compress --run`
+      → `examples: 4 built: 4 ran: 4 failed: 0`.)
+- [x] Gate helpers `WhenUsed(&["inflate", "zlibDecode", "gzipDecode"])`. (All four decoder helpers —
+      `compress_deflate_tables`, `compress_huffman_table`, `compress_inflate_core`, `compress_inflate` — carry that
+      gate and their own `IMPORT compress/bits/collections` header.)
+- [x] Record the core's emitted size (§2 row); if within 4× of the ±1 MiB AArch64 limit, split
       the table builders further before continuing.
 
 Acceptance: `inflate` round-trips Python `zlib.compressobj(level, DEFLATED, -15)` output for
 levels 0–9 and strategies default/filtered/huffman-only/RLE/fixed.
+  (2026-09-14: `tools/oracles/compress/run.sh target/release/mfb decode-raw crc32` → `decode-raw: 150/150 agreed
+  with python`, `150/150 agreed with node`, `268 case(s), 0 failure(s)`, exit 0 — 3 corpora × 10 levels × 5
+  strategies, length and CRC-32 of the output.)
   Check: `tools/oracles/compress/run.sh target/release/mfb decode-raw` → exit 0 (est. 8 min).
 Commit: —
 
@@ -407,6 +419,31 @@ Commit: —
 
   **Result:** shape (b) and the `bits::` bit buffer (§4.1). The prototype decodes the literal-heavy stream
   at 15.24 MiB/s at `-O1`, ≈10.4× canvas's 1.47 MiB/s through `loadImage` (§2), and 18.32 MiB/s at `-O3`.
+- **Phase 2 adds `helper_inflate.rs`**, which the Phase 2 file list did not name: `__compress_inflate` is
+  the public member's body (the `maxBytes < 0` check and removal of the core's 8-byte end-position
+  trailer). It is its own helper because `zlibDecode` and `gzipDecode` will call the core directly and
+  read the trailer themselves (§4.3), so the trailer-stripping wrapper must not live in the core.
+- **Decode time is linear in output and in block count; the per-block cost is table building.**
+  The first back-to-back row (7.7 MiB/s on the PNG stream vs 35.6 MiB/s on the corpus stream) raised
+  the arena's mixed-size churn (`.ai/codegen-invariants.md`) as a suspect, since every dynamic block
+  builds fresh tables. `/tmp/p137proto/run_scale.py` (the `bits` prototype at `-O1` with a block
+  counter, median of 3; the PNG row pattern, zlib level 6):
+
+  | stream | MiB | memLevel | median ms | MiB/s | blocks | ms/block |
+  |---|---|---|---|---|---|---|
+  | size-1 | 1 | 8 | 58.0 | 17.24 | 31 | 1.871 |
+  | size-4 | 4 | 8 | 227.9 | 17.55 | 124 | 1.838 |
+  | size-16 | 16 | 8 | 905.9 | 17.66 | 493 | 1.837 |
+  | size-64 | 64 | 8 | 3,656.3 | 17.50 | 1,969 | 1.857 |
+  | mem-1 | 16 | 1 | 3,177.3 | 5.04 | 63,490 | 0.050 |
+  | mem-8 | 16 | 8 | 918.8 | 17.41 | 493 | 1.864 |
+  | mem-9 | 16 | 9 | 907.5 | 17.63 | 247 | 3.674 |
+
+  Throughput is flat from 1 to 64 MiB and ms/block is constant from 31 to 1,969 blocks, so there is no
+  cumulative degradation. The same 16 MiB in 63,490 tiny blocks (memLevel 1) costs ≈36 µs more per block
+  ((3,177 − 906) ms / 62,997 extra blocks) — the per-block table build, linear. zlib's default
+  memLevel is 8. The corpus stream's higher MiB/s is its content (94.6% of its output is copies), not
+  the size.
 
 
 ## Summary

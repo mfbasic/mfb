@@ -13,13 +13,14 @@
 set -uo pipefail
 . "$(dirname "$0")/../crypto/_lib/harness.sh"
 
-ALL_MODES="crc32"
+ALL_MODES="crc32 decode-raw"
 
 # Case counts per mode, declared HERE rather than counted from any subject's output
 # (see oracle_verdict). gen.py's own count is checked against these too.
 expected_cases() {
   case $1 in
     crc32) echo 118 ;; # lengths 0..17, then 100 random lengths up to 1 MiB
+    decode-raw) echo 150 ;; # 3 corpora x levels 0..9 x 5 strategies
     *) echo 0 ;;
   esac
 }

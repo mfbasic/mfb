@@ -53,9 +53,20 @@ def probe(index, data, fmt):
     return f"case {index} {fields}"
 
 
+def decode_raw(index, data, _aux):
+    """Length and CRC-32 of Python zlib's raw DEFLATE decode, or the error."""
+    try:
+        d = zlib.decompressobj(-15)
+        out = d.decompress(data) + d.flush()
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    return f"case {index} {len(out)} {zlib.crc32(out)}"
+
+
 MODES = {
     "crc32": crc32,
     "probe": probe,
+    "decode-raw": decode_raw,
 }
 
 

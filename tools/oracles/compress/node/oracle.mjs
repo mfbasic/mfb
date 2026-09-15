@@ -36,6 +36,13 @@ const MODES = {
     const result = outcome(() => `ok out=${sync(data).length}`);
     return `case ${index} sync[${result}]`;
   },
+  // Length and CRC-32 of Node zlib's raw DEFLATE decode, or the error.
+  "decode-raw"(index, data) {
+    return outcome(() => {
+      const out = zlib.inflateRawSync(data);
+      return `case ${index} ${out.length} ${zlib.crc32(out)}`;
+    }).replace(/^err /, `case ${index} err `);
+  },
   crc32(index, data, split) {
     const whole = zlib.crc32(data);
     const chained = zlib.crc32(data.subarray(split), zlib.crc32(data.subarray(0, split)));
