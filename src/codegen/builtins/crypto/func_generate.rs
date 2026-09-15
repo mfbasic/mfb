@@ -22,7 +22,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::{
-    emit_build_byte_list, emit_build_inlined_record, emit_zero_guarded, RecordBuildScratch,
+    emit_build_byte_list, emit_build_inlined_record, emit_free_byte_list_guarded,
+    emit_zero_guarded, RecordBuildScratch,
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
@@ -150,6 +151,8 @@ fn emit_macos_ec(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), DICT),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), KEY),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), DATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), COLL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PUBCOLL),
     ]);
 
     gen_cert::dlopen_one(
@@ -444,7 +447,33 @@ fn emit_macos_ec(
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
+    // bug-625: the `KeyPair` holds byte copies of both lists, so free them (wiping the
+    // private key), keeping the record pointer in a frame slot across the frees.
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        RRESULT,
+    ));
+    emit_free_byte_list_guarded(
+        symbol,
+        "okpriv",
+        COLL,
+        BYTELEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "okpub",
+        PUBCOLL,
+        PUBLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     builder.instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
     ]);
@@ -476,6 +505,25 @@ fn emit_macos_ec(
     );
     builder.instructions.push(abi::label(&alloc_fail));
     cleanup(&mut builder.instructions, "af");
+    // bug-625: a list built before the failure is freed too.
+    emit_free_byte_list_guarded(
+        symbol,
+        "afpriv",
+        COLL,
+        BYTELEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "afpub",
+        PUBCOLL,
+        PUBLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     emit_fail(
         symbol,
         "ErrOutOfMemory",
@@ -542,6 +590,8 @@ fn emit_linux_ec(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_PKEY),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_ECKEY),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_SEC1PTR),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), L_COLL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), L_PUBCOLL),
     ]);
 
     gen_cert::dlopen_libcrypto(
@@ -888,7 +938,33 @@ fn emit_linux_ec(
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
+    // bug-625: the `KeyPair` holds byte copies of both lists, so free them (wiping the
+    // private key), keeping the record pointer in a frame slot across the frees.
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        L_RRESULT,
+    ));
+    emit_free_byte_list_guarded(
+        symbol,
+        "lokpriv",
+        L_COLL,
+        L_RAWLEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "lokpub",
+        L_PUBCOLL,
+        L_POINTLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     builder.instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), L_RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
     ]);
@@ -941,6 +1017,25 @@ fn emit_linux_ec(
     );
     builder.instructions.push(abi::label(&alloc_fail));
     cleanup(&mut builder.instructions, "af", v9);
+    // bug-625: a list built before the failure is freed too.
+    emit_free_byte_list_guarded(
+        symbol,
+        "lafpriv",
+        L_COLL,
+        L_RAWLEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "lafpub",
+        L_PUBCOLL,
+        L_POINTLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     emit_fail(
         symbol,
         "ErrOutOfMemory",
@@ -1038,6 +1133,8 @@ fn emit_windows_ec(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HALG),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HKEY),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_BLOB),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_COLL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_PUBCOLL),
     ]);
     // raw_len = 1 + 3·field; point_len = 1 + 2·field.
     ins.extend([
@@ -1235,7 +1332,33 @@ fn emit_windows_ec(
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
+    // bug-625: the `KeyPair` holds byte copies of both lists, so free them (wiping the
+    // private key), keeping the record pointer in a frame slot across the frees.
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        W_RRESULT,
+    ));
+    emit_free_byte_list_guarded(
+        symbol,
+        "wokpriv",
+        W_COLL,
+        W_RAWLEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "wokpub",
+        W_PUBCOLL,
+        W_POINTLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     builder.instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), W_RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
     ]);
@@ -1257,6 +1380,25 @@ fn emit_windows_ec(
         done,
     );
     builder.instructions.push(abi::label(&alloc_fail));
+    // bug-625: a list built before the failure is freed too.
+    emit_free_byte_list_guarded(
+        symbol,
+        "wafpriv",
+        W_COLL,
+        W_RAWLEN,
+        true,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_byte_list_guarded(
+        symbol,
+        "wafpub",
+        W_PUBCOLL,
+        W_POINTLEN,
+        false,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     win_cleanup(
         symbol,
         "c3",

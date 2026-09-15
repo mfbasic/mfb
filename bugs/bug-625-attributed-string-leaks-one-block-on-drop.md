@@ -189,9 +189,22 @@ that drops the type.
     `MUT r AS Rec` (`name AS String`, `items AS List OF Integer`) N=1000 `live_bytes 48000`
     (`alloc 2002` / `free 1002`), N=2000 `96000` — 48 B per record. A String default is the
     shared empty-string constant (`load_empty_string_constant`), not an arena block.
-  - `crypto/func_generate.rs` (3 sites) — a separate native helper of the same name; verdict
-    recorded with the fix.
+  - `crypto/func_generate.rs` (3 sites: macOS `emit_macos_ec`, Linux `emit_linux_ec`, Windows
+    `emit_windows_ec`) — **leaks (sub-issue C, new):** each builds the private and public key
+    `List OF Byte` with `emit_build_byte_list` and byte-copies both into the inlined `KeyPair`
+    with the native `memory::marshal::emit_build_inlined_record`, freeing neither. Measured
+    (`crypto::generate` loop, N=50 → 100, main binary): P256 `live_bytes 17392 → 30192`
+    (`alloc 303 → 453`, `free 190 → 240`: 2 blocks, 256 B per call), P384 336 B, P521 416 B.
+- **Sub-issue D (new, found measuring the software curves for C):** Ed25519 / X25519 leak
+  32 B and X448 / Ed448 64 B per `generate` — one block. The cause is not the curves:
+  `crypto::randomBytes(n)` (`crypto/func_random_bytes.rs:lower_random_bytes`) allocates an
+  `n`-byte entropy scratch buffer, copies it into the result list, wipes it, and never frees
+  it. Measured `randomBytes(32)` N=200 → 400 `live_bytes 10992 → 17392` (32 B per call),
+  `randomBytes(56)` 64 B, `randomBytes(1000)` 1,008 B. Every `randomBytes` caller leaks it.
 - RED tests (`tests/runtime/rt_debug_soak.rs`, live_bytes): `a_bound_attributed_string_…`,
   `a_list_of_attributed_strings_…`, `a_record_of_attributed_strings_…`,
-  `an_attributed_string_with_an_attribute_…`, `a_defaulted_record_…`, and
-  `a_paint_loop_keeps_live_bytes_constant` (its `#[ignore]` removed).
+  `an_attributed_string_with_an_attribute_…`, `a_defaulted_record_…`,
+  `a_native_ec_generate_loop_…` (C: RED 1,008 B per P256+P384+P521 iteration) and
+  `a_software_curve_generate_loop_…` (D: RED 192 B per Ed25519+X25519+X448+Ed448 iteration).
+  `a_paint_loop_keeps_live_bytes_constant` has its `#[ignore]` removed, but it **passes before
+  the fix** (240 B × 2,000 extra paints is under its 1 MiB bound): a guard, not the gate.

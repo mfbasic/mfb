@@ -664,3 +664,56 @@ fn a_defaulted_record_keeps_live_bytes_constant() {
         },
     );
 }
+
+/// A loop of `n` `crypto::generate` calls cycling through `variants`.
+fn crypto_generate_project(case: &str, n: u64, variants: &[&str]) -> PathBuf {
+    let calls: String = variants
+        .iter()
+        .map(|variant| {
+            format!(
+                "    LET kp{variant} AS crypto::KeyPair = crypto::generate(crypto::Certificate.{variant})\n    total = total + len(kp{variant}.publicKey) + len(kp{variant}.privateKey)\n"
+            )
+        })
+        .collect();
+    common::temp_project(
+        case,
+        &format!(
+            "IMPORT io\nIMPORT crypto\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{calls}  NEXT\n  io::print(toString(total))\nEND SUB\n"
+        ),
+    )
+}
+
+/// bug-625 C: the native EC `crypto::generate` paths free the two key byte lists they build
+/// and byte-copy into the inlined `KeyPair` (2 blocks per call before the fix: 256 / 336 /
+/// 416 B for P-256 / P-384 / P-521 — the `fromString` hazard in `crypto/func_generate.rs`).
+#[test]
+fn a_native_ec_generate_loop_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_generate_ec",
+        50,
+        100,
+        BLOCK_BOUND,
+        "crypto::generate (P256/P384/P521) leaks its key lists (bug-625)",
+        |n| crypto_generate_project("soak_generate_ec", n, &["P256", "P384", "P521"]),
+    );
+}
+
+/// bug-625 D: the software-curve `crypto::generate` paths leave nothing live (one block per
+/// call before the fix: 32 B for Ed25519 / X25519, 64 B for X448 / Ed448).
+#[test]
+fn a_software_curve_generate_loop_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_generate_soft",
+        50,
+        100,
+        BLOCK_BOUND,
+        "crypto::generate (Ed25519/X25519/X448/Ed448) leaks a key-sized block (bug-625)",
+        |n| {
+            crypto_generate_project(
+                "soak_generate_soft",
+                n,
+                &["Ed25519", "X25519", "X448", "Ed448"],
+            )
+        },
+    );
+}
