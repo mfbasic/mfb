@@ -39,6 +39,44 @@ EXPORT FUNC parse(text AS String) AS Document
 END FUNC
 
 ' ---------------------------------------------------------------------------
+' Writing.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC stringify
+  GROUP Writing
+  DESC Write a document, or a single node, back as XML in the most compact
+  DESC form.
+  DESC
+  DESC Given a `Document` the output carries an
+  DESC `<?xml version="1.0" encoding="UTF-8"?>` declaration and is always
+  DESC UTF-8. Given a `Node` it carries none: the result is a fragment, meant
+  DESC for embedding rather than for saving as a document on its own.
+  DESC
+  DESC Reading the output back gives the same content: the same elements,
+  DESC attributes and text, in the same order. Formatting is not preserved --
+  DESC whitespace the reader kept as layout is written as it was given.
+  DESC
+  DESC A tree that could not be read back is refused rather than written: a
+  DESC name that is not a valid XML name, two attributes sharing a name, text
+  DESC holding a character XML 1.0 forbids, a comment holding `--`, a
+  DESC processing instruction whose data would close it early, or a document
+  DESC without exactly one root element.
+  ARG doc The document to write.
+  ARG n The node to write, with everything below it.
+  RET The XML text.
+  ERROR 77050002 The tree could not be written as XML that reads back the same.
+  ERROR 77050024 The tree nests more than 256 levels deep.
+END DOC
+EXPORT FUNC stringify(doc AS Document) AS String
+  RETURN writeDocumentCompact(doc)
+END FUNC
+
+EXPORT FUNC stringify(n AS Node) AS String
+  RETURN writeNodeCompact(n, 1)
+END FUNC
+
+' ---------------------------------------------------------------------------
 ' Constructors. Each widens a record to `Node` through a typed binding, so a
 ' caller never has to name the variant record type.
 ' ---------------------------------------------------------------------------

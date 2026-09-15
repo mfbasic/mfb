@@ -23,7 +23,7 @@ See plan-138-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | NOT MET |
+| plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | MET (re-measured 2026-09-15 → `planning/completed/plan-138-A-xml-tree-builder-and-reader.md`; archived in `2281f1932`) |
 | bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | PARTIALLY MET (2026-09-15): bug-631 fixed on `worktree-B-631` (`73ab94edc`); every ✗ reproduction row now builds and prints its expected output. The `packages/xml` consumer check waits on plan-138-A; re-run it then. |
 
 ## 1. Goal
@@ -141,17 +141,25 @@ anything plan-138-A shipped.
 
 ### Phase 1 — compact writer
 
-- [ ] `packages/xml/src/write.mfb` — compact walk with §4 escaping and refusals.
-- [ ] `packages/xml/src/lib.mfb` — `EXPORT FUNC stringify(doc AS Document) AS String` and
+- [x] `packages/xml/src/write.mfb` — compact walk with §4 escaping and refusals.
+- [x] `packages/xml/src/lib.mfb` — `EXPORT FUNC stringify(doc AS Document) AS String` and
       `EXPORT FUNC stringify(n AS Node) AS String`.
-- [ ] `packages/xml/src/content.mfb` — `PUBLIC FUNC contentKey(doc AS Document) AS String`, a
+- [x] `packages/xml/src/content.mfb` — `PUBLIC FUNC contentKey(doc AS Document) AS String`, a
       canonical string of plan-138-A §4's projection, for tests only (package-internal).
-- [ ] Tests: `packages/xml/src/test_write.mfb` — each §4 escaping row, with the exact output string;
+- [x] Tests: `packages/xml/src/test_write.mfb` — each §4 escaping row, with the exact output string;
       each refusal with its code; for every `test_read.mfb` accepting fixture,
       `contentKey(parse(stringify(parse(x)))) = contentKey(parse(x))`.
+- [x] Added task: a "writing twice is stable" case over every fixture
+      (`stringify(parse(stringify(parse(x)))) = stringify(parse(x))`), and cases pinning the content
+      projection itself — that comments/PIs are not content, that text split by a comment merges,
+      that layout whitespace is dropped but sole whitespace is kept, and that attribute ORDER is not
+      content while attribute VALUES are. Without these the round-trip assertions could pass
+      vacuously on a projection that hides differences.
 
 Acceptance: compact output is exact and content-preserving on every reader fixture.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 141  Pass: 141  Fail: 0`, exit 0 (27 added
+  here, over the 114 letter A left).
 Commit: —
 
 ### Phase 2 — pretty writer
@@ -204,7 +212,20 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**Phase 1 — same-named overloads share ONE `DOC` block.** A `DOC` block per overload is rejected:
+`error[2-205-0003 DOC_DUPLICATE]: two DOC blocks name the same declaration`. The block attaches to
+the first `EXPORT FUNC` and carries the union of the `ARG` lines, which is what `packages/timezones`
+already does for its two `toIso` overloads (`packages/timezones/src/lib.mfb:189-224`: one block,
+`ARG dt` / `ARG digits` / `ARG name`). §8's table lists the six `stringify` forms as separate rows;
+that is the API surface, not six doc blocks.
+
+**Phase 1 — `root(doc)` returns an `Element` record, so `stringify(root(doc))` matches no overload.**
+`stringify` is declared over `Document` and `Node`; `Element` is a variant record of `Node`, and the
+call fails with `Callable \`stringify\` is not a top-level function`. A caller widens through a typed
+binding first (`LET n AS xml::Node = root(doc)`), which is the same pattern the constructors use
+internally. This is not the bug-631 imported-overload ambiguity — it reproduces inside the package,
+where no import is involved. Worth stating in the README (Phase 3) so the first user does not hit it
+cold.
 
 ## Summary
 

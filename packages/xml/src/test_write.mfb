@@ -1,0 +1,253 @@
+' ---------------------------------------------------------------------------
+' Tests: the compact serializer.
+'
+' Three kinds of case, and each is a different promise:
+'
+'   * the EXACT output of each escaping rule -- because "it round-trips" would
+'     pass even if the writer escaped far more than it needs to, producing
+'     correct but unreadable XML;
+'   * each refusal with its code -- because the writer's contract is that it
+'     never emits XML its own reader would reject;
+'   * content equality over every reader fixture -- the promise the whole
+'     feature rests on: content survives a write and a re-read, formatting need
+'     not.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' The documents the reader tests accept, reused here so the round trip is
+' checked over the same grammar surface the reader covers.
+PRIVATE FUNC fixtures() AS List OF String
+  MUT out AS List OF String = []
+  out = collections::append(out, "<a/>")
+  out = collections::append(out, "<a></a>")
+  out = collections::append(out, "<a id=\"1\" class='x'/>")
+  out = collections::append(out, "<a><b/><c/><b/></a>")
+  out = collections::append(out, "<a> <b/> </a>")
+  out = collections::append(out, "<a>\n  <b/>\n</a>")
+  out = collections::append(out, "<a>hello</a>")
+  out = collections::append(out, "<a>x&amp;y</a>")
+  out = collections::append(out, "<a>&lt;tag&gt;</a>")
+  out = collections::append(out, "<a>&#65;&#x42;&#x43;</a>")
+  out = collections::append(out, "<a>&#x10348;</a>")
+  out = collections::append(out, "<a>]</a>")
+  out = collections::append(out, "<a>a]]b</a>")
+  out = collections::append(out, "<p>Hello <b>x</b> there</p>")
+  out = collections::append(out, "<a><![CDATA[x<y&z]]></a>")
+  out = collections::append(out, "<a>before<![CDATA[ mid ]]>after</a>")
+  out = collections::append(out, "<a><!-- note --></a>")
+  out = collections::append(out, "<a><?target data?></a>")
+  out = collections::append(out, "<!--before--><a/><!--after-->")
+  out = collections::append(out, "<a>x<!--c-->y</a>")
+  out = collections::append(out, "<p:a xmlns:p=\"urn:x\"><p:b/></p:a>")
+  out = collections::append(out, "<a xmlns:p=\"urn:x\"><p:b p:c=\"1\"/></a>")
+  out = collections::append(out, "<a xmlns=\"urn:x\"/>")
+  out = collections::append(out, "<a xml:lang=\"en\"/>")
+  out = collections::append(out, "<a>   </a>")
+  out = collections::append(out, "<a>x\ty</a>")
+  out = collections::append(out, "<a id=\"x&#10;y\"/>")
+  out = collections::append(out, "<a id=\"\"/>")
+  out = collections::append(out, "<élément/>")
+  out = collections::append(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed>\n  <entry id=\"1\">first</entry>\n</feed>\n")
+  RETURN out
+END FUNC
+
+PRIVATE FUNC noAttrs() AS List OF Attribute
+  RETURN []
+END FUNC
+
+PRIVATE FUNC noKids() AS List OF Node
+  RETURN []
+END FUNC
+
+' The root element of `xml`, widened to a `Node`.
+'
+' `root` returns the `Element` RECORD, and `stringify` is declared over
+' `Document` and `Node` -- so `stringify(root(doc))` matches no overload. The
+' typed binding below is how a caller widens a variant record to its union.
+PRIVATE FUNC rootNode(xml AS String) AS Node
+  LET n AS Node = root(parse(xml))
+  RETURN n
+END FUNC
+
+TESTING
+  TGROUP "compact output"
+    TCASE "a document carries the declaration; a node does not"
+      expectString(stringify(parse("<a/>")), "<?xml version=\"1.0\" encoding=\"UTF-8\"?><a/>")
+      expectString(stringify(element("a", noAttrs(), noKids())), "<a/>")
+    END TCASE
+
+    TCASE "an empty element is written in the short form"
+      expectString(stringify(element("a", noAttrs(), noKids())), "<a/>")
+      expectString(stringify(rootNode("<a></a>")), "<a/>")
+    END TCASE
+
+    TCASE "attributes are written in document order, always double-quoted"
+      expectString(stringify(rootNode("<a id=\"1\" class='x'/>")), "<a id=\"1\" class=\"x\"/>")
+    END TCASE
+
+    TCASE "children are written in order with no whitespace added"
+      expectString(stringify(rootNode("<a><b/><c/></a>")), "<a><b/><c/></a>")
+      expectString(stringify(rootNode("<p>Hello <b>x</b> there</p>")), "<p>Hello <b>x</b> there</p>")
+    END TCASE
+
+    TCASE "a comment and a processing instruction are written back"
+      expectString(stringify(rootNode("<a><!-- note --></a>")), "<a><!-- note --></a>")
+      expectString(stringify(rootNode("<a><?target data?></a>")), "<a><?target data?></a>")
+      ' A PI with no data gets no separating space.
+      expectString(stringify(pi("target", "")), "<?target?>")
+    END TCASE
+  END TGROUP
+
+  TGROUP "escaping"
+    TCASE "text escapes &, < and >"
+      expectString(stringify(text("a&b")), "a&amp;b")
+      expectString(stringify(text("a<b")), "a&lt;b")
+      ' `>` is always escaped, so `]]>` can never be emitted.
+      expectString(stringify(text("a>b")), "a&gt;b")
+      expectString(stringify(text("a]]>b")), "a]]&gt;b")
+    END TCASE
+
+    TCASE "text writes a carriage return as a character reference"
+      ' A literal #xD would come back as #xA, changing the text.
+      expectString(stringify(text("a\rb")), "a&#13;b")
+      ' A line feed and a tab are safe literally in text.
+      expectString(stringify(text("a\nb")), "a\nb")
+      expectString(stringify(text("a\tb")), "a\tb")
+    END TCASE
+
+    TCASE "an attribute value escapes &, < and the double quote"
+      expectString(stringify(element("a", [Attribute["k", "x&y"]], noKids())), "<a k=\"x&amp;y\"/>")
+      expectString(stringify(element("a", [Attribute["k", "x<y"]], noKids())), "<a k=\"x&lt;y\"/>")
+      expectString(stringify(element("a", [Attribute["k", "x\"y"]], noKids())), "<a k=\"x&quot;y\"/>")
+      ' An apostrophe needs no escape, because values are double-quoted.
+      expectString(stringify(element("a", [Attribute["k", "x'y"]], noKids())), "<a k=\"x'y\"/>")
+      ' `>` is not special in an attribute value.
+      expectString(stringify(element("a", [Attribute["k", "x>y"]], noKids())), "<a k=\"x>y\"/>")
+    END TCASE
+
+    TCASE "an attribute value writes tab, line feed and CR as character references"
+      ' Written literally, each would normalize to a space when read back.
+      expectString(stringify(element("a", [Attribute["k", "x\ty"]], noKids())), "<a k=\"x&#9;y\"/>")
+      expectString(stringify(element("a", [Attribute["k", "x\ny"]], noKids())), "<a k=\"x&#10;y\"/>")
+      expectString(stringify(element("a", [Attribute["k", "x\ry"]], noKids())), "<a k=\"x&#13;y\"/>")
+    END TCASE
+
+    TCASE "CDATA is written as ordinary escaped text"
+      ' The tree does not record that text arrived as CDATA, and it is not
+      ' content, so the writer need not reproduce the section.
+      expectString(stringify(rootNode("<a><![CDATA[x<y&z]]></a>")), "<a>x&lt;y&amp;z</a>")
+    END TCASE
+  END TGROUP
+
+  TGROUP "refusals"
+    TCASE "a name that is not an XML name is refused"
+      expectTrap(stringify(element("", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("1a", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("a b", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("a<b", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("a", [Attribute["1k", "v"]], noKids())), 77050002)
+    END TCASE
+
+    TCASE "a name with more than one colon is refused"
+      expectTrap(stringify(element("a:b:c", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("a", [Attribute["p:q:r", "v"]], noKids())), 77050002)
+    END TCASE
+
+    TCASE "duplicate attribute names are refused"
+      expectTrap(stringify(element("a", [Attribute["k", "1"], Attribute["k", "2"]], noKids())), 77050002)
+    END TCASE
+
+    TCASE "a character XML 1.0 forbids is refused wherever it appears"
+      LET nul AS String = toString(toScalar(0))
+      expectTrap(stringify(text(nul)), 77050002)
+      expectTrap(stringify(element("a", [Attribute["k", nul]], noKids())), 77050002)
+      expectTrap(stringify(comment(nul)), 77050002)
+    END TCASE
+
+    TCASE "a comment holding -- or ending in - is refused"
+      expectTrap(stringify(comment("a--b")), 77050002)
+      expectTrap(stringify(comment("a-")), 77050002)
+      ' A single dash inside is fine.
+      expectString(stringify(comment("a-b")), "<!--a-b-->")
+      expectString(stringify(comment("")), "<!---->")
+    END TCASE
+
+    TCASE "a reserved PI target, or data holding ?>, is refused"
+      expectTrap(stringify(pi("xml", "x")), 77050002)
+      expectTrap(stringify(pi("XML", "x")), 77050002)
+      expectTrap(stringify(pi("xMl", "x")), 77050002)
+      expectTrap(stringify(pi("p", "a?>b")), 77050002)
+    END TCASE
+
+    TCASE "a document without exactly one root element is refused"
+      expectTrap(stringify(document([])), 77050002)
+      expectTrap(stringify(document([comment("only")])), 77050002)
+      expectTrap(stringify(document([element("a", noAttrs(), noKids()), element("b", noAttrs(), noKids())])), 77050002)
+    END TCASE
+
+    TCASE "a document holding top-level text is refused"
+      expectTrap(stringify(document([text("x"), element("a", noAttrs(), noKids())])), 77050002)
+    END TCASE
+
+    TCASE "a tree deeper than the depth limit is refused before it is written"
+      MUT deep AS Node = element("d", noAttrs(), noKids())
+      FOR i = 1 TO DEPTH_LIMIT + 2
+        deep = element("d", noAttrs(), [deep])
+      NEXT
+      expectTrap(stringify(deep), 77050024)
+    END TCASE
+  END TGROUP
+
+  TGROUP "content is preserved"
+    TCASE "every reader fixture keeps its content through a write and a re-read"
+      FOR EACH fixture IN fixtures()
+        LET original AS Document = parse(fixture)
+        LET again AS Document = parse(stringify(original))
+        expectString(contentKey(again), contentKey(original))
+      NEXT
+    END TCASE
+
+    TCASE "the written form is itself readable by this reader"
+      FOR EACH fixture IN fixtures()
+        expectNTrap(parse(stringify(parse(fixture))))
+      NEXT
+    END TCASE
+
+    TCASE "writing twice is stable"
+      FOR EACH fixture IN fixtures()
+        LET once AS String = stringify(parse(fixture))
+        LET twice AS String = stringify(parse(once))
+        expectString(twice, once)
+      NEXT
+    END TCASE
+  END TGROUP
+
+  TGROUP "the content projection itself"
+    TCASE "comments and processing instructions are not content"
+      expectString(contentKey(parse("<a><!--c--></a>")), contentKey(parse("<a/>")))
+      expectString(contentKey(parse("<a><?p d?></a>")), contentKey(parse("<a/>")))
+    END TCASE
+
+    TCASE "text split by a comment merges"
+      expectString(contentKey(parse("<a>x<!--c-->y</a>")), contentKey(parse("<a>xy</a>")))
+    END TCASE
+
+    TCASE "layout whitespace is not content, but sole whitespace is"
+      ' Whitespace beside an element child is layout.
+      expectString(contentKey(parse("<a> <b/> </a>")), contentKey(parse("<a><b/></a>")))
+      ' Whitespace that is the element's only content is data, and is kept.
+      expectEqual(contentKey(parse("<a>   </a>")) = contentKey(parse("<a/>")), FALSE)
+    END TCASE
+
+    TCASE "attribute order is not content"
+      expectString(contentKey(parse("<a x=\"1\" y=\"2\"/>")), contentKey(parse("<a y=\"2\" x=\"1\"/>")))
+    END TCASE
+
+    TCASE "attribute values and element names are content"
+      expectEqual(contentKey(parse("<a x=\"1\"/>")) = contentKey(parse("<a x=\"2\"/>")), FALSE)
+      expectEqual(contentKey(parse("<a/>")) = contentKey(parse("<b/>")), FALSE)
+    END TCASE
+  END TGROUP
+END TESTING
