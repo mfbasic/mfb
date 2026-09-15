@@ -2817,8 +2817,15 @@ impl<'a> Walker<'a> {
                 if expected_name == actual_name {
                     return true;
                 }
-                let expected_bare = expected_name.rsplit('.').next().unwrap_or(&expected_name);
-                let actual_bare = actual_name.rsplit('.').next().unwrap_or(&actual_name);
+                // bug-632: a BUILT-IN qualifier only, as in
+                // `ir::verify::compat::compatible` — a user package's type is
+                // package-qualified end to end, and equating `ov.A` with a local
+                // `A` by the last segment is the confusion that qualification
+                // prevents.
+                let expected_bare =
+                    crate::codegen::builtins::builtin_qualified_bare_leaf(&expected_name);
+                let actual_bare =
+                    crate::codegen::builtins::builtin_qualified_bare_leaf(&actual_name);
                 let expected_info = self
                     .types
                     .get(&expected)

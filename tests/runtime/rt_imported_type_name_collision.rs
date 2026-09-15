@@ -266,6 +266,52 @@ fn imported_union_variants_and_enum_members_keep_their_package() {
     assert_eq!(lines, ["mine", "r=2", "round"]);
 }
 
+/// Distinct identities must also be distinct TYPES to the checker: a value of
+/// `pa`'s `A` is not a `pb` `A`, even when the two records have the same fields.
+/// Guard: with both names qualified this is refused by the shape pass's
+/// declaration-identity check (bug-41), and it must stay refused.
+#[test]
+fn one_packages_type_is_refused_where_another_packages_same_named_type_is_expected() {
+    let root = unique_root("cross_package_value");
+    let pa = "EXPORT TYPE A\n  x AS Integer\nEND TYPE\n\
+              EXPORT FUNC make() AS A\n  RETURN A[1]\nEND FUNC\n";
+    let pb = "EXPORT TYPE A\n  x AS Integer\nEND TYPE\n\
+              EXPORT FUNC use(a AS A) AS String\n  RETURN \"pb:\" & toString(a.x)\nEND FUNC\n";
+    for (name, src) in [("pa", pa), ("pb", pb)] {
+        write_project(&root, name, "package", &[], false, src);
+        build(&root, name);
+    }
+    let app = "IMPORT pa\nIMPORT pb\nIMPORT io\n\
+               FUNC main() AS Integer\n  io::print(pb::use(pa::make()))\n  RETURN 0\nEND FUNC\n";
+    write_project(&root, "app", "executable", &["pa", "pb"], true, app);
+    install(&root, "pa", "app");
+    install(&root, "pb", "app");
+    let out = build_fails(&root, "app");
+    assert!(
+        out.contains("TYPE_CALL_ARGUMENT_MISMATCH"),
+        "pa::A passed where pb::A is expected must be a call argument mismatch:\n{out}"
+    );
+}
+
+/// The same between a consumer's own type and a package's: an imported `ov::A`
+/// value does not bind to a local `A`, however alike their fields are.
+#[test]
+fn an_imported_value_is_refused_by_a_local_type_of_the_same_name() {
+    let root = unique_root("local_binding_value");
+    write_project(&root, "ov", "package", &[], false, OV_SRC);
+    build(&root, "ov");
+    let app = "IMPORT ov\nIMPORT io\n\
+               TYPE A\n  x AS Integer\nEND TYPE\n\
+               FUNC main() AS Integer\n  LET mine AS A = ov::make()\n  io::print(toString(mine.x))\n  RETURN 0\nEND FUNC\n";
+    write_project(&root, "app", "executable", &["ov"], true, app);
+    install(&root, "ov", "app");
+    let out = build_fails(&root, "app");
+    assert!(
+        out.contains("TYPE_BINDING_MISMATCH"),
+        "an ov::A value bound to a local A must be a binding mismatch:\n{out}"
+    );
+}
+
 /// Guard: a diamond — `left` and `right` both depend on `base`, which exports a
 /// type — must still merge `base`'s type into ONE copy that both use.
 #[test]

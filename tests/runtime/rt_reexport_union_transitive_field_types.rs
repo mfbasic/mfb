@@ -133,10 +133,11 @@ EXPORT FUNC makeNode() AS Node
 END FUNC
 ";
 
+// bug-632/spec §13: a package names another package's type with its prefix.
 const MID_SRC: &str = "\
 IMPORT leaf435
 
-EXPORT FUNC describe(n AS Node) AS String
+EXPORT FUNC describe(n AS leaf435::Node) AS String
   RETURN \"node\"
 END FUNC
 ";

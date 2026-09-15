@@ -195,12 +195,14 @@ fn a_qualified_imported_union_matches_exhaustively() {
     );
 }
 
-/// Defect 1, bare spelling. Both spellings failed identically before the fix, so
-/// the bare form is not a duplicate of the test above — it proves the membership
-/// seed, not the name normalization, is what carries this.
+/// bug-632: the bare spelling of an imported union — and of its variants in a
+/// `CASE` — is refused (spec §13: "A bare imported type is refused with
+/// `SYMBOL_UNKNOWN_TYPE`"). This case asserted the opposite while imported types
+/// were installed bare, which is what let an importer's own `Item` and the
+/// package's collide.
 #[test]
-fn a_bare_imported_union_matches_exhaustively() {
-    let output = run_importer(
+fn a_bare_imported_union_is_refused() {
+    let output = build_error(
         "bare_union_match",
         "IMPORT shapes\n\
          IMPORT io\n\
@@ -214,10 +216,9 @@ fn a_bare_imported_union_matches_exhaustively() {
         \x20 RETURN 0\n\
          END FUNC\n",
     );
-    assert_eq!(
-        output.trim(),
-        "7",
-        "the bare spelling reaches the same membership:\n{output}"
+    assert!(
+        output.contains("SYMBOL_UNKNOWN_TYPE"),
+        "a bare imported union must be refused:\n{output}"
     );
 }
 
@@ -247,9 +248,10 @@ fn a_qualified_imported_enum_matches_exhaustively() {
     );
 }
 
-/// Defect 2 on its own: a qualified enum member READ, with the value's identity
-/// checked against a BARE-spelled match so the two spellings are proved to name
-/// the same member and not two lookups that merely both succeed.
+/// Defect 2 on its own: a qualified enum member READ, matched against the same
+/// qualified member spelling — the arms prove the read denotes the member it
+/// names, not merely that some lookup succeeded. (bug-632: the `CASE` arms were
+/// bare here; spec §13 requires the prefix on an imported name.)
 #[test]
 fn a_qualified_imported_enum_member_is_a_value() {
     let output = run_importer(
@@ -260,8 +262,8 @@ fn a_qualified_imported_enum_member_is_a_value() {
          FUNC main() AS Integer\n\
         \x20 LET c AS shapes::Colour = shapes::Colour.Red\n\
         \x20 MATCH c\n\
-        \x20   CASE Colour.Red   : io::print(\"red\")\n\
-        \x20   CASE Colour.Green : io::print(\"green\")\n\
+        \x20   CASE shapes::Colour.Red   : io::print(\"red\")\n\
+        \x20   CASE shapes::Colour.Green : io::print(\"green\")\n\
         \x20 END MATCH\n\
         \x20 RETURN 0\n\
          END FUNC\n",
@@ -273,11 +275,12 @@ fn a_qualified_imported_enum_member_is_a_value() {
     );
 }
 
-/// The bare spelling must keep working — defect 2's fix normalizes the qualified
-/// form onto it, so a regression here would mean the normalization ran backwards.
+/// bug-632: the ENUM half of the bare-spelling rule — a bare imported enum is
+/// refused, so an importer's own `Colour` can never be confused with the
+/// package's (spec §13).
 #[test]
-fn a_bare_imported_enum_member_is_still_a_value() {
-    let output = run_importer(
+fn a_bare_imported_enum_is_refused() {
+    let output = build_error(
         "bare_enum_member_value",
         "IMPORT shapes\n\
          IMPORT io\n\
@@ -291,10 +294,9 @@ fn a_bare_imported_enum_member_is_still_a_value() {
         \x20 RETURN 0\n\
          END FUNC\n",
     );
-    assert_eq!(
-        output.trim(),
-        "green",
-        "the bare spelling still resolves:\n{output}"
+    assert!(
+        output.contains("SYMBOL_UNKNOWN_TYPE"),
+        "a bare imported enum must be refused:\n{output}"
     );
 }
 

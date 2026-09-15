@@ -108,10 +108,12 @@ EXPORT FUNC makeRule() AS Node\n  MUT m AS Map OF String TO String = Map OF Stri
 // The consumer names the imported types and iterates their Map fields directly:
 // `collections::keys` over a standalone imported record's field, and over an
 // imported union variant's field reached through a MATCH binding.
+// bug-632/spec §13: every imported type takes its import prefix (`dom0::Style`),
+// including a union variant in a `CASE`.
 const APP_SRC: &str = "IMPORT io\nIMPORT collections\nIMPORT strings\nIMPORT dom0\n\
-FUNC styleKeys(s AS Style) AS String\n  MUT out AS List OF String = []\n  FOR EACH k IN collections::keys(s.props)\n    out = collections::append(out, k & \"=\" & collections::getOr(s.props, k, \"\"))\n  NEXT\n  RETURN strings::join(out, \",\")\nEND FUNC\n\
-FUNC ruleKeys(n AS Node) AS String\n  MATCH n\n    CASE Rule(r)\n      MUT out AS List OF String = []\n      FOR EACH k IN collections::keys(r.props)\n        out = collections::append(out, k & \"=\" & collections::getOr(r.props, k, \"\"))\n      NEXT\n      RETURN r.selector & \":\" & strings::join(out, \",\")\n    CASE ELSE\n      RETURN \"?\"\n  END MATCH\nEND FUNC\n\
-FUNC main AS Integer\n  LET s AS Style = dom0::makeStyle()\n  io::print(\"style=\" & styleKeys(s))\n  LET n AS Node = dom0::makeRule()\n  io::print(\"rule=\" & ruleKeys(n))\n  RETURN 0\nEND FUNC\n";
+FUNC styleKeys(s AS dom0::Style) AS String\n  MUT out AS List OF String = []\n  FOR EACH k IN collections::keys(s.props)\n    out = collections::append(out, k & \"=\" & collections::getOr(s.props, k, \"\"))\n  NEXT\n  RETURN strings::join(out, \",\")\nEND FUNC\n\
+FUNC ruleKeys(n AS dom0::Node) AS String\n  MATCH n\n    CASE dom0::Rule(r)\n      MUT out AS List OF String = []\n      FOR EACH k IN collections::keys(r.props)\n        out = collections::append(out, k & \"=\" & collections::getOr(r.props, k, \"\"))\n      NEXT\n      RETURN r.selector & \":\" & strings::join(out, \",\")\n    CASE ELSE\n      RETURN \"?\"\n  END MATCH\nEND FUNC\n\
+FUNC main AS Integer\n  LET s AS dom0::Style = dom0::makeStyle()\n  io::print(\"style=\" & styleKeys(s))\n  LET n AS dom0::Node = dom0::makeRule()\n  io::print(\"rule=\" & ruleKeys(n))\n  RETURN 0\nEND FUNC\n";
 
 #[test]
 fn consumer_iterates_an_imported_records_map_field() {

@@ -547,16 +547,18 @@ impl TypeEnv {
         }
         let expected_name = expected.name();
         let actual_name = actual.name();
-        // Bare-name equality (an imported type is registered under its bare
-        // name; a qualified `pkg.Type` reference resolves to the same type).
-        let expected_bare = expected_name
-            .rsplit('.')
-            .next()
-            .unwrap_or(expected_name.as_ref());
-        let actual_bare = actual_name
-            .rsplit('.')
-            .next()
-            .unwrap_or(actual_name.as_ref());
+        // Bare-name equality, for a BUILT-IN qualifier only: a `.mfp` may record
+        // a built-in type by its bare base name (`File` for `fs.File`) even
+        // though the built-in's identity is package-qualified (plan-97).
+        //
+        // bug-632: a USER package's type is package-qualified end to end now, so
+        // its qualifier is NOT stripped here. Stripping it equated a consumer's
+        // own `A` with an imported `ov.A` (and `pa.A` with `pb.A`), which is the
+        // type confusion the qualified identity exists to prevent —
+        // `LET mine AS A = ov::make()` type-checked against a local `A` of an
+        // entirely different shape.
+        let expected_bare = crate::codegen::builtins::builtin_qualified_bare_leaf(&expected_name);
+        let actual_bare = crate::codegen::builtins::builtin_qualified_bare_leaf(&actual_name);
         // ...except between two DIFFERENT BUILT-IN RESOURCE types. This fallback
         // was written when bare names were globally unique, so `File` and
         // `fs.File` could only ever mean the same type; plan-110 broke that

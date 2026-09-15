@@ -1293,7 +1293,26 @@ mod tests {
         assert!(score
             .iter()
             .all(|o| o.qualified_name.starts_with("package_simple.score")));
-        // The binding/package qualifier prefix is captured.
-        assert!(qualifiers.iter().any(|q| q == "package_simple."));
+        // bug-632: a USER package's qualifier is NOT captured — its types are
+        // package-qualified on both sides of the overload match, so stripping the
+        // qualifier would merge two packages' same-named types. Only a built-in
+        // import contributes a qualifier.
+        assert!(
+            !qualifiers.iter().any(|q| q == "package_simple."),
+            "a user package's qualifier must not be stripped: {qualifiers:?}"
+        );
+        // Each candidate's parameter types carry the package's identity, so they
+        // compare equal to an argument the parser canonicalized the same way.
+        assert!(
+            score.iter().all(|overload| overload
+                .param_types
+                .iter()
+                .all(|type_| !matches!(type_, ParameterType::Named(sym) if sym.resolve() == "Vec2"))),
+            "an owned nominal parameter is package-qualified: {:?}",
+            score
+                .iter()
+                .map(|o| o.param_types.iter().map(|t| t.name()).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
     }
 }

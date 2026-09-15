@@ -100,6 +100,24 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     BUILTIN_IMPORTS.contains(&name)
 }
 
+/// `name` with a BUILT-IN package qualifier stripped (`fs.File` → `File`), and
+/// otherwise unchanged.
+///
+/// The two type-compatibility checks (`ir::verify::compat::compatible`,
+/// `ir::shape`'s copy) fall back to bare-name equality because a `.mfp` may
+/// record a built-in type by its bare base name even though the built-in's own
+/// identity is package-qualified (plan-97/bug-441). bug-632 makes a USER
+/// package's type package-qualified end to end, so for those the fallback must
+/// not fire: a consumer's own `A`, `pa::A` and `pb::A` are three distinct types,
+/// and equating them by the last `.` segment is exactly the confusion this
+/// qualification exists to prevent.
+pub(crate) fn builtin_qualified_bare_leaf(name: &str) -> &str {
+    match name.rsplit_once('.') {
+        Some((qualifier, leaf)) if is_builtin_import(qualifier) => leaf,
+        _ => name,
+    }
+}
+
 /// The internal helper a built-in package provides as an **override** of an
 /// overridable general built-in (`toString`, `len`, …) over one of its value
 /// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument

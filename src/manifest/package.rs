@@ -495,6 +495,12 @@ pub(crate) fn package_owned_type_names(
     let mut owned = std::collections::HashSet::new();
     if let Ok(exports) = decode.type_exports() {
         for export in exports {
+            // A FOREIGN type the package merely re-exports (its owner is another
+            // package) is not one of its own names: qualifying it would mint
+            // `pkg.other.Type`, a type nothing declares.
+            if export.foreign_owner.is_some() {
+                continue;
+            }
             if matches!(
                 export.kind,
                 binary_repr::BinaryReprExportKind::Type
@@ -507,8 +513,21 @@ pub(crate) fn package_owned_type_names(
         }
     }
     if let Ok(resources) = decode.resources() {
-        owned.extend(resources.into_iter().map(|resource| resource.type_name));
+        for resource in resources {
+            // A package's RESOURCE table also lists the BUILT-IN resources it
+            // references (`tls.Listener`, or a bare `File` for `fs.File` —
+            // plan-97/bug-441), which the package does not own either.
+            if crate::codegen::resource::is_builtin_backed_resource(
+                &crate::types::ParameterType::declared(&resource.type_name),
+            ) {
+                continue;
+            }
+            owned.insert(resource.type_name);
+        }
     }
+    // An already-qualified spelling names another package's type (a built-in
+    // value type, `crypto.Certificate`), never one of this package's own.
+    owned.retain(|name| !name.contains('.'));
     owned
 }
 
@@ -1644,7 +1663,7 @@ mod tests {
             ],
             return_type: crate::types::ParameterType::Boolean,
         };
-        let signature = package_export_signature("pkg", &export);
+        let signature = package_export_signature("pkg", &Default::default(), &export);
         // Params and return are decoded structurally (parse-once), and render
         // back to the exact spelling the pre-plan-105 hand formatter produced.
         assert_eq!(
@@ -1669,7 +1688,7 @@ mod tests {
             params: Vec::new(),
             ..export
         };
-        let isolated = package_export_signature("pkg", &isolated);
+        let isolated = package_export_signature("pkg", &Default::default(), &isolated);
         assert!(isolated.isolated);
         assert_eq!(
             isolated.signature_type().name(),
@@ -1745,7 +1764,7 @@ mod tests {
                 param_types.join(", "),
             );
             assert_eq!(
-                package_export_signature("pkg", &export)
+                package_export_signature("pkg", &Default::default(), &export)
                     .signature_type()
                     .name(),
                 expected,
@@ -2218,17 +2237,31 @@ mod tests {
         }
     }
 
+    /// The package's own names, as `package_owned_type_names` would report them.
+    fn owned(names: &[&str]) -> std::collections::HashSet<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    /// bug-632: an importer sees the record under its package-qualified identity
+    /// (spec §13), and a field typed with another of the package's own types is
+    /// qualified too; a scalar field is untouched.
     #[test]
     fn imported_type_def_maps_a_record_export() {
         let mut export = type_export("Point", binary_repr::BinaryReprExportKind::Type);
-        export.fields = vec![type_field("x", "Integer"), type_field("y", "Integer")];
-        let def = imported_type_def(export).expect("record maps to a def");
-        assert_eq!(def.name, "Point");
+        export.fields = vec![
+            type_field("x", "Integer"),
+            type_field("y", "Integer"),
+            type_field("next", "List OF Point"),
+        ];
+        let def = imported_type_def(export, "pkg", &owned(&["Point"]))
+            .expect("record maps to a def");
+        assert_eq!(def.name, "pkg.Point");
         assert!(matches!(def.kind, ir::ImportedTypeKind::Record));
-        assert_eq!(def.fields.len(), 2);
+        assert_eq!(def.fields.len(), 3);
         assert_eq!(def.fields[0].name, "x");
         assert_eq!(def.fields[0].type_.name(), "Integer");
         assert_eq!(def.fields[1].name, "y");
+        assert_eq!(def.fields[2].type_.name(), "List OF pkg.Point");
         assert!(def.variants.is_empty());
         assert!(def.members.is_empty());
     }
@@ -2246,10 +2279,12 @@ mod tests {
                 fields: Vec::new(),
             },
         ];
-        let def = imported_type_def(export).expect("union maps to a def");
+        let def = imported_type_def(export, "pkg", &owned(&["Shape", "Circle", "Empty"]))
+            .expect("union maps to a def");
         assert!(matches!(def.kind, ir::ImportedTypeKind::Union));
+        assert_eq!(def.name, "pkg.Shape");
         assert_eq!(def.variants.len(), 2);
-        assert_eq!(def.variants[0].name, "Circle");
+        assert_eq!(def.variants[0].name, "pkg.Circle");
         assert_eq!(def.variants[0].fields.len(), 1);
         assert_eq!(def.variants[0].fields[0].name, "r");
         assert_eq!(def.variants[0].fields[0].type_.name(), "Float");
@@ -2260,7 +2295,7 @@ mod tests {
     fn imported_type_def_maps_an_enum_export() {
         let mut export = type_export("Color", binary_repr::BinaryReprExportKind::Enum);
         export.members = vec!["Red".to_string(), "Green".to_string()];
-        let def = imported_type_def(export).expect("enum maps to a def");
+        let def = imported_type_def(export, "pkg", &owned(&["Color"])).expect("enum maps to a def");
         assert!(matches!(def.kind, ir::ImportedTypeKind::Enum));
         assert_eq!(def.members, vec!["Red".to_string(), "Green".to_string()]);
         assert!(def.fields.is_empty());
@@ -2275,7 +2310,7 @@ mod tests {
             binary_repr::BinaryReprExportKind::Func,
             binary_repr::BinaryReprExportKind::Sub,
         ] {
-            assert!(imported_type_def(type_export("callable", kind)).is_none());
+            assert!(imported_type_def(type_export("callable", kind), "pkg", &owned(&[])).is_none());
         }
     }
 
@@ -2351,14 +2386,12 @@ mod tests {
             !closers.is_empty(),
             "native package exports a closable resource"
         );
-        // Each resource is registered under both its bare and `<pkg>.<Type>` name.
+        // bug-632: registered ONLY under `<pkg>.<Type>`. Spec §13 refuses the bare
+        // spelling of an imported type, and the bare row this used to assert is
+        // what let `RES h AS Db` resolve to an imported resource.
         assert!(
-            closers.iter().any(|r| r.type_name.contains('.')),
-            "package-qualified spelling registered: {closers:?}"
-        );
-        assert!(
-            closers.iter().any(|r| !r.type_name.contains('.')),
-            "bare spelling registered: {closers:?}"
+            closers.iter().all(|r| r.type_name.contains('.')),
+            "every resource is registered package-qualified: {closers:?}"
         );
         // A native resource's bare close alias is resolved to a dotted
         // `<pkg>.<alias>` op, and no close op is empty.
