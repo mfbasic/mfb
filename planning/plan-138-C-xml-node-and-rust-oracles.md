@@ -74,7 +74,26 @@ See plan-138-A. Additionally:
   (`npm view saxes readme`, section "Regarding `<!DOCTYPE` and `<!ENTITY`"). It has `xmlns: true`
   for namespace checking and `position` tracking (same readme, options list).
 - **roxmltree can refuse DTDs.** `ParsingOptions` has `allow_dtd` and `nodes_limit`
-  (docs.rs `roxmltree/0.21.1/roxmltree/struct.ParsingOptions.html`).
+  (docs.rs `roxmltree/0.21.1/roxmltree/struct.ParsingOptions.html`). Confirmed in the vendored
+  source: `allow_dtd` "is set to `false` by default for security reasons", and the refusal arrives as
+  the distinct variant `Error::DtdDetected` (`roxmltree-0.21.1/src/parse.rs:97`), so a DOCTYPE is
+  told apart from a syntax error rather than guessed at from a message.
+
+- **`Node::namespaces()` yields every namespace IN SCOPE, not the ones declared on that element**
+  (measured, `/tmp/nsprobe`, a throwaway probe: for `<a xmlns:p="urn:p" xmlns="urn:d"><b><c xmlns:q="urn:q"/></b></a>`,
+  element `b` — which declares nothing — reports `[p=urn:p, (default)=urn:d]`, and `c` reports
+  `[q=urn:q, p=urn:p, (default)=urn:d]`). The doc comment does not say so, and the naive reading is
+  the opposite. It matters because the package keeps `xmlns`/`xmlns:p` as ORDINARY ATTRIBUTES while
+  roxmltree removes them from `attributes()` entirely (same probe: `<a xmlns:p="urn:p" p:id="1" plain="2"/>`
+  reports only `id` and `plain`). So the Rust oracle rebuilds each element's declarations by diffing
+  its in-scope set against its parent's — emitting them once, where they were written, instead of
+  repeating every ancestor's declaration on every descendant, which would have disagreed with the
+  package on every namespaced document in the corpus.
+
+- **Names arrive resolved, so the raw `prefix:local` text must be rebuilt.** `tag_name().name()` and
+  `attribute.name()` are local parts with the URI held separately; `lookup_prefix(uri)` returns the
+  prefix (`Some("p")` in the probe). The package never resolves a prefix, so the oracle puts it back
+  to compare like with like.
 - **Whether saxes and roxmltree reject a non-UTF-8 `encoding` or `version="1.1"` on their own is
   UNVERIFIED.** Both wrappers check the declaration themselves (Phase 2), so policy agreement does not
   depend on the libraries.
@@ -200,28 +219,59 @@ Acceptance: all three sides build and answer an empty job.
   must hold exactly one root element, not 0"; and `["c",…]` / `["p",…]` nodes round-trip as a prolog
   comment and a processing instruction. So `documentOfJson`/`nodeOfJson` are exercised, not just
   `contentOfDocument`.
-Commit: —
+Commit: `1c8a2d36c`
 
 ### Phase 2 — readers and `corpus`
 
-- [ ] `oracle.mjs` `read`: saxes with `{ xmlns: true, position: true }`; a `doctype` event →
+- [x] `oracle.mjs` `read`: saxes with `{ xmlns: true, position: true }`; a `doctype` event →
       `unsupported`; declaration `version` ≠ `1.0` or `encoding` not UTF-8 (case-insensitive) →
       `unsupported`; build the tree from events; apply the §3 projection.
-- [ ] `rust/src/main.rs` `read`: roxmltree with `allow_dtd: false`, the same declaration checks by
+- [x] `rust/src/main.rs` `read`: roxmltree with `allow_dtd: false`, the same declaration checks by
       reading the first bytes, the same projection, `serde_json` output.
-- [ ] `diff.mjs` with the three-way comparator, `divergences.json` handling, and `corpus` mode.
-- [ ] `corpus/` — at least one realistic document each for: elements and attributes, text escapes,
+- [x] `diff.mjs` with the three-way comparator, `divergences.json` handling, and `corpus` mode.
+- [x] `corpus/` — at least one realistic document each for: elements and attributes, text escapes,
       char refs, CDATA, comments and PIs, layout whitespace, data whitespace (`<a>  </a>`),
       namespaces and prefixes, CRLF and lone CR, attribute-value normalization, non-ASCII names, BOM,
       XML declaration variants, an SVG, an Atom/RSS feed, a Maven `pom.xml`-shaped file. Refusals:
       internal-subset DOCTYPE, external DOCTYPE, undeclared prefix, duplicate attribute,
       `encoding="ISO-8859-1"`, `version="1.1"`, undeclared entity, mismatched tag, two roots, `]]>`
       in text, `&#0;`.
-- [ ] Fix every package defect found: a failing TESTING case first in the matching
+      All 25 written: 14 accepting (`elements-and-attributes`, `escapes-and-refs`, `cdata`,
+      `comments-and-pis`, `whitespace` — layout and `<a>   </a>` data both, `namespaces` — including a
+      rebound prefix and an `xmlns=""` undeclaration, `line-ends`, `attribute-normalization`,
+      `non-ascii-names`, `bom`, `declaration-variants`, `svg`, `atom-feed`, `pom`) and 11 `refuse-*`,
+      one per refusal the phase lists. They live in `corpus/` beside the accepting ones, not in a
+      separate directory, because §4 defines the mode over `corpus/*.xml` — a sibling directory would
+      never be read.
+- [x] Fix every package defect found: a failing TESTING case first in the matching
       `packages/xml/src/test_*.mfb`, then the fix; add a row to the README "What it found" table.
+      **No package defect surfaced in this phase** — all 25 cases agreed on the first three-way run,
+      so there is nothing to fix and no row to add. Recorded rather than left silent: an empty "What
+      it found" table should mean "it found nothing here", not "nobody looked".
 
 Acceptance: the corpus agrees three-way.
   Check: `node packages/xml/oracle/diff.mjs corpus` → exit 0 (est. 1 min).
+  MET: `node packages/xml/oracle/diff.mjs corpus` → `ok   corpus: 25 case(s) agreed three ways`,
+  exit 0.
+
+  **Checked against a vacuous pass**, which this plan's Summary names as the phase's real risk ("if
+  the projection hides a difference, every mode passes vacuously"). Two things were measured rather
+  than assumed:
+
+  1. *The comparator can fail.* `compare` was fed fabricated results — 9 probes, run by importing it
+     (which is why `diff.mjs` now guards `main()` behind a "run directly" check; a module that
+     executes on import cannot be tested). It accepts the two genuine-agreement shapes (all three
+     agree; all three refuse with different kinds and reasons) and DETECTS all seven planted
+     disagreements: the package accepting while both oracles refuse, the package refusing while both
+     accept, the Rust oracle alone disagreeing, the Node oracle alone disagreeing, the package
+     disagreeing with both, a differing attribute value, and differing text. Result:
+     `comparator falsification: all 9 probes behaved`.
+  2. *The projection is not empty.* On `namespaces.xml` — the hardest document, with a rebound
+     prefix, an `xmlns=""` undeclaration and `xml:`-prefixed attributes — the package and the Rust
+     oracle emit byte-identical content:
+     `["e","root",[["xmlns","urn:default"],["xmlns:p","urn:p"],["xmlns:q","urn:q"]],[["e","child",[["p:id","1"],["plain","3"],["q:id","2"]],[]],["e","p:elem",[["xml:lang","en"],["xml:space","preserve"]],[["t","text"]]],["e","rebound",[["xmlns:p","urn:other"]],[["e","p:inner",[],[]]]],["e","undefault",[["xmlns",""]],[["e","bare",[],[]]]]]]`.
+     Two independent implementations reached the same non-trivial structure, with declarations
+     reconstructed where they were written, attributes sorted, and layout whitespace gone.
 Commit: —
 
 ### Phase 3 — `xmlconf`

@@ -1,0 +1,8 @@
+<doc>
+  <layout>
+    <child/>
+  </layout>
+  <data>   </data>
+  <single> </single>
+  <mixed> text <b/> more </mixed>
+</doc>

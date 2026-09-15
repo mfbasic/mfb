@@ -1,0 +1,4 @@
+{
+  "comment": "Declared divergences: a case listed here is allowed to disagree, for the recorded reason, and a case that STOPS diverging fails so the entry gets removed. Each entry cites the XML specification section or the W3C test id that settles it. Empty until a disagreement is found and adjudicated -- never used to silence one that has not been.",
+  "cases": {}
+}
