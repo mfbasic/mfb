@@ -609,7 +609,17 @@ impl CodeBuilder<'_> {
     /// success path still reaches never runs on it. Each free nulls its slot, and every
     /// slot joins the prologue zero-init, so a temp that path never wrote is skipped.
     pub(crate) fn emit_pending_temp_frees_in_place(&mut self) -> Result<(), String> {
-        let temps = self.pending_temp_frees.clone();
+        self.emit_pending_temp_frees_in_place_from(0)
+    }
+
+    /// [`Self::emit_pending_temp_frees_in_place`] for the temps above `depth` only: an
+    /// `EXIT`/`CONTINUE` leaves the statements inside its loop's body, not the loop (bug-620).
+    pub(crate) fn emit_pending_temp_frees_in_place_from(
+        &mut self,
+        depth: usize,
+    ) -> Result<(), String> {
+        let depth = depth.min(self.pending_temp_frees.len());
+        let temps = self.pending_temp_frees[depth..].to_vec();
         for temp in temps.iter().rev() {
             self.emit_pending_temp_free(temp)?;
         }
@@ -683,15 +693,20 @@ impl CodeBuilder<'_> {
     /// the cleanup-bearing path hands over the slot
     /// `store_pending_success_result` already wrote).
     ///
-    /// Emits **nothing at all** when no interior temp is pending, which is every
-    /// `RETURN` in the tree bar the concat shapes — so codegen is byte-identical
-    /// wherever the bug was not.
+    /// bug-620: the temps BELOW `watermark` belong to the statements enclosing the `RETURN` —
+    /// an `IF` whose condition made one — whose statement-end drops the `ret` jumps past.
+    /// They are freed here too, with the same guard, but in place: each free nulls its slot
+    /// and the fall-through path still owns them.
+    ///
+    /// Emits **nothing at all** when no temp is pending, which is every `RETURN` in
+    /// the tree bar the concat shapes and the ones inside such a statement — so
+    /// codegen is byte-identical wherever the bug was not.
     pub(crate) fn drop_interior_temps_before_branch(
         &mut self,
         watermark: usize,
         escaping: EscapingValue,
     ) -> Result<Option<Operand>, String> {
-        if self.pending_temp_frees.len() <= watermark {
+        if self.pending_temp_frees.is_empty() {
             return Ok(match escaping {
                 EscapingValue::InRegister(location) => Some(location),
                 EscapingValue::InSlot(_) | EscapingValue::None => None,
@@ -710,11 +725,11 @@ impl CodeBuilder<'_> {
             EscapingValue::InSlot(slot) => (Some(slot), false),
             EscapingValue::None => (None, false),
         };
-        while self.pending_temp_frees.len() > watermark {
-            let temp = self
-                .pending_temp_frees
-                .pop()
-                .expect("watermark within bounds");
+        let interior = self
+            .pending_temp_frees
+            .split_off(watermark.min(self.pending_temp_frees.len()));
+        let enclosing = self.pending_temp_frees.clone();
+        for temp in interior.into_iter().rev().chain(enclosing.into_iter().rev()) {
             let kept = match parked {
                 Some(escaping_slot) => {
                     let kept = self.label("return_temp_escaped");

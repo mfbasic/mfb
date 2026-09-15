@@ -156,7 +156,11 @@ body may read the temp's contents in future shapes.
 
 - [ ] `rt_scope_drop_leaks.rs`: the repro, `r7_block`, `ct_close`, and `EXIT FOR` / `CONTINUE`
       / `ELSEIF` / `MATCH` variants, each N vs 2N on `live_bytes`; confirm each fails.
-- [ ] Audit `MATCH`/`SELECT` scrutinee temps with an exit inside a `CASE`; record the verdict.
+- [x] Audit `MATCH`/`SELECT` scrutinee temps with an exit inside a `CASE`; record the verdict.
+      Verdict: not affected. `MATCH strings::lower(s)` / `CASE "p"` / `RETURN 1` measured flat
+      (`live_bytes` 0 → 0 at N=1000/2000, `alloc_calls` = `free_calls`): the IR desugar binds the
+      scrutinee to a `$match` local, an owned value in `active_cleanups` that `RETURN` already
+      frees. Pinned in `condition_temps_that_already_had_an_owner_stay_flat`.
 
 Acceptance: every new case fails for the documented reason; the audit list has a verdict.
 Commit: —

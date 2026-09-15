@@ -122,7 +122,12 @@ statement's list so the drop after `while_end` does not free them again.
 
 - [ ] `rt_scope_drop_leaks.rs`: the repro, `WHILE … END WHILE`, `LOOP UNTIL`, and a record
       temp (`collections::get`) in the condition; confirm each fails.
-- [ ] Audit `FOR … TO` bound temps; record the verdict.
+- [x] Audit `FOR … TO` bound temps; record the verdict.
+      Verdict: not affected. `FOR j = 1 TO len(strings::lower(s))` measured flat (`live_bytes`
+      0 → 0, `alloc_calls` = `free_calls`): the IR evaluates the bound once into a synthetic
+      `$for_end` local, so the per-pass condition reads a local. The per-pass condition still
+      goes through the new condition lowering, which emits nothing when it makes no temp.
+      Pinned in `condition_temps_that_already_had_an_owner_stay_flat`.
 
 Acceptance: the cases fail for the documented reason; the audit has a verdict.
 Commit: —

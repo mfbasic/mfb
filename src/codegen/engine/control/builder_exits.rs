@@ -76,7 +76,11 @@ impl CodeBuilder<'_> {
         &mut self,
         target: &str,
         cleanup_depth: usize,
+        temp_depth: usize,
     ) -> Result<(), String> {
+        // bug-620: the branch skips the statement-end drop of every statement it leaves, so
+        // their temps are freed here. In place: the fall-through path still frees them.
+        self.emit_pending_temp_frees_in_place_from(temp_depth)?;
         let cleanups = self.active_cleanups[cleanup_depth..].to_vec();
         for cleanup in cleanups.iter().rev() {
             match cleanup {
