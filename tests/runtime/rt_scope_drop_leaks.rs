@@ -6875,12 +6875,8 @@ fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
         moved, 0,
         "main-arena live_bytes grew {moved} B between 50 and 100 handles moved into a callee"
     );
-    let reassigned = thread_loop_growth(
-        "b622_reassigned",
-        B622_REASSIGNED,
-        "total=153",
-        "total=303",
-    );
+    let reassigned =
+        thread_loop_growth("b622_reassigned", B622_REASSIGNED, "total=153", "total=303");
     assert_eq!(
         reassigned, 0,
         "main-arena live_bytes grew {reassigned} B between 50 and 100 reassigned handles"
