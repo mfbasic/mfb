@@ -69,3 +69,11 @@ Commit:
 
 Phase 2 — correct the `--locked` line in `src/cli/help.rs:AUDIT_HELP` (GREEN); run
 the `cli` tests. Commit:
+
+## Phase 1 findings (fix-bug, 2026-09-15)
+
+- Reproduced at main `9b5e5b55f` with `target/release/mfb`: `mfb audit --help | grep locked`
+  prints `Only audit packages defined in project.lock`; `mfb audit --locked` on a fresh
+  `mfb init` project exits 1 with `AUDIT-LOCK-MISSING mfb.lock is required by --locked`;
+  plain `mfb audit` exits 0. Mechanism as documented: `src/cli/help.rs:AUDIT_HELP`.
+- RED test: `cli::help::tests::audit_help_describes_locked_as_the_lockfile_gate`.
