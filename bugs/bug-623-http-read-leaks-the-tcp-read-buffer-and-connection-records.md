@@ -236,3 +236,49 @@ Implemented by a fix-bug subagent; reviewed and applied on the main thread.
   verification) on success; on `fail` / `alloc_fail` release the security context and
   credential handle (guarded on STATE), close the socket, and free `SNAMEW`, STATE and the
   record.
+
+## Integration findings (fix-bug, 2026-09-15)
+
+- **Sub-issue B landed** as `d8003a394` (cherry-picked from the subagent's `3da06145b`):
+  `resource/cleanup/record_ownership.rs` decides, per function and fail-safe, which resource
+  bindings OWN their record (a fresh `tcp`/`udp`/`tls`/`thread` producer, a union wrap of one,
+  a TRAP closed default, an alias chain rooted at one, a user function whose every `RETURN`
+  is fresh); only an owner's drop frees the record, anything unproven closes and leaks. It
+  also **fixes a regression 29a902e03 introduced**: a function returning its `RES` parameter
+  made the caller free the record twice (`free_calls` 752 > `alloc_calls` 600,
+  `double_free_skips` 152 at N=300; test
+  `a_resource_passed_through_a_function_is_freed_once`). A returned resource union's 16 B
+  box now moves instead of being copied (`returned_resource_union_owns_box`). Measured:
+  `an_http_read_loop_leaves_no_block_behind` (112 B per call = 96 B union record + 16 B box)
+  and `a_resource_union_bound_from_a_producer_keeps_live_bytes_constant` GREEN.
+- **Sub-issue C landed** as `42a7b2374`: windows-x86_64 (2230) `tls_connect_fail`
+  5,038,400 B per 50 failed connects → 0 B, `double_free_skips 0`.
+- **Spec synced** (`24a5b20d2`): `memory/04_arenas.md` and `memory/03_heap-values.md` no
+  longer claim every resource record survives as a tombstone.
+- **`codegen_helper_scratch_release`** pins per-helper `(alloc, free, guarded)` counts; 11 rows
+  moved by 623's frees were updated with proof in `3fda5ee87` (none frees a returned block;
+  the guarded column is unchanged).
+- **Withdrawn: the "`CTX_PEND_BUF` cross-arena free" finding.** A RED test asserted no arena
+  frees more bytes than it allocated, and it failed ("arena 1 freed 160 B but allocated only
+  144 B"). That invariant is **not a rule of this allocator**: `arena_free` pushes onto the
+  FREEING thread's bins and never consults which arena carved the block, and no arena but
+  the main one is ever destroyed (`_mfb_arena_destroy` is branched to only from
+  `_mfb_shutdown`, `os/process/process_lifecycle.rs`) — `.ai/canvas-threading.md` §2, which
+  bug-498's thread message hand-over (`builder_thread_cleanup.rs`) relies on. The test was
+  removed and the subagent's re-home fix (`112efea5e`) was not taken.
+- **Sub-issue D (new, follows from the same fact):** the `CTX_OWNER` guard 29a902e03 added to
+  the macOS `tls::close` ctx free skips the free when the closing thread's arena differs from
+  the allocating one. Since that free is sound, the guard leaks the 216 B ctx of every
+  `tls::Socket` transferred to another thread and closed there. RED test
+  `a_tls_socket_closed_on_another_thread_keeps_live_bytes_constant` measured more: 12,480 B
+  of main-arena growth between 30 and 60 transferred sockets, **416 B per socket** — the ctx
+  accounts for 216 B, the rest is still to be localized by the fix.
+- **Found, being fixed (same resource-union alias class):** a function returning a union that
+  wraps its own owned local hands back a closed handle (exit 255, `7-703-0004`; a
+  use-after-free since the record free), and a union alias in an inner scope closes the outer
+  handle. RED tests: `a_returned_union_wrapping_an_owned_local_stays_open_in_the_caller`,
+  `a_union_alias_in_an_inner_scope_leaves_the_outer_handle_open`.
+- **Remaining, documented behaviour, not fixed:** `fs::File` keeps its 96 B tombstone record per
+  handle (`memory/04_arenas.md`: kinds other than `tcp`/`udp`/`tls` keep the tombstone); an owned
+  `List OF RES` drain closes floated elements without freeing their records (close-only,
+  fail-safe).

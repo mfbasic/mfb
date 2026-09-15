@@ -198,3 +198,18 @@ A name-scoping bug at package merge; the audit of the `.mfp` form is where the s
   `an_exported_type_naming_a_non_exported_type_is_rejected_at_the_package_build`,
   `an_exported_signature_naming_a_non_exported_type_is_rejected_at_the_package_build`;
   guard `an_exported_type_naming_an_exported_type_still_builds_and_imports`.
+
+## Sub-issue B landed (fix-bug, 2026-09-15)
+
+- `6a6c68484` (cherry-picked from the subagent's `7e685f656`): new error
+  `2-203-0139 EXPORT_NAMES_NON_EXPORTED_TYPE`, reported on package builds at the exporting
+  declaration (`ir::shape::export_names_non_exported_type_diagnostics`, called beside
+  `export_in_executable_diagnostics` in `cli/build`). It walks what the importer reads off the
+  `.mfp` — exported record fields at every field visibility, exported union variant fields with
+  includes expanded, exported function / `SUB` parameters and returns, exported binding types —
+  through every structural wrapper, and flags only a nominal this package declares without
+  `EXPORT`. Rule row in `diagnostics/01_rule-codes.md`; one sentence in
+  `language/13_modules-and-packages.md`. No `examples/` package or in-tree package fixture trips
+  it. `rt_package_private_type_collision` 9/9 on the integration branch.
+- `ca6fcf06e`: `package_type_surface`'s doc comment notes a fresh build can no longer produce
+  the non-exported-record-in-an-exported-field shape.
