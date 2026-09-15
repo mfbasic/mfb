@@ -1057,7 +1057,9 @@ impl plan::NativePlanPlatform for Platform {
                 // through dlopen/dlsym at load time; only dlopen/dlsym (plus
                 // errno) are statically imported. `tls.listen` additionally
                 // reads the PEM certificate/key files via the libc file calls.
-                let mut symbols = vec!["_dlopen", "_dlsym", "___error"];
+                // bug-623 D: plus `calloc`/`free`, which carry the Network.framework
+                // ctx blocks on the C heap (`gen_macos::CTX_SIZE`).
+                let mut symbols = vec!["_dlopen", "_dlsym", "___error", "_calloc", "_free"];
                 if call == "tls.listen" {
                     symbols.extend(["_open", "_read", "_lseek", "_close"]);
                 }

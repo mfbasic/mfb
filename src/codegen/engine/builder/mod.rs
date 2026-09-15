@@ -737,6 +737,15 @@ pub(crate) struct ResourceCleanup {
     /// kinds `CodeBuilder::resource_record_freed_at_drop` names (the `tcp`, `udp`
     /// and `tls` handles); every other kind keeps its record as the tombstone.
     pub(crate) frees_record: bool,
+    /// bug-623 D: a successful `thread::transfer` moved this binding's resource to
+    /// another thread. The drop then closes nothing, since the handle is the
+    /// receiver's. It frees only the sender's 96-byte tombstone record, and only
+    /// when that record carries the moved bit, so a transfer that failed frees
+    /// nothing here. The tombstone stays readable until then: every use of the
+    /// binding after the transfer still sees `moved`. Set by
+    /// `retire_moved_resource_cleanup` in place of removing the cleanup, and only
+    /// for a cleanup that `frees_record`.
+    pub(crate) moved_record_only: bool,
 }
 
 #[derive(Clone)]

@@ -54,9 +54,15 @@ impl CodeBuilder<'_> {
     /// call that hands back a parameter's record, holds a record another binding frees.
     pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
         let base = type_.without_state();
-        ["tcp.Socket", "tcp.Listener", "udp.Socket", "tls.Socket", "tls.Listener"]
-            .iter()
-            .any(|name| base.is_named(name))
+        [
+            "tcp.Socket",
+            "tcp.Listener",
+            "udp.Socket",
+            "tls.Socket",
+            "tls.Listener",
+        ]
+        .iter()
+        .any(|name| base.is_named(name))
     }
 
     pub(crate) fn resource_cleanup_symbol(&self, type_: &ParameterType) -> Option<String> {
@@ -359,6 +365,81 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-623 D: the sender's side of a successful thread transfer. The handle is
+    /// the receiver's now, so the binding's drop must close nothing. But the 96-byte
+    /// record it still points at is the sender's `moved|closed` tombstone, carved
+    /// by the sender's arena, and nothing else will ever free it. So a cleanup that
+    /// frees its record is kept and switched to `moved_record_only`, and its drop
+    /// frees just that record. Every other cleanup is removed exactly as before.
+    ///
+    /// The drop runs at the binding's scope exit, after the last point the sender
+    /// can read the tombstone's flags.
+    fn retire_moved_resource_cleanup(&mut self, name: &str) {
+        let retired = self
+            .active_cleanups
+            .iter_mut()
+            .rev()
+            .find_map(|cleanup| match cleanup {
+                ActiveCleanup::Resource(resource) if resource.name == name => Some(resource),
+                _ => None,
+            });
+        match retired {
+            Some(resource) if resource.frees_record => resource.moved_record_only = true,
+            _ => self.deactivate_resource_cleanup(name),
+        }
+    }
+
+    /// The drop of a [`retire_moved_resource_cleanup`]d binding: free the sender's
+    /// tombstone record when, and only when, it carries the moved bit, then null the
+    /// slot so a re-reached drop skips. A null slot, a record being `RETURN`ed
+    /// (plan-59-D's identity skip), or a record whose transfer did not complete
+    /// frees nothing.
+    ///
+    /// [`retire_moved_resource_cleanup`]: Self::retire_moved_resource_cleanup
+    fn emit_moved_resource_record_free(&mut self, cleanup: &ResourceCleanup) -> Result<(), String> {
+        let Some(offset) = self
+            .locals
+            .get(&cleanup.name)
+            .map(|local| local.stack_offset)
+        else {
+            return Ok(());
+        };
+        let done = self.label("resource_moved_record_done");
+        let ptr = self.allocate_register();
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
+        self.emit(abi::compare_immediate(&ptr, "0"));
+        self.emit(abi::branch_eq(&done));
+        if let Some(escaping) = self.escaping_value_slot {
+            let escaping_ptr = self.allocate_register();
+            self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
+            self.emit(abi::compare_registers(&ptr, &escaping_ptr));
+            self.emit(abi::branch_eq(&done));
+        }
+        let flags = self.allocate_register();
+        self.emit(abi::load_u64(&flags, &ptr, FILE_OFFSET_CLOSED));
+        let moved_mask = self.allocate_register();
+        self.emit(abi::move_immediate(
+            &moved_mask,
+            "Integer",
+            &(1u64 << RESOURCE_MOVED_BIT).to_string(),
+        ));
+        self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
+        self.emit(abi::compare_immediate(&moved_mask, "0"));
+        self.emit(abi::branch_eq(&done));
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(&record, abi::stack_pointer(), offset));
+        self.emit(abi::move_register(abi::c_arg(0), &record));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
     /// Tag-dispatched drop of a resource union: read the union tag and call the
     /// active variant's registered close op on its resource pointer (offset 8).
     pub(crate) fn emit_resource_union_cleanup_call(
@@ -422,7 +503,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(abi::c_arg(0), &block));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
         self.emit_arena_free_call();
-        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), stack_offset));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -551,6 +636,7 @@ impl CodeBuilder<'_> {
             else {
                 continue;
             };
+            let mut moved_to_thread = false;
             let consumed = if target == close {
                 // bug-623: a kind whose record the drop frees keeps its cleanup
                 // across an explicit close — the drop's re-close is a no-op and the
@@ -568,8 +654,9 @@ impl CodeBuilder<'_> {
                 // successful transfer. Deactivation runs only on the success
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
-                index == 1
-                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+                moved_to_thread = index == 1
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_);
+                moved_to_thread
             } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {
@@ -579,7 +666,9 @@ impl CodeBuilder<'_> {
                 // `RETURN`) hand off ownership.
                 false
             };
-            if consumed {
+            if consumed && moved_to_thread {
+                self.retire_moved_resource_cleanup(name);
+            } else if consumed {
                 self.deactivate_resource_cleanup(name);
             }
         }
@@ -589,6 +678,9 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &ResourceCleanup,
     ) -> Result<(), String> {
+        if cleanup.moved_record_only {
+            return self.emit_moved_resource_record_free(cleanup);
+        }
         let done = self.label("resource_cleanup_done");
         // Every path below that finishes the close converges here, where the
         // blocks the record points at are reclaimed (plan-52-B Phase 2). The
@@ -757,7 +849,11 @@ impl CodeBuilder<'_> {
                 RESOURCE_RECORD_SIZE,
             ));
             self.emit_arena_free_call();
-            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), resource_slot));
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                abi::stack_pointer(),
+                resource_slot,
+            ));
         }
         self.emit(abi::label(&skip));
         Ok(())

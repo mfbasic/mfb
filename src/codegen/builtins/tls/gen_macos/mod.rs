@@ -195,16 +195,21 @@ pub(crate) const CTX_WARMED: usize = 120;
 // a function pointer to call.
 pub(crate) const CTX_EDOMFN: usize = 192;
 pub(crate) const CTX_EDOM: usize = 200;
-// bug-623: the arena state (`ARENA_STATE_REGISTER`) of the thread that allocated
-// this ctx. `tls::close` returns the block to the arena only when the closing
-// thread's arena is that one: `thread::transfer` moves `REC_CTX` VERBATIM (the
-// Network.framework blocks hold this address), so a transferred socket is closed
-// on a thread whose arena did not allocate the ctx, and `_mfb_arena_free` has no
-// ownership check — handing it a foreign block would park it on the wrong
-// arena's bins. Shared by connection and listener ctx (both allocate at 216), and
-// above the listener ring (64..192) and the EDOM pair, which STATE_INVOKE writes.
-pub(crate) const CTX_OWNER: usize = 208;
-const CTX_SIZE: &str = "216";
+// bug-623 D: the connection ctx and the listener ctx live on the C heap
+// (`calloc`/`free`, `emit_ctx_calloc`/`emit_ctx_free`), not in an arena.
+//
+// The ctx is shared with Network.framework: its dispatch blocks hold the
+// address, which is why `thread::transfer` moves `REC_CTX` VERBATIM — the
+// registry's contract for a verbatim slot is a foreign-heap pointer. In an
+// arena, a transferred handle's ctx was carved by the sending thread and closed
+// on the receiving one. Freeing it there is sound (a free pushes onto the
+// freeing thread's bins, `.ai/canvas-threading.md` §2) but reclaims nothing for
+// the sender: a worker's bins die with the worker, whose arena is never
+// unmapped or reused. Measured on a connect/transfer/close-in-worker loop, the
+// sender's arena kept every 208 B ctx either way, so an owner check (which
+// skipped the foreign free) and no check leaked the same. The C heap is
+// process-wide, so the closing thread's `free` returns the block for good.
+const CTX_SIZE: &str = "208";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -217,7 +222,7 @@ pub(crate) const LCTX_HEAD: usize = 48; // producer count (trampoline-owned)
 pub(crate) const LCTX_TAIL: usize = 56; // consumer count (accept-owned)
 pub(crate) const LCTX_RING: usize = 64; // LCTX_RING_CAP pointer slots
 pub(crate) const LCTX_RING_CAP: usize = 16; // power of two (index mask 15)
-const LCTX_SIZE: &str = "216"; // 64 + 16*8, the shared CTX_EDOMFN/CTX_EDOM tail, CTX_OWNER
+const LCTX_SIZE: &str = "208"; // 64 + 16*8, then the shared CTX_EDOMFN/CTX_EDOM tail
 
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
 const BLK_ISA: usize = 0;
@@ -493,6 +498,44 @@ fn dlsym(
         name,
         fnptr_off,
         fail,
+    )
+}
+
+/// Allocate a zeroed Network.framework ctx block of `size` bytes on the C heap
+/// (`calloc(1, size)`, see `CTX_SIZE` for why not the arena), branching to
+/// `fail` when it returns NULL. The pointer is left in `mfb_return(1)`, where
+/// the arena allocation this replaces left it, so each call site's stores are
+/// unchanged. Clobbers the caller-saved registers, like the arena call did.
+pub(crate) fn emit_ctx_calloc(ctx: &mut EmitCtx, size: &str, fail: &str) -> Result<(), String> {
+    ctx.instructions.extend([
+        abi::move_immediate(abi::c_arg(0), "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", size),
+    ]);
+    ctx.platform.emit_external_call(
+        "calloc",
+        ctx.symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.extend([
+        abi::move_register(abi::mfb_return(1), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(fail),
+    ]);
+    Ok(())
+}
+
+/// `free(x0)`: return a ctx block from [`emit_ctx_calloc`] to the C heap. The
+/// caller preloads `c_arg(0)` with the block. Any thread may call it: the heap
+/// is process-wide.
+pub(crate) fn emit_ctx_free(ctx: &mut EmitCtx) -> Result<(), String> {
+    ctx.platform.emit_external_call(
+        "free",
+        ctx.symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
     )
 }
 
