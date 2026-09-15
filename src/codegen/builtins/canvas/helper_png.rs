@@ -1,4 +1,4 @@
-//! `__canvas_pngDecode` — a PNG reader, in MFBASIC, on top of `__canvas_inflate`.
+//! `__canvas_pngDecode` — a PNG reader, in MFBASIC, on top of `compress::zlibDecode`.
 //!
 //! Decodes to RGBA8, which is the one format `canvas::createImage` takes, so the
 //! decoder's whole job is "whatever the file says, produce those bytes".
@@ -161,6 +161,16 @@ r#"FUNC __canvas_pngSample(row AS List OF Byte, index AS Integer, depth AS Integ
   LET byte AS Integer = toInt(collections::getOr(row, index / perByte, toByte(0)))
   LET shift AS Integer = 8 - depth * ((index MOD perByte) + 1)
   RETURN (byte / __canvas_pow2(shift)) MOD __canvas_pow2(depth)
+END FUNC
+
+FUNC __canvas_pow2(n AS Integer) AS Integer
+  MUT v AS Integer = 1
+  MUT i AS Integer = 0
+  WHILE i < n
+    v = v * 2
+    i = i + 1
+  END WHILE
+  RETURN v
 END FUNC
 
 FUNC __canvas_pngScale(value AS Integer, depth AS Integer) AS Integer
@@ -445,11 +455,16 @@ FUNC __canvas_pngDecode(bytes AS List OF Byte) AS List OF Byte
   ' count and refuses to pass it, so a 1x1 image whose IDAT would inflate to 400 MB
   ' is refused at its fifth byte instead of reported as a pixel. Last, the pixel
   ' buffer is allocated only once the rows are known to be there.
+  ' Every error `zlibDecode` raises -- past the count, malformed or truncated DEFLATE
+  ' data, a wrong Adler-32 -- is the same broken file to a caller, so it becomes the
+  ' decoder's one failure result.
   LET expected AS Integer = __canvas_pngRawBytes(header)
   IF expected > len(idat) * 1032 THEN
     RETURN []
   END IF
-  LET raw AS List OF Byte = __canvas_zlibInflate(idat, expected)
+  LET raw AS List OF Byte = compress::zlibDecode(idat, expected) TRAP(err)
+    RETURN []
+  END TRAP
   IF len(raw) < expected THEN
     RETURN []
   END IF

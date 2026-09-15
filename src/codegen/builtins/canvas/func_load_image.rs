@@ -50,7 +50,7 @@ END SUB
 /// `canvas::loadImage(path)` — read, decode, and stamp.
 ///
 /// MFBASIC for the same reason `loadFont` is: every step is a call it can already make.
-/// The decoder is `helper_png.rs` on top of `helper_inflate.rs`, and the resource is
+/// The decoder is `helper_png.rs` on top of `compress::zlibDecode`, and the resource is
 /// `canvas::createImage`, which already owns the record, the CPU shadow and the pixel
 /// count contract. Nothing here needs an emitter, so nothing here has one.
 ///

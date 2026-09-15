@@ -50,6 +50,35 @@ imports `compress` carries only the members it calls."#;
 // `mfb spec stdlib compress` ground their surface facts in this descriptor with
 // `[[src/codegen/builtins/compress/mod.rs:COMPRESS]]`.
 
+/// Synthetic path/doc labels for the `compress` companion a late pass injects.
+const SOURCE_LABEL: &str = "<builtin-compress>";
+const SOURCE_DOC: &str = "builtins/compress.mfb";
+
+/// Inject `compress`'s gated helpers when a program — **or another injected built-in**
+/// — calls the members that need them.
+///
+/// `canvas`'s injected PNG decoder inflates through `compress::zlibDecode` (plan-137-C).
+/// A canvas program writes only `IMPORT canvas`, so the generic
+/// `registry::augment_project`, which examines the pre-injection AST, neither sees the
+/// `compress` import nor opens the `WhenUsed` gates of the helpers `zlibDecode` rewrites
+/// onto. This pass runs after it and sees canvas's companion. Unlike `color`'s, it is not
+/// skipped by the generic pass: a program that imports `compress` itself keeps the helpers
+/// the generic pass injects, in the same position, and this pass adds only the ones the
+/// injected source newly reaches (`registry::late_pass_files`).
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    crate::codegen::registry::inject_late_pass(ast, "compress", SOURCE_LABEL, SOURCE_DOC)
+}
+
+/// The same injection onto the elaborated project the former source checker consumes.
+#[cfg(test)] // the HIR-domain chain serves the in-process tests only (plan-107-D)
+pub(crate) fn augmented_hir_project(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
+    crate::codegen::registry::inject_late_pass_hir(hir, "compress", SOURCE_LABEL, SOURCE_DOC)
+}
+
 /// Register the `compress` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("compress", MODULE_INTRO, MODULE_DESC);
@@ -112,6 +141,52 @@ mod tests {
             .expect("compress package");
         // 4 members: `crc32`, `inflate`, `zlibDecode`, `gzipDecode`.
         assert_eq!(pkg.functions().len(), 4);
+    }
+
+    /// The paths of every file the build's augmentation chain leaves in a one-file project.
+    fn injected_paths(source: &str) -> Vec<String> {
+        let project = crate::testutil::project_from_src(source);
+        crate::resolver::augment_project(&project, false)
+            .expect("builtin sources parse")
+            .files
+            .into_iter()
+            .map(|file| file.path)
+            .collect()
+    }
+
+    fn count(paths: &[String], path: &str) -> usize {
+        paths.iter().filter(|p| p.as_str() == path).count()
+    }
+
+    /// plan-137-C: canvas's injected PNG decoder calls `compress::zlibDecode`. A program that
+    /// imports only `canvas` gets the helper it rewrites onto from `compress`'s late pass —
+    /// the generic pass never sees that call — and only the helpers that call reaches.
+    #[test]
+    fn a_canvas_program_gets_the_zlib_decoder_without_importing_compress() {
+        let paths = injected_paths("IMPORT canvas\n\nSUB main()\nEND SUB\n");
+        assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 1);
+        assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 0);
+    }
+
+    /// The generic pass injects the checksum helper for the program's own call; the late
+    /// pass adds the decoder canvas reaches and does not inject the checksum helper again.
+    #[test]
+    fn a_program_importing_compress_and_canvas_gets_each_helper_once() {
+        let paths = injected_paths(
+            "IMPORT canvas\nIMPORT compress\n\nSUB main()\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND SUB\n",
+        );
+        assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 1);
+        assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 1);
+    }
+
+    /// Without canvas, a program that only checksums carries no decoder.
+    #[test]
+    fn a_compress_program_that_only_checksums_carries_no_decoder() {
+        let paths = injected_paths(
+            "IMPORT compress\n\nSUB main()\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND SUB\n",
+        );
+        assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 1);
+        assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 0);
     }
 
     /// The one magic number in the table builder is the reflected CRC-32/ISO-HDLC

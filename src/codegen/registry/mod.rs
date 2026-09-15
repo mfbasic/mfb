@@ -3751,7 +3751,7 @@ impl ProjectView {
 }
 
 /// Inject a late-pass package's source companion (`http`/`net`/`encoding`) into
-/// an AST project.
+/// an AST project, with its gated helpers (see [`late_pass_files`]).
 ///
 /// These three are skipped by [`Registry::augment_project`]'s single pass and
 /// injected in their own dependency order afterwards, because each carries
@@ -3763,14 +3763,18 @@ pub(crate) fn inject_late_pass(
     label: &str,
     doc: &str,
 ) -> Result<crate::ast::AstProject, ()> {
-    match late_pass_file(package, label, doc, &ProjectView::of_ast(ast))? {
-        Some(file) => {
-            let mut augmented = ast.clone();
+    let files = late_pass_files(package, label, doc, &ProjectView::of_ast(ast))?;
+    let mut augmented = ast.clone();
+    for file in files {
+        if !augmented
+            .files
+            .iter()
+            .any(|present| present.path == file.path)
+        {
             augmented.files.push(file);
-            Ok(augmented)
         }
-        None => Ok(ast.clone()),
     }
+    Ok(augmented)
 }
 
 /// The same injection onto the elaborated project the former source checker consumes.
@@ -3780,33 +3784,66 @@ pub(crate) fn inject_late_pass_hir(
     label: &str,
     doc: &str,
 ) -> Result<crate::hir::HirProject, ()> {
-    match late_pass_file(package, label, doc, &ProjectView::of_hir(hir))? {
-        Some(file) => {
-            let mut augmented = hir.clone();
+    let files = late_pass_files(package, label, doc, &ProjectView::of_hir(hir))?;
+    let mut augmented = hir.clone();
+    for file in files {
+        if !augmented
+            .files
+            .iter()
+            .any(|present| present.path == file.path)
+        {
             augmented.files.push(crate::hir::elaborate_file(&file));
-            Ok(augmented)
         }
-        None => Ok(hir.clone()),
     }
+    Ok(augmented)
 }
 
-fn late_pass_file(
+/// The files a late pass injects: the package's `get_mfb` companion, then each of its
+/// [`HelperGate::WhenUsed`] helpers whose gate the late pass's view opens.
+///
+/// `get_mfb` renders no gated helper, so a package whose members all rewrite onto gated
+/// helpers (`compress`) would otherwise inject only its `IMPORT` lines. Its gates are
+/// opened here by the calls in the source earlier passes injected — canvas's PNG decoder
+/// calling `compress::zlibDecode` (plan-137-C) — which the generic pass never sees. The
+/// callers skip a file whose path the project already has, so a helper the generic pass
+/// injected for a program that imports the package itself keeps its position and is not
+/// injected twice.
+fn late_pass_files(
     package: &str,
     label: &str,
     doc: &str,
     view: &ProjectView,
-) -> Result<Option<crate::ast::AstFile>, ()> {
+) -> Result<Vec<crate::ast::AstFile>, ()> {
     let Some(pkg) = registry().resolve_package(package) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     if !pkg.is_imported_by(view) {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    Ok(Some(crate::ast::parse_source_internal(
+    let mut files = vec![crate::ast::parse_source_internal(
         std::path::Path::new(label),
         doc,
         &pkg.get_mfb(),
-    )?))
+    )?];
+    for helper in pkg.helpers() {
+        let (Some(body), HelperGate::WhenUsed(names)) = (helper.body, &helper.gate) else {
+            continue;
+        };
+        if !view.references_any(names) {
+            continue;
+        }
+        // Labelled and parsed exactly as `Registry::synthetic_files` does, so the path
+        // matches a copy the generic pass already injected.
+        let label = format!("<builtin-{}>", helper.name);
+        let doc = format!("builtins/{}.mfb", helper.name);
+        files.push(crate::ast::parse_source_builtin(
+            std::path::Path::new(&label),
+            &doc,
+            &format!("{}\n", body.trim_end()),
+            pkg.import_name(),
+        )?);
+    }
+    Ok(files)
 }
 
 /// The final segment of a callee across `::` and `.` — the form a `WhenUsed` gate

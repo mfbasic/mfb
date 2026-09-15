@@ -85,7 +85,7 @@ See plan-137-A §Prerequisites. Additionally:
 | Acceptance fixtures importing canvas (their `.ir`/`.ast` goldens are EXPECTED to shift) | 4 (2026-09-14) | Phase 1: `grep -rl "IMPORT canvas" tests --include=main.mfb \| wc -l` |
 | `__canvas_pow2` users outside `helper_inflate.rs` | 2 (2026-09-14): `helper_png.rs:163` and `:170` (sample extraction). Its only definition is `helper_inflate.rs:47` (`FUNC __canvas_pow2`), so the definition must move to a surviving canvas helper before `helper_inflate.rs` is deleted | Phase 1: `grep -rn "__canvas_pow2" src/codegen/builtins/canvas \| grep -v helper_inflate.rs` |
 | The TRAP idiom an injected helper uses to turn a raised error into a value | Verified (2026-09-14): `LET x AS T = call(...) TRAP(e)` with a handler ending in `RECOVER value` (`net/helper_decode_query_component.rs:16–17`, `RECOVER s`) or `RETURN value` (`strings/helper_scalar_seam.rs:64–65`, `RETURN ""`) | Phase 1: `grep -rn "TRAP\|RECOVER" src/codegen/builtins --include='helper_*.rs' \| head` |
-| Size delta of `IMPORT canvas` binaries | Before (2026-09-14, macos-aarch64 `--app`): **1,904,108 B** for a program that only imports `canvas` and **1,904,108 B** for one that also calls `canvas::loadImage` — canvas's PNG and inflate helpers are `RegistryHelper::always`, so every canvas program carries them. After: Phase 3, same two probes (`/tmp/p137csize/{canvas-only,canvas-load}`) | Phase 1 before / Phase 3 after, `.ai/resources-packages.md` size probe |
+| Size delta of `IMPORT canvas` binaries | Before (2026-09-14, macos-aarch64 `--app`): **1,904,108 B** for a program that only imports `canvas` and **1,904,108 B** for one that also calls `canvas::loadImage` — canvas's PNG and inflate helpers are `RegistryHelper::always`, so every canvas program carries them. After (2026-09-14, the Phase 3 compiler): **1,953,644 B** for both probes (`stat -f %z` of each bundle's `Contents/MacOS` binary), **+49,536 B**. The generic pass still injects canvas's `always` companion into every canvas program, and that companion calls `compress::zlibDecode`, so every canvas program carries `compress`'s decoder, as it carried canvas's own before | Phase 1 before / Phase 3 after, `.ai/resources-packages.md` size probe |
 
 ## 3. Design Overview
 
@@ -190,20 +190,46 @@ Commit: b006a877b
 
 ### Phase 3 — the cutover
 
-- [ ] Late pass + skip + `lower.rs` call (§4).
-- [ ] Canvas imports `compress`; call site swapped; `helper_inflate.rs` deleted; unused canvas
+- [x] Late pass + skip + `lower.rs` call (§4).
+      (Shipped without the `synthetic_files` skip; see Corrections. `registry::late_pass_files` returns the companion plus the
+      opened `WhenUsed` helpers, and `inject_late_pass`/`_hir` skip a path already present. `compress::augmented_project` /
+      `augmented_hir_project` run after `color` in `resolver::augment_project`, `resolver::augment_hir_project` and
+      `ir::lower`'s test chain. Checks:
+      - `mfb build --app /tmp/p137latepass` (imports only `canvas`) → `Wrote executable`.
+      - `bash scripts/artifact-gate.sh target/release/mfb compress` → `7 golden(s) checked, 0 diff(s)`.
+      - New unit tests `a_canvas_program_gets_the_zlib_decoder_without_importing_compress`,
+        `a_program_importing_compress_and_canvas_gets_each_helper_once` and
+        `a_compress_program_that_only_checksums_carries_no_decoder` in `compress/mod.rs`
+        → `cargo test --bin mfb codegen::builtins::compress::tests` → `ok. 6 passed; 0 failed`.)
+- [x] Canvas imports `compress`; call site swapped; `helper_inflate.rs` deleted; unused canvas
       helpers deleted (grep each name before deleting).
-- [ ] Sync the expected `.ir`/`.ast` goldens of canvas-importing fixtures with a targeted glob;
-      `git diff --stat` shows only `.ir`/`.ast` under those fixtures.
+      (`add_imports` gains `"compress"`. The call is `compress::zlibDecode(idat, expected) TRAP(err)` / `RETURN []` /
+      `END TRAP`, and `len(raw) < expected` stays. Before deleting, each of the 17 `FUNC`s in `helper_inflate.rs` was
+      grepped with `grep -rnw <name> src tests`, excluding the file itself:
+      - `__canvas_pow2` is used twice, at `helper_png.rs:163`/`:170`; its definition moved into `PNG_SAMPLES` beside those uses.
+      - `__canvas_zlibInflate` is used once, at the swapped call site.
+      - `__canvas_inflate` and `__canvas_huffDecode` each appear once, in doc comments only, both reworded.
+      - The other 13 are unused.
+      The only other citation is `func_load_image.rs`'s doc comment, repointed. `planning/todo.md`'s
+      "two inflate implementations" design question is marked resolved.)
+- [x] ~~Sync the expected `.ir`/`.ast` goldens of canvas-importing fixtures with a targeted glob;
+      `git diff --stat` shows only `.ir`/`.ast` under those fixtures.~~ — moot: the four canvas-importing fixtures carry
+      only `build.log` (Corrections). Replaced by the check that they pass unchanged:
+      `scripts/test-accept.sh target/release/mfb /tmp/p137c canvas-setgroup-consumes-items canvas_color_surface_removed_invalid
+      canvas_color_type_removed_invalid canvas-drawitem-thread-plane-invalid` → `acceptance tests passed (4 test(s) ran)`;
+      the commit touches no golden.
 
 Acceptance: all 17 decode tests pass; the late pass serves a canvas-only program.
   Check: `cargo test --test rt_canvas_image_decode` → 17 passed;
   `scripts/test-accept.sh target/release/mfb /tmp/p137c '<canvas fixture glob>'` → 0 mismatches after sync (est. 15 min).
+  (2026-09-14: `cargo test --test rt_canvas_image_decode` → `ok. 17 passed; 0 failed` in 92.68 s; the four canvas fixtures →
+  `acceptance tests passed (4 test(s) ran)`; `/tmp/p137latepass` builds.)
 Commit: —
 
 ### Phase 4 — record
 
-- [ ] Post-change size and decode time (Phase 1 program and PNG) recorded in Corrections.
+- [x] Post-change size and decode time (Phase 1 program and PNG) recorded in Corrections.
+      (Corrections, "Post-change size and decode time".)
 - [ ] `canvas::loadImage` man `desc` mentions that malformed compressed data is refused (no
       internals). Spec: `grep -rln "helper_inflate\|__canvas_inflate\|__canvas_zlibInflate" src/docs`
       → none on 2026-09-13, so no citation is expected to dangle; re-run it, and if the canvas spec
@@ -239,6 +265,37 @@ Commit: —
   `WhenBothImported` helpers; `grep -rhoE "HelperGate::[A-Za-z]+|RegistryHelper::[a-z_]+"` over
   `builtins/color/` → `8 RegistryHelper::always`, over `builtins/compress/` → only `HelperGate::WhenUsed`.
   §4 is annotated and Phase 1 gains the probe that confirms it and picks the shape.
+- **§4's `synthetic_files: skip compress` would shift the compress byte-identity goldens; the late pass dedupes
+  by path instead** (2026-09-14). Evidence: the scratch compiler with the skip (companion and gated-helper loops) plus
+  the gate-aware late pass gave `bash scripts/artifact-gate.sh target/release/mfb compress` → `7 golden(s) checked, 6
+  diff(s)` (`.ir` and all five `.ncodesum`). Localized on that one fixture: the golden and the rebuilt `.ir` have the same
+  78 function names (`grep -oE '^    "name": "[^"]+"' | sort`, `diff` empty), and `diff <(sort golden) <(sort rebuilt)`
+  shows 0 differing lines. The only change is order: `#encoding_*` now comes before `#compress_crc32Tables`, because a
+  skipped `compress` rides in after the `encoding` late pass. The golden is not wrong, so it stays. The shipped shape does not skip `compress` in
+  `synthetic_files` at all. `inject_late_pass`/`inject_late_pass_hir` append only the files whose `path` the project
+  does not already have. `late_pass_files` labels helpers exactly as `synthetic_files` does
+  (`builtins/<helper>.mfb`). A program that imports `compress` keeps the helpers the generic pass injected, where it
+  injected them; a canvas-only program gets them from the late pass; a program with both gets only the helpers canvas's
+  companion newly reaches.
+- **Post-change size and decode time** (2026-09-14, macos-aarch64, the Phase 3 compiler).
+  - **Size:** 1,904,108 B → **1,953,644 B** (+49,536 B, +2.6%) for both the canvas-only and the `loadImage` probe (§2).
+    The strict decoder is larger than canvas's reference walker: two-level tables and the tables built at program start.
+    Every canvas program carries it, as it carried the walker.
+  - **Decode time:** `/tmp/p137canvas/app` rebuilt at `-O1 --app`, run headless by `/tmp/p137canvas/run.py` (in-program
+    `datetime::monotonicNanos` around `canvas::loadImage`), one run each as in plan-137-B §2.
+    | Image | Before | After |
+    |---|---|---|
+    | 256² | 203.4 ms | 49.4 ms |
+    | 1024² | 3,274.6 ms | 776.5 ms |
+    | 4096² (67,112,960 B inflated) | 43,691.6 ms (1.47 MiB/s) | **12,085.1 ms** (5.30 MiB/s whole-`loadImage`) |
+
+    The 4096² decode is 3.6× faster. The remaining time beyond `zlibDecode`'s 3,847.0 ms on the same stream
+    (plan-137-B Phase 4) is unfiltering and RGBA conversion.
+- **The canvas-importing fixtures carry no `.ir`/`.ast` goldens** (2026-09-14). §2 and Phase 3 expected their
+  `.ir`/`.ast` to shift. `ls <fixture>/golden` for all four (`syntax/resources/canvas-setgroup-consumes-items`,
+  `syntax/canvas/canvas_color_{surface,type}_removed_invalid`, `syntax/threads/canvas-drawitem-thread-plane-invalid`)
+  → `build.log` only. There is nothing to sync, and any `build.log` change is a bug. Phase 3's sync task therefore
+  becomes a check that the four fixtures pass unchanged.
 
 ## Summary
 

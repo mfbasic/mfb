@@ -200,12 +200,16 @@ pub fn augment_project(ast: &AstProject, debug: bool) -> Result<AstProject, ()> 
     // `color::toLinear`/`fromLinear`, and the generic pass over the pre-injection
     // AST cannot see that transitive import (plan-122-B).
     let augmented = crate::codegen::builtins::color::augmented_project(&augmented)?;
+    // `compress` after the generic pass, for the same reason: canvas's injected PNG
+    // decoder calls `compress::zlibDecode`, whose gated helpers the generic pass over
+    // the pre-injection AST cannot see a use of (plan-137-C).
+    let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)?;
     Ok(augmented)
 }
 
 /// [`augment_project`]'s chain, in the HIR domain (plan-106-D).
 ///
-/// The same four passes in the same dependency order. Each is a thin adapter over
+/// The same passes in the same dependency order. Each is a thin adapter over
 /// one decision procedure — `codegen::registry::ProjectView` gates the injection
 /// from either domain — so the two chains cannot drift apart the way two copies
 /// of the gate logic would have.
@@ -220,6 +224,7 @@ pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
     let augmented = crate::codegen::builtins::net::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::color::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::compress::augmented_hir_project(&augmented)?;
     Ok(augmented)
 }
 

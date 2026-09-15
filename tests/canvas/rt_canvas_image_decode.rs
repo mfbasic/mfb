@@ -623,8 +623,9 @@ fn a_png_whose_zlib_adler32_is_wrong_is_refused() {
 /// `tools/oracles/compress/python/probe_streams.py`'s `dynamic_block(lit, [0], [("lit", 0),
 /// ("lit", 0), ("eob",)])` (lit = 259 lengths: `lit[0] = 1`, `lit[256..=258] = 2`) wrapped as
 /// `78 01` + block + Adler-32 of `[0, 0]`. Verified 2026-09-14: Python zlib 1.2.12 refuses it
-/// with "invalid literal/lengths set", and a line-by-line transcription of canvas's
-/// `__canvas_huffDecode` decodes it to `[0, 0]` — the third 2-bit code is simply never reached.
+/// with "invalid literal/lengths set", and a line-by-line transcription of `__canvas_huffDecode`,
+/// canvas's own decoder before plan-137-C, decodes it to `[0, 0]` — the third 2-bit code is
+/// simply never reached.
 const OVERSUBSCRIBED_IDAT: &str = "780115c0010800000040a0abaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2a4400020001";
 
 #[test]
