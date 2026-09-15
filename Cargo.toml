@@ -625,6 +625,10 @@ name = "rt_imported_overload_imported_field_argument"
 path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
 
 [[test]]
+name = "rt_imported_type_name_collision"
+path = "tests/runtime/rt_imported_type_name_collision.rs"
+
+[[test]]
 name = "rt_imported_resource_scope_drop"
 path = "tests/runtime/rt_imported_resource_scope_drop.rs"
 
