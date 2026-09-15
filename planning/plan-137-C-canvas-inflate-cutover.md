@@ -140,10 +140,27 @@ Adler-32; over-subscribed Huffman trees; any further class plan-137-B establishe
 
 - [x] Fill every UNMEASURED/UNVERIFIED row in §2; list plan-137-B's refusal classes that canvas
       did not previously enforce (Non-goals).
-- [ ] (Added 2026-09-14) Probe the late-pass gating defect recorded in §4: a scratch late pass mirroring
+- [x] (Added 2026-09-14) Probe the late-pass gating defect recorded in §4: a scratch late pass mirroring
       `color::augmented_project` for `compress`, a `--app` program that imports only `canvas` and loads a PNG,
       and the resulting build diagnostic (expected: an undefined `__compress_zlibDecode`). Then choose and
       record the injection shape that makes the gated helpers ride in, with the probe that shows it building.
+      (2026-09-14, scratch worktree at `a793cf281`:
+      - The mirror is `compress::augmented_project` → `inject_late_pass(ast, "compress", …)`, called after `color` in
+        `resolver::augment_project`, plus the `synthetic_files` companion skip and canvas `add_imports` gaining
+        `"compress"`. The call site is `LET raw … = compress::zlibDecode(idat, expected) TRAP(err) RETURN [] END TRAP`.
+      - `mfb build --app /tmp/p137latepass` with that mirror → `error: NIR call target '#compress_zlibDecode' does not
+        resolve`: the rewrite target, a `WhenUsed` helper, never rode in. The defect is confirmed.
+      - Wiring the pass only into `ir::lower`'s chain gives the same diagnostic, because that chain is `#[cfg(test)]`.
+        The build path is `resolver::augment_project`.
+      - **Chosen shape:** `late_pass_file` becomes `late_pass_files`. It returns the `get_mfb` companion, then each of the
+        package's `HelperGate::WhenUsed` helpers whose gate the late pass's own view opens, parsed with
+        `parse_source_builtin` exactly as `synthetic_files` does. `synthetic_files` skips `compress` in both its companion
+        loop and its gated-helper loop.
+      - The generalisation changes nothing for the other late passes: `grep -rn "HelperGate::"` over
+        `builtins/{color,http,net,encoding}` → none, and `builtins/collections` → one `RegistryHelper::always`.
+      - With that shape, `mfb build --app /tmp/p137latepass` → `Wrote executable to ./build/latepass.app`.
+      - The compress helpers' `collections::` calls (`append`/`get`/`getOr`/`mid`/`set`) are all native members, so the
+        parse-time `collections` pass, which a canvas-only program never triggers, is not needed.)
 - [x] Record the pre-change size of a minimal `IMPORT canvas` program and the decode time of the
       plan-137-B Phase 1 PNG.
       (Size: 1,904,108 B for both probes, §2. Decode time: 43,691.6 ms for the 4096×4096 PNG's 67,112,960 B through
@@ -169,7 +186,7 @@ Commit: —
 
 Acceptance: the two new tests fail against HEAD for the documented reason.
   Check: `cargo test --test rt_canvas_image_decode -- adler32_is_wrong oversubscribed` → 2 failed (est. 6 min).
-Commit: —
+Commit: b006a877b
 
 ### Phase 3 — the cutover
 
