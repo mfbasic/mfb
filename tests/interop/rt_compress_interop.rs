@@ -158,3 +158,329 @@ fn crc32_matches_crc32fast_over_a_generated_corpus() {
         "{stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Decoders: `compress::inflate` / `zlibDecode` / `gzipDecode` against `flate2` (miniz_oxide).
+// ---------------------------------------------------------------------------------------------
+
+use flate2::read::{MultiGzDecoder, ZlibDecoder};
+use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
+use flate2::Compression;
+use std::io::{Read, Write};
+
+/// `ErrInvalidFormat`, the code every malformed-input refusal raises.
+const ERR_INVALID_FORMAT: &str = "77050003";
+
+/// Case counts, each derived from the case list it names — never from the program's output.
+const EXPECTED_ENCODE_CASES: usize = 3 * 10; // raw / zlib / gzip x levels 0..=9
+const EXPECTED_TAMPER_CASES: usize = 2 * 40; // zlib / gzip x 40 seeded single-byte flips
+const EXPECTED_REGRESSION_CASES: usize = 4;
+const EXPECTED_DECIDED_CASES: usize = 23;
+
+/// Job format bits: the low nibble selects the decoder, `LENIENT` passes `ignoreChecksum := TRUE`.
+const RAW: u32 = 0;
+const ZLIB: u32 = 1;
+const GZIP: u32 = 2;
+const LENIENT: u32 = 16;
+
+/// Reads the job named by `MFB_COMPRESS_JOB` — a little-endian `u32` case count, a `(length, aux)`
+/// pair per case, then the cases' bytes — and prints `case <i> ok <len> <crc32>` or
+/// `case <i> err <code>` per case.
+const DECODE_SOURCE: &str = r#"
+IMPORT collections
+IMPORT compress
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC u32At(b AS List OF Byte, at AS Integer) AS Integer
+  RETURN toInt(collections::get(b, at)) + 256 * toInt(collections::get(b, at + 1)) + 65536 * toInt(collections::get(b, at + 2)) + 16777216 * toInt(collections::get(b, at + 3))
+END FUNC
+
+FUNC described(out AS List OF Byte) AS String
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC rawCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::inflate(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN described(out)
+END FUNC
+
+FUNC zlibCase(data AS List OF Byte, lenient AS Boolean) AS String
+  LET out AS List OF Byte = compress::zlibDecode(data, 67108864, lenient) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN described(out)
+END FUNC
+
+FUNC gzipCase(data AS List OF Byte, lenient AS Boolean) AS String
+  LET out AS List OF Byte = compress::gzipDecode(data, 67108864, lenient) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN described(out)
+END FUNC
+
+SUB main()
+  RES h AS fs::File = fs::openFile(os::getEnv("MFB_COMPRESS_JOB"), "r")
+  LET job AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  LET count AS Integer = u32At(job, 0)
+  MUT offset AS Integer = 4 + 8 * count
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET n AS Integer = u32At(job, 4 + 8 * i)
+    LET aux AS Integer = u32At(job, 8 + 8 * i)
+    LET data AS List OF Byte = collections::mid(job, offset, n)
+    LET fmt AS Integer = aux MOD 16
+    LET lenient AS Boolean = aux >= 16
+    MUT line AS String = "err unknown-format"
+    IF fmt = 0 THEN
+      line = rawCase(data)
+    ELSEIF fmt = 1 THEN
+      line = zlibCase(data, lenient)
+    ELSEIF fmt = 2 THEN
+      line = gzipCase(data, lenient)
+    END IF
+    io::print("case " & toString(i) & " " & line)
+    offset = offset + n
+    i = i + 1
+  END WHILE
+END SUB
+"#;
+
+/// Build the decode program once per test and run it over `cases`, returning each case's
+/// `ok <len> <crc32>` / `err <code>` in order.
+fn decode_with_mfb(name: &str, cases: &[(Vec<u8>, u32)]) -> Vec<String> {
+    let project = temp_project(name, DECODE_SOURCE);
+    let exe = build_project(&project);
+    let mut job = Vec::new();
+    job.extend((cases.len() as u32).to_le_bytes());
+    for (data, aux) in cases {
+        job.extend((data.len() as u32).to_le_bytes());
+        job.extend(aux.to_le_bytes());
+    }
+    for (data, _) in cases {
+        job.extend(data);
+    }
+    let job_path = project.join("job.bin");
+    std::fs::write(&job_path, &job).expect("write job file");
+    let (code, stdout, stderr) =
+        run_capture_with_env(&exe, &[("MFB_COMPRESS_JOB", job_path.display().to_string())]);
+    assert_eq!(code, 0, "decode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    let lines: Vec<String> = stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("case "))
+        .map(|l| l.split_once(' ').expect("case index").1.to_string())
+        .collect();
+    assert_eq!(lines.len(), cases.len(), "program stopped early\nstderr:\n{stderr}");
+    lines
+}
+
+fn ok(bytes: &[u8]) -> String {
+    format!("ok {} {}", bytes.len(), reference_crc32(bytes))
+}
+
+fn refused() -> String {
+    format!("err {ERR_INVALID_FORMAT}")
+}
+
+fn encode(format: u32, level: u32, data: &[u8]) -> Vec<u8> {
+    let c = Compression::new(level);
+    match format {
+        RAW => {
+            let mut e = DeflateEncoder::new(Vec::new(), c);
+            e.write_all(data).unwrap();
+            e.finish().unwrap()
+        }
+        ZLIB => {
+            let mut e = ZlibEncoder::new(Vec::new(), c);
+            e.write_all(data).unwrap();
+            e.finish().unwrap()
+        }
+        _ => {
+            let mut e = GzEncoder::new(Vec::new(), c);
+            e.write_all(data).unwrap();
+            e.finish().unwrap()
+        }
+    }
+}
+
+/// A seeded mix with different statistics: text lines, incompressible bytes, and a long run.
+fn decode_corpus() -> Vec<u8> {
+    let mut rng = Lcg(0x0137_B00D_C0DE);
+    let mut out = Vec::new();
+    for i in 0..600 {
+        out.extend(format!("record {i}: the quick brown fox {} jumps\n", i % 97).bytes());
+    }
+    out.extend((0..8000).map(|_| rng.next() as u8));
+    out.extend(std::iter::repeat_n(0u8, 6000));
+    out
+}
+
+/// A gzip member whose header carries `FHCRC`; `crc_delta` damages the header CRC-16.
+fn gzip_with_fhcrc(data: &[u8], crc_delta: u16) -> Vec<u8> {
+    let mut member = vec![0x1f, 0x8b, 8, 0x02, 0, 0, 0, 0, 0, 255];
+    let header_crc = (reference_crc32(&member) & 0xFFFF) as u16 ^ crc_delta;
+    member.extend(header_crc.to_le_bytes());
+    member.extend(encode(RAW, 6, data));
+    member.extend(reference_crc32(data).to_le_bytes());
+    member.extend((data.len() as u32).to_le_bytes());
+    member
+}
+
+#[test]
+fn flate2_streams_decode_at_every_level_and_format() {
+    let corpus = decode_corpus();
+    let mut cases = Vec::new();
+    for format in [RAW, ZLIB, GZIP] {
+        for level in 0..=9 {
+            cases.push((encode(format, level, &corpus), format));
+        }
+    }
+    assert_eq!(cases.len(), EXPECTED_ENCODE_CASES);
+    let got = decode_with_mfb("rt_compress_decode_levels", &cases);
+    for (i, line) in got.iter().enumerate() {
+        assert_eq!(line, &ok(&corpus), "case {i}: format {} level {}", i / 10, i % 10);
+    }
+}
+
+/// A decoder that ignored a checksum, or accepted a stream an independent decoder refuses, fails
+/// here: every seeded single-byte flip of a zlib or gzip stream must get `flate2`'s verdict —
+/// refused, or decoded to the same bytes.
+#[test]
+fn tampered_checksummed_streams_get_flate2s_verdict() {
+    let corpus = decode_corpus();
+    let mut rng = Lcg(0x0137_7A3F);
+    let mut cases = Vec::new();
+    let mut expected = Vec::new();
+    for (format, first) in [(ZLIB, 2usize), (GZIP, 10usize)] {
+        let stream = encode(format, 6, &corpus);
+        for _ in 0..40 {
+            let mut t = stream.clone();
+            let at = first + (rng.next() as usize) % (t.len() - first);
+            t[at] ^= 1 + (rng.next() % 255) as u8;
+            let mut decoded = Vec::new();
+            let verdict = if format == ZLIB {
+                ZlibDecoder::new(&t[..]).read_to_end(&mut decoded)
+            } else {
+                MultiGzDecoder::new(&t[..]).read_to_end(&mut decoded)
+            };
+            expected.push(match verdict {
+                Ok(_) => ok(&decoded),
+                Err(_) => refused(),
+            });
+            cases.push((t, format));
+        }
+    }
+    assert_eq!(cases.len(), EXPECTED_TAMPER_CASES);
+    let got = decode_with_mfb("rt_compress_decode_tamper", &cases);
+    let disagreements: Vec<String> = got
+        .iter()
+        .zip(&expected)
+        .enumerate()
+        .filter(|(_, (mine, theirs))| mine != theirs)
+        .map(|(i, (mine, theirs))| format!("case {i}: mfb `{mine}`, flate2 `{theirs}`"))
+        .collect();
+    assert!(disagreements.is_empty(), "{}", disagreements.join("\n"));
+}
+
+/// audit-3 DEC-58 (over-subscribed Huffman codes accepted) and DEC-57's Adler-32 half, plus two
+/// neighbouring code-set refusals. The raw streams are `tools/oracles/compress/python/probe_streams.py`
+/// cases, hex-dumped with `python3 -c "from probe_streams import cases; ..."`; Python zlib 1.2.12
+/// refuses each with the message named beside it.
+#[test]
+fn dec57_dec58_regressions_are_refused() {
+    let corpus = decode_corpus();
+    let mut bad_adler = encode(ZLIB, 6, &corpus);
+    let last = bad_adler.len() - 1;
+    bad_adler[last] ^= 0x01;
+    let cases = vec![
+        // "invalid literal/lengths set" — three 1-bit codes
+        (common::decode_hex("edc001040000000010000000000000000000000000030000000000000000000000000000000000008000000000"), RAW),
+        // "invalid literal/lengths set" — three 2-bit codes, incomplete
+        (common::decode_hex("ed800104000000400000000000000000000000000c000000000000000000000000000000000000000200000004"), RAW),
+        // "invalid distance too far back"
+        (common::decode_hex("edc2010800000082200000000000000000000000000000000000000000000000003e00000000000000000000000000000000000000000000000000000000000000000000000000008002000000000000401701"), RAW),
+        // "incorrect data check"
+        (bad_adler, ZLIB),
+    ];
+    assert_eq!(cases.len(), EXPECTED_REGRESSION_CASES);
+    let got = decode_with_mfb("rt_compress_decode_regressions", &cases);
+    for (i, line) in got.iter().enumerate() {
+        assert_eq!(line, &refused(), "regression case {i}");
+    }
+}
+
+/// The behaviours plan-137-A §Decisions settled: checksum comparisons are skipped only with
+/// `ignoreChecksum := TRUE` and never skip structure; a preset dictionary is refused; bytes after a
+/// stream are ignored; gzip members concatenate; a `1f 8b` that is not a member is refused.
+#[test]
+fn decided_behaviours_hold() {
+    let corpus = decode_corpus();
+    let second = b"second member".to_vec();
+    let zlib = encode(ZLIB, 6, &corpus);
+    let gzip = encode(GZIP, 6, &corpus);
+    let raw = encode(RAW, 6, &corpus);
+
+    let mut bad_adler = zlib.clone();
+    let n = bad_adler.len();
+    bad_adler[n - 1] ^= 1;
+    let mut bad_crc = gzip.clone();
+    let n = bad_crc.len();
+    bad_crc[n - 8] ^= 1;
+    let mut bad_isize = gzip.clone();
+    let n = bad_isize.len();
+    bad_isize[n - 4] ^= 1;
+    // A stored block whose NLEN is not LEN's complement, zlib-wrapped with a correct Adler-32.
+    let bad_nlen = common::decode_hex("7801010300fcfe616263024d0127");
+    // FDICT set: CMF 0x78, FLG 0x20 plus FCHECK, a DICTID, then the deflate data and Adler-32.
+    let fdict_flg = 0x20u8 + (31 - ((0x78u32 * 256 + 0x20) % 31) % 31) as u8;
+    let mut fdict = vec![0x78, fdict_flg, 0x12, 0x34, 0x56, 0x78];
+    fdict.extend(&raw);
+    fdict.extend(&zlib[zlib.len() - 4..]);
+
+    let mut cases: Vec<(Vec<u8>, u32, String, &str)> = vec![
+        (bad_adler.clone(), ZLIB, refused(), "bad Adler-32"),
+        (bad_adler, ZLIB | LENIENT, ok(&corpus), "bad Adler-32, ignoreChecksum"),
+        (bad_crc.clone(), GZIP, refused(), "bad CRC-32"),
+        (bad_crc, GZIP | LENIENT, ok(&corpus), "bad CRC-32, ignoreChecksum"),
+        (bad_isize.clone(), GZIP, refused(), "bad ISIZE"),
+        (bad_isize, GZIP | LENIENT, ok(&corpus), "bad ISIZE, ignoreChecksum"),
+        (gzip_with_fhcrc(&corpus, 0), GZIP, ok(&corpus), "correct FHCRC"),
+        (gzip_with_fhcrc(&corpus, 1), GZIP, refused(), "bad FHCRC"),
+        (gzip_with_fhcrc(&corpus, 1), GZIP | LENIENT, ok(&corpus), "bad FHCRC, ignoreChecksum"),
+        (bad_nlen, ZLIB | LENIENT, refused(), "bad NLEN, ignoreChecksum"),
+        (fdict.clone(), ZLIB, refused(), "FDICT"),
+        (fdict, ZLIB | LENIENT, refused(), "FDICT, ignoreChecksum"),
+    ];
+    for extra in [1usize, 7, 1000] {
+        let junk: Vec<u8> = (0..extra).map(|i| 0x5a ^ (i as u8)).collect();
+        for (stream, format, label) in [(&raw, RAW, "raw"), (&zlib, ZLIB, "zlib"), (&gzip, GZIP, "gzip")] {
+            let mut s = stream.clone();
+            s.extend(&junk);
+            cases.push((s, format, ok(&corpus), label));
+        }
+    }
+    let mut two = gzip.clone();
+    two.extend(encode(GZIP, 1, &second));
+    let mut joined = corpus.clone();
+    joined.extend(&second);
+    cases.push((two, GZIP, ok(&joined), "two gzip members"));
+    let mut false_member = gzip.clone();
+    false_member.extend([0x1f, 0x8b, 0x00, 0x00]);
+    false_member.extend(b"junk");
+    cases.push((false_member, GZIP, refused(), "1f 8b then garbage"));
+    assert_eq!(cases.len(), EXPECTED_DECIDED_CASES);
+
+    let job: Vec<(Vec<u8>, u32)> = cases.iter().map(|(d, aux, _, _)| (d.clone(), *aux)).collect();
+    let got = decode_with_mfb("rt_compress_decode_decided", &job);
+    let wrong: Vec<String> = got
+        .iter()
+        .zip(&cases)
+        .filter(|(mine, (_, _, want, _))| *mine != want)
+        .map(|(mine, (_, _, want, label))| format!("{label}: got `{mine}`, want `{want}`"))
+        .collect();
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

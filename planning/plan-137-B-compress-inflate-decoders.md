@@ -302,16 +302,22 @@ Commit: a810ec0fc
       (Done: `decode-zlib` 150/150 and `decode-gzip` 159/159 with Python, 150/150 and 158/158 with Node — case 152 a
       declared divergence (Corrections) — covering 3 multi-member files and 6 hand-built `FEXTRA`/`FNAME`/`FCOMMENT`/`FHCRC`
       headers. Remaining: the `mutate` mode.)
-- [ ] `tests/interop/rt_compress_interop.rs`: `flate2` (miniz_oxide backend) encodes raw / zlib /
+- [x] `tests/interop/rt_compress_interop.rs`: `flate2` (miniz_oxide backend) encodes raw / zlib /
       gzip at levels 0–9 over a seeded corpus → MFB decodes equal; `flate2` streams tampered at
       a seeded byte → MFB refuses; one hand-built over-subscribed-tree stream and one
       bad-Adler stream → refused (the DEC-57/58 regressions).
-- [ ] Same file, the decided behaviours: a stream with a corrupted Adler-32 / CRC-32 / `ISIZE` /
+      (`flate2_streams_decode_at_every_level_and_format`: raw/zlib/gzip × levels 0–9, 30 cases;
+      `tampered_checksummed_streams_get_flate2s_verdict`: 40 seeded single-byte flips each of a zlib and a gzip stream,
+      each asserted against `flate2`'s own verdict — refused, or decoded to the same bytes — stronger than refusal alone;
+      `dec57_dec58_regressions_are_refused`: over-subscribed and incomplete literal sets, distance too far back, bad Adler-32.
+      `cargo test --test rt_compress_interop` → `5 passed; 0 failed`.)
+- [x] Same file, the decided behaviours: a stream with a corrupted Adler-32 / CRC-32 / `ISIZE` /
       `FHCRC` → refused by default, and decoded to the original bytes with `ignoreChecksum := TRUE`;
       a structurally broken stream (bad `NLEN`) → refused even with `ignoreChecksum := TRUE`;
       `FDICT` set → refused; raw / zlib / gzip streams followed by 1, 7 and 1,000 junk bytes (not
       starting `1f 8b`) → decoded, junk ignored; two gzip members → concatenated; a valid member
       followed by `1f 8b` plus garbage → refused.
+      (`decided_behaviours_hold`, 23 cases, all as decided; same `5 passed` run.)
 - [ ] `tests/runtime/rt_compress_bounds.rs` (`common::run_bounded_with_rss`): a 64 MiB+1 zero
       bomb under default `maxBytes` → `ErrTooLarge` within a time and RSS bound derived from
       bug-621's fixed growth rule (derivation written in the test); decode time for n and 4n
