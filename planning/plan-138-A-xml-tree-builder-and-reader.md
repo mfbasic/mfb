@@ -461,21 +461,35 @@ Acceptance: every §7 row has a passing accept case and every refusal cell a pas
   here). `grep -c "TCASE" packages/xml/src/test_refuse.mfb` → 72 (36 cases, each line counted with its
   `END TCASE`) and `grep -c "expectTrap" …` → 97 assertions, against the 10 construct rows of §7 —
   every refusal cell has at least one case, most have several.
-Commit: —
+Commit: `c180d424b`
 
 ### Phase 5 — limits and the 100k gate
 
-- [ ] `read.mfb` — enforce `DEPTH_LIMIT` and `NODE_LIMIT`.
-- [ ] Tests: `packages/xml/src/test_limits.mfb` — depth 256 parses, 257 fails `ErrDepthExceeded`; a
+- [x] `read.mfb` — enforce `DEPTH_LIMIT` and `NODE_LIMIT`. (`readElement` refuses past
+      `DEPTH_LIMIT`; every node built is charged through `core.mfb`'s `chargeNode(nodes, limit)`.)
+- [x] Tests: `packages/xml/src/test_limits.mfb` — depth 256 parses, 257 fails `ErrDepthExceeded`; a
       document just inside `NODE_LIMIT` is not built in-test (too slow for a unit test) — instead a
       `PUBLIC` limit parameter on an internal `parseWithLimits` is exercised at a small limit (limit
       fires at N+1, passes at N), mirroring yaml's "a guard that rejects everything protects nothing".
-- [ ] Measure `xml::parse` on the three Phase 1 shapes through a `/tmp` consumer of the built
-      `packages/xml/xml.mfp`; record numbers here.
+      (`./target/release/mfb test packages/xml` → `Tests: 110  Pass: 110  Fail: 0`, 8 added here.)
+- [x] Measure `xml::parse` on the three Phase 1 shapes through a `/tmp` consumer of the built
+      `packages/xml/xml.mfp`; record numbers here. Consumer `/tmp/xml-perf/app` (imports the built
+      `xml.mfp`), harness `bash /tmp/xml-perf/time3.sh …/xmlperf.out 100000`, 3 runs each. `gen`
+      builds the document text only; `parse` builds it and parses it, so the parse cost is the
+      difference:
+
+      | Shape | Nodes | Bytes | `gen` | `gen`+`parse` | Parse |
+      |---|---|---|---|---|---|
+      | flat (50,000 `<item id="N">value N</item>`) | 99,999 | 1,727,758 | 0.03 s | 0.45 s (3 runs identical) | ~0.42 s |
+      | deep (chains of 255, 256 levels with the root) | 100,000 | 700,006 | 0.01 s | 0.32–0.33 s | ~0.31 s |
+      | wide (100,000 `<i/>` under the root) | 100,000 | 400,009 | 0.03 s | 0.28–0.29 s | ~0.26 s |
 
 Acceptance: limits fire exactly at the boundary, and the real reader meets the budget.
   Check: `target/release/mfb test packages/xml` → pass; `/tmp` consumer on each shape at 100k → each
   of 3 runs ≤ 3.00 s (est. 3 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 110  Pass: 110  Fail: 0`, exit 0; every one
+  of the 9 consumer runs above is ≤ 0.45 s against the 3.00 s budget — 6.7× inside it on the slowest
+  shape. The node counts confirm each shape really built 100k nodes.
 Commit: —
 
 ## Validation Plan
