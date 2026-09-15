@@ -124,7 +124,7 @@ output is unchanged from D.
 Acceptance: §2 filled with pasted evidence.
   Check: the commands in §2 (est. 10 min).
   (2026-09-14: `python3 /tmp/p137e-phase1.py` → the headers pasted in §2.)
-Commit: —
+Commit: b4819e0c9
 
 ### Phase 2 — package-merge + dynamic blocks + block choice
 
@@ -206,27 +206,55 @@ a violation is investigated and explained in Corrections, not hidden).
   Check: `cargo test --test rt_compress_interop`; `tools/compress-bench/run.sh target/release/mfb` (est. 15 min).
   (2026-09-14: interop `ok. 6 passed`; bench `OPT_LEVELS=1 ROUNDS=1 … deflate1 deflate6 deflate9`, exit 0, every row `ok`.
   Level 9 output ≤ level 1 output on every corpus file: yes (random 1 MiB: level 9 1,048,659 B, level 1 1,048,659 B; random 4 MiB: level 9 4,194,629 B, level 1 4,194,634 B; random 16 MiB: level 9 16,778,501 B, level 1 16,778,511 B; text 1 MiB: level 9 79,099 B, level 1 94,045 B; text 4 MiB: level 9 316,167 B, level 1 376,304 B; text 16 MiB: level 9 1,264,348 B, level 1 1,505,437 B; zero 1 MiB: level 9 1,220 B, level 1 4,792 B; zero 4 MiB: level 9 4,867 B, level 1 19,155 B; zero 16 MiB: level 9 19,452 B, level 1 76,606 B)..)
-Commit: —
+Commit: 9c3fc299b
 
 ### Phase 4 — whole-feature validation (plan-137 final gate, runs once)
 
-- [ ] `cargo build --release --bin mfb`, then
+- [x] `cargo build --release --bin mfb`, then
       `cargo test --no-fail-fast > /tmp/p137-final.log 2>&1; echo EXIT=$?` and
       `grep -c '^failures:' /tmp/p137-final.log` → 0 (includes `artifact_gate_all`).
-- [ ] `scripts/test-accept.sh target/release/mfb /tmp/p137-accept` → 0 mismatches.
-- [ ] `bash scripts/man-examples-gate.sh target/release/mfb`; `scripts/man-census.sh --memory-scope`;
+      (2026-09-14. `git log worktree-P-137..main` → 0 commits, so main had not moved since the last merge and this is the
+      single pre-merge run. `cargo test --no-fail-fast` → `EXIT=0`; `grep -c ^failures: /tmp/p137-final.log` → **0**; 185 test binaries, **5,707 passed, 0 failed**, 9 ignored; `artifact_gate_all ... ok`.)
+- [x] `scripts/test-accept.sh target/release/mfb /tmp/p137-accept` → 0 mismatches.
+      (2026-09-14: `scripts/test-accept.sh target/release/mfb /tmp/p137-accept` → exit 0, `acceptance tests passed (1483 test(s) ran)`, 0 mismatches.)
+- [x] `bash scripts/man-examples-gate.sh target/release/mfb`; `scripts/man-census.sh --memory-scope`;
       `scripts/spec-census.sh --citations`; `cargo test -p mfb --bins citations_resolve`.
-- [ ] `tools/oracles/compress/run.sh target/release/mfb` (all modes) → exit 0.
-- [ ] Runtime proof on the boxes: the roundtrip fixture and `compress-decode-valid` cross-built and
+      (2026-09-14.
+      - **`bash scripts/man-examples-gate.sh target/release/mfb`:** `man examples: 1078 checked, 1 failed, 0 stale not-run entr(y/ies)`. The one failure, `http::server#2`, was port 8080 held by an unrelated local dev server (Corrections). Once the port was freed, `http` was re-run exactly as the gate runs it (`MFB=… NOT_RUN_FILE=scripts/man-examples-not-run.txt SCRATCH=… bash scripts/man-run-examples.sh http --run`) → `examples: 38 built: 38 ran: 35 not run: 3 failed: 0`, with `http::server example 2 — ran`. All 1,078 examples now pass.
+      - **`scripts/man-census.sh --memory-scope`:** exit 0, `unclassified memory-vocabulary hits: 0`.
+      - **`scripts/spec-census.sh --citations`:** the first run gave `MISS-PATH 2`, `MISS-SYMBOL 19`, none of them in a file plan-137 changed. All were repaired in `src/docs/spec` (Corrections), and the re-run gives `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`.
+      - **`cargo test -p mfb --bins citations_resolve`:** `1 passed`, before and after the repairs.)
+- [x] `tools/oracles/compress/run.sh target/release/mfb` (all modes) → exit 0.
+      (2026-09-14: `run.sh target/release/mfb crc32 decode-raw decode-zlib decode-gzip mutate encode-raw encode-zlib
+      encode-gzip` → exit 0, `1657 case(s), 0 failure(s)`. `mutate` is named explicitly because `run.sh`'s default mode
+      list omits it; it gave 98 "all accept, same output", 502 "all refuse" and 0 hard failures. decode-gzip skips one
+      declared Node divergence, case 152. The encode audit found no dynamic block larger than its alternatives.)
+- [x] Runtime proof on the boxes: the roundtrip fixture and `compress-decode-valid` cross-built and
       run on 2223 (`linux-aarch64` glibc), 2230 (`windows-x86_64`, shipped with `scripts/remote-common.sh`
       `win_ship`; the first Windows execution of this package), and one short run on 2228
       (`linux-x86_64` glibc, emulated — only these two fixtures). Output CRCs identical to macOS.
-- [ ] Size probe: `IMPORT io` + `IMPORT compress` with no call equals the `IMPORT io` baseline; record
+      (2026-09-14, on the Phase 3 compiler:
+      - **2223:** `FILTER=<fixture> scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64 glibc` → `1 passed,
+        0 failed` for each fixture. Each run compares output with the golden, which is the macOS output.
+      - **2230:** `/tmp/p137-winproof.sh` builds each fixture on macOS and for `windows-x86_64`, ships the `.exe` with
+        `win_ship`, runs it over `remote_ssh` and compares the CR-stripped output byte for byte →
+        `SAME compress-encode-roundtrip-valid: 12 lines identical on macos-aarch64 and windows-x86_64` and
+        `SAME compress-decode-valid: 9 lines identical`. The roundtrip lines carry every output's length and CRC-32.
+      - **2228:** `FILTER=<fixture> scripts/linux-runtime-proof.sh target/release/mfb 2228 linux-x86_64 glibc` → `1 passed, 0 failed` for each of the two fixtures (emulated x86_64), against the macOS goldens.)
+- [x] Size probe: `IMPORT io` + `IMPORT compress` with no call equals the `IMPORT io` baseline; record
       one-member deltas for `crc32`, `gzipDecode`, `gzipEncode`.
+      (2026-09-14, macos-aarch64, `/tmp/p137-size.py`: the `.ai/resources-packages.md` probe, with same-length project
+      names.
+      - `IMPORT io`, one `io::print` → **66,600 B**. With `IMPORT compress` and no call → **66,600 B**, equal.
+      - One `crc32` call → 83,112 B (**+16,512 B**).
+      - One `gzipDecode` call → 231,720 B (**+165,120 B**).
+      - One `gzipEncode` call → 363,816 B (**+297,216 B**).)
 - [ ] Archive plan-137-E to `planning/completed/`. (Corrected 2026-09-14: A–D are archived as each
       completes — see Corrections.)
 
 Acceptance: all gates above green, runtime proven on four targets, sizes recorded.
+  (2026-09-14: every gate above green; runtime proven on macos-aarch64 (the goldens), linux-aarch64 (2223),
+  windows-x86_64 (2230) and linux-x86_64 (2228); sizes recorded.)
   Check: the commands above (est. 60 min — the full suite is required once by `.ai/testing-gates.md`;
   no scoped run covers every importer golden and the other packages' byte-identity).
 Commit: —
@@ -334,6 +362,37 @@ Commit: —
   an encoder now injects the dynamic-block helpers, and levels 1–9 emit different bytes. Phase 3's byte-identity
   regeneration task refreshes them, together with `compress-encode-roundtrip-valid`'s `build.log`, whose output lengths
   and CRCs change with the block choice.
+
+- **`man-examples-gate`'s one failure, `http::server#2`, was port 8080 taken on this host; re-run green once it was
+  freed** (2026-09-14). The gate logged `man examples: 1078 checked, 1 failed`: `http::server#2` gave `Error: 7-707-0003`,
+  "Network operation failed before a connection was established". Localized before anything was changed:
+  - **What the example does:** `mfb man http server` example 2 calls `http::server(8080, "127.0.0.1", 16)`.
+  - **What held the port:** `lsof -nP -iTCP:8080 -sTCP:LISTEN` → `learn-ser 95248 … 127.0.0.1:8080 (LISTEN)`, and
+    `ps -p 95248` → `target/debug/learn-server --config ../web/dev-server.toml`, an unrelated local development server.
+    It was not stopped by this session. The user freed the port.
+  - **The example itself is correct:** its exact source with the port changed to 18080, built by this compiler, prints
+    `listening on port 18080` and exits 0.
+  - **Re-run with 8080 free**, as the gate runs a package → `examples: 38 built: 38 ran: 35 not run: 3 failed: 0`.
+
+  plan-137 does not touch `http`, `net` or `tcp`.
+- **The citation census found 21 stale markers, all older than plan-137; all are repaired** (2026-09-14).
+  `scripts/spec-census.sh --citations` reported `MISS-PATH 2` and `MISS-SYMBOL 19` (11 stale by move, 8 by deletion).
+  Comparing this branch with `main` over the 17 affected spec files shows plan-137 changed only one of them, adding the
+  `ErrTooLarge` row to `02_error-codes.md`, and the miss there is the older `[[build.rs:generate_errorcode_table]]`.
+  - **Moves:** re-pointed to the symbol's current file, checked by grep.
+  - **Deletions:** each claim was checked against the code that now does the job. Five sentences had become false and
+    were corrected:
+    - the error-code table is hand-maintained in `errorcode::register`, not generated at build time;
+    - AArch64 instruction size is measured by a probe encoder, not precomputed;
+    - `ARENA_REG` became `abi::ARENA` (`x19` on AArch64, `r15` on x86-64), in two places;
+    - x86-64 has no zero register, so the claimed `xor r14,r14` entry step does not exist.
+  - **Paths:** two path-less markers now name `builder_registers.rs` and `vreg_frame.rs`.
+
+  The repair also surfaced stale prose with no broken marker: `architecture/02_frontend.md` and `architecture/04_ir.md`
+  still gave the pre-registry injection chain `json -> csv -> … -> crypto -> encoding`. Both now describe the real chain,
+  the registry's generic pass then `http -> net -> encoding -> color -> compress`, including plan-137-C's `compress` late
+  pass, and note that the build path lowers the already-augmented AST. The census re-run gives `MISS-PATH 0` and
+  `MISS-SYMBOL 0`, and `citations_resolve` passes.
 
 ## Summary
 
