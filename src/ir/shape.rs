@@ -254,6 +254,179 @@ pub(crate) fn export_in_executable_diagnostics(
     diagnostics
 }
 
+/// A built-in nominal that is always in scope and declares no fields, so an
+/// importer's package-metadata walk (`validate_package_type`) accepts it without
+/// a type-table row.
+fn is_always_in_scope_nominal(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Named(sym)
+        if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
+}
+
+/// bug-624 B: in a package build, reject an `EXPORT` declaration that names a
+/// type this package declares without `EXPORT` (`EXPORT_NAMES_NON_EXPORTED_TYPE`).
+///
+/// The `.mfp` type table carries only exported types. So such a package used to
+/// build cleanly, and then every importer rejected it in
+/// `validate_package_type` (`PACKAGE_INVALID ... references unknown type`). An
+/// exported binding of that type types as `Unknown` in the importer instead. The
+/// rule reports at the exporting declaration, where the fix belongs.
+///
+/// It walks exactly what the importer reads off the `.mfp`, through every
+/// structural wrapper (`for_each_nominal`):
+///
+/// * an `EXPORT TYPE`'s fields at every field visibility, since the writer
+///   serializes `PRIVATE` fields too;
+/// * an `EXPORT UNION`'s variant fields, with its `includes` expanded as the
+///   writer's `concrete_union_variants` does. The variant record's own name is
+///   not checked. Neither the importer nor native codegen needs the record
+///   exported, because the union row carries each variant's fields inline;
+/// * every `EXPORT FUNC`/`SUB` parameter and return type;
+/// * every `EXPORT LET`/`MUT` binding type.
+///
+/// An exported type reached this way is checked as its own declaration, so the
+/// walk stops at the first type the importer could not resolve. A nominal this
+/// package does not declare is never flagged: an imported (re-exported) type, a
+/// resource, a builtin type (qualified, sigil or always-in-scope), or a
+/// template parameter. The input is the lowered source IR, so it carries the
+/// same `visibility == "export"` flags and concrete (monomorphized) types the
+/// writer encodes.
+pub(crate) fn export_names_non_exported_type_diagnostics(
+    is_package: bool,
+    ir: &crate::ir::IrProject,
+    project_dir: &Path,
+) -> Vec<PendingDiagnostic> {
+    const EXPORT: &str = "export";
+    if !is_package {
+        return Vec::new();
+    }
+    let declared: HashMap<&str, &crate::ir::IrType> =
+        ir.types.iter().map(|ty| (ty.name.as_str(), ty)).collect();
+    let hidden_in = |type_: &ParameterType| -> Vec<String> {
+        let mut hidden: Vec<String> = Vec::new();
+        let mut walked = type_.clone();
+        super::package::for_each_nominal(&mut walked, &mut |name| {
+            let spelled = name.resolve();
+            if is_always_in_scope_nominal(&ParameterType::Named(*name))
+                || super::package::is_builtin_type_name(spelled)
+                || declared
+                    .get(spelled)
+                    .is_none_or(|ty| ty.visibility == EXPORT)
+                || hidden.iter().any(|seen| seen == spelled)
+            {
+                return;
+            }
+            hidden.push(spelled.to_string());
+        });
+        hidden
+    };
+    let mut diagnostics = Vec::new();
+    let mut check =
+        |file: &str, line: u32, declaration: &str, position: &str, type_: &ParameterType| {
+            for hidden in hidden_in(type_) {
+                let hidden = crate::internal_name::display_name(&hidden);
+                diagnostics.push(PendingDiagnostic {
+                    rule: "EXPORT_NAMES_NON_EXPORTED_TYPE".to_string(),
+                    detail: format!(
+                        "{declaration} names `{hidden}` in its {position}, but `{hidden}` is not \
+                     exported, so no importer of this package can resolve it. EXPORT \
+                     `{hidden}`, or keep it out of the exported declaration."
+                    ),
+                    path: if file.is_empty() {
+                        project_dir.join("<generated>")
+                    } else {
+                        project_dir.join(file)
+                    },
+                    line: line as usize,
+                });
+            }
+        };
+
+    for ty in &ir.types {
+        if ty.visibility != EXPORT || super::package::is_builtin_type_name(&ty.name) {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            ty.kind.to_uppercase(),
+            crate::internal_name::display_name(&ty.name)
+        );
+        for field in &ty.fields {
+            let position = format!("field `{}`", field.name);
+            check(&ty.file, ty.loc.line, &declaration, &position, &field.type_);
+        }
+        // A union's variants, its `includes` expanded depth-first before its own
+        // variants, exactly as the writer serializes the union row.
+        let mut unions = vec![ty];
+        let mut expanded: HashSet<&str> = HashSet::new();
+        while let Some(union) = unions.pop() {
+            if !expanded.insert(union.name.as_str()) {
+                continue;
+            }
+            unions.extend(
+                union
+                    .includes
+                    .iter()
+                    .filter_map(|include| declared.get(include.as_str()).copied()),
+            );
+            for variant in &union.variants {
+                for field in &variant.fields {
+                    let position = format!(
+                        "variant `{}` field `{}`",
+                        crate::internal_name::display_name(&variant.name),
+                        field.name
+                    );
+                    check(&ty.file, ty.loc.line, &declaration, &position, &field.type_);
+                }
+            }
+        }
+    }
+    for function in &ir.functions {
+        if function.visibility != EXPORT || super::package::is_builtin_type_name(&function.name) {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            function.kind.to_uppercase(),
+            crate::internal_name::display_name(&function.name)
+        );
+        for param in &function.params {
+            let position = format!("parameter `{}`", param.name);
+            check(
+                &function.file,
+                function.loc.line,
+                &declaration,
+                &position,
+                &param.type_,
+            );
+        }
+        check(
+            &function.file,
+            function.loc.line,
+            &declaration,
+            "return type",
+            &function.returns,
+        );
+    }
+    for binding in &ir.bindings {
+        if binding.visibility != EXPORT {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            if binding.mutable { "MUT" } else { "LET" },
+            crate::internal_name::display_name(&binding.name)
+        );
+        check(
+            &binding.file,
+            binding.loc.line,
+            &declaration,
+            "type",
+            &binding.type_,
+        );
+    }
+    diagnostics
+}
+
 /// One declared or imported type as the compatibility rule needs it: its
 /// identity (so two distinct declarations sharing a bare name never unify)
 /// and, for a union, its variant names.
@@ -929,10 +1102,7 @@ impl<'a> Walker<'a> {
             }
             ParameterType::Named(_) => {
                 let name = type_.clone();
-                // A built-in nominal is always in scope and declares no fields.
-                if matches!(&name, ParameterType::Named(sym)
-                    if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
-                {
+                if is_always_in_scope_nominal(&name) {
                     return;
                 }
                 if self.is_resource_type(type_) || !seen.insert(name.clone()) {

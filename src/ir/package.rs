@@ -668,7 +668,7 @@ fn package_type_surface(pir: &mut IrProject) -> HashSet<Symbol> {
 /// it. A user declaration can carry neither. `.` is field access, and monomorph
 /// sanitizes it to `$` in an instance name. `#` cannot be lexed, so it appears
 /// only in a file-PRIVATE mangle `#<hash>$<name>`.
-fn is_builtin_type_name(name: &str) -> bool {
+pub(super) fn is_builtin_type_name(name: &str) -> bool {
     name.contains('.')
         || (internal_name::strip_sigil(name).is_some()
             && internal_name::private_name_parts(name).is_none())
@@ -692,8 +692,9 @@ fn package_private_type_name(id: &str, name: &str) -> String {
 /// Every nominal a type names: a `Named` type, or the template head of a user
 /// generic, at any depth. Exhaustive on purpose. A new `ParameterType` variant
 /// that can hold a nominal must be walked here, or the private type it names is
-/// left unscoped.
-fn for_each_nominal(type_: &mut ParameterType, f: &mut impl FnMut(&mut Symbol)) {
+/// left unscoped — or, for `shape::export_names_non_exported_type_diagnostics`,
+/// unchecked.
+pub(super) fn for_each_nominal(type_: &mut ParameterType, f: &mut impl FnMut(&mut Symbol)) {
     match type_ {
         ParameterType::Named(name) => f(name),
         ParameterType::UserOf(name, args) => {

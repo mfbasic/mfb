@@ -482,6 +482,7 @@ Scheme*).
 | `2-203-0136` | `CRYPTO_SHA1_INSECURE` | warn | SHA-1 is not collision-resistant; use it only for legacy interoperability |
 | `2-203-0137` | `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` | error | inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand |
 | `2-203-0138` | `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` | error | a resource cannot cross the thread data plane |
+| `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |

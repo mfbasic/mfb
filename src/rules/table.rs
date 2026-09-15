@@ -762,6 +762,16 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a resource cannot cross the thread data plane",
     },
+    // bug-624 B: the `.mfp` type table carries only exported types, so an EXPORT
+    // declaration naming a non-exported type of the same package built a
+    // package every importer then rejected (PACKAGE_INVALID). Reported at the
+    // package build, at the exporting declaration.
+    Rule {
+        code: "2-203-0139",
+        name: "EXPORT_NAMES_NON_EXPORTED_TYPE",
+        severity: Severity::Error,
+        message: "an exported declaration names a type the package does not export",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for
