@@ -335,7 +335,31 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution, including the Phase 1 measurements.>
+- **Phase 1 prototype is a user-space MFBASIC program, not a scratch builtin build.** A builtin's
+  helper bodies are MFBASIC source that `Registry::augment_project` appends to the project AST, so
+  they go through the same front end and codegen as user source; a user-space program measures the
+  same code without rebuilding the compiler per variant. Generator: `/tmp/p137proto/gen_proto.py`
+  (`bits` and `arith` bit-buffer flavours; `emit` flag and 8-byte end-position trailer cover both
+  §4.1 shapes); runner `/tmp/p137proto/run.py`; streams `/tmp/p137proto/gen_streams.py` (the 4096×4096
+  PNG's IDAT plus stored / fixed / Huffman-only / RLE / levels 1, 6, 9 / empty / 1-byte streams, each
+  checked for length, CRC-32 and end position). Both flavours pass all 9 correctness streams at
+  `-O1` and `-O3`.
+- **Two prototype bugs, both Phase 2 design rules.** (1) The fixed-Huffman distance table is **32**
+  five-bit codes — zlib 1.2.12 `inflate.c:305` `while (sym < 32) state->lens[sym++] = 5;`. Built
+  from 30, it is an incomplete set that §4.2's validation correctly refuses: every stream failed with
+  `inflate: incomplete code set` (the core builds the fixed tables up front) until fixed. Symbols 30
+  and 31 are refused when decoded. (2) A powers-of-two table stops at the largest shift the bit buffer
+  uses (`bitCount` ≤ 56 → 2^56); building 2^63 raised `7-705-0010` arithmetic overflow at start-up.
+- **The 370 KB corpus stream is not a throughput reference.** `/tmp/p137proto/count_symbols.py` (a
+  counting reference decoder, validated at `out=370000` on three encodings): `c-level6.z` has 5 stored
+  and 2 dynamic blocks, literals are 5.4% of its output, 12.22 output bytes per symbol — its 9.9 ms
+  (≈35.6 MiB/s) mostly measures copying. The PNG stream (1.8:1) is the literal-heavy measurement.
+- **The back-to-back runner's `-O3` shape rows are not physically possible**, so no decision uses
+  them: `bits -O3` trailer 4,574 ms < none 7,214 ms although trailer does strictly more work, rescan
+  7,204 ms ≈ none although it decodes twice, and none's own runs spread 6,274–7,718 ms (host load, as
+  plan-137-A's first bench run). The shape and flavour decisions use `/tmp/p137proto/interleave.py`:
+  every (flavour, level, shape) visited once per round in rotated order, paired per-round ratios.
+
 
 ## Summary
 
