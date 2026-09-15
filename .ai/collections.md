@@ -248,42 +248,45 @@ Two rules from it that are easy to get wrong:
   `.ncodesum` fixture contains a STATE collection update at all, so it reports 0
   diffs either way. See `.ai/resources-packages.md` for the full rule and the
   instruments that can see it.
-* **A length-changing `set` on a variable-width element shifts inside the block;
-  it does NOT rebuild (plan-121-F).** A same-length replacement was always O(1)
-  (offsets unchanged, nothing to move). **Any** length change — longer *or*
-  shorter — used to take the `removeAt` + `insert` rebuild: three allocations and
-  two full copies per call. Measured, that was **O(N^1.6)**, not the O(N) a data
-  shift costs; the excess is the arena free-list degradation `benchmark/README.md`
-  documents under mixed-size transient churn.
+* **A length-changing `set` on a variable-width element touches no other element
+  (plan-121-F, then bug-627).** A same-length replacement was always O(1). **Any**
+  length change used to take the `removeAt` + `insert` rebuild (three allocations,
+  two full copies, measured **O(N^1.6)**). plan-121-F replaced that with an
+  in-block shift of every byte after the written element plus an offset fixup of
+  every later entry — still **O(N) per write**, so widening every element of a
+  list front to back was O(N²): 6.69 s for 100,000 writes (bug-627). The arm
+  (`set_inplace_resize` in `lower_list_set_in_place`) is now:
 
-  The path is now: widen or narrow the span where it lies, then fix up every
-  entry whose payload sat after it. Three things about it are easy to get wrong:
+  - **shorter** — overwrite where it lies; the unused bytes become a hole;
+  - **longer, last payload in the data region** (`valueOffset + oldLen ==
+    dataLength`) — grow where it lies;
+  - **longer, elsewhere** — write at the *aligned* data tail and repoint the
+    entry; the old span becomes a hole;
+  - **a tail write that does not fit** — `emit_repack_list_data`: copy every live
+    payload, by its own entry, packed in entry order into a block of
+    `step(live + need + count)` data bytes, then write at the new tail. The
+    written element's `valueLength` is zeroed first so its old bytes are not
+    carried.
 
-  - **The two directions are different code.** Widening moves the tail **up into
-    itself** and needs a **backward** copy; narrowing moves it down and needs a
-    forward one. A forward copy used for widening smears the first tail bytes
-    over the region whenever the shift distance is less than the tail length — and
-    still looks correct on a 1–2 element list, which is what a small test uses.
-  - **The offset fixup has two directions too, and they are not one operation
-    with a negated argument.** `emit_offset_compaction_fixup` subtracts;
-    `emit_offset_expansion_fixup` adds. Offsets are read back **unsigned**, so
-    passing a negative `hole_len` to the subtracting one wraps. Both use `>` not
-    `>=`, which is what leaves the written element's own entry alone.
-  - **The overflow path must grow GEOMETRICALLY, or the shift never runs.** This
-    is the one that hid: with an in-block shift added but the overflow still
-    falling back to the rebuild — which produces a **tight** buffer — every
-    widening overflowed on its first call, rebuilt tight, and overflowed again.
-    The widening cost was **unchanged** (72 → 828 → 11619 → 122465 ns/set over
-    N = 50…3200) while narrowing, which cannot overflow, improved ~7×. A test
-    exercising only the narrowing case would have shown a real win and hidden
-    that half the feature was dead code.
+  Three things about it are easy to get wrong:
 
-  `emit_grow_list_data_capacity` is deliberately simpler than `append`'s grow:
-  because `capacity` is unchanged, the header, the entry table and the live data
-  are one **contiguous** prefix, so it is a single verbatim block copy — and the
-  data region keeps the same block-relative base ("data base uses capacity, never
-  count"), so no entry offset moves.
+  - **Holes are legal only because no reader locates a payload by position.**
+    Every consumer — copy, `=`/`contains`, slice, join, sort, `FOR EACH`, thread
+    transfer, graph copy — goes through each entry's `(valueOffset, valueLength)`
+    (audited for bug-627). A new hand-rolled reader that walks the data region
+    linearly, or sizes live data by `dataLength`, is wrong for a kind-0 list.
+    Kind-2 (fixed-width) lists never reach the arm, and keep index order.
+  - **Size the repack from LIVE bytes, never from `dataCapacity`.** A loop that
+    keeps rewriting one element with alternating lengths overflows repeatedly
+    while the live data stays tiny; stepping the old capacity would grow the block
+    geometrically forever. The `+ count` term is what pays for the O(count) repack
+    pass when the payloads are mostly empty.
+  - **The overflow must stay GEOMETRIC** (plan-121-F Correction F1): a tight
+    rebuild overflows again on the next widening, which is how an earlier version
+    of the shift measured no faster at all (72 → 828 → 11619 → 122465 ns/set over
+    N = 50…3200).
 
+  The plan-121-F measurements that follow predate the bug-627 arm.
   With both halves: **37× and 41× faster at N = 3200**, with the same-length path
   flat at ~10 ns throughout as the control.
 
