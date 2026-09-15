@@ -22,6 +22,11 @@ none of them owns filesystem access, and neither does this.
 Full API and prose: `mfb pkg doc packages/xml/xml.mfp`, or `mfb doc packages/xml`
 for the internals too.
 
+This package is differential-tested against two independent implementations — a
+Node oracle (saxes, @xmldom/xmldom) and a Rust oracle (roxmltree, quick-xml) — as
+equal peers, over a hand-written corpus, the W3C XML Conformance Test Suite, and
+seeded fuzzing in both directions. See [`oracle/README.md`](oracle/README.md).
+
 ## Why this is a package and not a built-in
 
 A libxml2 binding would mean a large wrapper surface, an inherited CVE history,

@@ -334,17 +334,25 @@ Acceptance: both directions agree exactly.
   The first full-count run was **not** green — 160 of 12,000 and 480 of 18,000 — and every failure
   was a carriage return. Both were harness defects, recorded in Corrections; the package needed no
   change.
-Commit: —
+Commit: `d5664b0a9`
 
 ### Phase 5 — `mutate`, `perf`, README
 
-- [ ] `diff.mjs mutate` and `perf` per §4.
-- [ ] `packages/xml/oracle/README.md` — setup commands, why each library, envelope, modes, "What it
-      found", layout (mirror `packages/yaml/oracle/README.md`).
+- [x] `diff.mjs mutate` and `perf` per §4.
+- [x] `packages/xml/oracle/README.md` — setup commands, why each library, envelope, modes, "What it
+      found", layout (mirror `packages/yaml/oracle/README.md`). `packages/xml/README.md` links it.
 
 Acceptance: robustness and performance hold, and the README documents every mode.
   Check: `node packages/xml/oracle/diff.mjs mutate --count 2000 && node packages/xml/oracle/diff.mjs perf`
   → exit 0 (est. 5 min).
+  MET, both exit 0. `ok   mutate: 1631 case(s) agreed three ways` — `293 still parsed, 1338 refused;
+  1628/1631 agreed three ways (information only); 369 skipped as not UTF-8; probe took 0.2 s`. The
+  probe answered a well-formed envelope for every damaged document and never crashed, which is what
+  this mode asserts; the three disagreements are reported, not failed, because damaged input has no
+  right answer.
+  `ok   perf: 3 case(s) agreed three ways` — `flat 1687 KiB in 1.04 s; deep 684 KiB in 0.85 s;
+  wide 391 KiB in 0.45 s`, each inside the 3.00 s budget. The first run failed on the deep shape at
+  15.64 s; see Corrections.
 Commit: —
 
 ## Validation Plan
@@ -363,6 +371,21 @@ Commit: —
   adding one only for the suite adds a user-invisible code path. (§4)
 
 ## Corrections
+
+**Phase 5 — `perf` failed on the deep shape, and the cost was the PROBE, not the package.** First
+run: flat 2.33 s, wide 1.65 s, **deep 15.64 s** against a 3.00 s budget. The package was not the
+problem — plan-138-A Phase 5 measured `xml::parse` on that exact shape at 0.31 s through a `/tmp`
+consumer that parses and counts. The other ~15.3 s was the probe assembling its answer out of nested
+`json::Json` values: storing a deeply nested value copies the whole graph, so at depth 255 the
+envelope construction is quadratic — the same copy behaviour recorded in
+`bugs/bug-647-take-drop-self-reassignment-copies-every-returned-element.md`.
+
+Fixed in the harness rather than by relaxing the budget: the probe now emits its answer as TEXT,
+escaping each string with `json::stringify` on a single flat `JsonStr`, so no deep graph is ever
+built. The check stays end-to-end — it still measures parse, projection and serialization together —
+and the budget stays at 3.00 s. Measured after: flat 2.33 → **1.04 s**, deep 15.64 → **0.85 s**
+(18× faster), wide 1.65 → **0.45 s**. `corpus` still agrees 25/25, so the envelope the probe emits is
+unchanged — only how it is built.
 
 **Phase 4 — quick-xml's indent mode changes content, so the Rust writer owns its own layout.**
 `Writer::new_with_indent` indents inside EVERY element, including ones holding text: a tree carrying

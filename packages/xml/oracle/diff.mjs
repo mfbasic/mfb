@@ -20,7 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readJob as nodeReadJob, writeJob as nodeWriteJob } from "./oracle.mjs";
-import { trees, STYLES, write as writeStyled } from "./generate.mjs";
+import { trees, STYLES, rng, write as writeStyled } from "./generate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../../..");
@@ -541,12 +541,158 @@ function projectChildren(children) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// mutate: is the probe ROBUST? Not "is it right" — damaged input has no right
+// answer. What is asserted is that it always answers a well-formed envelope,
+// exits 0, and finishes; agreement is reported as information only.
+// ---------------------------------------------------------------------------
+
+const DAMAGE = ["<", "&", "]]>", "\r", "\0", ">", "<![CDATA[", "&#", "</", "�"];
+
+function damage(raw, next) {
+  const bytes = Buffer.from(raw);
+  if (bytes.length === 0) return bytes;
+  const at = Math.floor(next() * bytes.length);
+  const choice = next();
+  if (choice < 0.3) {
+    // Flip a bit — this is the one that can produce invalid UTF-8.
+    const copy = Buffer.from(bytes);
+    copy[at] ^= 1 << Math.floor(next() * 8);
+    return copy;
+  }
+  if (choice < 0.5) {
+    return Buffer.concat([bytes.subarray(0, at), bytes.subarray(at + 1)]);
+  }
+  if (choice < 0.7) {
+    const insert = Buffer.from(DAMAGE[Math.floor(next() * DAMAGE.length)]);
+    return Buffer.concat([bytes.subarray(0, at), insert, bytes.subarray(at)]);
+  }
+  if (choice < 0.85) {
+    // Truncate: an unclosed everything.
+    return bytes.subarray(0, at);
+  }
+  // A raw byte that cannot start a UTF-8 sequence.
+  const copy = Buffer.from(bytes);
+  copy[at] = 0xff;
+  return copy;
+}
+
+function runMutate(options) {
+  const next = rng(options.seed);
+  const sources = readdirSync(CORPUS)
+    .filter((name) => name.endsWith(".xml"))
+    .sort()
+    .map((name) => ({ name, raw: readFileSync(join(CORPUS, name)) }));
+
+  const cases = [];
+  let notUtf8 = 0;
+  for (let index = 0; index < options.count; index += 1) {
+    const source = sources[Math.floor(next() * sources.length)];
+    const mutated = damage(source.raw, next);
+    // Invalid UTF-8 cannot cross the JSON job boundary, and MFBASIC's String
+    // cannot hold it — the same wall xmlconf hit. Counted, never silently
+    // dropped.
+    if (Buffer.compare(Buffer.from(mutated.toString("utf8"), "utf8"), mutated) !== 0) {
+      notUtf8 += 1;
+      continue;
+    }
+    cases.push({ id: `${source.name}#${index}`, xml: mutated.toString("utf8") });
+  }
+
+  const started = process.hrtime.bigint();
+  const probe = asked.probe("read", { cases });
+  const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+
+  const failures = [];
+  if (probe.length !== cases.length) {
+    failures.push(`the probe answered ${probe.length} of ${cases.length} cases`);
+  }
+  for (let index = 0; index < probe.length; index += 1) {
+    const result = probe[index];
+    if (!result || typeof result.ok !== "boolean") {
+      failures.push(`${cases[index].id}: the probe's answer is not a well-formed envelope`);
+      continue;
+    }
+    if (result.ok && !Array.isArray(result.content)) {
+      failures.push(`${cases[index].id}: the probe said ok but wrote no content`);
+    }
+    if (!result.ok && typeof result.reason !== "string") {
+      failures.push(`${cases[index].id}: the probe refused without a reason`);
+    }
+  }
+  if (seconds > 30) {
+    failures.push(`the probe took ${seconds.toFixed(1)} s over ${cases.length} damaged documents (limit 30 s)`);
+  }
+
+  // Agreement is information here, not a verdict: damaged input may legitimately
+  // be read differently by different implementations.
+  const rust = asked.rust("read", { cases });
+  const node = asked.node("read", { cases });
+  let agreed = 0;
+  for (let index = 0; index < cases.length; index += 1) {
+    if (!compare(cases[index].id, [probe[index], node[index], rust[index]])) agreed += 1;
+  }
+  const accepted = probe.filter((result) => result && result.ok).length;
+  const note =
+    `${accepted} still parsed, ${cases.length - accepted} refused; ` +
+    `${agreed}/${cases.length} agreed three ways (information only); ` +
+    `${notUtf8} skipped as not UTF-8; probe took ${seconds.toFixed(1)} s`;
+  return { count: cases.length, failures, diverged: 0, note };
+}
+
+// ---------------------------------------------------------------------------
+// perf: the 100k-node shapes, through the package, under the plan's budget.
+// ---------------------------------------------------------------------------
+
+function shape(kind, nodes) {
+  const parts = ["<root>"];
+  if (kind === "flat") {
+    const items = Math.floor((nodes - 1) / 2);
+    for (let index = 0; index < items; index += 1) {
+      parts.push(`<item id="${index}">value ${index}</item>`);
+    }
+  } else if (kind === "deep") {
+    let built = 1;
+    while (built < nodes) {
+      const levels = Math.min(255, nodes - built);
+      parts.push("<d>".repeat(levels), "</d>".repeat(levels));
+      built += levels;
+    }
+  } else {
+    for (let index = 1; index < nodes; index += 1) parts.push("<i/>");
+  }
+  parts.push("</root>");
+  return parts.join("");
+}
+
+function runPerf() {
+  const failures = [];
+  const notes = [];
+  for (const kind of ["flat", "deep", "wide"]) {
+    const xml = shape(kind, 100000);
+    const started = process.hrtime.bigint();
+    const results = asked.probe("read", { cases: [{ id: kind, xml }] });
+    const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+    if (!results[0] || !results[0].ok) {
+      failures.push(`${kind}: the package refused a 100k-node document — ${results[0]?.reason}`);
+      continue;
+    }
+    notes.push(`${kind} ${(xml.length / 1024).toFixed(0)} KiB in ${seconds.toFixed(2)} s`);
+    if (seconds > 3) {
+      failures.push(`${kind}: ${seconds.toFixed(2)} s for 100,000 nodes (budget 3.00 s)`);
+    }
+  }
+  return { count: 3, failures, diverged: 0, note: notes.join("; ") };
+}
+
 const MODES = {
   corpus: runCorpus,
   xmlconf: runXmlconf,
   "fuzz-read": runFuzzRead,
   "fuzz-write": runFuzzWrite,
   roundtrip: runRoundtrip,
+  mutate: runMutate,
+  perf: runPerf,
 };
 
 /** `--seed 7 --count 2000`, so a fuzz failure replays exactly. */

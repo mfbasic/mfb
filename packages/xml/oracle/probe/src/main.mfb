@@ -14,11 +14,15 @@
 '
 ' A REFUSAL is a result, reported on stdout with exit 0. That leaves a non-zero
 ' exit or an unparseable document meaning exactly one thing -- the probe itself
-' broke -- which is what the runner`s `mutate` mode checks for.
+' broke -- which is what the runner's `mutate` mode checks for.
 '
-' `content` is plan-138-A §4`s projection, and all three sides compute it
-' independently. That is deliberate: a projection computed once and shared would
-' hide exactly the disagreements this oracle exists to find.
+' The answer is built as TEXT, not as `json::Json` values. That is a performance
+' decision with a measurement behind it: assembling the envelope out of nested
+' json::Json arrays took 15.64 s for a 100,000-node document nested 255 deep,
+' against a 3.00 s budget, because storing a deeply nested value copies the whole
+' graph each time (bugs/bug-647). The same document parses in 0.31 s. Emitting
+' text keeps the cost proportional to the output, and each string is escaped by
+' `json::stringify` on a single `JsonStr`, so no deep graph is ever built.
 ' ---------------------------------------------------------------------------
 
 IMPORT xml
@@ -36,21 +40,20 @@ FUNC main() AS Integer
     RETURN 2
   END IF
   LET operation AS String = collections::get(args, 0)
+  IF operation <> "read" AND operation <> "write" THEN
+    io::printError("xmlprobe: unknown operation `" & operation & "` (expected read or write)")
+    RETURN 2
+  END IF
   LET job AS json::Json = json::parse(fs::readText(collections::get(args, 1)))
-  MUT results AS List OF json::Json = []
+  MUT results AS List OF String = []
   FOR EACH entry IN itemsOf(json::get(job, ["cases"]))
     IF operation = "read" THEN
       results = collections::append(results, readCase(entry))
-    ELSEIF operation = "write" THEN
-      results = collections::append(results, writeCase(entry))
     ELSE
-      io::printError("xmlprobe: unknown operation `" & operation & "` (expected read or write)")
-      RETURN 2
+      results = collections::append(results, writeCase(entry))
     END IF
   NEXT
-  MUT document AS Map OF String TO json::Json = Map OF String TO json::Json {}
-  document = collections::set(document, "results", jarr(results))
-  io::print(json::stringify(jobj(document)))
+  io::print("{\"results\":[" & strings::join(results, ",") & "]}")
   RETURN 0
 
   TRAP(problem)
@@ -65,45 +68,33 @@ END FUNC
 ' Cases. Every package failure is a RESULT; only a malformed job escapes.
 ' ---------------------------------------------------------------------------
 
-PRIVATE FUNC readCase(entry AS json::Json) AS json::Json
+PRIVATE FUNC readCase(entry AS json::Json) AS String
   LET id AS String = textOf(entry, "id", "")
   LET text AS String = textOf(entry, "xml", "")
-  MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
-  out = collections::set(out, "id", jstr(id))
   ' A RECOVER would have to supply a Document, so the refusal leaves by RETURN:
   ' the envelope is the result, not a substitute tree.
   LET doc AS xml::Document = xml::parse(text) TRAP(problem)
-    RETURN refusal(out, problem.code, problem.message)
+    RETURN refusal(id, problem.code, problem.message)
   END TRAP
-  out = collections::set(out, "ok", jbool(TRUE))
-  out = collections::set(out, "content", contentOfDocument(doc))
-  RETURN jobj(out)
+  RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"content\":" & contentOfDocument(doc) & "}"
 END FUNC
 
-PRIVATE FUNC writeCase(entry AS json::Json) AS json::Json
+PRIVATE FUNC writeCase(entry AS json::Json) AS String
   LET id AS String = textOf(entry, "id", "")
   LET indent AS String = textOf(entry, "indent", "")
-  MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
-  out = collections::set(out, "id", jstr(id))
   LET doc AS xml::Document = documentOfJson(json::get(entry, ["tree"]))
   LET text AS String = xml::stringify(doc, indent) TRAP(problem)
-    RETURN refusal(out, problem.code, problem.message)
+    RETURN refusal(id, problem.code, problem.message)
   END TRAP
-  out = collections::set(out, "ok", jbool(TRUE))
-  out = collections::set(out, "xml", jstr(text))
-  RETURN jobj(out)
+  RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"xml\":" & quoted(text) & "}"
 END FUNC
 
 ' A refusal envelope. `kind` is triage only -- two refusals agree without
 ' comparing kind or reason, because three implementations have three
 ' vocabularies for "no" and demanding the same words would make the harness
 ' fail on wording.
-PRIVATE FUNC refusal(base AS Map OF String TO json::Json, code AS Integer, message AS String) AS json::Json
-  MUT out AS Map OF String TO json::Json = base
-  out = collections::set(out, "ok", jbool(FALSE))
-  out = collections::set(out, "kind", jstr(kindOfCode(code)))
-  out = collections::set(out, "reason", jstr(message))
-  RETURN jobj(out)
+PRIVATE FUNC refusal(id AS String, code AS Integer, message AS String) AS String
+  RETURN "{\"id\":" & quoted(id) & ",\"ok\":false,\"kind\":" & quoted(kindOfCode(code)) & ",\"reason\":" & quoted(message) & "}"
 END FUNC
 
 PRIVATE FUNC kindOfCode(code AS Integer) AS String
@@ -113,19 +104,22 @@ PRIVATE FUNC kindOfCode(code AS Integer) AS String
   RETURN "parse"
 END FUNC
 
+' One JSON string, quoted and escaped. `json::stringify` on a single JsonStr is
+' the escaper; the value is flat, so no graph is copied.
+PRIVATE FUNC quoted(text AS String) AS String
+  RETURN json::stringify(json::JsonStr[text])
+END FUNC
+
 ' ---------------------------------------------------------------------------
-' The content projection (plan-138-A §4), computed here in MFBASIC.
+' The content projection (plan-138-A §4), emitted as JSON text.
 '
 '   ["doc", [<node>, ...]]
 '   <node> := ["e", name, [[attrName, value], ... sorted], [<node>, ...]]
 '           | ["t", text]
 ' ---------------------------------------------------------------------------
 
-PRIVATE FUNC contentOfDocument(doc AS Document) AS json::Json
-  MUT out AS List OF json::Json = []
-  out = collections::append(out, jstr("doc"))
-  out = collections::append(out, jarr(projectChildren(doc.children)))
-  RETURN jarr(out)
+PRIVATE FUNC contentOfDocument(doc AS Document) AS String
+  RETURN "[\"doc\",[" & projectChildren(doc.children) & "]]"
 END FUNC
 
 ' TRUE when any child is an element.
@@ -149,9 +143,9 @@ PRIVATE FUNC allSpace(s AS String) AS Boolean
 END FUNC
 
 ' Steps 1-3: drop comments and PIs, merge adjacent text, drop layout whitespace.
-PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS List OF json::Json
+PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS String
   LET dropLayout AS Boolean = anyElement(children)
-  MUT out AS List OF json::Json = []
+  MUT parts AS List OF String = []
   MUT pending AS String = ""
   FOR EACH k IN children
     MATCH k
@@ -160,11 +154,11 @@ PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS List OF json::Jso
       CASE Element(e)
         IF pending <> "" THEN
           IF NOT (dropLayout AND allSpace(pending)) THEN
-            out = collections::append(out, textNode(pending))
+            parts = collections::append(parts, "[\"t\"," & quoted(pending) & "]")
           END IF
           pending = ""
         END IF
-        out = collections::append(out, elementNode(e))
+        parts = collections::append(parts, elementText(e))
       CASE ELSE
         ' A comment or PI is not content, and removing it lets the text on
         ' either side of it merge.
@@ -172,46 +166,31 @@ PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS List OF json::Jso
   NEXT
   IF pending <> "" THEN
     IF NOT (dropLayout AND allSpace(pending)) THEN
-      out = collections::append(out, textNode(pending))
+      parts = collections::append(parts, "[\"t\"," & quoted(pending) & "]")
     END IF
   END IF
-  RETURN out
+  RETURN strings::join(parts, ",")
 END FUNC
 
-PRIVATE FUNC textNode(text AS String) AS json::Json
-  MUT out AS List OF json::Json = []
-  out = collections::append(out, jstr("t"))
-  out = collections::append(out, jstr(text))
-  RETURN jarr(out)
-END FUNC
-
-PRIVATE FUNC elementNode(e AS xml::Element) AS json::Json
-  MUT out AS List OF json::Json = []
-  out = collections::append(out, jstr("e"))
-  out = collections::append(out, jstr(e.name))
-  out = collections::append(out, jarr(sortedAttributes(e.attributes)))
-  out = collections::append(out, jarr(projectChildren(e.children)))
-  RETURN jarr(out)
+PRIVATE FUNC elementText(e AS xml::Element) AS String
+  RETURN "[\"e\"," & quoted(e.name) & ",[" & sortedAttributes(e.attributes) & "],[" & projectChildren(e.children) & "]]"
 END FUNC
 
 ' Attributes as a SET: sorted by name, since XML gives their order no meaning.
-PRIVATE FUNC sortedAttributes(attributes AS List OF xml::Attribute) AS List OF json::Json
-  MUT keys AS List OF String = []
+PRIVATE FUNC sortedAttributes(attributes AS List OF xml::Attribute) AS String
+  MUT names AS List OF String = []
   FOR EACH a IN attributes
-    keys = collections::append(keys, a.name)
+    names = collections::append(names, a.name)
   NEXT
-  MUT out AS List OF json::Json = []
-  FOR EACH name IN collections::sort(keys)
+  MUT parts AS List OF String = []
+  FOR EACH name IN collections::sort(names)
     FOR EACH a IN attributes
       IF a.name = name THEN
-        MUT pair AS List OF json::Json = []
-        pair = collections::append(pair, jstr(a.name))
-        pair = collections::append(pair, jstr(a.value))
-        out = collections::append(out, jarr(pair))
+        parts = collections::append(parts, "[" & quoted(a.name) & "," & quoted(a.value) & "]")
       END IF
     NEXT
   NEXT
-  RETURN out
+  RETURN strings::join(parts, ",")
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -261,25 +240,9 @@ PRIVATE FUNC nodeOfJson(value AS json::Json) AS xml::Node
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' JSON helpers. Everything here reads the harness's own JSON, so a shape it
-' does not expect is a harness bug and fails loudly.
+' Reading the job. Everything here is the harness's own JSON, so a shape it does
+' not expect is a harness bug and fails loudly.
 ' ---------------------------------------------------------------------------
-
-PRIVATE FUNC jstr(text AS String) AS json::Json
-  RETURN json::JsonStr[text]
-END FUNC
-
-PRIVATE FUNC jbool(value AS Boolean) AS json::Json
-  RETURN json::JsonBool[value]
-END FUNC
-
-PRIVATE FUNC jarr(items AS List OF json::Json) AS json::Json
-  RETURN json::JsonArr[items]
-END FUNC
-
-PRIVATE FUNC jobj(fields AS Map OF String TO json::Json) AS json::Json
-  RETURN json::JsonObj[fields]
-END FUNC
 
 PRIVATE FUNC itemsOf(value AS json::Json) AS List OF json::Json
   MATCH value
