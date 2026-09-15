@@ -490,7 +490,7 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
                 md.push_str(&format!(
                     "| `{}` | `{}` | {} |\n",
                     prop.name,
-                    prop.ty.name(),
+                    prop.ty.display(),
                     prop.description,
                 ));
             }
@@ -569,7 +569,7 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
         .params
         .iter()
         .map(|param| {
-            let decl = format!("{} AS {}", param.name, public_type_name(&param.ty));
+            let decl = format!("{} AS {}", param.name, param.ty.display());
             if matches!(
                 param.default,
                 DefaultValue::Fill { .. } | DefaultValue::Optional
@@ -590,12 +590,8 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
     // `RegistryPackage::unqualified_global` (`src/codegen/registry/mod.rs`).
     format!(
         "`{pkg}::{name}({params}) AS {}`",
-        public_type_name(&implementation.return_type)
+        implementation.return_type.display()
     )
-}
-
-fn public_type_name(ty: &crate::types::ParameterType) -> String {
-    ty.name().replace('.', "::")
 }
 
 /// Whether `function`'s forms differ ONLY by return type — every implementation
@@ -684,7 +680,7 @@ fn parameter_rows(function: &RegistryFunction) -> Vec<ParameterRow<'_>> {
 /// Whether two parameters produce the same Parameters-table cells.
 fn renders_identically(a: &Parameter, b: &Parameter) -> bool {
     a.name == b.name
-        && public_type_name(&a.ty) == public_type_name(&b.ty)
+        && a.ty.display() == b.ty.display()
         && a.desc == b.desc
         && a.aliases == b.aliases
         && is_optional_parameter(a) == is_optional_parameter(b)
@@ -842,7 +838,7 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     let return_type = function
         .implementations
         .first()
-        .map(|implementation| public_type_name(&implementation.return_type));
+        .map(|implementation| implementation.return_type.display());
 
     if rows.is_empty() {
         if single {
@@ -880,7 +876,7 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
         } else {
             format!("`{}`", param.name)
         };
-        let mut line = format!("| {name} | `{}` |", public_type_name(&param.ty));
+        let mut line = format!("| {name} | `{}` |", param.ty.display());
         if has_aliases {
             let aliases = if param.aliases.is_empty() {
                 "—".to_string()
@@ -1460,7 +1456,7 @@ mod tests {
                 for (index, implementation) in function.implementations.iter().enumerate() {
                     for param in &implementation.params {
                         let name = format!("| `{}`", param.name);
-                        let ty = format!("`{}`", public_type_name(&param.ty));
+                        let ty = format!("`{}`", param.ty.display());
                         assert!(
                             table
                                 .iter()
@@ -1471,7 +1467,7 @@ mod tests {
                             function.name,
                             index + 1,
                             param.name,
-                            public_type_name(&param.ty),
+                            param.ty.display(),
                             table.join("\n")
                         );
                         checked += 1;
@@ -2088,6 +2084,84 @@ mod tests {
                 "collections::getOr".to_string(),
                 "collections::hasKey".to_string()
             ]
+        );
+    }
+
+    /// bug-605: a record's field table spelled a package type the internal way
+    /// (`color.Color`), because `render_types_markdown` called `prop.ty.name()`
+    /// while every other render site converted the qualifier. Source writes
+    /// `color::Color`; the dotted form is field access and does not parse.
+    #[test]
+    fn types_page_field_tables_use_public_package_qualification() {
+        let canvas = render_types_markdown(registry().resolve_package("canvas").unwrap());
+        for want in [
+            "`color::Color`",
+            "`RES canvas::Font`",
+            "`RES canvas::Image`",
+        ] {
+            assert!(canvas.contains(want), "canvas types page lacks {want}");
+        }
+        let udp = render_types_markdown(registry().resolve_package("udp").unwrap());
+        assert!(
+            udp.contains("`net::Address`"),
+            "udp types page lacks `net::Address`"
+        );
+        for page in [&canvas, &udp] {
+            for dotted in ["color.Color", "canvas.Font", "canvas.Image", "net.Address"] {
+                assert!(!page.contains(dotted), "types page still prints `{dotted}`");
+            }
+        }
+    }
+
+    /// bug-605, TOTAL over the rendered surface: no page a developer reads may spell
+    /// a package type `<pkg>.<Type>`. Every render site goes through
+    /// `ParameterType::display()`; a new site that reaches for `name()` fails here
+    /// instead of shipping dots until someone notices.
+    #[test]
+    fn no_rendered_page_spells_a_dotted_package_type() {
+        let names: Vec<&str> = registry()
+            .packages()
+            .iter()
+            .map(|package| package.import_name())
+            .collect();
+        let mut hits = Vec::new();
+        let mut scan = |page: &str, md: &str| {
+            let bytes = md.as_bytes();
+            for name in &names {
+                let needle = format!("{name}.");
+                let mut from = 0;
+                while let Some(offset) = md[from..].find(&needle) {
+                    let at = from + offset;
+                    from = at + needle.len();
+                    let bounded = at == 0
+                        || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+                    let upper_leaf = bytes.get(from).is_some_and(|b| b.is_ascii_uppercase());
+                    if bounded && upper_leaf {
+                        let start = md[..at].rfind('\n').map_or(0, |n| n + 1);
+                        let end = md[at..].find('\n').map_or(md.len(), |n| at + n);
+                        hits.push(format!("{page}: {}", &md[start..end]));
+                    }
+                }
+            }
+        };
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            scan(
+                &format!("{pkg} (overview)"),
+                &render_package_markdown(package),
+            );
+            scan(&format!("{pkg} types"), &render_types_markdown(package));
+            for function in package.functions() {
+                scan(
+                    &format!("{pkg} {}", function.name),
+                    &render_function_markdown(package, function),
+                );
+            }
+        }
+        assert!(
+            hits.is_empty(),
+            "dotted package types on rendered pages:\n{}",
+            hits.join("\n")
         );
     }
 }
