@@ -7,7 +7,7 @@ const INTRO: &str = r#"The `datetime::Zone` representing Coordinated Universal T
 const DESC: &str = r#"`datetime::utc` returns the `datetime::Zone` that represents Coordinated Universal Time: a
 fixed zone whose offset from UTC is a constant zero seconds and whose label is
 the literal string `"UTC"`. The returned `datetime::Zone` carries a zone kind of
-`datetime::ZoneKind::Utc` (the first `datetime::ZoneKind` variant, tag `0`), marking it as the
+`datetime::ZoneKind::Utc`, marking it as the
 canonical UTC zone rather than an arbitrary fixed offset built with
 `datetime::fixedOffset` (kind `datetime::ZoneKind::FixedOffset`).
 
@@ -17,8 +17,8 @@ human-readable civil fields of a `datetime::DateTime`. Project a `datetime::Inst
 zone with `datetime::inZone` to obtain a `datetime::DateTime` whose year, month, day, and
 time fields are expressed in UTC; `datetime::toUtc` is the dedicated shorthand
 for exactly that projection. Because the offset is always zero, the civil fields
-of a `datetime::DateTime` in this zone match the seconds-since-epoch of the originating
-`datetime::Instant` directly, with no offset adjustment.
+are calculated from the originating `datetime::Instant` with no offset adjustment:
+`datetime::Instant[-1, 0]` reads as `1969-12-31T23:59:59Z`.
 
 `datetime::utc` takes no arguments and always returns the same constant `datetime::Zone`.
 It is pure: every call yields an identical UTC zone, it reads no host state, and

@@ -10,20 +10,28 @@ an explicit UTC offset. The result is a freshly built `String` of the shape
 the literal `T` separates the date from the time and the trailing field is the
 offset carried by `dt`: the single letter `Z` when the offset is zero, otherwise
 a signed `+HH:MM` or `-HH:MM` (`+HH:MM:SS` when the offset is not a whole number
-of minutes, so the text never names a different instant from `dt`). The fractional-second field is zero-padded to a
-fixed width, so the output of a given form is always the same length and sorts
-correctly as text.
+of minutes, so the text never names a different instant from `dt`; RFC 3339
+offsets have no seconds field, so a strict RFC 3339 parser may reject that form).
+The fractional-second field is zero-padded to the chosen width. The text is not a
+sortable key for instants: two timestamps with different offsets can sort in the
+opposite order from the instants they name, and a year beyond four digits or an
+offset with seconds changes the length.
 
 The one-argument form emits **three** fractional digits (milliseconds). The
 two-argument form chooses the width: `digits` may be `0`, `3`, `6` or `9`, and
 `0` omits the fractional field entirely (RFC 3339 permits its absence). Any
 other value raises `ErrInvalidArgument`; the four allowed widths are exactly the
 `fff` / `ffffff` / `fffffffff` tokens `datetime::format` and `datetime::parseIso`
-already handle, so every form this member emits can be read back.
+already handle, so for a four-digit year every form this member emits can be
+read back. A year outside `0 .. 9999` still renders, but `datetime::parseIso`
+rejects the text. A negative year shorter than four digits renders with the minus
+sign inside the zero padding: year -1 is `00-1-01-01T00:00:00Z`.
 
 **Precision, and what round-trips.** A `datetime::DateTime` carries nanoseconds,
-so only `datetime::toIso(dt, 9)` is lossless. It is the one form for which
-`datetime::parseIso(datetime::toIso(dt, 9))` recovers `dt`'s `nanos` exactly.
+so only `datetime::toIso(dt, 9)` keeps every digit. It is the one form for which
+`datetime::parseIso(datetime::toIso(dt, 9))` recovers `dt`'s `nanos` exactly, and it
+names the same instant. The zone does not survive: the parsed value is always a
+fixed-offset `datetime::DateTime`, even when `dt` was UTC or local.
 Every narrower form *truncates* — `datetime::toIso(dt)` and
 `datetime::toIso(dt, 3)` round-trip only to the millisecond, discarding up to
 999999 ns, and `datetime::toIso(dt, 0)` discards the whole sub-second value.
@@ -31,15 +39,16 @@ Truncation is toward zero: the digits beyond the chosen width are dropped, never
 rounded. Use `9` when the value must survive; use the default when a
 fixed-width millisecond timestamp is what the consumer expects.
 
-`toIso` is the convenience form of `datetime::format` invoked with a fixed
-pattern (`yyyy-MM-dd'T'HH:mm:ss.fffZ` for the default form). It reads only the
+`toIso` uses a fixed layout, equivalent to the `datetime::format` pattern
+`yyyy-MM-dd'T'HH:mm:ss.fffZ` for the default form. It reads only the
 date fields, time fields, and resolved offset of `dt`; it does not consult
 `dt`'s zone name, apply any zone conversion, or shift the moment. `dt` is read
 only and is not modified.
 
 A `datetime::DateTime` from the constructors always renders; only a `digits`
 outside the allowed set raises. A `datetime::DateTime` record you build yourself
-with an offset at the edge of the `Integer` range raises `ErrOverflow`. `toIso` is
+is rendered as given: an out-of-range offset produces a nonsense offset field, and
+only the most negative `Integer` offset raises `ErrOverflow`. `toIso` is
 pure: it reads no host state and has no side effects."#;
 const EX: &str = r#"Render the current instant in UTC, yielding a `...Z` suffix:
 
@@ -166,7 +175,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                     super::Parameter {
                         name: "digits",
-                        desc: "How many fractional-second digits to emit: 0 (no fractional field at all), 3 (milliseconds, what the one-argument form emits), 6 (microseconds), or 9 (nanoseconds — the only lossless width). Any other value raises `ErrInvalidArgument`.",
+                        desc: "How many fractional-second digits to emit: 0 (no fractional field at all), 3 (milliseconds, what the one-argument form emits), 6 (microseconds), or 9 (nanoseconds — the only width that keeps every digit). Any other value raises `ErrInvalidArgument`.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,

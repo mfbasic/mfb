@@ -61,6 +61,23 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 25 | `collections::contains` | `on a `Set` membership is an O(1)-average hash probe for a probe-eligible element type and a linear scan otherwise.` / `An empty list always yields `FALSE`, since the loop exits on the first bounds check.` | `internals` | memory | OPEN | — |
 | 26 | `fs::writeText` ×8 write functions | `The text payload is written directly from the `String`'s packed byte data.` / `The byte payload is written directly from the byte list's packed data region.` | `internals` | memory | OPEN | — |
 | 27 | `canvas (overview)` | `destroying one that a presented scene still draws is safe, because the scene holds only its id.` (the reason clause) | `internals` | app | OPEN | — |
+| 28 | `datetime::addDays` | `It converts `dt`'s calendar date to a serial day count, adds `days`, converts that count back to a year-month-day date, and rebuilds the `datetime::DateTime` from the new date, `dt`'s original wall-clock time, and `dt`'s original zone.` | `internals` | stdlib | OPEN | — |
+| 29 | `datetime::addMonths` | `It collapses `dt`'s year and month into a single month index (`year * 12 + month - 1`), adds `months`, and splits the sum back into a target year and month with a flooring divide so that crossing year boundaries in either direction is handled correctly.` | `internals` | stdlib | OPEN | — |
+| 30 | `datetime::civil` | `It probes the zone's offset one day before and one day after the named local time to bracket any single nearby transition. If both probes agree, that offset is used directly.` | `internals` | stdlib | OPEN | — |
+| 31 | `datetime::compare`, `equals`, `isBefore`, `isAfter` | `it performs only signed comparisons (no arithmetic), so it cannot overflow or trap.` | `internals` | stdlib | OPEN | — |
+| 32 | `datetime::dayOfYear` | `The day-of-year is computed on the proleptic-Gregorian calendar by taking the days-from-civil count of `dt`'s date, subtracting the days-from-civil count of January 1 of the same year, and adding one (`here - start + 1`), so leap years correctly extend the count past February.` | `internals` | stdlib | OPEN | — |
+| 33 | `datetime::dayOfYear`, `weekday` | `no `datetime::Instant` is resolved and no zone table is consulted.` | `internals` | stdlib | OPEN | — |
+| 34 | `datetime::fromMillis` | `The implementation first computes the toward-zero quotient `millis / 1000` and remainder `millis MOD 1000`; when that remainder is negative it adds `1000` to the remainder and subtracts `1` from the quotient, borrowing one second.` | `internals` | stdlib | OPEN | — |
+| 35 | `datetime::inZone`, `withZone`, `offsetAt` | `for a local zone it reads the host's time-zone configuration through the `datetime::localOffset` OS intrinsic to resolve the offset.` | `internals` | stdlib | OPEN | — |
+| 36 | `datetime::localOffset` | ``localOffset` is the low-level intrinsic that backs `datetime::offsetAt` for local zones and `datetime::toLocal`` | `internals` | stdlib | OPEN | — |
+| 37 | `datetime::monotonicNanos` | `It is the low-level OS-seam intrinsic that backs `datetime::monotonic`` | `internals` | stdlib | OPEN | — |
+| 38 | `datetime::offsetAt` | `(`datetime::ZoneKind::Local`, built with `datetime::local`, internally zone kind `2`)` | `internals` | stdlib | OPEN | — |
+| 39 | `datetime::offsetAt` | `the function returns the zone's stored constant offset directly and does not consult `at` — the UTC zone stores zero, and a fixed zone stores its single configured offset.` | `internals` | stdlib | OPEN | — |
+| 40 | `datetime::resolve` | ``resolve` first converts the civil date (`dt.date.year`, `dt.date.month`, `dt.date.day`) to a day count with the proleptic Gregorian calendar, multiplies by `86400` to get seconds, and adds the time-of-day contribution (`dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second`). That sum is the local second count: the seconds-since-epoch the wall-clock fields would name if they were UTC. It then subtracts `dt.offset` — the resolved UTC offset in seconds carried on the `datetime::DateTime` — to shift the local count back onto the UTC timeline` | `internals` | stdlib | OPEN | — |
+| 41 | `datetime::toLocal` | `adds that offset in seconds to the instant's seconds-since-epoch to obtain a local second count, floor-divides that into whole days and the second-of-day, converts the day count to a civil year/month/day with the proleptic Gregorian calendar, and decomposes the second-of-day into hour, minute, and second.` | `internals` | stdlib | OPEN | — |
+| 42 | `datetime::utc` | `(the first `datetime::ZoneKind` variant, tag `0`)` | `internals` | stdlib | OPEN | — |
+| 43 | `datetime::weekday` | `The day count for that civil date is computed on the proleptic-Gregorian calendar and reduced modulo seven against a fixed reference (`floorMod(days + 3, 7)`)` | `internals` | stdlib | OPEN | — |
+| 44 | `encoding::utf8Decode` | `The overload is settled once the argument type is known, so the selection is a compile-time decision, not a runtime dispatch.` | `internals` | language | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -90,7 +107,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 | Letter | Rows appended | Running total |
 |---|---|---|
 | B | — | — |
-| C | — | — |
+| C | 17 | 44 |
 | D | — | — |
 | E | — | — |
 | F | — | — |

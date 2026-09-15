@@ -95,8 +95,10 @@ readings without building `datetime::Instant` values.
 `nowNanos` reports nanoseconds since the epoch and is bounded by the range of an
 `Integer`: a 64-bit signed nanosecond count overflows in the year 2262. This is
 a limit on the intrinsic, not on the `datetime::Instant` type, whose `seconds` field spans
-the full `Integer` range. On any correctly configured host the reading is
-non-negative.
+the full `Integer` range. On a correctly configured host the reading is
+non-negative until then. On macOS and Linux the count is not checked: after
+`2262-04-11T23:47:16.854775807Z` it wraps to a negative value instead of raising
+an error. `datetime::now` is built from this same reading, so it shares the limit.
 
 `nowNanos` is **not pure**: two calls may return different values, and a
 program's output depends on the host clock. For reproducible logic, capture one

@@ -4,9 +4,10 @@
 //! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str =
-    r#"Shift a `datetime::Instant` backward along the UTC timeline by a `datetime::Duration`."#;
-const DESC: &str = r#"`datetime::subtract` returns the `datetime::Instant` reached by moving `at` backward along
-the UTC timeline by the span `by`. It subtracts the `seconds` field of `by` from
+    r#"Shift a `datetime::Instant` along the UTC timeline by the opposite of a signed `datetime::Duration`."#;
+const DESC: &str = r#"`datetime::subtract` returns the `datetime::Instant` reached by moving `at` along the UTC
+timeline by the opposite of the signed span `by`: a positive span moves it earlier,
+a negative span later. It subtracts the `seconds` field of `by` from
 the `seconds` field of `at` and the `nanos` field of `by` from the `nanos` field
 of `at`, independently, then normalizes the difference so the stored `nanos`
 lands in the range `0 .. 999_999_999`, borrowing a whole second from the
@@ -28,9 +29,9 @@ and a non-negative remainder, then folds the borrow back into the `seconds`
 field, so a subtraction that borrows across the second boundary still yields a
 `nanos` in `0 .. 999_999_999`.
 The subtraction is ordinary signed `Integer` arithmetic, so a span large enough
-to push the combined second count past the `Integer` range overflows and traps.
-`subtract` is pure: the same `datetime::Instant` and `datetime::Duration` always yield the same
-`datetime::Instant`, and it has no side effects."#;
+to push the combined second count past the `Integer` range raises `ErrOverflow`.
+`subtract` is pure: the same `datetime::Instant` and `datetime::Duration` always give the
+same result or the same error, and it has no side effects."#;
 const EX: &str = r#"Move a `datetime::Instant` back by a 90-second span:
 
 ```
@@ -78,7 +79,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "by",
-                    desc: "How far back to shift. Equivalent to `datetime::add` with the duration negated.",
+                    desc: "How far back to shift; a negative span moves later. Equivalent to `datetime::add` with the duration negated, except at the most negative seconds count, which `datetime::negate` cannot negate but `subtract` accepts.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,

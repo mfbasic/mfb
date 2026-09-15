@@ -3,9 +3,10 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Return the civil `datetime::DateTime` naming midnight at the start of a `datetime::DateTime`'s day, in its own zone."#;
-const DESC: &str = r#"`datetime::startOfDay` returns the `datetime::DateTime` naming `00:00:00` (midnight) at the
-beginning of `dt`'s civil day, in `dt`'s own zone. It keeps `dt`'s calendar date
+const INTRO: &str = r#"Return the civil `datetime::DateTime` at the start of a `datetime::DateTime`'s day, in its own zone: normally midnight."#;
+const DESC: &str = r#"`datetime::startOfDay` returns the `datetime::DateTime` at the beginning of `dt`'s civil
+day, in `dt`'s own zone. That is normally `00:00:00` (midnight); the exceptions
+are the DST cases below. It keeps `dt`'s calendar date
 (year, month, day) and zone, replaces the wall-clock time with a `datetime::Time` of
 `00:00:00` and zero nanoseconds, and re-resolves the moment through that zone.
 
@@ -32,7 +33,11 @@ has zero nanos. Like `datetime::civil`, the result round-trips through
 (`datetime::utc`, `datetime::fixedOffset`). When `dt`'s zone is the host's local
 zone (`datetime::local`), the offset is resolved from the platform's zone table,
 so the same `dt` can yield a different absolute instant on a host configured for a
-different zone or DST rule."#;
+different zone or DST rule.
+
+As with `datetime::civil`, a date so far from the epoch that its second count does
+not fit an `Integer` raises `ErrOverflow`, and for a local zone a start time the
+host cannot convert raises `ErrInvalidArgument`."#;
 const EX: &str = r#"Truncate a `datetime::DateTime` to the start of its civil day:
 
 ```
@@ -74,7 +79,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "dt",
-                desc: "The date-time whose day to take the start of. Not always midnight: in a zone whose clocks jump forward at midnight, the day starts at the first time that exists.",
+                desc: "The date-time whose day to take the start of. Not always a unique midnight: in a zone whose clocks jump forward at midnight, the day starts at the first time that exists, and where midnight happens twice it is the first occurrence.",
                 aliases: &[],
                 ty: super::ParameterType::named("DateTime"),
                 default: super::DefaultValue::None,

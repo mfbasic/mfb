@@ -42,7 +42,11 @@ preserved, `datetime::resolve` on the result returns the same `datetime::Instant
 `datetime::resolve` on `dt`: `withZone` is an identity on the absolute moment and
 changes only its civil presentation. It is pure for UTC and fixed-offset zones;
 for a local zone the result uses the host's time-zone rules at that instant,
-the same offset `datetime::localOffset` returns."#;
+the same offset `datetime::localOffset` returns.
+
+For a local `zone`, an instant outside the range the host can convert raises
+`ErrInvalidArgument`. `ErrOverflow` is raised if resolving `dt`, or applying
+`zone`'s offset to the instant, leaves the `Integer` range."#;
 const EX: &str = r#"Re-project a UTC `datetime::DateTime` into a fixed +05:30 zone:
 
 ```

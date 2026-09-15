@@ -7,13 +7,9 @@ const INTRO: &str = r#"Project an absolute `datetime::Instant` into the host's l
 const DESC: &str = r#"`datetime::toLocal` projects the absolute instant `at` into the host's local
 time zone, yielding the calendar date and wall-clock time that an observer
 reading the local clock sees at that moment. It is exactly shorthand for
-`datetime::inZone(at, datetime::local())`: it resolves the host's effective UTC
-offset for the instant `at` (see `datetime::offsetAt`), with daylight-saving
-time applied as it stood at that instant, adds that offset in seconds to the
-instant's seconds-since-epoch to obtain a local second count, floor-divides that
-into whole days and the second-of-day, converts the day count to a civil
-year/month/day with the proleptic Gregorian calendar, and decomposes the
-second-of-day into hour, minute, and second.
+`datetime::inZone(at, datetime::local())`: it uses the host's UTC offset for the
+instant `at` (see `datetime::offsetAt`), with daylight-saving time applied as it
+stood at that instant, on the proleptic Gregorian calendar.
 
 
 

@@ -20,7 +20,8 @@ parsing `value` left to right. The components are:
 - `<sep>` — the date/time separator: `T`, `t`, or a single space
 - `HH:mm:ss` — two-digit hour, minute, and second on a 24-hour clock, separated by
   literal `:` characters
-- `.fraction` — optional fractional second: a `.` followed by decimal digits. The
+- `.fraction` — optional fractional second: a `.` followed by zero or more decimal
+  digits (a bare `.` means zero nanoseconds). The
   first nine digits are scaled to nanoseconds (so `.25` becomes `250000000` ns);
   any digits beyond the ninth are read but ignored
 - `<offset>` — required UTC offset: `Z` or `z` for UTC, otherwise a signed
@@ -158,7 +159,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "value",
-                desc: "The ISO-8601 text to parse.",
+                desc: "The ISO-8601 text to parse. It must carry a UTC offset; an empty or malformed string raises `ErrInvalidFormat`.",
                 aliases: &[],
                 ty: super::ParameterType::String,
                 default: super::DefaultValue::None,

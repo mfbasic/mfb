@@ -1,0 +1,6 @@
+### 1. Wall-clock adjustment sharp edge omitted
+UNIT:      man-page:datetime/now  
+CLAIM:     "`now` is one of the few `datetime` functions that is **not pure**: two calls may return different instants, and a program's output depends on the host clock."  
+VERDICT:   incomplete  
+EVIDENCE:  `src/codegen/builtins/datetime/func_now.rs:BODY` delegates to `datetime::nowNanos`; `src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos` reads `CLOCK_REALTIME`, rather than the monotonic clock. Thus elapsed-time differences from `now` are subject to wall-clock adjustments. The compiled probe `/tmp/plan-125-scratch/C-phase3/man-page-datetime-now/probe-project` printed `first.nanos.inRange=TRUE`, `second.nanos.inRange=TRUE`, `nondecreasing=TRUE`, and `local.year=2026`; that ordinary run does not test an adjusted host clock. Both rendered examples compiled and ran successfully with no output.  
+SUGGESTED:  "Because this is a wall-clock reading, it can change when the system clock is adjusted; use `datetime::monotonic` to measure elapsed time."

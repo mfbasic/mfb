@@ -1,0 +1,7 @@
+### 1. Implementation-detail walkthrough
+
+UNIT:      man-page:datetime/toLocal  
+CLAIM:     “It is exactly shorthand for `datetime::inZone(at, datetime::local())`: it resolves the host's effective UTC offset for the instant `at` (see `datetime::offsetAt`), with daylight-saving time applied as it stood at that instant, adds that offset in seconds to the instant's seconds-since-epoch to obtain a local second count, floor-divides that into whole days and the second-of-day, converts the day count to a civil year/month/day with the proleptic Gregorian calendar, and decomposes the second-of-day into hour, minute, and second.”  
+VERDICT:   out-of-scope  
+EVIDENCE:  `src/codegen/builtins/datetime/func_to_local.rs:BODY` delegates to `__datetime_inZone`; `src/codegen/builtins/datetime/func_in_zone.rs:BODY` performs the described arithmetic. A release-binary probe under `TZ=America/New_York` printed `local=2026-11-01T01:30:00.123-05:00`, `expanded=2026-11-01T01:30:00.123-05:00`, and `roundTrip=1793514600:123456789`. The detail about floor division and decomposition only matters to someone tracing the implementation, contrary to `.ai/man-content.md` §3.  
+SUGGESTED: `It is shorthand for datetime::inZone(at, datetime::local()). It uses the local UTC offset that applies at that instant, including daylight-saving time.`

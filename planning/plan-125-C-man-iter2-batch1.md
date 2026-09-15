@@ -450,8 +450,27 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
 
 ### Phase 3 — datetime (46 units)
 
-- [ ] 44 function pages + overview + the 40-description types page.
-      **Progress (2026-09-14):** 27 of 46 reviewed and applied: overview, types,
+- [x] 44 function pages + overview + the 40-description types page.
+      **Progress (2026-09-15):** all 46 reviewed and applied.
+      `./scripts/doc-review-fanout.sh --letter C-phase3 --units
+      planning/plan-125-units/C-phase3.txt --reconcile` → units=46, unaccounted=0,
+      orphans=0. The batch command's own exit 1 came from reconciling against the
+      19-unit retry list, which counts the earlier 27 as orphans.
+      The third round (19 units) was probe-verified with `/tmp/p125-ex/dtoff`,
+      `dtrest`, `dtneg`, `dtparse`, `dtresplus`, `dtconv`, `dtsod2` (under
+      `TZ=America/Havana`), `dttoiso`, `dtnegyear`, `dttonanos`, `dtlast`, and
+      `dttoutc`.
+      Rejected in round three: withZone #1, the "input is unchanged" class;
+      nowNanos's suggestion to "use `datetime::now` for the full range" (applied
+      without it, since `now` is built from `nowNanos` and shares its limit).
+      Bugs filed in round three: bug-631, `nowNanos`/`now` wrap negative after 2262
+      on macOS and Linux (unchecked multiply); bug-632, a negative year pads with the
+      sign inside the zeros (`00-1`) in `format` `yyyy` and `toIso`.
+      Documented as-is, not filed: parse leniency (`yy` takes one digit, `EEE` takes
+      zero letters, `parseIso` takes a bare `.`); `toIso` years outside 0..9999 do not
+      read back; `plus(a, negate(b))` and `minus(a, b)` differ only at the `Integer`
+      minimum.
+      **Earlier (2026-09-14):** 27 of 46 reviewed and applied: overview, types,
       add, addDays, addMonths, between, civil, compare, date, dayOfYear,
       daysInMonth, duration, equals, fixedOffset, format, formatDuration,
       fromMillis, inZone, instant, isAfter, isBefore, isLeapYear, local,
@@ -489,11 +508,150 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       - `instant` 36 (the new `nanos` parameter row), 65;
       - `minus` 39, 51, 52;
       - `negate` 40;
-      - `subtract` 39, 52, 53, 54.
-- [ ] Every example compiled and run; every zone/DST/leap claim probe-verified
+      - `subtract` 44, 57, 58, 59 (re-measured after the round-three intro rewrite).
+- [x] Every example compiled and run; every zone/DST/leap claim probe-verified
       (these are the claims most likely to be true-by-reasoning and false in
       fact).
-- [ ] Ledger recorded.
+      My pass, done:
+      - `TZ=America/New_York ./scripts/man-run-examples.sh datetime --run` →
+        116/116 built and ran after each of the three rounds. The overview's new
+        example was run separately (`/tmp/p125-ex/dtoverview`: `2026-03-07 21:00:00
+        +09:00`, `2026-04-06T21:00:00.000+09:00`, `TRUE`).
+      - Zone and DST, each under the named `TZ`:
+        - New York spring gap and fall overlap (`dtdst`, `dtgap`, `dtzone`);
+        - Honolulu, which has no DST (`dtdst`);
+        - Havana, where the gap starts at midnight and midnight also repeats
+          (`dthavana`, `dtsod2`);
+        - an unrecognized `TZ` behaves as UTC with no error (`dtdst`,
+          `TZ=Not/AZone`);
+        - `localOffset` range on macOS (`dtlo`), and `offsetAt` at the exact
+          transition second (`dtoff`).
+      - Leap years: `isLeapYear` for 1900, 2000, 2024, 2100, 0, −4 (`dtzone`);
+        `daysInMonth` February for 0, −4, −100, −400 (`dtmisc`); `addMonths`
+        clamping Jan 31 (`dtraw2`).
+- [x] Ledger recorded. All 46 reviews are triaged below, over three dispatch rounds;
+      every verdict carries its evidence.
+
+#### Phase 3 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase3/`)
+
+Probes (all in `/tmp/p125-ex/`): `dtraw`, `dtraw2`, `dtgap`, `dtmisc`, `dtfmt`,
+`dtms`, `dtdst`, `dtoverview`, `dtconfuse`, `dtconfuse2`, `dtzone`, `dthavana`,
+`dtinst`, `dtlo`, `dtminus`, `dtmono`, `dtoff`, `dtrest`, `dtneg`, `dtparse`,
+`dtresplus`, `dtconv`, `dtsod2`, `dttoiso`, `dtnegyear`, `dttonanos`, `dtlast`,
+`dttoutc`.
+Rejection classes: "input unchanged" (no call can change an argument value), and
+the derived Errors-table message (carve-out 2, shared runtime data).
+A "scope cut" is a true sentence removed under `.ai/man-content.md` §3; each has a
+row in `planning/plan-125-belongs-in-spec.md` (rows 28–43).
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview | 1, 2 | CONFIRMED | `dtdst`: the same local-zone calls give `-05:00`/`-04:00` under `TZ=America/New_York` and `-10:00` under `TZ=Pacific/Honolulu`; `datetime::local()` itself is a constant `Zone[0, 2, "Local"]` | host-state paragraph: clocks, then every local-zone operation (`localOffset`, `civil`, `inZone`/`toLocal`, `addDays`, `addMonths`) |
+| overview | 3 | CONFIRMED | `dtraw`: `datetime::Zone[0, 99, "custom"]` is accepted | "The zone constructors produce three kinds"; unchecked-record sentence |
+| overview | 4–6 | REJECTED | the quoted texts are derived Errors-table messages (carve-out 2); the conditions live on each function page | — |
+| overview | 7 | CONFIRMED | no example rendered | example added (`dtoverview`, output above) |
+| types | 1–5 | CONFIRMED | `dtraw`: `Date[2026, 13, 32]` keeps 13/32; `Time[24, 60, 60, -1]` keeps its fields; `Instant[0, -1]` keeps `-1`; `Zone` kind 99 is kept; a `DateTime` with offset 123 resolves to `1772884677` (true noon `1772884800`) | record descriptions: the constructors check, a record built directly is not checked |
+| types | 6 | REJECTED | the new overview example covers construction | — |
+| add | 1, 2 | CONFIRMED | `dtraw`: `add(instant(1, 0), duration(0, -500000000))` → `0:500000000`; `duration(0)` → `1:0` | INTRO/DESC signed; `by` names zero |
+| addDays | 1, 2 | CONFIRMED | `dtraw` under `TZ=America/New_York`: 2026-03-07 02:30 -05:00 + 1 day → 2026-03-08 03:30 -04:00 | INTRO and the time-fields sentence name the gap exception |
+| addDays | 3 | CONFIRMED | `dtgap`: `addDays(epoch, Integer max)` → `77050010` | errors paragraph |
+| addDays | 4 | CONFIRMED (scope cut) | serial-day walkthrough is implementation | cut (row 28) |
+| addMonths | 1 | CONFIRMED | `dtraw2`: a UTC `DateTime` with raw offset 123 keeps `+00:02:03` after `addMonths` | offset sentence split by zone kind; `dtgap`: the spring gap also moves `addMonths` (02-08 02:30 + 1 → 03-08 03:30) |
+| addMonths | 2 | CONFIRMED | `dtraw2`: Jan 31 + 1 / − 1 / 0 → Feb 28, Dec 31, Jan 31 | parameter names zero |
+| addMonths | 3 | CONFIRMED | `dtgap`: `addMonths(epoch, Integer max)` → `77050010` | errors paragraph |
+| addMonths | 4 | CONFIRMED (scope cut) | `dtraw2`: Dec 15 + 1 → 2026-01-15 | month-index walkthrough cut (row 29); year-boundary sentence added |
+| between | 1 | CONFIRMED | `dtgap`: `between(Instant[0, min], Instant[0, max])` → `77050010` | overflow sentence names the extreme-`nanos` case |
+| between | 2 | REJECTED | records built directly are covered once, on the overview and types pages; `between`'s overflow sentence covers its extreme case | — |
+| civil | 1 | CONFIRMED | `dtraw2`: `utc()` and `fixedOffset(0)` both resolve to `1782466200` | `zone` parameter: zones with different offsets |
+| civil | 2 | CONFIRMED | `dtdst`: New York vs Honolulu | purity sentence split by zone kind |
+| civil | 3 | CONFIRMED (scope cut) | the ±1-day offset probing is `helper_resolve_local.rs` | cut (row 30) |
+| compare | 1 | CONFIRMED | `dtraw2`: `compare(Instant[0, 1_000_000_000], Instant[1, 0])` → `-1`; both `toNanos` → `1000000000` | DESC: stored fields |
+| date | — | NO FINDINGS | — | — |
+| dayOfYear | 1, 2 | CONFIRMED (scope cut) | the day-count recipe and "no zone table is consulted" are implementation | cut (rows 32, 33) |
+| dayOfYear | 3 | CONFIRMED | `dtmisc`: year `Integer` max → `ErrOverflow` | DESC |
+| daysInMonth | 1, 2 | CONFIRMED | `dtmisc`: months 0, −1, 13 → 31; February of 0, −4, −100, −400 → 29, 29, 28, 29 | both parameters |
+| duration | 1, 2 | CONFIRMED | `dtmisc`: `duration(-1, 1_500_000_000)` → `0,500000000` | DESC and the five `seconds` parameters |
+| duration | 3–6 | CONFIRMED | `dtmisc`: `(0, -1)` → `-1,999999999`; `(90, 0, 0)` → `5400` | `nanos`, `mins`, `hours`, `days` parameters |
+| duration | 7 | CONFIRMED | `dtmisc`: `(Integer max, 1_000_000_000)` → `ErrOverflow` | overflow sentence |
+| equals | 1 | CONFIRMED | `dtmisc`: `equals(instant(1000), Instant[999, 1_000_000_000])` → `FALSE` | INTRO and DESC: stored fields |
+| equals | 2 | CONFIRMED | an `Instant` has no zone (`mod.rs` record) | parameter: resolve `DateTime`s first |
+| fixedOffset | 1 | CONFIRMED | `dtmisc`: `fixedOffset(30).label` → `+00:00:30` | label sentence |
+| fixedOffset | 2, 3 | CONFIRMED | `dtmisc`: 86399 → `+23:59:59`; 86400 and `(24, 0)` raise; `(-23, 59)` → `-23:59` | both parameters give ranges |
+| format | 1 | CONFIRMED | `dtfmt`: ten `f` → nine digits | token list |
+| format | 2 | CONFIRMED | `dtfmt`: `'it''s'` → `its`; `HH''mm` → `09'05` | apostrophe sentence |
+| format | 3 | CONFIRMED | `dtfmt`: `ZZ` on a most-negative offset → `ErrOverflow` | DESC |
+| formatDuration | 1 | CONFIRMED | `dtfmt`: `(0, -999999)` and `(0, -1)` → `-00:00:00.001`; `(0, 999999)` → `00:00:00.000` | DESC: rounds toward earlier time |
+| formatDuration | 2 | CONFIRMED | `dtfmt`: a huge duration → `ErrOverflow` | "traps" → `ErrOverflow` |
+| fromMillis | 1 | REJECTED | the page already says a `millis` of `0` yields the epoch | — |
+| fromMillis | 2 | CONFIRMED (scope cut) | `dtms`: `fromMillis(-1)` → `-1,999000000`, the example already on the page | quotient walkthrough cut (row 34) |
+| fromMillis | 3 | CONFIRMED | `dtms`: `toMillis(instant(Integer max))` → `ErrOverflow` | round-trip sentence |
+| inZone | 1 | CONFIRMED (scope cut) | "OS intrinsic" is lowering vocabulary | reworded; same fix on `withZone` (row 35) |
+| instant | 1, 5 | CONFIRMED | `dtinst`: `(1, 2, 3, 4, 0)` → `93784,0` | `seconds` by form; `mins`, `hours`, `days` parameters |
+| instant | 2 | CONFIRMED | `dtinst`: `(10, -1)` → `9,999999999`; `(10, 1_500_000_000)` → `11,500000000` | `nanos` parameters |
+| instant | 3 | CONFIRMED | `dtinst`: `(-1, 90, 0)` → `30,0`, after the epoch | sign sentence |
+| instant | 4 | CONFIRMED | `dtinst`: `(Integer max, 1_000_000_000)` → `ErrOverflow` | overflow sentence |
+| isAfter | 1 | CONFIRMED | the same stored-field comparison as `compare` (`dtraw2`) | DESC |
+| isAfter | 2 | CONFIRMED in part | "signed comparisons (no arithmetic)" is implementation; "does not change either instant" is the input-unchanged class | "never raises an error", also on `compare`, `equals`, `isBefore` (row 31) |
+| isBefore | 1 | CONFIRMED | as `isAfter` #1 | DESC |
+| isLeapYear | 1 | CONFIRMED | `dtzone`: `isLeapYear(0)` and `isLeapYear(-4)` → `TRUE` | parameter |
+| local | 1 | CONFIRMED | the `civil` example under `TZ=America/New_York`: 02:30 → `03:30:00 -04:00`; 01:30 → `01:30:00 -04:00` | civil-with-local paragraph. Also probed, no change: an unrecognized `TZ` is UTC with no error (`dtdst`, `TZ=Not/AZone`) |
+| localOffset | 1 | CONFIRMED | `dtlo` under `TZ=UTC`: −1 and 0 are accepted | parameter |
+| localOffset | 2 | CONFIRMED | `dtlo`: ±6×10^16 → `0`; ±7×10^16 → `77050002` (macOS) | range sentence: macOS measured, other platforms platform-dependent |
+| localOffset | 3 | CONFIRMED (scope cut) | "the low-level intrinsic that backs" is implementation | reworded to the argument-type distinction (row 36) |
+| minus | 1, 2 | CONFIRMED | `dtminus`: `(-10, -20)` → `10,0`; `(5, -3)` → `8,0`; `(3, 5)` → `-2,0`; `(Integer max, -1)` → `ErrOverflow` | DESC and `b` by signed value; "traps" → `ErrOverflow` |
+| monotonic | 1 | CONFIRMED | `dtmono`, two separate processes: `9962934857997000`, `9962936051363000` | both monotonic pages: one origin across processes on macOS |
+| monotonic | 2 | CONFIRMED | `now` returns a UTC `Instant`; DST moves no clock | "daylight saving" dropped on both monotonic pages |
+| monotonic | 3 | REJECTED | `0 .. 999_999_999` is the package-wide inclusive notation | — |
+| monotonicNanos | 1 | CONFIRMED (scope cut) | "OS-seam intrinsic" is lowering vocabulary | reworded (row 37) |
+| negate | 1 | CONFIRMED | `dtneg`: `negate(d)` equals `minus(duration(0), d)` for (0, 1), (90, 0), (−5, 250000), (0, 0); `dtrest`: `negate` of the most negative seconds → `ErrOverflow` | `zero` → `datetime::duration(0)`; "traps" → `ErrOverflow` |
+| now | 1 | CONFIRMED | the clock lowering reads `CLOCK_REALTIME` (a host clock adjustment is not probeable) | clock-adjustment sentence and `monotonic` pointer |
+| nowNanos | 1 | CONFIRMED in part → **bug-631** | `gen_shared.rs:112-121` multiplies and adds unchecked; `errors: vec![]`. The suggestion to use `now` for the full range is REJECTED: `now` is built from `nowNanos` | DESC: wraps negative after 2262 on macOS and Linux; `now` shares the limit |
+| offsetAt | 1 | CONFIRMED (scope cut) | `dtoff`: a raw `Zone[0, 2, "raw"]` → `-14400` | "internally zone kind `2`" cut (row 38) |
+| offsetAt | 2 | CONFIRMED (scope cut) | `dtoff`: UTC and `fixedOffset(5, 30)` at `Integer` max → `0`, `19800`, no error | stored-offset wording cut (row 39) |
+| offsetAt | 3 | CONFIRMED (scope cut) | `dtoff`: raw `Instant[1772953199, 1_000_000_000]` → `-18000`, so `nanos` is ignored | "OS intrinsic" reworded (row 35) |
+| parse | 1 | CONFIRMED | `dtparse`: `parse("", "")` → the epoch; `parse("x", "")` → `77050003` | both `value` parameters |
+| parse | 2, 3 | CONFIRMED | `dtparse`: `y` reads `6` as year 6; `yy` reads `6` as 2006; `ZZZZ` is accepted | token list (`f` runs were not probed and not changed) |
+| parse | 4 | CONFIRMED | `dtparse`: `EEE` accepts `""` and `Xyz` | token list |
+| parseIso | 1 | CONFIRMED | `dtparse`: `2026-06-26T09:30:00.Z` is accepted | `.fraction` item |
+| parseIso | 2 | CONFIRMED | `dtparse`: `parseIso("")` → `77050003` | parameter |
+| plus | 1 | CONFIRMED | `dtresplus`: `minus(min, min)` → `0,0`; `plus(min, negate(min))` → `ErrOverflow` | identity qualified |
+| plus | 2 | CONFIRMED | `dtresplus`: `plus(Duration[0, max], Duration[0, 1])` → `ErrOverflow` | overflow sentence |
+| resolve | 1 | CONFIRMED | `dtraw`: a stored offset of 123 is used as given | parameter: DST is settled earlier, by `civil` |
+| resolve | 2 | CONFIRMED | `dtresplus`: `Date[2024, 13, 40]` with `Time[99, 99, 99, -1]` → `1739421639,-1` | DESC: not validated |
+| resolve | 3 | CONFIRMED | `dtresplus`: the epoch with offset `Integer` min → `ErrOverflow` | DESC names the offset subtraction |
+| resolve | 4 | CONFIRMED (scope cut) | the day-count walkthrough is implementation | cut (row 40) |
+| startOfDay | 1, 2 | CONFIRMED | `dthavana` under `TZ=America/Havana`: 2026-03-08 → `01:00:00 -04:00` | INTRO and DESC opening: normally midnight |
+| startOfDay | 3 | CONFIRMED | `dtsod2`: the offset changes between 04:30Z and 05:30Z on 2026-11-01, and `startOfDay` → `00:00:00 -04:00`, the first midnight | parameter |
+| startOfDay | 4, 5 | CONFIRMED | `startOfDay` calls `civil`, whose conditions are probed (`dtgap`, `dtlo`) | errors paragraph |
+| subtract | 1, 2 | CONFIRMED | `dtconv`: `subtract(instant(10, 0), duration(-3, 250000000))` → `12,750000000`, equal to the matching `add` | INTRO and DESC: the opposite of a signed span |
+| subtract | 3 | CONFIRMED | `dtsod2`: `subtract(instant(min), duration(min))` → `0,0`; `negate(duration(min))` → `ErrOverflow` | `by` parameter |
+| subtract | 4 | CONFIRMED | `dtrest`: `subtract(instant(min), duration(1))` → `ErrOverflow` | purity sentence; "traps" → `ErrOverflow` |
+| time | — | NO FINDINGS | my probe: `time(24, 0)` → `datetime: hour out of range` (`dtrest`) | — |
+| toIso | 1 | CONFIRMED | `dttoiso`: year 10000 renders; `parseIso` → `expected separator` | readback limited to four-digit years |
+| toIso | 2 | CONFIRMED | `dttoiso`: `nanos` 123456789 kept, the same instant, zone kind 0 → 1 | precision paragraph and `digits` parameter |
+| toIso | 3 | CONFIRMED | `dttoiso`: lengths 24, 32, 25; an earlier instant at `+05:00` sorts after a later `Z` one | sort sentence, with the RFC 3339 seconds-offset note (`dtrest`: `+00:00:30`) |
+| toIso | 4 | CONFIRMED | `dttoiso`: offset `Integer` max renders `+2562047788015215:30:07`; min → `ErrOverflow` | DESC |
+| toIso | 5 | CONFIRMED | `func_to_iso.rs:BODY_2` builds the text and never calls `format` (a false claim, not a scope cut) | "equivalent to the pattern" |
+| toLocal | 1 | CONFIRMED (scope cut) | the walkthrough is `func_in_zone.rs` | cut (row 41) |
+| toMillis | 1 | CONFIRMED | `dtconv`: `instant(-1, 999999)` → `-1000`; `instant(1, 999999)` → `1000` | rounding sentence: toward earlier time |
+| toNanos | 1 | CONFIRMED | `dttonanos`: `Instant[0, 1_000_000_000]` → `1000000000`; `Instant[0, -1]` → `-1` | DESC: used as stored |
+| toUtc | 1 | CONFIRMED | `dttoutc`: `resolve(toUtc(Instant[min, 0]))` → `ErrOverflow`; `instant(-9e18)` round-trips | round-trip sentence qualified |
+| toUtc | 2 | CONFIRMED | `dttoutc`: `Instant[-1, 987654321]` → `1969-12-31T23:59:59.987654321Z` | parameter |
+| utc | 1 | CONFIRMED (scope cut) | the enum tag is representation | cut (row 42) |
+| utc | 2 | CONFIRMED | `dtlast`: `toUtc(Instant[-1, 0])` → `1969-12-31T23:59:59Z` | DESC |
+| weekday | 1, 2 | CONFIRMED (scope cut) | the `floorMod` formula and "no zone table is consulted" are implementation | cut (rows 43, 33) |
+| weekday | 3 | CONFIRMED | `dtlast`: year 999999999999999999 → `ErrOverflow` | DESC |
+| withZone | 1 | REJECTED | input-unchanged class | — |
+| withZone | 2, 3 | CONFIRMED | `dtlast`: a local zone at 7×10^16 → `77050002`; `Integer` max into `+01:00` → `77050010` | errors paragraph |
+
+Found while probing, not raised by a reviewer:
+- **bug-629**: a built-in member accepts an argument of the wrong record type.
+  `toMillis(DateTime)` compiles and returns `32000`; a user function with the same
+  signature is rejected (`dtconfuse`, `dtconfuse2`).
+- **bug-632**: a negative year pads with the sign inside the zeros (`00-1`) in
+  `format` `yyyy` and `toIso` (`dtnegyear`); the `toIso` page documents it as-is.
+- `startOfDay`'s midnight-gap sentence was added from `dthavana` before that page's
+  own review, which then confirmed it.
 
 Acceptance: 46 units `exit 0`; `--memory-scope datetime` reports exactly the
 15 CARVE-1 rows and 0 unclassified; sweeps otherwise clean.
@@ -502,6 +660,19 @@ Acceptance: 46 units `exit 0`; `--memory-scope datetime` reports exactly the
 ("a negative value borrows a second"). That is one more instance of the same
 nanosecond borrow, so it is classified the same way. `./scripts/man-census.sh
 --memory-scope datetime` → 16 CARVE-1, 0 unclassified.
+
+Measured at the closing commit:
+- every one of the 46 units has an `exit 0` row as its latest; `--reconcile`
+  → `units=46 unaccounted=0 orphans=0`;
+- `--memory-scope datetime` 16 CARVE-1 and 0 unclassified; `--scope datetime` 0;
+- `datetime` examples 116/116 ran under `TZ=America/New_York`, plus the overview
+  example (`dtoverview`);
+- all 46 units render with exit 0 and none of the retired phrasings.
+
+Bugs filed from this phase: bug-629 (wrong record type accepted), bug-631
+(`nowNanos` wraps after 2262), bug-632 (negative-year padding).
+Belongs-in-spec rows appended: 28–43 from this phase; row 44 back-fills Phase 2's
+`utf8Decode` cut.
 Commit: —
 
 ### Phase 4 — collections (50 units)
