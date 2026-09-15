@@ -2,6 +2,7 @@
 """Python judge for the compress oracle: stdlib `zlib` / `gzip` only.
 
 Usage: oracle.py <mode> <job-path>
+       oracle.py <encode-mode> <job-path> <mfb-output-path>
 
 Reads the job `gen.py` wrote and prints one `case <index> <fields...>` line per case,
 in the same shape the MFB probe prints, so `run.sh` can diff the two line for line.
@@ -9,6 +10,7 @@ in the same shape the MFB probe prints, so `run.sh` can diff the two line for li
 
 import gzip
 import struct
+import subprocess
 import sys
 import zlib
 
@@ -120,6 +122,75 @@ def mutate(index, data, fmt):
     return f"case {index} ok {len(out)} {zlib.crc32(out)}"
 
 
+def encode_raw(index, data, _level, produced):
+    """Decode what the MFB probe produced from this payload; it must be exactly the payload, with
+    nothing after the end of the DEFLATE data."""
+    try:
+        d = zlib.decompressobj(-15)
+        out = d.decompress(produced) + d.flush()
+        if not d.eof:
+            raise zlib.error("incomplete stream")
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    if out != data:
+        return f"case {index} MISMATCH {len(out)} {zlib.crc32(out)}"
+    if d.unused_data:
+        return f"case {index} TRAILING {len(d.unused_data)}"
+    return f"case {index} {len(data)} {zlib.crc32(data)}"
+
+
+def encode_zlib(index, data, level, produced):
+    """zlib's decode of the produced zlib stream must be the payload, and the two header bytes must
+    be the ones zlib's own compressor writes at this level (`CMF`, `FLEVEL`, `FCHECK`)."""
+    try:
+        d = zlib.decompressobj(15)
+        out = d.decompress(produced) + d.flush()
+        if not d.eof:
+            raise zlib.error("incomplete stream")
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    if out != data:
+        return f"case {index} MISMATCH {len(out)} {zlib.crc32(out)}"
+    if d.unused_data:
+        return f"case {index} TRAILING {len(d.unused_data)}"
+    want = zlib.compress(b"", level)[:2]
+    if produced[:2] != want:
+        return f"case {index} HEADER {produced[:2].hex()} want {want.hex()}"
+    return f"case {index} {len(data)} {zlib.crc32(data)}"
+
+
+def encode_gzip(index, data, level, produced):
+    """zlib's gzip decode (wbits 31) of the produced member must be the payload; the header must be
+    `1f 8b 08`, `FLG 0`, `MTIME 0`, the `XFL` zlib's gzip wrapper writes at this level, and `OS 255`;
+    and the host's `gzip -t` must accept it."""
+    try:
+        d = zlib.decompressobj(31)
+        out = d.decompress(produced) + d.flush()
+        if not d.eof:
+            raise zlib.error("incomplete stream")
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    if out != data:
+        return f"case {index} MISMATCH {len(out)} {zlib.crc32(out)}"
+    if d.unused_data:
+        return f"case {index} TRAILING {len(d.unused_data)}"
+    c = zlib.compressobj(level, zlib.DEFLATED, 31)
+    want = (c.compress(b"") + c.flush())[:9] + b"\xff"
+    if produced[:10] != want:
+        return f"case {index} HEADER {produced[:10].hex()} want {want.hex()}"
+    tested = subprocess.run(["gzip", "-t"], input=produced, capture_output=True)
+    if tested.returncode != 0:
+        return f"case {index} GZIP-T {tested.returncode} {tested.stderr.decode(errors='replace').strip()}"
+    return f"case {index} {len(data)} {zlib.crc32(data)}"
+
+
+# Encode modes judge the MFB probe's output file (a job of the same layout) against the payloads.
+ENCODE_MODES = {
+    "encode-raw": encode_raw,
+    "encode-zlib": encode_zlib,
+    "encode-gzip": encode_gzip,
+}
+
 MODES = {
     "crc32": crc32,
     "probe": probe,
@@ -131,6 +202,12 @@ MODES = {
 
 
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] in ENCODE_MODES:
+        judge = ENCODE_MODES[sys.argv[1]]
+        produced = [data for _, data, _ in read_job(sys.argv[3])]
+        for index, data, aux in read_job(sys.argv[2]):
+            print(judge(index, data, aux, produced[index]))
+        return
     if len(sys.argv) != 3 or sys.argv[1] not in MODES:
         sys.exit(f"usage: oracle.py <{'|'.join(MODES)}> <job-path>")
     judge = MODES[sys.argv[1]]

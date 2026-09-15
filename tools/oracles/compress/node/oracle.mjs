@@ -1,6 +1,7 @@
 // Node judge for the compress oracle: built-in `node:zlib` only, no npm install.
 //
 // Usage: node oracle.mjs <mode> <job-path>
+//        node oracle.mjs <encode-mode> <job-path> <mfb-output-path>
 //
 // Reads the job `python/gen.py` wrote and prints one `case <index> <fields...>` line
 // per case, in the same shape the MFB probe prints. `zlib.crc32` needs Node >= 22.2
@@ -74,13 +75,54 @@ const MODES = {
   },
 };
 
-const [mode, path] = process.argv.slice(2);
-if (!MODES[mode] || !path) {
-  console.error(`usage: node oracle.mjs <${Object.keys(MODES).join("|")}> <job-path>`);
-  process.exit(2);
-}
+// Encode modes judge the MFB probe's output file (a job of the same layout) against the payloads.
+const ENCODE_MODES = {
+  // Node's raw DEFLATE decode of what the probe produced must be exactly the payload.
+  "encode-raw"(index, data, _level, produced) {
+    try {
+      const out = zlib.inflateRawSync(produced);
+      if (!out.equals(data)) return `case ${index} MISMATCH ${out.length} ${zlib.crc32(out)}`;
+      return `case ${index} ${data.length} ${zlib.crc32(data)}`;
+    } catch (e) {
+      return `case ${index} err ${e.code ?? e.name}: ${e.message}`;
+    }
+  },
+  // Node's zlib-format decode of what the probe produced must be exactly the payload.
+  "encode-zlib"(index, data, _level, produced) {
+    try {
+      const out = zlib.inflateSync(produced);
+      if (!out.equals(data)) return `case ${index} MISMATCH ${out.length} ${zlib.crc32(out)}`;
+      return `case ${index} ${data.length} ${zlib.crc32(data)}`;
+    } catch (e) {
+      return `case ${index} err ${e.code ?? e.name}: ${e.message}`;
+    }
+  },
+  // Node's gzip decode of what the probe produced must be exactly the payload.
+  "encode-gzip"(index, data, _level, produced) {
+    try {
+      const out = zlib.gunzipSync(produced);
+      if (!out.equals(data)) return `case ${index} MISMATCH ${out.length} ${zlib.crc32(out)}`;
+      return `case ${index} ${data.length} ${zlib.crc32(data)}`;
+    } catch (e) {
+      return `case ${index} err ${e.code ?? e.name}: ${e.message}`;
+    }
+  },
+};
+
+const [mode, path, producedPath] = process.argv.slice(2);
 const lines = [];
-for (const [index, data, aux] of readJob(path)) {
-  lines.push(MODES[mode](index, data, aux));
+if (ENCODE_MODES[mode] && path && producedPath) {
+  const produced = [...readJob(producedPath)].map(([, data]) => data);
+  for (const [index, data, aux] of readJob(path)) {
+    lines.push(ENCODE_MODES[mode](index, data, aux, produced[index]));
+  }
+} else if (MODES[mode] && path) {
+  for (const [index, data, aux] of readJob(path)) {
+    lines.push(MODES[mode](index, data, aux));
+  }
+} else {
+  console.error(`usage: node oracle.mjs <${Object.keys(MODES).join("|")}> <job-path>`);
+  console.error(`       node oracle.mjs <${Object.keys(ENCODE_MODES).join("|")}> <job-path> <mfb-output-path>`);
+  process.exit(2);
 }
 process.stdout.write(lines.join("\n") + (lines.length ? "\n" : ""));

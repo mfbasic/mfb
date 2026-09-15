@@ -46,14 +46,30 @@ def raw_deflate(data):
     return c.compress(data) + c.flush()
 
 
+def raw_deflate_at(level):
+    def op(data):
+        c = zlib.compressobj(level, zlib.DEFLATED, -15)
+        return c.compress(data) + c.flush()
+    return op
+
+
 # op -> (turn the corpus into the op's input, the Python op over that input). MiB/s is measured
-# over the corpus size: bytes checksummed for crc32, bytes of output for a decoder.
+# over the corpus size: bytes checksummed for crc32, bytes of output for a decoder, bytes of input
+# for an encoder.
 OPS = {
     "crc32": (lambda corpus: corpus, lambda data: str(zlib.crc32(data))),
     "inflate": (raw_deflate, lambda data: described(zlib.decompressobj(-15).decompress(data))),
     "zlibDecode": (lambda corpus: zlib.compress(corpus, 6), lambda data: described(zlib.decompress(data))),
     "gzipDecode": (lambda corpus: gzip.compress(corpus, 6, mtime=0), lambda data: described(zlib.decompress(data, 31))),
+    "deflate1": (lambda corpus: corpus, raw_deflate_at(1)),
+    "deflate6": (lambda corpus: corpus, raw_deflate_at(6)),
+    "deflate9": (lambda corpus: corpus, raw_deflate_at(9)),
 }
+
+# Encoder ops: only the compression is timed. The result compared is what decompressing the
+# output gives (`<length> <CRC-32>`), computed after timing, and the compressed sizes are reported
+# side by side; the outputs themselves differ, since compress is not byte-identical to zlib.
+ENCODERS = {"deflate1", "deflate6", "deflate9"}
 
 
 def corpus(kind, size):
@@ -97,12 +113,15 @@ def run_mfb(exe, op, path):
     if result.returncode != 0:
         die(f"{exe} failed on {op} {path}:\n{result.stderr}")
     runs = [line.split(" ", 2) for line in result.stdout.splitlines() if line.startswith("run ")]
+    sizes = {line.split(" ")[1] for line in result.stdout.splitlines() if line.startswith("size ")}
+    if len(sizes) > 1:
+        die(f"{exe} gave different output sizes across runs for {op} {path}: {sizes}")
     if len(runs) != RUNS:
         die(f"{exe} printed {len(runs)} run(s) for {op} {path}, expected {RUNS}")
     results = {r[2] for r in runs}
     if len(results) != 1:
         die(f"{exe} gave different results across runs for {op} {path}: {results}")
-    return [int(r[1]) / 1e9 for r in runs], results.pop()
+    return [int(r[1]) / 1e9 for r in runs], results.pop(), int(sizes.pop()) if sizes else None
 
 
 def run_python(fn, data):
@@ -138,7 +157,7 @@ def main():
                     with open(paths[(op, kind, size)], "wb") as f:
                         f.write(OPS[op][0](raw))
 
-        mfb_times, py_times, mismatches = {}, {}, {}
+        mfb_times, py_times, mismatches, mfb_sizes, py_sizes = {}, {}, {}, {}, {}
         for _ in range(rounds):
             for op in ops:
                 for kind in KINDS:
@@ -147,11 +166,16 @@ def main():
                             data = f.read()
                         times, py_value = run_python(OPS[op][1], data)
                         py_times.setdefault((op, kind, size), []).extend(times)
+                        if op in ENCODERS:
+                            py_sizes[(op, kind, size)] = len(py_value)
+                            py_value = described(zlib.decompressobj(-15).decompress(py_value))
                         del data
                         for level in levels:
                             key = (op, kind, size, level)
-                            times, mfb_value = run_mfb(exes[level], op, paths[(op, kind, size)])
+                            times, mfb_value, mfb_size = run_mfb(exes[level], op, paths[(op, kind, size)])
                             mfb_times.setdefault(key, []).extend(times)
+                            if mfb_size is not None:
+                                mfb_sizes[key] = mfb_size
                             if mfb_value != py_value:
                                 mismatches[key] = f"MISMATCH mfb={mfb_value} py={py_value}"
 
@@ -167,6 +191,9 @@ def main():
                         mfb_s = statistics.median(mfb_times[key])
                         check = mismatches.get(key, "ok")
                         failures += check != "ok"
+                        if op in ENCODERS and key in mfb_sizes:
+                            ours, zlibs = mfb_sizes[key], py_sizes[(op, kind, size)]
+                            check += f"  size mfb={ours} py={zlibs} ({ours / zlibs:.3f}x)"
                         print(f"{op:<8} {kind:<7} {size:>3} {level:>2} {mfb_s * 1e3:>10.2f} {size / mfb_s:>10.1f}"
                               f" {py_s * 1e3:>9.2f} {size / py_s:>9.1f}  {check}")
             for kind in KINDS:

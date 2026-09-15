@@ -31,6 +31,11 @@ Needs `python3`. Builds `mfb/` once per optimization level (default `-O1` and `-
 Exit `0` all rows correct and linear, `1` a mismatch or a non-linear row, `2` the
 harness could not run.
 
+Encoder ops (`deflate1`, `deflate6`, `deflate9`: `compress::deflate` at that level) time the
+compression alone. Their correctness check compares what decompressing each side's output
+gives, since `compress` does not reproduce zlib's bytes. Each row also shows both compressed
+sizes and their ratio.
+
 ## Adding an op
 
 1. `bench.py` — an `OPS` entry: a Python function over the bytes returning the

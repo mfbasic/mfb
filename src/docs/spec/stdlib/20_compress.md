@@ -6,7 +6,7 @@ qualifier; `IMPORT compress` needs no manifest dependency.
 [[src/codegen/builtins/compress/mod.rs:COMPRESS]]
 
 This topic specifies the model behind the package: the implementation guarantee, how its
-source is gated into a build, and the CRC-32 model. The per-function API — signatures,
+source is gated into a build, the CRC-32 model, the DEFLATE decoders and the DEFLATE encoders. The per-function API — signatures,
 parameters, errors — is owned by `./mfb man compress`.
 
 ## Implementation model
@@ -282,3 +282,110 @@ the inflate-only difference.
   80 single-byte flips of zlib and gzip streams, each matching `flate2`'s verdict; the decided behaviours.
 - `tests/runtime/rt_compress_bounds.rs`: a 64 MiB + 1 zero bomb refused at the limit within a
   derived memory ceiling; decode time linear in output size.
+
+## Encoding: `deflate`, `zlibEncode`, `gzipEncode`
+
+The three encoders share one raw DEFLATE (RFC 1951) core; they differ only in the wrapper they write
+around it. [[src/codegen/builtins/compress/helper_deflate_core.rs:BODY]]
+
+| Member | Format | Header | Trailer |
+|---|---|---|---|
+| `deflate(data, level)` | RFC 1951 | none | none |
+| `zlibEncode(data, level)` | RFC 1950 | `CMF = 0x78`; `FLG` with `FLEVEL` 0 for levels 0–1, 1 for 2–5, 2 for 6, 3 for 7–9, and the `FCHECK` that makes `(CMF·256 + FLG) MOD 31 = 0` | 4-byte big-endian Adler-32 of `data` |
+| `gzipEncode(data, level)` | RFC 1952, one member | `1f 8b 08`; `FLG = 0`; `MTIME = 0`; `XFL` 2 at level 9, 4 at levels 0–1, else 0; `OS = 255` | little-endian `CRC32` of `data`, then `ISIZE`, the length modulo 2^32 |
+
+[[src/codegen/builtins/compress/helper_zlib_encode.rs:BODY]] [[src/codegen/builtins/compress/helper_gzip_encode.rs:BODY]]
+
+`FLEVEL` and `XFL` are the values zlib 1.2.12's `deflate.c` writes; the header bytes equal Python's and
+Node's zlib at every level (checked 2026-09-14). Decoders do not use either field. The gzip header names
+no file, no time and no operating system, so it does not depend on where or when the program runs. A
+`level` outside 0–9 raises `ErrInvalidArgument` (`77050002`) before any work.
+
+**Guaranteed:** the output is valid data of its format, so any conforming decoder — zlib's included —
+decodes it back to `data`; and the same `data` and `level` give the same bytes on every target. **Not
+guaranteed:** that the bytes equal zlib's, that they stay the same from one compiler release to the next,
+or any compressed size.
+
+### Blocks
+
+- **Level 0** writes stored blocks (`BTYPE = 00`) of at most 65,535 bytes. Empty `data` is one final,
+  empty stored block.
+- **Levels 1–9** write fixed-Huffman blocks (`BTYPE = 01`, the RFC 1951 §3.2.6 codes), one per 65,536
+  bytes of input. A block ends at the first symbol that starts 65,536 or more bytes after the block's
+  first, so a match can run past the boundary. Empty `data` is one final block holding only
+  end-of-block.
+
+The fixed codes are bit-reversed once, at program start, into tables the bit writer ORs in unchanged
+(RFC 1951 §3.1.1 packs Huffman codes most-significant bit first into an otherwise
+least-significant-bit-first stream). [[src/codegen/builtins/compress/helper_deflate_codes.rs:BODY]]
+
+### Matching
+
+Every level from 1 to 9 matches greedily over hash chains:
+
+- The hash of the next three bytes is `((b0 << 10) XOR (b1 << 5) XOR b2) AND 32767`. `head[hash]` holds
+  the latest position with that hash and `prev[p MOD 32768]` the position before `p` with the same hash.
+- A position is looked up before it is inserted, so a match at the RFC maximum distance of 32,768 is
+  found. zlib's own compressor stops 262 bytes short of it (`MAX_DIST`).
+- A chain is followed for at most `max_chain` candidates. The search stops at the first match of
+  `nice_length` bytes or more. A match runs to 258 bytes or to the end of `data`. A candidate is compared
+  in full only when its byte at the current best length already matches.
+- The positions inside an emitted match are inserted into the chains at levels 4–9. At levels 1–3 they are
+  inserted only when the match is no longer than the level's `max_lazy`, as zlib's `deflate_fast` does.
+
+| level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|
+| `max_chain` | 4 | 8 | 32 | 16 | 32 | 128 | 256 | 1024 | 4096 |
+| `nice_length` | 8 | 16 | 32 | 16 | 32 | 128 | 128 | 258 | 258 |
+| positions inside a match inserted | if ≤ 4 | if ≤ 5 | if ≤ 6 | all | all | all | all | all | all |
+
+The numbers are zlib 1.2.12's `configuration_table` (`deflate.c:134`). zlib evaluates matches lazily at
+levels 4–9; this encoder does not.
+
+The core is one function: 12,612 instructions on macos-aarch64 and linux-aarch64 (50,448 B, well inside
+AArch64's ±1 MiB conditional-branch range), 12,378 on linux-x86_64, 12,382 on windows-x86_64 and 12,895 on
+linux-riscv64 (`mfb build --ncode` of a program calling all three encoders, 2026-09-14).
+
+### Measured throughput and size
+
+`OPT_LEVELS=1 ROUNDS=1 tools/compress-bench/run.sh target/release/mfb deflate1 deflate6 deflate9`,
+2026-09-14, macos-aarch64: the bench corpora at 16 MiB, `-O1`, the median of five in-process runs; MiB/s
+over the input size; size relative to Python zlib 1.2.12 raw DEFLATE at the same level. Every output
+decodes back to its input, and every 16 MiB / 4 MiB time ratio is 3.77–4.30.
+
+| level | corpus | `compress` MiB/s | Python zlib MiB/s | size vs zlib |
+|---|---|---|---|---|
+| 1 | random | 8.0 | 58.8 | 1.054× |
+| 1 | text | 51.9 | 458.0 | 1.412× |
+| 1 | zero | 111.0 | 924.5 | 2.225× |
+| 6 | random | 8.0 | 55.5 | 1.054× |
+| 6 | text | 9.3 | 168.4 | 1.593× |
+| 6 | zero | 29.9 | 436.0 | 6.499× |
+| 9 | random | 8.2 | 56.0 | 1.054× |
+| 9 | text | 4.1 | 64.6 | 1.588× |
+| 9 | zero | 30.6 | 436.1 | 6.499× |
+
+The size gap follows from the fixed code. Pseudo-random bytes cost their literal codes — 8 or 9 bits a
+byte, 5.4% over the input — where zlib stores them. Each 258-byte match of the zero corpus costs 13 bits
+(an 8-bit length code and a 5-bit distance code), which is 105,993 B for 16 MiB; zlib writes 16,310 B.
+Speed and size are not part of the contract; these are dated measurements.
+
+### Verification
+
+- `tools/oracles/compress/run.sh` (offline): `encode-raw`, `encode-zlib` and `encode-gzip` compress twelve
+  payloads at every level:
+  - the 0-, 1- and 2-byte inputs;
+  - 65,535, 65,536 and 65,537 bytes;
+  - 100,000 zero bytes (258-byte matches);
+  - a 32,768-byte block repeated three times (matches at distance 32,768);
+  - 100,000 pseudo-random bytes;
+  - the three decoder corpora.
+
+  Python's and Node's zlib must each decode every output back to its payload, with nothing after the
+  end. The zlib and gzip header bytes must equal zlib's, and the host's `gzip -t` must accept every gzip
+  member.
+- `tests/interop/rt_compress_interop.rs` (in `cargo test`): `flate2` decodes seven payloads in all three
+  formats at every level; each case compressed twice, and a second run of the program, give the same
+  bytes.
+- `tests/rt-behavior/compress/compress-encode-roundtrip-valid` prints every output's length and CRC-32 at
+  every level and format, and decodes each back with this package's decoders.

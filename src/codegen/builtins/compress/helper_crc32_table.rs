@@ -60,7 +60,7 @@ LET __COMPRESS_CRC32_TABLES AS List OF Integer = __compress_crc32Tables()"#;
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
         name: "compress_crc32_table",
-        gate: HelperGate::WhenUsed(&["crc32", "gzipDecode"]),
+        gate: HelperGate::WhenUsed(&["crc32", "gzipDecode", "gzipEncode"]),
         body: Some(BODY),
         import_name: None,
         natively_called: false,

@@ -34,6 +34,11 @@
 //! | output past `maxBytes` (`ErrTooLarge`) | `compress-inflate-too-large-invalid`; `tests/runtime/rt_compress_bounds.rs` |
 //! | negative `maxBytes` (`ErrInvalidArgument`) | `compress-inflate-max-bytes-negative-invalid` |
 //!
+//! **Encoders.** `compress::deflate`, `zlibEncode` and `gzipEncode` compress seven payloads (the
+//! plan-137-D §1 edge sizes, a long zero run and seeded text) at every level. `flate2` must decode
+//! every output back to its payload. Each case is compressed twice in one run and the two outputs
+//! must match, and a second run of the program must write byte-identical output.
+//!
 //! Lives in `tests/` rather than `tools/oracles/compress/` because `flate2` is already a
 //! dependency through `image` → `png`: no new compiled code, and it runs on every
 //! `cargo test`. See `.ai/testing-gates.md` on where an oracle lives.
@@ -504,4 +509,200 @@ fn decided_behaviours_hold() {
         .map(|(mine, (_, _, want, label))| format!("{label}: got `{mine}`, want `{want}`"))
         .collect();
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Encoders: `compress::deflate` / `zlibEncode` / `gzipEncode`, decoded by `flate2` (miniz_oxide).
+// ---------------------------------------------------------------------------------------------
+
+use flate2::read::DeflateDecoder;
+
+/// raw / zlib / gzip x levels 0..=9 x the seven payloads of `encode_payloads`.
+const EXPECTED_ENCODED_CASES: usize = 3 * 10 * 7;
+
+/// Reads the job named by `MFB_COMPRESS_JOB` — a `(length, format * 16 + level)` pair per case —
+/// compresses each case twice, prints `case <i> <TRUE when both calls gave the same bytes>`, and
+/// writes the first output of every case, in the same job layout, to `MFB_COMPRESS_OUT`.
+const ENCODE_SOURCE: &str = r#"
+IMPORT collections
+IMPORT compress
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC u32At(b AS List OF Byte, at AS Integer) AS Integer
+  RETURN toInt(collections::get(b, at)) + 256 * toInt(collections::get(b, at + 1)) + 65536 * toInt(collections::get(b, at + 2)) + 16777216 * toInt(collections::get(b, at + 3))
+END FUNC
+
+FUNC encodeOnce(data AS List OF Byte, fmt AS Integer, level AS Integer) AS List OF Byte
+  IF fmt = 0 THEN
+    RETURN compress::deflate(data, level)
+  ELSEIF fmt = 1 THEN
+    RETURN compress::zlibEncode(data, level)
+  END IF
+  RETURN compress::gzipEncode(data, level)
+END FUNC
+
+SUB main()
+  RES h AS fs::File = fs::openFile(os::getEnv("MFB_COMPRESS_JOB"), "r")
+  LET job AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  LET count AS Integer = u32At(job, 0)
+  MUT offset AS Integer = 4 + 8 * count
+  MUT fields AS List OF Integer = [count]
+  MUT produced AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET n AS Integer = u32At(job, 4 + 8 * i)
+    LET aux AS Integer = u32At(job, 8 + 8 * i)
+    LET data AS List OF Byte = collections::mid(job, offset, n)
+    LET packed AS List OF Byte = encodeOnce(data, aux / 16, aux MOD 16)
+    LET again AS List OF Byte = encodeOnce(data, aux / 16, aux MOD 16)
+    MUT same AS Boolean = len(packed) = len(again)
+    MUT k AS Integer = 0
+    WHILE same AND k < len(packed)
+      same = collections::get(packed, k) = collections::get(again, k)
+      k = k + 1
+    END WHILE
+    io::print("case " & toString(i) & " " & toString(same))
+    fields = collections::append(fields, len(packed))
+    fields = collections::append(fields, aux)
+    k = 0
+    WHILE k < len(packed)
+      produced = collections::append(produced, collections::get(packed, k))
+      k = k + 1
+    END WHILE
+    offset = offset + n
+    i = i + 1
+  END WHILE
+  MUT out AS List OF Byte = []
+  MUT f AS Integer = 0
+  WHILE f < len(fields)
+    LET v AS Integer = collections::get(fields, f)
+    out = collections::append(out, toByte(v MOD 256))
+    out = collections::append(out, toByte((v / 256) MOD 256))
+    out = collections::append(out, toByte((v / 65536) MOD 256))
+    out = collections::append(out, toByte((v / 16777216) MOD 256))
+    f = f + 1
+  END WHILE
+  f = 0
+  WHILE f < len(produced)
+    out = collections::append(out, collections::get(produced, f))
+    f = f + 1
+  END WHILE
+  fs::writeBytes(os::getEnv("MFB_COMPRESS_OUT"), out)
+END SUB
+"#;
+
+/// plan-137-D §1's edge sizes (0, 1, 2, and around the 65,535-byte stored-block limit), a run of
+/// zeros long enough for many 258-byte matches, and seeded text.
+fn encode_payloads() -> Vec<Vec<u8>> {
+    let mut rng = Lcg(0x137d);
+    let mut random = |n: usize| (0..n).map(|_| rng.next() as u8).collect::<Vec<u8>>();
+    let below = random(65_535);
+    let above = random(65_537);
+    let text: Vec<u8> = (0..2_000)
+        .flat_map(|i| format!("line {i} of the interop corpus, bucket {}\n", i % 13).into_bytes())
+        .collect();
+    vec![Vec::new(), vec![b'a'], b"ab".to_vec(), below, above, vec![0u8; 70_000], text]
+}
+
+/// Split a job file into its cases' bytes and `aux` values.
+fn read_job(blob: &[u8]) -> Vec<(Vec<u8>, u32)> {
+    let u32_at = |at: usize| u32::from_le_bytes(blob[at..at + 4].try_into().unwrap());
+    let count = u32_at(0) as usize;
+    let mut offset = 4 + 8 * count;
+    (0..count)
+        .map(|i| {
+            let n = u32_at(4 + 8 * i) as usize;
+            let case = (blob[offset..offset + n].to_vec(), u32_at(8 + 8 * i));
+            offset += n;
+            case
+        })
+        .collect()
+}
+
+#[test]
+fn encoders_output_decodes_with_flate2_and_is_deterministic() {
+    let payloads = encode_payloads();
+    let mut cases = Vec::new();
+    for payload in 0..payloads.len() {
+        for format in [RAW, ZLIB, GZIP] {
+            for level in 0..=9u32 {
+                cases.push((payload, format, level));
+            }
+        }
+    }
+    assert_eq!(cases.len(), EXPECTED_ENCODED_CASES);
+
+    let project = temp_project("compress_encode_interop", ENCODE_SOURCE);
+    let exe = build_project(&project);
+    let mut job = Vec::new();
+    job.extend((cases.len() as u32).to_le_bytes());
+    for &(payload, format, level) in &cases {
+        job.extend((payloads[payload].len() as u32).to_le_bytes());
+        job.extend((format * 16 + level).to_le_bytes());
+    }
+    for &(payload, _, _) in &cases {
+        job.extend(&payloads[payload]);
+    }
+    let job_path = project.join("job.bin");
+    std::fs::write(&job_path, &job).expect("write job file");
+
+    let run = |name: &str| -> (Vec<String>, Vec<u8>) {
+        let out_path = project.join(name);
+        let (code, stdout, stderr) = run_capture_with_env(
+            &exe,
+            &[
+                ("MFB_COMPRESS_JOB", job_path.display().to_string()),
+                ("MFB_COMPRESS_OUT", out_path.display().to_string()),
+            ],
+        );
+        assert_eq!(code, 0, "encode program failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        let lines = stdout
+            .lines()
+            .filter_map(|l| l.strip_prefix("case "))
+            .map(|l| l.split_once(' ').expect("case index").1.to_string())
+            .collect();
+        (lines, std::fs::read(&out_path).expect("read encoder output"))
+    };
+    let (lines, first) = run("produced-1.bin");
+    let (_, second) = run("produced-2.bin");
+    assert_eq!(lines.len(), cases.len(), "program stopped early");
+    assert!(first == second, "two runs of the encoders wrote different bytes");
+
+    let produced = read_job(&first);
+    assert_eq!(produced.len(), cases.len());
+    let mut failures = Vec::new();
+    for (i, &(payload, format, level)) in cases.iter().enumerate() {
+        let (bytes, aux) = &produced[i];
+        assert_eq!(*aux, format * 16 + level);
+        // MFBASIC prints a Boolean as `TRUE` / `FALSE`.
+        if lines[i] != "TRUE" {
+            failures.push(format!("case {i} (format {format}, level {level}): two calls differ"));
+        }
+        let mut decoded = Vec::new();
+        let result = match format {
+            RAW => DeflateDecoder::new(&bytes[..]).read_to_end(&mut decoded),
+            ZLIB => ZlibDecoder::new(&bytes[..]).read_to_end(&mut decoded),
+            _ => MultiGzDecoder::new(&bytes[..]).read_to_end(&mut decoded),
+        };
+        match result {
+            Err(e) => failures.push(format!(
+                "case {i} (format {format}, level {level}): flate2 refused: {e}"
+            )),
+            Ok(_) if decoded != payloads[payload] => failures.push(format!(
+                "case {i} (format {format}, level {level}): decoded {} bytes, payload {}",
+                decoded.len(),
+                payloads[payload].len()
+            )),
+            Ok(_) => {}
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

@@ -1,0 +1,47 @@
+' plan-137-D: every encoder at every level on one input, decoded back by this package's own
+' decoders. Each line prints the output's length and CRC-32 per format, so the same program run on
+' another target can be compared line for line, and whether each output decoded back to the input.
+IMPORT collections
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+FUNC describe(packed AS List OF Byte, back AS List OF Byte, inputCrc AS Integer, inputLen AS Integer) AS String
+  LET same AS Boolean = len(back) = inputLen AND compress::crc32(back) = inputCrc
+  RETURN toString(len(packed)) & " " & toString(compress::crc32(packed)) & " " & toString(same)
+END FUNC
+
+SUB main()
+  MUT input AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < 40
+    LET line AS List OF Byte = strings::toBytes("record " & toString(i MOD 7) & ": the quick brown fox jumps over the lazy dog\n")
+    MUT k AS Integer = 0
+    WHILE k < len(line)
+      input = collections::append(input, collections::get(line, k))
+      k = k + 1
+    END WHILE
+    i = i + 1
+  END WHILE
+  i = 0
+  WHILE i < 512
+    input = collections::append(input, toByte(i MOD 256))
+    i = i + 1
+  END WHILE
+  LET inputLen AS Integer = len(input)
+  LET inputCrc AS Integer = compress::crc32(input)
+  io::print("input: " & toString(inputLen) & " bytes, crc32 " & toString(inputCrc))
+
+  MUT level AS Integer = 0
+  WHILE level <= 9
+    LET raw AS List OF Byte = compress::deflate(input, level)
+    LET zl AS List OF Byte = compress::zlibEncode(input, level)
+    LET gz AS List OF Byte = compress::gzipEncode(input, level)
+    io::print("level " & toString(level) & ": raw " & describe(raw, compress::inflate(raw), inputCrc, inputLen) & " | zlib " & describe(zl, compress::zlibDecode(zl), inputCrc, inputLen) & " | gzip " & describe(gz, compress::gzipDecode(gz), inputCrc, inputLen))
+    level = level + 1
+  END WHILE
+
+  LET empty AS List OF Byte = []
+  LET emptyCrc AS Integer = compress::crc32(empty)
+  io::print("empty, default level: raw " & describe(compress::deflate(empty), compress::inflate(compress::deflate(empty)), emptyCrc, 0) & " | zlib " & describe(compress::zlibEncode(empty), compress::zlibDecode(compress::zlibEncode(empty)), emptyCrc, 0) & " | gzip " & describe(compress::gzipEncode(empty), compress::gzipDecode(compress::gzipEncode(empty)), emptyCrc, 0))
+END SUB

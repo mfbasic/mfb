@@ -6,7 +6,8 @@
 ' prints nothing and exits 0, which is how bench.py checks that a built flavor runs.
 '
 ' crc32's result is the checksum; a decoder's result is `<output length> <CRC-32 of output>`,
-' computed after the timed section.
+' computed after the timed section. An encoder op times the compression only; its result is the
+' length and CRC-32 of decompressing the output, and it prints `size <compressed bytes>` too.
 IMPORT compress
 IMPORT datetime
 IMPORT fs
@@ -40,6 +41,19 @@ SUB main()
       LET c AS Integer = compress::crc32(data)
       elapsed = datetime::monotonicNanos() - started
       result = toString(c)
+    ELSEIF op = "deflate1" OR op = "deflate6" OR op = "deflate9" THEN
+      MUT level AS Integer = 6
+      IF op = "deflate1" THEN
+        level = 1
+      ELSEIF op = "deflate9" THEN
+        level = 9
+      END IF
+      LET started AS Integer = datetime::monotonicNanos()
+      LET packed AS List OF Byte = compress::deflate(data, level)
+      elapsed = datetime::monotonicNanos() - started
+      LET back AS List OF Byte = compress::inflate(packed)
+      result = toString(len(back)) & " " & toString(compress::crc32(back))
+      io::print("size " & toString(len(packed)))
     ELSEIF op = "inflate" OR op = "zlibDecode" OR op = "gzipDecode" THEN
       LET started AS Integer = datetime::monotonicNanos()
       LET out AS List OF Byte = decode(op, data)

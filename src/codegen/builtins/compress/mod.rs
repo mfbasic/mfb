@@ -19,7 +19,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const MODULE_INTRO: &str = r#"Decompress gzip, zlib and raw DEFLATE data, and compute CRC-32 checksums, in MFBASIC with no system library"#;
+const MODULE_INTRO: &str = r#"Compress and decompress gzip, zlib and raw DEFLATE data, and compute CRC-32 checksums, in MFBASIC with no system library"#;
 const MODULE_DESC: &str = r#"The `compress` package works on data held in memory: every member takes a whole
 `List OF Byte` and returns its result in one call. It is a built-in package, so
 `IMPORT compress` needs no manifest dependency.
@@ -37,6 +37,16 @@ zlib's own decoder accepts; checks the checksum the format carries (you can skip
 comparison with `ignoreChecksum`); and stops with `ErrTooLarge` rather than build a
 result larger than `maxBytes`, which defaults to 64 MiB. Bytes after the end of the data
 are ignored.
+
+Three members compress into the same three formats:
+
+- `compress::gzipEncode` — one gzip member, with no file name or time in its header.
+- `compress::zlibEncode` — zlib data.
+- `compress::deflate` — raw DEFLATE with no wrapper.
+
+Each takes a `level` from `0` (store without compressing, fastest) to `9` (search hardest),
+defaulting to `6`. Any zlib-compatible decoder reads the result, and the same input and
+level give the same bytes on every platform, though not the bytes zlib itself would write.
 
 `compress::crc32` computes the CRC-32 checksum that gzip, zip and PNG store
 alongside their data, and can continue a checksum across data that arrives in
@@ -101,28 +111,47 @@ pub(crate) fn register(r: &mut Registry) {
     helper_adler32::register(&mut pkg);
     helper_zlib_frame::register(&mut pkg);
     helper_gzip_frame::register(&mut pkg);
+    // DEFLATE encoding (gated on the encoders): the fixed Huffman codes, the encoder core, then
+    // the `deflate` wrapper over it.
+    helper_deflate_codes::register(&mut pkg);
+    helper_deflate_core::register(&mut pkg);
+    helper_deflate::register(&mut pkg);
+    // Encoder framing (gated per encoder): the zlib wrapper, then the gzip wrapper.
+    helper_zlib_encode::register(&mut pkg);
+    helper_gzip_encode::register(&mut pkg);
 
     func_crc32::register(&mut pkg);
     func_inflate::register(&mut pkg);
     func_zlib_decode::register(&mut pkg);
     func_gzip_decode::register(&mut pkg);
+    func_deflate::register(&mut pkg);
+    func_zlib_encode::register(&mut pkg);
+    func_gzip_encode::register(&mut pkg);
 
     r.add_package(pkg);
 }
 
 mod func_crc32;
+mod func_deflate;
 mod func_gzip_decode;
+mod func_gzip_encode;
 mod func_inflate;
 mod func_zlib_decode;
+mod func_zlib_encode;
 mod helper_adler32;
 mod helper_crc32;
 mod helper_crc32_table;
+mod helper_deflate;
+mod helper_deflate_codes;
+mod helper_deflate_core;
 mod helper_deflate_tables;
 mod helper_end_position;
+mod helper_gzip_encode;
 mod helper_gzip_frame;
 mod helper_huffman_table;
 mod helper_inflate;
 mod helper_inflate_core;
+mod helper_zlib_encode;
 mod helper_zlib_frame;
 
 /// `List OF Byte` — the pervasive `compress` argument/return type.
@@ -139,8 +168,48 @@ mod tests {
         let pkg = registry()
             .resolve_package("compress")
             .expect("compress package");
-        // 4 members: `crc32`, `inflate`, `zlibDecode`, `gzipDecode`.
-        assert_eq!(pkg.functions().len(), 4);
+        // 7 members: `crc32`, `inflate`, `zlibDecode`, `gzipDecode`, `deflate`, `zlibEncode`,
+        // `gzipEncode`.
+        assert_eq!(pkg.functions().len(), 7);
+    }
+
+    /// RFC 1951 §3.2.6, transcribed from the RFC text fetched for plan-137-B: the fixed
+    /// literal/length code as `(first symbol, bits, first code)` per range — 0–143 are 8 bits from
+    /// `00110000`, 144–255 are 9 bits from `110010000`, 256–279 are 7 bits from `0000000`, 280–287
+    /// are 8 bits from `11000000`. The ranges must describe a complete code (Kraft sum 1), and the
+    /// encoder's table builder must spell each range's boundary, start code and length.
+    #[test]
+    fn fixed_code_builder_matches_rfc1951() {
+        const RANGES: [(u32, u32, u32); 4] = [
+            (0, 8, 0b0011_0000),
+            (144, 9, 0b1_1001_0000),
+            (256, 7, 0b000_0000),
+            (280, 8, 0b1100_0000),
+        ];
+        let ends = [144u32, 256, 280, 288];
+        let kraft: f64 = RANGES
+            .iter()
+            .zip(ends)
+            .map(|((first, bits, _), end)| f64::from(end - first) / f64::from(1u32 << bits))
+            .sum();
+        assert_eq!(kraft, 1.0);
+
+        let body = super::helper_deflate_codes::BODY;
+        for ((first, bits, code), end) in RANGES.iter().zip(ends) {
+            let assign = match (*code, *first) {
+                (0, f) => format!("code = sym - {f}"),
+                (c, 0) => format!("code = {c} + sym"),
+                (c, f) => format!("code = {c} + sym - {f}"),
+            };
+            assert!(
+                body.contains(&format!("{assign}\n      length = {bits}")),
+                "range starting at {first}: {assign}, {bits} bits"
+            );
+            if end < 288 {
+                assert!(body.contains(&format!("sym < {end} THEN")), "boundary {end}");
+            }
+        }
+        assert!(body.contains("WHILE sym < 288"));
     }
 
     /// The paths of every file the build's augmentation chain leaves in a one-file project.

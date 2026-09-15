@@ -45,7 +45,7 @@ END FUNC"#;
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
         name: "compress_crc32",
-        gate: HelperGate::WhenUsed(&["crc32", "gzipDecode"]),
+        gate: HelperGate::WhenUsed(&["crc32", "gzipDecode", "gzipEncode"]),
         body: Some(BODY),
         import_name: None,
         natively_called: false,

@@ -41,7 +41,7 @@ END FUNC"#;
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
         name: "compress_adler32",
-        gate: HelperGate::WhenUsed(&["zlibDecode"]),
+        gate: HelperGate::WhenUsed(&["zlibDecode", "zlibEncode"]),
         body: Some(BODY),
         import_name: None,
         natively_called: false,

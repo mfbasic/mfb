@@ -8,7 +8,8 @@
 //! against the RFC table, transcribed from the fetched text, by
 //! `tests::deflate_tables_builder_matches_rfc1951` in `compress/mod.rs`.
 //!
-//! Registered via `add_helper` under [`HelperGate::WhenUsed`] on the decoders. A gated helper
+//! Registered via `add_helper` under [`HelperGate::WhenUsed`] on the decoders and, for the encoder's
+//! code builders (`helper_deflate_codes.rs`), the encoders. A gated helper
 //! is injected as its own file, so the body carries its own `IMPORT`s.
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
@@ -79,7 +80,14 @@ LET __COMPRESS_CL_ORDER AS List OF Integer = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
         name: "compress_deflate_tables",
-        gate: HelperGate::WhenUsed(&["inflate", "zlibDecode", "gzipDecode"]),
+        gate: HelperGate::WhenUsed(&[
+            "inflate",
+            "zlibDecode",
+            "gzipDecode",
+            "deflate",
+            "zlibEncode",
+            "gzipEncode",
+        ]),
         body: Some(BODY),
         import_name: None,
         natively_called: false,

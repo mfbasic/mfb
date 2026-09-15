@@ -1,4 +1,4 @@
-' Byte-identity coverage for the compress package (plan-137-A, extended by plan-137-B): every
+' Byte-identity coverage for the compress package (plan-137-A, extended by plan-137-B and -D): every
 ' member's injected source reaches native codegen on every target.
 IMPORT compress
 IMPORT encoding
@@ -14,4 +14,8 @@ SUB main()
   LET zl AS List OF Byte = compress::zlibDecode(encoding::hexDecode("789ccb48cdc9c9d751c840a21492f3730b8a528b8b0191f40a61"), 1024)
   LET gz AS List OF Byte = compress::gzipDecode(encoding::hexDecode("1f8b08000000000000ffcb48cdc9c9d751c840a21492f3730b8a528b8b018d6147741c000000"), 1024, TRUE)
   io::print(toString(len(raw)) & " " & toString(len(zl)) & " " & toString(len(gz)))
+  LET packedRaw AS List OF Byte = compress::deflate(data)
+  LET packedZlib AS List OF Byte = compress::zlibEncode(data, 0)
+  LET packedGzip AS List OF Byte = compress::gzipEncode(data, 9)
+  io::print(toString(len(packedRaw)) & " " & toString(len(packedZlib)) & " " & toString(len(packedGzip)))
 END SUB

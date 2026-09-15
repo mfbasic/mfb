@@ -144,6 +144,28 @@ def mutate_cases(rng):
     return cases
 
 
+def encode_payloads(rng):
+    """plan-137-D §1's edge inputs by name, then the three corpora."""
+    window = rng.randbytes(32768)
+    return [
+        b"",  # 0 bytes
+        b"a",  # 1 byte
+        b"ab",  # 2 bytes: shorter than a minimum match
+        rng.randbytes(65535),  # 65,535 bytes: exactly one full stored block
+        rng.randbytes(65536),  # 65,536 bytes: one byte past a stored block, exactly one fixed block
+        rng.randbytes(65537),  # 65,537 bytes: one byte into a second fixed block
+        bytes(100000),  # highly repetitive: 258-byte matches
+        window * 3,  # matches at distance 32,768
+        rng.randbytes(100000),  # incompressible
+    ] + corpora(rng)
+
+
+def encode_raw_cases(rng):
+    """Every encode payload at every level 0..9 (aux = level). The MFB probe compresses; the judges
+    decode what it produced and compare with the payload."""
+    return [(payload, level) for payload in encode_payloads(rng) for level in range(10)]
+
+
 MODES = {
     "crc32": crc32_cases,
     "probe": probe_cases,
@@ -151,6 +173,9 @@ MODES = {
     "decode-zlib": decode_zlib_cases,
     "decode-gzip": decode_gzip_cases,
     "mutate": mutate_cases,
+    "encode-raw": encode_raw_cases,
+    "encode-zlib": encode_raw_cases,
+    "encode-gzip": encode_raw_cases,
 }
 
 

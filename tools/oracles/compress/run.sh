@@ -13,7 +13,7 @@
 set -uo pipefail
 . "$(dirname "$0")/../crypto/_lib/harness.sh"
 
-ALL_MODES="crc32 decode-raw decode-zlib decode-gzip"
+ALL_MODES="crc32 decode-raw decode-zlib decode-gzip encode-raw encode-zlib encode-gzip"
 
 # Case counts per mode, declared HERE rather than counted from any subject's output
 # (see oracle_verdict). gen.py's own count is checked against these too.
@@ -24,6 +24,9 @@ expected_cases() {
     decode-zlib) echo 150 ;; # the same matrix, zlib-wrapped
     decode-gzip) echo 159 ;; # the same matrix gzip-wrapped, 3 multi-member files, 6 optional-header shapes
     mutate) echo 600 ;; # seeded 1-3 byte edits of 36 valid raw / zlib / gzip streams
+    encode-raw) echo 120 ;; # 9 edge inputs + 3 corpora x levels 0..9, compressed by compress::deflate
+    encode-zlib) echo 120 ;; # the same payloads and levels through compress::zlibEncode
+    encode-gzip) echo 120 ;; # the same payloads and levels through compress::gzipEncode (and host gzip -t)
     *) echo 0 ;;
   esac
 }
@@ -49,6 +52,7 @@ MODES=${*:-$ALL_MODES}
 
 command -v python3 >/dev/null || die "python3 is required"
 command -v node >/dev/null || die "node is required"
+command -v gzip >/dev/null || die "gzip is required (encode-gzip runs gzip -t on every member)"
 say "python zlib $(python3 -c 'import zlib; print(zlib.ZLIB_RUNTIME_VERSION)'), node zlib $(node -e 'console.log(process.versions.zlib)')"
 
 # The probe prints nothing without a job, so no output marker is required.
@@ -67,14 +71,18 @@ for mode in $MODES; do
   [ "$generated" = "$expected" ] ||
     die "gen.py wrote $generated case(s) for $mode but run.sh declares $expected"
 
-  if ! MFB_COMPRESS_JOB="$job" MFB_COMPRESS_MODE="$mode" "$ORACLE_MFB_EXE" \
+  # An encode mode's probe writes what it produced to $produced; the judges decode that file.
+  produced=""
+  case $mode in encode-*) produced="$WORK/$mode.produced" ;; esac
+  if ! MFB_COMPRESS_JOB="$job" MFB_COMPRESS_MODE="$mode" MFB_COMPRESS_OUT="$produced" "$ORACLE_MFB_EXE" \
     >"$WORK/$mode.mfb.txt" 2>"$WORK/$mode.mfb.err"; then
     cat "$WORK/$mode.mfb.err" >&2
     die "the MFB probe failed on $mode"
   fi
-  python3 "$HERE/python/oracle.py" "$mode" "$job" >"$WORK/$mode.python.txt" ||
+  [ -z "$produced" ] || [ -f "$produced" ] || die "the MFB probe wrote no output file for $mode"
+  python3 "$HERE/python/oracle.py" "$mode" "$job" ${produced:+"$produced"} >"$WORK/$mode.python.txt" ||
     die "python/oracle.py failed on $mode"
-  node "$HERE/node/oracle.mjs" "$mode" "$job" >"$WORK/$mode.node.txt" ||
+  node "$HERE/node/oracle.mjs" "$mode" "$job" ${produced:+"$produced"} >"$WORK/$mode.node.txt" ||
     die "node/oracle.mjs failed on $mode"
 
   grep '^case ' "$WORK/$mode.mfb.txt" >"$WORK/$mode.mine.txt"
