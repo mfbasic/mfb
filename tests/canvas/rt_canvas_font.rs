@@ -171,6 +171,49 @@ END SUB
     );
 }
 
+/// bug-610: a second explicit `destroyFont` raises `ErrResourceClosed`, exactly as
+/// `fs::close` does (`mfb spec language resource-management` §15). It used to return
+/// silently.
+///
+/// The second close goes through a `RES` parameter because a literal
+/// `destroyFont(f)` twice is refused at compile time (`TYPE_USE_AFTER_MOVE`). The
+/// scope-drop of `f` after both closes must stay silent, which the `done` line
+/// confirms.
+#[test]
+fn a_second_destroy_font_raises_resource_closed() {
+    let lines = run_with_font(
+        "canvas_font_double_close",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB closeIt(RES f AS canvas::Font)
+  canvas::destroyFont(f)
+END SUB
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  closeIt(f)
+  closeIt(f) TRAP(e)
+    io::print("second: " & toString(e.code))
+    RECOVER
+  END TRAP
+  io::print("done")
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![format!("second: {RESOURCE_CLOSED}"), "done".to_string()],
+        "a second destroyFont must raise ErrResourceClosed, and the drop after it \
+         must stay silent",
+    );
+}
+
+/// `ErrResourceClosed` — `mfb spec diagnostics error-codes` row `7-703-0004`.
+const RESOURCE_CLOSED: &str = "77030004";
+
 /// A minimal but *valid* TrueType file, built here so every expected metric below is
 /// derivable rather than copied from a run.
 ///
