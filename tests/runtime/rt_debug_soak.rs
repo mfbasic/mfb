@@ -717,3 +717,70 @@ fn a_software_curve_generate_loop_keeps_live_bytes_constant() {
         },
     );
 }
+
+/// bug-623 residual: `http::read` over loopback leaves nothing live per call. The FLAT_BOUND
+/// case above passes with a small leak left; measured after the read-buffer and record fixes:
+/// 160 B per call (the response resource union's 96 B variant record plus 64 B in two blocks).
+#[test]
+fn an_http_read_loop_leaves_no_block_behind() {
+    let run = |n: u64| {
+        let port = serve_http(n);
+        let project = common::temp_project(
+            "soak_http_exact",
+            &format!(
+                "IMPORT http\nIMPORT io\nIMPORT net\n\nSUB main()\n  MUT bytes AS Integer = 0\n  FOR i = 1 TO {n}\n    LET resp AS http::Response = http::read(net::toUrl(\"http://127.0.0.1:{port}/sheet.css\"))\n    bytes = len(resp.body)\n  NEXT\n  io::print(toString(bytes))\nEND SUB\n"
+            ),
+        );
+        main_live_bytes(&format!("soak_http_exact_{n}"), &project)
+    };
+    let at_small = run(50);
+    let at_large = run(100);
+    let grew = at_large.saturating_sub(at_small);
+    assert!(
+        grew < BLOCK_BOUND,
+        "soak_http_exact: main-arena live_bytes grew {grew} B between 50 and 100 reads \
+         ({at_small} -> {at_large}); http::read leaves blocks behind (bug-623)"
+    );
+}
+
+/// bug-623 residual: a resource union bound straight from a producer frees the variant
+/// record it owns (96 B per bind after the box fix: only the 16 B box was freed).
+#[test]
+fn a_resource_union_bound_from_a_producer_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_union_direct",
+        300,
+        600,
+        BLOCK_BOUND,
+        "a resource union bound from a producer leaks its variant record (bug-623)",
+        |n| {
+            common::temp_project(
+                "soak_union_direct",
+                &format!(
+                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                ),
+            )
+        },
+    );
+}
+
+/// bug-623 guard: a resource union aliasing a live concrete binding frees nothing the
+/// concrete binding still owns — the record is freed once, by `u`'s drop.
+#[test]
+fn a_resource_union_aliasing_a_binding_keeps_live_bytes_constant() {
+    assert_live_bytes_within(
+        "soak_union_alias",
+        300,
+        600,
+        BLOCK_BOUND,
+        "a resource union alias leaks or double-frees (bug-623)",
+        |n| {
+            common::temp_project(
+                "soak_union_alias",
+                &format!(
+                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES c AS Chan = u\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                ),
+            )
+        },
+    );
+}
