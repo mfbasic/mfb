@@ -19,10 +19,24 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const MODULE_INTRO: &str = r#"Checksums for compressed data formats, computed in MFBASIC with no system library"#;
+const MODULE_INTRO: &str = r#"Decompress gzip, zlib and raw DEFLATE data, and compute CRC-32 checksums, in MFBASIC with no system library"#;
 const MODULE_DESC: &str = r#"The `compress` package works on data held in memory: every member takes a whole
 `List OF Byte` and returns its result in one call. It is a built-in package, so
 `IMPORT compress` needs no manifest dependency.
+
+Three members decompress the formats built on DEFLATE, and they differ only in the
+wrapper around the data:
+
+- `compress::gzipDecode` — gzip: `.gz` files and gzip-encoded HTTP responses. It reads
+  every member of a multi-member file.
+- `compress::zlibDecode` — zlib: HTTP's `deflate` encoding and the data inside a PNG.
+- `compress::inflate` — raw DEFLATE with no wrapper, as stored inside zip entries.
+
+Each refuses data that is not valid with `ErrInvalidFormat`, accepting exactly what
+zlib's own decoder accepts; checks the checksum the format carries (you can skip that
+comparison with `ignoreChecksum`); and stops with `ErrTooLarge` rather than build a
+result larger than `maxBytes`, which defaults to 64 MiB. Bytes after the end of the data
+are ignored.
 
 `compress::crc32` computes the CRC-32 checksum that gzip, zip and PNG store
 alongside their data, and can continue a checksum across data that arrives in

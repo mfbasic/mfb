@@ -71,9 +71,12 @@ built-in injection chain.
   apply, the total/fallible split, the truncating division and remainder rule, and the
   absence of any constant-time guarantee.
 - `compress` — the in-memory compression package: the MFBASIC-source-only implementation
-  guarantee, per-member source gating and its measured size effect, and the CRC-32/ISO-HDLC
+  guarantee, per-member source gating and its measured size effect, the CRC-32/ISO-HDLC
   model (catalogue parameters, the `running` continuation and its range, slicing-by-8, and
-  the lookup tables built at program start).
+  the lookup tables built at program start), and the DEFLATE decoders — one shared core, the
+  zlib and gzip wrappers, decode-table validity matching zlib's `inflate_table`, the
+  `ignoreChecksum` / trailing-byte / preset-dictionary behaviours, `maxBytes` bounds, and the
+  measured design choices.
 
 ## See Also
 

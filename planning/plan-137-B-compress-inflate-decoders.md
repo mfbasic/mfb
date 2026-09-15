@@ -356,15 +356,25 @@ Commit: b4424ae15
 
 ### Phase 4 — speed record, docs
 
-- [ ] Bench rows `inflate` / `zlibDecode` / `gzipDecode` over the corpus; record MiB/s and the
+- [x] Bench rows `inflate` / `zlibDecode` / `gzipDecode` over the corpus; record MiB/s and the
       ratio to canvas (Phase 1) and to Python zlib in Corrections.
-- [ ] Man descriptors for the three members (errors, `maxBytes` and `ignoreChecksum` meaning,
+      (Corrections, "Decoder throughput baseline". `tools/compress-bench/run.sh target/release/mfb` → EXIT 0, every
+      row `ok`, every 16 MiB / 4 MiB ratio 3.74–4.03.)
+- [x] Man descriptors for the three members (errors, `maxBytes` and `ignoreChecksum` meaning,
       trailing bytes ignored, multi-member gzip,
       examples that round-trip a literal stream produced by a documented command).
-- [ ] `20_compress.md`: formats, bit order, table construction and validation rules with the zlib
+      (`func_inflate.rs`, `func_zlib_decode.rs`, `func_gzip_decode.rs` and the package `MODULE_INTRO`/`MODULE_DESC`.
+      `scripts/man-run-examples.sh compress --run` → `examples: 8 built: 8 ran: 8 not run: 0
+      failed: 0`; `scripts/man-census.sh --fill compress` → PARAM-DESC 10/10; `--memory-scope compress` →
+      `unclassified memory-vocabulary hits: 0`.)
+- [x] `20_compress.md`: formats, bit order, table construction and validation rules with the zlib
       exceptions and their oracle evidence, the decided behaviours (trailing bytes, `ignoreChecksum`,
       `FDICT`) and the gzip next-member rule, bounds, end-position shape
       chosen and why, throughput recorded as a dated measurement.
+      ("Decoding" section: the core, decode tables and validity rules with the `probe.sh` evidence, checksums and
+      the decided behaviours, bounds, why this shape, measured throughput and the canvas comparison, verification.
+      `touch build.rs && cargo test --bin mfb spec` → `43 passed; 0 failed`; `scripts/spec-census.sh --citations
+      language stdlib` → `MISS-SYMBOL 0`.)
 - [x] `tests/byte-identity/compress/` program extended to call the decoders; regenerate its eight
       goldens; confirm no other package's `.ncodesum` moved.
       (The program now also calls `inflate`, `zlibDecode` with an explicit `maxBytes`, and `gzipDecode` with
@@ -377,6 +387,8 @@ Acceptance: decoders are faster than canvas's inflate on the Phase 1 stream; doc
 examples run; byte-identity drift is confined to `tests/byte-identity/compress/`.
   Check: `tools/compress-bench/run.sh target/release/mfb`; `scripts/man-run-examples.sh compress --run`;
   `cargo test --bin mfb spec`; `scripts/artifact-gate.sh target/release/mfb compress` (est. 15 min).
+  (2026-09-14: on the Phase 1 stream `compress::zlibDecode` takes 3,847.0 ms (median of three; 16.64 MiB/s) vs canvas's
+  43,691.6 ms through `loadImage` — faster; docs render and all examples run; artifact gate 7 goldens, 0 diffs.)
 Commit: —
 
 ## Validation Plan
@@ -495,6 +507,21 @@ Commit: —
   lines. That two-diagnostic shape is pinned by three existing goldens (`func_tcp_invalid`, `func_tcp_connect_invalid`,
   `func_thread_start_invalid`), so it is established behaviour, not a bug; nothing was filed. Only (a), the stale §6
   sentence, is corrected (its own commit).
+- **Decoder throughput baseline (Phase 4)**, 2026-09-14, macos-aarch64, `tools/compress-bench/run.sh`
+  (Python zlib level-6 output of random / text / zero corpora; median of 3 interleaved rounds × 5 in-process
+  runs; MiB/s over the decompressed size; 16 MiB rows):
+
+  | member | random -O1 | random -O3 | text -O1 | text -O3 | zero -O1 | zero -O3 | Python zlib |
+  |---|---|---|---|---|---|---|---|
+  | `inflate` | 81.4 | 92.8 | 49.9 | 62.8 | 69.5 | 84.8 | 3,052–8,876 |
+  | `zlibDecode` | 55.1 | 60.6 | 38.6 | 46.1 | 48.7 | 56.0 | 2,514–5,351 |
+  | `gzipDecode` | 41.1 | 47.6 | 31.4 | 38.6 | 38.3 | 46.1 | 2,845–7,251 |
+
+  `zlibDecode`/`gzipDecode` also checksum the whole output (Adler-32 / CRC-32) and copy it once to drop the
+  core's end-position trailer. **Against canvas:** on the Phase 1 stream (the 4096×4096 PNG's IDAT, 67,112,960 B out)
+  `compress::zlibDecode` `-O1` → 3,963.8 / 3,847.0 / 3,836.9 ms, median 3,847.0 ms = 16.64 MiB/s, length and CRC-32 matching
+  (`/tmp/p137canvascmp`); canvas's `loadImage` took 43,691.6 ms (1.47 MiB/s), ≈11.4× — an overstatement of the inflate-only
+  gap, since canvas's figure includes unfiltering and RGBA conversion (§2). Against Python zlib: ≈0.6–3% of its speed.
 - **Decode time is linear in output and in block count; the per-block cost is table building.**
   The first back-to-back row (7.7 MiB/s on the PNG stream vs 35.6 MiB/s on the corpus stream) raised
   the arena's mixed-size churn (`.ai/codegen-invariants.md`) as a suspect, since every dynamic block
