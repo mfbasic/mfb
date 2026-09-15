@@ -592,7 +592,10 @@ fn scope_private_types(pir: &mut IrProject, id: &str) {
 /// signature, and — transitively — every type named by a field, a union
 /// variant or an include of a type already in the set. A non-exported record
 /// held in an exported record's field is on the surface: the importer receives
-/// values of it, and codegen lays the exported record out through it.
+/// values of it, and codegen lays the exported record out through it. A package
+/// built by this compiler never has one — the build rejects an `EXPORT` naming a
+/// non-exported type (`shape::export_names_non_exported_type_diagnostics`,
+/// bug-624 B) — so only a `.mfp` from an older compiler reaches that case here.
 ///
 /// Every type a native `LINK` wrapper or `CSTRUCT` names is on it too. Those
 /// wrappers route to thunks and resource tables that the importer keys by the
