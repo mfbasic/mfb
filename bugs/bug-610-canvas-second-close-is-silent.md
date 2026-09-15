@@ -5,8 +5,32 @@ Effort: small–medium
 Severity: LOW
 Class: Correctness (resource contract divergence)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (a95e12591)
+Regression Test: `tests/cli/cli_canvas_image_resource.rs`
+(`macos_the_image_resource_contract_holds_at_runtime`, exit codes 50–51) and
+`tests/canvas/rt_canvas_font.rs` (`a_second_destroy_font_raises_resource_closed`)
+
+## STATUS: FIXED (a95e12591)
+
+Followed the spec, per the owner's decision. Both lowerings now take the same
+closed guard `getSize` and `measureText` use, and raise `ErrResourceClosed` on an
+already-closed handle. The scope-drop routes to the same close op and already
+treats `ErrResourceClosed` as benign (`builder_resource_cleanup.rs`,
+`emit_resource_cleanup_call`), so the implicit close after an explicit one stays
+silent. Both regression programs pin that: each reaches its last line after the
+drop.
+
+Deviations from the plan below:
+
+- **No owner go-ahead needed for the runtime repro.** Both tests run the program
+  headless (`MFB_MACAPP_HEADLESS`), so no window opens.
+- **Runtime tests, not a codegen-inspection test.** The lowering is
+  target-shared `abi`, so one host run covers the emitted guard. The Linux and
+  Windows `--app` builds of the same program compile in
+  `the_image_surface_compiles_for_the_other_app_targets`.
+- **`close_may_fail` stays `false` for both resources.** It describes a real close
+  failure, which the drop path would log. `ErrResourceClosed` is the one error it
+  ignores.
 
 `mfb spec language resource-management` §15 states the one resource contract:
 "a second close is a defined no-op reported as `ErrResourceClosed` rather than an
@@ -77,15 +101,22 @@ other close ops emit before closing.
 - Every built-in explicit close op: `fs::close`, `tcp::close`, `udp::close`,
   `tls::close`, `audio::close`, `process` (no explicit close), `thread::waitFor`.
   All but canvas's two already raise; audit each in Phase 1 by lowering.
+- **Audited.** `fs`/`tcp`/`udp` share `lower_fs_close_helper`'s already-closed arm,
+  and `tls`/`audio` are pinned by
+  `every_builtin_close_refuses_an_already_closed_handle` (bug-525).
+  `thread::waitFor` raises on reuse (`func_wait_for.rs`). `process::closeInput`
+  closes the child's stdin pipe, not the `Process` resource, so §15 does not
+  apply to it. Canvas's two were the only divergence.
 
 ## Fix
 
-Phase 1 — decide spec-vs-code with the owner; RED test for the chosen contract
+- [x] Phase 1 — decide spec-vs-code with the owner; RED test for the chosen contract
 (codegen-inspection test that the second explicit close branches to the
-`ErrResourceClosed` raise, or a spec text test). Commit:
+`ErrResourceClosed` raise, or a spec text test). Commit: a95e12591 (RED: image
+program exited 51, font program printed only `done`)
 
-Phase 2 — conform (emit the closed guard, or amend §15 and the canvas pages).
-Full suite. Commit:
+- [x] Phase 2 — conform (emit the closed guard, or amend §15 and the canvas pages).
+Full suite. Commit: a95e12591
 
 ## Decision:
 
