@@ -1,0 +1,56 @@
+' The MFB subject of the compress oracle (tools/oracles/compress/run.sh).
+'
+' Reads the job named by MFB_COMPRESS_JOB for the mode named by MFB_COMPRESS_MODE and
+' prints one `case <index> <fields...>` line per case, the same shape the Python and
+' Node judges print. With no job it prints nothing and exits 0, which is how the
+' harness checks that a built flavor runs on this host.
+'
+' Job layout (little-endian u32): count, then (length, aux) per case, then every
+' case's bytes back to back. `aux` is per mode: the split point for crc32.
+IMPORT collections
+IMPORT compress
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC u32At(b AS List OF Byte, at AS Integer) AS Integer
+  RETURN toInt(collections::get(b, at)) + 256 * toInt(collections::get(b, at + 1)) + 65536 * toInt(collections::get(b, at + 2)) + 16777216 * toInt(collections::get(b, at + 3))
+END FUNC
+
+' crc32: the checksum in one call, and chained across the split point.
+FUNC crc32Case(data AS List OF Byte, split AS Integer) AS String
+  LET n AS Integer = len(data)
+  LET whole AS Integer = compress::crc32(data)
+  LET head AS Integer = compress::crc32(collections::mid(data, 0, split))
+  LET chained AS Integer = compress::crc32(collections::mid(data, split, n - split), head)
+  RETURN toString(whole) & " " & toString(chained)
+END FUNC
+
+SUB runJob(mode AS String, job AS List OF Byte)
+  LET count AS Integer = u32At(job, 0)
+  MUT offset AS Integer = 4 + 8 * count
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET n AS Integer = u32At(job, 4 + 8 * i)
+    LET aux AS Integer = u32At(job, 8 + 8 * i)
+    LET data AS List OF Byte = collections::mid(job, offset, n)
+    MUT fields AS String = "unknown-mode " & mode
+    IF mode = "crc32" THEN
+      fields = crc32Case(data, aux)
+    END IF
+    io::print("case " & toString(i) & " " & fields)
+    offset = offset + n
+    i = i + 1
+  END WHILE
+END SUB
+
+SUB main()
+  LET jobPath AS String = os::getEnvOr("MFB_COMPRESS_JOB", "")
+  IF jobPath = "" THEN
+    EXIT SUB
+  END IF
+  RES h AS fs::File = fs::openFile(jobPath, "r")
+  LET job AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  runJob(os::getEnvOr("MFB_COMPRESS_MODE", ""), job)
+END SUB

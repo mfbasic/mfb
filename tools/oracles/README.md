@@ -6,6 +6,8 @@ dev-dependency (those live in `tests/`; see `tests/interop/rt_crypto_*_interop.r
 
 - **crypto/** — reference harnesses for the `crypto` builtin (Argon2id, hashes, keys,
   MAC/KDF). See `crypto/README.md` for how each is run and what it pins.
+- **compress/** — the `compress` builtin against Python's and Node's zlib, one mode per
+  operation. See `compress/README.md`.
 
 The rule for where an oracle goes is in `.ai/testing-gates.md` (the oracle-location
 table).

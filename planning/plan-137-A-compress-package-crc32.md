@@ -301,7 +301,7 @@ program.
   letter; A adds `crc32` (random lengths 0..1 MiB, random split points for chaining).
 - `tools/compress-bench/` — `README.md`, `run.sh <mfb>`: generates a fixed corpus (seeded
   pseudo-random, repetitive text, all-zero; 1 / 4 / 16 MiB), builds an MFB bench program,
-  times each op by median of 5 runs with `/usr/bin/time`, and prints MiB/s beside Python
+  times each op by median of 5 runs with `/usr/bin/time` (**corrected:** in-process `datetime::monotonicNanos` around the op, interleaved rounds — Corrections), and prints MiB/s beside Python
   `zlib` on the same bytes. A adds the `crc32` row.
 
 ## Compatibility / Format Impact
@@ -401,14 +401,21 @@ Commit: 0e4fbe738
 
 ### Phase 4 — oracle + bench harnesses
 
-- [ ] `tools/oracles/compress/` per §4.4 with mode `crc32`; README states it is not in CI.
-- [ ] `tools/compress-bench/` per §4.4 with the `crc32` row.
-- [ ] Record the bench output (MiB/s at 1/4/16 MiB, `-O1` and `-O3`, macos-aarch64) in this
-      file's Corrections section as the `crc32` baseline.
+- [x] `tools/oracles/compress/` per §4.4 with mode `crc32`; README states it is not in CI.
+      (`python/gen.py`, `mfb/`, `python/oracle.py`, `node/oracle.mjs`, `run.sh` on
+      `tools/oracles/crypto/_lib/harness.sh`; indexed in `tools/oracles/README.md`. `run.sh target/release/mfb crc32`
+      → `crc32: 118/118 agreed with python`, `118/118 agreed with node`, `118 case(s), 0 failure(s)`, exit 0 —
+      before and after the §4.2 table rewrite.)
+- [x] `tools/compress-bench/` per §4.4 with the `crc32` row. (`run.sh` → `bench.py` + `mfb/`; every row's
+      MFB result must equal Python's.)
+- [x] Record the bench output (MiB/s at 1/4/16 MiB, `-O1` and `-O3`, macos-aarch64) in this
+      file's Corrections section as the `crc32` baseline. (Corrections, "crc32 baseline".)
 
 Acceptance: `tools/oracles/compress/run.sh target/release/mfb crc32` exits 0 with the declared
 case count; the bench prints three sizes with linear time (16 MiB ≤ 4.4× the 4 MiB time).
   Check: those two commands (est. 5 min).
+  (2026-09-14: oracle exit 0 with 118 declared cases; bench exit 0, every row `ok`, 16 MiB / 4 MiB
+  = 3.99–4.03 across three corpora and both levels.)
 Commit: —
 
 ### Phase 5 — docs
@@ -501,6 +508,34 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
   `06_url` (16), `09_vector` (1); none in `20_compress.md`. Not caused by this plan; fixed in its
   own commit on this branch before the merge (the as-is rule: re-point the 39, re-verify the
   claims behind the 2 deletions).
+- **crc32 baseline (Phase 4), 2026-09-14, macos-aarch64**, `tools/compress-bench/run.sh target/release/mfb`
+  (median of 3 interleaved rounds × 5 runs, in-process), after the §4.2 table rewrite:
+
+  | corpus | -O | 1 MiB | 4 MiB | 16 MiB | Python zlib |
+  |---|---|---|---|---|---|
+  | random | 1 | 86.8 MiB/s | 86.7 | 86.4 | ≈32,000 MiB/s |
+  | random | 3 | 101.6 | 101.8 | 101.6 | |
+  | text | 1 | 86.6 | 86.6 | 86.4 | |
+  | text | 3 | 101.8 | 101.4 | 101.7 | |
+  | zero | 1 | 86.8 | 86.7 | 86.2 | |
+  | zero | 3 | 104.4 | 103.9 | 103.1 | |
+
+  16 MiB / 4 MiB: 4.01 / 4.01 / 4.01 / 3.99 / 4.03 / 4.03. Python's `zlib.crc32` is ≈370× faster (native
+  SIMD/CRC32 instructions); MFB at −O1 is ≈27× the SHA-256 number in §2.
+- **§4.4 bench timing — `/usr/bin/time` replaced by in-process timing, and the rows interleaved.**
+  `/usr/bin/time -p` resolves 10 ms, too coarse for a 1 MiB crc32 (≈12 ms), and times file reads and
+  start-up too; the bench program times each run with `datetime::monotonicNanos` around the op. The
+  first bench run (rows timed back to back, each kind right after generating its corpus) **failed**
+  linearity on text and zero (5.12–6.92×) while random passed. A data-independent loop cannot be
+  content-dependent, so it was treated as a harness bug: `/tmp/p137lin.py` ran the same binary on zero
+  and random files interleaved — 16 MiB medians 182.8 / 184.8 ms, 4 MiB 45.5 / 46.2 ms, ratios 4.02 /
+  4.00 — while `uptime` showed load average 19.56 with a QEMU guest at 323% CPU. `bench.py` now writes
+  every corpus before timing anything and runs `ROUNDS` (default 3) interleaved rounds; re-run: all
+  rows linear.
+- **`tools/oracles/crypto/_lib/harness.sh` located the repo root as "up four directories"**, which is
+  right only for `tools/oracles/crypto/<name>/run.sh`; `tools/oracles/compress/run.sh` sits one level
+  higher. Changed to `git -C "$HERE" rev-parse --show-toplevel`; `git -C tools/oracles/crypto/keys
+  rev-parse --show-toplevel` → the worktree root, and the compress oracle builds and runs through it.
 - **Phase 3 check glob.** `scripts/test-accept.sh … 'compress'` selects only
   `byte-identity/compress`: a glob matches a test's relative path or its basename, and the other
   three fixtures are `compress-crc32-*`. Corrected to `'compress' 'compress-*'` (4 tests ran). The

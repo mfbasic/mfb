@@ -1,0 +1,37 @@
+' The MFB side of tools/compress-bench.
+'
+' Reads BENCH_FILE, then runs BENCH_OP on it five times, timing each run with
+' datetime::monotonicNanos around the operation alone (not the file read), and
+' prints `run <nanoseconds> <result>` per run. With no BENCH_FILE it prints nothing
+' and exits 0, which is how bench.py checks that a built flavor runs on this host.
+IMPORT compress
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC runOnce(op AS String, data AS List OF Byte) AS String
+  IF op = "crc32" THEN
+    RETURN toString(compress::crc32(data))
+  END IF
+  RETURN "unknown-op"
+END FUNC
+
+SUB main()
+  LET path AS String = os::getEnvOr("BENCH_FILE", "")
+  IF path = "" THEN
+    EXIT SUB
+  END IF
+  LET op AS String = os::getEnvOr("BENCH_OP", "")
+  RES h AS fs::File = fs::openFile(path, "r")
+  LET data AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  MUT i AS Integer = 0
+  WHILE i < 5
+    LET started AS Integer = datetime::monotonicNanos()
+    LET result AS String = runOnce(op, data)
+    LET elapsed AS Integer = datetime::monotonicNanos() - started
+    io::print("run " & toString(elapsed) & " " & result)
+    i = i + 1
+  END WHILE
+END SUB
