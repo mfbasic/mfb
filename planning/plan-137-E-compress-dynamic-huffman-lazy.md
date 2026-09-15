@@ -29,7 +29,7 @@ See plan-137-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-137-D complete | `ls planning/completed/plan-137-D-*` → one file | NOT MET (2026-09-13 re-run: `ls planning/completed | grep -c plan-137` → 0; blocked on plan-137-A's bug-621 row) |
+| plan-137-D complete | `ls planning/completed/plan-137-D-*` → one file | MET (2026-09-14 re-run: `planning/completed/plan-137-D-compress-deflate-encoders.md`, archived in `2f361a878`). plan-137-A §Prerequisites re-run the same day: `ls bugs/completed/bug-621-*` → the append-growth fix, plus main's unrelated reuse of the number; `cargo build --release --bin mfb` → `Finished … 58.62s`; Python zlib `1.2.12`, Node zlib `1.3.1-470d3a2`; `Cargo.lock:1142` flate2 `1.1.9` |
 
 ## 1. Goal
 
@@ -63,8 +63,8 @@ See plan-137-A §Prerequisites. Additionally:
 
 | What | Count | Command |
 |---|---|---|
-| D's ratio and MiB/s per level (the baseline this letter improves) | from plan-137-D Corrections | read it before Phase 1 |
-| zlib's behaviour for zero-distance-symbol and single-literal-symbol blocks | UNMEASURED | Phase 1: `python3 -c "import zlib; …"` on `b'a'*1000` and `bytes(range(256))*4` with `zlib.compressobj(9, zlib.DEFLATED, -15)`, then parse the block header with B's decoder in a debug probe |
+| D's ratio and MiB/s per level (the baseline this letter improves) | Copied 2026-09-14 from plan-137-D Corrections, "Phase 2 bench" (macos-aarch64, `-O1`, 16 MiB corpora, size vs Python zlib at the same level). Level 1: random 8.0 MiB/s 1.054×, text 51.9 1.412×, zero 111.0 2.225×. Level 6: random 8.0 1.054×, text 9.3 1.593×, zero 29.9 6.499×. Level 9: random 8.2 1.054×, text 4.1 1.588×, zero 30.6 6.499× | read it before Phase 1 |
+| zlib's behaviour for zero-distance-symbol and single-literal-symbol blocks | Measured 2026-09-14 (`/tmp/p137e-phase1.py`, an independent RFC 1951 header parser; Corrections). The listed inputs give **no dynamic block**: `b'a'*1000` and `bytes(range(256))*4` → fixed (`BTYPE 1`), and `bytes(range(256))` → stored, because zlib keeps the cheapest encoding. Inputs that force a dynamic block, all at level 9, raw: `b'a'*100000` default strategy → `HLIT 286, HDIST 2, HCLEN 18`, literal/length lengths `{97:2, 256:3, 281:3, 285:1}`, distance `{0:1, 1:1}` (one distance code used, a second of length 1 added); `b'a'*100000` `Z_HUFFMAN_ONLY` → `HLIT 257, HDIST 2, HCLEN 18`, literal/length `{97:1, 256:1}`, distance `{0:1, 1:1}` (**no distance symbol used, yet two distance codes of length 1 are sent**); 10,000 bytes of `a`/`b` 9:1 `Z_HUFFMAN_ONLY` → literal/length `{97:1, 98:2, 256:2}`, distance `{0:1, 1:1}`. The rule, fetched (`trees.c` 1.2.12, sha256 `56644256…1678`, lines 641–652): "The pkzip format requires that at least one distance code exists, and that at least one bit should be sent even if there is only one possible code. So to avoid special checks later on we force at least two codes of non zero frequency" — padding with symbol 0 or 1 (`max_code < 2 ? ++max_code : 0`). Both trees get this rule | Phase 1: `python3 -c "import zlib; …"` on `b'a'*1000` and `bytes(range(256))*4` with `zlib.compressobj(9, zlib.DEFLATED, -15)`, then parse the block header with B's decoder in a debug probe |
 
 ## 3. Design Overview
 
@@ -118,10 +118,12 @@ output is unchanged from D.
 
 ### Phase 1 — measure
 
-- [ ] Fill §2's UNMEASURED row; copy D's recorded ratio/MiB/s into this file as the baseline.
+- [x] Fill §2's UNMEASURED row; copy D's recorded ratio/MiB/s into this file as the baseline.
+      (2026-09-14: both rows filled, see §2.)
 
 Acceptance: §2 filled with pasted evidence.
   Check: the commands in §2 (est. 10 min).
+  (2026-09-14: `python3 /tmp/p137e-phase1.py` → the headers pasted in §2.)
 Commit: —
 
 ### Phase 2 — package-merge + dynamic blocks + block choice
@@ -191,6 +193,19 @@ Commit: —
   cheapest header to decode) vs. dynamic first.
 
 ## Corrections
+
+- **Phase 1's inputs could not show a dynamic header, and the parser is not B's decoder** (2026-09-14).
+  `b'a'*1000` and `bytes(range(256))*4` at level 9 compress to fixed blocks (11 B and 280 B), so there is no `HLIT` /
+  `HDIST` to read. The probe adds inputs that make zlib choose `BTYPE 2`: `b'a'*100000`, and `Z_HUFFMAN_ONLY` streams for
+  the no-distance-symbol case. The headers are parsed by an independent Python RFC 1951 header reader rather than a
+  debug build of `__compress_inflateCore`. B's core validates code sets but prints nothing, and adding a debug surface
+  would be test-only code in the product. The facts come from zlib's output and from `trees.c`, not from our decoder's
+  view of it.
+- **zlib's tie order for the block type is stored, then fixed, then dynamic** (2026-09-14, `trees.c` `_tr_flush_block`,
+  lines 950–981). It computes `opt_lenb = (opt_len+3+7)>>3` and `static_lenb`, sets `opt_lenb = static_lenb` when
+  `static_lenb <= opt_lenb`, writes a stored block if `stored_len+4 <= opt_lenb`, else fixed if `static_lenb == opt_lenb`,
+  else dynamic. The Open Decision's recommended order (fixed, then stored, then dynamic) differs only when stored and
+  fixed cost the same; §4.2's order is settled in Phase 2 with this citation.
 
 - **Phase 4 "Archive plan-137-A…E" contradicts the letters' own gates** (recorded by plan-137-A on
   2026-09-14, before this letter started). plan-137-B's Prerequisites row is
