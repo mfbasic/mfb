@@ -362,6 +362,8 @@ Command: `mfb init /tmp/szp; printf 'IMPORT io\nIMPORT <pkg>\n\nFUNC main AS Int
 
 **A `HelperGate::WhenUsed` helper is injected as its own source file, so its body needs its own `IMPORT` lines.** `add_imports` renders into the package's shared companion only. A gated helper whose body calls `bits::…` without its own `IMPORT bits` fails the build with `SYMBOL_UNKNOWN_IMPORT` "Package `bits` is used but not imported in this file" at `builtins/<helper-name>.mfb` (plan-137-A; `crypto/helper_argon2id.rs` and `compress/helper_crc32.rs` open with the header).
 
+**A `Boolean` default is spelled `expr: "false"`, lowercase.** `DefaultValue::Fill { type_name: ParameterType::Boolean, expr: "FALSE" }` compiles as Rust and registers without complaint, then every program that omits that argument fails to build with `error: invalid immediate 'FALSE'` (plan-137-B: it broke the `compress` oracle probe and four man examples). The precedent is `tls/func_connect.rs`. No registry or unit test sees it; `scripts/man-run-examples.sh <pkg> --run` does, so run it after adding any defaulted parameter.
+
 **A list literal in injected source costs code per element, not data.** A 2,048-entry `LET … AS List OF Integer = [...]` lowered to 53,317 of a 59,725-instruction program's instructions, all in the global initializer (≈26 per element), and a probe executable carrying it was 379,772 B larger than the same program building the table with an MFB loop at program start, at equal speed (plan-137-A Corrections, macos-aarch64). Build a large table with a function called from the module-level `LET`; keep literals to a few dozen elements.
 
 **Writing the native backend (`src/target/shared/code/<pkg>/`)**
