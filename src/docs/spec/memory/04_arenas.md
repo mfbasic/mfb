@@ -346,9 +346,16 @@ null-guarded, so an initializer that traps before storing frees nothing.
 A **resource** is scope-dropped, but on its own terms: drop and close do different
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — since plan-52-B the drop path `arena_free`s the resource's output buffer,
-read buffer, and `STATE` payload, nulling each pointer word as it goes. Only the
-96-byte record itself survives, deliberately, as the tombstone that carries the
-closed flag. Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
+read buffer, and `STATE` payload, nulling each pointer word as it goes. For most
+resource kinds the 96-byte record itself survives, deliberately, as the tombstone that
+carries the closed flag. The `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`
+and `tls.Listener` records are the exception (bug-623): the **owning binding's** drop
+frees the record last, after the close and the block reclaim, and zeroes the slot. The
+owner, not `close`, frees it, because a `close` through a `RES` parameter leaves the
+owner still reading the closed flag, and every non-owning holder lives in the owner's
+scope. An explicit `close` on the owner therefore keeps the drop registered, and the
+drop's re-close is the defined no-op. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
+Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
 copied the `STATE` pointer into the receiver's record, so freeing it here would hand
 another thread a dangling payload. (`./mfb spec language resource-management` specifies the
 close/drop split.) [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
