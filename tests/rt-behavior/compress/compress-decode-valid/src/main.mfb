@@ -1,0 +1,26 @@
+' Streams generated with Python 3.14 zlib 1.2.12 from
+' t = b'compress decode fixture: the quick brown fox jumps over the lazy dog. ' * 3
+' (210 bytes, CRC-32 4278531953): raw = zlib.compressobj(6, zlib.DEFLATED, -15),
+' zlib = zlib.compress(t, 6), gzip = gzip.compress(t, 6, mtime=0).
+' Also: stored = zlib.compress(b'stored block', 0); badAdler = zlib with its last byte XOR 1.
+IMPORT compress
+IMPORT encoding
+IMPORT io
+
+SUB main()
+  LET raw AS List OF Byte = encoding::hexDecode("cdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901")
+  LET zl AS List OF Byte = encoding::hexDecode("789ccdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901198d4d29")
+  LET gz AS List OF Byte = encoding::hexDecode("1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd2000000")
+  io::print("inflate: " & encoding::utf8Decode(compress::inflate(raw)))
+  io::print("zlibDecode: " & encoding::utf8Decode(compress::zlibDecode(zl)))
+  io::print("gzipDecode: " & encoding::utf8Decode(compress::gzipDecode(gz)))
+  io::print("crc32 matches: " & toString(compress::crc32(compress::gzipDecode(gz)) = 4278531953))
+  io::print("stored: " & encoding::utf8Decode(compress::zlibDecode(encoding::hexDecode("7801010c00f3ff73746f72656420626c6f636b1f8004bd"))))
+  LET twoMembers AS List OF Byte = encoding::hexDecode("1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd20000001f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd2000000")
+  io::print("two members: " & toString(len(compress::gzipDecode(twoMembers))))
+  LET padded AS List OF Byte = encoding::hexDecode("1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd200000000000000")
+  io::print("trailing padding ignored: " & toString(len(compress::gzipDecode(padded))))
+  LET damaged AS List OF Byte = encoding::hexDecode("789ccdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901198d4d28")
+  io::print("ignoreChecksum: " & toString(len(compress::zlibDecode(damaged, 67108864, TRUE))))
+  io::print("exact limit: " & toString(len(compress::inflate(raw, 210))))
+END SUB

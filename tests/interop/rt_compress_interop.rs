@@ -13,6 +13,27 @@
 //! reads the job and prints one result line per case. Neither side derives the other's
 //! inputs from its outputs.
 //!
+//! **Decoders.** `compress::inflate`, `zlibDecode` and `gzipDecode` are checked against `flate2`'s
+//! miniz_oxide backend: every level of all three formats decodes; 80 seeded single-byte flips of
+//! zlib and gzip streams each get `flate2`'s own verdict; and the refusal classes of plan-137-B §1
+//! are pinned by name. Where each class is covered (this file, the rt-error fixtures under
+//! `tests/rt-error/compress/`, or `tools/oracles/compress/probe.sh` + `mutate`, which run offline):
+//!
+//! | refusal class (plan-137-B §1) | covered by |
+//! |---|---|
+//! | over-subscribed code set | `dec57_dec58_regressions_are_refused` (literal set); `probe.sh` (distance set) |
+//! | incomplete literal/length set | `dec57_dec58_regressions_are_refused` |
+//! | distance before the start of output | `dec57_dec58_regressions_are_refused` |
+//! | stored `LEN` ≠ `~NLEN` | `decided_behaviours_hold` ("bad NLEN, ignoreChecksum") |
+//! | reserved `BTYPE = 11`, invalid length/distance symbols, bad repeats, missing end-of-block | `probe.sh`; `mutate` (0 lenient cases) |
+//! | input ending mid-stream | `tampered_checksummed_streams_get_flate2s_verdict`; `mutate` |
+//! | zlib `FDICT` | `decided_behaviours_hold`; `compress-zlib-decode-preset-dictionary-invalid` |
+//! | zlib `CM`/`CINFO`/`FCHECK` | `probe.sh` (`zlib-cinfo-8`); `mutate` header edits |
+//! | gzip magic / `CM` / reserved flags, truncated header or trailer | `decided_behaviours_hold` ("1f 8b then garbage"); `probe.sh` (`gzip-reserved-flag`) |
+//! | wrong Adler-32 / CRC-32 / `ISIZE` / `FHCRC` (unless `ignoreChecksum`) | `decided_behaviours_hold`; `compress-zlib-decode-bad-checksum-invalid` |
+//! | output past `maxBytes` (`ErrTooLarge`) | `compress-inflate-too-large-invalid`; `tests/runtime/rt_compress_bounds.rs` |
+//! | negative `maxBytes` (`ErrInvalidArgument`) | `compress-inflate-max-bytes-negative-invalid` |
+//!
 //! Lives in `tests/` rather than `tools/oracles/compress/` because `flate2` is already a
 //! dependency through `image` → `png`: no new compiled code, and it runs on every
 //! `cargo test`. See `.ai/testing-gates.md` on where an oracle lives.

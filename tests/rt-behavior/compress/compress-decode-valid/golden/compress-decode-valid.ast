@@ -1,0 +1,42 @@
+{
+  "project": "compress-decode-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "compress", "line": 6 },
+    { "module": "encoding", "line": 7 },
+    { "module": "io", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "cdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "zl", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "789ccdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901198d4d29" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "gz", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd2000000" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inflate: " }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "identifier", "value": "raw" }] }] } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zlibDecode: " }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "compress.zlibDecode", "arguments": [{ "kind": "identifier", "value": "zl" }] }] } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "gzipDecode: " }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "identifier", "value": "gz" }] }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "crc32 matches: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "identifier", "value": "gz" }] }] }, "right": { "kind": "number", "value": "4278531953" } }] } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stored: " }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "compress.zlibDecode", "arguments": [{ "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "7801010c00f3ff73746f72656420626c6f636b1f8004bd" }] }] }] } }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "twoMembers", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd20000001f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd2000000" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "two members: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "identifier", "value": "twoMembers" }] }] }] } }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "padded", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "1f8b08000000000000ffcdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901713705ffd200000000000000" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trailing padding ignored: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "identifier", "value": "padded" }] }] }] } }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "damaged", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "789ccdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901198d4d28" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ignoreChecksum: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "compress.zlibDecode", "arguments": [{ "kind": "identifier", "value": "damaged" }, { "kind": "number", "value": "67108864" }, { "kind": "boolean", "value": true }] }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exact limit: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "identifier", "value": "raw" }, { "kind": "number", "value": "210" }] }] }] } }] }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}
