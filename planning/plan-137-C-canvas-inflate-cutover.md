@@ -34,7 +34,7 @@ See plan-137-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-137-B complete | `ls planning/completed/plan-137-B-*` → one file | NOT MET (2026-09-13 re-run: `ls planning/completed | grep -c plan-137` → 0; blocked on plan-137-A's bug-621 row) |
+| plan-137-B complete | `ls planning/completed/plan-137-B-*` → one file | MET (2026-09-14 re-run: `planning/completed/plan-137-B-compress-inflate-decoders.md`, archived in `afd7eaca5`/`a793cf281`; plan-137-A §Prerequisites re-run the same day — bug-621 in `bugs/completed/`, `cargo build --release --bin mfb` → `Finished … 47.33s`, Python zlib `1.2.12` / Node `1.3.1-470d3a2`, `flate2` `1.1.9`, `compress` present) |
 
 ## 1. Goal
 
@@ -51,6 +51,14 @@ See plan-137-A §Prerequisites. Additionally:
 
 - No change to what canvas *accepts* beyond the two zlib-strictness refusals (and whatever
   further refusals plan-137-B's oracle established zlib makes — list them in Phase 1).
+  **Listed 2026-09-14** from `helper_inflate.rs`. Canvas's decoder already refuses: input under 6 bytes,
+  `CM ≠ 8`, a bad `FCHECK`, `FDICT`, stored `LEN ≠ ~NLEN`, a code-length repeat with no previous length, a repeat
+  overrunning `HLIT + HDIST` (checked after the loop), a literal/length symbol above 285, a distance symbol above 29,
+  a distance before the start of output, and output past the limit. The classes it gains through
+  `compress::zlibDecode` (plan-137-B §1, `tools/oracles/compress/probe.sh`): a wrong Adler-32 (DEC-57; canvas
+  never reads the trailer), an over-subscribed code set (DEC-58), an incomplete literal/length or distance set
+  other than a single 1-bit code, a literal/length set with no end-of-block code, and `CINFO > 7` (canvas's
+  comment names the 32 KiB window, but only `CM` is tested).
 - No change to the PNG chunk walk, header caps (16384 per side, 16,777,216 pixels), filters,
   interlace, colour conversion, or error codes/messages.
 - PNG **chunk CRC** verification (the other half of DEC-57) is **not** added here — it is PNG
@@ -74,10 +82,10 @@ See plan-137-A §Prerequisites. Additionally:
 | What | Count | Command |
 |---|---|---|
 | Canvas decode tests | 15 | `grep -c "#\[test\]" tests/canvas/rt_canvas_image_decode.rs` |
-| Acceptance fixtures importing canvas (their `.ir`/`.ast` goldens are EXPECTED to shift) | UNMEASURED | Phase 1: `grep -rl "IMPORT canvas" tests --include=main.mfb \| wc -l` |
-| `__canvas_pow2` users outside `helper_inflate.rs` | UNMEASURED | Phase 1: `grep -rn "__canvas_pow2" src/codegen/builtins/canvas \| grep -v helper_inflate.rs` |
-| The TRAP idiom an injected helper uses to turn a raised error into a value | UNVERIFIED | Phase 1: `grep -rn "TRAP\|RECOVER" src/codegen/builtins --include='helper_*.rs' \| head` |
-| Size delta of `IMPORT canvas` binaries | UNMEASURED | Phase 1 before / Phase 3 after, `.ai/resources-packages.md` size probe |
+| Acceptance fixtures importing canvas (their `.ir`/`.ast` goldens are EXPECTED to shift) | 4 (2026-09-14) | Phase 1: `grep -rl "IMPORT canvas" tests --include=main.mfb \| wc -l` |
+| `__canvas_pow2` users outside `helper_inflate.rs` | 2 (2026-09-14): `helper_png.rs:163` and `:170` (sample extraction). Its only definition is `helper_inflate.rs:47` (`FUNC __canvas_pow2`), so the definition must move to a surviving canvas helper before `helper_inflate.rs` is deleted | Phase 1: `grep -rn "__canvas_pow2" src/codegen/builtins/canvas \| grep -v helper_inflate.rs` |
+| The TRAP idiom an injected helper uses to turn a raised error into a value | Verified (2026-09-14): `LET x AS T = call(...) TRAP(e)` with a handler ending in `RECOVER value` (`net/helper_decode_query_component.rs:16–17`, `RECOVER s`) or `RETURN value` (`strings/helper_scalar_seam.rs:64–65`, `RETURN ""`) | Phase 1: `grep -rn "TRAP\|RECOVER" src/codegen/builtins --include='helper_*.rs' \| head` |
+| Size delta of `IMPORT canvas` binaries | Before (2026-09-14, macos-aarch64 `--app`): **1,904,108 B** for a program that only imports `canvas` and **1,904,108 B** for one that also calls `canvas::loadImage` — canvas's PNG and inflate helpers are `RegistryHelper::always`, so every canvas program carries them. After: Phase 3, same two probes (`/tmp/p137csize/{canvas-only,canvas-load}`) | Phase 1 before / Phase 3 after, `.ai/resources-packages.md` size probe |
 
 ## 3. Design Overview
 
@@ -130,14 +138,17 @@ Adler-32; over-subscribed Huffman trees; any further class plan-137-B establishe
 
 ### Phase 1 — census
 
-- [ ] Fill every UNMEASURED/UNVERIFIED row in §2; list plan-137-B's refusal classes that canvas
+- [x] Fill every UNMEASURED/UNVERIFIED row in §2; list plan-137-B's refusal classes that canvas
       did not previously enforce (Non-goals).
 - [ ] (Added 2026-09-14) Probe the late-pass gating defect recorded in §4: a scratch late pass mirroring
       `color::augmented_project` for `compress`, a `--app` program that imports only `canvas` and loads a PNG,
       and the resulting build diagnostic (expected: an undefined `__compress_zlibDecode`). Then choose and
       record the injection shape that makes the gated helpers ride in, with the probe that shows it building.
-- [ ] Record the pre-change size of a minimal `IMPORT canvas` program and the decode time of the
+- [x] Record the pre-change size of a minimal `IMPORT canvas` program and the decode time of the
       plan-137-B Phase 1 PNG.
+      (Size: 1,904,108 B for both probes, §2. Decode time: 43,691.6 ms for the 4096×4096 PNG's 67,112,960 B through
+      `canvas::loadImage` (plan-137-B §2, 2026-09-14). Still the pre-change figure: `git log -1 -- src/codegen/builtins/canvas`
+      → `986ab96b8 2026-09-13`, before that measurement, and nothing under `canvas/` has changed since.)
 
 Acceptance: §2 has no UNMEASURED rows.
   Check: the commands in §2 (est. 10 min).
