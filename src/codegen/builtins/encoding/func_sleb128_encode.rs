@@ -26,9 +26,11 @@ the remaining value is `-1` and the group's sign bit is set. This guarantees the
 top byte sign-extends correctly on decode.
 
 At least one byte is always emitted: `0` encodes as the single byte `[0]` and
-`-1` encodes as the single byte `[0x7F]`. Both non-negative and negative values
-are accepted; use `encoding::uleb128Encode` when the value is known to be
-non-negative and the sign byte is unwanted. The inverse operation is
+`-1` encodes as the single byte `[0x7F]`. Every `Integer` is accepted, including
+zero, negative values and the minimum `Integer` (ten bytes). Because the last
+group also carries a sign bit, a non-negative value can need one more byte than
+unsigned LEB128 (`sleb128Encode(64)` is `c0 00`, `uleb128Encode(64)` is `40`),
+so use `encoding::uleb128Encode` when the value is known to be non-negative. The inverse operation is
 `encoding::sleb128Decode`, which reads one signed LEB128 sequence back into an
 `Integer`."#;
 #[rustfmt::skip]
@@ -94,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The integer to encode.",
+                desc: "The integer to encode. Every `Integer` is valid, including zero and negative values.",
                 aliases: &[],
                 ty: ParameterType::Integer,
                 default: DefaultValue::None,

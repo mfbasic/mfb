@@ -967,7 +967,15 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // into a shared `imported_type` binding, hence +5/-1.
     ("declared_sites", "ir", 52),
     ("declared_sites", "manifest", 1),
-    ("declared_sites", "monomorph", 8),
+    // 8 -> 9: bug-631 gives the monomorphizer an imported package's exported
+    // record layouts (`collect_imported_records`, `monomorph/helpers.rs`) so a
+    // field of an imported record types for overload resolution instead of as
+    // `Unknown`. The name comes off the `.mfp` type-export table and becomes the
+    // KEY of the `ParameterType`-keyed `imported_records` table -- the identical
+    // wire-decode-as-table-key conversion `ir/lower.rs:TypeIndex::new` makes
+    // over the same `ImportedTypeDef` list (the `ir` row's 47 -> 48 entry), and
+    // it decides nothing by comparing a spelling.
+    ("declared_sites", "monomorph", 9),
     ("declared_sites", "resolver", 8),
     ("declared_sites", "target", 8),
     ("str_type_params", "codegen", 3),

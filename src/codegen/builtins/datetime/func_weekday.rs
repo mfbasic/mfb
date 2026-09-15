@@ -9,12 +9,10 @@ as a value of the `datetime::Weekday` enum (`Monday`, `Tuesday`, `Wednesday`, `T
 `Friday`, `Saturday`, `Sunday`).
 
 The result is derived solely from the calendar date fields carried by `dt` — its
-year, month, and day as stored in `dt`'s own zone. The day count for that civil
-date is computed on the proleptic-Gregorian calendar and reduced modulo seven
-against a fixed reference (`floorMod(days + 3, 7)`), so the answer is the
-wall-clock weekday a person reading `dt`'s date in its zone would name. The
-time-of-day fields, the sub-second nanoseconds, and the zone's UTC offset do not
-affect the result; no `datetime::Instant` is resolved and no zone table is consulted.
+year, month, and day as stored in `dt`'s own zone. The weekday is calculated
+from that civil date on the proleptic-Gregorian calendar, so the answer is the
+wall-clock weekday a person reading `dt`'s date in its zone would name. The time
+of day, the nanoseconds, and the UTC offset do not affect the result.
 
 
 Because the computation reads only `dt`'s stored civil date, the same instant
@@ -24,7 +22,8 @@ starting on Monday, matching the ordering of the `datetime::Weekday` enum, so
 `datetime::Weekday.Monday` is the first day and `datetime::Weekday.Sunday` is the last.
 
 
-`datetime::weekday` is pure: it reads no host state and has no side effects."#;
+`datetime::weekday` is pure: it reads no host state and has no side effects. A
+year so large that its day count does not fit an `Integer` raises `ErrOverflow`."#;
 const EX: &str = r#"Name the weekday of a civil date in the local zone:
 
 ```

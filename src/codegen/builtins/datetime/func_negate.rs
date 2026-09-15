@@ -19,9 +19,9 @@ always lands in the range `0 .. 999_999_999`, carrying any borrow into the
 is `-1` and whose `nanos` is `750_000_000` — the same magnitude pointing
 backward.
 
-Negation is the same operation as `datetime::minus(zero, d)`. The arithmetic is
+Negation is the same operation as `datetime::minus(datetime::duration(0), d)`. The arithmetic is
 ordinary signed `Integer` arithmetic, so negating the most negative representable
-`seconds` count has no positive counterpart in the `Integer` range and traps.
+`seconds` count has no positive counterpart in the `Integer` range and raises `ErrOverflow`.
 `negate` is pure: the same `datetime::Duration` always negates to the same result, and it
 has no side effects."#;
 const EX: &str = r#"Negate a forward span to get the matching backward span:

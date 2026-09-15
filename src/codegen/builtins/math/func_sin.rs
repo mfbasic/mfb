@@ -6,7 +6,9 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Sine of an angle in radians."#;
 const DESC: &str = r#"`sin` returns the sine of `value` (an angle in radians), echoing the operand type
-(`Float` or `Fixed`), plus the `List OF Float` vectorized form."#;
+(`Float` or `Fixed`), plus a `List OF Float` form that returns a new list of each
+angle's sine in the same order, leaving the input unchanged; an empty list gives an
+empty list."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -22,7 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
-        "The angle in radians, or a list of them.",
+        "The angle in radians, or a `List OF Float` of them.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatNaN"],

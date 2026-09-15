@@ -16,7 +16,8 @@ not an ASCII letter is copied to the output verbatim, so separators such as
 spaces, dashes, colons, and slashes appear literally. A run of a letter that is
 not one of the recognized tokens below is an error, not literal text: to emit a
 letter literally, wrap it in single quotes (`'T'` produces a literal `T`); to
-emit a literal apostrophe, write two single quotes (`''`).
+emit a literal apostrophe, write two single quotes (`''`) outside a quoted run. Inside
+a quoted run the next apostrophe closes it, so `'it''s'` renders `its`.
 
 
 The recognized tokens are:
@@ -31,7 +32,7 @@ The recognized tokens are:
 - `m` — minute, minimal; 2 or more `m` gives 2-digit
 - `s` — second, minimal; 2 or more `s` gives 2-digit
 - `f` .. `fffffffff` — fractional second, fixed to the run length (`fff` = ms,
-  `ffffff` = us, `fffffffff` = ns)
+  `ffffff` = us, `fffffffff` = ns); a run longer than nine still gives nine digits
 - `a` — AM/PM marker (`AM` before noon, `PM` at or after noon)
 - `E` .. `EEE` — weekday name, short (English); any run of 4 or more `E` gives
   the full name
@@ -53,7 +54,8 @@ English. The offset tokens read `dt.offset`, the resolved UTC offset carried by
 Inside single quotes every character, including formatting letters, is copied
 literally until the closing quote; an opening quote with no matching close runs
 to the end of `pattern`. `datetime::format` is pure: it reads no host state and
-has no side effects."#;
+has no side effects. An offset token on a `datetime::DateTime` record built directly
+with the most negative `Integer` as its offset raises `ErrOverflow`."#;
 const EX: &str = r#"Render a `datetime::DateTime` with a full date, time, and offset:
 
 ```

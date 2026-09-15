@@ -9,10 +9,10 @@ use super::{overload, req};
 const INTRO: &str = r#"Reseed this thread's random generator."#;
 const DESC: &str = r#"`seed(value)` resets this thread's random sequence so a subsequent sequence of
 `math::rand` draws is reproducible. It returns Nothing. Until a program calls
-`seed`, the sequence starts from a fresh, automatically chosen seed, so unseeded
-draws differ from run to run. Seeding is per-execution
-context: a worker thread inherits the spawning thread's stream and then diverges
-independently."#;
+`seed`, the sequence is seeded automatically, so unseeded draws are not
+reproducible from run to run. Each thread has its own sequence: starting a worker
+seeds the worker's sequence from one draw of the spawning thread's, and from then
+on the two proceed independently."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -26,7 +26,7 @@ const SEED_A: &[&str] = &["seed"];
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![overload(
-        vec![req("value", SEED_A, Integer, "The value to seed the generator with. The same seed replays the same sequence, which is what makes a run reproducible.")],
+        vec![req("value", SEED_A, Integer, "The value to seed the generator with. Any `Integer` works, including zero and negative values. The same seed replays the same sequence, which is what makes a run reproducible.")],
         Nothing,
         vec![],
         lower_math_seed,

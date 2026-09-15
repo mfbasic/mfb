@@ -16,8 +16,10 @@ Because both operands are signed `datetime::Duration`s, `plus` handles spans of 
 direction: adding a negative `datetime::Duration` shortens the total, and adding two
 `datetime::Duration`s of opposite sign moves toward zero. The operation is commutative —
 `datetime::plus(a, b)` and `datetime::plus(b, a)` yield the same `datetime::Duration` — and
-pairs with `datetime::minus` and `datetime::negate`, since
-`datetime::plus(a, datetime::negate(b))` equals `datetime::minus(a, b)`.
+pairs with `datetime::minus` and `datetime::negate`: when no step overflows,
+`datetime::plus(a, datetime::negate(b))` equals `datetime::minus(a, b)`. They differ
+at the `Integer` limit, where `datetime::negate` of the most negative seconds count
+raises but `datetime::minus` of that span from itself returns zero.
 
 Normalization floor-divides the nanosecond sum into a whole-second carry and a
 non-negative remainder, then folds the carry back into the `seconds` field, so a
@@ -27,8 +29,9 @@ The arithmetic is uniform second-and-nanosecond addition with no awareness of
 calendars, time zones, or daylight-saving transitions; it simply totals elapsed
 physical time. To shift a point on the timeline rather than combine two spans,
 use `datetime::add` on a `datetime::Instant`. The addition is ordinary signed `Integer`
-arithmetic, so a combined second count that exceeds the `Integer` range
-overflows and traps. `plus` is pure: the same two `datetime::Duration`s always yield the
+arithmetic: `plus` raises `ErrOverflow` if either field sum, or the normalization
+carry into `seconds`, leaves the `Integer` range. That includes two directly built
+`datetime::Duration` records whose `nanos` fields sum past it. `plus` is pure: the same two `datetime::Duration`s always yield the
 same `datetime::Duration`, and it has no side effects."#;
 const EX: &str = r#"Combine a 90-second span with a 500-millisecond span:
 

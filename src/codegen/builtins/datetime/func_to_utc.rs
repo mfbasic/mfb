@@ -17,7 +17,9 @@ hour/minute/second-of-day, with no offset adjustment.
 The returned `datetime::DateTime` carries four things: the civil date, the civil time, the
 UTC zone, and a resolved offset of zero. Because the zero offset is pinned onto
 the result, the `datetime::DateTime` round-trips back to the original instant via
-`datetime::resolve` with no further zone lookup. The instant's sub-second
+`datetime::resolve` with no further zone lookup, except at the far negative edge of
+the `Integer` range: `toUtc` projects the most negative `seconds` value, but
+`datetime::resolve` of that result raises `ErrOverflow`. The instant's sub-second
 `nanos` field is preserved verbatim into the time's `nanos` field; only the
 `seconds` field participates in the date and time computation, so an instant
 before the Unix epoch (negative `seconds`) projects correctly.
@@ -66,7 +68,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "at",
-                desc: "The instant to read in UTC.",
+                desc: "The instant to read in UTC. Negative `seconds` are before the epoch, and `nanos` carries into the returned time.",
                 aliases: &[],
                 ty: super::ParameterType::named("Instant"),
                 default: super::DefaultValue::None,

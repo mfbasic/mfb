@@ -21,8 +21,11 @@ year 2262. This is a limit on `now`,
 not on `datetime::Instant`, whose `seconds` field spans the full `Integer` range.
 
 `now` is one of the few `datetime` functions that is **not pure**: two calls may
-return different instants, and a program's output depends on the host clock. For
-reproducible logic, capture a single instant and derive everything else from it.
+return different instants, and a program's output depends on the host clock. It is a
+wall-clock reading, so it moves when the system clock is adjusted (for example by
+an NTP step or a manual change); measure elapsed time with `datetime::monotonic`
+instead. For reproducible logic, capture a single instant and derive everything
+else from it.
 `now` takes no arguments, reads host clock state only, and has no side effects."#;
 const EX: &str = r#"Capture the current instant:
 

@@ -12,9 +12,6 @@ before it.
 
 The count is split into a whole-second `seconds` field and a sub-second `nanos`
 field by *floor* division, so the `nanos` remainder is always non-negative. The
-implementation first computes the toward-zero quotient `millis / 1000` and
-remainder `millis MOD 1000`; when that remainder is negative it adds `1000` to
-the remainder and subtracts `1` from the quotient, borrowing one second. The
 `seconds` field is therefore the mathematical floor of `millis / 1000` and the
 `nanos` field is the borrowed, non-negative millisecond remainder scaled to
 nanoseconds (`remainder * 1000000`), always in `0..999000000`. A `millis` of
@@ -31,9 +28,11 @@ state and the same `millis` always yields the same `datetime::Instant`.
 
 `datetime::fromMillis` is the inverse of `datetime::toMillis` to
 whole-millisecond precision. Because the input has no sub-millisecond component,
-round-tripping an arbitrary `datetime::Instant` through `datetime::toMillis` and back loses
+round-tripping a `datetime::Instant` through `datetime::toMillis` and back loses
 its microsecond and nanosecond digits; for full nanosecond precision use
-`datetime::toNanos` together with `datetime::instant`."#;
+`datetime::toNanos` together with `datetime::instant`. Either round trip needs the
+count to fit an `Integer`: `datetime::toMillis` raises `ErrOverflow` for an instant
+whose millisecond count does not."#;
 const EX: &str = r#"Build a `datetime::Instant` from an epoch-millisecond timestamp:
 
 ```

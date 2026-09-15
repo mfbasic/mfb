@@ -10,9 +10,10 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `String` as `application/x-www-form-urlencoded` data."#;
-const DESC: &str = r#"`encoding::formUrlEncode` encodes `text` using the
-`application/x-www-form-urlencoded` rules that HTML forms apply to query-string
-values. The input is first converted to its UTF-8 byte sequence, then each byte
+const DESC: &str = r#"`encoding::formUrlEncode` encodes `text` as
+`application/x-www-form-urlencoded` data. It escapes more than a browser does —
+`*`, `-`, `.` and `_` become `%2A`, `%2D`, `%2E` and `%5F` — but any form decoder,
+including `encoding::formUrlDecode`, reads the result back to the same text. The input is first converted to its UTF-8 byte sequence, then each byte
 is emitted in order.
 
 A byte passes through unchanged only when it is an ASCII alphanumeric: the

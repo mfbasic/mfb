@@ -3,7 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Test whether two instants name the same point on the UTC timeline."#;
+const INTRO: &str = r#"Test whether two instants have equal `seconds` and `nanos` fields."#;
 const DESC: &str = r#"`datetime::equals` is a convenience predicate over instants that returns `TRUE`
 when `a` and `b` name the same point on the UTC timeline and `FALSE` otherwise.
 It is defined directly in terms of `datetime::compare`: the result is exactly
@@ -15,14 +15,17 @@ The comparison is performed field by field, matching `datetime::compare`. The
 `seconds` fields are compared first; only when they are equal are the `nanos`
 fields used as a tiebreaker. Two instants are equal only when both their
 `seconds` and their `nanos` fields are equal, so equality is exact to the
-nanosecond and there is no tolerance window. Because both arguments are points
+nanosecond and there is no tolerance window. Every instant the package returns is
+normalized, so for those this is the same point on the timeline. An `Instant`
+record built directly is compared on its stored fields:
+`datetime::equals(datetime::instant(1_000), datetime::Instant[999, 1_000_000_000])`
+is `FALSE`. Because both arguments are points
 on the same Unix-epoch, leap-second-free UTC timeline, the test is absolute and
 independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with
 `datetime::resolve` before comparing.
 
 `equals` is pure: the same two instants always yield the same `Boolean`, it has
-no side effects, and it performs only signed comparisons (no arithmetic), so it
-cannot overflow or trap. For the strict ordering tests use `datetime::isBefore`
+no side effects, and it never raises an error. For the strict ordering tests use `datetime::isBefore`
 and `datetime::isAfter`, and for a three-way sign rather than a `Boolean` use
 `datetime::compare`. To measure the size of the gap between two instants rather
 than just whether they coincide, use `datetime::between`."#;
@@ -90,7 +93,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "The second instant. Compared as instants, so two values in different zones naming the same moment are equal.",
+                    desc: "The second instant. An `Instant` has no zone; to compare two `datetime::DateTime` values, resolve each with `datetime::resolve` first.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,

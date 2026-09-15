@@ -8,12 +8,13 @@ const DESC: &str = r#"`datetime::monotonic` reads the host's monotonic clock and
 span, as a `datetime::Duration`, from an arbitrary fixed origin chosen by the operating
 system. The clock never moves backward: a later call always returns a span that
 is greater than or equal to an earlier one. It is unrelated to wall-clock time,
-carries no calendar meaning, and is not comparable across processes or across
-reboots, so the absolute value of a single reading is meaningless.
+carries no calendar meaning, and resets when the host reboots, so a single reading is not a
+timestamp. Readings taken by different processes on the same host share one
+origin on macOS.
 
 The only intended use is to measure elapsed time: take two readings and subtract
 the earlier from the later with `datetime::minus`. Because the clock is immune to
-wall-clock adjustments (NTP steps, manual clock changes, daylight saving), the
+wall-clock adjustments (NTP steps, manual clock changes), the
 difference is a reliable interval where `datetime::now` would not be. Use
 `datetime::now`, not `monotonic`, whenever you need an actual point in time.
 

@@ -7,8 +7,10 @@ use crate::types::ParameterType::{Fixed, Float, Integer, Money};
 const INTRO: &str = r#"The larger of two same-type numeric values or lists."#;
 const DESC: &str = r#"`max` returns the larger of `a` and `b`, which must be the same numeric type
 (`Integer`, `Float`, `Fixed`, or `Money`), echoing that type. The `List OF
-Integer`/`Float`/`Fixed` array forms take two equal-length lists and return the
-element-wise maximum; mismatched lengths raise `ErrInvalidArgument`."#;
+Integer`/`Float`/`Fixed` array forms take two lists of the same element type and
+length and return a new list of the element-wise maximum, leaving both inputs
+unchanged; two empty lists give an empty list, and mismatched lengths raise
+`ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -24,11 +26,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "same numeric type, same numeric type",
-        ("a", &["left"], "The first value, or a list of them."),
+        ("a", &["left"], "The first value, or a `List OF Integer`, `Float`, or `Fixed`."),
         (
             "b",
             &["right"],
-            "The second value, or a list of them. Must be the same type as the first.",
+            "The second value, or a list. Must be the same type as the first; two lists must also have the same length.",
         ),
         &[Integer, Float, Fixed, Money],
         &[Integer, Float, Fixed],

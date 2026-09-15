@@ -55,7 +55,8 @@ nanos are normalized: any whole seconds embedded in `nanos` are carried into the
 `seconds` field, and a negative `nanos` value borrows a second so the stored
 `nanos` always lands in `0 .. 999_999_999`.
  Every numeric
-argument may be negative, which selects an instant before the epoch. The
+argument may be negative. The instant's side of the epoch comes from the total of
+every supplied part, so `datetime::instant(10, -1)` is still after the epoch. The
 one-argument form performs no normalization because its `nanos` is fixed at zero.
 
 
@@ -63,7 +64,9 @@ one-argument form performs no normalization because its `nanos` is fixed at zero
 explicitly; the component forms carry no defaults.
  The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
-day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
+day, hour, minute, or second magnitude raises `ErrOverflow`. So does a `nanos` carry
+that pushes the second count past the `Integer` range, as in
+`datetime::instant(9_223_372_036_854_775_807, 1_000_000_000)`.
 To shift an existing `datetime::Instant` by a span rather than build one from scratch, use
 `datetime::add` or `datetime::subtract` with a `datetime::Duration`. `instant` is pure: the
 same arguments always yield the same `datetime::Instant`, and it has no side effects."#;
@@ -110,7 +113,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             super::Implementation {
                 params: vec![super::Parameter {
                     name: "seconds",
-                    desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
+                    desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z. May be negative.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
@@ -123,14 +126,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
+                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z. May be negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds past the second.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(10, -1)` stores seconds 9 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -144,21 +147,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
+                        desc: "Whole seconds, added to the other components. May be negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds past the second.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(10, -1)` stores seconds 9 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -172,28 +175,28 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "hours",
-                        desc: "Whole hours.",
+                        desc: "Whole hours. Any `Integer`; values past 23 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
+                        desc: "Whole seconds, added to the other components. May be negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds past the second.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(10, -1)` stores seconds 9 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -207,35 +210,35 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "days",
-                        desc: "Whole days since the epoch.",
+                        desc: "Whole days since the epoch, 86400 seconds each. May be negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "hours",
-                        desc: "Whole hours.",
+                        desc: "Whole hours. Any `Integer`; values past 23 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
+                        desc: "Whole seconds, added to the other components. May be negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds past the second.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(10, -1)` stores seconds 9 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,

@@ -22,6 +22,12 @@ offset for a summer instant and another for a winter instant when the host
 observes daylight saving time. `datetime::toLocal` is the dedicated shorthand
 for projecting a `datetime::Instant` through this zone.
 
+Going the other way, `datetime::civil` with this zone reads a date and time as
+local. A spring-forward time that does not exist moves forward past the gap, and
+a fall-back time that happens twice takes the earlier occurrence: under
+`TZ=America/New_York`, 2026-03-08 02:30 becomes `03:30:00 -04:00`, and
+2026-11-01 01:30 is `01:30:00 -04:00`.
+
 Because the offset is resolved from host configuration, the civil fields a given
 `datetime::Instant` projects to depend on the machine: two hosts in different configured
 time zones project the same `datetime::Instant` to different `datetime::DateTime` fields.

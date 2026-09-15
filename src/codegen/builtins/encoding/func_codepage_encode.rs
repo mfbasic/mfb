@@ -9,7 +9,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Encode a `String` as bytes in a legacy single-byte codepage."#;
+const INTRO: &str = r#"Encode a `String` as bytes in a legacy single-byte codepage or as UTF-8."#;
 const DESC: &str = r#"`encoding::codepageEncode` writes `text` as bytes in `codepage`, and is the exact
 inverse of `encoding::codepageDecode`: for any single-byte codepage, bytes that
 decode without failing re-encode to exactly those bytes.
@@ -20,8 +20,8 @@ up in that codepage's table. `Codepage.Utf8` instead encodes the whole string as
 UTF-8, so a caller holding a charset label has one entry point for both cases.
 
 A single-byte codepage can spell far less than Unicode can. A character the
-selected codepage has no byte for — `世` in `windows-1252`, or any letter outside
-the Greek block in `ISO-8859-7` — is rejected with `ErrInvalidFormat` (`77050003`)
+selected codepage has no byte for — `世` in `windows-1252`, or a non-Greek letter
+above `U+007F` in `ISO-8859-7` — is rejected with `ErrInvalidFormat` (`77050003`)
 rather than replaced by `?` or an HTML numeric reference. Substituting is a policy
 decision this call does not make for you: catch the error and substitute yourself if
 that is what your format wants. The same holds for a combining sequence such as
@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "codepage",
-                    desc: "The codepage to write the bytes in.",
+                    desc: "The codepage to write the bytes in. `Codepage.Utf8` encodes the whole text as UTF-8 instead.",
                     aliases: &[],
                     ty: ParameterType::named("Codepage"),
                     default: DefaultValue::None,

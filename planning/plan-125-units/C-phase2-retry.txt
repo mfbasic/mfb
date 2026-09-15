@@ -1,0 +1,10 @@
+man-page:encoding/uleb128Decode
+man-page:encoding/uleb128Encode
+man-page:encoding/utf16Decode
+man-page:encoding/utf16Encode
+man-page:encoding/utf32Decode
+man-page:encoding/utf32Encode
+man-page:encoding/utf8Decode
+man-page:encoding/utf8Encode
+man-page:encoding/varintDecode
+man-page:encoding/varintEncode

@@ -19,7 +19,8 @@ surrogate scalars, the result never contains a value in the surrogate range
 The scalars are produced by decoding the string's UTF-8 bytes in order: each
 1-to-4-byte sequence contributes exactly one code point, so the returned list
 has one element per Unicode scalar in `value` (which may be fewer than its byte
-length).
+length) — per scalar, not per user-perceived character: `e` followed by a combining
+accent is two elements.
 
 These are UTF-32 *code points*, not a byte serialization: the result is a
 sequence of numbers, so no byte order (endianness) or byte-order mark applies.
@@ -68,7 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The string to encode.",
+                desc: "The string to encode. The empty string gives an empty list.",
                 aliases: &["text"],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

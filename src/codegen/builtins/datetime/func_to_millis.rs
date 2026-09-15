@@ -13,11 +13,13 @@ epoch itself yields `0`, and instants after the epoch yield positive counts.
 
 The result is computed as `at.seconds * 1000 + at.nanos / 1000000`: the
 seconds-since-epoch field is scaled to milliseconds and the sub-second `nanos`
-field contributes its whole-millisecond part. The `nanos` division truncates,
-discarding any sub-millisecond remainder (the microsecond and nanosecond
-digits). Because a normalized `datetime::Instant` always holds a non-negative `nanos`
-field in the range `0..999999999`, this truncation drops the fractional
-millisecond rather than rounding it, in either direction.
+field contributes its whole-millisecond part. Any sub-millisecond remainder
+(the microsecond and nanosecond digits) is dropped. Because a normalized
+`datetime::Instant` always holds a non-negative `nanos` field in the range
+`0..999999999`, dropping it always moves the result toward earlier time: after
+the epoch that is toward zero (`instant(1, 999_999)` gives `1000`), and before the
+epoch it is away from zero (`instant(-1, 999_999)`, which is -999.000001 ms, gives
+`-1000`).
 
 The arithmetic is checked. For an instant near the extreme edge of the timeline
 either the `at.seconds * 1000` scaling or the following addition can exceed the

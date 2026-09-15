@@ -7,8 +7,9 @@ use crate::types::ParameterType::{Fixed, Float, Integer, Money};
 const INTRO: &str = r#"Absolute value of a numeric value or list."#;
 const DESC: &str = r#"`abs` returns the magnitude of `value`: the value with its sign removed. It accepts
 `Integer`, `Float`, `Fixed`, and `Money` scalars (echoing the operand type) and the
-`List OF Integer`/`Float`/`Fixed` array forms (element-wise, returning a new list of
-the same type). `abs(INT64_MIN)`-class inputs have no representable magnitude and
+`List OF Integer`/`Float`/`Fixed` array forms, which return a new list of the same
+type holding each element's magnitude in the original order; the input list is
+unchanged. `abs(INT64_MIN)`-class inputs have no representable magnitude and
 raise `ErrOverflow`."#;
 const EX: &str = r#"```
 IMPORT math
@@ -25,7 +26,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Integer | Float | Fixed | Money",
-        "The number to take the magnitude of, or a list of them. The most negative `Integer`/`Fixed` has no positive counterpart and raises `ErrOverflow`.",
+        "The number to take the magnitude of, or a list of them. The most negative `Integer`, `Fixed`, or `Money` has no positive counterpart and raises `ErrOverflow`.",
         &[Integer, Float, Fixed, Money],
         &[Integer, Float, Fixed],
         &["ErrOverflow"],

@@ -17,9 +17,10 @@ high nibble and the second is the low nibble, so the byte value is
 
 Both cases are accepted for the letter digits: `0`–`9`, `a`–`f`, and `A`–`F` are
 valid, and lowercase and uppercase may be mixed freely within the same string.
-Any other character is rejected.
+Any other character raises `ErrInvalidFormat` (`hexDecode("0g")`).
 
-The input length must be even, because each byte needs a pair of digits. The
+The input length must be even, because each byte needs a pair of digits; an odd
+number of digits raises `ErrInvalidFormat` (`hexDecode("0")`). The
 empty string decodes to the empty list. The result always contains exactly half
 as many bytes as there are input characters. This is the inverse of
 `encoding::hexEncode`, which emits lowercase hex; decoding then re-encoding a

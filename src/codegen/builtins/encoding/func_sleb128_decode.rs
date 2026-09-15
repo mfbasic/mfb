@@ -29,9 +29,10 @@ mirrors the arithmetic (sign-extending) shift used by `encoding::sleb128Encode`.
 
 
 `data` must contain at least one byte, and the sequence must be terminated
-within it: if the bytes run out before a byte with a clear high bit is seen, the
-input is treated as truncated. The accumulated shift may not exceed `63` bits;
-a sequence encoding more than 64 significant bits overflows."#;
+within it: an empty list, or bytes that run out before a byte with a clear high
+bit is seen, raise `ErrInvalidFormat`. Keep sequences within 64 bits: a sequence
+longer than ten bytes raises `ErrInvalidFormat`, but a tenth byte carrying bits
+beyond the 64th is not currently rejected, and those bits are lost."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
@@ -101,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "data",
-                desc: "The SLEB128 bytes to decode.",
+                desc: "The SLEB128 bytes to decode: a non-empty, terminated sequence. Bytes after the terminating byte are ignored.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Byte),
                 default: DefaultValue::None,

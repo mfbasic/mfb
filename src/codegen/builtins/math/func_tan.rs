@@ -6,9 +6,13 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Tangent of an angle in radians."#;
 const DESC: &str = r#"`tan` returns the tangent of `value` (an angle in radians), echoing the operand type
-(`Float` or `Fixed`), plus the `List OF Float` vectorized form. An argument near an
-odd multiple of pi/2 can overflow to a non-finite result (`ErrFloatInf`/
-`ErrFloatNaN`)."#;
+(`Float` or `Fixed`), plus the `List OF Float` vectorized form. Near an odd multiple of
+pi/2 a `Float` result is very large but finite (`math::tan(math::pi2)` is about
+1.6e16), because no `Float` lands exactly on pi/2. A `Fixed` result loses accuracy
+as the angle approaches pi/2, and once the true tangent is beyond the `Fixed` range
+the current result is wrong rather than an error: `math::tan(math::pi2Fixed)`
+returns a large negative number. Use `Float` when the angle can come close to
+pi/2."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -24,7 +28,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
-        "The angle in radians, or a list of them. Near an odd multiple of pi/2 the result grows without bound.",
+        "The angle in radians, or a `List OF Float` of them. Near an odd multiple of pi/2 the result becomes very large; see the description for how Float and Fixed differ there.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatInf", "ErrFloatNaN", "ErrInvalidArgument"],

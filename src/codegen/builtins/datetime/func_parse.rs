@@ -30,8 +30,10 @@ matches a literal `T`, `''` matches a single apostrophe).
 Fields not named by any token take defaults: year `1970`, month `1`, day `1`, and
 the time `00:00:00.000000000`. The recognized tokens are:
 
-- `yyyy` / `yy` — year; `yyyy` reads up to 4 digits, `yy` reads 2 digits and adds
-  2000 (so `26` becomes `2026`)
+- `yyyy` / `yy` — year; `yyyy` reads one to four digits, `yy` reads one or two
+  digits and adds 2000 (so `26` becomes `2026`, and `6` becomes `2006`). Any other
+  run of `y` reads up to that many digits as the year itself, so `y` reads `6` as
+  year 6
 - `M` / `MM` — month number, 1-2 digits
 - `MMM` / `MMMM` — month name, short or full, case-insensitive (English)
 - `d` / `dd` — day of month, 1-2 digits
@@ -42,8 +44,9 @@ the time `00:00:00.000000000`. The recognized tokens are:
 - `fff`..`fffffffff` — fractional second; reads run-length digits and scales them
   to nanoseconds (`fff` = milliseconds, `fffffffff` = nanoseconds)
 - `a` — AM/PM marker, case-insensitive
-- `EEE` / `EEEE` — weekday name; the letters are read but not validated
-- `Z` / `ZZ` / `ZZZ` — offset: the letter `Z` (or `z`) for UTC, else `+/-HH:MM` or
+- `EEE` / `EEEE` — weekday name; skips zero or more ASCII letters without checking
+  that they name a weekday
+- `Z` / `ZZ` / `ZZZ` (a longer run such as `ZZZZ` reads the same way) — offset: the letter `Z` (or `z`) for UTC, else `+/-HH:MM` or
   `+/-HHMM` (the colon between offset hours and minutes is optional), optionally
   followed by seconds in the same style (`+/-HH:MM:SS` or `+/-HHMMSS`). Every
   offset field is exactly two digits
@@ -165,7 +168,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "value",
-                        desc: "The text to parse.",
+                        desc: "The text to parse. An empty value matches an empty pattern and gives the defaults, 1970-01-01 00:00:00 in the zone.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,
@@ -186,7 +189,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "value",
-                        desc: "The text to parse.",
+                        desc: "The text to parse. An empty value matches an empty pattern and gives the defaults, 1970-01-01 00:00:00 in the zone.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,

@@ -6,7 +6,9 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Base-10 logarithm of a Float or Fixed value or list."#;
 const DESC: &str = r#"`log10` returns the base-10 logarithm of `value`, echoing the operand type (`Float`
-or `Fixed`), plus the `List OF Float`/`List OF Fixed` forms. A non-positive argument
+or `Fixed`), plus `List OF Float`/`List OF Fixed` forms that return a new list of
+the same type in the same order, leaving the input unchanged; an empty list gives
+an empty list. A non-positive argument
 is outside the domain: a `Float` or `List OF Float` argument raises
 `ErrFloatDomain`, and a `Fixed` or `List OF Fixed` argument raises
 `ErrInvalidArgument`."#;
@@ -25,7 +27,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
-        "The number to take the base-10 logarithm of, or a list of them. Must be greater than zero.",
+        "The number to take the base-10 logarithm of, or a list of them. It, or every element, must be greater than zero.",
         &[Float, Fixed],
         &[Float, Fixed],
         &["ErrFloatDomain", "ErrInvalidArgument"],

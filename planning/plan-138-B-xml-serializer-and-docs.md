@@ -24,7 +24,7 @@ See plan-138-A. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | NOT MET |
-| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | NOT MET (2026-09-15: `error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]`) |
+| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | PARTIALLY MET (2026-09-15): bug-631 fixed on `worktree-B-631` (`73ab94edc`); every ✗ reproduction row now builds and prints its expected output. The `packages/xml` consumer check waits on plan-138-A; re-run it then. |
 
 ## 1. Goal
 

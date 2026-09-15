@@ -1,0 +1,6 @@
+### 1. Post-2262 behavior omitted and contradicts non-negative claim
+UNIT:      man-page:datetime/nowNanos
+CLAIM:     "`nowNanos` reports nanoseconds since the epoch and is bounded by the range of an `Integer`: a 64-bit signed nanosecond count overflows in the year 2262. This is a limit on the intrinsic, not on the `datetime::Instant` type, whose `seconds` field spans the full `Integer` range. On any correctly configured host the reading is non-negative."
+VERDICT:   incomplete
+EVIDENCE:  `src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos` emits unchecked signed multiplication/addition of seconds and nanoseconds; `src/codegen/builtins/datetime/gen_shared.rs:emit_libc_clock_nanos` has no overflow check or error path. Thus after `Integer`’s final positive nanosecond count in 2262, the returned count wraps and becomes negative, even with a correctly configured host clock. Both rendered examples compiled and ran with the requested release binary; the first printed no output, and the second printed no output.
+SUGGESTED: "`nowNanos` is limited to a signed 64-bit nanosecond count. It wraps after `2262-04-11T23:47:16.854775807Z`, so later readings are negative; use `datetime::now` when the full `datetime::Instant` range is needed."

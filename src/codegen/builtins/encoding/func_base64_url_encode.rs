@@ -71,7 +71,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "data",
-                desc: "The bytes to encode.",
+                desc: "The bytes to encode. An empty list gives the empty string.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Byte),
                 default: DefaultValue::None,

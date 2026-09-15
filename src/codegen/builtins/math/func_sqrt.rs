@@ -6,9 +6,11 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Square root of a Float or Fixed value or list."#;
 const DESC: &str = r#"`sqrt` returns the non-negative square root of `value`, echoing the operand type
-(`Float` or `Fixed`), plus the `List OF Float`/`List OF Fixed` vectorized forms. A
-negative argument is outside the domain and raises `ErrFloatDomain` (scalar `Float`)
-or `ErrInvalidArgument` (`Fixed` and the array forms)."#;
+(`Float` or `Fixed`), plus `List OF Float`/`List OF Fixed` forms that return a new
+list in the same order, leaving the input unchanged; an empty list gives an empty
+list. `sqrt(0.0)` is `0`. A negative argument is outside the domain: a negative
+`Float`, alone or in a list, raises `ErrFloatDomain`, and a negative `Fixed`, alone
+or in a list, raises `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

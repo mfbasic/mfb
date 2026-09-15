@@ -23,18 +23,17 @@ instant, so the result is daylight-saving correct.
 
 
 When the named local time does not exist or is not unique because of a
-daylight-saving transition, `civil` resolves it deterministically. It probes the
-zone's offset one day before and one day after the named local time to bracket
-any single nearby transition. If both probes agree, that offset is used
-directly. If they differ, a spring-forward gap (the named local time is skipped)
+daylight-saving transition, `civil` resolves it deterministically: a spring-forward gap (the named local time is skipped)
 shifts forward onto the post-transition offset, and a fall-back overlap (the
 named local time occurs twice) takes the earlier, pre-transition offset.
 
 
 The sub-second `nanos` of `time` are carried through unchanged into the
 resulting `datetime::Instant` and `datetime::DateTime`; only the whole-second civil fields
-participate in offset resolution. `civil` is pure: beyond what `zone` itself
-resolves it reads no host state and has no side effects.
+participate in offset resolution. `civil` has no side effects. With a
+`datetime::utc` or `datetime::fixedOffset` zone its result depends only on its
+arguments; with `datetime::local` it reads the host's zone rules, so the same date
+and time can give a different result on a host set to another zone.
 
 A date so far from the epoch that its second count does not fit an `Integer`
 raises `ErrOverflow`. For a local zone, a wall-clock time outside the range the
@@ -125,7 +124,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "The zone the wall-clock time is read in. This is what decides which instant the pair names; the same date and time in two zones are two different instants.",
+                    desc: "The zone the wall-clock time is read in. Its offset decides which instant the pair names: the same date and time in zones with different offsets are different instants.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

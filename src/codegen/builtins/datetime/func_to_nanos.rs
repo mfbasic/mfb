@@ -16,7 +16,9 @@ seconds-since-epoch field is scaled to nanoseconds and the sub-second `nanos`
 field is added in directly. Because a normalized `datetime::Instant` already holds its
 `nanos` field at full nanosecond resolution (`0..999999999`), the conversion is
 exact and discards nothing — no truncation or rounding occurs in either
-direction.
+direction. An `Instant` record built directly is used as stored, without
+normalizing: `datetime::Instant[0, -1]` gives `-1`, the same as
+`datetime::instant(0, -1)`.
 
 The arithmetic is checked. For an instant near the extreme edge of the timeline
 either the `at.seconds * 1000000000` scaling or the trailing addition of

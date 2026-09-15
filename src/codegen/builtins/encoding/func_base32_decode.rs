@@ -26,8 +26,10 @@ contribute bits.
 The total input length (including padding) must be a multiple of eight
 characters. In addition, the number of non-padding symbols must correspond to a
 valid Base32 group boundary: a symbol count whose remainder modulo eight is `1`,
-`3`, or `6` cannot occur in any well-formed Base32 encoding and is rejected. The
-empty string decodes to the empty list."#;
+`3`, or `6` cannot occur in any well-formed Base32 encoding and is rejected. Every
+rejection — an invalid character, a bad length, padding followed by a symbol, or an
+impossible symbol count — raises `ErrInvalidFormat`. The empty string decodes to
+the empty list."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_base32Decode(text AS String) AS List OF Byte

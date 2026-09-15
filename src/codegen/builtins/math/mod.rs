@@ -88,9 +88,12 @@ not spell — absolute value, min/max/clamp, the rounding family, square root, t
 transcendentals (exp/log/trig), power, and a per-thread random sequence —
 together with 14 constants.
 
-Most members take a single number or a `List OF` that number and give back the
-same type they were given: `abs`, `min`/`max`/`clamp`, `sqrt`, the
-transcendentals, `pow`, and `atan2`. `floor`/`ceil`/`round` give back an
+Most members take a single number and give back the same type they were given:
+`abs`, `min`/`max`/`clamp`, `sqrt`, the transcendentals, `pow`, and `atan2`. Their
+list forms differ: `abs`, `min`/`max`/`clamp`, `sqrt`, `log`/`log10` and the
+rounding family also accept a `List OF Fixed`, while `exp`, the trigonometric
+functions, `pow`, and `atan2` accept only a `List OF Float`. Each function's page
+lists its forms. `floor`/`ceil`/`round` give back an
 `Integer`, or a `List OF Integer` for their list forms. `rand` gives an `Integer`, or a `Money` when called with two `Money`
 bounds; `seed` returns nothing.
 
@@ -106,7 +109,31 @@ which agrees with the written value to at least nine significant digits
 A constant has no page of its own: `mfb man math pi` will not resolve, because
 `pi` is a value rather than a function.
 
-`math` is a built-in package: `IMPORT math` needs no manifest dependency."#;
+`math` is a built-in package: `IMPORT math` needs no manifest dependency.
+
+A power, a square root, and a random sequence replayed from the same seed:
+
+```
+IMPORT io
+IMPORT math
+
+SUB main()
+  io::print(toString(math::pow(2.0, 10.0)))
+  io::print(toString(math::sqrt(math::pi)))
+  math::seed(42)
+  LET first AS Integer = math::rand(1, 6)
+  math::seed(42)
+  io::print(toString(first = math::rand(1, 6)))
+END SUB
+```
+
+prints:
+
+```
+1024.00
+1.77
+TRUE
+```"#;
 
 /// One required parameter with optional keyword aliases and no default. `desc` is
 /// the man page's Parameters-table prose — these descriptors ARE the man pages

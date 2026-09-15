@@ -1,0 +1,6 @@
+### 1. Pre-epoch sub-millisecond conversion is misleading
+UNIT:      man-page:datetime/toMillis
+CLAIM:     "Because a normalized datetime::Instant always holds a non-negative nanos field in the range 0..999999999, this truncation drops the fractional millisecond rather than rounding it, in either direction."
+VERDICT:   misleading
+EVIDENCE:  `src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis` computes `at.seconds * 1000 + at.nanos / 1000000`. Probe `/tmp/plan-125-scratch/C-phase3/man-page-datetime-toMillis/probe-project/src/main.mfb`, built and run with the requested release binary, printed `before=-1` for `datetime::instant(-1, 999999999)` (one nanosecond before the epoch), and `round=-1:999000000`. Thus a pre-epoch instant with a fractional millisecond is rounded down toward earlier time, not simply truncated in a direction-neutral sense.
+SUGGESTED: `Sub-millisecond precision is discarded. For an instant before the epoch that is not exactly on a millisecond boundary, the result rounds down toward earlier time: one nanosecond before the epoch yields -1. At or after the epoch, the sub-millisecond remainder is discarded.`

@@ -10,13 +10,10 @@ in a common year or `366` in a leap year (the value reached on December 31).
 
 
 The result is derived solely from the calendar date fields carried by `dt` — its
-year, month, and day as stored in `dt`'s own zone. The day-of-year is computed on
-the proleptic-Gregorian calendar by taking the days-from-civil count of `dt`'s
-date, subtracting the days-from-civil count of January 1 of the same year, and
-adding one (`here - start + 1`), so leap years correctly extend the count past
-February. The time-of-day fields, the sub-second nanoseconds, and the zone's UTC
-offset do not affect the result; no `datetime::Instant` is resolved and no zone table is
-consulted.
+year, month, and day as stored in `dt`'s own zone, on the proleptic-Gregorian
+calendar. A leap year includes February 29, so its December 31 is day `366`. The
+time-of-day fields, the sub-second nanoseconds, and the UTC offset do not affect
+the result.
 
 Because the computation reads only `dt`'s stored civil date, the same instant
 projected into two different zones can report two different day-of-year values
@@ -24,7 +21,8 @@ whenever the zones place that instant on opposite sides of midnight, and across
 the December 31 / January 1 boundary the two zones can even fall in different
 years.
 
-`datetime::dayOfYear` is pure: it reads no host state and has no side effects."#;
+`datetime::dayOfYear` is pure: it reads no host state and has no side effects. A
+year so large that its day count does not fit an `Integer` raises `ErrOverflow`."#;
 const EX: &str = r#"Find the day-of-year of a civil date in the local zone:
 
 ```

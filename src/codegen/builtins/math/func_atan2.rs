@@ -5,11 +5,14 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arctangent of y / x, using the signs of both to pick the quadrant."#;
-const DESC: &str = r#"`atan2` returns the angle in radians (in `(-pi, pi]`) between the positive x-axis
+const DESC: &str = r#"`atan2` returns the angle in radians (in `[-pi, pi]`) between the positive x-axis
 and the point `(x, y)`, using the signs of both arguments to select the correct
-quadrant. Both arguments must be the same type (`Float` or `Fixed`), echoing that
-type; the `List OF Float` array form takes two equal-length lists (mismatched
-lengths raise `ErrInvalidArgument`)."#;
+quadrant. On the axes: `atan2(0.0, 0.0)` is `0`; with `x` zero the result is `pi/2`
+or `-pi/2` by the sign of `y`; and on the negative x-axis the sign of `y` still
+counts, so `atan2(0.0, -1.0)` is `pi` and a `y` of `-0.0` gives `-pi`. Both arguments must be the same type (`Float` or `Fixed`), echoing that
+type; the `List OF Float` array form takes two equal-length lists and returns a new
+list of angles, leaving both inputs unchanged (mismatched lengths raise
+`ErrInvalidArgument`)."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

@@ -27,8 +27,10 @@ selected codepage is rejected with `ErrInvalidFormat` (`77050003`) rather than
 replaced by `U+FFFD`, so a decode either spells the whole input or fails. If you
 want a replacement character, catch the error and substitute it yourself.
 
-The tables are the WHATWG Encoding Standard's legacy single-byte indexes, so the
-text matches what a browser would show for the same bytes and the same label.
+The tables are the WHATWG Encoding Standard's legacy single-byte indexes, so a
+defined byte decodes to the character a browser would show for the same label. A
+browser substitutes a replacement character for an undefined byte; this function
+raises `ErrInvalidFormat` instead (`codepageDecode(Codepage.Windows874, [0xDB])`).
 `encoding::codepageEncode` is the inverse."#;
 #[rustfmt::skip]
 const BODY: &str =

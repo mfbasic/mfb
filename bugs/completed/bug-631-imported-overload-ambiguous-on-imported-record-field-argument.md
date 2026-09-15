@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/runtime/rt_imported_overload_imported_field_argument.rs (to add, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_imported_overload_imported_field_argument.rs
 
 A consumer that calls an **overloaded function exported by a package** fails to build when the
 argument's type comes from **a field of a record type the consumer imported**. That covers the
@@ -28,6 +28,32 @@ This is the natural way to use a package that exports a tree and overloaded func
 **The single correct behavior a fix produces:** an argument read from an imported record's field
 has the field's declared type during imported-overload resolution, exactly as a field of a local
 record does, so the call resolves to the one matching overload and the program builds and runs.
+
+## STATUS: FIXED (73ab94edc, c30373da7)
+
+`src/monomorph/helpers.rs:collect_imported_records` decodes each imported package's `.mfp`
+record layouts (via `imported_type_defs_from_files`) into a separate `imported_records` map.
+`record_fields` consults it after `concrete_types`, under the type's own spelling and then its
+package-qualifier-stripped one. `resolve_imported_overload`, `types_compatible` and bug-36's
+ambiguity rule are untouched. Deviations from the design:
+
+- A separate map, as the Open Decision defaulted (`concrete_types` is emitted from).
+- The local-overload and generic latent sites were confirmed failing and are fixed by the same
+  change. The imported-record constructor site was already working; it is kept as a guard.
+- The consumer-local `TYPE A` collision row is a different, pre-existing bug: the package's own
+  `A[1]` is checked against the consumer's `A` even with no overloaded call. Filed as bug-632 and
+  removed from this bug's test.
+- `tests/guards/no_type_strings.rs` `declared_sites`/`monomorph` 8 -> 9, justified in the table
+  the same way as the `ir` row's identical `.mfp`-name-as-table-key entry.
+- plan-138-B's `packages/xml` consumer check cannot run until plan-138-A lands; its prerequisite
+  row is marked partially met.
+
+Verification: `cargo test --no-fail-fast` over the whole tree (`artifact_gate_all ... ok`, 186
+test binaries `ok`). The only two failures were the stale collision case and the budget row. After
+fixing them, `no_type_strings` (7 passed), the regression test (11 passed) and
+`cargo test --bin mfb monomorph` (63 passed) were re-run green. Since the full run, the only source
+change is `cargo fmt` on one unrelated match arm. The reproduction rebuilt with the fixed compiler
+prints `A, A, A A, U, A, A`.
 
 References:
 
@@ -204,17 +230,26 @@ missing imported layouts in the monomorphizer:
 
 - `resolve_imported_overload` fed by `expression_type` → **fixed by this bug** (the reproduction).
 - `resolve_overload` (local overload set) fed by the same `arg_types` — a *local* overloaded function
-  called with an imported record's field gets `Unknown` too. **Latent, not yet observed**; Phase 1
-  adds a reproduction row, and it is fixed by the same change because it shares `arg_types`.
+  called with an imported record's field gets `Unknown` too. **Observed (Phase 1, in scope):**
+  `pick(h.first)` against local `pick(ov::A)`/`pick(ov::B)` fails with
+  `SYMBOL_UNKNOWN_IDENTIFIER` "Callable `pick` is not a top-level function" — no overload resolved,
+  so the unmangled name reached name resolution.
 - `instantiate_function` (generic templates) fed by the same `arg_types` — a generic called with an
-  imported field would bind its type parameter against `Unknown`. **Latent, not yet observed**;
-  Phase 1 adds a reproduction row; fixed by the same change.
+  imported field would bind its type parameter against `Unknown`. **Observed (Phase 1, in scope):**
+  `ov::show(ident(h.first))` fails with `TYPE_OVERLOAD_AMBIGUOUS`.
 - `record_fields` at the constructor path (`let field_types = … .and_then(|type_| self.record_fields(&type_).cloned())`)
   — constructing an *imported* record in a consumer gets no expected field types, so an untyped
-  `[]` field argument would stay `Unknown`. **Latent, not yet observed**; Phase 1 adds a
-  reproduction row (`ov::Holder[[], [], ov::A[1]]`-shaped construction); fixed by the same change.
+  `[]` field argument would stay `Unknown`. **Unaffected (Phase 1):** `ov::Holder[[], [], ov::A[1]]`
+  builds and runs on the unfixed compiler (later passes type the `[]` fields); kept as a guard.
 - `expression_type`'s `HirExpression::Constructor` arm (`else if self.record_fields(type_).is_some()`)
-  — a constructor of an imported record types as `None`. Same class; same fix; Phase 1 row.
+  — a constructor of an imported record types as `None`. Covered by the same guard row.
+- Consumer-local `TYPE A` coexisting with `ov::A`: **out of scope, separate pre-existing bug.** On
+  the unfixed compiler `ov::show(h.first)` fails with this bug's `TYPE_OVERLOAD_AMBIGUOUS`; with
+  the fix it gets past monomorphization and fails with `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH:
+  Argument 1 for `A` has type Integer, expected String for field `z`` (the package's own `A[1]`
+  checked against the consumer's `A`). The unfixed compiler fails identically with **no overloaded
+  call at all** (`io::print(ov::one(h.first))`), so it is a local/imported bare-name collision,
+  not this mechanism. Filed separately; the row is not in this bug's regression test.
 - IR lowering (`src/ir/lower.rs`) — **unaffected**: it already folds `imported_type_defs` into
   `TypeIndex` (`aa3a77745`), which is why the non-overloaded rows build.
 
@@ -256,51 +291,51 @@ overloaded or generic function with an imported field argument; Phase 3 checks.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_imported_overload_imported_field_argument.rs`, modelled on
+- [x] Add `tests/runtime/rt_imported_overload_imported_field_argument.rs`, modelled on
       `tests/runtime/rt_imported_record_map_field_keys.rs` (builds the package and consumer from
       source in a temp root). One case per ✗ row of the reproduction table, each asserting the build
       succeeds and the program prints the expected output; plus the ✓ rows as guards. Register it
       the way `rt_imported_record_map_field_keys.rs` is registered.
-- [ ] Add rows for the latent blast-radius sites: a local overload set called with `h.first`; a
+- [x] Add rows for the latent blast-radius sites: a local overload set called with `h.first`; a
       generic `FUNC id OF T(x AS T) AS T` called with `h.first`; constructing `ov::Holder` with an
       untyped `[]` field; a consumer-local `TYPE A` coexisting with `ov::A`. Record each observed
       result in this document's Blast Radius section (✗ becomes in-scope; ✓ becomes "unaffected
       because …").
-- [ ] Confirm every ✗ case fails with `TYPE_OVERLOAD_AMBIGUOUS` (or the latent case's own error).
+- [x] Confirm every ✗ case fails with `TYPE_OVERLOAD_AMBIGUOUS` (or the latent case's own error).
 
 Acceptance: the new test fails only on the documented cases, each for the documented reason.
   Check: `cargo test --test rt_imported_overload_imported_field_argument` → the ✗ cases fail with
   `TYPE_OVERLOAD_AMBIGUOUS`, the ✓ guards pass (est. 3 min).
-Commit: —
+Commit: 73ab94edc
 
 ### Phase 2 — the fix
 
-- [ ] `src/monomorph/lower.rs:Monomorphizer::new` (and whatever constructs it with the project's
+- [x] `src/monomorph/lower.rs:Monomorphizer::new` (and whatever constructs it with the project's
       installed packages) — load `imported_type_defs` for the consumer's dependencies and make their
       record layouts visible to `record_fields`, per Fix Design (separate map if `concrete_types` is
       emitted from).
-- [ ] `src/monomorph/lower.rs:record_fields` — consult the imported layouts after `concrete_types`.
-- [ ] Apply to every in-scope latent site Phase 1 confirmed.
+- [x] `src/monomorph/lower.rs:record_fields` — consult the imported layouts after `concrete_types`.
+- [x] Apply to every in-scope latent site Phase 1 confirmed.
 
 Acceptance: the Phase 1 test passes; bug-36's tests pass unmodified.
   Check: `cargo test --test rt_imported_overload_imported_field_argument` → all pass;
   `cargo test --bin mfb monomorph` → all pass (est. 5 min).
-Commit: —
+Commit: 73ab94edc
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Run the IR golden gate; any diff is inspected fixture by fixture (AGENTS.md: an unexpected
+- [x] Run the IR golden gate; any diff is inspected fixture by fixture (AGENTS.md: an unexpected
       golden diff is a bug-hunt trigger). No golden is re-baselined without the four answers
       AGENTS.md requires.
-- [ ] Run the full suite.
-- [ ] Re-run the reproduction table end to end with the rebuilt `target/release/mfb`; every row
+- [x] Run the full suite.
+- [x] Re-run the reproduction table end to end with the rebuilt `target/release/mfb`; every row
       prints its expected output.
 - [ ] Update `planning/plan-138-B-xml-serializer-and-docs.md` Prerequisites status to MET.
 
 Acceptance: full suite green; golden deltas none or exactly explained; every reproduction row
 builds and prints its expected output.
   Check: `cargo test` → exit 0 (est. per `.ai/testing-gates.md`); reproduction table re-run → all ✓.
-Commit: —
+Commit: c30373da7
 
 ## Validation Plan
 

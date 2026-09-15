@@ -10,11 +10,13 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a Unicode hostname to its ASCII Punycode form."#;
-const DESC: &str = r#"`encoding::punycodeEncode` converts a Unicode hostname `domain` to the ASCII
-representation used by internationalized domain names (IDNA), applying the
-Punycode Bootstring algorithm of RFC 3492. The hostname is split on `.` into
-labels, and each label is processed independently; the results are rejoined with
-`.` so the dot structure of the input is preserved.
+const DESC: &str = r#"`encoding::punycodeEncode` applies the Punycode Bootstring algorithm of RFC 3492
+to each label of `domain`, producing the ASCII `xn--` form internationalized domain
+names use. The text is split on ASCII `.` into labels, and each label is processed
+independently; the results are rejoined with `.` so the dot structure of the input
+is preserved. It is not a full IDNA conversion: it applies no IDNA mapping or
+hostname validation, so `"a b.example"` comes back unchanged, and an ideographic
+full stop (`U+3002`) is encoded inside its label instead of splitting it.
 
 Each label is examined for non-ASCII code points. A label whose code points are
 all below `128` is emitted verbatim, unchanged. A label containing any code
@@ -25,9 +27,9 @@ Within an encoded label, the basic (ASCII) code points are copied out first,
 followed by a `-` delimiter when any basic code points are present, and then the
 generalized variable-length integers that describe the non-ASCII code points in
 ascending order. The algorithm uses the RFC 3492 parameters (initial `n` = 128,
-initial bias 72, base 36) and the standard bias-adaptation function. The input
-`String` is decoded to Unicode scalar values through the package's UTF-8
-decoder before encoding.
+initial bias 72, base 36) and the standard bias-adaptation function. It works on
+Unicode scalar values, not grapheme clusters: `e` followed by `U+0301` is encoded
+as its two scalars (`xn--e-xbb`).
 
 The function is **total**: every `String`, including the empty string and
 all-ASCII hostnames, encodes successfully, and it never raises a runtime error.
@@ -89,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "domain",
-                desc: "The Unicode domain name to encode.",
+                desc: "The Unicode domain name to encode, with labels separated by ASCII `.`. The empty string gives the empty string.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

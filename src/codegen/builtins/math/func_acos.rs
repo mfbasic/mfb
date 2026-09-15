@@ -4,9 +4,10 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
-const INTRO: &str = r#"Arccosine (inverse cosine), returning radians."#;
+const INTRO: &str = r#"Arccosine (inverse cosine), returning an angle from 0 through pi radians."#;
 const DESC: &str = r#"`acos` returns the arccosine of `value` in radians, echoing the operand type
-(`Float` or `Fixed`), plus the `List OF Float` vectorized form. `value` must be in
+(`Float` or `Fixed`), plus a `List OF Float` form that returns a new list of each
+element's arccosine in the same order, leaving the input unchanged. `value` must be in
 `[-1, 1]`; outside that domain a `Float` or `List OF Float` argument raises
 `ErrFloatDomain`, and a `Fixed` argument raises `ErrInvalidArgument`."#;
 const EX: &str = r#"```
@@ -24,7 +25,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
-        "The cosine to invert, or a list of them. Must be within -1 through 1; outside that there is no angle and the call raises.",
+        "The cosine to invert, or a list of them. Values from -1 through 1 inclusive are valid (0 gives pi/2); outside that there is no angle and the call raises.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatDomain", "ErrInvalidArgument"],

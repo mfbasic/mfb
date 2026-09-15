@@ -1,0 +1,6 @@
+### 1. Raised error is unnamed and absent from Errors table
+UNIT:      man-page:encoding/percentDecode
+CLAIM:     "The function is a strict decoder: a % with fewer than two following bytes, a % followed by a non-hex digit, or a decoded byte sequence that is not valid UTF-8 all raise an error rather than being passed through or replaced."
+VERDICT:   incomplete
+EVIDENCE:  `src/codegen/builtins/encoding/helper_percent_decode_bytes.rs:__encoding_percentDecodeBytes` raises `error(77050003, ...)` for all three conditions, but `func_percent_decode.rs:register` declares `errors: vec![]`, so the rendered page has no Errors table. Scratch probe `/tmp/plan-125-scratch/C-phase2/man-page-encoding-percentDecode/src/main.mfb` printed `ERR % 77050003`, `ERR %2 77050003`, `ERR %G0 77050003`, and `ERR %FF 77050003`.
+SUGGESTED: State: “These conditions raise `ErrInvalidFormat` (`77050003`).” Declare `ErrInvalidFormat` in the function’s error metadata so the rendered Errors table names the error and its condition.

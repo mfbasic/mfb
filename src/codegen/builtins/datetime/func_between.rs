@@ -24,9 +24,10 @@ Both instants are points on the same Unix-epoch, leap-second-free UTC timeline, 
 the span is independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with
 `datetime::resolve` before measuring. `between` is pure: the same two instants
 always yield the same `datetime::Duration`, and it has no side effects. The subtraction and
-the normalizing carry are ordinary signed `Integer` arithmetic, so two instants far
+the normalizing carry are ordinary signed `Integer` arithmetic: two instants far
 enough apart that their second difference falls outside the signed `Integer` range
-overflow and trap. Render the result with `datetime::formatDuration`, and combine or
+raise `ErrOverflow`. So does an `Instant` record built directly with an extreme
+`nanos` field, even when both `seconds` fields are equal. Render the result with `datetime::formatDuration`, and combine or
 apply spans with `datetime::plus`, `datetime::minus`, `datetime::negate`,
 `datetime::add`, and `datetime::subtract`."#;
 const EX: &str = r#"Measure the span between two instants and render it:

@@ -56,7 +56,8 @@ nanos are normalized: any whole seconds embedded in `nanos` are carried into the
 `seconds` field, and a negative `nanos` value borrows a second so the stored
 `nanos` always lands in `0 .. 999_999_999`.
  Every numeric
-argument may be negative, which yields a negative span pointing backward in time.
+argument may be negative. The span's direction comes from the total of every
+supplied part, so `datetime::duration(-1, 1_500_000_000)` is a positive half second.
 The one-argument form performs no normalization because its `nanos` is fixed at
 zero.
 
@@ -64,7 +65,9 @@ zero.
 explicitly; the component forms carry no defaults.
  The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
-day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
+day, hour, minute, or second magnitude raises `ErrOverflow`. So does a `nanos` carry
+that pushes the second count past the `Integer` range, as in
+`datetime::duration(9_223_372_036_854_775_807, 1_000_000_000)`.
 Combine durations with `datetime::plus`, `datetime::minus`, and `datetime::negate`;
 apply one to a `datetime::Instant` with `datetime::add` or `datetime::subtract`. `duration`
 is pure: the same arguments always yield the same `datetime::Duration`, and it has no side
@@ -122,7 +125,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             super::Implementation {
                 params: vec![super::Parameter {
                     name: "seconds",
-                    desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
+                    desc: "Whole seconds. Negative values are allowed; the result's sign comes from the total of every supplied part.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
@@ -135,14 +138,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
+                        desc: "Whole seconds. Negative values are allowed; the result's sign comes from the total of every supplied part.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds, the finest resolution a `datetime::Duration` carries.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(0, -1)` stores seconds -1 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -156,21 +159,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
+                        desc: "Whole seconds. Negative values are allowed; the result's sign comes from the total of every supplied part.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds, the finest resolution a `datetime::Duration` carries.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(0, -1)` stores seconds -1 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -184,28 +187,28 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "hours",
-                        desc: "Whole hours.",
+                        desc: "Whole hours. Any `Integer`; values past 23 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
+                        desc: "Whole seconds. Negative values are allowed; the result's sign comes from the total of every supplied part.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds, the finest resolution a `datetime::Duration` carries.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(0, -1)` stores seconds -1 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -219,35 +222,35 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "days",
-                        desc: "Whole days. Added to the other parts, so `days := 1, hours := 12` is thirty-six hours.",
+                        desc: "Whole days, 86400 seconds each. Added to the other parts, so `days := 1, hours := 12` is thirty-six hours, and a negative count subtracts.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "hours",
-                        desc: "Whole hours.",
+                        desc: "Whole hours. Any `Integer`; values past 23 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "Whole minutes.",
+                        desc: "Whole minutes. Any `Integer`; values past 59 fold into the total.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
+                        desc: "Whole seconds. Negative values are allowed; the result's sign comes from the total of every supplied part.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "Nanoseconds, the finest resolution a `datetime::Duration` carries.",
+                        desc: "Nanoseconds. Any `Integer`: whole billions carry into seconds, and a negative value borrows a second, so `(0, -1)` stores seconds -1 and nanos 999999999.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
