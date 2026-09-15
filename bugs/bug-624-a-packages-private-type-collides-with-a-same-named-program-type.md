@@ -162,3 +162,39 @@ A name-scoping bug at package merge; the audit of the `.mfp` form is where the s
 - RED tests: `tests/runtime/rt_package_private_type_collision.rs` — flat/flat, recursive
   package/flat program (the `dom` shape) and flat package/recursive program, each from the
   source and the `.mfp` form.
+
+## Phase 2 findings (fix-bug, 2026-09-15)
+
+- Fix (`src/ir/package.rs:scope_private_types`, `src/internal_name.rs:private_name_parts`):
+  before the function prefix, every referenced private type of a decoded package is renamed
+  to `#<package identity id>$<name>` — the file-PRIVATE mangle shape (the identity id is 16
+  hex digits, `FILE_HASH_HEX_LEN`), so `internal_name::display_name` still prints `Frame` — and
+  every reference is rewritten: type annotations, union variants and `UnionWrap` /
+  `UnionExtract` types, `MATCH` variant patterns (`Local("Frame")`) and `Enum.Member` targets.
+  Kept bare: the exported surface and its transitive field/variant/include closure plus every
+  LINK/CSTRUCT type (codegen re-registers exported types from the `.mfp` by bare name), builtin
+  package types (`json.Json`, `#json_Node`), and declarations nothing references
+  (`TYPE Integer` shadowing). No `.` in the new name, so `ir::verify`'s qualified-to-bare
+  fallback cannot equate it with a bare `Frame`.
+- Private ENUMs collided too: an unpatched edge probe failed with `TYPE_UNKNOWN_ENUM_MEMBER`.
+- Diamond import (app → pa, app → pc → pa) still collapses (same identity id); two packages
+  each with a private `Frame` stay distinct. The browser `dom` package imported beside a
+  program `TYPE Frame` builds and runs (unpatched: `TYPE_UNKNOWN_FIELD`).
+- Known limit: a literal `CASE x` whose local variable is spelled like a private type would
+  be renamed; not reachable from any tested program.
+- Verification: `rt_package_private_type_collision` 6/6 (RED at `9b5e5b55f`);
+  `rt_imported_type_qualified_name`, `rt_imported_union_enum_members`,
+  `rt_imported_record_map_field_keys`, `rt_foreign_type_reexport`,
+  `rt_imported_package_global`, `rt_imported_resource_scope_drop`,
+  `rt_package_parameter_defaults` 39/39; `cargo test --release --bin mfb ir::` 906/906.
+- **Sub-issue B (new):** a package whose exported type's field, or exported function /
+  binding signature, names a non-exported type builds, and every importer rejects it:
+  `PACKAGE_INVALID: Imported package … has exported type Pub that references unknown type
+  Hidden` (and `exported function mk return type …`, `… parameter p …`), at `9b5e5b55f` and
+  after the fix. The `.mfp` type table carries only the exported surface
+  (`binary_repr`'s bug-435 closure only fills types re-exported from other packages). The
+  package build must reject it at the declaration; writing the hidden type into the table
+  instead would let importers name a type its author did not export. RED tests:
+  `an_exported_type_naming_a_non_exported_type_is_rejected_at_the_package_build`,
+  `an_exported_signature_naming_a_non_exported_type_is_rejected_at_the_package_build`;
+  guard `an_exported_type_naming_an_exported_type_still_builds_and_imports`.
