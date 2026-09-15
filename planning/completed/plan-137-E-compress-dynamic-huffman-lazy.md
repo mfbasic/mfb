@@ -394,6 +394,23 @@ Commit: b38c8dafe
   pass, and note that the build path lowers the already-augmented AST. The census re-run gives `MISS-PATH 0` and
   `MISS-SYMBOL 0`, and `citations_resolve` passes.
 
+- **main advanced during the final gate; merged and re-verified before landing** (2026-09-14).
+  `git log worktree-P-137..main` was 0 commits before the Phase 4 run. By the merge it was 12: the bug-626/627 fixes
+  to in-place collection codegen, which regenerate 49 `.ncodesum`.
+  - **Merge:** `git merge main` → `13d7007d1`, no conflicts.
+  - **Scoped check:** after a rebuild, `artifact-gate … compress` flagged the five
+    `compress_codegen_cover_rt.<target>.ncode (sha256)`. Its `.ast` and `.ir` were unchanged, and `compress-*` acceptance
+    passed 10 of 10.
+  - **Localized** on the macos-aarch64 dump. A scratch worktree at `d6a91a1d1` built the pre-merge compiler, which
+    reproduces the old golden `0ff50bc2…` exactly. Post-merge, 7 of 120 functions differ, all compress helpers:
+    - six (`buildTable`, `canonicalCodes`, `codeLengths`, `deflateCore`, `dynamicHeader`, `inflateCore`) keep their
+      instruction counts. All 774 differences in `buildTable` are label names and branch targets
+      (`set_inplace_shift_N` → `set_inplace_resize_N`, counters +4): bug-627's length-changing `set` path;
+    - `crc32Tables` loses one spill slot, frame 1,152 → 1,088 B and 1,187 → 1,176 instructions. Bug-626 types the
+      builtin call result, so the in-place append no longer copies.
+  - **Regenerated** the five sums → `94538f393`; the compress artifact gate is 0 diffs.
+  - **Full re-run on the merged tree:** `cargo test --no-fail-fast` → `EXIT=0`, `grep -c ^failures:` → 0, 187 test binaries, 5,711 passed, 0 failed, 9 ignored, `artifact_gate_all ... ok`; `scripts/test-accept.sh target/release/mfb /tmp/p137m-accept` → `acceptance tests passed (1483 test(s) ran)`.
+
 ## Summary
 
 The engineering risk is package-merge and header trimming — judged by zlib on adversarial
