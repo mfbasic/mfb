@@ -25,10 +25,9 @@ that fails the test. This is the dual of `collections::any`, which returns
 `FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
 inside `predicate` is **not** absorbed by `all`: it propagates out of the
 `collections::all` call to the caller, where a function-level or inline `TRAP`
-may catch it. `all` itself defines no error of its own. Note that a lambda
-passed here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `all`.It does not
-mutate `value` and has no other side effects beyond whatever `predicate` does.
+may catch it. `all` itself defines no error of its own. A lambda passed to `all` cannot capture an outer `MUT` binding; use
+`collections::forEach` when the scan needs to update one. `all` has no side
+effects beyond whatever `predicate` does.
 
 `T` is inferred from the element type of `value` and may be any type; `all`
 imposes no comparability or orderability constraint on `T`, because elements are

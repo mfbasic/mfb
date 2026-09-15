@@ -1,0 +1,22 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-page:collections/overview	0	144	50	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/add	0	166	14	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/any	0	170	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/all	0	185	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/contains	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/difference	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/chunks	FAILED	0	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/append	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/distinct	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/drop	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/filter	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/find	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/findIndex	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/forEach	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/findLastIndex	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/flatten	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/get	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/groupBy	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/hasKey	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/getOr	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:collections/insert	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

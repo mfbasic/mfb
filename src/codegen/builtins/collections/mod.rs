@@ -91,7 +91,7 @@ const INTRO: &str = "List, Map, and Set helper functions";
 /// Package-overview description, from `src/docs/man/builtins/collections/package.md`
 /// (its Description section, citation markers stripped).
 const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List`, `Map`,
-and `Set` values: element access and mutation (`get`, `set`, `append`, `prepend`, `insert`,
+and `Set` values: element access and updates (`get`, `set`, `append`, `prepend`, `insert`,
 `removeAt`, `removeKey`), higher-order transforms (`transform`, `filter`,
 `reduce`, `reduceRight`, `forEach`, `mapValues`), queries (`find`, `findIndex`,
 `findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
@@ -103,7 +103,7 @@ package: `IMPORT collections` needs no manifest dependency.
 
 These helpers do not mutate their arguments. A function that changes a collection
 returns a new value and leaves the original unchanged. List indexes are
-zero-based, and access reads without copying the collection.
+zero-based.
 
 Element and key types follow the comparable/orderable rules: `sort` and `sortBy`
 require an orderable element or key type, and `distinct` requires a comparable
@@ -123,7 +123,36 @@ A, B`, and `partition` produces a `Partition OF T` holding the matched and
 unmatched elements. See `mfb man types pair` and `mfb man types partition`.
 
 The List-only overloads of `find`, `mid`, and `replace` live here; their String
-overloads live in `strings::`."#;
+overloads live in `strings::`.
+
+Update a list without changing the original, keep a set's insertion order, and
+pass a built-in predicate to a higher-order helper:
+
+```
+IMPORT io
+IMPORT collections
+
+SUB main()
+  LET original AS List OF Integer = [10, 20]
+  LET changed = collections::set(original, 1, 99)
+  io::print(toString(collections::get(original, 1)) & "," & toString(collections::get(changed, 1)))
+
+  LET ids AS Set OF Integer = collections::toSet([3, 1, 2, 1])
+  LET back = collections::toList(ids)
+  io::print(toString(collections::get(back, 0)) & "," & toString(collections::get(back, 1)) & "," & toString(collections::get(back, 2)))
+
+  LET positive = collections::filter([-2, 5, 0, 7], isPositive)
+  io::print(toString(len(positive)))
+END SUB
+```
+
+prints:
+
+```
+20,99
+3,1,2
+2
+```"#;
 
 /// Register the `collections` package on the clean-room registry. Every public
 /// member is a registered function: the NATIVE members lower at the call site

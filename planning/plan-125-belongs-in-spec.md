@@ -79,6 +79,8 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 43 | `datetime::weekday` | `The day count for that civil date is computed on the proleptic-Gregorian calendar and reduced modulo seven against a fixed reference (`floorMod(days + 3, 7)`)` | `internals` | stdlib | OPEN | — |
 | 44 | `encoding::utf8Decode` | `The overload is settled once the argument type is known, so the selection is a compile-time decision, not a runtime dispatch.` | `internals` | language | OPEN | — |
 | 45 | `encoding::punycodeEncode` | `The input `String` is decoded to Unicode scalar values through the package's UTF-8 decoder before encoding.` | `internals` | stdlib | OPEN | — |
+| 46 | `collections (overview)` | `and access reads without copying the collection.` | `internals` | memory | OPEN | — |
+| 47 | `collections::any`, `all` | `the callback position proven non-escaping is `collections::forEach`, not `any`.` (same sentence on `all`) | `internals` | language | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -108,7 +110,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 | Letter | Rows appended | Running total |
 |---|---|---|
 | B | — | — |
-| C | 18 | 45 |
+| C | 20 | 47 |
 | D | — | — |
 | E | — | — |
 | F | — | — |

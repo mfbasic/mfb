@@ -678,6 +678,32 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 ### Phase 4 — collections (50 units)
 
 - [ ] 49 function pages + overview.
+      **Progress (2026-09-15):** 4 of 50 reviewed and applied (overview, `add`,
+      `all`, `any`). The Codex usage limit stopped the batch; the other 46 are in
+      `planning/plan-125-units/C-phase4-retry.txt`.
+      Contract probes, run before any review landed, all matching the pages:
+      - `/tmp/p125-ex/colcontract`: copying keeps bindings apart (`xs` 3, `ys` 4);
+        `FOR EACH` walks the list as of loop start (3 iterations, final length 6);
+        `PINS = collections::append(PINS, bump())` reads `PINS` before `bump`
+        runs (length 3, first `1`);
+      - `coltrans`: `transform` keeps order and calls `f` once per element, calls
+        it zero times on an empty list, and stops at a failing element (inline
+        `TRAP` catches it); `isEven` passes directly; `set` leaves the original;
+      - `coltrans_tostring`, `coltrans_sub`: `transform` rejects `toString` and a
+        `SUB` (`TYPE_UNKNOWN_VALUE`);
+      - `colfli`: `findLastIndex` returns the last match, raises `77050001` for a
+        negative, out-of-range or empty start and `77050004` for no match,
+        propagates a predicate error, and stops at the first match (3 calls);
+      - `colfli_lambda`: a lambda capturing a `MUT` is rejected
+        (`TYPE_LAMBDA_CAPTURE_UNSUPPORTED`).
+      Rejected so far: overview #2–5, derived Errors-table messages; `add` #1,
+      because `LET inf AS Float = big * big` alone raises `77050015` before `add`
+      runs, and a finite `Float` adds normally (`/tmp/p125-ex/coladd`); `add` #2,
+      because plan-108-D's collections ledger deliberately kept "the cheap shape"
+      as the developer-facing fact (`planning/completed/plan-108-D-verify-filled-batch-1.md:160`).
+      Scope cuts so far: belongs-in-spec rows 46 (overview) and 47 (`any`, `all`).
+      Pending the retry: `findLastIndex` repeats the `any`/`all` sentence, and its
+      probe results above are ready for its review.
 - [x] Mark, in the ledger, which 25 pages postdate plan-108's review — they
       get the closest reading.
       *Premise corrected (Correction 1):* plan-108-D reviewed all 49 pages. The
