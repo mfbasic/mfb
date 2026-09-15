@@ -242,19 +242,19 @@ TESTING
       ' "a\r\nb\rc" -> "a\nb\nc"
       LET input AS List OF Byte = bytesOf([97, 13, 10, 98, 13, 99])
       LET out AS List OF Byte = normalizeLineEnds(input)
-      expectString(textOf(out, 0, len(out)), "a\nb\nc")
+      expectString(sliceText(out, 0, len(out)), "a\nb\nc")
       expectInteger(len(out), 5)
     END TCASE
 
     TCASE "input with no CR is returned unchanged"
       LET input AS List OF Byte = strings::toBytes("a\nb\n")
       LET out AS List OF Byte = normalizeLineEnds(input)
-      expectString(textOf(out, 0, len(out)), "a\nb\n")
+      expectString(sliceText(out, 0, len(out)), "a\nb\n")
     END TCASE
 
     TCASE "a trailing CR becomes a trailing LF"
       LET out AS List OF Byte = normalizeLineEnds(bytesOf([97, 13]))
-      expectString(textOf(out, 0, len(out)), "a\n")
+      expectString(sliceText(out, 0, len(out)), "a\n")
     END TCASE
 
     TCASE "a UTF-8 BOM is skipped, and nothing else is"

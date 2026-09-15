@@ -3,7 +3,7 @@
 ' line-end normalization, text slicing, and positioned failures.
 '
 ' The reader works on the document's UTF-8 BYTES and slices whole runs back out
-' with `textOf`, so a run of character data costs one allocation rather than one
+' with `sliceText`, so a run of character data costs one allocation rather than one
 ' per scalar. Every XML delimiter is ASCII, so a byte compare is exact and can
 ' never split a multi-byte scalar; the bytes above 127 only ever occur inside
 ' names, text and attribute values, which are validated as scalars by chars.mfb.
@@ -65,7 +65,7 @@ END FUNC
 
 ' The text of bytes [from, stop). Callers slice on ASCII delimiters, so this
 ' never splits a multi-byte scalar.
-PUBLIC FUNC textOf(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS String
+PUBLIC FUNC sliceText(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS String
   IF stop <= from THEN RETURN ""
   RETURN toString(collections::mid(bytes, from, stop - from))
 END FUNC

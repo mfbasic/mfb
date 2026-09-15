@@ -383,6 +383,18 @@ DOC
   DESC contribute nothing even though they are kept in the tree.
   ARG n The node to read.
   RET The concatenated text, or the empty string when there is none.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<p>Hello <b>big</b> world<!--ignored--></p>")
+      LET node AS xml::Node = xml::root(doc)
+      io::print(xml::textOf(node))
+      ' Hello big world
+      RETURN 0
+    END FUNC
+  END EXAMPLE
 END DOC
 EXPORT FUNC textOf(n AS Node) AS String
   MUT out AS String = ""

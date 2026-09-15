@@ -21,7 +21,7 @@ See plan-138-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-138-C complete | `ls planning/completed/plan-138-C-*` → one file | NOT MET |
+| plan-138-C complete | `ls planning/completed/plan-138-C-*` → one file | MET (re-measured 2026-09-15 → `planning/completed/plan-138-C-xml-node-and-rust-oracles.md`; archived in `78718cf1b`) |
 
 ## 1. Goal
 
@@ -213,7 +213,28 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**Phase 1 — `xml::textOf` was unusable from any consumer, and the spike is what found it.** The
+package exported `textOf(n AS Node) AS String` (plan-138-A §8) while `src/scan.mfb` held a
+package-internal `PUBLIC FUNC textOf(bytes, from, stop) AS String`. Inside the package both resolve
+by arity — which is why all 158 TESTING cases passed, and why letter C's three-way oracle (2,140 W3C
+tests plus fuzzing) never noticed either: none of them is a *consumer* of that function. From a
+consumer every call failed to type:
+
+```
+error[2-203-0043 TYPE_UNKNOWN_VALUE]        on  LET s AS String = xml::textOf(node)
+error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: Call to `len` has argument type(s) (Unknown)
+```
+
+Renaming the internal helper to `sliceText` fixed all four call shapes at once, with no other change
+(`/tmp/xml-lenrepro` → `1 bound: 5`, `2 nested: 5`, `3 via local: 5`, `4 in toString: hello`), and the
+package still passes 158/158.
+
+Two things landed from it. The package keeps `sliceText` for the byte-slicing helper, so the exported
+name stands alone. And `textOf` gained a `DOC` `EXAMPLE`, because `check-doc-examples.sh` compiles
+each example as its own project against the built `.mfp` — it is the only instrument in this feature
+that is a genuine consumer, and it would have caught this. The underlying compiler behaviour (a
+`PUBLIC` name silently shadowing an `EXPORT` of the same name across the package boundary, with a
+successful `mfb build` and a written `.mfp`) is filed as its own bug document.
 
 ## Summary
 
