@@ -470,7 +470,10 @@ mod tests {
             ("encoding.uleb128Encode", &[&[INVALID_FORMAT]]),
             ("encoding.utf16Decode", &[&[INVALID_FORMAT]]),
             ("encoding.utf32Decode", &[&[INVALID_FORMAT]]),
-            ("encoding.utf8Decode", &[&[INVALID_FORMAT], &[INVALID_FORMAT]]),
+            (
+                "encoding.utf8Decode",
+                &[&[INVALID_FORMAT], &[INVALID_FORMAT]],
+            ),
             ("encoding.varintDecode", &[&[INVALID_FORMAT]]),
             ("encoding.codepageDecode", &[&[INVALID_FORMAT]]),
             ("encoding.codepageEncode", &[&[INVALID_FORMAT]]),
