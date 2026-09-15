@@ -32,6 +32,7 @@ install and no pip install.
 | `decode-raw` | 150: 3 corpora (text, random, mixed runs) × levels 0–9 × 5 strategies (default, filtered, Huffman-only, RLE, fixed) | length and CRC-32 of `compress::inflate` over Python zlib's raw DEFLATE (`wbits -15`), against Python `zlib.decompressobj(-15)` and Node `inflateRawSync` |
 | `decode-zlib` | 150: the same matrix, zlib-wrapped (`wbits 15`) | length and CRC-32 of `compress::zlibDecode`, against Python `zlib.decompressobj(15)` (requiring `eof`) and Node `inflateSync` |
 | `decode-gzip` | 159: the same matrix gzip-wrapped (`wbits 31`); 3 multi-member files (two members, three members, a member plus non-member padding); 6 hand-built headers with `FEXTRA`, `FNAME`, `FCOMMENT`, `FHCRC` alone and combined | length and CRC-32 of `compress::gzipDecode`, against Python's zlib member loop (`zlib.decompressobj(31)` while the rest starts `1f 8b`) and Node `gunzipSync`; case 152 is a declared divergence for Node |
+| `mutate` | 600: seeded 1–3 byte replacements, deletions or insertions of 36 valid streams (3 payloads × levels 0/1/6/9-fixed × raw/zlib/gzip) | verdict only (`ok <len> <crc32>` or `err`) three ways. **Fails** when `compress` accepts what both zlibs refuse, refuses what both accept, or all accept with different output. Cases where Python and Node disagree with each other are bucketed and listed for inspection, not failed. The probe must answer every case — a crash or hang is a harness failure (exit 2) |
 
 ## How it fits together
 

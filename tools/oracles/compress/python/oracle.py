@@ -95,12 +95,38 @@ def decode_gzip(index, data, _aux):
     return f"case {index} {len(out)} {zlib.crc32(out)}"
 
 
+def mutate(index, data, fmt):
+    """Verdict only — `ok <len> <crc32>` or `err` — because error messages are not comparable across
+    decoders. A stream that stops before its end is `err`, as `compress` refuses it."""
+    try:
+        if fmt == 2:
+            out = b""
+            rest = data
+            while True:
+                d = zlib.decompressobj(31)
+                out += d.decompress(rest) + d.flush()
+                if not d.eof:
+                    raise zlib.error("incomplete stream")
+                rest = d.unused_data
+                if rest[:2] != b"\x1f\x8b":
+                    break
+        else:
+            d = zlib.decompressobj(-15 if fmt == 0 else 15)
+            out = d.decompress(data) + d.flush()
+            if not d.eof:
+                raise zlib.error("incomplete stream")
+    except zlib.error:
+        return f"case {index} err"
+    return f"case {index} ok {len(out)} {zlib.crc32(out)}"
+
+
 MODES = {
     "crc32": crc32,
     "probe": probe,
     "decode-raw": decode_raw,
     "decode-zlib": decode_zlib,
     "decode-gzip": decode_gzip,
+    "mutate": mutate,
 }
 
 

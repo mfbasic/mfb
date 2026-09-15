@@ -293,7 +293,7 @@ Commit: a810ec0fc
       `Finished`, no warnings; `cargo test --bin mfb compress` → 4 passed, member count 4;
       `scripts/man-run-examples.sh compress --run` → `examples: 8 built: 8 ran: 8 failed: 0`;
       `tools/oracles/compress/run.sh … decode-raw decode-zlib decode-gzip crc32` → `577 case(s), 0 failure(s)`, exit 0.)
-- [~] Oracle modes `decode-zlib`, `decode-gzip` (incl. multi-member, `FNAME`/`FCOMMENT`/`FEXTRA`/`FHCRC`
+- [x] Oracle modes `decode-zlib`, `decode-gzip` (incl. multi-member, `FNAME`/`FCOMMENT`/`FEXTRA`/`FHCRC`
       headers written by Python's `gzip` module and by hand-built headers), and `mutate`
       (1–3 byte edits of valid streams: replace / delete / insert; robustness is a hard
       assertion — the probe answers every case; agreement buckets printed and every
@@ -301,7 +301,9 @@ Commit: a810ec0fc
       divergence with evidence).
       (Done: `decode-zlib` 150/150 and `decode-gzip` 159/159 with Python, 150/150 and 158/158 with Node — case 152 a
       declared divergence (Corrections) — covering 3 multi-member files and 6 hand-built `FEXTRA`/`FNAME`/`FCOMMENT`/`FHCRC`
-      headers. Remaining: the `mutate` mode.)
+      headers. `mutate`: 600 seeded 1–3 byte edits of 36 valid raw/zlib/gzip streams, verdict-only three-way
+      comparison — `all accept, same output: 98`, `all refuse: 502`, no judge disagreements, `0 hard failure(s)`,
+      exit 0; no we-accepted-they-refused case exists to inspect.)
 - [x] `tests/interop/rt_compress_interop.rs`: `flate2` (miniz_oxide backend) encodes raw / zlib /
       gzip at levels 0–9 over a seeded corpus → MFB decodes equal; `flate2` streams tampered at
       a seeded byte → MFB refuses; one hand-built over-subscribed-tree stream and one

@@ -23,6 +23,7 @@ expected_cases() {
     decode-raw) echo 150 ;; # 3 corpora x levels 0..9 x 5 strategies
     decode-zlib) echo 150 ;; # the same matrix, zlib-wrapped
     decode-gzip) echo 159 ;; # the same matrix gzip-wrapped, 3 multi-member files, 6 optional-header shapes
+    mutate) echo 600 ;; # seeded 1-3 byte edits of 36 valid raw / zlib / gzip streams
     *) echo 0 ;;
   esac
 }
@@ -81,6 +82,39 @@ for mode in $MODES; do
   ran_total=$((ran_total + ran))
 
   mode_fail=0
+  if [ "$mode" = mutate ]; then
+    # Three-way, by verdict. Hard failures: compress accepts what BOTH zlibs refuse (lenient),
+    # refuses what both accept (strict), or all accept with different output. Cases where the two
+    # judges disagree are bucketed and listed for inspection, not counted as failures.
+    for judge in python node; do
+      [ "$(wc -l <"$WORK/$mode.$judge.txt" | tr -d ' ')" = "$expected" ] ||
+        die "$judge answered $(wc -l <"$WORK/$mode.$judge.txt" | tr -d ' ') case(s) for $mode, expected $expected"
+    done
+    report=$(awk '
+      FILENAME == ARGV[1] { py[$2] = $3 " " $4 " " $5; next }
+      FILENAME == ARGV[2] { nd[$2] = $3 " " $4 " " $5; next }
+      {
+        i = $2; m = $3 " " $4 " " $5; p = py[i]; n = nd[i]
+        mv = ($3 == "ok"); pv = (substr(p, 1, 2) == "ok"); nv = (substr(n, 1, 2) == "ok")
+        if (p != n) {
+          bucket["judges disagree (inspect)"]++
+          if (shown++ < 8) printf "judges disagree: case %s  mfb=%s  python=%s  node=%s\n", i, m, p, n > "/dev/stderr"
+          next
+        }
+        if (mv && pv && m == p) bucket["all accept, same output"]++
+        else if (!mv && !pv) bucket["all refuse"]++
+        else if (mv && !pv) { bucket["LENIENT: compress accepts, zlib refuses"]++; fail++; printf "LENIENT case %s  mfb=%s  zlib=%s\n", i, m, p > "/dev/stderr" }
+        else if (!mv && pv) { bucket["STRICT: compress refuses, zlib accepts"]++; fail++; printf "STRICT case %s  mfb=%s  zlib=%s\n", i, m, p > "/dev/stderr" }
+        else { bucket["OUTPUT differs"]++; fail++; printf "OUTPUT case %s  mfb=%s  zlib=%s\n", i, m, p > "/dev/stderr" }
+      }
+      END { for (b in bucket) printf "BUCKET %s: %d\n", b, bucket[b]; printf "FAILS %d\n", fail + 0 }
+    ' "$WORK/$mode.python.txt" "$WORK/$mode.node.txt" "$WORK/$mode.mine.txt")
+    printf '%s\n' "$report" | sed -n 's/^BUCKET /  mutate: /p' | sort
+    mode_fail=$(printf '%s\n' "$report" | sed -n 's/^FAILS //p')
+    fail_total=$((fail_total + mode_fail))
+    say "$mode: $ran case(s), $mode_fail hard failure(s)"
+    continue
+  fi
   for judge in python node; do
     theirs="$WORK/$mode.$judge.txt"
     [ "$(wc -l <"$theirs" | tr -d ' ')" = "$expected" ] ||

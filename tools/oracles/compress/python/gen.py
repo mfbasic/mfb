@@ -114,12 +114,43 @@ def probe_cases(_rng, names_path):
     return [(data, PROBE_FORMATS[fmt]) for _, fmt, data in named]
 
 
+def mutate_cases(rng):
+    """600 seeded edits of valid streams: 1-3 byte replacements, deletions or insertions of raw,
+    zlib and gzip streams over three payloads and four level/strategy settings. `aux` is the
+    format (0 raw, 1 zlib, 2 gzip)."""
+    text = corpora(rng)[0]
+    payloads = [text[:4000], rng.randbytes(1500), bytes(3000) + b"tail" * 50]
+    settings = [(0, zlib.Z_DEFAULT_STRATEGY), (1, zlib.Z_DEFAULT_STRATEGY), (6, zlib.Z_DEFAULT_STRATEGY),
+                (9, zlib.Z_FIXED)]
+    bases = []
+    for payload in payloads:
+        for level, strategy in settings:
+            for fmt, wbits in ((0, -15), (1, 15), (2, 31)):
+                c = zlib.compressobj(level, zlib.DEFLATED, wbits, 8, strategy)
+                bases.append((c.compress(payload) + c.flush(), fmt))
+    cases = []
+    for _ in range(600):
+        data, fmt = bases[rng.randrange(len(bases))]
+        edited = bytearray(data)
+        for _ in range(rng.randint(1, 3)):
+            kind = rng.randrange(3)
+            if kind == 0 and edited:
+                edited[rng.randrange(len(edited))] = rng.randrange(256)
+            elif kind == 1 and edited:
+                del edited[rng.randrange(len(edited))]
+            else:
+                edited.insert(rng.randrange(len(edited) + 1), rng.randrange(256))
+        cases.append((bytes(edited), fmt))
+    return cases
+
+
 MODES = {
     "crc32": crc32_cases,
     "probe": probe_cases,
     "decode-raw": decode_raw_cases,
     "decode-zlib": decode_zlib_cases,
     "decode-gzip": decode_gzip_cases,
+    "mutate": mutate_cases,
 }
 
 

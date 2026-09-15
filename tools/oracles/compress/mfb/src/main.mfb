@@ -50,6 +50,37 @@ FUNC gzipCase(data AS List OF Byte) AS String
   RETURN toString(len(out)) & " " & toString(compress::crc32(out))
 END FUNC
 
+' mutate: verdict only — `ok <len> <crc32>` or `err` — by format (0 raw, 1 zlib, 2 gzip).
+FUNC mutateRaw(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::inflate(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateZlib(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::zlibDecode(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateGzip(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::gzipDecode(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateCase(data AS List OF Byte, fmt AS Integer) AS String
+  IF fmt = 0 THEN
+    RETURN mutateRaw(data)
+  ELSEIF fmt = 1 THEN
+    RETURN mutateZlib(data)
+  END IF
+  RETURN mutateGzip(data)
+END FUNC
+
 SUB runJob(mode AS String, job AS List OF Byte)
   LET count AS Integer = u32At(job, 0)
   MUT offset AS Integer = 4 + 8 * count
@@ -67,6 +98,8 @@ SUB runJob(mode AS String, job AS List OF Byte)
       fields = zlibCase(data)
     ELSEIF mode = "decode-gzip" THEN
       fields = gzipCase(data)
+    ELSEIF mode = "mutate" THEN
+      fields = mutateCase(data, aux)
     END IF
     io::print("case " & toString(i) & " " & fields)
     offset = offset + n

@@ -57,6 +57,16 @@ const MODES = {
       return `case ${index} ${out.length} ${zlib.crc32(out)}`;
     }).replace(/^err /, `case ${index} err `);
   },
+  // Verdict only (aux: 0 raw, 1 zlib, 2 gzip) — messages are not comparable across decoders.
+  mutate(index, data, fmt) {
+    const sync = [zlib.inflateRawSync, zlib.inflateSync, zlib.gunzipSync][fmt];
+    try {
+      const out = sync(data);
+      return `case ${index} ok ${out.length} ${zlib.crc32(out)}`;
+    } catch {
+      return `case ${index} err`;
+    }
+  },
   crc32(index, data, split) {
     const whole = zlib.crc32(data);
     const chained = zlib.crc32(data.subarray(split), zlib.crc32(data.subarray(0, split)));
