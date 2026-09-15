@@ -1,0 +1,366 @@
+# plan-139-A: `zip` / `tar` packages — shared source layer and the zip reader
+
+Last updated: 2026-09-15
+Overall Effort: x-large (1d–3d) — the whole plan-139 feature: two pure-MFBASIC (non-builtin)
+packages, `packages/zip` and `packages/tar`, that read archives from either an open `fs::File`
+(never loading the whole file) or a `List OF Byte`, through one identical `open` overload pair,
+and write archives to a `List OF Byte`, checked against Python's `zipfile`/`tarfile`, `/usr/bin/zip`
+and `bsdtar` as oracles
+Effort: large (3h–1d)
+Depends on: nothing inside plan-139 (see Prerequisites for the whole-feature gate)
+
+plan-139 adds `packages/zip` and `packages/tar`. The behavioral outcome of the whole feature:
+**for any archive, `zip::open`/`tar::open` over an `fs::File` and over the same file's bytes as a
+`List OF Byte` produce identical entry lists and identical entry contents, and both agree with the
+oracle (Python `zipfile`/`tarfile`) or both refuse; opening a file-backed archive and reading one
+entry holds memory proportional to that entry and the archive's metadata, never to the file.**
+
+This letter (A) proves the source layer (the two `open` overloads over one internal `readAt`) and
+builds the complete zip reader: `open` ×2, `entries`, `comment`, `has`, `find`, `read`, `readText`.
+
+| Letter | Delivers | Effort |
+|---|---|---|
+| **A** (this) | package skeleton, source layer, zip reader (ZIP64, CP437 names, CRC, limits) | large |
+| B | zip writer (`create`/`add*`/`finish`), `zip::extractTo`, README/doc.html | large |
+| C | tar reader + writer + `tar::extractTo` (ustar, PAX, GNU long names), README/doc.html | large |
+| D | oracle probes, corpus, fuzz, file-vs-memory differential, RSS proof, final gate, archive | medium |
+
+References:
+
+- `planning/todo.md` — row 5 "zip/tar archives | Pure MFB package" and "# Proposed API:
+  `compress::`, `zip::`, `tar::`" (the starting API this plan revises; see §3 for what changed).
+- PKWARE APPNOTE.TXT 6.3.10 — §4.3.7 local header, §4.3.12 central directory, §4.3.16 EOCD,
+  §4.3.14/§4.3.15 ZIP64 EOCD record/locator, §4.4.4 general-purpose flag bit 11 (UTF-8), Appendix D
+  (CP437).
+- `mfb spec language resource-management` (`src/docs/spec/language/15_resource-management.md`) —
+  a record field may hold `RES fs::File` (§15, "A record field may hold a resource"); aliasing and
+  `ErrResourceClosed` semantics.
+- `mfb spec language functions` (`src/docs/spec/language/06_functions.md`, "Overloading") —
+  parameter-type overloads resolve across the package boundary.
+- `mfb man compress` — `compress::inflate`, `compress::deflate`, `compress::crc32` (whole-buffer).
+- `packages/jwt/` and `packages/yaml/` — package layout, `EXPORT LET Error* AS Integer = 931NNNNN`,
+  `TESTING` blocks run by `mfb test packages/<name>`, oracle `probe/` layout.
+- `bugs/bug-631-imported-overload-ambiguous-on-imported-record-field-argument.md` — imported
+  overload resolution gap; see Verified properties for why it does not gate this plan.
+
+## Prerequisites
+
+These gate the whole plan-139 feature; letters B–D point here.
+
+| Must be true | Command | Status |
+|---|---|---|
+| `fs` exposes a size query on an open handle: `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` → a page whose Declaration is that signature | **NOT MET** (2026-09-15: `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs` lists no `size`) |
+| `fs` exposes a positional read on an open handle that does not require reading from the start: `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte` (returns fewer than `count` bytes only at end of file) | `target/release/mfb man fs readBytesAt` → a page whose Declaration is that signature | **NOT MET** (same command: the only handle reads are `readLine`, `readAll`, `readAllBytes`, `eof`) |
+| `packages/zip` and `packages/tar` do not exist yet | `ls packages/zip packages/tar` → `No such file or directory` ×2 | MET (2026-09-15) |
+| Package parameter defaults work for importers (plan-136-B) | `ls planning/completed/plan-136-B-package-parameter-defaults.md` → present | MET (2026-09-15) |
+| Release compiler is current with HEAD | `cargo build --release` → `Finished` | re-run before starting |
+| Python 3 with `zipfile`/`tarfile`, `/usr/bin/zip`, `bsdtar` (oracle, letter D; corpus, every letter) | `python3 -c "import zipfile,tarfile"; which zip bsdtar` → no error, two paths | MET (2026-09-15: Python 3.14.5, `/usr/bin/zip`, `/usr/bin/bsdtar`) |
+
+The two `fs` rows are **builtin** work (a new registry function each, per-target codegen for
+`pread`/`lseek`+`read`/`ReadFile` with `OVERLAPPED`, man pages, spec) and belong to their own plan.
+If those two functions do not exist, plan-139 cannot start, full stop. The packages will not emulate
+positional reads with `readAllBytes` — that is exactly the whole-file load requirement 1 forbids.
+The exact signatures above are what every letter of this plan is written against; if the fs plan
+lands a different spelling, update this table and the one `readAt` function in §4 before starting.
+
+Everything below is written against the world where these hold.
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.**
+> Re-run every command and update every status before you continue, and again
+> before you decide to stop. Never act on a status you did not just verify — a
+> prerequisite recorded NOT MET may have landed since, and one recorded MET may
+> have regressed.
+>
+> **If you stop, report the current status of *all* prerequisites** — not only
+> the one that blocked you.
+
+## 1. Goal
+
+- `zip::open(RES file AS fs::File)` and `zip::open(data AS List OF Byte)` both return a
+  `zip::Archive`; for every corpus archive, `zip::entries` and `zip::read` of every entry are
+  byte-identical between the two, and `read` verifies each entry's CRC-32.
+
+### Non-goals (explicit constraints)
+
+- **Not builtin.** No change under `src/` in this plan. Both packages are `kind: "package"` MFBASIC
+  sources under `packages/`, built to `.mfp` and imported through a manifest `packages` entry.
+- **No whole-file load on the file path.** Nothing reachable from `open(RES file)` calls
+  `fs::readAllBytes`, `fs::readAll` or `fs::readBytes`. Memory held by a file-backed `Archive` is
+  the parsed central directory (zip) or header list (tar); `read` additionally holds one entry.
+- **No streaming decompression.** `compress::` is whole-buffer (`mfb man compress`: "every member
+  takes a whole List OF Byte"). A DEFLATE entry is read, inflated and CRC-checked in memory,
+  bounded by `maxBytes`. Streaming inflate is a `compress::` change and out of scope.
+- **No encryption, no methods other than 0 (stored) and 8 (deflate)**, no multi-disk archives,
+  no `.tar.gz`/`.tgz` from a file handle (see letter C, Open Decisions).
+- **The `fs::File` stays the caller's.** `open` never closes it; the `Archive` aliases it
+  (§15: a `RES` record field "owns nothing by itself"). Closing the file makes later reads fail with
+  `ErrResourceClosed`.
+- **No new shared error codes.** Shared conditions reuse existing `errorCode::` values; only the
+  checksum mismatch is package-specific (§4.5).
+
+## 2. Current State
+
+- `fs::File` handle surface: `fs::open`, `openFile`, `openFileNoFollow`, `openWithin`,
+  `createTempFile`, `readLine`, `readAll`, `readAllBytes`, `writeAll`, `writeAllBytes`, `eof`,
+  `flush`, `setBuffered`, `isBuffered`, `close` (`target/release/mfb man fs` Description; registry
+  names via `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs`). There is no seek,
+  no positional read and no size — hence the prerequisites.
+- `compress::` is a builtin written in MFBASIC with no system library (plan-137-A…E, archived in
+  `planning/completed/`; `mfb man compress`). `compress::inflate(data, [maxBytes])` decodes raw
+  DEFLATE and raises `ErrTooLarge` past `maxBytes` (default 64 MiB);
+  `compress::deflate(data, [level])`; `compress::crc32(data, [running])`. The todo's
+  "`ErrUnavailable` on Windows" note is obsolete: there is no zlib dependency.
+- `encoding::Codepage` has no CP437 member (`target/release/mfb man encoding types | grep -o -E
+  '\b(Cp|Ibm|Dos|Windows|Iso)[A-Za-z0-9_]*'` → `Ibm866`, `Iso8859_*`, `Windows*` only), so the todo's
+  "decode names with `encoding::codepageDecode`" does not work; the zip package carries its own
+  256-entry CP437 table (§4.4).
+- Package precedent: `packages/jwt/project.json` (`kind: "package"`, `sources` root `src`,
+  `role: "package"`), tests as `TESTING`/`TGROUP`/`TCASE` blocks in `src/test_*.mfb`
+  (`packages/jwt/src/test_roundtrip.mfb`), run by `mfb test packages/jwt` (`packages/jwt/README.md`
+  "Testing"). Error constants: `EXPORT LET ErrorExpired AS Integer = 93130001`
+  (`packages/jwt/src/core.mfb`), raised with `FAIL error(ErrorExpired, "jwt: …")`.
+- Records are constructed positionally, `Name[field1, field2]`
+  (`examples/browser/dom/src/lib.mfb:element`); unions of records are `EXPORT UNION … END UNION`
+  and matched with `MATCH x / CASE Member(v)`.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| `fs` registry function files | 41 | `ls src/codegen/builtins/fs/func_*.rs \| wc -l` → 41 |
+| positional-read / size functions in `fs` | 0 | `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs \| grep -i -E 'size\|seek\|at"'` → none |
+| `compress` members | 7 | `ls src/codegen/builtins/compress/func_*.rs \| wc -l` → 7 |
+| package-specific error ranges in use | `9311` yaml, `9312` json_schema+mustache, `9313` jwt; `9314` claimed by plan-138 (xml) → `9315` zip, `9316` tar | `grep -rhn 'EXPORT LET Error[A-Za-z]* AS Integer = ' packages/*/src/*.mfb \| awk -F'= ' '{print $2}' \| cut -c1-4 \| sort \| uniq -c`; `grep -n 9314 planning/plan-138-A-*.md` |
+| shared codes this plan reuses, present in the table | `ErrInvalidFormat`, `ErrUnsupported`, `ErrNotFound`, `ErrTooLarge`, `ErrInvalidPath`, `ErrResourceClosed` — 6 of 6 | `grep -o -E '\`Err[A-Za-z]+\`' src/docs/spec/diagnostics/02_error-codes.md \| sort -u` |
+| existing CRC/checksum shared code | 0 | same command, `grep -i check` → none |
+
+### Verified properties
+
+- **The two-overload `open` returning a record whose union field holds `RES fs::File` compiles and
+  runs across a package boundary.** Verified 2026-09-15 by a spike in `/tmp/archspike`: package
+  `arch` exporting `TYPE MemorySource { bytes AS List OF Byte }`, `TYPE FileSource { handle AS RES
+  fs::File }`, `UNION Source`, `TYPE Archive { source AS Source, names AS List OF String }`,
+  `open(data AS List OF Byte) AS Archive`, `open(RES file AS fs::File) AS Archive`, and a
+  `describe(archive)` that `MATCH`es the source and reads through `f.handle`; consumer built against
+  `packages/arch.mfp` printed `memory 5` / `file 5`, exit 0.
+- **An untyped list literal selects neither overload.** Same spike: `arch::open([1, 2, 3])` →
+  `TYPE_UNKNOWN_VALUE`; a `LET raw AS List OF Byte` argument resolves. Documented as the language's
+  rule (`06_functions.md` "Overloading"); the man page example must use a typed binding.
+- **bug-631 does not gate this plan.** Read the bug: it bites only when an *overloaded imported*
+  function is called with a field of an *imported* record. Only `open` is overloaded in either
+  package; its arguments are a `List OF Byte` or `fs::File`, and no exported zip/tar record has a
+  field of either type a caller would pass back to `open`. `read`, `find`, etc. are not overloaded.
+- **UNVERIFIED — cost of slicing a `List OF Byte`.** The memory `readAt` must copy `count` bytes in
+  O(count), not O(list length). Phase 1 measures it before the reader is built on it.
+- **UNVERIFIED — `fs::readBytesAt` short-read and closed-handle behavior.** Depends on the
+  prerequisite plan's contract; Phase 1 pins it with a test.
+
+## 3. Design Overview
+
+Each package is self-contained (no dependency between `zip` and `tar`, no third shared package):
+a private `source.mfb` in each defines the `Source` union and one function
+
+```
+FUNC readAt(source AS Source, offset AS Integer, count AS Integer) AS List OF Byte
+```
+
+that dispatches to a list slice (memory) or `fs::readBytesAt` (file), plus `sizeOf(source)`. Every
+parser in the package reads bytes **only** through `readAt`/`sizeOf`. That single seam is what makes
+"file and memory give identical results" true by construction and what letter D's differential test
+checks. Duplicating ~50 lines across two packages is deliberately preferred to a third package both
+must depend on (rejected: `packages/archive-core` — a versioned dependency for 50 lines, and it would
+put an internal type in two packages' public surfaces).
+
+**API changes from `planning/todo.md`'s proposal**, decided here:
+
+1. `open` gains the `RES file AS fs::File` overload in both packages (requirement 1).
+2. `tar::read`/`readText` gain `maxBytes` (a file-backed tar entry can be arbitrarily large — the
+   todo's in-memory version never needed a cap).
+3. `tar::Entry` gains `isDirectory` so code written against the common subset of `Entry`
+   (`name`, `isDirectory`, `size`, `mode`, `modifiedSeconds`) works for both packages.
+4. Error constants: shared `errorCode::` values replace the todo's `ErrorInvalid`, `ErrorUnsupported`,
+   `ErrorNotFound`, `ErrorTooLarge`, `ErrorUnsafePath`; only `ErrorChecksum` is package-specific.
+5. `encoding::codepageDecode` is not used for CP437 (no such member) — package-local table.
+
+**Correctness risk** concentrates in the central-directory/ZIP64 arithmetic (offsets read from
+untrusted input driving `readAt` on a file) — every offset/length is bounds-checked against
+`sizeOf(source)` before the read, and letter D fuzzes it. **Design uncertainty** concentrates in the
+list-slice cost and the `readBytesAt` contract — Phase 1, before any parser exists.
+
+**Gate class:** new packages, behavior-adding. Byte-identity of compiler output is not a gate for any
+letter; no `src/` file changes, so no compiler golden may diff. The gates are `mfb test
+packages/zip` and runtime probes.
+
+## 4. Detailed Design
+
+### 4.1 Package layout
+
+```
+packages/zip/
+  project.json          kind "package", name "zip", version "0.1.0", sources root "src"
+  README.md             (letter B)
+  doc.html              (letter B)
+  src/lib.mfb           exported API + DOC comments
+  src/source.mfb        Source union, readAt, sizeOf
+  src/bytes.mfb         little-endian u16/u32/u64 readers over List OF Byte
+  src/cp437.mfb         256-entry CP437 → String table
+  src/central.mfb       EOCD search, ZIP64 locator/record, central directory parse
+  src/entry.mfb         local header parse, read/verify
+  src/test_*.mfb        TESTING blocks
+```
+
+### 4.2 Types (zip)
+
+```
+EXPORT TYPE MemorySource   bytes AS List OF Byte
+EXPORT TYPE FileSource     handle AS RES fs::File
+EXPORT UNION Source        MemorySource | FileSource
+EXPORT TYPE Entry
+  name AS String, isDirectory AS Boolean, method AS Integer, size AS Integer,
+  compressedSize AS Integer, crc AS Integer, modifiedSeconds AS Integer, mode AS Integer,
+  comment AS String, headerOffset AS Integer
+EXPORT TYPE Archive
+  source AS Source, entries AS List OF Entry, comment AS String
+```
+
+`Source`, `MemorySource`, `FileSource` are exported only because an exported record's field type must
+be nameable by importers; their DOC says "internal — use `open`". An `Archive` over a file is not
+comparable and cannot cross threads (§15: a record carrying a resource).
+
+### 4.3 `open`
+
+1. `size = sizeOf(source)`; `size < 22` → `ErrInvalidFormat`.
+2. `tail = readAt(source, max(0, size - 65557), min(size, 65557))` (22-byte EOCD + 65535 comment).
+   Scan backwards for signature `PK\x05\x06` whose comment length lands exactly at end of file.
+   None → `ErrInvalidFormat`.
+3. If the 20 bytes before the EOCD are a ZIP64 locator (`PK\x06\x07`), `readAt` the ZIP64 EOCD
+   record at the locator's offset (56 bytes), verify `PK\x06\x06`, take entry count, CD size, CD
+   offset from it. Disk numbers ≠ 0 → `ErrUnsupported`.
+4. Bounds: `cdOffset + cdSize <= size` else `ErrInvalidFormat`. `cdSize > 268435456` (256 MiB of
+   metadata) → `ErrTooLarge`.
+5. `cd = readAt(source, cdOffset, cdSize)`; parse `entryCount` headers (`PK\x01\x02`), applying the
+   ZIP64 extra field (0x0001) for any `0xFFFFFFFF` size/offset. Name bytes: flag bit 11 set → UTF-8
+   (invalid → `ErrInvalidFormat`); else CP437 table. `isDirectory` = name ends in `/`.
+   `mode` = external attributes `>> 16` when "version made by" host is 3 (Unix), else 0.
+   `modifiedSeconds` = DOS date/time as UTC seconds since the Unix epoch (extended-timestamp extra
+   field 0x5455 overrides when present). Count mismatch → `ErrInvalidFormat`.
+
+### 4.4 `read(archive, entry, maxBytes = 67108864)`
+
+1. `entry.size > maxBytes` → `ErrTooLarge` (before reading anything).
+2. Flag bit 0 (encrypted) → `ErrUnsupported`; method ∉ {0, 8} → `ErrUnsupported`.
+3. `lh = readAt(source, entry.headerOffset, 30)`; verify `PK\x03\x04`; `dataOffset = headerOffset +
+   30 + nameLen + extraLen`; `dataOffset + compressedSize <= size` else `ErrInvalidFormat`.
+4. `raw = readAt(source, dataOffset, compressedSize)`. Method 0: `compressedSize ≠ size` →
+   `ErrInvalidFormat`; data = raw. Method 8: `compressedSize > maxBytes + 5 * (maxBytes / 65535 + 1)`
+   → `ErrTooLarge` (larger than any valid DEFLATE of `maxBytes` bytes); `data =
+   compress::inflate(raw, maxBytes)`; `len(data) ≠ entry.size` → `ErrInvalidFormat`.
+5. `compress::crc32(data) ≠ entry.crc` → `FAIL error(ErrorChecksum, "zip: …")`.
+
+Sizes come from the central directory; a data descriptor (flag bit 3) is therefore never needed on
+read. `readText` = `read` + strict UTF-8 decode (`ErrInvalidFormat` on invalid).
+
+### 4.5 Errors
+
+`zip::ErrorChecksum = 93150001` (`EXPORT LET`). Everything else: `ErrInvalidFormat` (malformed),
+`ErrUnsupported` (encryption, method, multi-disk), `ErrNotFound` (`find`), `ErrTooLarge` (limits),
+`ErrInvalidPath` (letter B, `extractTo`), `ErrResourceClosed` (from `fs`, propagated). Every message
+is prefixed `zip: `.
+
+## Compatibility / Format Impact
+
+New packages only. No compiler, spec, builtin or existing-package change. The surface introduced here
+(`zip::Archive`, `zip::Entry`, `zip::Source` and members, `open` ×2, `entries`, `comment`, `has`,
+`find`, `read`, `readText`, `ErrorChecksum`) is the contract letters B–D build on.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick `- [x]` in the same commit as the work;
+> `- [~]` for partial with what remains; moot tasks struck through with evidence, never deleted;
+> fill `Commit:` the moment a phase lands. **An unticked box means NOT DONE.**
+
+### Phase 1 — skeleton and source layer
+
+Proves the two premises the reader rests on (slice cost, `readBytesAt` contract) before any parser.
+
+- [ ] Create `packages/zip/project.json` (mirror `packages/jwt/project.json`: `kind "package"`,
+      name `zip`, version `0.1.0`, description, sources root `src` role `package`).
+- [ ] `packages/zip/src/source.mfb`: `Source` union, `readAt`, `sizeOf`. `readAt` with
+      `offset < 0`, `count < 0`, or `offset + count > sizeOf` → `ErrInvalidFormat` (callers
+      bounds-check first; this is the backstop). File branch calls `fs::readBytesAt` and treats a
+      short read as `ErrInvalidFormat` (file truncated underneath).
+- [ ] `packages/zip/src/bytes.mfb`: `u16le`, `u32le`, `u64le` over `(bytes, index)`.
+- [ ] Measure slice cost: a `TCASE` is not a timer, so write `/tmp/zipslice` (a program, not in the
+      tree) reading 4 KiB at offset 0 and at offset 60 MiB of a 64 MiB `List OF Byte`, 1000 times
+      each; record both wall times in Corrections. Ratio > 2× → the slice is O(n); switch the memory
+      branch to the cheapest O(count) primitive the collections package offers and record which.
+- [ ] Tests `packages/zip/src/test_source.mfb`: memory and file `readAt` return identical bytes at
+      start/middle/end; out-of-range → `ErrInvalidFormat`; `readAt` after `fs::close` →
+      `ErrResourceClosed`; `u64le` of `FF×8` round-trips as the documented Integer value.
+
+Acceptance: both sources return identical bytes and fail identically.
+  Check: `target/release/mfb test packages/zip` → all `source` cases pass (est. 1 min).
+Commit: —
+
+### Phase 2 — central directory
+
+- [ ] `src/cp437.mfb`: table from APPNOTE Appendix D; `cp437Decode(bytes) AS String`.
+- [ ] `src/central.mfb`: §4.3 steps 1–5, producing `Archive`.
+- [ ] `src/lib.mfb`: `open` ×2, `entries`, `comment`, `has`, `find` (`ErrNotFound`; first match in
+      central-directory order when names repeat) with DOC comments whose example uses a typed
+      `LET data AS List OF Byte` binding (Verified properties).
+- [ ] Fixtures: generate with `python3` (`zipfile`, incl. `force_zip64=True`, an archive comment, a
+      non-UTF-8 CP437 name via `ZipInfo` with flag bit 11 clear) and `/usr/bin/zip`; embed each as a
+      byte-list literal in `src/test_fixtures.mfb`; write the generator as `packages/zip/oracle/
+      fixtures.py` (letter D extends it) so fixtures are reproducible.
+- [ ] Tests `src/test_central.mfb`: entry names/sizes/crc/method/modifiedSeconds match the
+      generator's printed values for every fixture, via both overloads (fixture bytes written to a
+      temp file with `fs::createTempFile`); truncated EOCD, bad signature, CD past EOF, count
+      mismatch, multi-disk → the §4.5 codes.
+
+Acceptance: every fixture's entry list matches Python's `ZipInfo` values through both overloads.
+  Check: `target/release/mfb test packages/zip` → all `central` cases pass (est. 1 min).
+Commit: —
+
+### Phase 3 — entry reads
+
+- [ ] `src/entry.mfb`: §4.4; `read`, `readText` in `lib.mfb`.
+- [ ] Tests `src/test_read.mfb`: every fixture entry reads back to the generator's bytes via both
+      overloads; one flipped data byte → `zip::ErrorChecksum`; `maxBytes` below entry size →
+      `ErrTooLarge` with nothing read (file-backed, verify by closing nothing and checking no
+      exception other than `ErrTooLarge`); encrypted flag → `ErrUnsupported`; method 12 →
+      `ErrUnsupported`; stored entry with `compressedSize ≠ size` → `ErrInvalidFormat`.
+- [ ] No-whole-file-load audit: `grep -n -E 'readAllBytes|readAll\(|readBytes\(' packages/zip/src/*.mfb`
+      → no matches outside `test_*.mfb`.
+
+Acceptance: every fixture entry reads back byte-identically from both sources; each defect maps to
+its code.
+  Check: `target/release/mfb test packages/zip` → all cases pass; the grep above → no non-test match
+  (est. 1 min).
+Commit: —
+
+## Validation Plan
+
+- Tests: `packages/zip/src/test_source.mfb`, `test_central.mfb`, `test_read.mfb` (positive per
+  fixture ×2 sources, negative per error code).
+- Coverage check: every exported function in `lib.mfb` is called from at least one `TCASE`:
+  `grep -o -E '^EXPORT FUNC [a-zA-Z]+' packages/zip/src/lib.mfb` names each appear in `test_*.mfb`.
+- Runtime proof: letter D (differential + RSS). This letter's proof is the test run above.
+- Doc sync: DOC comments on every export in `lib.mfb` (README/doc.html are letter B).
+- Final gate: letter D (run once at the end of plan-139).
+
+## Open Decisions
+
+- Duplicate entry names — `find` returns the first in central-directory order (recommended; matches
+  `unzip` listing order and keeps `read(archive, entry)` the precise path) vs. last (Python
+  `zipfile.getinfo`). §4.4, letter D records the Python difference in `divergences.json`.
+- Central-directory cap — 256 MiB fixed (recommended; no real archive's metadata approaches it) vs.
+  an `open` parameter (would break the identical two-overload shape).
+
+## Corrections
+
+## Summary
+
+The engineering risk is untrusted offsets driving positional reads, contained by bounds-checking
+against `sizeOf` before every `readAt` and fuzzed in letter D. The feature is blocked today on two
+`fs` builtins; nothing in `src/` is touched by this plan.
