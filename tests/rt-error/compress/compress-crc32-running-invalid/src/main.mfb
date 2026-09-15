@@ -1,0 +1,11 @@
+' compress::crc32's `running` must be a value crc32 can return (0..4294967295);
+' a negative one raises ErrInvalidArgument rather than folding a garbage register.
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+SUB main()
+  io::print("before")
+  LET r AS Integer = compress::crc32(strings::toBytes("abc"), -1)
+  io::print("after=" & toString(r))
+END SUB

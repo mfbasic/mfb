@@ -1,0 +1,12 @@
+' Byte-identity coverage for the compress package (plan-137-A): every member's
+' injected source reaches native codegen on every target.
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+SUB main()
+  LET data AS List OF Byte = strings::toBytes("123456789 and then some more bytes")
+  LET whole AS Integer = compress::crc32(data)
+  LET half AS Integer = compress::crc32(strings::toBytes(" and then some more bytes"), compress::crc32(strings::toBytes("123456789")))
+  io::print(toString(whole) & " " & toString(half))
+END SUB

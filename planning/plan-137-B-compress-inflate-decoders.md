@@ -273,7 +273,8 @@ Acceptance: decoders agree with zlib on the corpus, refuse every tamper class in
 hostile input.
   Check: `tools/oracles/compress/run.sh target/release/mfb decode-raw decode-zlib decode-gzip mutate` → exit 0;
   `cargo test --test rt_compress_interop --test rt_compress_bounds` → pass;
-  `scripts/test-accept.sh target/release/mfb /tmp/p137b 'compress'` → 0 mismatches (est. 20 min).
+  `scripts/test-accept.sh target/release/mfb /tmp/p137b 'compress' 'compress-*'` → 0 mismatches (est. 20 min;
+  glob corrected by plan-137-A Corrections — `'compress'` alone selects only the byte-identity fixture).
 Commit: —
 
 ### Phase 4 — speed record, docs

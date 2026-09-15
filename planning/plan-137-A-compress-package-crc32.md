@@ -324,7 +324,7 @@ program.
 
 Acceptance: every Prerequisites row reads MET with today's output pasted in the table.
   Check: the commands above (est. 3 min, plus the release build if stale).
-Commit: —
+Commit: f54d3d4b6
 
 ### Phase 2 — package skeleton + `crc32`
 
@@ -348,29 +348,44 @@ Commit: —
 Acceptance: `crc32` is callable, rejects a bad `running`, and its table is machine-checked.
   Check: `cargo test --bin mfb compress` → the new unit tests pass;
   `cargo test --bin mfb spec_section_18_package_list_matches_is_builtin_import` → pass (est. 6 min).
-Commit: —
+Commit: 33eefae9b
 
 ### Phase 3 — tests
 
-- [ ] `tests/rt-behavior/compress/compress-crc32-valid/` — prints `crc32` of the fetched catalogue
+- [x] `tests/rt-behavior/compress/compress-crc32-valid/` — prints `crc32` of the fetched catalogue
       check string, of `[]`, of `[]` with `running := 12345`, and a three-way split chain; four
       goldens (`build.log`, `.ast`, `.ir`, `.run`) created by `touch` first, then
       `scripts/sync-goldens.sh target/release/mfb 'tests/rt-behavior/compress/compress-crc32-valid'`,
       then **read** `build.log` and compare the check value to the catalogue by eye.
-- [ ] `tests/rt-error/compress/compress-crc32-running-invalid/` — `running := -1` raises
+      (sync: `synced 10 golden file(s) across 4 test(s)`; `build.log` reads `check=3421780262`
+      = catalogue `check=0xcbf43926`, `empty=0`, `empty-running=12345`, `split=3421780262`;
+      it also chains a 43-byte string split 16/19/8: `long=long-split=1095738169`.)
+- [x] `tests/rt-error/compress/compress-crc32-running-invalid/` — `running := -1` raises
       `ErrInvalidArgument` (sibling layout: `tests/rt-error/crypto/crypto-ec-invalid`).
-- [ ] `tests/syntax/compress/compress-crc32-arity-invalid/` — wrong arity gets the argument
+      (`build.log`: `before` / `Error: 7-705-0002` / `compress::crc32: running must be 0..4294967295` / `[exit 255]`.)
+- [x] `tests/syntax/compress/compress-crc32-arity-invalid/` — wrong arity gets the argument
       diagnostic (proves `ARGUMENT_CHECKED_PACKAGES`); golden `build.log` only.
-- [ ] `tests/byte-identity/compress/` — one program calling `crc32`; eight goldens via
+      (`build.log`: `TYPE_CALL_ARITY_MISMATCH` "Call to `compress.crc32` has 0 argument(s), expected 1 to 2"
+      and "has 3 argument(s)"; `TYPE_CALL_ARGUMENT_MISMATCH` "(String), expected List OF Byte[, Integer]".)
+- [x] `tests/byte-identity/compress/` — one program calling `crc32`; eight goldens via
       `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/compress`.
-- [ ] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
+      (`build.log`/`.ast`/`.ir` by `sync-goldens.sh`; `bash scripts/regen-native-goldens.sh …` →
+      `5 build(s), 5 golden(s) rewritten, 0 failure(s)`; `scripts/artifact-gate.sh target/release/mfb compress`
+      → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`.)
+- [x] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
       `flate2 = "1"` in `[dev-dependencies]` with the "already in the lockfile" comment; test
       `crc32_matches_crc32fast_over_a_generated_corpus` (every length 0–17, then seeded LCG lengths 0..100,000, 200 cases,
       one MFB process fed a job file, compared to `crc32fast::hash`/`Hasher` via `flate2`'s
       re-export or a direct `crc32fast` dev-dep if `flate2` does not re-export it — record which).
+      (Recorded: `flate2::Crc`, which is `crc32fast::Hasher` because `flate2`'s `zlib-rs` feature is
+      off (`flate2-1.1.9/src/crc.rs` `#[cfg(not(feature = "zlib-rs"))] pub use impl_crc32fast::Crc`);
+      `cargo tree -i flate2` → `png` → `image` → `mfb`, so the `Cargo.lock` diff is one line adding
+      `flate2` to `mfb`'s dependency list. 218 cases (18 + 200) plus `running` probes at
+      4294967295 / 4294967296 / -1: `cargo test --test rt_compress_interop` → `1 passed` in 58.88 s.)
 
 Acceptance: fixtures green; the in-CI interop agrees with an independent implementation.
-  Check: `scripts/test-accept.sh target/release/mfb /tmp/p137a 'compress'` → 0 mismatches;
+  Check: `scripts/test-accept.sh target/release/mfb /tmp/p137a 'compress' 'compress-*'` → 0 mismatches
+  (2026-09-14: `acceptance tests passed (4 test(s) ran)`; glob corrected, see Corrections);
   `cargo test --test rt_compress_interop` → pass (est. 8 min).
 Commit: —
 
@@ -447,6 +462,16 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
   argon2id helper already does this (`helper_argon2id.rs` BODY opens with `IMPORT crypto` /
   `IMPORT bits` / `IMPORT collections`). Every gated `compress` helper in B–E needs the same
   header. Fixed by adding the header to `helper_crc32.rs` and `helper_crc32_table.rs`.
+- **Phase 3 check glob.** `scripts/test-accept.sh … 'compress'` selects only
+  `byte-identity/compress`: a glob matches a test's relative path or its basename, and the other
+  three fixtures are `compress-crc32-*`. Corrected to `'compress' 'compress-*'` (4 tests ran). The
+  same glob in plan-137-B Phase 3's check is corrected there.
+- **`scripts/regen-native-goldens.sh` is not executable** (`permission denied` when run as
+  `scripts/regen-native-goldens.sh`); it runs as `bash scripts/regen-native-goldens.sh`. Every later
+  letter's byte-identity regen step needs the `bash` prefix.
+- **`.run` goldens are empty markers**, not transcripts: `scripts/test-accept.sh` (the
+  "A `<pkg>.run` golden forces the full `mfb build`" block) never compares their contents, and
+  `sync-goldens.sh` wrote them 0 bytes. The run output is pinned in `build.log`.
 - **Prerequisites, 2026-09-14:** bug-621 landed on main (`a3f7cb06a`); `main` merged into
   `worktree-P-137` at `55dc9a626` before the gate re-run.
 

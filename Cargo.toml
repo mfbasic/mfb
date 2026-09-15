@@ -71,6 +71,12 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # `mfb build` child). Already in the lockfile through ring/rustls, so it resolves
 # offline and adds no new compiled code.
 libc = "0.2"
+# plan-137: `tests/interop/rt_compress_interop.rs` checks `compress::` against an
+# implementation that shares no code with the MFBASIC one — `flate2::Crc` (crc32fast
+# underneath, since the `zlib-rs` feature is off) for CRC-32. Already in the lockfile
+# as a normal dependency through `image` → `png`, so it resolves offline and adds no
+# new compiled code.
+flate2 = "1"
 
 # ---------------------------------------------------------------------------
 # Test targets.
@@ -106,6 +112,10 @@ path = "tests/interop/rt_crypto_mac_kdf_interop.rs"
 [[test]]
 name = "rt_crypto_aead_interop"
 path = "tests/interop/rt_crypto_aead_interop.rs"
+
+[[test]]
+name = "rt_compress_interop"
+path = "tests/interop/rt_compress_interop.rs"
 
 [[test]]
 name = "rt_crypto_key_interop"

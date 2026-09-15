@@ -1,0 +1,39 @@
+{
+  "project": "compress-crc32-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "compress", "line": 8 },
+    { "module": "io", "line": 9 },
+    { "module": "strings", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "check", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "123456789" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "check=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "check" }] }] } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "list", "values": [] }] }] } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty-running=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "list", "values": [] }, { "kind": "number", "value": "12345" }] }] } }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "123" }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "4567" }] }, { "kind": "identifier", "value": "a" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "split=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "89" }] }, { "kind": "identifier", "value": "b" }] }] } }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "long", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "The quick brown fox jumps over the lazy dog" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "The quick brown " }] }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "fox jumps over the " }] }, { "kind": "identifier", "value": "p" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "long=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "long" }] }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "long-split=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "lazy dog" }] }, { "kind": "identifier", "value": "q" }] }] } }] }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}
