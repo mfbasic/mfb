@@ -1,4 +1,4 @@
-# bug-634: a resource union bound through inline TRAP leaks 96 B per bind
+# bug-634: a resource bound through inline TRAP leaks 96 B per bind (concrete and union)
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)
@@ -101,3 +101,52 @@ Commit: —
 - [ ] Goldens; full suite.
 
 Commit: —
+
+## Widened scope (2026-09-15): a concrete resource bound through TRAP leaks the same 96 B
+
+Not specific to unions. Measured after bug-632's sibling-RETURN fix, so no other leak mixes
+in:
+
+```
+IMPORT io
+IMPORT net
+IMPORT udp
+
+FUNC risky(bad AS Boolean) AS RES udp::Socket
+  RES keep AS udp::Socket = udp::bind("127.0.0.1", 0)
+  RES spare AS udp::Socket = udp::bind("127.0.0.1", 0)
+  MUT port AS Integer = 0
+  IF bad THEN
+    port = -1
+  END IF
+  RES tried AS udp::Socket = udp::bind("127.0.0.1", port) TRAP(e)
+    RETURN spare
+  END TRAP
+  IF port = 0 THEN
+    RETURN keep
+  END IF
+  RETURN tried
+END FUNC
+
+SUB main()
+  MUT ok AS Integer = 0
+  FOR i = 1 TO {n}
+    RES s AS udp::Socket = risky((i MOD 2) = 0)
+    LET addr AS net::Address = udp::localAddress(s)
+    IF addr.port > 0 THEN
+      ok = ok + 1
+    END IF
+  NEXT
+  io::print("ok=" & toString(ok))
+END SUB
+```
+
+- Observed (`mfb build --debug`, integration branch with bug-632): N=100 `ok=100`,
+  `alloc_calls 1202`, `free_calls 1102`, `live_bytes 9600`; N=200 `ok=200`, `2402`/`2202`,
+  `live_bytes 19200` — one 96 B block per call, `double_free_skips 0`. Before bug-632's fix
+  the same program leaked 240 B per call (the sibling-path leak on top).
+- Hypothesis (shared with the union shape): the inline-TRAP desugar's result temp and closed
+  default record (`$trap_valN` / `$trap_res`) leave a 96 B record the binding never owns, on
+  the success path as well as the handler path; `record_ownership` does not resolve the
+  TRAP-bound binding as the owner of the fresh producer's record. Confirm in Phase 1 for both
+  the concrete and the union shape.
