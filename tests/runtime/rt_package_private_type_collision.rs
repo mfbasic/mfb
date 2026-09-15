@@ -257,3 +257,62 @@ fn a_private_flat_mfp_type_and_a_recursive_program_type_are_distinct() {
         "mine 4"
     );
 }
+
+/// Build `source` as a lone package; return whether it built and its output.
+fn build_package(name: &str, source: &str) -> (bool, String) {
+    let root = std::env::temp_dir().join(format!("mfb_{name}_{}", common::unique_nonce()));
+    fs::create_dir_all(root.join("src")).expect("create package dir");
+    fs::write(
+        root.join("project.json"),
+        "{\"name\":\"pk\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"package\",\
+         \"description\":\"a package\",\
+         \"sources\":[{\"root\":\"src\",\"role\":\"package\",\"include\":[\"**/*.mfb\"]}]}\n",
+    )
+    .expect("write package manifest");
+    fs::write(root.join("src/lib.mfb"), source).expect("write package source");
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg(&root)
+        .output()
+        .expect("run mfb build");
+    let _ = fs::remove_dir_all(&root);
+    (output.status.success(), combined(&output))
+}
+
+/// bug-624 B: an exported type whose field names a non-exported type used to build, and then
+/// every importer rejected the `.mfp` (`PACKAGE_INVALID: exported type Pub references unknown
+/// type Hidden`) — the type table carries only the exported surface. The package build must
+/// reject it where it is declared.
+#[test]
+fn an_exported_type_naming_a_non_exported_type_is_rejected_at_the_package_build() {
+    let (built, output) = build_package(
+        "export_names_private_type",
+        "TYPE Hidden\n  n AS Integer\nEND TYPE\n\nEXPORT TYPE Pub\n  h AS Hidden\nEND TYPE\n\nEXPORT FUNC mk(n AS Integer) AS Pub\n  RETURN Pub[Hidden[n]]\nEND FUNC\n",
+    );
+    assert!(
+        !built && output.contains("Hidden") && output.contains("Pub"),
+        "the package build must reject EXPORT TYPE Pub naming non-exported Hidden:\n{output}"
+    );
+}
+
+/// bug-624 B: the same for an exported function's signature.
+#[test]
+fn an_exported_signature_naming_a_non_exported_type_is_rejected_at_the_package_build() {
+    let (built, output) = build_package(
+        "export_sig_names_private_type",
+        "TYPE Hidden\n  n AS Integer\nEND TYPE\n\nEXPORT FUNC mk(n AS Integer) AS Hidden\n  RETURN Hidden[n]\nEND FUNC\n",
+    );
+    assert!(
+        !built && output.contains("Hidden") && output.contains("mk"),
+        "the package build must reject EXPORT FUNC mk returning non-exported Hidden:\n{output}"
+    );
+}
+
+/// bug-624 B guard: exporting both types keeps working end to end.
+#[test]
+fn an_exported_type_naming_an_exported_type_still_builds_and_imports() {
+    const PACKAGE: &str = "EXPORT TYPE Inner\n  n AS Integer\nEND TYPE\n\nEXPORT TYPE Pub\n  h AS Inner\nEND TYPE\n\nEXPORT FUNC mk(n AS Integer) AS Pub\n  RETURN Pub[Inner[n]]\nEND FUNC\n";
+    const PROGRAM: &str = "IMPORT io\nIMPORT pk\n\nSUB main()\n  LET p AS pk::Pub = pk::mk(4)\n  io::print(\"mine \" & toString(p.h.n))\nEND SUB\n";
+    assert_eq!(run("export_names_export_src", PACKAGE, PROGRAM, Form::Source), "mine 4");
+    assert_eq!(run("export_names_export_mfp", PACKAGE, PROGRAM, Form::Mfp), "mine 4");
+}
