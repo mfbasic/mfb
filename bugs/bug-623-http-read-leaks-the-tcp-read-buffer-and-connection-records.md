@@ -220,3 +220,19 @@ Implemented by a fix-bug subagent; reviewed and applied on the main thread.
   existing `CTX_PEND_BUF` free in the macOS read/close paths would `arena_free` a block from
   the sending thread's arena if a transferred socket held buffered plaintext;
   `fs::createTempFile` + `fs::close` keeps its 96 B tombstone record per file.
+- **Sub-issue C (new, Windows Schannel connect):** a loop of failing `tls::connect` calls
+  (an in-process `tcp::listen` that never answers the handshake, 100 ms timeout, each
+  attempt trapped; all 50 attempts fail, measured by a local counting probe) grew
+  5,038,400 B per 50 attempts on windows-x86_64 (2230) — **100,768 B per failed connect**
+  — and 0 B on linux-aarch64 (OpenSSL, the control). The arithmetic is exact:
+  `gen_schannel_io.rs:emit_wide_cstring` allocates a fixed 65,536-byte UTF-16 server-name
+  buffer (`SNAMEW`) that nothing frees, plus the STATE block (`st::SIZE` = 320 + 2 ×
+  `RECV_CAP` 0x4400 = 35,136 B) and the 96 B record, both allocated before the handshake and
+  dropped by the `fail` / `alloc_fail` exits of `gen_schannel_impl.rs` connect:
+  65,536 + 35,136 + 96 = 100,768. The `SNAMEW` buffer also leaks on every **successful**
+  connect (no free anywhere; `grep -n SNAMEW`). The failure exits also leave the socket open
+  and the SSPI credential and context handles unreleased (OS resources, not arena bytes).
+  Fix: null `REC` / `SNAMEW` at entry; free `SNAMEW` after its last use (hostname
+  verification) on success; on `fail` / `alloc_fail` release the security context and
+  credential handle (guarded on STATE), close the socket, and free `SNAMEW`, STATE and the
+  record.
