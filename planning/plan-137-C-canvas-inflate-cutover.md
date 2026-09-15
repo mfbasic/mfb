@@ -1,6 +1,6 @@
 # plan-137-C: canvas PNG decoding on `compress::` inflate
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Effort: medium (1h–2h)
 Depends on: plan-137-B (a strict, fast `compress::zlibDecode`). If plan-137-B is not complete,
 this plan cannot start, full stop. Whole-feature prerequisites: plan-137-A §Prerequisites.
@@ -169,7 +169,8 @@ Adler-32; over-subscribed Huffman trees; any further class plan-137-B establishe
 
 Acceptance: §2 has no UNMEASURED rows.
   Check: the commands in §2 (est. 10 min).
-Commit: —
+  (2026-09-14: every §2 row carries a dated measurement; the Phase 1 probe task is recorded above.)
+Commit: b615320d8 (census), 4d23e3a8b (late-pass probe)
 
 ### Phase 2 — failing tests first
 
@@ -224,22 +225,34 @@ Acceptance: all 17 decode tests pass; the late pass serves a canvas-only program
   `scripts/test-accept.sh target/release/mfb /tmp/p137c '<canvas fixture glob>'` → 0 mismatches after sync (est. 15 min).
   (2026-09-14: `cargo test --test rt_canvas_image_decode` → `ok. 17 passed; 0 failed` in 92.68 s; the four canvas fixtures →
   `acceptance tests passed (4 test(s) ran)`; `/tmp/p137latepass` builds.)
-Commit: —
+Commit: 18ec450cb
 
 ### Phase 4 — record
 
 - [x] Post-change size and decode time (Phase 1 program and PNG) recorded in Corrections.
       (Corrections, "Post-change size and decode time".)
-- [ ] `canvas::loadImage` man `desc` mentions that malformed compressed data is refused (no
+- [x] `canvas::loadImage` man `desc` mentions that malformed compressed data is refused (no
       internals). Spec: `grep -rln "helper_inflate\|__canvas_inflate\|__canvas_zlibInflate" src/docs`
       → none on 2026-09-13, so no citation is expected to dangle; re-run it, and if the canvas spec
       page describes PNG decompression in prose, point it at `mfb spec stdlib compress`.
-- [ ] `planning/completed/audit-3-decoders.md` DEC-58 and the Adler half of DEC-57: add a dated
+      (2026-09-14: the `desc` already named malformed compressed data. It now adds "including compressed data whose
+      checksum does not match". The `ErrBadImageFile` rows in `02_error-codes.md:145` and `errorcode/mod.rs:128` say
+      "compressed data are malformed", which covers that case, so they are unchanged. The spec grep is re-run under
+      Acceptance → none. `grep -rn -i "inflate\|deflate\|zlib\|decompress" src/docs/spec` outside `20_compress.md` finds
+      no canvas prose on PNG decompression, so there is nothing to repoint.)
+- [x] `planning/completed/audit-3-decoders.md` DEC-58 and the Adler half of DEC-57: add a dated
       resolution line citing this letter's commit (the PNG-CRC half stays open).
+      (A dated "Resolved … by plan-137-C (`18ec450cb`)" paragraph under the LOW list names both pinning tests and keeps
+      the PNG chunk-CRC half of DEC-57 open.)
+- [x] (Added 2026-09-14) `.ai/resources-packages.md`: the gate-aware late-pass rule, placed under the augmentation-chain
+      section. It covers: `get_mfb` renders no gated helper; `late_pass_files`; no `synthetic_files` skip when direct
+      importers carry goldens; and the `#[cfg(test)]` `ir::lower` chain.
 
 Acceptance: docs cite no deleted symbol.
   Check: `grep -rn "helper_inflate\|__canvas_inflate\|__canvas_zlibInflate" src tests` → none;
   `cargo test -p mfb --bins citations_resolve` → pass (est. 5 min).
+  (2026-09-14: the grep, excluding `compress/`'s own unrelated `helper_inflate.rs` / `helper_inflate_core.rs`, → exit 1,
+  no match; `cargo test -p mfb --bins citations_resolve` → `spec_citations_resolve ... ok`, `1 passed`.)
 Commit: —
 
 ## Validation Plan
@@ -250,12 +263,15 @@ Commit: —
 - Runtime proof: the headless decode tests are the runtime proof on macOS; on box 2223, run
   `scripts/test-canvas-vulkan.sh` only if it exercises `loadImage` (check its body first; if not,
   record that and rely on B's 2223 decoder proof).
+  (2026-09-14: `grep -n "loadImage\|rt_canvas_image_decode" scripts/test-canvas-vulkan.sh` → no match, 625 lines. It does
+  not exercise `loadImage`, so this letter relies on plan-137-B's linux-aarch64 decoder proof plus the 17 macOS decode tests.)
 - Doc sync: canvas man `desc`, canvas spec page, audit-3 resolution lines.
 - Final gate: plan-137-E.
 
 ## Open Decisions
 
 - Canvas strictness — carried from plan-137-A; recommended: accept the stricter refusals.
+  **Resolved 2026-09-14:** accepted, as recommended. The two refusals are pinned by the Phase 2 tests.
 
 ## Corrections
 

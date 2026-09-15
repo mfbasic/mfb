@@ -16,8 +16,9 @@ that item draw nothing.
 **PNG.** All five colour types (greyscale, truecolour, palette, greyscale+alpha,
 truecolour+alpha), bit depths 1 through 16, `tRNS` transparency, and Adam7
 interlacing. A file that is not a PNG, or a PNG whose chunks, filters or compressed
-data are malformed, raises `ErrBadImageFile` — which is a different mistake from
-`ErrNotFound`, a path that does not exist, and needs a different fix.
+data are malformed — including compressed data whose checksum does not match —
+raises `ErrBadImageFile`, which is a different mistake from `ErrNotFound`, a path
+that does not exist, and needs a different fix.
 
 **Limits.** An image may be at most 16384 pixels a side and 16,777,216 pixels in
 all, and its compressed data must fit the image its header declares. A file past

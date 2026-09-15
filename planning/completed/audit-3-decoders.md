@@ -63,6 +63,12 @@ compile size-unbounded), DEC-56 (font table offsets never checked vs file), DEC-
 Huffman trees), DEC-59 (glyph cache key truncates gid to 16 bits), DEC-60
 (`audio::render` `noteFrames` unbounded).
 
+**Resolved 2026-09-14 by plan-137-C (`18ec450cb`):** DEC-58, and the zlib Adler-32 half of DEC-57.
+`canvas::loadImage` now inflates through `compress::zlibDecode`, which verifies the Adler-32 trailer and refuses
+over-subscribed and incomplete Huffman code sets as zlib does. The pins are
+`tests/canvas/rt_canvas_image_decode.rs` `a_png_whose_zlib_adler32_is_wrong_is_refused` and
+`a_png_whose_huffman_tree_is_oversubscribed_is_refused`. The PNG chunk-CRC half of DEC-57 is still open.
+
 ## Negatives (checked and handled — recorded so a later audit does not re-derive)
 
 **No memory corruption on this surface.** Verified handled: UTF-8/16/32 strict
