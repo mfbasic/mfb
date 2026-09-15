@@ -13,8 +13,10 @@ second from the `seconds` field when the nanosecond difference is negative.
 
 
 Because both operands are signed `datetime::Duration`s, `minus` handles spans of either
-direction: subtracting a negative `datetime::Duration` lengthens the total, and
-subtracting a larger span from a smaller one yields a negative `datetime::Duration`.
+direction: subtracting a negative `datetime::Duration` adds its opposite, so 5
+seconds minus -3 seconds is 8 seconds. The result is negative exactly when the
+signed value of `a` is less than that of `b`: 3 seconds minus 5 seconds is -2
+seconds, but -10 seconds minus -20 seconds is +10 seconds.
 `minus` pairs with `datetime::plus` and `datetime::negate`, since
 `datetime::minus(a, b)` equals `datetime::plus(a, datetime::negate(b))`. A
 common use is measuring elapsed time between two `datetime::monotonic` readings.
@@ -28,7 +30,7 @@ calendars, time zones, or daylight-saving transitions; it simply differences
 elapsed physical time. To shift a point on the timeline rather than combine two
 spans, use `datetime::subtract` on a `datetime::Instant`. The subtraction is ordinary
 signed `Integer` arithmetic, so a difference whose second count falls outside the
-`Integer` range overflows and traps. `minus` is pure: the same two `datetime::Duration`s
+`Integer` range raises `ErrOverflow`. `minus` is pure: the same two `datetime::Duration`s
 always yield the same `datetime::Duration`, and it has no side effects."#;
 const EX: &str = r#"Subtract a 500-millisecond span from a 90-second span:
 
@@ -79,7 +81,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "The duration to take away. The result is negative when `b` is the longer one.",
+                    desc: "The duration to take away. The result is negative when the signed value of `b` is greater than that of `a`.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,

@@ -28,9 +28,8 @@ the Unix epoch (negative `seconds`) projects correctly.
 
 `datetime::toUtc` and `datetime::toLocal` are shorthands for calling `inZone`
 with the UTC zone and the host local zone, respectively. `inZone` is pure for UTC
-and fixed-offset zones; for a local zone it reads the host's time-zone
-configuration through the `datetime::localOffset` OS intrinsic to resolve the
-offset.
+and fixed-offset zones; for a local zone the result uses the host's time-zone
+rules at that instant, the same offset `datetime::localOffset` returns.
 
 For a local zone, an instant outside the range the host can convert raises
 `ErrInvalidArgument`, as `datetime::localOffset` does. An instant so close to the

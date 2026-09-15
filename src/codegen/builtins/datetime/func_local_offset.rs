@@ -220,17 +220,17 @@ system zone setting), so the same program can produce different results on
 different hosts.
 
 Only the seconds value matters; there is no sub-second component. `localOffset`
-is the low-level intrinsic that backs `datetime::offsetAt` for local zones and
-`datetime::toLocal`; most code should prefer those higher-level functions, which
-operate on `datetime::Instant` and `datetime::Zone` values rather than a raw epoch-seconds `Integer`.
+takes a raw epoch-seconds `Integer`; most code should prefer `datetime::offsetAt`
+or `datetime::toLocal`, which work with `datetime::Instant` and `datetime::Zone` values and
+give the same offset for a local zone.
 
 `localOffset` is **not pure**: it reads the host's time-zone configuration, so
 its result depends on host state. It has no side effects and reads no other
 state.
 
-An instant outside the range the host can convert (roughly beyond `±10^16`
-seconds on macOS and glibc, and outside the `FILETIME` range on Windows) raises
-`ErrInvalidArgument`."#;
+An instant the host cannot convert raises `ErrInvalidArgument`. The range is
+platform-dependent: on macOS, `±6 * 10^16` seconds converts and `±7 * 10^16`
+raises; on Windows the limit is the `FILETIME` range."#;
 const EX: &str = r#"The host's local offset for the current instant:
 
 ```
@@ -263,7 +263,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "epochSeconds",
-                desc: "The instant, in seconds since the epoch, to ask about. The offset is not constant — a zone with daylight saving gives different answers at different times of year.",
+                desc: "The instant, in seconds since the epoch, to ask about. Zero is the epoch and negative values are before it. The offset is not constant — a zone with daylight saving gives different answers at different times of year.",
                 aliases: &[],
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,

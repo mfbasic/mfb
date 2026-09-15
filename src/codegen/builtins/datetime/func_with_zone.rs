@@ -41,8 +41,8 @@ both steps verbatim, so it equals `dt.time.nanos`. Because the instant is
 preserved, `datetime::resolve` on the result returns the same `datetime::Instant` as
 `datetime::resolve` on `dt`: `withZone` is an identity on the absolute moment and
 changes only its civil presentation. It is pure for UTC and fixed-offset zones;
-for a local zone it reads the host's time-zone configuration through the
-`datetime::localOffset` OS intrinsic to resolve the offset."#;
+for a local zone the result uses the host's time-zone rules at that instant,
+the same offset `datetime::localOffset` returns."#;
 const EX: &str = r#"Re-project a UTC `datetime::DateTime` into a fixed +05:30 zone:
 
 ```

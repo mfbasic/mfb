@@ -451,16 +451,24 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
 ### Phase 3 — datetime (46 units)
 
 - [ ] 44 function pages + overview + the 40-description types page.
-      **Progress (2026-09-14):** 17 of 46 reviewed and applied: overview, types,
+      **Progress (2026-09-14):** 27 of 46 reviewed and applied: overview, types,
       add, addDays, addMonths, between, civil, compare, date, dayOfYear,
       daysInMonth, duration, equals, fixedOffset, format, formatDuration,
-      fromMillis. The Codex usage limit stopped the batch; the other 29 are in
+      fromMillis, inZone, instant, isAfter, isBefore, isLeapYear, local,
+      localOffset, minus, monotonic, monotonicNanos. The Codex usage limit stopped
+      the second batch too (resets Sep 19, 06:05). The other 19 are in
       `planning/plan-125-units/C-phase3-retry.txt`. Every accepted finding was
       probe-verified: `/tmp/p125-ex/dtraw`, `dtraw2`, `dtgap`, `dtmisc`, `dtfmt`,
-      `dtms`, and `dtdst` run under `TZ=America/New_York` and
-      `TZ=Pacific/Honolulu`.
+      `dtms`, `dtzone`, `dtinst`, `dtlo`, `dtminus`, and `dtmono`, plus `dtdst` under
+      `TZ=America/New_York`, `TZ=Pacific/Honolulu`, and `TZ=Not/AZone`, and
+      `dthavana` under `TZ=America/Havana`.
       Rejected: overview #4–6, generic derived Errors-table rows; types #6,
-      covered by the new overview example; fromMillis #1, already on the page.
+      covered by the new overview example; fromMillis #1, already on the page;
+      monotonic #3, since `0 .. 999_999_999` is the package-wide inclusive notation.
+      Applied beyond the findings, each verified: `startOfDay` in a zone whose
+      DST gap starts at midnight returns `01:00` (Havana, 2026-03-08); the "OS
+      intrinsic" wording is removed from `withZone` too; the signed-comparison
+      sentence is fixed on all four comparison pages.
       Probing found bug-629: a built-in member accepts an argument of the wrong
       record type, e.g. `toMillis(DateTime)` compiles and returns garbage. Also
       as-is and documented, not filed: records built directly are not validated;
@@ -473,13 +481,13 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       borrow of nanosecond normalization**: when a nanosecond difference goes
       negative, one whole second is taken from the seconds field so `nanos` stays
       in `0 .. 999_999_999`. None describes memory or ownership, so all stay as
-      written. The lines, re-measured after the 17-page edit:
+      written. The lines, re-measured after the 27-page edit, now number **16**:
       - `add` 54;
       - `between` 43, 44;
       - `duration` 35 (the new `nanos` parameter row), 66;
       - `fromMillis` 39;
-      - `instant` 57;
-      - `minus` 38, 48, 49;
+      - `instant` 36 (the new `nanos` parameter row), 65;
+      - `minus` 39, 51, 52;
       - `negate` 40;
       - `subtract` 39, 52, 53, 54.
 - [ ] Every example compiled and run; every zone/DST/leap claim probe-verified
@@ -489,6 +497,11 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
 
 Acceptance: 46 units `exit 0`; `--memory-scope datetime` reports exactly the
 15 CARVE-1 rows and 0 unclassified; sweeps otherwise clean.
+*Correction (2026-09-14):* the expected CARVE-1 count is now **16**. The accepted
+`instant` finding #2 rewrote the `nanos` parameter row to state normalization
+("a negative value borrows a second"). That is one more instance of the same
+nanosecond borrow, so it is classified the same way. `./scripts/man-census.sh
+--memory-scope datetime` → 16 CARVE-1, 0 unclassified.
 Commit: —
 
 ### Phase 4 — collections (50 units)

@@ -16,14 +16,15 @@ The comparison is performed field by field, matching `datetime::compare`. The
 fields used as a tiebreaker. As a consequence, two instants that name the same
 point (equal `seconds` and equal `nanos`) are not "before" each other, so
 `isBefore` returns `FALSE` for equal instants — the relation is strict, not
-"before or equal". Because both arguments are points on the same Unix-epoch,
+"before or equal". Every instant the package returns is normalized. An `Instant`
+record built directly with a `nanos` outside `0 .. 999_999_999` is compared on
+its stored fields, so it can order differently from the point it names. Because both arguments are points on the same Unix-epoch,
 leap-second-free UTC timeline, the ordering is absolute and independent of any
 time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with `datetime::resolve` before
 comparing.
 
 `isBefore` is pure: the same two instants always yield the same `Boolean`, it
-has no side effects, and it performs only signed comparisons (no arithmetic), so
-it cannot overflow or trap. For the symmetric test use `datetime::isAfter`, for
+has no side effects, and it never raises an error. For the symmetric test use `datetime::isAfter`, for
 an equality test use `datetime::equals`, and for a three-way sign rather than a
 `Boolean` use `datetime::compare`. To measure the size of the gap between two
 instants rather than just their order, use `datetime::between`."#;

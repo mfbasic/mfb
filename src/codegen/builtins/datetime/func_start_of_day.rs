@@ -16,7 +16,10 @@ is resolved for that moment, and the canonical `datetime::DateTime` naming the r
 `datetime::Instant` is returned. Because the offset is re-resolved rather than copied from
 `dt`, the result is daylight-saving correct: for the host's local zone the offset
 reflects whatever DST rule applies at midnight on that date, which may differ from
-the offset that applied at `dt`'s original time of day.
+the offset that applied at `dt`'s original time of day. In a zone whose
+spring-forward gap starts at midnight, `00:00:00` does not exist that day, and
+the result moves forward the way `datetime::civil` resolves a gap: under
+`TZ=America/Havana`, the start of 2026-03-08 is `01:00:00 -04:00`.
 
 
 The day boundary is civil midnight in `dt`'s zone, not UTC midnight, so the

@@ -1,13 +1,3 @@
-man-page:datetime/inZone
-man-page:datetime/instant
-man-page:datetime/isAfter
-man-page:datetime/isBefore
-man-page:datetime/isLeapYear
-man-page:datetime/local
-man-page:datetime/localOffset
-man-page:datetime/minus
-man-page:datetime/monotonic
-man-page:datetime/monotonicNanos
 man-page:datetime/negate
 man-page:datetime/now
 man-page:datetime/nowNanos

@@ -25,8 +25,7 @@ independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Ins
 `datetime::resolve` before comparing.
 
 `compare` is pure: the same two instants always yield the same `Integer`, it
-has no side effects, and it performs only signed comparisons (no arithmetic),
-so it cannot overflow or trap. For a `Boolean` test rather than a three-way
+has no side effects, and it never raises an error. For a `Boolean` test rather than a three-way
 sign, use `datetime::isBefore`, `datetime::isAfter`, or `datetime::equals`, each
 of which is defined in terms of `compare`. To measure the size of the gap
 between two instants rather than just their order, use `datetime::between`."#;

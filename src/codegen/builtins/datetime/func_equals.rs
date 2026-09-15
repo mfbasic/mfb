@@ -25,8 +25,7 @@ independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Ins
 `datetime::resolve` before comparing.
 
 `equals` is pure: the same two instants always yield the same `Boolean`, it has
-no side effects, and it performs only signed comparisons (no arithmetic), so it
-cannot overflow or trap. For the strict ordering tests use `datetime::isBefore`
+no side effects, and it never raises an error. For the strict ordering tests use `datetime::isBefore`
 and `datetime::isAfter`, and for a three-way sign rather than a `Boolean` use
 `datetime::compare`. To measure the size of the gap between two instants rather
 than just whether they coincide, use `datetime::between`."#;
