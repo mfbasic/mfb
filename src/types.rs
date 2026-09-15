@@ -1009,6 +1009,17 @@ impl ParameterType {
         }
     }
 
+    /// The type as MFBASIC source spells it: a package qualifier is `::`
+    /// (`List OF RES canvas::Font`).
+    ///
+    /// [`name`](Self::name) is the internal spelling (`canvas.Font`) that
+    /// [`parse`](Self::parse) round-trips and the `.ast`/`.ir` goldens carry; a dot
+    /// in source is field access. Anything a user reads — a man page, injected
+    /// companion source — uses `display()`, never `name()` (bug-605).
+    pub(crate) fn display(&self) -> String {
+        self.name().replace('.', "::")
+    }
+
     /// Whether this is a scalar primitive (non-container, non-nominal).
     pub(crate) fn is_scalar(&self) -> bool {
         matches!(
@@ -2659,5 +2670,36 @@ mod tests {
                 ParameterType::Integer,
             ),
         );
+    }
+
+    /// bug-605: `display()` is the spelling a user reads — a package qualifier is
+    /// `::` at every depth — while `name()` keeps the internal dot.
+    #[test]
+    fn display_spells_package_qualifiers_as_source_does() {
+        let color = || ParameterType::named("color.Color");
+        assert_eq!(color().name(), "color.Color");
+        assert_eq!(color().display(), "color::Color");
+        assert_eq!(
+            ParameterType::list_of(color()).display(),
+            "List OF color::Color"
+        );
+        assert_eq!(
+            ParameterType::map_of(ParameterType::String, ParameterType::named("net.Address"))
+                .display(),
+            "Map OF String TO net::Address"
+        );
+        assert_eq!(
+            ParameterType::res(ParameterType::named("canvas.Font")).display(),
+            "RES canvas::Font"
+        );
+        assert_eq!(
+            ParameterType::list_of(ParameterType::map_of(
+                ParameterType::named("json.Json"),
+                ParameterType::list_of(ParameterType::res(ParameterType::named("tcp.Socket"))),
+            ))
+            .display(),
+            "List OF Map OF json::Json TO List OF RES tcp::Socket"
+        );
+        assert_eq!(ParameterType::Integer.display(), "Integer");
     }
 }

@@ -161,8 +161,8 @@ The one colour type a canvas program names, `color::Color`, belongs to `color` a
 needs its own `IMPORT color`.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
-safe. Calling `canvas::destroyImage` again on an image it already closed does
-nothing; any other use of a closed image raises `ErrResourceClosed`. An image
+safe. Calling `canvas::destroyImage` again on an image it already closed raises
+`ErrResourceClosed`, as does any other use of a closed image. An image
 stays on the drawing surface's thread."#;
 
 /// Register the `canvas` package on the clean-room registry.
@@ -987,6 +987,8 @@ pub(crate) fn register(r: &mut Registry) {
         live_slots: &[],
         // `destroyImage` sets the closed flag and returns; the backend frees the real
         // object later, on its own schedule, so there is nothing here that can fail.
+        // Its only error is `ErrResourceClosed` on a re-close, which the drop path
+        // treats as benign, so it is not a close failure.
         unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
