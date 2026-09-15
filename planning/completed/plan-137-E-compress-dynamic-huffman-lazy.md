@@ -249,7 +249,7 @@ Commit: 9c3fc299b
       - One `crc32` call → 83,112 B (**+16,512 B**).
       - One `gzipDecode` call → 231,720 B (**+165,120 B**).
       - One `gzipEncode` call → 363,816 B (**+297,216 B**).)
-- [ ] Archive plan-137-E to `planning/completed/`. (Corrected 2026-09-14: A–D are archived as each
+- [x] Archive plan-137-E to `planning/completed/`. (Corrected 2026-09-14: A–D are archived as each
       completes — see Corrections.)
 
 Acceptance: all gates above green, runtime proven on four targets, sizes recorded.
@@ -257,7 +257,7 @@ Acceptance: all gates above green, runtime proven on four targets, sizes recorde
   windows-x86_64 (2230) and linux-x86_64 (2228); sizes recorded.)
   Check: the commands above (est. 60 min — the full suite is required once by `.ai/testing-gates.md`;
   no scoped run covers every importer golden and the other packages' byte-identity).
-Commit: —
+Commit: b38c8dafe
 
 ## Validation Plan
 
