@@ -1,4 +1,4 @@
-# bug-633: a resource union with a variant from a package the program never calls fails to build
+# bug-642: a resource union with a variant from a package the program never calls fails to build
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)

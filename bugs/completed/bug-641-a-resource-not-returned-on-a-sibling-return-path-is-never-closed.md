@@ -1,4 +1,4 @@
-# bug-632: a resource not returned on a sibling RETURN path is never closed
+# bug-641: a resource not returned on a sibling RETURN path is never closed
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)

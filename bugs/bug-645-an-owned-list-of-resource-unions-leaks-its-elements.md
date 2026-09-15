@@ -1,4 +1,4 @@
-# bug-636: an owned List OF RES of resource unions leaks 272 B per element
+# bug-645: an owned List OF RES of resource unions leaks 272 B per element
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)

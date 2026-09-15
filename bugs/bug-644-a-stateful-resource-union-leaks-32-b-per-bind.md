@@ -1,4 +1,4 @@
-# bug-635: a resource union with a STATE leaks 32 B per bind
+# bug-644: a resource union with a STATE leaks 32 B per bind
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)

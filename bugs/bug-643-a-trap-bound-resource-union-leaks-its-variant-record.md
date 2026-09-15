@@ -1,4 +1,4 @@
-# bug-634: a resource bound through inline TRAP leaks 96 B per bind (concrete and union)
+# bug-643: a resource bound through inline TRAP leaks 96 B per bind (concrete and union)
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)
@@ -53,7 +53,7 @@ SUB main()
 END SUB
 ```
 
-(`tcp::listen` works around bug-633.) `mfb build --debug`, integration `38e620ddb`:
+(`tcp::listen` works around bug-642.) `mfb build --debug`, integration `38e620ddb`:
 
 - Observed: N=100 `ok=100`, `alloc_calls 504`, `free_calls 404`, `live_bytes 9600`; N=200
   `ok=200`, `1004`/`804`, `live_bytes 19200` — one 96 B block per call, `double_free_skips 0`.
@@ -104,7 +104,7 @@ Commit: —
 
 ## Widened scope (2026-09-15): a concrete resource bound through TRAP leaks the same 96 B
 
-Not specific to unions. Measured after bug-632's sibling-RETURN fix, so no other leak mixes
+Not specific to unions. Measured after bug-641's sibling-RETURN fix, so no other leak mixes
 in:
 
 ```
@@ -141,9 +141,9 @@ SUB main()
 END SUB
 ```
 
-- Observed (`mfb build --debug`, integration branch with bug-632): N=100 `ok=100`,
+- Observed (`mfb build --debug`, integration branch with bug-641): N=100 `ok=100`,
   `alloc_calls 1202`, `free_calls 1102`, `live_bytes 9600`; N=200 `ok=200`, `2402`/`2202`,
-  `live_bytes 19200` — one 96 B block per call, `double_free_skips 0`. Before bug-632's fix
+  `live_bytes 19200` — one 96 B block per call, `double_free_skips 0`. Before bug-641's fix
   the same program leaked 240 B per call (the sibling-path leak on top).
 - Hypothesis (shared with the union shape): the inline-TRAP desugar's result temp and closed
   default record (`$trap_valN` / `$trap_res`) leave a 96 B record the binding never owns, on

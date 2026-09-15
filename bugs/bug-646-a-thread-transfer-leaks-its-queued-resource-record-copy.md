@@ -1,4 +1,4 @@
-# bug-637: thread::transfer leaks the queued copy of the resource record (96 B per transfer)
+# bug-646: thread::transfer leaks the queued copy of the resource record (96 B per transfer)
 
 Last updated: 2026-09-15
 Effort: large (3h–1d)
