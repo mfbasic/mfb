@@ -772,8 +772,8 @@ impl<'a> Walker<'a> {
                 // package-qualified identity (`manifest::package::imported_type_def`),
                 // so the package's own bare `.mfp` spellings are qualified the same
                 // way before they are looked up.
-                let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
-                    .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+                let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
                     .unwrap_or_default();
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
@@ -791,8 +791,7 @@ impl<'a> Walker<'a> {
                                 &package_file,
                                 &crate::manifest::package::qualify_package_type(
                                     &ParameterType::declared(&export.name),
-                                    package,
-                                    &owned,
+                                    &owners,
                                 ),
                                 &context,
                                 import.line,
@@ -840,11 +839,11 @@ impl<'a> Walker<'a> {
                     continue;
                 };
                 // bug-632: qualified exactly as the type-export walk above.
-                let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
-                    .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+                let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
                     .unwrap_or_default();
                 let qualify = |type_: &ParameterType| {
-                    crate::manifest::package::qualify_package_type(type_, package, &owned)
+                    crate::manifest::package::qualify_package_type(type_, &owners)
                 };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {

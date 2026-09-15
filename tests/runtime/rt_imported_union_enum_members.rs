@@ -323,7 +323,7 @@ fn an_imported_union_match_missing_a_variant_is_still_refused() {
         "a missing variant must still be refused:\n{output}"
     );
     assert!(
-        output.contains("MATCH on UNION `Item` does not cover Tally"),
+        output.contains("MATCH on UNION `shapes::Item` does not cover shapes::Tally"),
         "the diagnostic must name the missing variant, which needs the real \
          variant set — the pre-fix message called `Item` an open type:\n{output}"
     );
@@ -346,7 +346,7 @@ fn an_imported_enum_match_missing_a_member_is_still_refused() {
          END FUNC\n",
     );
     assert!(
-        output.contains("MATCH on enum `Colour` does not cover Colour.Green"),
+        output.contains("MATCH on enum `shapes::Colour` does not cover shapes::Colour.Green"),
         "the diagnostic must name the missing member:\n{output}"
     );
 }
@@ -394,7 +394,7 @@ fn a_case_on_a_type_the_union_does_not_include_is_still_refused() {
          END FUNC\n",
     );
     assert!(
-        output.contains("CASE `Colour` is not a member of UNION `Item`"),
+        output.contains("CASE `shapes::Colour` is not a member of UNION `shapes::Item`"),
         "a non-variant CASE must still be refused:\n{output}"
     );
 }

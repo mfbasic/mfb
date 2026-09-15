@@ -564,14 +564,13 @@ impl TypeModel {
             // overwrote the importer's own same-named type with the package's
             // layout (`native code record 'A' has no field 'z'`).
             let package_name = binary_repr::read_package_info(package)?.manifest_name;
-            let owned = binary_repr::BinaryReprPackageDecode::read(package)
-                .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+            let owners = binary_repr::BinaryReprPackageDecode::read(package)
+                .map(|decode| crate::manifest::package::package_type_owners(&decode, &package_name))
                 .unwrap_or_default();
             let qualified = |name: &str| {
                 crate::manifest::package::qualify_package_type(
                     &ParameterType::declared(name),
-                    &package_name,
-                    &owned,
+                    &owners,
                 )
             };
             // A native `LINK` resource is exported as a zero-field opaque type for
@@ -640,7 +639,7 @@ impl TypeModel {
                 if native_resources.contains(&qualified(&type_export.name)) {
                     continue;
                 }
-                model.add_package_type_export(type_export, &package_name, &owned)?;
+                model.add_package_type_export(type_export, &owners)?;
             }
         }
         // Re-derive canonical variant tags over the FULL set (module + every
@@ -804,19 +803,18 @@ impl TypeModel {
             .collect();
     }
 
-    /// bug-632: `package`/`owned` qualify the export's own names and field types
-    /// to the package-qualified identity the merged module uses.
+    /// bug-632: `owners` qualifies the export's names and field types to the
+    /// package-qualified identity the merged module uses — by their DECLARING
+    /// package, so a re-exported foreign type keeps its owner's.
     fn add_package_type_export(
         &mut self,
         type_export: binary_repr::BinaryReprTypeExport,
-        package: &str,
-        owned: &HashSet<String>,
+        owners: &crate::manifest::package::PackageTypeOwners,
     ) -> Result<(), String> {
         let qualify = |spelling: &str| {
             crate::manifest::package::qualify_package_type(
                 &ParameterType::declared(spelling),
-                package,
-                owned,
+                owners,
             )
         };
         match type_export.kind {

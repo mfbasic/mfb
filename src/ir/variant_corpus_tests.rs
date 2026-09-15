@@ -1155,7 +1155,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
     assert!(ref_globals.contains("pkg.gv"));
 
     let id = "abc123";
-    prefix_package_symbols(&mut pkg, id);
+    prefix_package_symbols(&mut pkg, id, &Default::default());
     assert_eq!(pkg.functions[0].name, "abc123.pkg.f");
     assert_eq!(pkg.bindings[0].name, "abc123.pkg.gv");
     assert_eq!(pkg.entry.as_ref().unwrap().name, "abc123.pkg.start");

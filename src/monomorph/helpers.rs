@@ -490,8 +490,8 @@ pub(super) fn collect_imported_overloads(
         };
         // bug-632: the package's own type names, so each candidate's parameter
         // types carry the same `<package>.<Name>` identity the argument does.
-        let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
-            .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+        let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+            .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
             .unwrap_or_default();
         // Group exported functions/subs by base name (the part before `$`).
         let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> =
@@ -523,11 +523,7 @@ pub(super) fn collect_imported_overloads(
                         .params
                         .iter()
                         .map(|param| {
-                            crate::manifest::package::qualify_package_type(
-                                &param.type_,
-                                package,
-                                &owned,
-                            )
+                            crate::manifest::package::qualify_package_type(&param.type_, &owners)
                         })
                         .collect(),
                     // Rewrite to the importer-facing `binding.name`, not

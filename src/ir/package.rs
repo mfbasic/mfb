@@ -8,8 +8,12 @@ use super::*;
 /// The `<id>` segment makes the prefix content-addressed: identical packages
 /// reached via two dependency paths collapse to one copy at merge time, while
 /// two distinct packages that share a name stay separate instead of colliding.
-pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
-    qualify_package_types(pir);
+pub fn prefix_package_symbols(
+    pir: &mut IrProject,
+    id: &str,
+    owners: &crate::manifest::package::PackageTypeOwners,
+) {
+    qualify_package_types(pir, owners);
     let prefix = format!("{id}.{}", pir.name);
     let mut own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
     let own_globals: HashSet<String> = pir.bindings.iter().map(|b| b.name.clone()).collect();
@@ -73,15 +77,34 @@ pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
 /// every importer-side table already keys, and the import rules forbid two
 /// different packages of one name in one program. A name already containing a
 /// `.` is someone else's (a built-in value type, `net.Url`) and is left alone.
-pub(crate) fn qualify_package_types(pir: &mut IrProject) {
+pub(crate) fn qualify_package_types(
+    pir: &mut IrProject,
+    owners: &crate::manifest::package::PackageTypeOwners,
+) {
     let package = pir.name.clone();
-    let mut owned: HashSet<String> = HashSet::new();
+    // `owners` comes from the `.mfp` (its type-export and RESOURCE tables), which
+    // is the only place a native `RESOURCE`'s name survives — a decoded package
+    // IR carries no `native_resources` (`ir/binary.rs` drops them by contract),
+    // so `sqlite3.Db` would otherwise stay bare here while every consumer-side
+    // table qualified it. A type this package declares but the `.mfp` did not
+    // surface (a PRIVATE one) is owned by this package.
+    let mut owned: HashMap<String, String> = owners.clone();
     for type_decl in &pir.types {
-        owned.insert(type_decl.name.clone());
-        owned.extend(type_decl.variants.iter().map(|variant| variant.name.clone()));
+        owned
+            .entry(type_decl.name.clone())
+            .or_insert_with(|| package.clone());
+        for variant in &type_decl.variants {
+            owned
+                .entry(variant.name.clone())
+                .or_insert_with(|| package.clone());
+        }
     }
-    owned.extend(pir.native_resources.iter().map(|resource| resource.name.clone()));
-    owned.retain(|name| !name.contains('.'));
+    for resource in &pir.native_resources {
+        owned
+            .entry(resource.name.clone())
+            .or_insert_with(|| package.clone());
+    }
+    owned.retain(|name, _| !name.contains('.'));
     if owned.is_empty() {
         return;
     }
@@ -95,11 +118,17 @@ pub(crate) fn qualify_package_types(pir: &mut IrProject) {
         .iter()
         .filter(|type_decl| type_decl.kind == "enum")
         .map(|type_decl| type_decl.name.clone())
-        .filter(|name| owned.contains(name))
+        .filter(|name| owned.contains_key(name))
         .collect();
-    let rename_name = |name: &str| owned.contains(name).then(|| format!("{package}.{name}"));
+    let rename_name =
+        |name: &str| owned.get(name).map(|owner| format!("{owner}.{name}"));
     let rename: &dyn Fn(&str) -> Option<String> = &rename_name;
-    let rename_enum_name = |name: &str| enums.contains(name).then(|| format!("{package}.{name}"));
+    let rename_enum_name = |name: &str| {
+        enums
+            .contains(name)
+            .then(|| owned.get(name).map(|owner| format!("{owner}.{name}")))
+            .flatten()
+    };
     let rename_enum: &dyn Fn(&str) -> Option<String> = &rename_enum_name;
     let names = TypeRenames {
         types: rename,

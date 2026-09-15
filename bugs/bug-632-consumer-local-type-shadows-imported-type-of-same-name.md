@@ -233,32 +233,77 @@ Rejected:
       at `330c5d81f`: Cases 1, 2, 4 with `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH` at merge verify;
       Case 3 with `TYPE_UNKNOWN_FIELD` + `TYPE_CALL_ARGUMENT_MISMATCH` in the consumer's IR verify;
       diamond passes.
-- [ ] Add RED cases for the rule itself: a bare imported user-package type is refused with
+- [x] Add RED cases for the rule itself: a bare imported user-package type is refused with
       `SYMBOL_UNKNOWN_TYPE`; `IMPORT ov AS o` / `o::A` names the same type as `ov::A`; an imported
-      union variant, enum member and resource type follow the same rule.
+      union variant, enum member and resource type follow the same rule. RED at `330c5d81f`: the
+      bare type BUILT; the alias and union/enum cases failed with `TYPE_UNKNOWN_FIELD` +
+      `TYPE_CALL_ARGUMENT_MISMATCH`.
+- [x] Add the cross-identity checker cases. `an_imported_value_is_refused_by_a_local_type_of_the_same_name`
+      (`LET mine AS A = ov::make()` beside a local `A`) is RED on `bf630e0ae`: it builds.
+      `one_packages_type_is_refused_where_another_packages_same_named_type_is_expected` already
+      passes there (the shape pass's bug-41 declaration-identity check) and is kept as a guard.
 
 Acceptance: every new case fails for its documented reason; the diamond guard passes.
-Commit: —
+Commit: 39b4576ef
 
 ### Phase 2 — the qualification helper and the `.mfp` read sites
 
-- [ ] `ParameterType` nominal-map helper in `src/types.rs`.
-- [ ] Apply at every `.mfp` read site listed in Blast Radius.
-- [ ] Parser, resolver, `TypeIndex`, monomorph, `ir/verify` seeding and `ir/shape` consume the
-      qualified names; the bare imported spelling is refused.
+- [x] `ParameterType::map_nominals` in `src/types.rs`.
+- [x] Apply at every `.mfp` read site: `manifest::package` (`package_owned_type_names`,
+      `qualify_package_type`, type defs, export signatures, globals, resource closers — bare
+      resource row dropped), monomorph overload candidates (and `package_qualifiers` narrowed to
+      built-in imports), `ir/shape.rs` package-interface validation, and codegen's
+      `TypeModel::from_module_and_packages` / `add_package_type_export` (found in Phase 2: it
+      re-read the `.mfp` and registered bare names, overwriting the consumer's own `A` —
+      `native code record 'A' has no field 'z'`).
+- [x] Parser (`normalize_qualified_type_name` → `<package>.Name`), resolver (qualified install,
+      file-import-gated resolution), `ir/lower.rs:qualified_imported_enum`; the bare imported
+      spelling is refused.
 
 Acceptance: Case 3, the bare-refusal case and the alias case pass.
-Commit: —
+Commit: bf630e0ae
 
 ### Phase 3 — merge and compatibility
 
-- [ ] `prefix_package_symbols` qualifies the package's own types across its whole IR;
-      `merge_package` dedups by qualified name; the old-`.mfp` bare cross-package reference
-      resolves through `dependencies` or is reported.
-- [ ] `compat.rs:compatible` compares canonical names.
+- [x] `ir::package::qualify_package_types` (called from `prefix_package_symbols`) renames the
+      package's own types, variants, enums and native resources across its whole IR, including
+      the two positions that name a type by STRING (found in Phase 2): a `CASE Variant(x)` pattern
+      (`Local("Variant")`) and an enum member read's target (`MemberAccess { Local("Kind") }`).
+      `merge_package` dedups by qualified name; the diamond guard passes. The old-`.mfp` bare
+      cross-package reference fallback is not needed by any fixture so far; decided by the full
+      suite.
+- [x] `compat.rs:compatible` and `ir/shape.rs:compatible` stop equating a user-package-qualified
+      nominal with a bare leaf; the bare fallback stays only for built-in qualifiers
+      (`codegen::builtins::builtin_qualified_bare_leaf`) because a `.mfp` may record a built-in
+      resource bare (`File` for `fs.File`, plan-97).
+- [x] A package owns only the types it DECLARES. `package_owned_type_names` skips a re-exported
+      foreign type (`foreign_owner`, bug-390), a builtin-backed resource (`tls.Listener`) and any
+      already-qualified spelling (`crypto.Certificate`). Found by the full suite: the qualifier was
+      being applied twice (`signer.crypto.Certificate`,
+      `xfer_tls_listener_worker.tls.Listener` → `PACKAGE_INVALID` / `TYPE_CALL_ARGUMENT_MISMATCH`).
 
-Acceptance: Cases 1, 2 and 4 pass; the diamond guard passes; bug-631's regression test passes.
-Commit: —
+- [x] Ownership is a name → DECLARING package map, not a flat set
+      (`manifest::package::package_type_owners`). Three things the full suite proved a set cannot
+      express:
+      - a **re-exported foreign type** is recorded bare plus its `foreign_owner` (bug-390), so
+        `dom391`'s `Node` seen through `worker391` must stay `dom391.Node`; qualifying it with the
+        reading package minted `worker391.Node`, a type nothing declares
+        (`PACKAGE_INVALID … references unknown type 'Node'`);
+      - a **native `RESOURCE`** never reaches the merge through the decoded IR (`ir/binary.rs`
+        drops `native_resources` by contract), so the map is read from the `.mfp` in
+        `merge_packages` and passed to `prefix_package_symbols`. Without it `sqlite3.Db` stayed
+        bare in the package while every consumer-side table qualified it
+        (`annotated as returning sqlite3.Db, but … returns Db`);
+      - a **built-in** type a package merely references (`tls.Listener`, `crypto.Certificate`) is
+        owned by nobody here and must not be qualified at all.
+- [x] `MATCH` diagnostics spell types the way source writes them
+      (`ir/verify/matching.rs`, bug-605's `display()` rule): "MATCH on UNION `shapes::Item` does
+      not cover shapes::Tally", "CASE `shapes::Colour` is not a member of UNION `shapes::Item`".
+
+Acceptance: Cases 1, 2 and 4 pass; the diamond guard passes; bug-631's regression test passes;
+both cross-identity cases pass. **Met** — `rt_imported_type_name_collision` 10/10,
+`rt_imported_overload_imported_field_argument` 11/11, `rt_imported_type_qualified_name` 5/5.
+Commit: bf630e0ae (merge), d7c2f6b46 (compatibility + ownership)
 
 ### Phase 4 — corpus, goldens, spec, full validation
 

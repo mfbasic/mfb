@@ -472,11 +472,11 @@ pub(crate) fn external_package_function_types_from_files(
     for package in packages {
         let decode = binary_repr::BinaryReprPackageDecode::read(package)?;
         let package_name = decode.name()?;
-        let owned = package_owned_type_names(&decode);
+        let owners = package_type_owners(&decode, &package_name);
         for export in decode.exports()? {
             signatures.insert(
                 format!("{package_name}.{}", export.name),
-                package_export_signature(&package_name, &owned, &export),
+                package_export_signature(&package_name, &owners, &export),
             );
         }
     }
@@ -489,59 +489,73 @@ pub(crate) fn external_package_function_types_from_files(
 /// must see them package-qualified (spec §13), which [`qualify_package_type`]
 /// supplies at every read. Lossy like its callers: an unreadable section
 /// contributes no names.
-pub(crate) fn package_owned_type_names(
+/// Which package DECLARES each type name a `.mfp` spells bare, keyed by that
+/// name.
+///
+/// Usually the package being read, but not always: a `.mfp` records a
+/// re-exported FOREIGN type by its bare name plus its owner (`foreign_owner`,
+/// bug-390), and `dom.Node` re-exported through `worker` is still `dom`'s. A
+/// flat "names this package owns" set cannot tell those apart, and qualifying
+/// them all with the reading package minted `worker.Node` — a type nothing
+/// declares.
+///
+/// Excluded: a BUILT-IN resource the package merely references (`tls.Listener`,
+/// or a bare `File` for `fs.File` — plan-97/bug-441) and any already-qualified
+/// spelling (`crypto.Certificate`), neither of which this package declares.
+/// Lossy like its callers: an unreadable section contributes no names.
+pub(crate) type PackageTypeOwners = HashMap<String, String>;
+
+pub(crate) fn package_type_owners(
     decode: &binary_repr::BinaryReprPackageDecode,
-) -> std::collections::HashSet<String> {
-    let mut owned = std::collections::HashSet::new();
+    package: &str,
+) -> PackageTypeOwners {
+    let mut owners: PackageTypeOwners = HashMap::new();
     if let Ok(exports) = decode.type_exports() {
         for export in exports {
-            // A FOREIGN type the package merely re-exports (its owner is another
-            // package) is not one of its own names: qualifying it would mint
-            // `pkg.other.Type`, a type nothing declares.
-            if export.foreign_owner.is_some() {
-                continue;
-            }
-            if matches!(
+            if !matches!(
                 export.kind,
                 binary_repr::BinaryReprExportKind::Type
                     | binary_repr::BinaryReprExportKind::Union
                     | binary_repr::BinaryReprExportKind::Enum
             ) {
-                owned.insert(export.name);
-                owned.extend(export.variants.into_iter().map(|variant| variant.name));
+                continue;
+            }
+            let owner = export
+                .foreign_owner
+                .clone()
+                .unwrap_or_else(|| package.to_string());
+            owners.insert(export.name, owner.clone());
+            for variant in export.variants {
+                owners.insert(variant.name, owner.clone());
             }
         }
     }
     if let Ok(resources) = decode.resources() {
         for resource in resources {
-            // A package's RESOURCE table also lists the BUILT-IN resources it
-            // references (`tls.Listener`, or a bare `File` for `fs.File` —
-            // plan-97/bug-441), which the package does not own either.
             if crate::codegen::resource::is_builtin_backed_resource(
                 &crate::types::ParameterType::declared(&resource.type_name),
             ) {
                 continue;
             }
-            owned.insert(resource.type_name);
+            owners
+                .entry(resource.type_name)
+                .or_insert_with(|| package.to_string());
         }
     }
-    // An already-qualified spelling names another package's type (a built-in
-    // value type, `crypto.Certificate`), never one of this package's own.
-    owned.retain(|name| !name.contains('.'));
-    owned
+    owners.retain(|name, _| !name.contains('.'));
+    owners
 }
 
-/// bug-632: `type_` as an importer of `package` names it — each nominal the
-/// package owns becomes `<package>.<Name>`, at every depth. A name the package
-/// does not own (a scalar, a built-in package's already-qualified type, a type
-/// variable) is unchanged. This gives an imported user type the same
-/// package-qualified identity bug-480 Phase 4b gave a built-in one.
+/// bug-632: `type_` as an importer names it — each nominal becomes
+/// `<owner>.<Name>`, at every depth. A name no package in `owners` declares (a
+/// scalar, a built-in package's already-qualified type, a type variable) is
+/// unchanged. This gives an imported user type the same package-qualified
+/// identity bug-480 Phase 4b gave a built-in one.
 pub(crate) fn qualify_package_type(
     type_: &crate::types::ParameterType,
-    package: &str,
-    owned: &std::collections::HashSet<String>,
+    owners: &PackageTypeOwners,
 ) -> crate::types::ParameterType {
-    type_.map_nominals(&|name| owned.contains(name).then(|| format!("{package}.{name}")))
+    type_.map_nominals(&|name| owners.get(name).map(|owner| format!("{owner}.{name}")))
 }
 
 /// The record/union/enum layouts every imported (non-builtin) package exports,
@@ -640,8 +654,8 @@ pub(crate) fn imported_global_defs_from_files(packages: &[PathBuf]) -> Vec<ir::I
         let Ok(info) = binary_repr::read_package_info(package) else {
             continue;
         };
-        let owned = binary_repr::BinaryReprPackageDecode::read(package)
-            .map(|decode| package_owned_type_names(&decode))
+        let owners = binary_repr::BinaryReprPackageDecode::read(package)
+            .map(|decode| package_type_owners(&decode, &info.manifest_name))
             .unwrap_or_default();
         for global in info.globals {
             // Only `EXPORT` crosses a package boundary. `PRIVATE`/`PUBLIC`
@@ -660,8 +674,7 @@ pub(crate) fn imported_global_defs_from_files(packages: &[PathBuf]) -> Vec<ir::I
                 // `imported_type_field` crosses for a record field.
                 type_: qualify_package_type(
                     &crate::types::ParameterType::parse(&global.type_),
-                    &info.manifest_name,
-                    &owned,
+                    &owners,
                 ),
                 mutable: global.mutable,
             });
@@ -679,9 +692,9 @@ pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::Imp
         let (Ok(package_name), Ok(exports)) = (decode.name(), decode.type_exports()) else {
             continue;
         };
-        let owned = package_owned_type_names(&decode);
+        let owners = package_type_owners(&decode, &package_name);
         for export in exports {
-            if let Some(def) = imported_type_def(export, &package_name, &owned) {
+            if let Some(def) = imported_type_def(export, &package_name, &owners) {
                 defs.push(def);
             }
         }
@@ -691,19 +704,14 @@ pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::Imp
 
 fn imported_type_field(
     field: binary_repr::BinaryReprTypeField,
-    package: &str,
-    owned: &std::collections::HashSet<String>,
+    owners: &PackageTypeOwners,
 ) -> ir::ImportedTypeField {
     ir::ImportedTypeField {
         name: field.name,
         // plan-111-B: boundary #5 — the `.mfp` package entry's type table is
         // text on disk, and this is where it stops being one. bug-632: and
         // where the package's own names gain their package qualifier.
-        type_: qualify_package_type(
-            &crate::types::ParameterType::parse(&field.type_),
-            package,
-            owned,
-        ),
+        type_: qualify_package_type(&crate::types::ParameterType::parse(&field.type_), owners),
     }
 }
 
@@ -715,8 +723,12 @@ fn imported_type_field(
 fn imported_type_def(
     export: binary_repr::BinaryReprTypeExport,
     package: &str,
-    owned: &std::collections::HashSet<String>,
+    owners: &PackageTypeOwners,
 ) -> Option<ir::ImportedTypeDef> {
+    // A re-exported FOREIGN type keeps its OWNER's identity (bug-390): an
+    // importer of the intermediary and an importer of the owner must name one
+    // type, not two.
+    let owner = export.foreign_owner.clone().unwrap_or_else(|| package.to_string());
     let kind = match export.kind {
         binary_repr::BinaryReprExportKind::Type => ir::ImportedTypeKind::Record,
         binary_repr::BinaryReprExportKind::Union => ir::ImportedTypeKind::Union,
@@ -726,22 +738,22 @@ fn imported_type_def(
         }
     };
     Some(ir::ImportedTypeDef {
-        name: format!("{package}.{}", export.name),
+        name: format!("{owner}.{}", export.name),
         kind,
         fields: export
             .fields
             .into_iter()
-            .map(|field| imported_type_field(field, package, owned))
+            .map(|field| imported_type_field(field, owners))
             .collect(),
         variants: export
             .variants
             .into_iter()
             .map(|variant| ir::ImportedTypeVariant {
-                name: format!("{package}.{}", variant.name),
+                name: format!("{owner}.{}", variant.name),
                 fields: variant
                     .fields
                     .into_iter()
-                    .map(|field| imported_type_field(field, package, owned))
+                    .map(|field| imported_type_field(field, owners))
                     .collect(),
             })
             .collect(),
@@ -760,11 +772,11 @@ fn external_package_function_types_from_files_lossy(
         let (Ok(package_name), Ok(exports)) = (decode.name(), decode.exports()) else {
             continue;
         };
-        let owned = package_owned_type_names(&decode);
+        let owners = package_type_owners(&decode, &package_name);
         for export in exports {
             signatures.insert(
                 format!("{package_name}.{}", export.name),
-                package_export_signature(&package_name, &owned, &export),
+                package_export_signature(&package_name, &owners, &export),
             );
         }
     }
@@ -784,10 +796,10 @@ fn external_package_function_types_from_files_lossy(
 /// signature's parameter name the same type.
 fn package_export_signature(
     package: &str,
-    owned: &std::collections::HashSet<String>,
+    owners: &PackageTypeOwners,
     export: &binary_repr::BinaryReprExport,
 ) -> ir::ExternalSignature {
-    let qualify = |type_: &crate::types::ParameterType| qualify_package_type(type_, package, owned);
+    let qualify = |type_: &crate::types::ParameterType| qualify_package_type(type_, owners);
     ir::ExternalSignature {
         params: export
             .params
@@ -2237,9 +2249,13 @@ mod tests {
         }
     }
 
-    /// The package's own names, as `package_owned_type_names` would report them.
-    fn owned(names: &[&str]) -> std::collections::HashSet<String> {
-        names.iter().map(|name| name.to_string()).collect()
+    /// The package's own names, as `package_type_owners` would report them:
+    /// each declared by `pkg`.
+    fn owned(names: &[&str]) -> PackageTypeOwners {
+        names
+            .iter()
+            .map(|name| (name.to_string(), "pkg".to_string()))
+            .collect()
     }
 
     /// bug-632: an importer sees the record under its package-qualified identity

@@ -347,7 +347,7 @@ mod binary_repr_tests {
         assert!(ref_fns.contains("pkg.g"));
 
         let id = "abcd1234";
-        prefix_package_symbols(&mut pkg, id);
+        prefix_package_symbols(&mut pkg, id, &Default::default());
 
         // Definitions carry the full `<id>.package.symbol` prefix...
         assert_eq!(pkg.functions[0].name, "abcd1234.pkg.f");
@@ -401,7 +401,7 @@ mod binary_repr_tests {
         assert!(!pkg.link_aliases.is_empty());
 
         let id = "id123";
-        prefix_package_symbols(&mut pkg, id);
+        prefix_package_symbols(&mut pkg, id, &Default::default());
 
         let want = format!("{id}.{name}.");
         assert!(
