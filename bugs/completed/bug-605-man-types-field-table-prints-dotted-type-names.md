@@ -1,12 +1,34 @@
 # bug-605: `mfb man <pkg> types` field tables print internal dotted type names (`color.Color`)
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Effort: small (<1h)
 Severity: LOW
 Class: Documentation (renderer)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (09fb11415)
+Regression Test: `cli::man::tests::types_page_field_tables_use_public_package_qualification`,
+`cli::man::tests::no_rendered_page_spells_a_dotted_package_type`,
+`types::tests::display_spells_package_qualifiers_as_source_does`
+
+## STATUS: FIXED (09fb11415)
+
+`ParameterType::display()` (`src/types.rs`) is the one user-facing spelling. Every
+`mfb man` render site and `RegistryRecord::render`'s injected companion source go
+through it; `public_type_name` and `source_spelling` are deleted.
+
+Deviations from the plan below:
+
+- The Phase 2 equivalence check was run over more than record fields: every registry
+  record field, function parameter and return type —
+  `source_spelling(ty) == ty.display()` for 2745 types, 0 differ. So `display()` is a
+  plain `.` → `::` replace, and the UNVERIFIED note in the blast-radius audit is
+  settled. The one-off assertion was removed with `source_spelling`.
+- Phases 1 and 2 landed as one commit (the tests were RED-verified first on the
+  un-fixed tree: the guard reported exactly the six cells).
+- Line numbers in the audit had drifted by landing time (field row at `man.rs:493`,
+  `public_type_name` at `:597`); the sites were the same.
+- Also reattached the orphaned "Construct the registry by registering every migrated
+  package" doc comment, which had sat above `source_spelling`, to `fn build()`.
 
 A record's field table on a types page spells a package type the way the compiler
 stores it, with a dot, instead of the way source writes it:
@@ -105,51 +127,49 @@ Commands:
 
 Union-member and resource sections of `render_types_markdown` have no raw `.name()` call.
 
-UNVERIFIED: that `.` never occurs in a `ParameterType` name except as a package
-qualifier. `public_type_name` already assumes it for every man page, but
-`source_spelling` deliberately replaces only known package prefixes. Phase 2's
-equivalence check decides whether `display()` can be a plain replace or must walk the
-type's leaves.
+~~UNVERIFIED~~ VERIFIED (2026-09-14): `.` never occurs in a registry `ParameterType`
+name except as a package qualifier — the equivalence check over 2745 registry types
+found 0 differences, so `display()` is a plain replace.
 
 ## Fix
 
 Phase 1 — tests first (RED):
 
-- `src/cli/man.rs` tests: render the `canvas` and `udp` types pages. Assert they contain
+- [x] `src/cli/man.rs` tests: render the `canvas` and `udp` types pages. Assert they contain
   `color::Color`, `RES canvas::Font`, `RES canvas::Image` and `net::Address`, and no
   `color.Color`, `canvas.Font`, `canvas.Image` or `net.Address`. RED on today's tree.
-- `src/cli/man.rs` tests: a guard that renders every package's overview, types page and
+- [x] `src/cli/man.rs` tests: a guard that renders every package's overview, types page and
   every function page. It fails on any `<pkg>.<UpperCaseLeaf>` for any registry package
   name, so a new render site that skips `display()` fails CI instead of resurfacing.
   RED on today's tree (the six cells).
-- `src/types.rs` tests: `display()` spells a qualified leaf, a `List OF`, a `Map OF … TO`,
+- [x] `src/types.rs` tests: `display()` spells a qualified leaf, a `List OF`, a `Map OF … TO`,
   a `RES`, and a nested qualified type with `::`. It spells an unqualified builtin
   (`Integer`) unchanged.
 
-Commit:
+Commit: 09fb11415 (with Phase 2)
 
 Phase 2 — the method and the sites (GREEN):
 
-- `src/types.rs`: `pub(crate) fn display(&self) -> String`, the user-facing source
+- [x] `src/types.rs`: `pub(crate) fn display(&self) -> String`, the user-facing source
   spelling (`.` → `::` on package qualifiers). Doc comment: `name()` is internal;
   anything a user reads uses `display()`.
-- `src/cli/man.rs`: replace every `public_type_name(&x)` with `x.display()`, and delete
+- [x] `src/cli/man.rs`: replace every `public_type_name(&x)` with `x.display()`, and delete
   `public_type_name`. Change the field row at line 417 to `prop.ty.display()`.
-- `src/codegen/registry/mod.rs`: `source_spelling(&prop.ty)` → `prop.ty.display()`;
+- [x] `src/codegen/registry/mod.rs`: `source_spelling(&prop.ty)` → `prop.ty.display()`;
   delete `source_spelling`. Equivalence check before deleting: for every registry
   record field, `source_spelling(&ty) == ty.display()`, as a one-off assertion over
   `registry().packages()`. If any differ, `display()` walks the type's leaves instead
   of doing a string replace, and the check re-runs.
 
-Commit:
+Commit: 09fb11415
 
 Phase 3 — verify:
 
-- The two Phase 1 man tests and the `display()` unit test pass:
-  `cargo test --bin mfb cli::man` and `cargo test --bin mfb types::`.
-- `mfb man canvas types` and `mfb man udp types` show the six cells with `::`. The
-  Reproduction commands print nothing.
-- Registry companion source unchanged. The proof that covers every package is Phase 2's
+- [x] The two Phase 1 man tests and the `display()` unit test pass:
+  `cargo test --bin mfb -- cli::man:: types:: codegen::registry::` → 136 passed, 0 failed.
+- [x] `mfb man canvas types` and `mfb man udp types` show the six cells with `::`. The
+  Reproduction commands print nothing (fresh release build of 09fb11415; grep exit 1).
+- [x] Registry companion source unchanged. The proof that covers every package is Phase 2's
   equivalence assertion (`source_spelling(&ty) == ty.display()` for every registry record
   field). Record registrations live in 14 packages, including canvas (19), which no
   byte-identity fixture builds (`git grep -nE "RegistryRecord \{|add_record\(" -- src/codegen/builtins`
@@ -158,5 +178,8 @@ Phase 3 — verify:
   As an execution-free confirmation on two packages whose fixtures carry qualified record
   types: `scripts/artifact-gate.sh target/release/mfb net` and
   `scripts/artifact-gate.sh target/release/mfb udp` → `0 diff(s)` each.
+  Measured: net 7 goldens, 0 diff(s); udp 7 goldens, 0 diff(s).
+- [x] Full suite: `cargo test --no-fail-fast` on 09fb11415 → `EXIT=0`, 185 `test result: ok`
+  lines, 5697 passed, 0 failed (includes the `artifact_gate_all` cross-target sweep).
 
-Commit:
+Commit: none (verification only)
