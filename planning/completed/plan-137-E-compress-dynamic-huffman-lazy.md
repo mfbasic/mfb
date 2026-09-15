@@ -411,6 +411,20 @@ Commit: b38c8dafe
   - **Regenerated** the five sums → `94538f393`; the compress artifact gate is 0 diffs.
   - **Full re-run on the merged tree:** `cargo test --no-fail-fast` → `EXIT=0`, `grep -c ^failures:` → 0, 187 test binaries, 5,711 passed, 0 failed, 9 ignored, `artifact_gate_all ... ok`; `scripts/test-accept.sh target/release/mfb /tmp/p137m-accept` → `acceptance tests passed (1483 test(s) ran)`.
 
+- **main advanced again during that re-run; merged a second time and re-verified** (2026-09-14). By the next check,
+  `git log worktree-P-137..main` listed 5 commits:
+  - bug-605, `ParameterType::display()` for user-facing type names, touching `src/cli/man.rs`,
+    `src/codegen/registry/mod.rs` and `src/types.rs`;
+  - bug-610, `canvas::destroyImage`/`destroyFont` raising `ErrResourceClosed` on a second close, touching
+    `canvas/func_destroy_*.rs` and `canvas/mod.rs`;
+  - their close-out notes.
+
+  Both overlap files this plan changed.
+  - **Merge:** `git merge main` → `8c2453b63`, no conflicts.
+  - **Scoped check:** release build; `artifact-gate … compress` → `7 golden(s) checked, 0 diff(s)`; `compress-*` acceptance
+    → `10 test(s) ran`, passed. Neither fix shifts compress output.
+  - **Full re-run:** `cargo test --no-fail-fast` → `EXIT=0`, `grep -c ^failures:` → 0, 187 test binaries, 5,715 passed, 0 failed, 9 ignored, `artifact_gate_all ... ok`; `scripts/test-accept.sh target/release/mfb /tmp/p137m2-accept` → `acceptance tests passed (1483 test(s) ran)`; `scripts/man-run-examples.sh compress --run` → `examples: 12 built: 12 ran: 12 not run: 0 failed: 0`.
+
 ## Summary
 
 The engineering risk is package-merge and header trimming — judged by zlib on adversarial
