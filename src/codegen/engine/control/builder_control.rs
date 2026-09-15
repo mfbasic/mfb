@@ -565,9 +565,11 @@ impl CodeBuilder<'_> {
                         // so the binding is neither deep-copied nor freed here.
                         let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
-                        // A thread-boundary result (`thread::receive`/`waitFor`/…)
-                        // is owned by the thread runtime / worker arena, not this
-                        // scope, so it is neither zero-initialized nor freed here.
+                        // A raw thread-boundary result (`t.result`) is owned by the
+                        // thread runtime / worker arena, not this scope, so it is
+                        // neither zero-initialized nor freed here. A
+                        // `thread::receive`/`waitFor`/… value is the call site's copy
+                        // into this arena and is owned like any fresh value (bug-622 A).
                         let runtime_managed =
                             value.as_ref().is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
