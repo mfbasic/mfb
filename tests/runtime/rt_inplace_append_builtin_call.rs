@@ -59,8 +59,15 @@ fn alloc_bytes(name: &str, exe: &Path, expected: &str) -> u64 {
     let output = Command::new(exe).output().expect("run the program");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{name} failed:\n{stdout}\n{stderr}");
-    assert_eq!(stdout.lines().next(), Some(expected), "{name}: wrong output");
+    assert!(
+        output.status.success(),
+        "{name} failed:\n{stdout}\n{stderr}"
+    );
+    assert_eq!(
+        stdout.lines().next(),
+        Some(expected),
+        "{name}: wrong output"
+    );
     stderr
         .lines()
         .find_map(|line| line.strip_prefix("arena.0.alloc_bytes "))
