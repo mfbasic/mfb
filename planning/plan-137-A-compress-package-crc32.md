@@ -416,19 +416,28 @@ case count; the bench prints three sizes with linear time (16 MiB ≤ 4.4× the 
   Check: those two commands (est. 5 min).
   (2026-09-14: oracle exit 0 with 118 declared cases; bench exit 0, every row `ok`, 16 MiB / 4 MiB
   = 3.99–4.03 across three corpora and both levels.)
-Commit: —
+Commit: f6384ac9e
 
 ### Phase 5 — docs
 
-- [ ] Descriptor prose: `MODULE_INTRO`/`MODULE_DESC` and `crc32`'s `intro`/`desc`/`example`/`Parameter.desc`
+- [x] Descriptor prose: `MODULE_INTRO`/`MODULE_DESC` and `crc32`'s `intro`/`desc`/`example`/`Parameter.desc`
       per `.ai/man-content.md`. Describe only what exists after this letter — the package and
       `crc32`. No mention of decoders or encoders that later letters add; each letter extends the
       intro when its members land.
-- [ ] `src/docs/spec/stdlib/20_compress.md`: the CRC-32 model (polynomial, reflection, init/xorout,
+      (Written in Phase 2's `mod.rs` / `func_crc32.rs`; `mfb man compress crc32` renders. `scripts/man-run-examples.sh
+      compress --run` → `examples: 2 built: 2 ran: 2 not run: 0 failed: 0`, both printing `3421780262`;
+      `scripts/man-census.sh --fill compress` → INTRO 1, DESC 1, EXAMPLE 1, PARAM-DESC 2/2, PKGDOC 11;
+      `--memory-scope compress` → `unclassified memory-vocabulary hits: 0`.)
+- [x] `src/docs/spec/stdlib/20_compress.md`: the CRC-32 model (polynomial, reflection, init/xorout,
       `running` semantics and range), the MFBASIC-source/no-native guarantee, the gating rule,
       `[[src/codegen/builtins/compress/mod.rs:COMPRESS]]` provenance; reading-order bullet in
       `src/docs/spec/stdlib/spec.md`.
-- [ ] Size-gate measurement (§4.3) recorded in the spec page's contributor section.
+      (`mfb spec stdlib compress` renders with 0 `[[` markers; `scripts/spec-census.sh --citations stdlib` →
+      `MISS-SYMBOL 0`, `--links stdlib` → `TOTAL links=138 unresolved=0`; the one `--render` "leak" is the
+      `big::Int[[7, 0], FALSE]` literal in `19_big.md`, not a marker; `touch build.rs && cargo test --bin mfb spec`
+      → `43 passed; 0 failed`.)
+- [x] Size-gate measurement (§4.3) recorded in the spec page's contributor section. ("Source injection
+      and size": 66,600 / 66,604 / 83,116 B and the 4 B build-string explanation.)
 - [x] (Added 2026-09-14) Record the two durable lessons this letter hit in `.ai/resources-packages.md`:
       a `WhenUsed` helper needs its own `IMPORT`s, and a list literal costs ≈26 init instructions per
       element. (Two paragraphs before "Writing the native backend".)
@@ -507,7 +516,14 @@ Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
   stale-by-deletion 2)` across `01_regex` (2), `02_datetime` (8), `04_json` (3), `05_http` (21),
   `06_url` (16), `09_vector` (1); none in `20_compress.md`. Not caused by this plan; fixed in its
   own commit on this branch before the merge (the as-is rule: re-point the 39, re-verify the
-  claims behind the 2 deletions).
+  claims behind the 2 deletions). **Fixed in `8d17be496`:** 33 plain `__pkg_*` helper moves re-pointed (43 markers);
+  the other 8 re-verified before re-citing — datetime's rewrite seam and clock intrinsics
+  (`errors` lists, `RESULT_OK_TAG`), http's `__http_dechunkBytes` framing errors, json's registry
+  injection and variant-record acceptance (probe `json::stringify(json::JsonStr["hi"])` → `"hi"`),
+  regex's script-name helper (reached only from `__regex_canonProp`) and `start` padding
+  (`registry::default_argument_padding`, called from `src/ir/lower.rs`). Two sentences were
+  rewritten because their mechanism was gone (json's `json_package.mfb` / `uses_package` injection
+  and `is_json_value_type`). `--citations stdlib` → `MISS-SYMBOL 0` over 253 citations.
 - **crc32 baseline (Phase 4), 2026-09-14, macos-aarch64**, `tools/compress-bench/run.sh target/release/mfb`
   (median of 3 interleaved rounds × 5 runs, in-process), after the §4.2 table rewrite:
 

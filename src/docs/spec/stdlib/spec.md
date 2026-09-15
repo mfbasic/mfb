@@ -70,6 +70,10 @@ built-in injection chain.
   canonical form, why the language operators, `Map` keys and `Set` elements do not
   apply, the total/fallible split, the truncating division and remainder rule, and the
   absence of any constant-time guarantee.
+- `compress` — the in-memory compression package: the MFBASIC-source-only implementation
+  guarantee, per-member source gating and its measured size effect, and the CRC-32/ISO-HDLC
+  model (catalogue parameters, the `running` continuation and its range, slicing-by-8, and
+  the lookup tables built at program start).
 
 ## See Also
 
