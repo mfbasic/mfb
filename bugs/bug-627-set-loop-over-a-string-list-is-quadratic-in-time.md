@@ -121,18 +121,21 @@ Depends on the root cause.
 
 ### Phase 1 — failing test + root cause (no behavior change)
 
-- [ ] Run the four hypotheses' checks, and cite the cause here.
-- [ ] A test timing (or counting work for) the `set` loop at N and 2N that fails today.
+- [x] Run the four hypotheses' checks, and cite the cause here.
+- [x] A test timing (or counting work for) the `set` loop at N and 2N that fails today.
+      (Deviation: N and 8N, best of three after an untimed warm-up run; at N and 2N process
+      start-up noise overlapped the linear and quadratic ratios, and the first version
+      passed once on the broken compiler.)
 
 Acceptance: Root Cause names the mechanism with evidence; the test fails for that reason.
-Commit: —
+Commit: daab32aeb (`tests/runtime/rt_list_set_widening_linear.rs`, RED ×48.7)
 
 ### Phase 2 — the fix
 
-- [ ] Fix at the cause.
+- [x] Fix at the cause.
 
 Acceptance: the Phase 1 test passes; the reproduction scales linearly.
-Commit: —
+Commit: 0864d5247
 
 ### Phase 3 — expected outputs + full validation
 

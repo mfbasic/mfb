@@ -138,19 +138,19 @@ path, or can be removed.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] A test comparing `alloc_bytes` at N and 2N for `append(list, fs::readText(…))` (small N,
+- [x] A test comparing `alloc_bytes` at N and 2N for `append(list, fs::readText(…))` (small N,
       a 5,000-byte input), asserting linear growth; confirm it fails.
-- [ ] Audit every `static_item_type` gate and the builtin registry for untyped call results.
+- [x] Audit every `static_item_type` gate and the builtin registry for untyped call results.
 
 Acceptance: the test fails for the documented reason; the audit has a verdict per gate.
-Commit: —
+Commit: daab32aeb (`tests/runtime/rt_inplace_append_builtin_call.rs`, RED ×3.90 for both calls; audit above)
 
 ### Phase 2 — the fix
 
-- [ ] Builtin return types in `static_item_type`, from the registry.
+- [x] Builtin return types in `static_item_type`, from the registry.
 
 Acceptance: the Phase 1 test passes; the bound form is unchanged.
-Commit: —
+Commit: e53e7a11e
 
 ### Phase 3 — expected outputs + full validation
 
