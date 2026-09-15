@@ -912,3 +912,59 @@ fn a_tls_socket_closed_on_another_thread_keeps_live_bytes_constant() {
          sockets ({at_small} -> {at_large}); a transferred tls::Socket's ctx is never freed (bug-623)"
     );
 }
+
+/// Run `exe` with `RLIMIT_NOFILE` capped at `limit`, returning (exit success, stdout+stderr).
+fn run_with_fd_limit(exe: &Path, limit: u64) -> (bool, String) {
+    use std::os::unix::process::CommandExt;
+    let mut command = std::process::Command::new(exe);
+    unsafe {
+        command.pre_exec(move || {
+            let rl = libc::rlimit {
+                rlim_cur: limit as libc::rlim_t,
+                rlim_max: limit as libc::rlim_t,
+            };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &rl) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().expect("run the program under an fd limit");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+/// Found by bug-623's union-alias fix (reading `emit_return_exit_inner`, then measured): a
+/// function with two owned sockets and two `RETURN`s — `IF give THEN RETURN a END IF` /
+/// `RETURN b` — removed `a`'s close permanently while lowering the first `RETURN`, so the
+/// fall-through path that returns `b` never closed `a`. One socket leaked per such call:
+/// under a 128-descriptor limit `udp::bind` failed after ~250 calls (`7-707-0003`, exit 255),
+/// and `live_bytes` grew 96 B per two calls.
+#[test]
+fn a_resource_not_returned_on_a_sibling_path_is_still_closed() {
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC pick(give AS Boolean) AS RES udp::Socket\n  RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES b AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  IF give THEN\n    RETURN a\n  END IF\n  RETURN b\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = pick((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    let project = common::temp_project("ret_sibling", &SOURCE.replace("{n}", "600"));
+    let exe = build_debug_project("ret_sibling_600", &project);
+    let (ok, output) = run_with_fd_limit(&exe, 128);
+    assert!(
+        ok && output.contains("ok=600"),
+        "600 calls under a 128-descriptor limit must succeed — the socket a sibling RETURN \
+         path does not return must be closed:\n{output}"
+    );
+    let (_, (_, _, at_small, skips_small)) = debug_run("ret_sibling_flat", SOURCE, 300);
+    let (_, (_, _, at_large, skips_large)) = debug_run("ret_sibling_flat", SOURCE, 600);
+    assert!(
+        skips_small == 0 && skips_large == 0,
+        "ret_sibling: double_free_skips {skips_small}/{skips_large}"
+    );
+    assert!(
+        at_large.saturating_sub(at_small) < BLOCK_BOUND,
+        "ret_sibling: live_bytes grew {at_small} -> {at_large} between 300 and 600"
+    );
+}
