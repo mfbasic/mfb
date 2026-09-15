@@ -1,6 +1,6 @@
 # plan-137-A: `compress::` builtin package + `crc32`
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Overall Effort: huge (>3d) — the whole plan-137 feature: a library-free, in-memory `compress::` (gzip / zlib / raw DEFLATE, both directions, plus `crc32`), and canvas's PNG decoder moved onto it
 Effort: medium (1h–2h)
 Depends on: nothing inside plan-137 (see Prerequisites for the whole-feature gate)
@@ -445,7 +445,7 @@ Commit: f6384ac9e
 Acceptance: pages render and their examples run.
   Check: `scripts/man-run-examples.sh compress --run` → all pass; `scripts/man-census.sh --fill compress`
   and `--memory-scope` → 0 unclassified; `cargo test --bin mfb spec` → pass (est. 6 min).
-Commit: —
+Commit: 5b9aaa579
 
 ## Validation Plan
 
@@ -455,6 +455,9 @@ Commit: —
   every public member is exercised by at least one executed fixture (`grep -rn "compress::" tests/rt-behavior/compress tests/interop/rt_compress_interop.rs`).
 - Runtime proof: the `compress-crc32-valid` program on macos-aarch64 (acceptance) and cross-built
   for `linux-aarch64` on box 2223 via `scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64 glibc` with `FILTER=compress`.
+  (2026-09-14, after the §4.2 table rewrite: `linux runtime proof: linux-aarch64/glibc on port 2223 — 2 passed,
+  0 failed, 0 not run` — `compress-crc32-valid` and `compress-crc32-running-invalid` against their `build.log`
+  goldens.)
 - Doc sync: man descriptors **and** `20_compress.md` + `spec.md` reading order + §18 sentence.
 - Final gate: runs once at the end of plan-137 (plan-137-E). This letter's checks stay scoped.
 

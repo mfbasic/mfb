@@ -167,7 +167,8 @@ Commit: —
       (`linux-x86_64` glibc, emulated — only these two fixtures). Output CRCs identical to macOS.
 - [ ] Size probe: `IMPORT io` + `IMPORT compress` with no call equals the `IMPORT io` baseline; record
       one-member deltas for `crc32`, `gzipDecode`, `gzipEncode`.
-- [ ] Archive plan-137-A…E to `planning/completed/`.
+- [ ] Archive plan-137-E to `planning/completed/`. (Corrected 2026-09-14: A–D are archived as each
+      completes — see Corrections.)
 
 Acceptance: all gates above green, runtime proven on four targets, sizes recorded.
   Check: the commands above (est. 60 min — the full suite is required once by `.ai/testing-gates.md`;
@@ -191,7 +192,12 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 4 "Archive plan-137-A…E" contradicts the letters' own gates** (recorded by plan-137-A on
+  2026-09-14, before this letter started). plan-137-B's Prerequisites row is
+  `ls planning/completed/plan-137-A-*` → one file, and C, D and E gate the same way on B, C and D; archiving
+  every letter only here would leave each of those rows NOT MET forever. Each letter is archived when it
+  completes (plan-137-A: moved to `planning/completed/` in the commit after `5b9aaa579`); this letter's
+  Phase 4 task archives E only.
 
 ## Summary
 
