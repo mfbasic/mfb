@@ -30,6 +30,8 @@ install and no pip install.
 |---|---|---|
 | `crc32` | 118: lengths 0–17, then 100 random lengths up to 1 MiB | `compress::crc32(data)` in one call, and chained across a random split (`crc32(tail, crc32(head))`), against `zlib.crc32` |
 | `decode-raw` | 150: 3 corpora (text, random, mixed runs) × levels 0–9 × 5 strategies (default, filtered, Huffman-only, RLE, fixed) | length and CRC-32 of `compress::inflate` over Python zlib's raw DEFLATE (`wbits -15`), against Python `zlib.decompressobj(-15)` and Node `inflateRawSync` |
+| `decode-zlib` | 150: the same matrix, zlib-wrapped (`wbits 15`) | length and CRC-32 of `compress::zlibDecode`, against Python `zlib.decompressobj(15)` (requiring `eof`) and Node `inflateSync` |
+| `decode-gzip` | 159: the same matrix gzip-wrapped (`wbits 31`); 3 multi-member files (two members, three members, a member plus non-member padding); 6 hand-built headers with `FEXTRA`, `FNAME`, `FCOMMENT`, `FHCRC` alone and combined | length and CRC-32 of `compress::gzipDecode`, against Python's zlib member loop (`zlib.decompressobj(31)` while the rest starts `1f 8b`) and Node `gunzipSync`; case 152 is a declared divergence for Node |
 
 ## How it fits together
 
@@ -70,7 +72,7 @@ expect these rather than report them as disagreements. Evidence: `probe.sh`, 202
 
 | Case | `compress` | Judge behaviour |
 |---|---|---|
-| gzip stream followed by bytes that do not begin `1f 8b` | decodes; the bytes are ignored | Python `gzip.decompress`: `BadGzipFile: Not a gzipped file`; Node `gunzipSync`: `Z_BUF_ERROR` (1 byte) or `incorrect header check` (2+ bytes). Python `zlib.decompressobj(31)` agrees with `compress` (leaves them in `unused_data`) |
+| gzip stream followed by bytes that do not begin `1f 8b` | decodes; the bytes are ignored | Python `gzip.decompress`: `BadGzipFile: Not a gzipped file`; Node `gunzipSync`: `Z_BUF_ERROR` (1 byte) or `incorrect header check` (2+ bytes). Python `zlib.decompressobj(31)` agrees with `compress` (leaves them in `unused_data`). In `run.sh`: `decode-gzip` case 152 is skipped for the Node judge only (`declared_divergences`) |
 
 Where Python's pure-Python `gzip.decompress` is more lenient than zlib — it accepts a wrong
 header CRC-16 and reserved flag bits, which both zlibs refuse — `compress` follows zlib, so a

@@ -13,7 +13,7 @@
 set -uo pipefail
 . "$(dirname "$0")/../crypto/_lib/harness.sh"
 
-ALL_MODES="crc32 decode-raw"
+ALL_MODES="crc32 decode-raw decode-zlib decode-gzip"
 
 # Case counts per mode, declared HERE rather than counted from any subject's output
 # (see oracle_verdict). gen.py's own count is checked against these too.
@@ -21,7 +21,20 @@ expected_cases() {
   case $1 in
     crc32) echo 118 ;; # lengths 0..17, then 100 random lengths up to 1 MiB
     decode-raw) echo 150 ;; # 3 corpora x levels 0..9 x 5 strategies
+    decode-zlib) echo 150 ;; # the same matrix, zlib-wrapped
+    decode-gzip) echo 159 ;; # the same matrix gzip-wrapped, 3 multi-member files, 6 optional-header shapes
     *) echo 0 ;;
+  esac
+}
+
+# Case indices where `compress` deliberately differs from ONE judge, per mode. Declared here,
+# never derived from output, and each is documented with probe evidence in README.md
+# "Declared divergences". A skipped case is still printed as skipped; if it ever stops
+# diverging, the run says so, so a stale entry cannot quietly hide a change.
+declared_divergences() {
+  case "$1 $2" in
+    "decode-gzip node") echo "152" ;; # member + non-1f8b trailing bytes: compress ignores them (decided); Node refuses
+    *) echo "" ;;
   esac
 }
 
@@ -72,17 +85,31 @@ for mode in $MODES; do
     theirs="$WORK/$mode.$judge.txt"
     [ "$(wc -l <"$theirs" | tr -d ' ')" = "$expected" ] ||
       die "$judge answered $(wc -l <"$theirs" | tr -d ' ') case(s) for $mode, expected $expected"
-    # A case fails if its line differs from the judge's line with the same index.
-    fails=$(awk -v judge="$judge" '
+    # A case fails if its line differs from the judge's line with the same index, unless the
+    # index is a declared divergence for this (mode, judge).
+    skip=$(declared_divergences "$mode" "$judge")
+    result=$(awk -v judge="$judge" -v skip="$skip" '
+      BEGIN { k = split(skip, s, " "); for (i = 1; i <= k; i++) skipped[s[i]] = 1 }
       NR == FNR { want[$2] = $0; next }
+      ($2 in skipped) {
+        declared++
+        if ($0 == want[$2]) printf "note: declared divergence %s case %s no longer diverges\n", judge, $2 > "/dev/stderr"
+        next
+      }
       $0 != want[$2] {
         if (shown++ < 10) printf "FAIL %s\n  mfb:   %s\n  %-6s %s\n", judge, $0, judge ":", want[$2] > "/dev/stderr"
         n++
       }
-      END { print n + 0 }
+      END { print n + 0, declared + 0 }
     ' "$theirs" "$WORK/$mode.mine.txt")
+    fails=${result% *}
+    declared=${result#* }
     [ "$fails" -gt "$mode_fail" ] && mode_fail=$fails
-    say "$mode: $((ran - fails))/$ran agreed with $judge"
+    if [ "$declared" -gt 0 ]; then
+      say "$mode: $((ran - declared - fails))/$((ran - declared)) agreed with $judge ($declared declared divergence(s) skipped: case $skip)"
+    else
+      say "$mode: $((ran - fails))/$ran agreed with $judge"
+    fi
   done
   fail_total=$((fail_total + mode_fail))
 done

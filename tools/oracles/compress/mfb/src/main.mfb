@@ -34,6 +34,22 @@ FUNC inflateCase(data AS List OF Byte) AS String
   RETURN toString(len(out)) & " " & toString(compress::crc32(out))
 END FUNC
 
+' decode-zlib: length and CRC-32 of compress::zlibDecode's output, or the raised code.
+FUNC zlibCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::zlibDecode(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+' decode-gzip: length and CRC-32 of compress::gzipDecode's output, or the raised code.
+FUNC gzipCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::gzipDecode(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
 SUB runJob(mode AS String, job AS List OF Byte)
   LET count AS Integer = u32At(job, 0)
   MUT offset AS Integer = 4 + 8 * count
@@ -47,6 +63,10 @@ SUB runJob(mode AS String, job AS List OF Byte)
       fields = crc32Case(data, aux)
     ELSEIF mode = "decode-raw" THEN
       fields = inflateCase(data)
+    ELSEIF mode = "decode-zlib" THEN
+      fields = zlibCase(data)
+    ELSEIF mode = "decode-gzip" THEN
+      fields = gzipCase(data)
     END IF
     io::print("case " & toString(i) & " " & fields)
     offset = offset + n

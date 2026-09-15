@@ -63,10 +63,44 @@ def decode_raw(index, data, _aux):
     return f"case {index} {len(out)} {zlib.crc32(out)}"
 
 
+def decode_zlib(index, data, _aux):
+    """Length and CRC-32 of Python zlib's zlib-format decode, or the error."""
+    try:
+        d = zlib.decompressobj(15)
+        out = d.decompress(data) + d.flush()
+        if not d.eof:
+            raise zlib.error("incomplete stream")
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    return f"case {index} {len(out)} {zlib.crc32(out)}"
+
+
+def decode_gzip(index, data, _aux):
+    """Every gzip member through zlib's own gzip decoder (wbits 31), continuing while the remaining
+    bytes start 1f 8b. `gzip.decompress` is not used: it accepts a wrong header CRC and reserved
+    flags that zlib refuses (probe.sh)."""
+    out = b""
+    rest = data
+    try:
+        while True:
+            d = zlib.decompressobj(31)
+            out += d.decompress(rest) + d.flush()
+            if not d.eof:
+                raise zlib.error("incomplete stream")
+            rest = d.unused_data
+            if rest[:2] != b"\x1f\x8b":
+                break
+    except zlib.error as e:
+        return f"case {index} err {e}"
+    return f"case {index} {len(out)} {zlib.crc32(out)}"
+
+
 MODES = {
     "crc32": crc32,
     "probe": probe,
     "decode-raw": decode_raw,
+    "decode-zlib": decode_zlib,
+    "decode-gzip": decode_gzip,
 }
 
 

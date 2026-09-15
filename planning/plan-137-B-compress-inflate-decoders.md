@@ -284,18 +284,24 @@ levels 0–9 and strategies default/filtered/huffman-only/RLE/fixed.
   with python`, `150/150 agreed with node`, `268 case(s), 0 failure(s)`, exit 0 — 3 corpora × 10 levels × 5
   strategies, length and CRC-32 of the output.)
   Check: `tools/oracles/compress/run.sh target/release/mfb decode-raw` → exit 0 (est. 8 min).
-Commit: —
+Commit: a810ec0fc
 
 ### Phase 3 — framing, strictness, bounds
 
-- [ ] `helper_adler32.rs`, `helper_zlib_frame.rs`, `helper_gzip_frame.rs`, `func_zlib_decode.rs`,
-      `func_gzip_decode.rs`.
-- [ ] Oracle modes `decode-zlib`, `decode-gzip` (incl. multi-member, `FNAME`/`FCOMMENT`/`FEXTRA`/`FHCRC`
+- [x] `helper_adler32.rs`, `helper_zlib_frame.rs`, `helper_gzip_frame.rs`, `func_zlib_decode.rs`,
+      `func_gzip_decode.rs`. (Plus `helper_end_position.rs` — Corrections. `cargo build --release --bin mfb` →
+      `Finished`, no warnings; `cargo test --bin mfb compress` → 4 passed, member count 4;
+      `scripts/man-run-examples.sh compress --run` → `examples: 8 built: 8 ran: 8 failed: 0`;
+      `tools/oracles/compress/run.sh … decode-raw decode-zlib decode-gzip crc32` → `577 case(s), 0 failure(s)`, exit 0.)
+- [~] Oracle modes `decode-zlib`, `decode-gzip` (incl. multi-member, `FNAME`/`FCOMMENT`/`FEXTRA`/`FHCRC`
       headers written by Python's `gzip` module and by hand-built headers), and `mutate`
       (1–3 byte edits of valid streams: replace / delete / insert; robustness is a hard
       assertion — the probe answers every case; agreement buckets printed and every
       *we-accepted-they-refused* case inspected and either fixed or recorded as a documented
       divergence with evidence).
+      (Done: `decode-zlib` 150/150 and `decode-gzip` 159/159 with Python, 150/150 and 158/158 with Node — case 152 a
+      declared divergence (Corrections) — covering 3 multi-member files and 6 hand-built `FEXTRA`/`FNAME`/`FCOMMENT`/`FHCRC`
+      headers. Remaining: the `mutate` mode.)
 - [ ] `tests/interop/rt_compress_interop.rs`: `flate2` (miniz_oxide backend) encodes raw / zlib /
       gzip at levels 0–9 over a seeded corpus → MFB decodes equal; `flate2` streams tampered at
       a seeded byte → MFB refuses; one hand-built over-subscribed-tree stream and one
@@ -423,6 +429,35 @@ Commit: —
   the public member's body (the `maxBytes < 0` check and removal of the core's 8-byte end-position
   trailer). It is its own helper because `zlibDecode` and `gzipDecode` will call the core directly and
   read the trailer themselves (§4.3), so the trailer-stripping wrapper must not live in the core.
+- **Phase 3 adds `helper_end_position.rs`**, not in the Phase 3 file list: `__compress_endPosition`
+  reads the core's 8-byte end-position trailer and `__compress_stripEnd` removes it, shared by the
+  zlib and gzip frames (§4.3 needs the stream end for both trailers and the next gzip member). The
+  `crc32` helpers' gates are widened from `crc32` to `crc32` + `gzipDecode`, as plan-137-A §4.3
+  anticipated.
+- **The oracle needs per-judge declared divergences, not only a README table.** `decode-gzip` case 152
+  (a valid member followed by padding that does not start `1f 8b`) is decoded by `compress` and by
+  Python's zlib member loop (`zlib.decompressobj(31)`, `unused_data`), and refused by Node's
+  `gunzipSync` (`incorrect header check`) — the decided "trailing bytes are ignored" behaviour
+  (plan-137-A §Decisions; `probe.sh` rows `gzip-trailing-*`). `run.sh` now skips such an index for
+  that one judge (`declared_divergences`), prints it as skipped, and says so if it ever stops
+  diverging. Judges compared on the new modes before any MFB run: 150/150 zlib, 158/159 gzip, the one
+  disagreement being case 152.
+- **Two man-descriptor mistakes, both caught only by `scripts/man-run-examples.sh compress --run`**
+  (no Rust or registry test sees them): (1) a `Boolean` `DefaultValue::Fill` is spelled `expr: "false"`,
+  lowercase (precedent `tls/func_connect.rs`); `"FALSE"` compiles as Rust and fails every program that
+  omits the argument with `error: invalid immediate 'FALSE'` — it broke the oracle's MFB probe build
+  (exit 2) and four examples. (2) An inline `TRAP` handler must end every path in `RECOVER` or a
+  diverging statement (`TYPE_INLINE_TRAP_FALLS_THROUGH`).
+- **A builtin call cannot skip a defaulted parameter before a later named one** — `mfb spec language
+  functions` §6 ("Named args"). `zlibDecode(packed, ignoreChecksum := TRUE)` is rejected, so the
+  `zlibDecode` man example passes `maxBytes` positionally. Checking the rule found two things, handled
+  outside this letter's tasks: (a) the §6 sentence's own example, `tls::connect("h", 443, serverName :=
+  "x")`, is said to be `TYPE_CALL_ARITY_MISMATCH` but reports `TYPE_CALL_ARGUMENT_MISMATCH` — the post-fix
+  behaviour bug-596's own document measured (the name prefix-fills the `Address` form, whose type check
+  then fails), so the sentence is stale; (b) on a single-layout builtin the code depends on the value's
+  type: `ignoreChecksum := 5` → `TYPE_CALL_ARITY_MISMATCH` "omits parameter `maxBytes` before a later
+  supplied argument" (no misbinding: `/tmp/p137bind`), `ignoreChecksum := TRUE` →
+  `TYPE_CALL_ARGUMENT_MISMATCH` "(List OF Byte, Boolean)". (b) is filed as a bug and (a) corrected with it.
 - **Decode time is linear in output and in block count; the per-block cost is table building.**
   The first back-to-back row (7.7 MiB/s on the PNG stream vs 35.6 MiB/s on the corpus stream) raised
   the arena's mixed-size churn (`.ai/codegen-invariants.md`) as a suspect, since every dynamic block

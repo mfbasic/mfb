@@ -43,6 +43,20 @@ const MODES = {
       return `case ${index} ${out.length} ${zlib.crc32(out)}`;
     }).replace(/^err /, `case ${index} err `);
   },
+  // Length and CRC-32 of Node zlib's zlib-format decode, or the error.
+  "decode-zlib"(index, data) {
+    return outcome(() => {
+      const out = zlib.inflateSync(data);
+      return `case ${index} ${out.length} ${zlib.crc32(out)}`;
+    }).replace(/^err /, `case ${index} err `);
+  },
+  // Length and CRC-32 of Node zlib's gzip decode (every member), or the error.
+  "decode-gzip"(index, data) {
+    return outcome(() => {
+      const out = zlib.gunzipSync(data);
+      return `case ${index} ${out.length} ${zlib.crc32(out)}`;
+    }).replace(/^err /, `case ${index} err `);
+  },
   crc32(index, data, split) {
     const whole = zlib.crc32(data);
     const chained = zlib.crc32(data.subarray(split), zlib.crc32(data.subarray(0, split)));

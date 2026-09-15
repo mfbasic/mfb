@@ -52,22 +52,35 @@ pub(crate) fn register(r: &mut Registry) {
     helper_deflate_tables::register(&mut pkg);
     helper_huffman_table::register(&mut pkg);
     helper_inflate_core::register(&mut pkg);
+    helper_end_position::register(&mut pkg);
     helper_inflate::register(&mut pkg);
+    // Framing (gated per decoder): Adler-32 and the zlib wrapper, then the gzip wrapper.
+    helper_adler32::register(&mut pkg);
+    helper_zlib_frame::register(&mut pkg);
+    helper_gzip_frame::register(&mut pkg);
 
     func_crc32::register(&mut pkg);
     func_inflate::register(&mut pkg);
+    func_zlib_decode::register(&mut pkg);
+    func_gzip_decode::register(&mut pkg);
 
     r.add_package(pkg);
 }
 
 mod func_crc32;
+mod func_gzip_decode;
 mod func_inflate;
+mod func_zlib_decode;
+mod helper_adler32;
 mod helper_crc32;
 mod helper_crc32_table;
 mod helper_deflate_tables;
+mod helper_end_position;
+mod helper_gzip_frame;
 mod helper_huffman_table;
 mod helper_inflate;
 mod helper_inflate_core;
+mod helper_zlib_frame;
 
 /// `List OF Byte` — the pervasive `compress` argument/return type.
 fn bytes() -> ParameterType {
@@ -83,8 +96,8 @@ mod tests {
         let pkg = registry()
             .resolve_package("compress")
             .expect("compress package");
-        // 2 members: `crc32`, `inflate`.
-        assert_eq!(pkg.functions().len(), 2);
+        // 4 members: `crc32`, `inflate`, `zlibDecode`, `gzipDecode`.
+        assert_eq!(pkg.functions().len(), 4);
     }
 
     /// The one magic number in the table builder is the reflected CRC-32/ISO-HDLC
