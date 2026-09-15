@@ -414,6 +414,46 @@ pub(super) fn substitute_type_params(
 /// ones (more than one export sharing a base name), keyed by the importer-facing
 /// `binding.base` name. Also returns the set of `binding.`/`package.` qualifier
 /// prefixes for argument-type normalization (plan-linker.md §12, overloads).
+/// The record layouts every imported package's `.mfp` exports, keyed by the bare
+/// declared nominal, so the monomorphizer types `record.field` on an imported
+/// record exactly as on a local one (bug-631). Resolves each import binding's
+/// package through the same `resolved_package_file` as
+/// [`collect_imported_overloads`]; a built-in package has no `.mfp` and
+/// contributes nothing (its types are already in the augmented HIR).
+pub(super) fn collect_imported_records(
+    project_dir: &Path,
+    source: &HirProject,
+) -> HashMap<ParameterType, Vec<HirTypeField>> {
+    let packages = source
+        .files
+        .iter()
+        .flat_map(|file| file.import_bindings())
+        .map(|(_, package)| package)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|package| {
+            crate::manifest::package::resolved_package_file(project_dir, &package)
+        })
+        .collect::<Vec<_>>();
+    crate::manifest::package::imported_type_defs_from_files(&packages)
+        .into_iter()
+        .filter(|def| matches!(def.kind, crate::ir::ImportedTypeKind::Record))
+        .map(|def| {
+            let fields = def
+                .fields
+                .into_iter()
+                .map(|field| HirTypeField {
+                    visibility: None,
+                    name: field.name,
+                    type_: field.type_,
+                    line: 0,
+                })
+                .collect();
+            (ParameterType::declared(&def.name), fields)
+        })
+        .collect()
+}
+
 pub(super) fn collect_imported_overloads(
     project_dir: &Path,
     source: &HirProject,

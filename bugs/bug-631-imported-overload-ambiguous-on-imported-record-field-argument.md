@@ -204,17 +204,26 @@ missing imported layouts in the monomorphizer:
 
 - `resolve_imported_overload` fed by `expression_type` → **fixed by this bug** (the reproduction).
 - `resolve_overload` (local overload set) fed by the same `arg_types` — a *local* overloaded function
-  called with an imported record's field gets `Unknown` too. **Latent, not yet observed**; Phase 1
-  adds a reproduction row, and it is fixed by the same change because it shares `arg_types`.
+  called with an imported record's field gets `Unknown` too. **Observed (Phase 1, in scope):**
+  `pick(h.first)` against local `pick(ov::A)`/`pick(ov::B)` fails with
+  `SYMBOL_UNKNOWN_IDENTIFIER` "Callable `pick` is not a top-level function" — no overload resolved,
+  so the unmangled name reached name resolution.
 - `instantiate_function` (generic templates) fed by the same `arg_types` — a generic called with an
-  imported field would bind its type parameter against `Unknown`. **Latent, not yet observed**;
-  Phase 1 adds a reproduction row; fixed by the same change.
+  imported field would bind its type parameter against `Unknown`. **Observed (Phase 1, in scope):**
+  `ov::show(ident(h.first))` fails with `TYPE_OVERLOAD_AMBIGUOUS`.
 - `record_fields` at the constructor path (`let field_types = … .and_then(|type_| self.record_fields(&type_).cloned())`)
   — constructing an *imported* record in a consumer gets no expected field types, so an untyped
-  `[]` field argument would stay `Unknown`. **Latent, not yet observed**; Phase 1 adds a
-  reproduction row (`ov::Holder[[], [], ov::A[1]]`-shaped construction); fixed by the same change.
+  `[]` field argument would stay `Unknown`. **Unaffected (Phase 1):** `ov::Holder[[], [], ov::A[1]]`
+  builds and runs on the unfixed compiler (later passes type the `[]` fields); kept as a guard.
 - `expression_type`'s `HirExpression::Constructor` arm (`else if self.record_fields(type_).is_some()`)
-  — a constructor of an imported record types as `None`. Same class; same fix; Phase 1 row.
+  — a constructor of an imported record types as `None`. Covered by the same guard row.
+- Consumer-local `TYPE A` coexisting with `ov::A`: **out of scope, separate pre-existing bug.** On
+  the unfixed compiler `ov::show(h.first)` fails with this bug's `TYPE_OVERLOAD_AMBIGUOUS`; with
+  the fix it gets past monomorphization and fails with `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH:
+  Argument 1 for `A` has type Integer, expected String for field `z`` (the package's own `A[1]`
+  checked against the consumer's `A`). The unfixed compiler fails identically with **no overloaded
+  call at all** (`io::print(ov::one(h.first))`), so it is a local/imported bare-name collision,
+  not this mechanism. Filed separately; the row is not in this bug's regression test.
 - IR lowering (`src/ir/lower.rs`) — **unaffected**: it already folds `imported_type_defs` into
   `TypeIndex` (`aa3a77745`), which is why the non-overloaded rows build.
 

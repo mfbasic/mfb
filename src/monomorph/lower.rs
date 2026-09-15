@@ -118,6 +118,7 @@ impl<'a> Monomorphizer<'a> {
             type_templates,
             function_templates,
             concrete_types,
+            imported_records: collect_imported_records(project_dir, source),
             concrete_functions,
             function_overloads,
             overload_names,
@@ -1971,11 +1972,18 @@ impl<'a> Monomorphizer<'a> {
     ///
     /// plan-117 Phase 2: read live off `concrete_types` instead of through a
     /// snapshot rebuilt for every lowered function.
+    ///
+    /// bug-631: a record exported by an imported package is found in
+    /// `imported_records` (under its package-qualifier-stripped spelling) when no
+    /// local type claims the name. Without it an imported record's field typed
+    /// as `Unknown`, which matched every nominal imported overload.
     fn record_fields(&self, type_: &ParameterType) -> Option<&Vec<HirTypeField>> {
         self.concrete_types
             .get(type_)
             .filter(|type_decl| matches!(type_decl.kind, TypeDeclKind::Type))
             .map(|type_decl| &type_decl.fields)
+            .or_else(|| self.imported_records.get(type_))
+            .or_else(|| self.imported_records.get(&self.normalize_type(type_)))
     }
 
     /// The return type of a builtin/package call, using the same per-package

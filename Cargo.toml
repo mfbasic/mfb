@@ -621,6 +621,10 @@ name = "rt_imported_record_map_field_keys"
 path = "tests/runtime/rt_imported_record_map_field_keys.rs"
 
 [[test]]
+name = "rt_imported_overload_imported_field_argument"
+path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
+
+[[test]]
 name = "rt_imported_resource_scope_drop"
 path = "tests/runtime/rt_imported_resource_scope_drop.rs"
 

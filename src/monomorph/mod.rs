@@ -36,6 +36,13 @@ struct Monomorphizer<'a> {
     /// plan-111-B: keyed by the concrete TYPE — for an instantiation, the
     /// mangled nominal `instantiate_type` hands back.
     concrete_types: HashMap<crate::types::ParameterType, HirTypeDecl>,
+    /// The field layouts of the RECORD types exported by imported packages,
+    /// keyed by the bare declared nominal (bug-631). Kept apart from
+    /// `concrete_types` because those are emitted as this project's own
+    /// declarations; `record_fields` consults this only after them, so a local
+    /// type of the same bare name wins — the same rule IR lowering's `TypeIndex`
+    /// applies to the identical `.mfp` layouts (`aa3a77745`).
+    imported_records: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
     concrete_functions: HashMap<String, HirFunction>,
     function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,
