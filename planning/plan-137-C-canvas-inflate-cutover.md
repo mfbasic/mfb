@@ -97,6 +97,17 @@ of compress's helpers (duplicates B's code and its strictness proofs).
 
 - `src/codegen/builtins/compress/mod.rs`: `pub(crate) fn augmented_project(...)` mirroring
   `color::augmented_project` (`registry::inject_late_pass`).
+  **Corrected before this letter started (2026-09-14, by reading the code; confirm in Phase 1):** a plain
+  mirror injects nothing for `compress`. `late_pass_file` injects `pkg.get_mfb()`, which renders only
+  `always_helper_bodies` — whose filter drops every `HelperGate::WhenUsed` helper ("Gated helpers … are
+  injected as separate files by `Registry::augment_project` and are excluded here") — plus `Body::Mfb`
+  member bodies. `color`'s late pass works because its 8 helpers are all `RegistryHelper::always`; every
+  `compress` helper is `WhenUsed` and every `compress` member is `Body::Rewrite`, so `get_mfb()` renders
+  only the `IMPORT` lines and the late pass adds no decoder source. Canvas's `compress::zlibDecode` call
+  would then reference an undefined `__compress_zlibDecode`. The late pass must select `compress`'s gated
+  helpers against the augmented project the way `synthetic_files` does (their `WhenUsed` gates open on the
+  callee names canvas's injected companion contributes); the choice between that and any other shape is
+  made in Phase 1 by the probe below, not assumed.
 - `src/codegen/registry/mod.rs` `synthetic_files`: skip `compress` with a comment in the style of
   the `color` skip.
 - `src/ir/lower.rs`: call `compress::augmented_project` after the generic pass and before
@@ -121,6 +132,10 @@ Adler-32; over-subscribed Huffman trees; any further class plan-137-B establishe
 
 - [ ] Fill every UNMEASURED/UNVERIFIED row in §2; list plan-137-B's refusal classes that canvas
       did not previously enforce (Non-goals).
+- [ ] (Added 2026-09-14) Probe the late-pass gating defect recorded in §4: a scratch late pass mirroring
+      `color::augmented_project` for `compress`, a `--app` program that imports only `canvas` and loads a PNG,
+      and the resulting build diagnostic (expected: an undefined `__compress_zlibDecode`). Then choose and
+      record the injection shape that makes the gated helpers ride in, with the probe that shows it building.
 - [ ] Record the pre-change size of a minimal `IMPORT canvas` program and the decode time of the
       plan-137-B Phase 1 PNG.
 
@@ -184,7 +199,12 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **§4's late pass cannot be a plain mirror of `color::augmented_project`** (recorded by plan-137-B work on
+  2026-09-14, before this letter started). Evidence by code: `src/codegen/registry/mod.rs` `late_pass_file`
+  → `RegistryPackage::get_mfb` → `always_helper_bodies`, which excludes `WhenUsed`/`WhenImported`/
+  `WhenBothImported` helpers; `grep -rhoE "HelperGate::[A-Za-z]+|RegistryHelper::[a-z_]+"` over
+  `builtins/color/` → `8 RegistryHelper::always`, over `builtins/compress/` → only `HelperGate::WhenUsed`.
+  §4 is annotated and Phase 1 gains the probe that confirms it and picks the shape.
 
 ## Summary
 
