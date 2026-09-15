@@ -197,3 +197,26 @@ Implemented by a fix-bug subagent; reviewed and applied on the main thread.
   beyond the record.
 - **Resource-union box.** The single-binding union drop frees its 16 B `{tag, record}` box;
   the variant record is not freed there (`RES c AS Union = u` wraps a record `u` owns).
+- **Remote proof** (`/tmp/wt604_remote_leak.py`, `mfb build --debug --target …`, N=300 vs 600,
+  commit `29a902e03`): `udp::bind`+`udp::close` and an in-process `tcp::listen` /
+  `tcp::connect` / `tcp::accept` / close loop report `arena.0.live_bytes` 0 → 0,
+  `double_free_skips 0` on linux-aarch64 glibc (2223), linux-x86_64 glibc (2228) and
+  windows-x86_64 (2230). The harness itself was shown able to fail on all three
+  (`as_single` grew 48,000 B with the pre-fix binary). TLS was proved on macOS only
+  (`a_tls_connect_close_loop_keeps_live_bytes_constant`); the OpenSSL and Schannel read / close
+  paths are built for linux-x86_64, linux-aarch64 and windows-x86_64 but not executed remotely
+  (no remote TLS peer).
+- **Residual (sub-issue B, found by the fix):** `http::read` still leaves 160 B per call
+  (the response's resource-union variant record, 96 B, plus 64 B in two blocks), and a
+  resource union bound straight from a producer (`RES c AS Chan = udp::bind(…)`) leaks its
+  96 B variant record. RED tests: `an_http_read_loop_leaves_no_block_behind` (50 vs 100
+  reads, 4 KiB bound), `a_resource_union_bound_from_a_producer_keeps_live_bytes_constant`;
+  guard `a_resource_union_aliasing_a_binding_keeps_live_bytes_constant`.
+- **Other bugs found by the fix (separate from 623):** a union alias in an inner scope
+  closes the outer handle (`RES u AS udp::Socket = …` then `IF … RES c AS Chan = u END IF`
+  then `udp::localAddress(u)` exits 255 with `7-703-0004`; reproduced at `9b5e5b55f`); an
+  owned `List OF RES` drain frees no records; the macOS ctx is kept after a transfer or with
+  an outstanding receive/send; a Schannel STATE block leaks on a failed connect; the
+  existing `CTX_PEND_BUF` free in the macOS read/close paths would `arena_free` a block from
+  the sending thread's arena if a transferred socket held buffered plaintext;
+  `fs::createTempFile` + `fs::close` keeps its 96 B tombstone record per file.
