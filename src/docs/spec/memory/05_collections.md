@@ -145,7 +145,9 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
   kind-2 list no entries are allocated, and `capacity` is the number of element
   slots the `Data` region has room for — it still governs the data base and the
   block size, so it remains meaningful with an entry stride of zero.
-- `dataLength` is the number of used bytes in `Data`.
+- `dataLength` is the end of the used bytes in `Data`: every payload lies below
+  it. For a variable-width list it can exceed the sum of the live payload lengths,
+  by the holes an in-place length-changing `set` leaves (see [`set`](#set)).
 - `dataCapacity` is the number of bytes allocated for `Data`. It may exceed
   `dataLength` for the same reason.
 
@@ -315,13 +317,16 @@ element types are safe; the other half are exactly as dangerous as before, and a
 reader that handles "lists" uniformly is still wrong.
 
 For a **variable-width element type** — `String`, records, unions, nested
-collections — payloads are densely packed but **not necessarily in index order**.
-A reader **must not** assume element `i` begins at `dataBase + i * payloadSize`,
-and must not assume a linear walk visits elements in index order. The permutation
-is a deliberate consequence of the offset-stable scheme (plan-01 §4.1): splicing
-the lookup table and appending the new payload to the data tail avoids
-recomputing every offset, which for a variable-width payload is the expensive
-part. `collections::sort` on a `List OF String` relies on this directly — it
+collections — payloads are **not necessarily in index order**, and a list
+updated by an in-place `set` is **not necessarily dense** either: the data region
+may hold unreferenced bytes between payloads. A reader **must not** assume
+element `i` begins at `dataBase + i * payloadSize`, must not assume a linear walk
+visits elements in index order, and must not take `dataLength` as the size of the
+live data. The permutation is a deliberate consequence of the offset-stable scheme
+(plan-01 §4.1): splicing the lookup table and appending the new payload to the
+data tail avoids recomputing every offset, which for a variable-width payload is
+the expensive part. The holes are the same trade made by `set` (bug-627).
+`collections::sort` on a `List OF String` relies on the permutation directly — it
 swaps the fixed-size entry records and leaves the data region untouched.
 
 Order is a property of the **value**, not of a moment: it survives every copy.
@@ -511,15 +516,22 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
   same-size records/strings) the value bytes are overwritten at the entry's
   `valueOffset` in place: no allocation, no copy, offsets unchanged. A size
-  change shifts the bytes after the element's old span (`valueOffset + oldLength`
-  through `dataLength`) up or down by the difference inside the block — growing
-  `dataCapacity` geometrically first when it cannot hold the result — and moves
-  every other entry whose `valueOffset` is at or past that point by the same
-  amount. The written entry keeps its `valueOffset`. "At or past" is load-bearing:
-  a zero-length element occupies no bytes and shares its offset with whatever
-  follows it, so an entry at exactly the end of the old span moved too, even when
-  the old span was empty. An out-of-range index fails with `ErrIndexOutOfRange`,
-  like the value path.
+  change on a variable-width element moves no other element's bytes or offset
+  (bug-627 — shifting them was O(N) per write):
+  - a **shorter** payload is written at the entry's `valueOffset`; the bytes it
+    no longer uses become a hole and `dataLength` is unchanged;
+  - a **longer** payload whose old span ends at `dataLength` grows where it lies,
+    and `dataLength` becomes `valueOffset + newValueLength`;
+  - any other **longer** payload is written at `dataLength` rounded up to the
+    element alignment, the entry's `valueOffset` is repointed there, and its old
+    span becomes a hole.
+
+  When the growth or the tail write would pass `dataCapacity`, the element's
+  `valueLength` is zeroed and `emit_repack_list_data` repacks the live payloads
+  into a fresh block with geometric headroom (see *Compaction*), after which the
+  payload is written at the new tail. Kind-2 (fixed-width) lists never change
+  size. An out-of-range index fails with `ErrIndexOutOfRange`, like the value
+  path.
 - **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
   `get` (linear-scan fallback for non-probe key types), which also lazily builds
   the bucket index so a build-via-`set` loop stays O(n). A hit whose new
@@ -584,9 +596,18 @@ re-tightens the buffer and leaves `bucketsReady = 0` for a lazy rebuild.
 ## Compaction
 
 The value-semantic update operations (`insert`, `removeAt`, and the value-path
-`append`) **always** produce a fresh, fully-packed, tight buffer with no dead
-space, so there is never accumulated garbage to reclaim. There is no deferred,
-threshold-triggered dead-space compactor in the codegen.
+`append`) **always** produce a fresh, tight buffer with no slack capacity; the data
+region is copied verbatim, so any holes a source carries are carried with it.
+
+The only dead space a buffer acquires is from an in-place length-changing `set` on
+a variable-width list, which leaves the replaced payload's old span unreferenced
+(see [`set`](#set)). It is reclaimed by the one compactor in the codegen,
+`emit_repack_list_data`, which runs when a `set`'s tail write does not fit
+`dataCapacity`. It copies each live payload, by its own entry, packed in entry
+order into a fresh block whose data capacity is the geometric step of the live
+bytes plus the pending write plus `count`, so dead space never exceeds the
+headroom the previous repack granted.
+[[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
 
 The only `dataCapacity`/`capacity` slack the layout ever carries is the
 **intentional** headroom of an in-place `MUT` append working buffer (see *Capacity

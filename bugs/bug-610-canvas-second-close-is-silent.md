@@ -86,3 +86,7 @@ Phase 1 — decide spec-vs-code with the owner; RED test for the chosen contract
 
 Phase 2 — conform (emit the closed guard, or amend §15 and the canvas pages).
 Full suite. Commit:
+
+## Decision:
+
+Follow the spec. ALL resources should only be closed once with a ErrResourceClosed otherwise.
