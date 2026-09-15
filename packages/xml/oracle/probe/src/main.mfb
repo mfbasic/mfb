@@ -1,0 +1,309 @@
+' ---------------------------------------------------------------------------
+' xmlprobe — the MFBASIC side of the XML differential oracle.
+'
+' It reads one JSON job file and writes ONE JSON document to stdout, holding one
+' result per case in the same order. A whole job per process rather than a
+' process per case: a fuzzing run asks thousands of questions, and starting a
+' process costs more than answering one.
+'
+'   in   {"cases":[{"id":"c1","xml":"<a/>"}]}                        (read)
+'        {"cases":[{"id":"c1","tree":["doc",[...]],"indent":"  "}]}  (write)
+'
+'   out  {"results":[{"id":"c1","ok":true,"content":["doc",[...]]},
+'                    {"id":"c2","ok":false,"kind":"parse","reason":"..."}]}
+'
+' A REFUSAL is a result, reported on stdout with exit 0. That leaves a non-zero
+' exit or an unparseable document meaning exactly one thing -- the probe itself
+' broke -- which is what the runner`s `mutate` mode checks for.
+'
+' `content` is plan-138-A §4`s projection, and all three sides compute it
+' independently. That is deliberate: a projection computed once and shared would
+' hide exactly the disagreements this oracle exists to find.
+' ---------------------------------------------------------------------------
+
+IMPORT xml
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) <> 2 THEN
+    io::printError("usage: xmlprobe read|write <job.json>")
+    RETURN 2
+  END IF
+  LET operation AS String = collections::get(args, 0)
+  LET job AS json::Json = json::parse(fs::readText(collections::get(args, 1)))
+  MUT results AS List OF json::Json = []
+  FOR EACH entry IN itemsOf(json::get(job, ["cases"]))
+    IF operation = "read" THEN
+      results = collections::append(results, readCase(entry))
+    ELSEIF operation = "write" THEN
+      results = collections::append(results, writeCase(entry))
+    ELSE
+      io::printError("xmlprobe: unknown operation `" & operation & "` (expected read or write)")
+      RETURN 2
+    END IF
+  NEXT
+  MUT document AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  document = collections::set(document, "results", jarr(results))
+  io::print(json::stringify(jobj(document)))
+  RETURN 0
+
+  TRAP(problem)
+    ' A failure out here is the harness's, not the package's: an unreadable job
+    ' file or a job that is not the shape agreed above.
+    io::printError("xmlprobe: " & problem.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Cases. Every package failure is a RESULT; only a malformed job escapes.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC readCase(entry AS json::Json) AS json::Json
+  LET id AS String = textOf(entry, "id", "")
+  LET text AS String = textOf(entry, "xml", "")
+  MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  out = collections::set(out, "id", jstr(id))
+  ' A RECOVER would have to supply a Document, so the refusal leaves by RETURN:
+  ' the envelope is the result, not a substitute tree.
+  LET doc AS xml::Document = xml::parse(text) TRAP(problem)
+    RETURN refusal(out, problem.code, problem.message)
+  END TRAP
+  out = collections::set(out, "ok", jbool(TRUE))
+  out = collections::set(out, "content", contentOfDocument(doc))
+  RETURN jobj(out)
+END FUNC
+
+PRIVATE FUNC writeCase(entry AS json::Json) AS json::Json
+  LET id AS String = textOf(entry, "id", "")
+  LET indent AS String = textOf(entry, "indent", "")
+  MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  out = collections::set(out, "id", jstr(id))
+  LET doc AS xml::Document = documentOfJson(json::get(entry, ["tree"]))
+  LET text AS String = xml::stringify(doc, indent) TRAP(problem)
+    RETURN refusal(out, problem.code, problem.message)
+  END TRAP
+  out = collections::set(out, "ok", jbool(TRUE))
+  out = collections::set(out, "xml", jstr(text))
+  RETURN jobj(out)
+END FUNC
+
+' A refusal envelope. `kind` is triage only -- two refusals agree without
+' comparing kind or reason, because three implementations have three
+' vocabularies for "no" and demanding the same words would make the harness
+' fail on wording.
+PRIVATE FUNC refusal(base AS Map OF String TO json::Json, code AS Integer, message AS String) AS json::Json
+  MUT out AS Map OF String TO json::Json = base
+  out = collections::set(out, "ok", jbool(FALSE))
+  out = collections::set(out, "kind", jstr(kindOfCode(code)))
+  out = collections::set(out, "reason", jstr(message))
+  RETURN jobj(out)
+END FUNC
+
+PRIVATE FUNC kindOfCode(code AS Integer) AS String
+  IF code = 77050007 THEN RETURN "unsupported"
+  IF code = 93140001 THEN RETURN "limit"
+  IF code = 77050024 THEN RETURN "limit"
+  RETURN "parse"
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The content projection (plan-138-A §4), computed here in MFBASIC.
+'
+'   ["doc", [<node>, ...]]
+'   <node> := ["e", name, [[attrName, value], ... sorted], [<node>, ...]]
+'           | ["t", text]
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC contentOfDocument(doc AS Document) AS json::Json
+  MUT out AS List OF json::Json = []
+  out = collections::append(out, jstr("doc"))
+  out = collections::append(out, jarr(projectChildren(doc.children)))
+  RETURN jarr(out)
+END FUNC
+
+' TRUE when any child is an element.
+PRIVATE FUNC anyElement(children AS List OF xml::Node) AS Boolean
+  FOR EACH k IN children
+    MATCH k
+      CASE Element(e) : RETURN TRUE
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+PRIVATE FUNC allSpace(s AS String) AS Boolean
+  IF len(s) = 0 THEN RETURN TRUE
+  FOR EACH sc IN strings::toScalars(s)
+    LET code AS Integer = toInt(sc)
+    IF code <> 32 AND code <> 9 AND code <> 13 AND code <> 10 THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Steps 1-3: drop comments and PIs, merge adjacent text, drop layout whitespace.
+PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS List OF json::Json
+  LET dropLayout AS Boolean = anyElement(children)
+  MUT out AS List OF json::Json = []
+  MUT pending AS String = ""
+  FOR EACH k IN children
+    MATCH k
+      CASE Text(t)
+        pending = pending & t.text
+      CASE Element(e)
+        IF pending <> "" THEN
+          IF NOT (dropLayout AND allSpace(pending)) THEN
+            out = collections::append(out, textNode(pending))
+          END IF
+          pending = ""
+        END IF
+        out = collections::append(out, elementNode(e))
+      CASE ELSE
+        ' A comment or PI is not content, and removing it lets the text on
+        ' either side of it merge.
+    END MATCH
+  NEXT
+  IF pending <> "" THEN
+    IF NOT (dropLayout AND allSpace(pending)) THEN
+      out = collections::append(out, textNode(pending))
+    END IF
+  END IF
+  RETURN out
+END FUNC
+
+PRIVATE FUNC textNode(text AS String) AS json::Json
+  MUT out AS List OF json::Json = []
+  out = collections::append(out, jstr("t"))
+  out = collections::append(out, jstr(text))
+  RETURN jarr(out)
+END FUNC
+
+PRIVATE FUNC elementNode(e AS xml::Element) AS json::Json
+  MUT out AS List OF json::Json = []
+  out = collections::append(out, jstr("e"))
+  out = collections::append(out, jstr(e.name))
+  out = collections::append(out, jarr(sortedAttributes(e.attributes)))
+  out = collections::append(out, jarr(projectChildren(e.children)))
+  RETURN jarr(out)
+END FUNC
+
+' Attributes as a SET: sorted by name, since XML gives their order no meaning.
+PRIVATE FUNC sortedAttributes(attributes AS List OF xml::Attribute) AS List OF json::Json
+  MUT keys AS List OF String = []
+  FOR EACH a IN attributes
+    keys = collections::append(keys, a.name)
+  NEXT
+  MUT out AS List OF json::Json = []
+  FOR EACH name IN collections::sort(keys)
+    FOR EACH a IN attributes
+      IF a.name = name THEN
+        MUT pair AS List OF json::Json = []
+        pair = collections::append(pair, jstr(a.name))
+        pair = collections::append(pair, jstr(a.value))
+        out = collections::append(out, jarr(pair))
+      END IF
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The reverse direction: a `write` job hands over a tree in the same shape.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC documentOfJson(tree AS json::Json) AS xml::Document
+  LET parts AS List OF json::Json = itemsOf(tree)
+  IF len(parts) <> 2 THEN
+    FAIL error(77050003, "xmlprobe: a tree must be [\"doc\", [children]]")
+  END IF
+  RETURN xml::document(nodesOfJson(collections::get(parts, 1)))
+END FUNC
+
+PRIVATE FUNC nodesOfJson(items AS json::Json) AS List OF xml::Node
+  MUT out AS List OF xml::Node = []
+  FOR EACH item IN itemsOf(items)
+    out = collections::append(out, nodeOfJson(item))
+  NEXT
+  RETURN out
+END FUNC
+
+PRIVATE FUNC nodeOfJson(value AS json::Json) AS xml::Node
+  LET parts AS List OF json::Json = itemsOf(value)
+  IF len(parts) = 0 THEN
+    FAIL error(77050003, "xmlprobe: a node may not be empty")
+  END IF
+  LET tag AS String = stringOf(collections::get(parts, 0))
+  IF tag = "t" THEN
+    RETURN xml::text(stringOf(collections::get(parts, 1)))
+  END IF
+  IF tag = "c" THEN
+    RETURN xml::comment(stringOf(collections::get(parts, 1)))
+  END IF
+  IF tag = "p" THEN
+    RETURN xml::pi(stringOf(collections::get(parts, 1)), stringOf(collections::get(parts, 2)))
+  END IF
+  IF tag <> "e" THEN
+    FAIL error(77050003, "xmlprobe: unknown node tag `" & tag & "`")
+  END IF
+  MUT attributes AS List OF xml::Attribute = []
+  FOR EACH pair IN itemsOf(collections::get(parts, 2))
+    LET both AS List OF json::Json = itemsOf(pair)
+    attributes = collections::append(attributes, xml::Attribute[stringOf(collections::get(both, 0)), stringOf(collections::get(both, 1))])
+  NEXT
+  RETURN xml::element(stringOf(collections::get(parts, 1)), attributes, nodesOfJson(collections::get(parts, 3)))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' JSON helpers. Everything here reads the harness's own JSON, so a shape it
+' does not expect is a harness bug and fails loudly.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC jstr(text AS String) AS json::Json
+  RETURN json::JsonStr[text]
+END FUNC
+
+PRIVATE FUNC jbool(value AS Boolean) AS json::Json
+  RETURN json::JsonBool[value]
+END FUNC
+
+PRIVATE FUNC jarr(items AS List OF json::Json) AS json::Json
+  RETURN json::JsonArr[items]
+END FUNC
+
+PRIVATE FUNC jobj(fields AS Map OF String TO json::Json) AS json::Json
+  RETURN json::JsonObj[fields]
+END FUNC
+
+PRIVATE FUNC itemsOf(value AS json::Json) AS List OF json::Json
+  MATCH value
+    CASE json::JsonArr(list) : RETURN list.items
+    CASE ELSE : FAIL error(77050003, "xmlprobe: expected a JSON array in the job")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC stringOf(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonStr(text) : RETURN text.value
+    CASE ELSE : FAIL error(77050003, "xmlprobe: expected a JSON string in the job")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC fieldsOf(value AS json::Json) AS Map OF String TO json::Json
+  MATCH value
+    CASE json::JsonObj(object) : RETURN object.fields
+    CASE ELSE : FAIL error(77050003, "xmlprobe: expected a JSON object in the job")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC textOf(value AS json::Json, member AS String, fallback AS String) AS String
+  LET fields AS Map OF String TO json::Json = fieldsOf(value)
+  IF NOT collections::hasKey(fields, member) THEN RETURN fallback
+  RETURN stringOf(collections::get(fields, member))
+END FUNC

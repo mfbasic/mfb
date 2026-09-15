@@ -30,7 +30,7 @@ See plan-138-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-138-B complete | `ls planning/completed/plan-138-B-*` → one file | NOT MET |
+| plan-138-B complete | `ls planning/completed/plan-138-B-*` → one file | MET (re-measured 2026-09-15 → `planning/completed/plan-138-B-xml-serializer-and-docs.md`; archived in `47178e067`) |
 
 ## 1. Goal
 
@@ -60,12 +60,13 @@ See plan-138-A. Additionally:
 
 | What | Value | Command |
 |---|---|---|
-| saxes | 6.0.0 | `npm view saxes version` |
-| @xmldom/xmldom | 0.9.12 | `npm view @xmldom/xmldom version` |
-| roxmltree | 0.21.1 | `cargo search roxmltree --limit 1` |
-| quick-xml | 0.42.0 | `cargo search quick-xml --limit 1` |
-| W3C XML Conformance Test Suite `xmlts20130923.tar.gz` | HTTP 200, 641,522 bytes | `curl -sIL https://www.w3.org/XML/Test/xmlts20130923.tar.gz` |
-| Node | v24.12.0 | `node --version` |
+| saxes | 6.0.0 | `npm view saxes version` (re-measured 2026-09-15) |
+| @xmldom/xmldom | 0.9.12 | `npm view @xmldom/xmldom version` (re-measured 2026-09-15) |
+| roxmltree | 0.21.1 | `cargo search roxmltree --limit 1` (re-measured 2026-09-15) |
+| quick-xml | 0.42.0 | `cargo search quick-xml --limit 1` (re-measured 2026-09-15) |
+| W3C XML Conformance Test Suite `xmlts20130923.tar.gz` | HTTP 200, 641,522 bytes | `curl -sIL https://www.w3.org/XML/Test/xmlts20130923.tar.gz` (re-measured 2026-09-15: `HTTP/2 200`, `content-length: 641522`) |
+| Node | v24.12.0 | `node --version` (re-measured 2026-09-15) |
+| a nested Rust `target/` is still NOT ignored | `git check-ignore -v packages/xml/oracle/rust/target/x` → no match (exit 1); `node_modules/` IS ignored (`.gitignore:39`) | re-measured 2026-09-15 — the Phase 1 `.gitignore` is what covers it |
 
 ### Verified properties
 
@@ -159,21 +160,46 @@ TESTING case and recorded in the oracle README "What it found".
 
 ### Phase 1 — scaffolding and the probe
 
-- [ ] `packages/xml/oracle/package.json`, `package-lock.json` (`npm install --prefix packages/xml/oracle`),
+- [x] `packages/xml/oracle/package.json`, `package-lock.json` (`npm install --prefix packages/xml/oracle`),
       `.gitignore` as §3.
-- [ ] `packages/xml/oracle/rust/Cargo.toml` with an empty `[workspace]` table so Cargo does not
+- [x] `packages/xml/oracle/rust/Cargo.toml` with an empty `[workspace]` table so Cargo does not
       attach it to the root workspace; `rust/src/main.rs` skeleton that parses a job file and prints
       `{"results":[]}`.
-- [ ] `packages/xml/oracle/probe/project.json` (mirror `packages/jwt/oracle/probe/project.json`) and
+- [x] `packages/xml/oracle/probe/project.json` (mirror `packages/jwt/oracle/probe/project.json`) and
       `probe/src/main.mfb` implementing `read` and `write` job handling and the §3 envelope
       projection in MFB.
-- [ ] Tests: none new in the package; the probe is exercised by Phase 2.
+- [x] Tests: none new in the package; the probe is exercised by Phase 2. (It is already exercised
+      here on real jobs rather than only on the empty one — see the acceptance evidence. An empty
+      job would pass even if every projection function were broken.)
 
 Acceptance: all three sides build and answer an empty job.
   Check: `cargo build --release --manifest-path packages/xml/oracle/rust/Cargo.toml` → `Finished`;
   `target/release/mfb build packages/xml && mkdir -p packages/xml/oracle/probe/packages && cp packages/xml/xml.mfp packages/xml/oracle/probe/packages/ && target/release/mfb build packages/xml/oracle/probe`
   → `Wrote executable`; `git status --short packages/xml/oracle` shows no `target/`, `build/` or
   `node_modules/` (est. 4 min).
+  MET: `cargo build --release --manifest-path packages/xml/oracle/rust/Cargo.toml` →
+  `Finished \`release\` profile [optimized] target(s) in 4.76s`, exit 0; the probe →
+  `Wrote executable to packages/xml/oracle/probe/build/xmlprobe.out`. Both sides answer the empty job
+  `{"cases":[]}` with `{"results":[]}` and exit 0 (`xmloracle read`, `xmloracle write`, and the probe).
+
+  Cleanliness: `git status --short packages/xml/oracle` collapses to `?? packages/xml/oracle/` because
+  the whole directory is new, which hides what is inside it — so measured with
+  `git status --short --untracked-files=all packages/xml/oracle`, which lists exactly eight files, all
+  of them source: `.gitignore`, `package.json`, `package-lock.json`, `probe/project.json`,
+  `probe/src/main.mfb`, `rust/Cargo.toml`, `rust/Cargo.lock`, `rust/src/main.rs`. Each artifact is
+  matched by a rule (`git check-ignore -v`): `rust/target/release/xmloracle` → `.gitignore:10`,
+  `probe/build/xmlprobe.out` → `:9`, `probe/packages/xml.mfp` → `:8`, and `node_modules/…` → the root
+  `.gitignore:39`.
+
+  The probe answers real jobs too, in both directions and on both outcomes. `read`: `<a id="1" b="2"> <b/> </a>`
+  → `["e","a",[["b","2"],["id","1"]],[["e","b",[],[]]]]` (attributes sorted, layout whitespace gone);
+  `<a>x<!--c-->y</a>` → one merged text node `"xy"`; `<!DOCTYPE a><a/>` → `unsupported`; `<a></b>` →
+  `parse`. `write`: the tree `["doc",[["e","a",[["id","1"]],[["t","x"],["e","b",[],[]]]]]]` at indent
+  `""` → `<?xml version="1.0" encoding="UTF-8"?><a id="1">x<b/></a>`; the same shape at indent `"  "`
+  → the declaration and `<a>`/`<b/>`/`</a>` on their own lines; `["doc",[]]` → refused, "a document
+  must hold exactly one root element, not 0"; and `["c",…]` / `["p",…]` nodes round-trip as a prolog
+  comment and a processing instruction. So `documentOfJson`/`nodeOfJson` are exercised, not just
+  `contentOfDocument`.
 Commit: —
 
 ### Phase 2 — readers and `corpus`
