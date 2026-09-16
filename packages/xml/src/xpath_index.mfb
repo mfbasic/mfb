@@ -163,6 +163,49 @@ PUBLIC FUNC rootsOf(index AS List OF IndexedNode) AS List OF Integer
   RETURN out
 END FUNC
 
+' ---------------------------------------------------------------------------
+' Materialization: an index position back into a `Node`.
+'
+' plan-138-D Phase 1 measured three ways of doing this. Walking down from the
+' root per result cost 18.4-22.5 s for a thousand results, because each ordinal
+' step deep-copies the subtree it returns. Walking once while threading a
+' `List OF Node` accumulator cost 14.8-20.6 s, because every subtree collected
+' so far is copied into every call. Rebuilding each result from flat entries --
+' what this does -- costs 0.53-0.55 s for a thousand, and 0.65-1.66 s for all
+' 49,999 elements of the 100k flat document.
+'
+' The child loop JUMPS over each child's own subtree rather than rescanning it,
+' so building a node costs its subtree once rather than once per level.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC nodeAt(index AS List OF IndexedNode, at AS Integer) AS Node
+  LET entry AS IndexedNode = collections::get(index, at)
+  IF entry.kind = KIND_TEXT THEN RETURN text(entry.value)
+  IF entry.kind = KIND_COMMENT THEN RETURN comment(entry.value)
+  IF entry.kind = KIND_PI THEN RETURN pi(entry.name, entry.value)
+
+  MUT attributes AS List OF Attribute = []
+  FOR EACH a IN entry.attributes
+    attributes = collections::append(attributes, Attribute[a.name, a.value])
+  NEXT
+
+  LET stop AS Integer = subtreeEnd(index, at)
+  MUT kids AS List OF Node = []
+  MUT i AS Integer = at + 1
+  DO WHILE i < stop
+    kids = collections::append(kids, nodeAt(index, i))
+    i = subtreeEnd(index, i)
+  LOOP
+  RETURN element(entry.name, attributes, kids)
+END FUNC
+
+' One attribute of an indexed element.
+PUBLIC FUNC attributeAt(index AS List OF IndexedNode, node AS Integer, at AS Integer) AS Attribute
+  LET entry AS IndexedNode = collections::get(index, node)
+  LET one AS IndexedAttr = collections::get(entry.attributes, at)
+  RETURN Attribute[one.name, one.value]
+END FUNC
+
 ' The XPath string-value of a node: for an element, every descendant text node
 ' concatenated; for text, comment and PI nodes, their own text.
 PUBLIC FUNC stringValueAt(index AS List OF IndexedNode, at AS Integer) AS String

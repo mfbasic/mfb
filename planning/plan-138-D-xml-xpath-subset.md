@@ -185,19 +185,22 @@ Commit: —
 
 ### Phase 3 — index and evaluator
 
-- [ ] `packages/xml/src/xpath_index.mfb` — the §3 index.
-- [ ] `packages/xml/src/xpath_eval.mfb` — location steps over indices, per-step predicate position
+- [x] `packages/xml/src/xpath_index.mfb` — the §3 index.
+- [x] `packages/xml/src/xpath_eval.mfb` — location steps over indices, per-step predicate position
       (reverse order for `..`'s parent step is trivially a single node), filter expressions, union in
       document order, §3.4 comparisons, §4 functions, §4.2 number-to-string.
-- [ ] `packages/xml/src/lib.mfb` — §5 API with `DOC` blocks and one `EXAMPLE` each for `select` and
+- [x] `packages/xml/src/lib.mfb` — §5 API with `DOC` blocks and one `EXAMPLE` each for `select` and
       `valueOf`.
-- [ ] Tests: `packages/xml/src/test_xpath_eval.mfb` — every §4 row against a fixture document with
+- [x] Tests: `packages/xml/src/test_xpath_eval.mfb` — every §4 row against a fixture document with
       the exact expected result; `//a[1]` vs `(//a)[1]`; `@a = 'x'` over several `a` elements
       (existential); `string(1 div 0)` = `Infinity`, `string(0 div 0)` = `NaN`, `string(2.0)` = `2`;
       mixed node-set → `ErrUnsupported`; `select` over a string result → `ErrInvalidArgument`.
 
 Acceptance: every subset row evaluates to its XPath 1.0 result.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 209  Pass: 209  Fail: 0`, exit 0 (30 added
+  here). The run before the two corrections below was `Pass: 204  Fail: 5`, and every one of those
+  five was a case written to catch exactly the thing it caught.
 Commit: —
 
 ### Phase 4 — budget and docs
@@ -231,6 +234,36 @@ Commit: —
   which has no XML meaning. (§5)
 
 ## Corrections
+
+**Phase 3 — MFBASIC cannot hold NaN or an infinity, and XPath requires both as ordinary values.**
+XPath 1.0 makes `1 div 0` Infinity, `0 div 0` NaN, `number('x')` NaN, and every comparison involving
+NaN false. None of those is an error in XPath. In MFBASIC they cannot exist: a float operation that
+would produce one is "caught at the observation boundary as ErrFloatOverflow/ErrFloatNaN"
+(`mfb man math`; codes 77050015 and 77050013). The first implementation wrote
+`LET XPATH_NAN AS Float = 0.0 / 1.0`, which is simply 0.0 — so `number('x')` answered `0`, and
+`1 div 0` raised `Floating-point arithmetic overflowed to infinity` instead of answering.
+
+So the evaluator carries numbers as a `Num` record — a `Float` plus a tag of normal / NaN /
++Infinity / -Infinity — and every arithmetic and comparison helper propagates the tag. Division by
+zero is answered directly rather than computed, and the three raw operations live in their own
+functions because an inline `TRAP` wraps a CALL, not an expression; an overflow is turned into the
+correctly-signed infinity there.
+
+That leaves one thing §5 does not cover: `XNumber.value` is a `Float`, so a public `XNumber` cannot
+carry these results. `xml::evaluate` therefore refuses with `ErrUnsupported` when a result is NaN or
+infinite, naming `xml::valueOf` — which prints `NaN`, `Infinity` and `-Infinity` correctly — instead
+of inventing a number. Every §4.2 case the plan asks for passes through `valueOf`.
+
+**Phase 3 — predicates apply PER CONTEXT NODE, and the first implementation merged first.** `//book[1]`
+means "the first book of each parent", so a document with two shelves yields two nodes, while
+`(//book)[1]` yields one. The step evaluator originally gathered the nodes reached from every context
+node, ordered them, and only then applied predicates — which made `position()` relative to the merged
+set and collapsed the distinction. Caught by the case written for exactly that (`expected 2, got 1`),
+and fixed by evaluating each context node's own node-set, applying that step's predicates to it, and
+unioning afterwards.
+
+**Phase 3 — `normalize-space` must collapse every kind of whitespace.** The first implementation split
+on the space character only, so a tab or a line feed survived. §4.2 collapses any whitespace run.
 
 **Phase 1 — §3's "one iterative pass" cannot be used, and the strategy that works is not obvious.**
 An iterative walk has to reach each child with `collections::get` on a `List OF Node`, which returns

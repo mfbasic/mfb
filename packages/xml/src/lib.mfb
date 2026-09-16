@@ -218,6 +218,126 @@ EXPORT FUNC stringify(n AS Node, indent AS String) AS String
 END FUNC
 
 ' ---------------------------------------------------------------------------
+' Querying: an XPath 1.0 subset.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC evaluate
+  GROUP Querying
+  DESC Evaluate an XPath 1.0 expression against `doc` and return whatever kind
+  DESC of value it produces.
+  DESC
+  DESC The supported subset is the abbreviated syntax: absolute and relative
+  DESC paths, `//`, `.`, `..`, name and node-type tests, `@name` and `@*`,
+  DESC predicates, filter expressions like `(//a)[1]`, the usual operators, and
+  DESC the common core functions. Anything recognizable as XPath but outside the
+  DESC subset -- an unabbreviated axis such as `child::a`, a variable, or a
+  DESC function this package does not implement -- is refused as unsupported
+  DESC rather than misread.
+  DESC
+  DESC Namespace prefixes are NOT resolved: `p:name` matches the literal name
+  DESC `p:name`, exactly as the reader stores it.
+  ARG doc The document to query.
+  ARG expr The XPath expression.
+  RET An `xml::XPathValue`: a node-set, an attribute-set, a string, a number or a boolean.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset, or mixes attributes with other nodes in one node-set.
+END DOC
+EXPORT FUNC evaluate(doc AS Document, expr AS String) AS XPathValue
+  LET index AS List OF IndexedNode = buildIndex(doc)
+  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  RETURN publicValue(index, value)
+END FUNC
+
+DOC
+  FUNC select
+  GROUP Querying
+  DESC Evaluate `expr` and return the nodes it selects, in document order.
+  ARG doc The document to query.
+  ARG expr The XPath expression, which must select nodes rather than attributes or a value.
+  RET The selected nodes, in document order.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  ERROR 77050002 The expression produced something other than a node-set -- use `xml::selectAttributes` for attributes, or `xml::valueOf` for a value.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book id=\"a\">Dune</book><book id=\"b\">Neuromancer</book></catalog>")
+      FOR EACH found IN xml::select(doc, "//book[@id='b']")
+        io::print(xml::textOf(found))
+        ' Neuromancer
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC select(doc AS Document, expr AS String) AS List OF Node
+  LET value AS XPathValue = evaluate(doc, expr)
+  MATCH value
+    CASE XNodes(n)
+      RETURN n.nodes
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "xml: `" & expr & "` does not select nodes")
+  END MATCH
+END FUNC
+
+DOC
+  FUNC selectAttributes
+  GROUP Querying
+  DESC Evaluate `expr` and return the attributes it selects, in document order.
+  ARG doc The document to query.
+  ARG expr The XPath expression, which must select attributes.
+  RET The selected attributes, in document order.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  ERROR 77050002 The expression produced something other than attributes.
+END DOC
+EXPORT FUNC selectAttributes(doc AS Document, expr AS String) AS List OF Attribute
+  LET value AS XPathValue = evaluate(doc, expr)
+  MATCH value
+    CASE XAttributes(a)
+      RETURN a.attributes
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "xml: `" & expr & "` does not select attributes")
+  END MATCH
+END FUNC
+
+DOC
+  FUNC valueOf
+  GROUP Querying
+  DESC Evaluate `expr` and return its XPath string-value.
+  DESC
+  DESC Every result kind has one: a node-set gives the string-value of its first
+  DESC node in document order, a number is written as XPath writes it (`2`, not
+  DESC `2.00`), and a boolean is `true` or `false`.
+  ARG doc The document to query.
+  ARG expr The XPath expression.
+  RET The string-value of the result.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book>Dune</book><book>Neuromancer</book></catalog>")
+      io::print(xml::valueOf(doc, "count(//book)"))
+      ' 2
+      io::print(xml::valueOf(doc, "//book[1]"))
+      ' Dune
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC valueOf(doc AS Document, expr AS String) AS String
+  LET index AS List OF IndexedNode = buildIndex(doc)
+  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  RETURN stringOfXValue(index, value)
+END FUNC
+
+' ---------------------------------------------------------------------------
 ' Constructors. Each widens a record to `Node` through a typed binding, so a
 ' caller never has to name the variant record type.
 ' ---------------------------------------------------------------------------
