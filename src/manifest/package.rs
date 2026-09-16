@@ -728,7 +728,10 @@ fn imported_type_def(
     // A re-exported FOREIGN type keeps its OWNER's identity (bug-390): an
     // importer of the intermediary and an importer of the owner must name one
     // type, not two.
-    let owner = export.foreign_owner.clone().unwrap_or_else(|| package.to_string());
+    let owner = export
+        .foreign_owner
+        .clone()
+        .unwrap_or_else(|| package.to_string());
     let kind = match export.kind {
         binary_repr::BinaryReprExportKind::Type => ir::ImportedTypeKind::Record,
         binary_repr::BinaryReprExportKind::Union => ir::ImportedTypeKind::Union,
@@ -2269,8 +2272,8 @@ mod tests {
             type_field("y", "Integer"),
             type_field("next", "List OF Point"),
         ];
-        let def = imported_type_def(export, "pkg", &owned(&["Point"]))
-            .expect("record maps to a def");
+        let def =
+            imported_type_def(export, "pkg", &owned(&["Point"])).expect("record maps to a def");
         assert_eq!(def.name, "pkg.Point");
         assert!(matches!(def.kind, ir::ImportedTypeKind::Record));
         assert_eq!(def.fields.len(), 3);

@@ -1300,10 +1300,9 @@ mod tests {
         // Each candidate's parameter types carry the package's identity, so they
         // compare equal to an argument the parser canonicalized the same way.
         assert!(
-            score.iter().all(|overload| overload
-                .param_types
-                .iter()
-                .all(|type_| !matches!(type_, ParameterType::Named(sym) if sym.resolve() == "Vec2"))),
+            score.iter().all(|overload| overload.param_types.iter().all(
+                |type_| !matches!(type_, ParameterType::Named(sym) if sym.resolve() == "Vec2")
+            )),
             "an owned nominal parameter is package-qualified: {:?}",
             score
                 .iter()

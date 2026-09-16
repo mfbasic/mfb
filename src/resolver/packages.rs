@@ -129,17 +129,19 @@ impl Resolver<'_> {
         // surfacing as an argument-type error at an unrelated call.
         let mut visible: HashSet<String> = HashSet::new();
         for export in exports {
-            self.types.insert(crate::types::ParameterType::named(&format!(
-                "{name}.{}",
-                export.name
-            )));
+            self.types
+                .insert(crate::types::ParameterType::named(&format!(
+                    "{name}.{}",
+                    export.name
+                )));
             visible.insert(export.name.clone());
             visible.extend(export.members.iter().cloned());
             for variant in export.variants {
-                self.types.insert(crate::types::ParameterType::named(&format!(
-                    "{name}.{}",
-                    variant.name
-                )));
+                self.types
+                    .insert(crate::types::ParameterType::named(&format!(
+                        "{name}.{}",
+                        variant.name
+                    )));
                 visible.insert(variant.name);
             }
         }

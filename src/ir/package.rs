@@ -120,8 +120,7 @@ pub(crate) fn qualify_package_types(
         .map(|type_decl| type_decl.name.clone())
         .filter(|name| owned.contains_key(name))
         .collect();
-    let rename_name =
-        |name: &str| owned.get(name).map(|owner| format!("{owner}.{name}"));
+    let rename_name = |name: &str| owned.get(name).map(|owner| format!("{owner}.{name}"));
     let rename: &dyn Fn(&str) -> Option<String> = &rename_name;
     let rename_enum_name = |name: &str| {
         enums
