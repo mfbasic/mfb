@@ -1,9 +1,14 @@
 use super::*;
+use crate::intern::Symbol;
+use crate::internal_name;
+use crate::types::ParameterType;
 
 /// Namespace a decoded package's own functions and globals by its deterministic
 /// identity prefix `<id>.<package>` (see `binary_repr::package_identity_id`),
-/// rewriting every internal reference to match. Its own TYPES take the
-/// package-qualified identity `<package>.<Name>` ([`qualify_package_types`]).
+/// rewriting every internal reference to match. The package's PRIVATE types are
+/// scoped by the same identity ([`scope_private_types`]); every type it declares
+/// then takes its package-qualified identity `<package>.<Name>`
+/// ([`qualify_package_types`], bug-632).
 ///
 /// The `<id>` segment makes the prefix content-addressed: identical packages
 /// reached via two dependency paths collapse to one copy at merge time, while
@@ -13,6 +18,10 @@ pub fn prefix_package_symbols(
     id: &str,
     owners: &crate::manifest::package::PackageTypeOwners,
 ) {
+    // Private types are scoped FIRST: that pass gives them an identity-bearing
+    // name, and `qualify_package_types` leaves an already-qualified spelling
+    // alone, so the two compose instead of qualifying a private type twice.
+    scope_private_types(pir, id);
     qualify_package_types(pir, owners);
     let prefix = format!("{id}.{}", pir.name);
     let mut own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
@@ -108,79 +117,56 @@ pub(crate) fn qualify_package_types(
     if owned.is_empty() {
         return;
     }
-    // Two IR positions name a TYPE with a plain string rather than a typed field:
-    // a `CASE Variant(x)` pattern (`IrMatchPattern::Value(Local("Variant"))`) and
-    // an enum member read's target (`MemberAccess { target: Local("Kind") }`).
-    // They are renamed only when the string is one of this package's own type
-    // names, which a local binding can never shadow in those positions.
-    let enums: HashSet<String> = pir
-        .types
-        .iter()
-        .filter(|type_decl| type_decl.kind == "enum")
-        .map(|type_decl| type_decl.name.clone())
-        .filter(|name| owned.contains_key(name))
-        .collect();
-    let rename_name = |name: &str| owned.get(name).map(|owner| format!("{owner}.{name}"));
-    let rename: &dyn Fn(&str) -> Option<String> = &rename_name;
-    let rename_enum_name = |name: &str| {
-        enums
-            .contains(name)
-            .then(|| owned.get(name).map(|owner| format!("{owner}.{name}")))
-            .flatten()
+    // bug-624 gave the shared walk a `Target::Type` for every type annotation and
+    // a `Target::TypeName` for the two VALUE positions that name a type by plain
+    // string — a `CASE Variant(x)` pattern (`Local("Variant")`) and an enum member
+    // read's target (`MemberAccess { target: Local("Kind") }`). Riding it rather
+    // than walking separately is what keeps a position added there qualified here
+    // too, the same way `scope_private_types` rides it.
+    let qualify = |type_: &mut ParameterType| {
+        for_each_nominal(type_, &mut |name| {
+            if let Some(owner) = owned.get(name.resolve()) {
+                *name = Symbol::intern(&format!("{owner}.{}", name.resolve()));
+            }
+        });
     };
-    let rename_enum: &dyn Fn(&str) -> Option<String> = &rename_enum_name;
-    let names = TypeRenames {
-        types: rename,
-        enums: rename_enum,
+    let rename_name = |name: &mut String| {
+        if let Some(owner) = owned.get(name.as_str()) {
+            *name = format!("{owner}.{name}");
+        }
     };
-    let rename = &names;
+    visit_project_targets_mut(pir, &mut |target| match target {
+        Target::Type(type_) => qualify(type_),
+        Target::TypeName(name) => rename_name(name),
+        Target::Function(_) | Target::Global(_) => {}
+    });
 
+    // The declaration side, and the three tables the walk above does not reach.
     for type_decl in &mut pir.types {
-        rename_in_place(&mut type_decl.name, rename.types);
+        rename_name(&mut type_decl.name);
         for include in &mut type_decl.includes {
-            rename_in_place(include, rename.types);
+            rename_name(include);
         }
         for field in &mut type_decl.fields {
-            qualify_type(&mut field.type_, rename);
+            qualify(&mut field.type_);
         }
         for variant in &mut type_decl.variants {
-            rename_in_place(&mut variant.name, rename.types);
+            rename_name(&mut variant.name);
             for field in &mut variant.fields {
-                qualify_type(&mut field.type_, rename);
+                qualify(&mut field.type_);
             }
         }
     }
     for resource in &mut pir.native_resources {
-        rename_in_place(&mut resource.name, rename.types);
-    }
-    for binding in &mut pir.bindings {
-        qualify_type(&mut binding.type_, rename);
-        if let Some(value) = &mut binding.value {
-            qualify_value_types(value, rename);
-        }
-    }
-    for function in &mut pir.functions {
-        for param in &mut function.params {
-            qualify_type(&mut param.type_, rename);
-            if let Some(default) = &mut param.default {
-                qualify_value_types(default, rename);
-            }
-        }
-        qualify_type(&mut function.returns, rename);
-        for op in &mut function.body {
-            qualify_op_types(op, rename);
-        }
-    }
-    if let Some(entry) = &mut pir.entry {
-        qualify_type(&mut entry.returns, rename);
+        rename_name(&mut resource.name);
     }
     for link in &mut pir.link_functions {
         for (_, type_) in &mut link.params {
-            qualify_type(type_, rename);
+            qualify(type_);
         }
-        qualify_type(&mut link.return_type, rename);
+        qualify(&mut link.return_type);
         if let Some(state) = &mut link.return_state_type {
-            qualify_type(state, rename);
+            qualify(state);
         }
     }
     // A `CSTRUCT`'s `maps_to` names one of this package's RECORDS: the layout the
@@ -188,176 +174,7 @@ pub(crate) fn qualify_package_types(
     // the mapping pointing at a name no type has —
     // `CSTRUCT 'SfFormatInfo' maps to 'AudioFormat', which is not a record type`.
     for cstruct in &mut pir.link_cstructs {
-        qualify_type(&mut cstruct.maps_to, rename);
-    }
-}
-
-/// The two renames `qualify_package_types` applies: every owned type name, and
-/// the owned ENUM names alone (for an enum-member read's string target).
-struct TypeRenames<'a> {
-    types: &'a dyn Fn(&str) -> Option<String>,
-    enums: &'a dyn Fn(&str) -> Option<String>,
-}
-
-fn rename_in_place(name: &mut String, rename: &dyn Fn(&str) -> Option<String>) {
-    if let Some(renamed) = rename(name) {
-        *name = renamed;
-    }
-}
-
-fn qualify_type(type_: &mut crate::types::ParameterType, rename: &TypeRenames<'_>) {
-    *type_ = type_.map_nominals(&rename.types);
-}
-
-/// A `CASE` pattern value that names a union variant (or type) by string.
-fn qualify_pattern(pattern: &mut IrValue, rename: &TypeRenames<'_>) {
-    if let IrValue::Local(name) = pattern {
-        rename_in_place(name, rename.types);
-    }
-    qualify_value_types(pattern, rename);
-}
-
-/// Every type annotation in `value` and its descendants.
-fn qualify_value_types(value: &mut IrValue, rename: &TypeRenames<'_>) {
-    crate::ir::value::visit_value_mut(value, &mut |node| {
-        if let IrValue::MemberAccess { target, .. } = node {
-            if let IrValue::Local(name) = target.as_mut() {
-                rename_in_place(name, rename.enums);
-            }
-        }
-        qualify_node_type(node, rename);
-    });
-}
-
-fn qualify_node_type(node: &mut IrValue, rename: &TypeRenames<'_>) {
-    match node {
-        IrValue::Const { type_, .. }
-        | IrValue::LocalRef { type_, .. }
-        | IrValue::FunctionRef { type_, .. }
-        | IrValue::Closure { type_, .. }
-        | IrValue::Capture { type_, .. }
-        | IrValue::Call { type_, .. }
-        | IrValue::CallResult { type_, .. }
-        | IrValue::Checked { type_, .. }
-        | IrValue::Constructor { type_, .. }
-        | IrValue::UnionExtract { type_, .. }
-        | IrValue::ResultValue { type_, .. }
-        | IrValue::WithUpdate { type_, .. }
-        | IrValue::ListLiteral { type_, .. }
-        | IrValue::SetLiteral { type_, .. }
-        | IrValue::MapLiteral { type_, .. }
-        | IrValue::MemberAccess { type_, .. }
-        | IrValue::Binary { type_, .. }
-        | IrValue::Unary { type_, .. } => qualify_type(type_, rename),
-        IrValue::UnionWrap {
-            union_type,
-            member_type,
-            ..
-        } => {
-            qualify_type(union_type, rename);
-            qualify_type(member_type, rename);
-        }
-        IrValue::ResultIsOk { .. }
-        | IrValue::ResultError { .. }
-        | IrValue::Local(_)
-        | IrValue::Global(_) => {}
-    }
-}
-
-/// Every type annotation in `op`, its values and its nested bodies.
-fn qualify_op_types(op: &mut IrOp, rename: &TypeRenames<'_>) {
-    let body = |ops: &mut Vec<IrOp>| {
-        for op in ops {
-            qualify_op_types(op, rename);
-        }
-    };
-    match op {
-        IrOp::Bind { type_, value, .. } => {
-            qualify_type(type_, rename);
-            if let Some(value) = value {
-                qualify_value_types(value, rename);
-            }
-        }
-        IrOp::Assign { value, .. }
-        | IrOp::AssignGlobal { value, .. }
-        | IrOp::StateAssign { value, .. }
-        | IrOp::Eval { value, .. }
-        | IrOp::Fail { error: value, .. }
-        | IrOp::ExitProgram { code: value, .. } => qualify_value_types(value, rename),
-        IrOp::Return { value, .. } => {
-            if let Some(value) = value {
-                qualify_value_types(value, rename);
-            }
-        }
-        IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-        IrOp::If {
-            condition,
-            then_body,
-            else_body,
-            ..
-        } => {
-            qualify_value_types(condition, rename);
-            body(then_body);
-            body(else_body);
-        }
-        IrOp::Match { value, cases, .. } => {
-            qualify_value_types(value, rename);
-            for case in cases {
-                match &mut case.pattern {
-                    IrMatchPattern::Else => {}
-                    IrMatchPattern::Value(pattern) => qualify_pattern(pattern, rename),
-                    IrMatchPattern::OneOf(patterns) => {
-                        for pattern in patterns {
-                            qualify_pattern(pattern, rename);
-                        }
-                    }
-                }
-                if let Some(guard) = &mut case.guard {
-                    qualify_value_types(guard, rename);
-                }
-                body(&mut case.body);
-            }
-        }
-        IrOp::While {
-            condition,
-            body: loop_body,
-            ..
-        }
-        | IrOp::DoUntil {
-            condition,
-            body: loop_body,
-            ..
-        } => {
-            qualify_value_types(condition, rename);
-            body(loop_body);
-        }
-        IrOp::For {
-            type_,
-            start,
-            end,
-            step,
-            body: loop_body,
-            ..
-        } => {
-            qualify_type(type_, rename);
-            qualify_value_types(start, rename);
-            qualify_value_types(end, rename);
-            qualify_value_types(step, rename);
-            body(loop_body);
-        }
-        IrOp::ForEach {
-            type_,
-            iterable,
-            body: loop_body,
-            ..
-        } => {
-            qualify_type(type_, rename);
-            qualify_value_types(iterable, rename);
-            body(loop_body);
-        }
-        IrOp::Trap {
-            body: trap_body, ..
-        } => body(trap_body),
+        qualify(&mut cstruct.maps_to);
     }
 }
 
@@ -397,13 +214,21 @@ pub fn apply_package_identity(
     });
 }
 
-/// A function or global name an IR reference points at, as the package rewrite
-/// and the initialization-order analysis both see it.
+/// A name an IR reference points at, as the package rewrite, the
+/// initialization-order analysis and the private-type scoping all see it.
 enum Target<'a> {
     /// A call target, function reference or closure body name.
     Function(&'a mut String),
     /// A global read or an assignment's global target.
     Global(&'a mut String),
+    /// A type annotation: a parameter, return, binding, loop variable or value
+    /// node's type (bug-624).
+    Type(&'a mut ParameterType),
+    /// A value-position string that names a TYPE: a union `MATCH` case's
+    /// variant pattern (`Local("Frame")`), or the enum an `Enum.Member`
+    /// selection reads (`MemberAccess { target: Local("Color"), type_: Color }`)
+    /// (bug-624).
+    TypeName(&'a mut String),
 }
 
 fn qualify_owned_target(
@@ -427,15 +252,21 @@ fn visit_project_targets_mut(project: &mut IrProject, f: &mut impl FnMut(Target<
             visit_op_targets_mut(op, f);
         }
         for param in &mut function.params {
+            f(Target::Type(&mut param.type_));
             if let Some(default) = &mut param.default {
                 visit_value_targets_mut(default, f);
             }
         }
+        f(Target::Type(&mut function.returns));
     }
     for binding in &mut project.bindings {
+        f(Target::Type(&mut binding.type_));
         if let Some(value) = &mut binding.value {
             visit_value_targets_mut(value, f);
         }
+    }
+    if let Some(entry) = &mut project.entry {
+        f(Target::Type(&mut entry.returns));
     }
 }
 
@@ -451,6 +282,7 @@ pub fn package_referenced_names(package: &mut IrProject) -> HashSet<String> {
         Target::Function(name) | Target::Global(name) => {
             names.insert(name.clone());
         }
+        Target::Type(_) | Target::TypeName(_) => {}
     });
     names
 }
@@ -610,7 +442,8 @@ fn qualify_target(name: &mut String, pkg: &str) {
 
 fn visit_op_targets_mut(op: &mut IrOp, f: &mut impl FnMut(Target<'_>)) {
     match op {
-        IrOp::Bind { value, .. } => {
+        IrOp::Bind { type_, value, .. } => {
+            f(Target::Type(type_));
             if let Some(v) = value {
                 visit_value_targets_mut(v, f);
             }
@@ -646,7 +479,15 @@ fn visit_op_targets_mut(op: &mut IrOp, f: &mut impl FnMut(Target<'_>)) {
             for case in cases {
                 match &mut case.pattern {
                     IrMatchPattern::Else => {}
-                    IrMatchPattern::Value(v) => visit_value_targets_mut(v, f),
+                    IrMatchPattern::Value(v) => {
+                        // A union case's variant pattern lowers to a `Local`
+                        // spelled as the variant's type name (`ir::lower`'s
+                        // `HirMatchPattern::Union` arm).
+                        if let IrValue::Local(name) = v {
+                            f(Target::TypeName(name));
+                        }
+                        visit_value_targets_mut(v, f)
+                    }
                     IrMatchPattern::OneOf(vs) => {
                         for v in vs {
                             visit_value_targets_mut(v, f);
@@ -670,12 +511,14 @@ fn visit_op_targets_mut(op: &mut IrOp, f: &mut impl FnMut(Target<'_>)) {
             }
         }
         IrOp::For {
+            type_,
             start,
             end,
             step,
             body,
             ..
         } => {
+            f(Target::Type(type_));
             visit_value_targets_mut(start, f);
             visit_value_targets_mut(end, f);
             visit_value_targets_mut(step, f);
@@ -691,7 +534,13 @@ fn visit_op_targets_mut(op: &mut IrOp, f: &mut impl FnMut(Target<'_>)) {
             }
             visit_value_targets_mut(condition, f);
         }
-        IrOp::ForEach { iterable, body, .. } => {
+        IrOp::ForEach {
+            type_,
+            iterable,
+            body,
+            ..
+        } => {
+            f(Target::Type(type_));
             visit_value_targets_mut(iterable, f);
             for op in body {
                 visit_op_targets_mut(op, f);
@@ -711,13 +560,309 @@ fn visit_value_targets_mut(value: &mut IrValue, f: &mut impl FnMut(Target<'_>)) 
     // this walk's original unbounded recursion — a capped walk would leave a
     // deep reference unqualified, or a deep dependency unseen.
     crate::ir::value::visit_value_mut(value, &mut |value| match value {
-        IrValue::Call { target, .. } | IrValue::CallResult { target, .. } => {
-            f(Target::Function(target))
+        IrValue::Call { target, type_, .. } | IrValue::CallResult { target, type_, .. } => {
+            f(Target::Function(target));
+            f(Target::Type(type_));
         }
-        IrValue::FunctionRef { name, .. } | IrValue::Closure { name, .. } => {
-            f(Target::Function(name))
+        IrValue::FunctionRef { name, type_ } | IrValue::Closure { name, type_, .. } => {
+            f(Target::Function(name));
+            f(Target::Type(type_));
         }
         IrValue::Global(name) => f(Target::Global(name)),
-        _ => {}
+        IrValue::MemberAccess { target, type_, .. } => {
+            // `Color.Green` reads the enum through a `Local` spelled as its type
+            // name, and yields that same enum type. A field read on a variable
+            // yields the field's type, so it never names itself here.
+            if let IrValue::Local(name) = target.as_mut() {
+                if type_.is_named(name) {
+                    f(Target::TypeName(name));
+                }
+            }
+            f(Target::Type(type_));
+        }
+        IrValue::UnionWrap {
+            union_type,
+            member_type,
+            ..
+        } => {
+            f(Target::Type(union_type));
+            f(Target::Type(member_type));
+        }
+        IrValue::Const { type_, .. }
+        | IrValue::LocalRef { type_, .. }
+        | IrValue::Capture { type_, .. }
+        | IrValue::Checked { type_, .. }
+        | IrValue::Constructor { type_, .. }
+        | IrValue::UnionExtract { type_, .. }
+        | IrValue::ResultValue { type_, .. }
+        | IrValue::WithUpdate { type_, .. }
+        | IrValue::ListLiteral { type_, .. }
+        | IrValue::SetLiteral { type_, .. }
+        | IrValue::MapLiteral { type_, .. }
+        | IrValue::Binary { type_, .. }
+        | IrValue::Unary { type_, .. } => f(Target::Type(type_)),
+        IrValue::Local(_) | IrValue::ResultIsOk { .. } | IrValue::ResultError { .. } => {}
     });
+}
+
+/// bug-624: give every PRIVATE type of a decoded package an identity-scoped
+/// name, and rewrite every reference to it, so neither the importing program
+/// nor another package can see or shadow it.
+///
+/// `merge_package` de-duplicates types by name, first wins. Left bare, a
+/// package's private `TYPE Frame` lost to an importer's own `Frame` and the
+/// package's code was verified and lowered against the importer's fields. The
+/// new name is `#<id>$<name>` — the file-PRIVATE mangle shape (`mangle_private`)
+/// keyed by the package identity instead of a file hash. It carries no `.`, so
+/// no qualified-to-bare fallback in `ir::verify` or codegen equates it with a
+/// bare `Frame`. It is content-addressed like the function prefix, so a diamond
+/// import still collapses to one copy, and two packages that each keep a
+/// private `Frame` stay distinct. A diagnostic renders it as `Frame`
+/// (`internal_name::display_name`).
+///
+/// Three kinds of type keep their spelling:
+///
+/// * The exported surface ([`package_type_surface`]). An importer names those
+///   types bare, and native codegen re-registers them from the `.mfp` type
+///   exports under that bare name, so renaming the merged definition would
+///   split one type in two.
+/// * Builtin package types ([`is_builtin_type_name`]).
+/// * A declaration nothing references as a nominal. That covers a dead type,
+///   which merging drops or keeps harmlessly, and a declaration that shadows a
+///   builtin spelling (`TYPE Integer`). The decoder parses that type's references
+///   as the scalar, so renaming its definition would orphan them.
+fn scope_private_types(pir: &mut IrProject, id: &str) {
+    let surface = package_type_surface(pir);
+    let mut referenced: HashSet<Symbol> = HashSet::new();
+    visit_project_targets_mut(pir, &mut |target| {
+        if let Target::Type(type_) = target {
+            for_each_nominal(type_, &mut |name| {
+                referenced.insert(*name);
+            });
+        }
+    });
+    for ty in &mut pir.types {
+        for field in ty
+            .fields
+            .iter_mut()
+            .chain(ty.variants.iter_mut().flat_map(|v| v.fields.iter_mut()))
+        {
+            for_each_nominal(&mut field.type_, &mut |name| {
+                referenced.insert(*name);
+            });
+        }
+        referenced.extend(ty.variants.iter().map(|v| Symbol::intern(&v.name)));
+        referenced.extend(ty.includes.iter().map(|include| Symbol::intern(include)));
+    }
+
+    let renames: HashMap<Symbol, Symbol> = pir
+        .types
+        .iter()
+        .filter_map(|ty| {
+            let name = Symbol::intern(&ty.name);
+            (!surface.contains(&name)
+                && referenced.contains(&name)
+                && !is_builtin_type_name(&ty.name))
+            .then(|| {
+                let scoped = package_private_type_name(id, &ty.name);
+                (name, Symbol::intern(&scoped))
+            })
+        })
+        .collect();
+    if renames.is_empty() {
+        return;
+    }
+
+    let rename_name = |name: &mut String| {
+        if let Some(scoped) = renames.get(&Symbol::intern(name)) {
+            *name = scoped.resolve().to_string();
+        }
+    };
+    let rename_type = |type_: &mut ParameterType| {
+        for_each_nominal(type_, &mut |name| {
+            if let Some(scoped) = renames.get(name) {
+                *name = *scoped;
+            }
+        });
+    };
+    visit_project_targets_mut(pir, &mut |target| match target {
+        Target::Type(type_) => rename_type(type_),
+        Target::TypeName(name) => rename_name(name),
+        Target::Function(_) | Target::Global(_) => {}
+    });
+    for ty in &mut pir.types {
+        rename_name(&mut ty.name);
+        for include in &mut ty.includes {
+            rename_name(include);
+        }
+        for variant in &mut ty.variants {
+            rename_name(&mut variant.name);
+        }
+        for field in ty
+            .fields
+            .iter_mut()
+            .chain(ty.variants.iter_mut().flat_map(|v| v.fields.iter_mut()))
+        {
+            rename_type(&mut field.type_);
+        }
+    }
+}
+
+/// The types an importer can reach without naming a private one: every
+/// `EXPORT` type, every nominal in an exported function's or binding's
+/// signature, and — transitively — every type named by a field, a union
+/// variant or an include of a type already in the set. A non-exported record
+/// held in an exported record's field is on the surface: the importer receives
+/// values of it, and codegen lays the exported record out through it. A package
+/// built by this compiler never has one — the build rejects an `EXPORT` naming a
+/// non-exported type (`shape::export_names_non_exported_type_diagnostics`,
+/// bug-624 B) — so only a `.mfp` from an older compiler reaches that case here.
+///
+/// Every type a native `LINK` wrapper or `CSTRUCT` names is on it too. Those
+/// wrappers route to thunks and resource tables that the importer keys by the
+/// names in the `.mfp`'s `RESOURCE_TABLE` and type exports.
+fn package_type_surface(pir: &mut IrProject) -> HashSet<Symbol> {
+    const EXPORT: &str = "export";
+    let mut pending: Vec<Symbol> = Vec::new();
+    {
+        let mut seed = |type_: &mut ParameterType| {
+            for_each_nominal(type_, &mut |name| pending.push(*name));
+        };
+        for function in pir.functions.iter_mut().filter(|f| f.visibility == EXPORT) {
+            for param in &mut function.params {
+                seed(&mut param.type_);
+            }
+            seed(&mut function.returns);
+        }
+        for binding in pir.bindings.iter_mut().filter(|b| b.visibility == EXPORT) {
+            seed(&mut binding.type_);
+        }
+        for link in &mut pir.link_functions {
+            for (_, type_) in &mut link.params {
+                seed(type_);
+            }
+            seed(&mut link.return_type);
+            if let Some(state) = &mut link.return_state_type {
+                seed(state);
+            }
+        }
+        for cstruct in &mut pir.link_cstructs {
+            seed(&mut cstruct.maps_to);
+        }
+    }
+    pending.extend(
+        pir.types
+            .iter()
+            .filter(|ty| ty.visibility == EXPORT)
+            .map(|ty| Symbol::intern(&ty.name)),
+    );
+
+    let index: HashMap<Symbol, usize> = pir
+        .types
+        .iter()
+        .enumerate()
+        .map(|(i, ty)| (Symbol::intern(&ty.name), i))
+        .collect();
+    let mut surface = HashSet::new();
+    while let Some(name) = pending.pop() {
+        if !surface.insert(name) {
+            continue;
+        }
+        let Some(&i) = index.get(&name) else {
+            continue;
+        };
+        let ty = &mut pir.types[i];
+        for field in ty
+            .fields
+            .iter_mut()
+            .chain(ty.variants.iter_mut().flat_map(|v| v.fields.iter_mut()))
+        {
+            for_each_nominal(&mut field.type_, &mut |name| pending.push(*name));
+        }
+        pending.extend(ty.variants.iter().map(|v| Symbol::intern(&v.name)));
+        pending.extend(ty.includes.iter().map(|include| Symbol::intern(include)));
+    }
+    surface
+}
+
+/// Whether a type declaration belongs to a builtin package's injected source.
+/// Such a type rides in every importer's IR under one compiler-owned spelling.
+/// That spelling is either package-qualified (`json.Json`, bug-480) or a sigil
+/// internal name (`#json_Node`), so the copies de-duplicate by it and must keep
+/// it. A user declaration can carry neither. `.` is field access, and monomorph
+/// sanitizes it to `$` in an instance name. `#` cannot be lexed, so it appears
+/// only in a file-PRIVATE mangle `#<hash>$<name>`.
+pub(super) fn is_builtin_type_name(name: &str) -> bool {
+    name.contains('.')
+        || (internal_name::strip_sigil(name).is_some()
+            && internal_name::private_name_parts(name).is_none())
+}
+
+/// The identity-scoped spelling of a package-private type (see
+/// [`scope_private_types`]). A type that is already file-PRIVATE
+/// (`#<file hash>$Frame`) is re-hashed with the identity. That keeps it distinct
+/// from the same file's `Frame` in another package, and from the same package's
+/// other files, while keeping the one-hash shape a diagnostic demangles.
+fn package_private_type_name(id: &str, name: &str) -> String {
+    match internal_name::private_name_parts(name) {
+        Some((file_hash, plain)) => internal_name::mangle_private(
+            &internal_name::file_scope_hash(&format!("{id}${file_hash}")),
+            plain,
+        ),
+        None => internal_name::mangle_private(id, name),
+    }
+}
+
+/// Every nominal a type names: a `Named` type, or the template head of a user
+/// generic, at any depth. Exhaustive on purpose. A new `ParameterType` variant
+/// that can hold a nominal must be walked here, or the private type it names is
+/// left unscoped — or, for `shape::export_names_non_exported_type_diagnostics`,
+/// unchecked.
+pub(super) fn for_each_nominal(type_: &mut ParameterType, f: &mut impl FnMut(&mut Symbol)) {
+    match type_ {
+        ParameterType::Named(name) => f(name),
+        ParameterType::UserOf(name, args) => {
+            f(name);
+            for arg in args {
+                for_each_nominal(arg, f);
+            }
+        }
+        ParameterType::ListOf(inner)
+        | ParameterType::SetOf(inner)
+        | ParameterType::ResultOf(inner)
+        | ParameterType::Res(inner) => for_each_nominal(inner, f),
+        ParameterType::MapOf(key, value)
+        | ParameterType::MapEntryOf(key, value)
+        | ParameterType::Stateful {
+            base: key,
+            state: value,
+        } => {
+            for_each_nominal(key, f);
+            for_each_nominal(value, f);
+        }
+        ParameterType::Func(params, returns, _) => {
+            for param in params {
+                for_each_nominal(param, f);
+            }
+            for_each_nominal(returns, f);
+        }
+        ParameterType::ThreadHandle { msg, res, out, .. } => {
+            for_each_nominal(msg, f);
+            for_each_nominal(res, f);
+            for_each_nominal(out, f);
+        }
+        ParameterType::AttributeString
+        | ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing
+        | ParameterType::String
+        | ParameterType::C(_)
+        | ParameterType::Var(_)
+        | ParameterType::Arg(_)
+        | ParameterType::Unknown => {}
+    }
 }

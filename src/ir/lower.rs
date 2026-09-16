@@ -2114,11 +2114,17 @@ fn lower_inline_trap(
             type_,
             explicit_type,
         } => {
+            let value = wrap_trap_slot_value(
+                IrValue::Local(slot.expect("bind target has a value slot")),
+                &success_type,
+                Some(&type_),
+                context,
+            );
             ops.push(IrOp::Bind {
                 mutable,
                 name: name.clone(),
                 type_: type_.clone(),
-                value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
+                value: Some(value),
                 explicit_type,
                 loc: stmt_loc,
             });
@@ -2128,7 +2134,19 @@ fn lower_inline_trap(
             locals.insert(name, type_);
         }
         InlineTrapTarget::Assign { name } => {
-            let value = IrValue::Local(slot.expect("assign target has a value slot"));
+            // The ordinary assign path resolves its target's declared type the
+            // same way before lowering the value with it as `expected`; see the
+            // `HirStatement::Assign` arm.
+            let expected = locals
+                .get(&name)
+                .or_else(|| context.binding_types.get(&name))
+                .cloned();
+            let value = wrap_trap_slot_value(
+                IrValue::Local(slot.expect("assign target has a value slot")),
+                &success_type,
+                expected.as_ref(),
+                context,
+            );
             if locals.contains_key(&name) {
                 ops.push(IrOp::Assign {
                     name,
@@ -2144,6 +2162,10 @@ fn lower_inline_trap(
             }
         }
         InlineTrapTarget::StateAssign { resource } => {
+            // No wrap here: a STATE type must be "a copyable, defaultable data
+            // type" (`TYPE_STATE_INVALID`, 2-203-0085), which rejects a union
+            // outright, so a STATE write can never need the variant->union
+            // coercion the two arms above do.
             ops.push(IrOp::StateAssign {
                 resource,
                 value: IrValue::Local(slot.expect("state-assign target has a value slot")),
@@ -2154,6 +2176,50 @@ fn lower_inline_trap(
     }
 
     ops
+}
+
+/// Coerce an inline-`TRAP`'s staged slot value to the target's declared type.
+///
+/// The slot is typed with the PRODUCER's type, which for `LET v AS Val =
+/// makeNum(7) TRAP …` is the variant `Num`, not the union `Val`. Every other
+/// binding and assignment path runs its value through [`wrap_union_value`],
+/// which inserts the `UnionWrap` that gives the value its `{tag, payload}`
+/// union representation. [`lower_inline_trap`] delivered a bare
+/// `IrValue::Local(slot)` instead, so the binding held an untagged variant:
+/// `MATCH` on it read a tag that was never written and fell through EVERY case,
+/// silently, with a clean exit (bug-642's widened scope). For a RESOURCE union
+/// the same omission also made the bind look like the aliasing shape
+/// (`NirValue::Local` rather than `NirValue::UnionWrap`) to
+/// `runtime::usage::push_op_helpers`, which then declared none of the variants'
+/// close helpers while the used-side scan counted them all — the build failure
+/// bug-642 was filed for.
+///
+/// `variant_belongs_to_union` is a lookup in a by-name table, so a union is not
+/// a variant of itself and an already-union-typed producer (`shapeOf` returning
+/// `Shape`) is left alone. The declared type is `STATE`-stripped for both the
+/// membership test and the wrap, matching what the ordinary path emits for
+/// `RES c AS Chan STATE Cur` (`union: "Chan"`).
+fn wrap_trap_slot_value(
+    value: IrValue,
+    slot_type: &ParameterType,
+    declared: Option<&ParameterType>,
+    context: &LowerContext<'_>,
+) -> IrValue {
+    let Some(declared) = declared else {
+        return value;
+    };
+    let union_type = declared.without_state();
+    if context
+        .type_index
+        .variant_belongs_to_union(slot_type, &union_type)
+    {
+        return IrValue::UnionWrap {
+            union_type,
+            member_type: slot_type.clone(),
+            value: Box::new(value),
+        };
+    }
+    value
 }
 
 /// One call lifted out of an inline-`TRAP` scrutinee (bug-457).

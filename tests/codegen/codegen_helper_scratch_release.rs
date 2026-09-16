@@ -350,7 +350,7 @@ const TCP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_tcp_tcp_localAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_poll", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_pollList", (1, 3, 0)),
-    ("_mfb_rt_tcp_tcp_read", (2, 0, 0)),
+    ("_mfb_rt_tcp_tcp_read", (2, 5, 0)),
     ("_mfb_rt_tcp_tcp_remoteAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_setReadTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_setWriteTimeout", (0, 0, 0)),
@@ -432,7 +432,7 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 6, 0)),
     ("_mfb_rt_tls_tls_write", (0, 0, 0)),
     ("_mfb_rt_tls_tls_writeText", (0, 0, 0)),
 ];
@@ -458,12 +458,16 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
 /// `tests/net/rt_tls_listener_local_address.rs` is the test that catches it, and
 /// the bind-all spelling does NOT: that path parks a rodata pointer.
 const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
-    ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
+    // bug-623 D: the connection and listener ctx blocks moved from the arena to the C
+    // heap (`gen_macos::emit_ctx_calloc` / `emit_ctx_free`), so accept, connect and
+    // listen each allocate one fewer arena block and close / closeListener /
+    // connect's failure exit free one fewer. No guarded scratch release changed.
+    ("_mfb_rt_tls_tls_accept", (1, 0, 0)),
     ("_mfb_rt_tls_tls_close", (0, 1, 0)),
     ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
-    ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
-    ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
+    ("_mfb_rt_tls_tls_connect", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_connectAddr", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_listen", (6, 2, 2)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     // plan-132: `emit_address_from_host_and_port` allocates the scratch host
     // `String` and the record, and frees the scratch once the record holds it.
@@ -483,16 +487,19 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
 /// `emit_cstring`, so they are not scratch blocks and `listen` has only the one.
 const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
-    ("_mfb_rt_tls_tls_close", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_connect", (5, 1, 1)),
-    ("_mfb_rt_tls_tls_connectAddr", (5, 1, 1)),
+    ("_mfb_rt_tls_tls_close", (0, 1, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 1, 0)),
+    // bug-623 C: the 64 KiB wide server-name buffer is freed after its last use on
+    // success, and each failure exit (`fail`, `alloc_fail`) frees it, STATE and the
+    // record after releasing the SSPI handles and the socket: 1 + 3 + 3 frees.
+    ("_mfb_rt_tls_tls_connect", (5, 8, 1)),
+    ("_mfb_rt_tls_tls_connectAddr", (5, 8, 1)),
     ("_mfb_rt_tls_tls_listen", (9, 1, 1)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 2, 0)),
     ("_mfb_rt_tls_tls_write", (1, 0, 0)),
     ("_mfb_rt_tls_tls_writeText", (1, 0, 0)),
 ];

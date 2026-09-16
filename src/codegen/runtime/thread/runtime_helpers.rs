@@ -59,20 +59,54 @@ pub(crate) const THREAD_QUEUE_HEAD_OFFSET: usize = 208;
 pub(crate) const THREAD_QUEUE_TAIL_OFFSET: usize = 216;
 pub(crate) const THREAD_QUEUE_CLOSED_OFFSET: usize = 224;
 pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 232;
-/// Head of a singly-linked list of orphaned message copies to reclaim (bug-147.5b).
+/// Head of a singly-linked list of message copies to reclaim (bug-147.5b, bug-646).
 /// A `thread.send` deep-copies the message before the enqueue commits — since
 /// bug-498 into the SENDER's own arena, never the destination's (allocating from a
-/// peer thread's live arena raced its allocator) — and hands the block across. A
-/// failed send (queue full / closed / cancelled) leaves that copy orphaned, so the
-/// send-failure path pushes it onto this list (under the queue mutex, using the dead
-/// block's own first two words as `{next, size}`), and the reading thread drains +
-/// frees it on its next queue read (also under the mutex). A free only ever touches
-/// the FREEING thread's arena state (`arena_free` pushes onto its own bins and never
-/// asks which arena carved the block), and no arena but the main one is ever
-/// destroyed — so adopting a block another thread allocated is sound, and every
-/// list op is serialized by the mutex both paths already hold.
+/// peer thread's live arena raced its allocator) — and hands the block across.
+/// Two paths orphan that copy, and both park it here (under the queue mutex, using
+/// the dead block's own first two words as `{next, size}`):
+/// - a failed send (queue full / closed / cancelled) never hands the copy over at
+///   all (bug-147.5b);
+/// - a SUCCESSFUL hand-over whose reader has finished with it — `thread::receive` /
+///   `thread::accept` copy the queued block AGAIN into the reader's own arena, after
+///   which the queued block has no owner (bug-646). The reader cannot park it the
+///   instant it is handed out (the copy has not happened yet and a drainer would free
+///   it underneath), so the read helper parks the PREVIOUS read's block on its next
+///   read — see [`THREAD_QUEUE_LAST_READ_PTR_OFFSET`].
+///
+/// **The list is drained by the SENDING side** — [`thread_queue_write_helper`] at the
+/// top of its next write, and [`emit_release_thread_plumbing`] on the spawning thread
+/// when the handle's plumbing is freed. That is deliberate: every block on this list
+/// was carved by the sender, `arena_free` pushes onto the FREEING thread's own bins,
+/// and a worker's bins die with the worker — so draining on the READER (which is what
+/// bug-147.5b did) returned the sender's memory to a heap that is never reused and
+/// only moved the leak. A free only ever touches the freeing thread's arena state
+/// (`arena_free` never asks which arena carved the block), no arena but the main one
+/// is ever destroyed, and every list op is serialized by the queue mutex both sides
+/// hold — except the release drain, which runs after the worker is joined.
 pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
-pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 248;
+/// bug-646: the block the last successful read handed to the reader, and its byte size
+/// (0 = "not reclaimable", the same sentinel the write helper's arg 3 uses — a scalar
+/// message, or a type whose exact copy size we do not compute).
+///
+/// The reader owns this slot: a read stores the block it is about to return here, and
+/// the NEXT read on the same queue moves whatever it finds onto the pending-free list.
+/// One read behind is the earliest safe point — the call site's
+/// `copy_value_to_current_arena` of block N runs after the helper returns, and the
+/// next read on this queue is strictly after that on the same thread (each queue has
+/// exactly one reader: the worker for an inbound queue, the parent for an outbound
+/// one). Whatever is still parked here when the plumbing is released is freed there.
+pub(crate) const THREAD_QUEUE_LAST_READ_PTR_OFFSET: usize = 248;
+pub(crate) const THREAD_QUEUE_LAST_READ_SIZE_OFFSET: usize = 256;
+pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 264;
+/// bug-646: one ring entry is `{value, size}` — the enqueued value (a pointer for
+/// every block-shaped message, the scalar itself otherwise) and the byte size the
+/// sender computed for it, so the reader can hand the block back for reclamation
+/// without knowing its type. The ring was a bare `capacity * 8` value array before.
+pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 16;
+/// `log2(THREAD_QUEUE_ENTRY_SIZE)` — the shift that turns a ring index into a byte
+/// offset.
+pub(crate) const THREAD_QUEUE_ENTRY_SHIFT: u8 = 4;
 
 pub(crate) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
     match platform.family() {
@@ -426,11 +460,12 @@ pub(crate) fn emit_thread_queue_alloc(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_HEAD_OFFSET),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_TAIL_OFFSET),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_CLOSED_OFFSET),
-        abi::move_immediate("%v11", "Integer", "8"),
-        // size = capacity * 8. The limit is upper-bounded in lower_thread_start_helper
-        // so this cannot wrap in practice, but trap the high half anyway (defense in
-        // depth; bug-60): a wrap would size the block tiny while the stored capacity
-        // stays huge, so a later enqueue would index out of the allocation.
+        abi::move_immediate("%v11", "Integer", &THREAD_QUEUE_ENTRY_SIZE.to_string()),
+        // size = capacity * THREAD_QUEUE_ENTRY_SIZE. The limit is upper-bounded in
+        // lower_thread_start_helper so this cannot wrap in practice, but trap the high
+        // half anyway (defense in depth; bug-60): a wrap would size the block tiny while
+        // the stored capacity stays huge, so a later enqueue would index out of the
+        // allocation.
         abi::unsigned_multiply_high_registers("%v12", "%v10", "%v11"),
         abi::compare_immediate("%v12", "0"),
         abi::branch_ne(&size_overflow),
@@ -446,8 +481,9 @@ pub(crate) fn emit_thread_queue_alloc(
     ]);
     raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions.push(abi::branch(done_label));
-    // capacity * 8 wrapped 64 bits: raise the same catchable allocation error as an
-    // oversized request rather than under-allocate the value array (bug-60).
+    // capacity * THREAD_QUEUE_ENTRY_SIZE wrapped 64 bits: raise the same catchable
+    // allocation error as an oversized request rather than under-allocate the ring
+    // (bug-60).
     ctx.instructions.push(abi::label(&size_overflow));
     raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions.extend([
@@ -455,8 +491,10 @@ pub(crate) fn emit_thread_queue_alloc(
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::store_u64(abi::mfb_return(1), "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        // Empty pending-free list (bug-147.5b).
+        // Empty pending-free list (bug-147.5b) and no block handed out yet (bug-646).
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
         abi::move_register(abi::c_arg(0), "%v9"),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
@@ -631,7 +669,7 @@ pub(crate) fn lower_thread_start_helper(
     // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
     const ATTR_OFFSET: usize = 56;
     // Largest queue limit whose `capacity * 8` byte size still fits in 64 bits.
-    const MAX_QUEUE_LIMIT: u64 = u64::MAX / 8;
+    const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
 
     // bug-369: the writable globals region (program globals + `LINK`/`FREE`
     // pointer slots + `term::` state) is addressed off the pinned arena-state
@@ -662,10 +700,13 @@ pub(crate) fn lower_thread_start_helper(
         abi::branch_lt(&invalid_limit),
         abi::compare_immediate(abi::c_arg(3), "1"),
         abi::branch_lt(&invalid_limit),
-        // Upper-bound the queue limit so the later `capacity * 8` value-array size
-        // (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate. The cap
-        // is the largest capacity whose `*8` still fits (u64::MAX / 8); an
-        // out-of-range limit is rejected as an invalid argument (bug-60).
+        // Upper-bound the queue limit so the later `capacity * THREAD_QUEUE_ENTRY_SIZE`
+        // ring size (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate.
+        // The cap is the largest capacity whose scaled size still fits
+        // (`u64::MAX / THREAD_QUEUE_ENTRY_SIZE`); an out-of-range limit is rejected as
+        // an invalid argument (bug-60). bug-646 widened the entry from 8 to 16 bytes
+        // ({value, size}), which halves the cap — no reachable program names a queue
+        // limit anywhere near either bound.
         abi::move_immediate("%v12", "Integer", &MAX_QUEUE_LIMIT.to_string()),
         abi::compare_registers(abi::c_arg(2), "%v12"),
         abi::branch_hi(&invalid_limit),

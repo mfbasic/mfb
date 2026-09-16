@@ -642,6 +642,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     diagnostics.extend(ir::shape::export_in_executable_diagnostics(
         is_package, &ast,
     ));
+    // bug-624 B: a package's EXPORT surface may not name a type it does not
+    // export — the `.mfp` type table would not carry it, and every importer
+    // would reject the package.
+    diagnostics.extend(ir::shape::export_names_non_exported_type_diagnostics(
+        is_package,
+        &source_ir,
+        &options.location,
+    ));
     diagnostics.extend(scope_diagnostics);
     drop(verify_span);
     reporter.phase("verify", verify_start.elapsed());

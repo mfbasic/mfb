@@ -198,6 +198,66 @@ fn a_bind_that_only_aliases_a_live_resource_still_builds() {
     }
 }
 
+/// The bug-642 reproduction, parameterized over the second variant's package and
+/// the variant order.
+fn trap_union_program(other_package: &str, variants: &str) -> String {
+    format!(
+        "IMPORT io\n\
+         IMPORT udp\n\
+         IMPORT {other_package}\n\n\
+         UNION Chan\n\
+         {variants}\n\
+         END UNION\n\n\
+         FUNC openOne(port AS Integer) AS Integer\n\
+        \x20 RES c AS Chan = udp::bind(\"127.0.0.1\", port) TRAP(e)\n\
+        \x20   RETURN 0\n\
+        \x20 END TRAP\n\
+        \x20 RETURN 1\n\
+         END FUNC\n\n\
+         SUB main()\n\
+        \x20 io::print(\"ok=\" & toString(openOne(0)))\n\
+         END SUB\n"
+    )
+}
+
+/// bug-642: a resource union with a variant from a package the program never
+/// calls, bound through an inline `TRAP`, failed the build with
+///
+/// ```text
+/// error: NIR runtime call requires undeclared helper 'fs'
+/// ```
+///
+/// — the mirror image of bug-535, and exactly the over-count
+/// `a_bind_that_only_aliases_a_live_resource_still_builds` above pins against.
+/// The inline-`TRAP` desugar binds the union from a bare local
+/// (`bind c : Chan = local $trap_valN`), which is the aliasing shape: codegen
+/// emits no tag-dispatched close for it, and `runtime::usage::push_op_helpers`
+/// correspondingly declares no variant close helper. The used side
+/// (`validate::capabilities::collect_bind_types`) carries no such gate — it
+/// counts every variant of every bound union type — so the two arms disagree and
+/// the build dies on a compiler-internal name with no code and no location.
+/// Adding any real `fs::` call elsewhere hides it, for the usual accidental
+/// reason.
+#[test]
+fn a_trap_bound_union_with_an_uncalled_variant_package_builds() {
+    // Both variant orders, and a second package, so a fix cannot be an accident
+    // of which variant happens to be first or of `fs` specifically.
+    let cases: &[(&str, &str, &str)] = &[
+        ("b642_fs_second", "fs", "  udp::Socket\n  fs::File"),
+        ("b642_fs_first", "fs", "  fs::File\n  udp::Socket"),
+        ("b642_tcp_second", "tcp", "  udp::Socket\n  tcp::Socket"),
+    ];
+    for (name, package, variants) in cases {
+        let source = trap_union_program(package, variants);
+        if let Err(err) = build(name, &source) {
+            panic!(
+                "a `TRAP`-bound union whose `{package}::` variant is never called must build \
+                 (bug-642), got:\n{err}"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_repaired_program_runs() {
     // A build that stops erroring is not the fix on its own: the module the

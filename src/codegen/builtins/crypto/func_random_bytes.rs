@@ -21,6 +21,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::emit_build_byte_list;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
@@ -73,6 +74,12 @@ pub(crate) fn lower_random_bytes(
     let v11 = vregs.next();
     let v12 = vregs.next();
     let v13 = vregs.next();
+    // bug-625: the entropy buffer is helper scratch, released at the single exit. The
+    // slot is nulled too, so the failure-path wipes below skip a buffer never allocated.
+    let entropy = HelperScratch::declare(&mut vregs, &mut builder.instructions);
+    builder
+        .instructions
+        .push(abi::store_u64(abi::ZERO, abi::stack_pointer(), BUF_OFFSET));
 
     // Validate 0 <= count <= RANDOM_BYTES_MAX_COUNT and stash it. The upper bound
     // rejects an absurd request before the count*ENTRY + HEADER + count size
@@ -99,6 +106,8 @@ pub(crate) fn lower_random_bytes(
     );
     builder.instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
+        abi::move_register(&entropy.pointer, abi::mfb_return(1)),
+        abi::load_u64(&entropy.size, abi::stack_pointer(), COUNT_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
         abi::move_immediate(&v9, "Integer", "0"),
         abi::store_u64(&v9, abi::stack_pointer(), OFF_OFFSET),
@@ -195,26 +204,30 @@ pub(crate) fn lower_random_bytes(
     // Wipe the entropy scratch buffer now that its bytes have been copied into the
     // returned List OF Byte, so a later same-program arena allocation cannot be handed
     // a block still holding the generated random bytes (bug-177 D). Call-free guarded
-    // zero loop. %v9 = cursor, %v10 = count, %v11 = index.
-    let zero_skip = format!("{symbol}_zero_skip");
-    let zero_loop = format!("{symbol}_zero_loop");
-    let zero_end = format!("{symbol}_zero_end");
-    builder.instructions.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), BUF_OFFSET),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_eq(&zero_skip),
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate(&v11, "Integer", "0"),
-        abi::label(&zero_loop),
-        abi::compare_registers(&v11, &v10),
-        abi::branch_eq(&zero_end),
-        abi::store_u8(abi::ZERO, &v9, 0),
-        abi::add_immediate(&v9, &v9, 1),
-        abi::add_immediate(&v11, &v11, 1),
-        abi::branch(&zero_loop),
-        abi::label(&zero_end),
-        abi::label(&zero_skip),
-    ]);
+    // zero loop. %v9 = cursor, %v10 = count, %v11 = index. The failure paths that can
+    // hold a (partly) filled buffer run it too.
+    let wipe = |instructions: &mut Vec<CodeInstruction>, tag: &str| {
+        let zero_skip = format!("{symbol}_{tag}zero_skip");
+        let zero_loop = format!("{symbol}_{tag}zero_loop");
+        let zero_end = format!("{symbol}_{tag}zero_end");
+        instructions.extend([
+            abi::load_u64(&v9, abi::stack_pointer(), BUF_OFFSET),
+            abi::compare_immediate(&v9, "0"),
+            abi::branch_eq(&zero_skip),
+            abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+            abi::move_immediate(&v11, "Integer", "0"),
+            abi::label(&zero_loop),
+            abi::compare_registers(&v11, &v10),
+            abi::branch_eq(&zero_end),
+            abi::store_u8(abi::ZERO, &v9, 0),
+            abi::add_immediate(&v9, &v9, 1),
+            abi::add_immediate(&v11, &v11, 1),
+            abi::branch(&zero_loop),
+            abi::label(&zero_end),
+            abi::label(&zero_skip),
+        ]);
+    };
+    wipe(&mut builder.instructions, "");
 
     builder.instructions.extend([
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
@@ -232,6 +245,7 @@ pub(crate) fn lower_random_bytes(
         &done,
     );
     builder.instructions.push(abi::label(&entropy_fail));
+    wipe(&mut builder.instructions, "ef_");
     emit_fail(
         &symbol,
         "ErrUnknown",
@@ -240,6 +254,7 @@ pub(crate) fn lower_random_bytes(
         &done,
     );
     builder.instructions.push(abi::label(&alloc_fail));
+    wipe(&mut builder.instructions, "af_");
     emit_fail(
         &symbol,
         "ErrOutOfMemory",
@@ -248,9 +263,15 @@ pub(crate) fn lower_random_bytes(
         &done,
     );
 
-    builder
-        .instructions
-        .extend([abi::label(&done), abi::return_()]);
+    builder.instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        &symbol,
+        &[entropy],
+        &mut vregs,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.instructions.push(abi::return_());
 
     Ok(ValueResult {
         origin: None,

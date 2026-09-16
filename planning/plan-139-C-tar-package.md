@@ -23,8 +23,8 @@ See plan-139-A § Prerequisites (all rows must be MET), plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-B complete | every `- [ ]` in `planning/plan-139-B-*.md` ticked | NOT MET (2026-09-15) |
-| `packages/tar` does not exist | `ls packages/tar` → `No such file or directory` | MET (2026-09-15) |
+| plan-139-B complete | every `- [ ]` in `planning/plan-139-B-*.md` ticked | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-B-*.md` → 9 unticked; plan-139-A, which B depends on, is blocked at its `fs` prerequisite gate.) |
+| `packages/tar` does not exist | `ls packages/tar` → `No such file or directory` | MET (re-verified 2026-09-15: `No such file or directory`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run before you
 > continue and before you stop; if you stop, report all prerequisites.

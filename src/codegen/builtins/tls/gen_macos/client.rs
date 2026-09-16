@@ -140,12 +140,18 @@ pub(crate) fn lower_tls_connect_macos(
         &mut rel,
         &mut vregs,
     );
-    // Allocate the block context.
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", CTX_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // Allocate the block context on the C heap (bug-623 D, see `CTX_SIZE`).
+    emit_ctx_calloc(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        CTX_SIZE,
+        &alloc_fail,
+    )?;
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -887,7 +893,19 @@ pub(crate) fn lower_tls_connect_macos(
         abi::load_u32(&v10, &v9, CTX_STATE),
         abi::compare_immediate(&v10, "5"), // nw_connection_state_cancelled
         abi::branch_ne(&cancel_drain),
+        // bug-623: drained to `cancelled`, no handler can reach the ctx any more,
+        // and no receive/send was ever posted on this never-ready connection — so
+        // the ctx this helper allocated goes back to the C heap instead of
+        // leaking one block per failed connect.
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CTX),
     ]);
+    emit_ctx_free(&mut EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions: &mut ins,
+        relocations: &mut rel,
+    })?;
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     // conn_timeout: the deadline elapsed; cancel the connection, report a
     // timeout.
@@ -2211,6 +2229,7 @@ pub(crate) fn lower_tls_close_macos(
         abi::branch_link_register(&v9),
     ]);
     let skip_queue = format!("{symbol}_skip_queue_release");
+    let skip_ctx_free = format!("{symbol}_skip_ctx_free");
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -2241,7 +2260,7 @@ pub(crate) fn lower_tls_close_macos(
         // "cancelled" transition afterwards and does
         // dispatch_semaphore_signal(ctx->sem) — releasing the semaphore now
         // would make that a use-after-free. The single per-connection semaphore
-        // is reclaimed with the arena-allocated ctx block (bug-55: the leaks
+        // is reclaimed with the ctx block (bug-55: the leaks
         // that scale — one per readText/write — are fixed in emit_fresh_sem).
         // plan-76-B Phase 4: free any buffered poll plaintext (arena) and release an
         // unconsumed poll receive's retained content. CTX_PSEM, like ctx->sem, is
@@ -2265,6 +2284,37 @@ pub(crate) fn lower_tls_close_macos(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
         abi::label(&skip_prelease),
+        // bug-623: return the ctx block to the C heap. Safe here and only here:
+        // the cancel drain above waited for the terminal `cancelled` state, so the
+        // state handler cannot run again, and every other tls:: operation checks
+        // REC_CLOSED before it loads REC_CTX. Kept (as before) when a poll
+        // receive (CTX_ARMED) or a timed-out send (CTX_WARMED) is still
+        // outstanding — its completion block holds this address and may still
+        // write through it. A transferred socket's ctx, allocated by another
+        // thread's arena, is freed here too: a free touches only the freeing
+        // thread's bins (bug-623 D, see `CTX_SIZE`). The slot is zeroed after the
+        // free.
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::load_u64(&v10, &v9, REC_CTX),
+        abi::load_u64(&v9, &v10, CTX_ARMED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&skip_ctx_free),
+        abi::load_u64(&v9, &v10, CTX_WARMED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&skip_ctx_free),
+        abi::move_register(abi::c_arg(0), &v10),
+    ]);
+    emit_ctx_free(&mut EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions: &mut ins,
+        relocations: &mut rel,
+    })?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, REC_CTX),
+        abi::label(&skip_ctx_free),
         // Mark closed.
         abi::load_u64(&v9, abi::stack_pointer(), REC),
         abi::move_immediate(&v10, "Integer", "1"),

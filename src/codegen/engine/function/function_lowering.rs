@@ -966,6 +966,11 @@ pub(crate) fn lower_function(
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1120,6 +1125,19 @@ pub(crate) fn lower_function(
     // whole-function pre-pass rather than an incremental map built during lowering, so
     // it does not depend on the order the builder happens to reach the ops in.
     builder.resource_containment = crate::codegen::resource_containment(&function.body);
+    // bug-623 B: which resource bindings own their record, and the alias chains a
+    // returned union follows to its owner. A whole-function pre-pass, like the above.
+    let ownership = {
+        let record_type = |type_: &ParameterType| builder.record_freeable_type(type_);
+        crate::codegen::resource::cleanup::record_ownership::record_ownership(
+            function,
+            functions,
+            &record_type,
+        )
+    };
+    builder.record_owning_locals = ownership.owning_locals;
+    builder.resource_alias_sources = ownership.alias_sources;
+    builder.owned_list_owning_collections = ownership.owning_collections;
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
@@ -1443,6 +1461,11 @@ pub(crate) fn lower_abi_function_helper(
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1604,6 +1627,11 @@ pub(crate) fn lower_thread_copy_function(
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.

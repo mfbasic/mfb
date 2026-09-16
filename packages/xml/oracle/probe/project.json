@@ -1,0 +1,15 @@
+{
+  "name": "xmlprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Answers a JSON job file of read and write cases with packages/xml, and writes one JSON document back in the same order, so the Node and Rust oracles can compare against it.",
+  "sources": [
+    { "root": "src", "role": "main", "include": ["**/*.mfb"] }
+  ],
+  "packages": [
+    { "name": "xml", "version": "=0.1.0", "source": "file:packages/xml.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

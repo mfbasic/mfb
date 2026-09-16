@@ -265,8 +265,9 @@ per-backend resource layout to the header offsets, so a future resource whose
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 Every pointer to a resource shares the one record, and therefore shares the `state`
-pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves
-the 96-byte record itself as a tombstone carrying the flags — see
+pointer. Scope-drop reclaims the two buffers and the `STATE` payload; for most
+kinds it leaves the 96-byte record itself as a tombstone carrying the flags, while the
+`tcp`, `udp` and `tls` handles have their record freed by the owning binding's drop — see
 `./mfb spec memory arenas`.
 
 ## See Also

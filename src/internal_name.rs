@@ -115,12 +115,20 @@ pub fn mangle_private(file_hash: &str, name: &str) -> String {
 /// If `rest` (a sigil-stripped name) is a mangled PRIVATE name `<hash>$<plain>`,
 /// return `<plain>`; otherwise `None`.
 fn strip_private_hash(rest: &str) -> Option<&str> {
+    split_private_hash(rest).map(|(_, plain)| plain)
+}
+
+/// The `(hash, plain)` halves of a mangled PRIVATE name `#<hash>$<plain>` (see
+/// [`mangle_private`]), or `None` for any other name — including a builtin
+/// internal name such as `#json_Node`, whose remainder carries no hash.
+pub fn private_name_parts(name: &str) -> Option<(&str, &str)> {
+    split_private_hash(strip_sigil(name)?)
+}
+
+fn split_private_hash(rest: &str) -> Option<(&str, &str)> {
     let (hash, plain) = rest.split_once('$')?;
-    if hash.len() == FILE_HASH_HEX_LEN && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-        Some(plain)
-    } else {
-        None
-    }
+    (hash.len() == FILE_HASH_HEX_LEN && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then_some((hash, plain))
 }
 
 #[cfg(test)]

@@ -1,0 +1,84 @@
+' ---------------------------------------------------------------------------
+' xml/core.mfb — limits, error codes and byte constants shared by every other
+' file in the package.
+' ---------------------------------------------------------------------------
+
+' ---------------------------------------------------------------------------
+' Limits.
+' ---------------------------------------------------------------------------
+
+' Maximum element nesting. The reader descends one native frame per element
+' level, so nesting depth is native stack depth; this fails cleanly well before
+' the stack runs out. It matches json::parse's 256: real XML (SVG, OOXML) nests
+' deeper than typical YAML configuration, so yaml's 100 would be too low.
+PUBLIC LET DEPTH_LIMIT AS Integer = 256
+
+' Maximum number of nodes (elements, text, comments and processing
+' instructions) one document may hold.
+PUBLIC LET NODE_LIMIT AS Integer = 1000000
+
+' ---------------------------------------------------------------------------
+' Error codes. Standard registry codes are used wherever one carries the right
+' meaning (`mfb spec diagnostics error-codes`); exceeding the node limit has no
+' registry equivalent, so it takes a generator-9 code the package exports.
+' ---------------------------------------------------------------------------
+
+' 9-314-0001: the document holds more than NODE_LIMIT nodes. Exported so an
+' importer matches `xml::ErrorNodeLimit` rather than the integer.
+EXPORT LET ErrorNodeLimit AS Integer = 93140001
+
+' 7-705-0002 errorCode::ErrInvalidArgument — a tree or query argument that
+' cannot be honoured.
+PUBLIC LET ERR_ARGUMENT AS Integer = 77050002
+' 7-705-0003 errorCode::ErrInvalidFormat — malformed XML.
+PUBLIC LET ERR_FORMAT AS Integer = 77050003
+' 7-705-0004 errorCode::ErrNotFound — a missing root element or attribute.
+PUBLIC LET ERR_NOT_FOUND AS Integer = 77050004
+' 7-705-0005 errorCode::ErrAlreadyExists — a duplicate attribute.
+PUBLIC LET ERR_DUPLICATE AS Integer = 77050005
+' 7-705-0007 errorCode::ErrUnsupported — well-formed XML outside the supported
+' scope (a DOCTYPE, a non-UTF-8 encoding, a version other than 1.0).
+PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
+' 7-705-0024 errorCode::ErrDepthExceeded — nesting past DEPTH_LIMIT.
+PUBLIC LET ERR_DEPTH AS Integer = 77050024
+
+' ---------------------------------------------------------------------------
+' Node accounting.
+' ---------------------------------------------------------------------------
+
+' Charge one newly built node against the node budget. `limit` is a parameter
+' rather than NODE_LIMIT directly so the tests can exercise the boundary at a
+' small limit: a guard that is never reached protects nothing.
+PUBLIC FUNC chargeNode(nodes AS Integer, limit AS Integer) AS Integer
+  LET total AS Integer = nodes + 1
+  IF total > limit THEN
+    FAIL error(ErrorNodeLimit, "xml: the document holds more than " & toString(limit) & " nodes")
+  END IF
+  RETURN total
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Byte constants. Every XML delimiter is ASCII, so a byte compare is exact and
+' never splits a multi-byte scalar.
+' ---------------------------------------------------------------------------
+
+PUBLIC LET B_TAB AS Integer = 9
+PUBLIC LET B_LF AS Integer = 10
+PUBLIC LET B_CR AS Integer = 13
+PUBLIC LET B_SPACE AS Integer = 32
+PUBLIC LET B_BANG AS Integer = 33
+PUBLIC LET B_DQUOTE AS Integer = 34
+PUBLIC LET B_HASH AS Integer = 35
+PUBLIC LET B_AMP AS Integer = 38
+PUBLIC LET B_SQUOTE AS Integer = 39
+PUBLIC LET B_DASH AS Integer = 45
+PUBLIC LET B_SLASH AS Integer = 47
+PUBLIC LET B_COLON AS Integer = 58
+PUBLIC LET B_SEMI AS Integer = 59
+PUBLIC LET B_LT AS Integer = 60
+PUBLIC LET B_EQ AS Integer = 61
+PUBLIC LET B_GT AS Integer = 62
+PUBLIC LET B_QUESTION AS Integer = 63
+PUBLIC LET B_LBRACKET AS Integer = 91
+PUBLIC LET B_RBRACKET AS Integer = 93
+PUBLIC LET B_X_LOWER AS Integer = 120

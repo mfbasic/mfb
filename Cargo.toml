@@ -637,12 +637,20 @@ name = "rt_imported_type_qualified_name"
 path = "tests/runtime/rt_imported_type_qualified_name.rs"
 
 [[test]]
+name = "rt_package_private_type_collision"
+path = "tests/runtime/rt_package_private_type_collision.rs"
+
+[[test]]
 name = "rt_imported_union_enum_members"
 path = "tests/runtime/rt_imported_union_enum_members.rs"
 
 [[test]]
 name = "rt_inline_trap_nested_call"
 path = "tests/runtime/rt_inline_trap_nested_call.rs"
+
+[[test]]
+name = "rt_inline_trap_union_bind"
+path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
 [[test]]
 name = "rt_inline_trap_raising_operator"

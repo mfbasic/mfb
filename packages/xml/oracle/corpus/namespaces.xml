@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root xmlns="urn:default" xmlns:p="urn:p" xmlns:q="urn:q">
+  <child p:id="1" q:id="2" plain="3"/>
+  <p:elem xml:lang="en" xml:space="preserve">text</p:elem>
+  <rebound xmlns:p="urn:other"><p:inner/></rebound>
+  <undefault xmlns=""><bare/></undefault>
+</root>

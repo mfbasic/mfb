@@ -1,0 +1,531 @@
+' ---------------------------------------------------------------------------
+' xml/lib.mfb — the package's public API: constructors for building a tree by
+' hand, and accessors for reading one.
+'
+' `xml::parse` (the reader) and `xml::stringify` (the writer) join them in
+' later phases; everything here works on a tree however it was obtained.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+
+DOC
+  PACKAGE
+  DESC Read and write XML 1.0 (Fifth Edition), strictly.
+  DESC
+  DESC `xml::parse` turns UTF-8 XML text into an `xml::Document` -- a tree of
+  DESC `Element`, `Text`, `Comment` and `ProcessingInstruction` nodes -- and
+  DESC `xml::stringify` writes a tree back, compact or pretty-printed. The
+  DESC package owns no filesystem access, exactly as `csv::parse` and
+  DESC `json::parse` own none: read the text and pass the `String`.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<feed><entry id=\"1\">first</entry></feed>")
+      LET feed AS xml::Element = xml::root(doc)
+      io::print(feed.name)
+      ' feed
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC What the reader accepts
+  DESC
+  DESC Elements, attributes, text, CDATA sections, comments and processing
+  DESC instructions; the five predefined entities and numeric character
+  DESC references in decimal and hexadecimal; the XML declaration; a leading
+  DESC UTF-8 BOM; and namespace declarations. Line-end normalization (§2.11)
+  DESC and attribute-value normalization (§3.3.3) are applied while reading.
+  DESC
+  DESC Deliberate limits
+  DESC
+  DESC Reading XML means choosing what to refuse. Every one of these fails with
+  DESC an `Error` rather than repairing the document into something that merely
+  DESC looks similar:
+  INFO No DTD, of any kind. Any `<!DOCTYPE` is refused with
+  INFO `errorCode::ErrUnsupported` -- with or without an internal subset, with
+  INFO or without an external ID. There are no entity declarations, no default
+  INFO attributes and no validation, so a reference to any entity other than
+  INFO `lt`, `gt`, `amp`, `apos` and `quot` is a well-formedness error rather
+  INFO than a lookup.
+  INFO
+  INFO UTF-8 only, XML 1.0 only. An `encoding` naming anything else, or a
+  INFO `version` other than `1.0`, is refused with
+  INFO `errorCode::ErrUnsupported`. Output is always UTF-8.
+  INFO
+  INFO Namespace prefixes are checked but never resolved. Names are kept as the
+  INFO raw `prefix:local` text, so `xml::attr(e, "xlink:href")` finds the
+  INFO attribute by that exact spelling. A prefix must be declared in scope;
+  INFO `xml` is pre-bound and may not be rebound; `xmlns` may not be declared or
+  INFO bound; and two attributes may not share an expanded name. Each violation
+  INFO is `errorCode::ErrInvalidFormat`.
+  INFO
+  INFO Well-formedness is absolute. A mismatched or unclosed tag, a second root
+  INFO element, text outside the root, a literal `]]>` in character data, `--`
+  INFO inside a comment, or a reserved `xml` processing-instruction target is
+  INFO `errorCode::ErrInvalidFormat`. A duplicate attribute name is
+  INFO `errorCode::ErrAlreadyExists`. Nothing is repaired, and this is not an
+  INFO HTML parser: there is no tag-soup recovery, no void elements and no case
+  INFO folding.
+  INFO
+  INFO Expansion is bounded. Elements may nest 256 levels
+  INFO (`errorCode::ErrDepthExceeded`, matching `json::parse`) and a document
+  INFO may hold 1,000,000 nodes (`xml::ErrorNodeLimit`).
+  DESC
+  DESC Content and formatting
+  DESC
+  DESC Content survives every read, write and pretty-print; formatting may
+  DESC change. Content is the tree once comments and processing instructions
+  DESC are removed, adjacent text is merged, and whitespace-only text whose
+  DESC parent also has an element child is dropped as layout -- with attributes
+  DESC compared as a set, since XML gives their order no meaning. Text that is
+  DESC its parent's only content, such as `<a>   </a>`, is data and is kept
+  DESC byte for byte.
+END DOC
+
+' ---------------------------------------------------------------------------
+' Reading.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC parse
+  GROUP Reading
+  DESC Read one XML 1.0 document from `text` and return its tree.
+  DESC
+  DESC Every well-formedness violation is refused rather than repaired, and so
+  DESC is everything outside this reader's scope: any `<!DOCTYPE`, any encoding
+  DESC other than UTF-8, and any version other than 1.0. Namespace prefixes are
+  DESC checked against the declarations in scope but never resolved: names stay
+  DESC as the raw `prefix:local` text.
+  DESC
+  DESC Whitespace-only text nodes between elements are kept in the tree. They
+  DESC are formatting rather than content, and `xml::stringify` re-indents
+  DESC freely, but the reader does not decide that for you.
+  ARG text The XML text. Reading a file is the caller's job: pass `fs::readText(path)`.
+  RET The parsed `xml::Document`.
+  ERROR 77050003 The XML is malformed, or breaks a namespace-prefix constraint.
+  ERROR 77050007 The document uses a construct outside this reader's scope: a DOCTYPE, an encoding other than UTF-8, or a version other than 1.0.
+  ERROR 77050005 An element has two attributes with the same name, or the same expanded name.
+  ERROR 77050024 Elements nest more than 256 levels deep.
+  ERROR 93140001 The document holds more than 1,000,000 nodes.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book id=\"a\">Dune</book></catalog>")
+      LET catalog AS xml::Element = xml::root(doc)
+      io::print(catalog.name & " holds " & toString(len(catalog.children)) & " child")
+      ' catalog holds 1 child
+
+      ' Anything malformed is refused rather than repaired.
+      LET bad AS xml::Document = xml::parse("<a></b>") TRAP(e)
+        io::print("refused: " & toString(e.code))
+        ' refused: 77050003
+        RECOVER doc
+      END TRAP
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC parse(text AS String) AS Document
+  RETURN parseWithLimits(text, NODE_LIMIT)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Writing.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC stringify
+  GROUP Writing
+  DESC Write a document, or a single node, back as XML in the most compact
+  DESC form.
+  DESC
+  DESC Given a `Document` the output carries an
+  DESC `<?xml version="1.0" encoding="UTF-8"?>` declaration and is always
+  DESC UTF-8. Given a `Node` it carries none: the result is a fragment, meant
+  DESC for embedding rather than for saving as a document on its own.
+  DESC
+  DESC Reading the output back gives the same content: the same elements,
+  DESC attributes and text, in the same order. Formatting is not preserved --
+  DESC whitespace the reader kept as layout is written as it was given.
+  DESC
+  DESC A tree that could not be read back is refused rather than written: a
+  DESC name that is not a valid XML name, two attributes sharing a name, text
+  DESC holding a character XML 1.0 forbids, a comment holding `--`, a
+  DESC processing instruction whose data would close it early, or a document
+  DESC without exactly one root element.
+  DESC With `count` or `indent`, the output is pretty-printed instead: each
+  DESC element's children go on their own lines, one level deeper. An element
+  DESC holding text is left exactly as it is written compactly, because
+  DESC indenting inside text would change the text. A `count` clamps to 0..10
+  DESC spaces and an `indent` string is truncated to its first 10 characters;
+  DESC `0` and `""` mean compact, byte for byte.
+  ARG doc The document to write.
+  ARG n The node to write, with everything below it.
+  ARG count How many spaces to indent each level, 0 to 10. 0 is compact.
+  ARG indent The text to indent each level with, such as two spaces or a tab. Empty is compact.
+  RET The XML text.
+  ERROR 77050002 The tree could not be written as XML that reads back the same.
+  ERROR 77050024 The tree nests more than 256 levels deep.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<a><b id=\"1\"/></a>")
+      io::print(xml::stringify(doc))
+      ' <?xml version="1.0" encoding="UTF-8"?><a><b id="1"/></a>
+      io::print(xml::stringify(doc, 2))
+      ' <?xml version="1.0" encoding="UTF-8"?>
+      ' <a>
+      '   <b id="1"/>
+      ' </a>
+
+      ' A Node writes a fragment, with no declaration. root returns the
+      ' Element record, so widen it to a Node first.
+      LET node AS xml::Node = xml::root(doc)
+      io::print(xml::stringify(node))
+      ' <a><b id="1"/></a>
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC stringify(doc AS Document) AS String
+  RETURN writeDocumentCompact(doc)
+END FUNC
+
+EXPORT FUNC stringify(n AS Node) AS String
+  RETURN writeNodeCompact(n, 1)
+END FUNC
+
+EXPORT FUNC stringify(doc AS Document, count AS Integer) AS String
+  RETURN writeDocumentPretty(doc, indentOfCount(count))
+END FUNC
+
+EXPORT FUNC stringify(doc AS Document, indent AS String) AS String
+  RETURN writeDocumentPretty(doc, clampIndent(indent))
+END FUNC
+
+EXPORT FUNC stringify(n AS Node, count AS Integer) AS String
+  RETURN writeNodeIndented(n, indentOfCount(count))
+END FUNC
+
+EXPORT FUNC stringify(n AS Node, indent AS String) AS String
+  RETURN writeNodeIndented(n, clampIndent(indent))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Querying: an XPath 1.0 subset.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC evaluate
+  GROUP Querying
+  DESC Evaluate an XPath 1.0 expression against `doc` and return whatever kind
+  DESC of value it produces.
+  DESC
+  DESC The supported subset is the abbreviated syntax: absolute and relative
+  DESC paths, `//`, `.`, `..`, name and node-type tests, `@name` and `@*`,
+  DESC predicates, filter expressions like `(//a)[1]`, the usual operators, and
+  DESC the common core functions. Anything recognizable as XPath but outside the
+  DESC subset -- an unabbreviated axis such as `child::a`, a variable, or a
+  DESC function this package does not implement -- is refused as unsupported
+  DESC rather than misread.
+  DESC
+  DESC Namespace prefixes are NOT resolved: `p:name` matches the literal name
+  DESC `p:name`, exactly as the reader stores it.
+  ARG doc The document to query.
+  ARG expr The XPath expression.
+  RET An `xml::XPathValue`: a node-set, an attribute-set, a string, a number or a boolean.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset, or mixes attributes with other nodes in one node-set.
+END DOC
+EXPORT FUNC evaluate(doc AS Document, expr AS String) AS XPathValue
+  LET index AS List OF IndexedNode = buildIndex(doc)
+  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  RETURN publicValue(index, value)
+END FUNC
+
+DOC
+  FUNC select
+  GROUP Querying
+  DESC Evaluate `expr` and return the nodes it selects, in document order.
+  ARG doc The document to query.
+  ARG expr The XPath expression, which must select nodes rather than attributes or a value.
+  RET The selected nodes, in document order.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  ERROR 77050002 The expression produced something other than a node-set -- use `xml::selectAttributes` for attributes, or `xml::valueOf` for a value.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book id=\"a\">Dune</book><book id=\"b\">Neuromancer</book></catalog>")
+      FOR EACH found IN xml::select(doc, "//book[@id='b']")
+        io::print(xml::textOf(found))
+        ' Neuromancer
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC select(doc AS Document, expr AS String) AS List OF Node
+  LET value AS XPathValue = evaluate(doc, expr)
+  MATCH value
+    CASE XNodes(n)
+      RETURN n.nodes
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "xml: `" & expr & "` does not select nodes")
+  END MATCH
+END FUNC
+
+DOC
+  FUNC selectAttributes
+  GROUP Querying
+  DESC Evaluate `expr` and return the attributes it selects, in document order.
+  ARG doc The document to query.
+  ARG expr The XPath expression, which must select attributes.
+  RET The selected attributes, in document order.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  ERROR 77050002 The expression produced something other than attributes.
+END DOC
+EXPORT FUNC selectAttributes(doc AS Document, expr AS String) AS List OF Attribute
+  LET value AS XPathValue = evaluate(doc, expr)
+  MATCH value
+    CASE XAttributes(a)
+      RETURN a.attributes
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "xml: `" & expr & "` does not select attributes")
+  END MATCH
+END FUNC
+
+DOC
+  FUNC valueOf
+  GROUP Querying
+  DESC Evaluate `expr` and return its XPath string-value.
+  DESC
+  DESC Every result kind has one: a node-set gives the string-value of its first
+  DESC node in document order, a number is written as XPath writes it (`2`, not
+  DESC `2.00`), and a boolean is `true` or `false`.
+  ARG doc The document to query.
+  ARG expr The XPath expression.
+  RET The string-value of the result.
+  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050007 The expression is outside the supported subset.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book>Dune</book><book>Neuromancer</book></catalog>")
+      io::print(xml::valueOf(doc, "count(//book)"))
+      ' 2
+      io::print(xml::valueOf(doc, "//book[1]"))
+      ' Dune
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC valueOf(doc AS Document, expr AS String) AS String
+  LET index AS List OF IndexedNode = buildIndex(doc)
+  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  RETURN stringOfXValue(index, value)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Constructors. Each widens a record to `Node` through a typed binding, so a
+' caller never has to name the variant record type.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC element
+  GROUP Building
+  DESC Build an element node with `name`, its attributes and its children.
+  ARG name The element name, written as it appears in the document: the raw `prefix:local` text, not a resolved namespace.
+  ARG attributes The attributes in document order. No two may share a name.
+  ARG children The child nodes in document order.
+  RET The element as an `xml::Node`.
+END DOC
+EXPORT FUNC element(name AS String, attributes AS List OF Attribute, children AS List OF Node) AS Node
+  LET n AS Node = Element[name, attributes, children]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC text
+  GROUP Building
+  DESC Build a text node holding `s` verbatim.
+  ARG s The character data. Write it unescaped: `xml::stringify` escapes it.
+  RET The text node as an `xml::Node`.
+END DOC
+EXPORT FUNC text(s AS String) AS Node
+  LET n AS Node = Text[s]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC comment
+  GROUP Building
+  DESC Build a comment node holding `s`.
+  ARG s The comment text, without the `<!--` and `-->` delimiters.
+  RET The comment as an `xml::Node`.
+END DOC
+EXPORT FUNC comment(s AS String) AS Node
+  LET n AS Node = Comment[s]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC pi
+  GROUP Building
+  DESC Build a processing instruction with `target` and `data`.
+  ARG target The instruction target, which may not be any spelling of `xml`.
+  ARG data The instruction data, without the whitespace that separates it from the target.
+  RET The processing instruction as an `xml::Node`.
+END DOC
+EXPORT FUNC pi(target AS String, data AS String) AS Node
+  LET n AS Node = ProcessingInstruction[target, data]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC document
+  GROUP Building
+  DESC Build a document whose top-level nodes are `children`.
+  ARG children The prolog and epilog comments and processing instructions, and exactly one element.
+  RET The `xml::Document`.
+END DOC
+EXPORT FUNC document(children AS List OF Node) AS Document
+  RETURN Document[children]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Accessors.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC root
+  GROUP Reading
+  DESC Return the document's root element.
+  DESC
+  DESC A parsed document always has exactly one; a hand-built one may not, which
+  DESC is the only way this fails.
+  ARG doc The document to read.
+  RET The root `xml::Element`.
+  ERROR 77050004 The document holds no element.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<!--a note--><catalog><book/></catalog>")
+      LET catalog AS xml::Element = xml::root(doc)
+      ' The prolog comment is skipped: the root is the first element.
+      io::print(catalog.name)
+      ' catalog
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC root(doc AS Document) AS Element
+  FOR EACH n IN doc.children
+    MATCH n
+      CASE Element(e)
+        RETURN e
+      CASE ELSE
+    END MATCH
+  NEXT
+  FAIL error(ERR_NOT_FOUND, "xml: the document has no root element")
+END FUNC
+
+DOC
+  FUNC attr
+  GROUP Reading
+  DESC Return the value of `e`'s attribute named `name`.
+  DESC
+  DESC The name is matched literally, including any prefix: this package does
+  DESC not resolve namespaces, so `xlink:href` is found by that exact text.
+  ARG e The element to read.
+  ARG name The attribute name to find.
+  RET The attribute value, after the normalization the reader applied.
+  ERROR 77050004 The element has no attribute with that name.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<a xmlns:xlink=\"urn:x\" xlink:href=\"page\"/>")
+      LET a AS xml::Element = xml::root(doc)
+      ' Prefixes are not resolved, so the name is matched exactly as written.
+      io::print(xml::attr(a, "xlink:href"))
+      ' page
+      io::print(xml::attrOr(a, "title", "none"))
+      ' none
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC attr(e AS Element, name AS String) AS String
+  FOR EACH a IN e.attributes
+    IF a.name = name THEN RETURN a.value
+  NEXT
+  FAIL error(ERR_NOT_FOUND, "xml: element `" & e.name & "` has no attribute `" & name & "`")
+END FUNC
+
+DOC
+  FUNC attrOr
+  GROUP Reading
+  DESC Return the value of `e`'s attribute named `name`, or `fallback` when it has none.
+  ARG e The element to read.
+  ARG name The attribute name to find.
+  ARG fallback The value to return when the attribute is absent.
+  RET The attribute value, or `fallback`.
+END DOC
+EXPORT FUNC attrOr(e AS Element, name AS String, fallback AS String) AS String
+  FOR EACH a IN e.attributes
+    IF a.name = name THEN RETURN a.value
+  NEXT
+  RETURN fallback
+END FUNC
+
+DOC
+  FUNC textOf
+  GROUP Reading
+  DESC Return the text of `n`: every text node at or below it, concatenated in
+  DESC document order.
+  DESC
+  DESC This is XPath's string-value, so comments and processing instructions
+  DESC contribute nothing even though they are kept in the tree.
+  ARG n The node to read.
+  RET The concatenated text, or the empty string when there is none.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<p>Hello <b>big</b> world<!--ignored--></p>")
+      LET node AS xml::Node = xml::root(doc)
+      io::print(xml::textOf(node))
+      ' Hello big world
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC textOf(n AS Node) AS String
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      FOR EACH k IN e.children
+        out = out & textOf(k)
+      NEXT
+    CASE Text(t)
+      out = t.text
+    CASE ELSE
+  END MATCH
+  RETURN out
+END FUNC

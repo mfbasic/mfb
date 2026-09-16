@@ -231,3 +231,99 @@ pub(crate) fn emit_zero_guarded(
         abi::label(&skip),
     ]);
 }
+
+/// Free the `List OF Byte` whose pointer is at `coll_off` — a block
+/// [`emit_build_byte_list`] built with its element count at `len_off` — when the slot is
+/// non-null, then null the slot so a second call frees nothing.
+///
+/// With `wipe`, the whole block is zeroed first: a caller that has byte-copied key
+/// material out of the list must not hand those bytes back to a later same-program
+/// allocation (bug-55, bug-177 D). The size given to `_mfb_arena_free` is the builder's own
+/// `count·stride + HEADER + count`, because the free must receive the allocation's size
+/// (bug-560). The free is a PCS call that clobbers every caller-saved register, so the
+/// caller keeps anything live (the result value) in a frame slot across it (bug-625).
+pub(crate) fn emit_free_byte_list_guarded(
+    symbol: &str,
+    tag: &str,
+    coll_off: usize,
+    len_off: usize,
+    wipe: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let skip = format!("{symbol}_{tag}_free_skip");
+    let block_size = |instructions: &mut Vec<CodeInstruction>| {
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), len_off),
+            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers("%v12", "%v10", "%v11"),
+            abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v12", "%v12", "%v10"),
+        ]);
+    };
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), coll_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+    ]);
+    if wipe {
+        let wipe_loop = format!("{symbol}_{tag}_free_wipe");
+        let wipe_done = format!("{symbol}_{tag}_free_wiped");
+        block_size(instructions);
+        instructions.extend([
+            abi::move_immediate("%v13", "Integer", "0"),
+            abi::label(&wipe_loop),
+            abi::compare_registers("%v13", "%v12"),
+            abi::branch_eq(&wipe_done),
+            abi::add_registers("%v14", "%v9", "%v13"),
+            abi::store_u8(abi::ZERO, "%v14", 0),
+            abi::add_immediate("%v13", "%v13", 1),
+            abi::branch(&wipe_loop),
+            abi::label(&wipe_done),
+        ]);
+    }
+    block_size(instructions);
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), coll_off),
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::move_register(abi::c_arg(1), "%v12"),
+    ]);
+    emit_arena_free(symbol, instructions, relocations);
+    instructions.push(abi::label(&skip));
+}
+
+/// The byte count a scratch buffer was allocated with: read from a frame slot, or a
+/// compile-time constant.
+pub(crate) enum ScratchSize {
+    Slot(usize),
+    Bytes(usize),
+}
+
+/// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with
+/// `size` bytes, which is the size `_mfb_arena_free` must receive (bug-560) — when the
+/// slot is non-null, then null the slot so a second call frees nothing. The same register
+/// contract as [`emit_free_byte_list_guarded`] (bug-625).
+pub(crate) fn emit_free_buffer_guarded(
+    symbol: &str,
+    tag: &str,
+    ptr_off: usize,
+    size: ScratchSize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let skip = format!("{symbol}_{tag}_buf_free_skip");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), ptr_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+        match size {
+            ScratchSize::Slot(len_off) => abi::load_u64("%v12", abi::stack_pointer(), len_off),
+            ScratchSize::Bytes(bytes) => abi::move_immediate("%v12", "Integer", &bytes.to_string()),
+        },
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), ptr_off),
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::move_register(abi::c_arg(1), "%v12"),
+    ]);
+    emit_arena_free(symbol, instructions, relocations);
+    instructions.push(abi::label(&skip));
+}

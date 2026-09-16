@@ -225,7 +225,7 @@ Scan the project for security vulnerabilities and code smells.
 
 Options:
   --format <type>     Output format: text, json (default: text)
-  --locked            Only audit packages defined in project.lock";
+  --locked            Treat a missing or stale mfb.lock as an error, not a warning";
 
 pub(crate) const DOC_HELP: &str = "\
 Usage: mfb doc [options] [path]
@@ -248,3 +248,27 @@ Options:
 
 Example:
   mfb spec types integer";
+
+#[cfg(test)]
+mod tests {
+    /// bug-604: `--locked` does not narrow which packages are audited; it makes a missing
+    /// or stale lockfile an error instead of a warning
+    /// (`audit::collect::findings::lockfile_findings`, `mfb spec tooling audit-format`),
+    /// and the lockfile is `mfb.lock`.
+    #[test]
+    fn audit_help_describes_locked_as_the_lockfile_gate() {
+        let line = super::AUDIT_HELP
+            .lines()
+            .find(|line| line.trim_start().starts_with("--locked"))
+            .expect("AUDIT_HELP documents --locked");
+        assert!(
+            line.contains("mfb.lock") && line.contains("error"),
+            "--locked must describe a missing or stale mfb.lock as an error: {line}"
+        );
+        let wrong_name = concat!("project", ".lock");
+        assert!(
+            !super::AUDIT_HELP.contains(wrong_name),
+            "no help text may name {wrong_name}"
+        );
+    }
+}

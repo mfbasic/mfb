@@ -212,6 +212,26 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
+    /// bug-623 B: locals that provably own the resource record they hold
+    /// (`resource::cleanup::record_ownership`). Only these free the record at drop;
+    /// any other resource binding keeps the close and leaves the record alone.
+    pub(crate) record_owning_locals: HashSet<String>,
+    /// bug-623 B: locals whose single store is a bare `Local(src)` — followed by a
+    /// `RETURN` to find the binding that owns a returned union's box.
+    pub(crate) resource_alias_sources: HashMap<String, String>,
+    /// bug-645: owner collections whose owned-list drain provably owns every block it
+    /// reaches — each element's resource record (and a union element's `{tag,record}`
+    /// box), and the collection block itself. Any other owner collection keeps the
+    /// close-only drain and leaks those blocks
+    /// (`resource::cleanup::record_ownership::owning_collections`).
+    pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
+    /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
+    /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
+    pub(crate) live_resource_aliases: HashMap<String, String>,
+    /// Resource-union alias class: bind-time `name -> src` for a union wrapping a local
+    /// (`RES c AS Union = u`) — the alias whose `RETURN` retires `src`'s close.
+    pub(crate) live_union_wraps: HashMap<String, String>,
     /// plan-118-D: record types this module constructs often enough to get their
     /// own `construct.T` function. A construction of a type in here marshals and
     /// calls instead of inlining the allocation, the failure block, the field
@@ -571,6 +591,11 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_result: false,
             borrow_get_armed: false,
             current_returns_param_borrow: false,
+            record_owning_locals: HashSet::new(),
+            resource_alias_sources: HashMap::new(),
+            owned_list_owning_collections: HashSet::new(),
+            live_resource_aliases: HashMap::new(),
+            live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
@@ -714,6 +739,20 @@ pub(crate) struct ResourceCleanup {
     /// `arena_free` a poison value and segfaulted every `net::` program during
     /// cleanup (plan-52-B Phase 2).
     pub(crate) has_io_buffers: bool,
+    /// bug-623: whether the drop also frees the 96-byte record itself, after the
+    /// close and the block reclaim, and nulls the binding's slot. True only for the
+    /// kinds `CodeBuilder::resource_record_freed_at_drop` names (the `tcp`, `udp`
+    /// and `tls` handles); every other kind keeps its record as the tombstone.
+    pub(crate) frees_record: bool,
+    /// bug-623 D: a successful `thread::transfer` moved this binding's resource to
+    /// another thread. The drop then closes nothing, since the handle is the
+    /// receiver's. It frees only the sender's 96-byte tombstone record, and only
+    /// when that record carries the moved bit, so a transfer that failed frees
+    /// nothing here. The tombstone stays readable until then: every use of the
+    /// binding after the transfer still sees `moved`. Set by
+    /// `retire_moved_resource_cleanup` in place of removing the cleanup, and only
+    /// for a cleanup that `frees_record`.
+    pub(crate) moved_record_only: bool,
 }
 
 #[derive(Clone)]
@@ -726,6 +765,15 @@ pub(crate) struct ResourceUnionCleanup {
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
     pub(crate) state_type: Option<ParameterType>,
+    /// bug-623 B: the variant tags whose record this binding's drop frees after the
+    /// close — the `resource_record_freed_at_drop` variants, and only when the binding
+    /// owns the record (`record_owning_locals`). Empty for a union wrapping a live
+    /// binding, whose record that binding frees.
+    pub(crate) record_free_tags: Vec<usize>,
+    /// Resource-union alias class: whether the drop closes the active variant (and frees
+    /// its STATE). False for a union wrapping an aliasing source (`RES c AS Union = u`),
+    /// whose record another binding owns: that drop frees only the union's own box.
+    pub(crate) closes_variant: bool,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -739,13 +787,24 @@ pub(crate) struct ResourceUnionCleanup {
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
 #[derive(Clone)]
 pub(crate) enum OwnedListDrop {
-    /// A single registered close op applied to each node's record pointer.
-    Concrete(String),
+    /// A single registered close op applied to each node's record pointer, plus what
+    /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
+    /// its two per-`File` I/O buffers, and — for a `resource_record_freed_at_drop`
+    /// kind — the 96-byte record. Exactly the descriptor `ActiveCleanup::Resource`
+    /// carries for a lone binding, because the reclaim is the same one.
+    Concrete {
+        close: String,
+        state_type: Option<ParameterType>,
+        has_io_buffers: bool,
+        frees_record: bool,
+    },
     /// A resource-union element: `(tag, close_symbol)` per variant, plus the
-    /// union's uniform `STATE` type (when it has one) to free after the close.
+    /// union's uniform `STATE` type (when it has one) to free after the close, and the
+    /// variant tags whose record the drain may free (bug-645).
     Union {
         variants: Vec<(usize, String)>,
         state_type: Option<ParameterType>,
+        record_free_tags: Vec<usize>,
     },
 }
 
@@ -757,6 +816,10 @@ pub(crate) struct OwnedListCleanup {
     pub(crate) head_slot: usize,
     /// How each node's resource is closed (concrete close op vs union dispatch).
     pub(crate) drop: OwnedListDrop,
+    /// bug-645: whether this collection provably owns each element's blocks, so the
+    /// drain may free them after the close. False keeps the close-only drain — a
+    /// bounded leak rather than a double free (`record_ownership::owning_collections`).
+    pub(crate) owns_elements: bool,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /

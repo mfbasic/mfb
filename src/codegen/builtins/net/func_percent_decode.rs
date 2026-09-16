@@ -85,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("s", "The percent-encoded path component to decode. Also accepted under the alternate named-argument spellings `text` and `value`, so `net::percentDecode(s := p)`, `net::percentDecode(text := p)`, and `net::percentDecode(value := p)` all bind position 0.", &["text", "value"], ParameterType::String)],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(BODY, "__net_percentDecode"),
         }],
     });

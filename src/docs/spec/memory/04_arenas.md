@@ -346,12 +346,35 @@ null-guarded, so an initializer that traps before storing frees nothing.
 A **resource** is scope-dropped, but on its own terms: drop and close do different
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — since plan-52-B the drop path `arena_free`s the resource's output buffer,
-read buffer, and `STATE` payload, nulling each pointer word as it goes. Only the
-96-byte record itself survives, deliberately, as the tombstone that carries the
-closed flag. Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
+read buffer, and `STATE` payload, nulling each pointer word as it goes. For most
+resource kinds the 96-byte record itself survives, deliberately, as the tombstone that
+carries the closed flag. The `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`
+and `tls.Listener` records are the exception (bug-623): the **owning binding's** drop
+frees the record last, after the close and the block reclaim, and zeroes the slot. The
+owner, not `close`, frees it, because a `close` through a `RES` parameter leaves the
+owner still reading the closed flag, and every non-owning holder lives in the owner's
+scope. An explicit `close` on the owner therefore keeps the drop registered, and the
+drop's re-close is the defined no-op. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
+Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
 copied the `STATE` pointer into the receiver's record, so freeing it here would hand
 another thread a dangling payload. (`./mfb spec language resource-management` specifies the
 close/drop split.) [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
+
+A resource that **floats** into an owner collection (`./mfb spec language
+resource-management` §15.6) has no binding of its own left to drop, so its memory is
+reclaimed by that collection's owned-list drain instead. The drain always frees the
+16-byte `{record, next}` node it allocated for the element, which nothing but the drain
+can name. Everything the node POINTS at — the element's `STATE` block, its per-`File`
+I/O buffers, its record for the five record-freeing kinds above, a union element's
+`{tag, record-ptr}` box, and the collection block itself — is freed only for a
+collection proved to be their one owner (bug-645): every store into it is a collection
+literal or a self-receiving `collections::` mutator, it is never named outside a call's
+argument position, no `collections::get`/`getOr` (nor a `*::poll`) reads an element back
+out of it, and every element that floats into it is a fresh producer record that does
+not escape. A collection that fails any of those keeps a close-only drain, which leaks
+those blocks rather than risking a double free.
+[[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
 Two classes of value are **excluded** from scope-drop frees because they are not
 plain arena blocks this scope owns: **runtime-managed thread

@@ -239,6 +239,12 @@ impl CodeBuilder<'_> {
         if move_elided {
             return Ok((self.lower_value(value)?, true));
         }
+        // bug-623 B: a resource union whose box is already this function's alone
+        // moves to the caller as-is. Reporting it standalone keeps the exit from
+        // re-materializing a copy and orphaning the original 16 B box.
+        if self.returned_resource_union_owns_box(value) {
+            return Ok((self.lower_value(value)?, true));
+        }
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;
             if self.is_freeable_flat_value(&lowered.type_) {
@@ -486,10 +492,49 @@ impl CodeBuilder<'_> {
         // path so the block moves to the caller uncopied. Restore the live cleanup
         // set afterward so a sibling return path or the block's normal exit still
         // frees the binding.
+        // Resource-union alias class: `RETURN c` where `c` wraps a live concrete binding
+        // `u` hands `u`'s record to the caller inside the union, so this path must not
+        // close it — retire `u`'s cleanup for this return exactly as a returned concrete
+        // local's is retired. The runtime identity skip cannot catch it: the escaping
+        // value is the union box, not `u`'s record.
+        //
+        // Every removal a RETURN makes is PATH-LOCAL. `emit_return_exit_inner` retires
+        // the returned local's close (a concrete resource, a resource union, a thread
+        // handle, an owned-list container) with a `deactivate_*` call, which removes the
+        // cleanup from the builder's compile-time list. That list is shared by the code
+        // lowered AFTER this statement — a sibling `RETURN b` after `IF give THEN RETURN a
+        // END IF`, the rest of a loop body whose `RETURN s` only fires on one iteration,
+        // a later TRAP route, the block's own scope exit — none of which returned the
+        // local, so each must still close it. Left permanent, the removal leaked one
+        // descriptor and one record per call on those paths (`udp::bind` failing with
+        // 7-707-0003 under a 128-fd limit). So a `RETURN <local>` restores the cleanup
+        // list it started with once its exit is emitted, the same save/restore
+        // `plan_returned_move` does for an owned value.
+        //
+        // No double close follows: this path's emitted cleanup sequence ran without
+        // the returned local's cleanup, and code after a RETURN on this path is
+        // unreachable, so the restored entry is only ever emitted on paths that did not
+        // return the local. The caller stays its one closer on the path that did.
+        let return_snapshot = match value {
+            Some(NirValue::Local(_)) => Some(self.active_cleanups.clone()),
+            _ => None,
+        };
+        if let Some(root) = value.and_then(|value| self.returned_union_alias_root(value)) {
+            if let Some(index) = self
+                .active_cleanups
+                .iter()
+                .rposition(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+            {
+                self.active_cleanups.remove(index);
+            }
+        }
         let restore_cleanups = self.plan_returned_move(value);
         let result =
             self.emit_return_exit_inner(value, restore_cleanups.is_some(), interior_temp_watermark);
         if let Some(saved) = restore_cleanups {
+            self.active_cleanups = saved;
+        }
+        if let Some(saved) = return_snapshot {
             self.active_cleanups = saved;
         }
         result

@@ -2147,6 +2147,8 @@ pub(crate) fn lower_tls_read_openssl(
     const N_OFFSET: usize = 32;
     const HANDLE_OFFSET: usize = 40;
     const FNPTR_OFFSET: usize = 48;
+    // bug-623: the finished List OF Byte, spilled across the read-buffer free.
+    const RESULT_OFFSET: usize = 56;
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
@@ -2156,6 +2158,20 @@ pub(crate) fn lower_tls_read_openssl(
     let read_timeout = format!("{symbol}_read_timeout");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    // bug-623: an allocation failure once the read buffer exists (the result
+    // list) releases the buffer first; `alloc_fail` is the buffer's own.
+    let result_alloc_fail = format!("{symbol}_result_alloc_fail");
+    // bug-623: release the maxBytes read buffer. Every exit after its allocation
+    // runs this exactly once -- the success path after the copy, each failure
+    // label before raising. Pointer and size reload from the frame: the
+    // dlsym/SSL_read/alloc calls clobber every caller-saved register.
+    let emit_free_read_buffer = |instructions: &mut Vec<CodeInstruction>| {
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFFSET),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+    };
     let entry_loop = format!("{symbol}_entry_loop");
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
@@ -2273,8 +2289,14 @@ pub(crate) fn lower_tls_read_openssl(
         abi::add_registers(abi::return_register(), &v12, &v10),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    emit_alloc(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        &result_alloc_fail,
+    );
     instructions.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KIND),
         abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -2325,12 +2347,16 @@ pub(crate) fn lower_tls_read_openssl(
         abi::add_immediate(&v9, &v9, 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
+    ]);
+    emit_free_read_buffer(&mut instructions);
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
 
     instructions.push(abi::label(&peer_closed));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrConnectionClosed",
@@ -2339,6 +2365,7 @@ pub(crate) fn lower_tls_read_openssl(
         &done,
     );
     instructions.push(abi::label(&read_timeout));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrTimeout",
@@ -2347,6 +2374,7 @@ pub(crate) fn lower_tls_read_openssl(
         &done,
     );
     instructions.push(abi::label(&read_fail));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrTlsFailed",
@@ -2354,7 +2382,10 @@ pub(crate) fn lower_tls_read_openssl(
         &mut relocations,
         &done,
     );
+    // Every `load_fail` branch is taken after the buffer allocation (libssl is
+    // resolved once the buffer exists), so it releases the buffer too.
     instructions.push(abi::label(&load_fail));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrTlsFailed",
@@ -2378,6 +2409,8 @@ pub(crate) fn lower_tls_read_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&result_alloc_fail));
+    emit_free_read_buffer(&mut instructions);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
@@ -2386,6 +2419,8 @@ pub(crate) fn lower_tls_read_openssl(
         &mut relocations,
         &done,
     );
+    // One declaration covers every `arena_free` site above (per (from, to) pair).
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))
