@@ -138,17 +138,8 @@ PUBLIC FUNC childrenOf(index AS List OF IndexedNode, at AS Integer) AS List OF I
   RETURN out
 END FUNC
 
-' Every descendant of `at`, in document order.
-PUBLIC FUNC descendantsOf(index AS List OF IndexedNode, at AS Integer) AS List OF Integer
-  LET stop AS Integer = subtreeEnd(index, at)
-  MUT out AS List OF Integer = []
-  MUT i AS Integer = at + 1
-  DO WHILE i < stop
-    out = collections::append(out, i)
-    i = i + 1
-  LOOP
-  RETURN out
-END FUNC
+' (A `descendantsOf` helper lived here until plan-138-D Phase 4 fused the
+' descendant scan into the step evaluator, which left nothing calling it.)
 
 ' The top-level nodes: everything at depth 0.
 PUBLIC FUNC rootsOf(index AS List OF IndexedNode) AS List OF Integer

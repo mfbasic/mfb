@@ -1,0 +1,299 @@
+' ---------------------------------------------------------------------------
+' Tests: the XPath edges a coverage run exposed.
+'
+' `test_xpath_eval.mfb` covers the subset a user writes every day. This file
+' covers what is left: arithmetic and comparison over NaN and the infinities,
+' the document node, attribute predicates, every branch of the comparison rule,
+' the arity errors, and the parser's remaining refusals.
+'
+' These are not hypothetical. XPath 1.0 requires `1 div 0` to be Infinity and
+' every comparison with NaN to be false, and a reader that quietly answers 0
+' instead -- which this package did until the NaN representation was fixed --
+' gives wrong answers with no error.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC catalog() AS Document
+  RETURN parse("<catalog><book id=\"b1\" lang=\"en\"><title>Dune</title><price>9.99</price></book><book id=\"b2\"><title>Neuromancer</title><price>12.50</price></book></catalog>")
+END FUNC
+
+TESTING
+  TGROUP "arithmetic over the special values"
+    TCASE "an infinity absorbs an ordinary number"
+      expectString(valueOf(catalog(), "string((1 div 0) + 1)"), "Infinity")
+      expectString(valueOf(catalog(), "string(1 - (1 div 0))"), "-Infinity")
+      expectString(valueOf(catalog(), "string((1 div 0) * 2)"), "Infinity")
+      expectString(valueOf(catalog(), "string((1 div 0) div 2)"), "Infinity")
+    END TCASE
+
+    TCASE "the combinations that are NaN"
+      ' Infinity minus infinity, infinity times zero, infinity over infinity.
+      expectString(valueOf(catalog(), "string((1 div 0) + (-1 div 0))"), "NaN")
+      expectString(valueOf(catalog(), "string((1 div 0) * 0)"), "NaN")
+      expectString(valueOf(catalog(), "string((1 div 0) div (1 div 0))"), "NaN")
+      expectString(valueOf(catalog(), "string((1 div 0) mod 2)"), "NaN")
+      expectString(valueOf(catalog(), "string(5 mod 0)"), "NaN")
+    END TCASE
+
+    TCASE "sign is carried through"
+      expectString(valueOf(catalog(), "string(-1 div 0)"), "-Infinity")
+      expectString(valueOf(catalog(), "string((1 div 0) * -2)"), "-Infinity")
+      expectString(valueOf(catalog(), "string((-1 div 0) * -2)"), "Infinity")
+      expectString(valueOf(catalog(), "string(-(1 div 0))"), "-Infinity")
+    END TCASE
+
+    TCASE "a finite number over an infinity is zero"
+      expectString(valueOf(catalog(), "string(2 div (1 div 0))"), "0")
+    END TCASE
+
+    TCASE "NaN propagates through every operator"
+      expectString(valueOf(catalog(), "string((0 div 0) + 1)"), "NaN")
+      expectString(valueOf(catalog(), "string((0 div 0) * 1)"), "NaN")
+      expectString(valueOf(catalog(), "string((0 div 0) div 1)"), "NaN")
+      expectString(valueOf(catalog(), "string((0 div 0) mod 1)"), "NaN")
+      expectString(valueOf(catalog(), "string(-(0 div 0))"), "NaN")
+    END TCASE
+  END TGROUP
+
+  TGROUP "comparisons over the special values"
+    TCASE "every comparison with NaN is false, including NaN != NaN"
+      expectString(valueOf(catalog(), "(0 div 0) = (0 div 0)"), "false")
+      expectString(valueOf(catalog(), "(0 div 0) != (0 div 0)"), "false")
+      expectString(valueOf(catalog(), "(0 div 0) < 1"), "false")
+      expectString(valueOf(catalog(), "(0 div 0) > 1"), "false")
+    END TCASE
+
+    TCASE "infinities compare by rank"
+      expectString(valueOf(catalog(), "(1 div 0) > 1"), "true")
+      expectString(valueOf(catalog(), "(-1 div 0) < 1"), "true")
+      expectString(valueOf(catalog(), "(1 div 0) = (1 div 0)"), "true")
+      expectString(valueOf(catalog(), "(1 div 0) != (1 div 0)"), "false")
+      expectString(valueOf(catalog(), "(1 div 0) < (1 div 0)"), "false")
+      expectString(valueOf(catalog(), "(-1 div 0) < (1 div 0)"), "true")
+      expectString(valueOf(catalog(), "(1 div 0) >= (1 div 0)"), "true")
+    END TCASE
+
+    TCASE "an infinity is true, a NaN is false"
+      expectString(valueOf(catalog(), "boolean(1 div 0)"), "true")
+      expectString(valueOf(catalog(), "boolean(0 div 0)"), "false")
+      expectString(valueOf(catalog(), "boolean(0)"), "false")
+    END TCASE
+  END TGROUP
+
+  TGROUP "the arithmetic branches a coverage run named"
+    TCASE "an empty string, and an empty node-set, are NaN"
+      expectString(valueOf(catalog(), "string(number(''))"), "NaN")
+      expectString(valueOf(catalog(), "string(number(//missing))"), "NaN")
+      expectString(valueOf(catalog(), "string(number('   '))"), "NaN")
+    END TCASE
+
+    TCASE "two infinities of the same sign add to that infinity"
+      expectString(valueOf(catalog(), "string((1 div 0) + (1 div 0))"), "Infinity")
+      expectString(valueOf(catalog(), "string((-1 div 0) + (-1 div 0))"), "-Infinity")
+    END TCASE
+
+    TCASE "negating an infinity flips it, both ways"
+      expectString(valueOf(catalog(), "string(-(-1 div 0))"), "Infinity")
+      expectString(valueOf(catalog(), "string(-(1 div 0))"), "-Infinity")
+    END TCASE
+
+    TCASE "zero times an infinity is NaN with the zero on either side"
+      expectString(valueOf(catalog(), "string(0 * (1 div 0))"), "NaN")
+      expectString(valueOf(catalog(), "string((1 div 0) * 0)"), "NaN")
+    END TCASE
+
+    TCASE "a float that overflows becomes an infinity, not an error"
+      ' MFBASIC raises ErrFloatOverflow where XPath wants Infinity, so the
+      ' overflow is caught and turned into one. 1e308 doubled overflows.
+      expectString(valueOf(catalog(), "string(number('1e308') + number('1e308'))"), "Infinity")
+      expectString(valueOf(catalog(), "string(number('1e308') * 10)"), "Infinity")
+      expectString(valueOf(catalog(), "string(number('1e308') div 0.5)"), "Infinity")
+      expectString(valueOf(catalog(), "string(number('-1e308') * 10)"), "-Infinity")
+    END TCASE
+
+    TCASE "sum() over something that is not a node-set"
+      expectString(valueOf(catalog(), "string(sum('5'))"), "5")
+      expectString(valueOf(catalog(), "string(sum('x'))"), "NaN")
+    END TCASE
+  END TGROUP
+
+  TGROUP "the comparison rule, in every combination"
+    TCASE "node-set against node-set"
+      expectString(valueOf(catalog(), "//title = //title"), "true")
+      expectString(valueOf(catalog(), "//title != //title"), "true")
+      expectString(valueOf(catalog(), "//price > //price"), "true")
+      expectString(valueOf(catalog(), "//title = //price"), "false")
+    END TCASE
+
+    TCASE "node-set against a literal, either way round"
+      expectString(valueOf(catalog(), "//title = 'Dune'"), "true")
+      expectString(valueOf(catalog(), "'Dune' = //title"), "true")
+      expectString(valueOf(catalog(), "9.99 = //price"), "true")
+      expectString(valueOf(catalog(), "//price = 9.99"), "true")
+      expectString(valueOf(catalog(), "100 > //price"), "true")
+      expectString(valueOf(catalog(), "//price < 100"), "true")
+    END TCASE
+
+    TCASE "node-set against a boolean"
+      expectString(valueOf(catalog(), "//book = true()"), "true")
+      expectString(valueOf(catalog(), "//missing = true()"), "false")
+      expectString(valueOf(catalog(), "//book != false()"), "true")
+    END TCASE
+
+    TCASE "boolean against boolean, and string against string"
+      expectString(valueOf(catalog(), "true() = true()"), "true")
+      expectString(valueOf(catalog(), "true() != false()"), "true")
+      expectString(valueOf(catalog(), "true() = false()"), "false")
+      expectString(valueOf(catalog(), "'a' = 'a'"), "true")
+      expectString(valueOf(catalog(), "'a' != 'b'"), "true")
+      ' A RELATIONAL comparison of booleans converts them to 1 and 0 first,
+      ' rather than comparing them as booleans.
+      expectString(valueOf(catalog(), "true() > false()"), "true")
+      expectString(valueOf(catalog(), "true() <= false()"), "false")
+    END TCASE
+
+    TCASE "opposite infinities, and plain numbers, across every operator"
+      expectString(valueOf(catalog(), "(1 div 0) = (-1 div 0)"), "false")
+      expectString(valueOf(catalog(), "(1 div 0) != (-1 div 0)"), "true")
+      expectString(valueOf(catalog(), "(1 div 0) > (-1 div 0)"), "true")
+      expectString(valueOf(catalog(), "1 != 2"), "true")
+      expectString(valueOf(catalog(), "1 <= 2"), "true")
+      expectString(valueOf(catalog(), "2 >= 1"), "true")
+      expectString(valueOf(catalog(), "2 <= 1"), "false")
+    END TCASE
+
+    TCASE "a relational comparison converts both sides to numbers"
+      ' A string on the left and a node-set on the right: the comparison is
+      ' numeric, and the operands keep their order.
+      expectString(valueOf(catalog(), "'9' < //price"), "true")
+      expectString(valueOf(catalog(), "'99' < //price"), "false")
+      expectString(valueOf(catalog(), "//price > '9'"), "true")
+      expectString(valueOf(catalog(), "'1' < '2'"), "true")
+      expectString(valueOf(catalog(), "'2' < '1'"), "false")
+    END TCASE
+
+    TCASE "number against boolean converts the boolean"
+      expectString(valueOf(catalog(), "1 = true()"), "true")
+      expectString(valueOf(catalog(), "0 = false()"), "true")
+      expectString(valueOf(catalog(), "number(true())"), "1")
+      expectString(valueOf(catalog(), "number(false())"), "0")
+    END TCASE
+  END TGROUP
+
+  TGROUP "the document node"
+    TCASE "/ selects the document, whose string-value is all the text"
+      expectString(valueOf(catalog(), "string(/)"), "Dune9.99Neuromancer12.50")
+      expectInteger(len(select(catalog(), "/")), 1)
+    END TCASE
+
+    TCASE "the document node has no parent"
+      expectInteger(len(select(catalog(), "/..")), 0)
+    END TCASE
+
+    TCASE "the string-value of a text node is its own text"
+      expectString(valueOf(catalog(), "string(//text())"), "Dune")
+    END TCASE
+  END TGROUP
+
+  TGROUP "attributes"
+    TCASE "a predicate over an attribute set"
+      expectInteger(len(selectAttributes(catalog(), "//book/@*[1]")), 2)
+      expectInteger(len(selectAttributes(catalog(), "//book/@*[2]")), 1)
+    END TCASE
+
+    TCASE "name() over an attribute"
+      expectString(valueOf(catalog(), "name(//book/@id)"), "id")
+      expectString(valueOf(catalog(), "local-name(//book/@id)"), "id")
+    END TCASE
+
+    TCASE "a step after an attribute step is refused"
+      expectTrap(evaluate(catalog(), "//book/@id/title"), 77050007)
+    END TCASE
+  END TGROUP
+
+  TGROUP "filters and short circuits"
+    TCASE "a filter may be followed by more steps"
+      expectString(valueOf(catalog(), "(//book)[1]/title"), "Dune")
+      expectString(valueOf(catalog(), "(//book)[2]/title"), "Neuromancer")
+      expectInteger(len(select(catalog(), "(//book)[1]//title")), 1)
+    END TCASE
+
+    TCASE "or stops at the first true, and stops at the first false"
+      expectString(valueOf(catalog(), "//book or //missing"), "true")
+      expectString(valueOf(catalog(), "//missing or //book"), "true")
+      expectString(valueOf(catalog(), "//missing and //book"), "false")
+      expectString(valueOf(catalog(), "//book and //title"), "true")
+    END TCASE
+  END TGROUP
+
+  TGROUP "argument errors"
+    TCASE "a function given the wrong kind of argument"
+      expectTrap(evaluate(catalog(), "count('x')"), 77050007)
+      expectTrap(evaluate(catalog(), "name('x')"), 77050007)
+      expectTrap(evaluate(catalog(), "local-name(1)"), 77050007)
+    END TCASE
+
+    TCASE "a function given the wrong number of arguments"
+      expectTrap(evaluate(catalog(), "contains('a')"), 77050003)
+      expectTrap(evaluate(catalog(), "starts-with('a')"), 77050003)
+      expectTrap(evaluate(catalog(), "concat('a')"), 77050003)
+    END TCASE
+
+    TCASE "evaluate refuses a result no Float can hold, and names valueOf"
+      expectTrap(evaluate(catalog(), "1 div 0"), 77050007)
+      expectTrap(evaluate(catalog(), "0 div 0"), 77050007)
+      ' The same expressions are readable as text.
+      expectString(valueOf(catalog(), "string(1 div 0)"), "Infinity")
+    END TCASE
+
+    TCASE "an ordinary boolean result still comes back as one"
+      LET value AS XPathValue = evaluate(catalog(), "//book = 'x'")
+      MATCH value
+        CASE XBoolean(b)
+          expectEqual(b.value, FALSE)
+        CASE ELSE
+          expectString("not a boolean", "a boolean")
+      END MATCH
+    END TCASE
+  END TGROUP
+
+  TGROUP "the parser's remaining refusals"
+    TCASE "a number may begin with a decimal point"
+      expectString(valueOf(catalog(), "string(.5)"), "0.5")
+      expectString(valueOf(catalog(), "string(0.5)"), "0.5")
+    END TCASE
+
+    TCASE "names may hold uppercase letters and digits"
+      expectInteger(len(select(parse("<Doc><Item12/></Doc>"), "//Item12")), 1)
+    END TCASE
+
+    TCASE "a bare colon, and a character XPath has no use for"
+      expectTrap(parseXPath(":"), 77050003)
+      expectTrap(parseXPath("#"), 77050003)
+      expectTrap(parseXPath("]"), 77050003)
+      expectTrap(parseXPath("count("), 77050003)
+    END TCASE
+
+    TCASE "a name followed by ( that is not a node test"
+      expectTrap(parseXPath("a/foo()"), 77050003)
+    END TCASE
+
+    TCASE "a node test with arguments is unsupported"
+      expectTrap(parseXPath("processing-instruction('x')"), 77050007)
+    END TCASE
+
+    TCASE "a filter followed by //"
+      expectInteger(len(select(catalog(), "(//book)//title")), 2)
+    END TCASE
+
+    TCASE "the operator-versus-name rule after a comma"
+      expectString(valueOf(catalog(), "concat('a', 'b')"), "ab")
+      expectInteger(len(select(catalog(), "//book[count(*) = 2]")), 2)
+      ' A `*` straight after a comma is a NAME TEST, not a multiply operator --
+      ' there is no left operand for it to multiply.
+      expectString(valueOf(catalog(), "concat('x', *)"), "xDune9.99Neuromancer12.50")
+    END TCASE
+  END TGROUP
+END TESTING

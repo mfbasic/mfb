@@ -533,6 +533,12 @@ PRIVATE FUNC parsePrimary(tokens AS List OF Token, start AS Integer) AS ParsedEx
       NEXT
       at = rest.at
     END IF
+    ' Parentheses with nothing after them are GROUPING, not a filter. `(1 div 0)`
+    ' is a number in brackets; only `(...)[1]` or `(...)/b` is a filter
+    ' expression, and only those need a node-set.
+    IF len(predicates.predicates) = 0 AND len(following) = 0 THEN
+      RETURN ParsedExpr[inner.expr, at]
+    END IF
     LET value AS Expr = Filter[inner.expr, predicates.predicates, following]
     RETURN ParsedExpr[value, at]
   END IF

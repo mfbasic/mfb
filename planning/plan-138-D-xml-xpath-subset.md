@@ -233,13 +233,30 @@ Acceptance: the query budget holds and the docs describe the subset.
   reported rather than hidden — it is what someone else's build costs this one.
   `./packages/xml/check-doc-examples.sh` → `all 8 example(s) built and ran`, exit 0, including the
   new `select` (`Neuromancer`) and `valueOf` (`2`, `Dune`) examples.
-Commit: —
+Commit: `b6a8d4add`
 
 ## Validation Plan
 
-- Tests: `test_xpath_parse.mfb`, `test_xpath_eval.mfb`.
+- Tests: `test_xpath_parse.mfb`, `test_xpath_eval.mfb`, and `test_xpath_edges.mfb` — added because
+  the coverage check below showed the first two left 146 slots of `xpath_eval.mfb` unexercised.
 - Coverage check: `target/release/mfb test --coverage packages/xml`; every function and operator
   branch in `xpath_eval.mfb` is hit.
+  DONE: `Tests: 249  Pass: 249  Fail: 0`. Slot coverage — `xpath_eval.mfb` **566/569**,
+  `xpath_parse.mfb` **378/382**, `xpath_index.mfb` **86/86**, and the letters A–C files unchanged at
+  `chars` 113/113, `core` 4/4, `lib` 48/48, `scan` 89/89, `write` 173/173, `content` 46/47,
+  `read` 386/391.
+
+  The first run was `xpath_eval.mfb` 434/580, and closing that gap found two more defects (recorded
+  in Corrections) rather than merely adding cases. What remains is unreachable by construction, and is
+  left in place rather than deleted to flatter a number:
+
+  | Line(s) | Why it cannot run |
+  |---|---|
+  | `xpath_eval.mfb` 928-930 | the unknown-function `FAIL` and its terminator — `parseXPath` refuses an unsupported function name first, so evaluation never sees one |
+  | `xpath_parse.mfb` 360 | a bounds guard on `tokenAt`; removing it would turn a parser bug into an out-of-range crash rather than an error |
+  | `xpath_parse.mfb` 372, 389 | the fall-through `RETURN 0` of `precedenceOf`/`operatorOf` — every `T_OP` token's text is an infix operator |
+  | `xpath_parse.mfb` 598 | "expected an expression" — `parseStep` fails first on every input that would reach it |
+  | `content.mfb` 114, `read.mfb` 184/226/337/554/555 | letters A and B's `CASE ELSE` exhaustiveness arm and `RETURN`s after a `FAIL` |
 - Runtime proof: the Phase 4 `/tmp` consumer on 100k nodes.
 - Doc sync: `packages/xml/README.md`, `packages/xml/doc.html`, `DOC` blocks.
 - Final gate: runs once at the end of plan-138-E.
@@ -254,6 +271,23 @@ Commit: —
   which has no XML meaning. (§5)
 
 ## Corrections
+
+**Phase 4 — the coverage check found two more evaluator bugs, not just untested lines.** The first
+`--coverage` run put `xpath_eval.mfb` at 434/580 slots, so the Validation Plan's "every function and
+operator branch is hit" was far from true. Writing the missing cases exposed two defects:
+
+- *Parentheses are grouping, not always a filter.* The parser built a `Filter` node for every
+  parenthesised expression, and the evaluator's filter path demands a node-set — so `(1 div 0)`, a
+  number in brackets, failed with "a filter expression needs a node-set". A filter is a primary
+  expression FOLLOWED BY predicates; with no predicates and no trailing steps the parentheses only
+  group. That one bug hid every special-number test behind it.
+- *Attribute predicates apply per context node too.* `//book/@*[1]` is the first attribute of EACH
+  book — two for a two-book catalogue — but the attribute step filtered the merged list once and
+  returned one. The same defect as the element-step one corrected in Phase 3, in the branch that was
+  never exercised.
+
+Also deleted: `axisFrom`'s descendant-or-self branch and `descendantsOf`, which the Phase 4 fusion
+above orphaned. Coverage is how that came to light.
 
 **Phase 4 — two costs had to come out of the evaluator before the budget held.** The first
 measurement put `count(//item)` at 3.31–3.94 s, over the 3.00 s budget. Both causes were in how a

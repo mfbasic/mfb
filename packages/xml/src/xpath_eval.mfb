@@ -132,14 +132,14 @@ PUBLIC FUNC numberToString(number AS Num) AS String
   ' An integral value prints without a fractional part.
   LET whole AS Integer = toInt(number.value)
   IF number.value = toFloat(whole) THEN RETURN toString(whole)
+  ' Only a non-integral value reaches here -- the integral case returned above --
+  ' so stripping the trailing zeros always leaves a digit after the point, and
+  ' there is never a bare `.` left to remove.
   MUT text AS String = toString(number.value)
   IF strings::contains(text, ".") THEN
     DO WHILE strings::endsWith(text, "0")
       text = strings::mid(text, 0, len(text) - 1)
     LOOP
-    IF strings::endsWith(text, ".") THEN
-      text = strings::mid(text, 0, len(text) - 1)
-    END IF
   END IF
   RETURN text
 END FUNC
@@ -398,24 +398,12 @@ PRIVATE FUNC axisFrom(index AS List OF IndexedNode, at AS Integer, axis AS Integ
     out = collections::append(out, entry.parent)
     RETURN out
   END IF
-  IF axis = AXIS_CHILD THEN
-    IF at < 0 THEN RETURN rootsOf(index)
-    RETURN childrenOf(index, at)
-  END IF
-  ' descendant-or-self
-  out = collections::append(out, at)
-  IF at < 0 THEN
-    MUT i AS Integer = 0
-    DO WHILE i < len(index)
-      out = collections::append(out, i)
-      i = i + 1
-    LOOP
-    RETURN out
-  END IF
-  FOR EACH one IN descendantsOf(index, at)
-    out = collections::append(out, one)
-  NEXT
-  RETURN out
+  ' AXIS_CHILD. The descendant-or-self axis never reaches here: `applyStep`
+  ' scans that range and applies the node test in one pass, because
+  ' materializing it first built a list the size of the document for every `//`
+  ' step (plan-138-D Phase 4).
+  IF at < 0 THEN RETURN rootsOf(index)
+  RETURN childrenOf(index, at)
 END FUNC
 
 ' Sort and de-duplicate a node-set. Document order IS index order, so this is
@@ -506,21 +494,26 @@ END FUNC
 ' Apply one step to a whole node-set.
 PRIVATE FUNC applyStep(index AS List OF IndexedNode, context AS List OF Integer, entry AS PathStep) AS XValue
   IF entry.axis = AXIS_ATTRIBUTE THEN
+    ' Predicates apply PER CONTEXT NODE here too: `//book/@*[1]` is the first
+    ' attribute of EACH book, so a catalogue of two books yields two.
     MUT attrs AS List OF AttrRef = []
     FOR EACH at IN context
       IF at >= 0 THEN
         LET node AS IndexedNode = collections::get(index, at)
+        MUT mine AS List OF AttrRef = []
         MUT i AS Integer = 0
         FOR EACH a IN node.attributes
           IF entry.test = TEST_STAR OR (entry.test = TEST_NAME AND a.name = entry.name) THEN
-            attrs = collections::append(attrs, AttrRef[at, i])
+            mine = collections::append(mine, AttrRef[at, i])
           END IF
           i = i + 1
         NEXT
+        FOR EACH one IN filterAttrs(index, mine, entry.predicates)
+          attrs = collections::append(attrs, one)
+        NEXT
       END IF
     NEXT
-    LET filtered AS List OF AttrRef = filterAttrs(index, attrs, entry.predicates)
-    LET value AS XValue = VAttrs[filtered]
+    LET value AS XValue = VAttrs[attrs]
     RETURN value
   END IF
 
