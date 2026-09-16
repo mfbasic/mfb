@@ -390,7 +390,7 @@ problem — plan-138-A Phase 5 measured `xml::parse` on that exact shape at 0.31
 consumer that parses and counts. The other ~15.3 s was the probe assembling its answer out of nested
 `json::Json` values: storing a deeply nested value copies the whole graph, so at depth 255 the
 envelope construction is quadratic — the same copy behaviour recorded in
-`bugs/bug-647-take-drop-self-reassignment-copies-every-returned-element.md`.
+`bugs/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`.
 
 Fixed in the harness rather than by relaxing the budget: the probe now emits its answer as TEXT,
 escaping each string with `json::stringify` on a single flat `JsonStr`, so no deep graph is ever

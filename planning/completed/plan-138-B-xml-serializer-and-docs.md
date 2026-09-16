@@ -199,7 +199,7 @@ Commit: `ea4d79040`
 - [x] `examples/browser/README.md` — correct the two stale claims plan-138-A measured (arena
       free-list "known open issue"; imported-union recursion), citing the plan-138-A measurements.
       The section also now states what IS still true and why `dom` keeps its work-stack: rebuilding a
-      shared list of subtrees is quadratic (bug-647), which is a different claim from either stale one.
+      shared list of subtrees is quadratic (bug-652), which is a different claim from either stale one.
 
 Acceptance: every documented example compiles and runs.
   Check: `packages/xml/check-doc-examples.sh` → exit 0 (est. 3 min).
