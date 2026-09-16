@@ -151,6 +151,14 @@ text `p:name` — the reader never resolved the prefix, so neither does the quer
 step applies per context node (the first `a` of *each* parent), while a filter
 expression applies to the whole result (the first `a` overall).
 
+**Selecting the document node gives the root element.** `Node` has no form for
+XPath's root node, so `xml::select(doc, "/")` — and `..` from the root element —
+comes back as the document element rather than as the prolog beside it. The
+prolog is still queryable: on `<!--note--><?pi data?><root><a/></root>`,
+`count(//comment())` and `count(//processing-instruction())` are each `1` and
+`count(//node())` is `4`. Inside an expression the root node keeps its own
+identity, so `name(/)` is the empty string, as XPath 1.0 §4.1 says.
+
 Four entry points:
 
 | Function | Returns |

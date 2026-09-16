@@ -447,6 +447,18 @@ const XPATH_FUNCTIONS = {
   },
 };
 
+/**
+ * A prefixed name test is outside these modes (§3's scope decision), and
+ * `xpath.select` used to refuse one outright. The `parse(...).evaluate(...)`
+ * path instead resolves the prefix against the document and quietly answers an
+ * empty node-set -- a LOOSER oracle, which is the one thing an oracle may not
+ * be. Refuse it here, exactly as before.
+ */
+function xpathNamespace(prefix) {
+  if (prefix) throw new Error("Cannot resolve QName " + prefix);
+  return null;
+}
+
 /** npm `xpath`'s resolver protocol: return nothing and the library's own function is used. */
 function xpathFunction(name, namespace) {
   if (namespace) return undefined;
@@ -460,7 +472,9 @@ export function xpath(text, expr) {
 
   let value;
   try {
-    value = xpathLib.parse(expr).evaluate({ node: built.doc, functions: xpathFunction });
+    value = xpathLib
+      .parse(expr)
+      .evaluate({ node: built.doc, functions: xpathFunction, namespaces: xpathNamespace });
   } catch (error) {
     return refuse("unsupported", error.message);
   }

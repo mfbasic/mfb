@@ -676,21 +676,50 @@ function shape(kind, nodes) {
   return parts.join("");
 }
 
+/**
+ * How many times each shape is read before the budget is judged.
+ *
+ * This is a wall-clock budget on a machine that may be running anything else,
+ * and contention can only ever make a read look SLOWER — never faster. So the
+ * fastest of several attempts is the best estimate of what the read actually
+ * costs, and a single sample is not: the same `flat` document measured 1.43 s
+ * and 4.12 s minutes apart at an identical load average, purely because another
+ * checkout was compiling. The budget itself is unchanged; only the estimator is.
+ * Every attempt is printed, so contention stays visible instead of averaged away.
+ */
+const PERF_ATTEMPTS = 3;
+
 function runPerf() {
   const failures = [];
   const notes = [];
   for (const kind of ["flat", "deep", "wide"]) {
     const xml = shape(kind, 100000);
-    const started = process.hrtime.bigint();
-    const results = asked.probe("read", { cases: [{ id: kind, xml }] });
-    const seconds = Number(process.hrtime.bigint() - started) / 1e9;
-    if (!results[0] || !results[0].ok) {
-      failures.push(`${kind}: the package refused a 100k-node document — ${results[0]?.reason}`);
+    const attempts = [];
+    let refused = null;
+    for (let attempt = 0; attempt < PERF_ATTEMPTS; attempt += 1) {
+      const started = process.hrtime.bigint();
+      const results = asked.probe("read", { cases: [{ id: kind, xml }] });
+      attempts.push(Number(process.hrtime.bigint() - started) / 1e9);
+      if (!results[0] || !results[0].ok) {
+        refused = results[0]?.reason;
+        break;
+      }
+    }
+    if (refused !== null) {
+      failures.push(`${kind}: the package refused a 100k-node document — ${refused}`);
       continue;
     }
-    notes.push(`${kind} ${(xml.length / 1024).toFixed(0)} KiB in ${seconds.toFixed(2)} s`);
-    if (seconds > 3) {
-      failures.push(`${kind}: ${seconds.toFixed(2)} s for 100,000 nodes (budget 3.00 s)`);
+    const best = Math.min(...attempts);
+    const spread = attempts.map((seconds) => seconds.toFixed(2)).join("/");
+    notes.push(
+      `${kind} ${(xml.length / 1024).toFixed(0)} KiB in ${best.toFixed(2)} s ` +
+        `(best of ${PERF_ATTEMPTS}: ${spread})`,
+    );
+    if (best > 3) {
+      failures.push(
+        `${kind}: ${best.toFixed(2)} s for 100,000 nodes (budget 3.00 s; ` +
+          `best of ${PERF_ATTEMPTS}: ${spread})`,
+      );
     }
   }
   return { count: 3, failures, diverged: 0, note: notes.join("; ") };

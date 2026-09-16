@@ -191,7 +191,10 @@ impl<'a> xpath_eval::Node<'a> for Handle<'a> {
                 }),
                 roxmltree::NodeType::PI => Some(xpath_eval::ExpandedName {
                     namespace_uri: None,
-                    local_name: node.pi().map(|pi| pi.target.to_string()).unwrap_or_default(),
+                    local_name: node
+                        .pi()
+                        .map(|pi| pi.target.to_string())
+                        .unwrap_or_default(),
                 }),
                 _ => None,
             },
@@ -216,11 +219,9 @@ impl<'a> xpath_eval::Node<'a> for Handle<'a> {
                     .filter(|d| d.is_text())
                     .filter_map(|d| d.text())
                     .collect(),
-                roxmltree::NodeType::PI => node
-                    .pi()
-                    .and_then(|pi| pi.value)
-                    .unwrap_or("")
-                    .to_string(),
+                roxmltree::NodeType::PI => {
+                    node.pi().and_then(|pi| pi.value).unwrap_or("").to_string()
+                }
                 _ => node.text().unwrap_or("").to_string(),
             },
         }
@@ -279,7 +280,10 @@ fn check_declaration(text: &str) -> Option<(&'static str, String)> {
         None => return Some(("parse", "the XML declaration has no version".into())),
         Some("1.0") => {}
         Some(other) => {
-            return Some(("unsupported", format!("XML version {other} is not supported")))
+            return Some((
+                "unsupported",
+                format!("XML version {other} is not supported"),
+            ))
         }
     }
     if let Some(encoding) = pseudo_attribute(declaration, "encoding") {
@@ -351,7 +355,8 @@ fn check_character_references(source: &str) -> Option<(&'static str, String)> {
     let mut at = 0;
     while let Some(found) = text[at..].find("&#") {
         let start = at + found + 2;
-        let (digits, radix) = if bytes.get(start) == Some(&b'x') || bytes.get(start) == Some(&b'X') {
+        let (digits, radix) = if bytes.get(start) == Some(&b'x') || bytes.get(start) == Some(&b'X')
+        {
             (start + 1, 16)
         } else {
             (start, 10)
@@ -365,7 +370,9 @@ fn check_character_references(source: &str) -> Option<(&'static str, String)> {
             Ok(code) => {
                 return Some((
                     "parse",
-                    format!("a character reference names U+{code:04X}, which XML 1.0 does not allow"),
+                    format!(
+                        "a character reference names U+{code:04X}, which XML 1.0 does not allow"
+                    ),
                 ))
             }
             Err(_) => return Some(("parse", "a character reference is malformed".into())),
@@ -710,7 +717,12 @@ fn project(children: &[roxmltree::Node], source: &str) -> Vec<Value> {
             .collect();
 
         let grandchildren: Vec<roxmltree::Node> = child.children().collect();
-        out.push(json!(["e", name, attributes, project(&grandchildren, source)]));
+        out.push(json!([
+            "e",
+            name,
+            attributes,
+            project(&grandchildren, source)
+        ]));
     }
     flush(&mut out, &mut pending, has_element);
     out
@@ -844,7 +856,11 @@ fn xpath_case(case: &Value) -> Value {
                 .collect();
             if !attributes.is_empty() {
                 if attributes.len() != ordered.len() {
-                    return refuse(id, "unsupported", "a node-set mixing attributes with other nodes");
+                    return refuse(
+                        id,
+                        "unsupported",
+                        "a node-set mixing attributes with other nodes",
+                    );
                 }
                 let pairs: Vec<Value> = ordered
                     .iter()
@@ -865,28 +881,26 @@ fn xpath_case(case: &Value) -> Value {
                     // The root node has no form of its own in this envelope,
                     // and selecting it means the document -- so it is reported
                     // as its document element, as the package reports it.
-                    Handle::Tree(inner) if inner.is_root() => {
-                        match inner.first_element_child() {
-                            Some(element) => {
-                                let children: Vec<roxmltree::Node> = element.children().collect();
-                                let name = qualified_element(element);
-                                let mut attrs: Vec<(String, String)> = declarations(element, text);
-                                for attribute in element.attributes() {
-                                    attrs.push((
-                                        qualified(element, attribute.namespace(), attribute.name()),
-                                        attribute.value().to_string(),
-                                    ));
-                                }
-                                attrs.sort_by(|left, right| left.0.cmp(&right.0));
-                                let attrs: Vec<Value> = attrs
-                                    .into_iter()
-                                    .map(|(name, value)| json!([name, value]))
-                                    .collect();
-                                json!(["e", name, attrs, project(&children, text)])
+                    Handle::Tree(inner) if inner.is_root() => match inner.first_element_child() {
+                        Some(element) => {
+                            let children: Vec<roxmltree::Node> = element.children().collect();
+                            let name = qualified_element(element);
+                            let mut attrs: Vec<(String, String)> = declarations(element, text);
+                            for attribute in element.attributes() {
+                                attrs.push((
+                                    qualified(element, attribute.namespace(), attribute.name()),
+                                    attribute.value().to_string(),
+                                ));
                             }
-                            None => json!(["t", ""]),
+                            attrs.sort_by(|left, right| left.0.cmp(&right.0));
+                            let attrs: Vec<Value> = attrs
+                                .into_iter()
+                                .map(|(name, value)| json!([name, value]))
+                                .collect();
+                            json!(["e", name, attrs, project(&children, text)])
                         }
-                    }
+                        None => json!(["t", ""]),
+                    },
                     Handle::Tree(inner) if inner.is_element() => {
                         let children: Vec<roxmltree::Node> = inner.children().collect();
                         let name = qualified_element(*inner);
@@ -965,7 +979,9 @@ fn layout_tree(tree: &Value, indent: &str) -> Result<String, String> {
     if parts.len() != 2 || parts[0].as_str() != Some("doc") {
         return Err("a tree must be [\"doc\", [children]]".into());
     }
-    let children = parts[1].as_array().ok_or("a doc's children must be an array")?;
+    let children = parts[1]
+        .as_array()
+        .ok_or("a doc's children must be an array")?;
     let mut out = Vec::new();
     for child in children {
         out.push(layout_node(child, indent, 0)?);
@@ -985,7 +1001,10 @@ fn layout_node(node: &Value, indent: &str, level: usize) -> Result<String, Strin
         return compact(node);
     }
     let parts = node.as_array().ok_or("a node must be an array")?;
-    let name = parts.get(1).and_then(Value::as_str).ok_or("an element needs a name")?;
+    let name = parts
+        .get(1)
+        .and_then(Value::as_str)
+        .ok_or("an element needs a name")?;
     let attributes = parts.get(2).ok_or("an element needs attributes")?;
     let children = parts
         .get(3)
@@ -1033,7 +1052,10 @@ fn write_node(writer: &mut quick_xml::Writer<Vec<u8>>, node: &Value) -> Result<(
     use quick_xml::events::{BytesEnd, BytesPI, BytesStart, BytesText, Event};
 
     let parts = node.as_array().ok_or("a node must be an array")?;
-    let kind = parts.first().and_then(Value::as_str).ok_or("a node needs a kind")?;
+    let kind = parts
+        .first()
+        .and_then(Value::as_str)
+        .ok_or("a node needs a kind")?;
     let text_at = |index: usize| -> Result<&str, String> {
         parts
             .get(index)
@@ -1073,8 +1095,14 @@ fn write_node(writer: &mut quick_xml::Writer<Vec<u8>>, node: &Value) -> Result<(
                 .ok_or("an element needs an attribute list")?
             {
                 let pair = attribute.as_array().ok_or("an attribute must be a pair")?;
-                let key = pair.first().and_then(Value::as_str).ok_or("an attribute needs a name")?;
-                let value = pair.get(1).and_then(Value::as_str).ok_or("an attribute needs a value")?;
+                let key = pair
+                    .first()
+                    .and_then(Value::as_str)
+                    .ok_or("an attribute needs a name")?;
+                let value = pair
+                    .get(1)
+                    .and_then(Value::as_str)
+                    .ok_or("an attribute needs a value")?;
                 start.push_attribute((key, value));
             }
             let children = parts

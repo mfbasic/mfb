@@ -152,18 +152,42 @@ Acceptance: random queries agree exactly.
   `FAIL fuzz-xpath: 52 of 20000 case(s) disagreed`. `node packages/xml/oracle/diff.mjs xpath` was
   re-run after the oracle change and still reports `ok   xpath: 148 case(s) agreed three ways,
   2 declared divergent`.
-Commit: —
+Commit: `8b12d3d87`
 
 ### Phase 4 — final gate and archive
 
-- [ ] Run the Validation Plan's final gate; record results here.
-- [ ] `packages/xml/oracle/README.md` — XPath section and final "What it found".
-- [ ] `git mv planning/plan-138-A-xml-tree-builder-and-reader.md planning/plan-138-B-xml-serializer-and-docs.md planning/plan-138-C-xml-node-and-rust-oracles.md planning/plan-138-D-xml-xpath-subset.md planning/plan-138-E-xml-xpath-oracles-and-validation.md planning/completed/`
+- [x] Run the Validation Plan's final gate; record results here. Run twice in the end: once on the
+      tree as Phase 3 left it, and once more after the three harness corrections below, so the
+      recorded result is the tree that actually ships rather than an earlier one.
+- [x] `packages/xml/oracle/README.md` — XPath section and final "What it found". The `xpath` and
+      `fuzz-xpath` rows, the namespace-free scope paragraph and the two Phase 3 findings landed in
+      `8b12d3d87`; this phase added the `perf` best-of-three rule and replaced the closing
+      "Nothing is in `divergences.json`" — which had been false since Phase 2 declared one.
+- [x] `git mv planning/plan-138-E-xml-xpath-oracles-and-validation.md planning/completed/`
       (each earlier letter is archived as it completes. This task covers E, plus any letter not yet
-      moved.)
+      moved.) A — D were already archived in `2281f1932`, `47178e067`, `78718cf1b` and `d5df8a6c7`,
+      so only E moved — the command is narrowed to what was actually left, not the five the plan
+      listed when it was written.
 
 Acceptance: the whole feature's gate passes.
   Check: the final gate below → all exit 0.
+  MET, on the final tree:
+  1. `cargo build --release` — `Finished`, exit 0.
+  2. `target/release/mfb test packages/xml` — `Tests: 253  Pass: 253  Fail: 0`, exit 0.
+  3. `packages/xml/check-doc-examples.sh` — `all 8 example(s) built and ran`, exit 0.
+  4. `packages/xml/oracle/fetch-xmlconf.sh` exit 0, then `node packages/xml/oracle/diff.mjs`
+     exit 0 over all nine modes: `corpus` 26, `xmlconf` 2140 (71 accepted, 2069 refused by policy;
+     skipped 14 `NAMESPACE=no`, 27 `TYPE=error`, 87 not UTF-8), `xpath` 148 (2 declared divergent),
+     `fuzz-xpath` 2000, `fuzz-read` 1200, `fuzz-write` 1800, `roundtrip` 430, `mutate` 166,
+     `perf` 3 (flat 1.26 s, deep 1.88 s, wide 0.58 s, each the best of three, budget 3.00 s).
+  5. `cargo test` — correctly NOT run, with the evidence rather than the assumption. Through the
+     whole of plan-138 `git diff --stat main...HEAD -- src/` printed nothing: no letter touched
+     compiler source. The skill's finish step then ran `cargo fmt --all`, which reformatted three
+     `src/codegen/builtins/` files (see Corrections) — whitespace only, no token changed — and
+     `cargo build --release` was re-run afterwards and still reported `Finished`.
+  Coverage: `target/release/mfb test --coverage packages/xml` — exit 0, `Wrote coverage report to
+  .../packages/xml/coverage.html`, and `packages/xml/coverage.covfail` is empty (`wc -l` = 0), so
+  nothing the coverage gate tracks went unexercised.
 Commit: —
 
 ## Validation Plan
@@ -270,6 +294,59 @@ Switching from `xpath.select` to `xpath.parse(...).evaluate(...)` changes the re
 JavaScript value to an XPath value object, so the envelope now tests `instanceof XBoolean/XNumber/
 XString` instead of `typeof`. That distinguishes an empty node-set from an empty string, which
 `typeof` could not.
+
+**Phase 4 — the Phase 3 oracle fix quietly made the Node oracle LOOSER, in a place no mode looks.**
+Switching npm `xpath` from `select(expr, doc)` to `parse(expr).evaluate({node, functions})` was
+needed to install the character-counting functions, but the two entry points do not resolve
+namespace prefixes the same way. A/B-ing the committed oracle against the new one over prefixed,
+default-namespace and namespace-free documents found exactly one difference: `//p:a` on
+`<r xmlns:p="urn:x">...` had been refused (`Cannot resolve QName p`) and now returned an empty
+node-set. A prefixed name test is outside these modes by the Phase 2 scope decision, so no mode
+would ever have caught it — and "quietly answers where it used to refuse" is the one failure mode
+this README says an oracle may not have. A namespace resolver that refuses any non-empty prefix
+restores the old behaviour exactly; the A/B now reports `identical on every case`. Worth recording
+as a general lesson: a refactor made to fix one thing changed a second thing that the test suite
+was structurally unable to see, and only an explicit before/after comparison found it.
+
+**Phase 4 — `perf` was one sample of a wall-clock budget on a shared machine.** The gate's first
+run passed; a re-run minutes later failed with `flat` at 3.97 s against the 3.00 s budget. Three
+further runs at an identical load average gave 1.43 s, 3.51 s and 4.12 s — a 3x spread caused by
+another checkout compiling at 714% CPU, not by anything in this package. Neither weakening the
+budget nor re-running until green is honest, so the ESTIMATOR changed instead: contention can only
+ever make a read look slower, never faster, so `perf` now reads each shape three times and judges
+the 3.00 s budget on the fastest. Every attempt is printed, so contention stays visible. Two
+consecutive runs passed afterwards where two of three had failed before, and the final gate recorded
+`flat 1.26 s (best of 3: 1.26/1.81/2.92)` — the spread the single sample had been drawing from all
+along.
+
+**Phase 4 — the coverage run the Validation Plan asks for leaves four untracked files.**
+`mfb test --coverage packages/xml` writes `coverage.html`, `coverage.covdata`, `coverage.covmap.json`
+and `coverage.covfail` beside the package, and none was ignored — so a blanket `add -A`, which this
+plan's own commits use, would have swept them in. `.gitignore` already ignores `doc.html` for
+exactly this reason and twice records that generated artifacts have been swept into a branch before.
+Added the four, next to the `doc.html` rule.
+
+**Phase 4 — the package README did not say what selecting the document node returns**, which the
+Phase 3 fix had just changed. Written from measurement rather than from the fix: on
+`<!--note--><?pi data?><root><a/></root>`, `count(/)` is 1 and `//a/..` is `root`, while
+`count(//comment())` and `count(//processing-instruction())` are each 1 and `count(//node())` is 4.
+So the prolog stays queryable and only the document node's own identity collapses to the root
+element — and `name(/)` is the empty string, as XPath 1.0 §4.1 says. That distinction is the part a
+caller would otherwise have to discover.
+
+**Phase 4 — `cargo fmt --all` in the finish step found drift that predates this plan.** It
+reformatted `packages/xml/oracle/rust/src/main.rs` (this feature's own file, written across letters
+C and E and never formatted) and also three untouched compiler files:
+`src/codegen/builtins/datetime/func_subtract.rs`, `.../encoding/func_utf8_decode.rs` and
+`.../math/func_rand.rs`. The instinct was to revert those three as unrelated churn. That would have
+been wrong: `.github/workflows/coverage.yml` runs `cargo fmt --all -- --check` as a gate pinned to
+toolchain 1.96.0, and this worktree's `rust-toolchain.toml` pins the same 1.96.0 — `cargo fmt
+--version` reports `rustfmt 1.9.0-stable` either way. So the three files really did differ from
+rustfmt's own output, which means that gate was already failing on main before this plan started.
+Committing the reformat repairs it rather than entangling anything, and `cargo fmt --all -- --check`
+now exits 0. Worth checking rather than assuming, in both directions: reformatting with the WRONG
+rustfmt would have broken the very gate it appears to help, and reverting would have left main's
+gate red.
 
 ## Summary
 

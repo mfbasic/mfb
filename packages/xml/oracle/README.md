@@ -99,7 +99,7 @@ shared would hide exactly the disagreements this oracle exists to find.
 | `fuzz-write` | random trees written by all three writers | both readers read every writer's output back with the tree's content |
 | `roundtrip` | corpus + random trees | `content(read(write(read(x)))) = content(read(x))`, compact and pretty |
 | `mutate` | corpus documents with random byte damage | robustness, not correctness: the probe always answers a well-formed envelope, exits 0, and finishes inside 30 s. Agreement is *reported*, never asserted — damaged input has no right answer |
-| `perf` | generated 100k-node flat, deep and wide documents | `xmlprobe read` of each within 3.00 s |
+| `perf` | generated 100k-node flat, deep and wide documents | `xmlprobe read` of each within 3.00 s, taking the **fastest of three** attempts |
 | `xpath` | `corpus/xpath/*.json` — 148 expressions over `corpus/catalog.xml` | the three XPath engines agree on the result's kind and value |
 | `fuzz-xpath` | expressions drawn from each random tree's own names, attributes and text | the same, over documents nobody wrote by hand |
 
@@ -115,6 +115,19 @@ The XPath engines are a third independent pair: `xpath-eval` over the same
 roxmltree parse on the Rust side, and npm `xpath` over a DOM built from saxes
 events on the Node side. A number is compared as its XPath `string()` text, so
 all three must agree on §4.2 formatting, not merely on the value.
+
+The Node side replaces npm `xpath`'s `string-length`, `substring` and
+`translate`, because §4.2 defines those three over **characters** and JavaScript
+strings count UTF-16 code units — see "What it found". The wrappers check policy
+themselves for the same reason: a dependency's accidents must not become the
+oracle's opinions.
+
+`perf` judges the budget on the fastest of three reads, not on one. Contention
+can only ever make a read look slower — never faster — so on a machine that may
+be compiling something else, the minimum is the honest estimate and a single
+sample is not: the same `flat` document measured 1.43 s and 4.12 s minutes apart
+at an identical load average. The 3.00 s budget is unchanged; every attempt is
+printed, so contention stays visible rather than averaged away.
 
 `mutate`'s damage is a bit flip, a deleted byte, a truncation, an inserted `<`,
 `&`, `]]>`, CR, NUL or `</`, or a raw `0xFF`. A mutation that leaves the document
