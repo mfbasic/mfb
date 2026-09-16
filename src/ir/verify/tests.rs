@@ -6830,10 +6830,27 @@ fn enum_missing_member_wording() {
 
 #[test]
 fn accepts_qualified_type_name_match() {
-    // A return of a `pkg.Point`-typed value where `Point` is expected resolves
-    // via bare-name equality in compatible().
+    // bug-632: a `pkg.Point` value and a local `Point` are DIFFERENT types —
+    // spec §13 gives an imported type a package-qualified identity, and the
+    // bare-name equality this case used to assert is the confusion that
+    // qualification exists to prevent (an importer's own `Point` would have
+    // accepted the package's, whatever its fields).
     let body = vec![ret(IrValue::Local("p".to_string()))];
     let f = func_returns("run", "Point", vec![param("p", "pkg.Point", None)], body);
+    reject(
+        &project(vec![f], vec![record("Point", &["x"])]),
+        "TYPE_RETURN_MISMATCH",
+    );
+
+    // The same identity on both sides still matches: a package's own type is
+    // compatible with itself.
+    let body = vec![ret(IrValue::Local("p".to_string()))];
+    let f = func_returns(
+        "run",
+        "pkg.Point",
+        vec![param("p", "pkg.Point", None)],
+        body,
+    );
     accept(&project(vec![f], vec![record("Point", &["x"])]));
 }
 

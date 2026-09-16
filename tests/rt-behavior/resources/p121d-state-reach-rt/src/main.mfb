@@ -31,17 +31,10 @@ IMPORT fs
 IMPORT thread
 IMPORT state_reach_worker
 
-' Declared on BOTH sides, exactly as `thread-transfer-state-rt` declares its
-' `Cursor`: the two ends agree on the STATE layout by name, and a field read
-' through the imported spelling comes back `Unknown` here.
-TYPE Accum
-  raw AS List OF Byte
-  n   AS Integer
-END TYPE
 
 ' The helper alias. Grows the collection AND bumps the sibling, through a `RES`
 ' parameter -- the owner and this alias share the one STATE payload.
-FUNC feed(RES f AS fs::File STATE Accum, rounds AS Integer) AS Nothing
+FUNC feed(RES f AS fs::File STATE state_reach_worker::Accum, rounds AS Integer) AS Nothing
   MUT i AS Integer = 0
   WHILE i < rounds
     f.state.raw = collections::append(f.state.raw, toByte(i MOD 251))
@@ -52,13 +45,13 @@ END FUNC
 
 ' PART 4's operand. Reads the STATE of the very resource being appended to,
 ' from inside the append's own right-hand side.
-FUNC nextByte(RES f AS fs::File STATE Accum) AS Byte
+FUNC nextByte(RES f AS fs::File STATE state_reach_worker::Accum) AS Byte
   RETURN toByte(len(f.state.raw) MOD 251)
 END FUNC
 
 FUNC main AS Integer
   ' ---- PART 1 + 2: the within-thread alias, across many reallocations. ----
-  RES a AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  RES a AS fs::File STATE state_reach_worker::Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
   a.state.n = 7
   feed(a, 300)
   ' The owner observes all 300 appends the alias made, and the sibling scalar
@@ -78,8 +71,8 @@ FUNC main AS Integer
   fs::close(a)
 
   ' ---- PART 3: across threads there is no second holder. ----
-  LET t AS Thread OF RES fs::File STATE Accum TO Integer = thread::start(state_reach_worker::growAccepted, 300)
-  RES b AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  LET t AS Thread OF RES fs::File STATE state_reach_worker::Accum TO Integer = thread::start(state_reach_worker::growAccepted, 300)
+  RES b AS fs::File STATE state_reach_worker::Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
   b.state.n = 0
   ' Seed a few elements BEFORE the transfer, so the worker grows a block this
   ' thread allocated -- the copy into the worker's arena has to carry them.
@@ -104,7 +97,7 @@ FUNC main AS Integer
   '
   ' This also exercises the widened `static_item_type`: a USER FUNCTION as the
   ' append operand used to fall off the in-place path entirely.
-  RES c AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  RES c AS fs::File STATE state_reach_worker::Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
   MUT k AS Integer = 0
   WHILE k < 200
     c.state.raw = collections::append(c.state.raw, nextByte(c))

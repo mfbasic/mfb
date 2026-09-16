@@ -305,6 +305,23 @@ both cross-identity cases pass. **Met** — `rt_imported_type_name_collision` 10
 `rt_imported_overload_imported_field_argument` 11/11, `rt_imported_type_qualified_name` 5/5.
 Commit: bf630e0ae (merge), d7c2f6b46 (compatibility + ownership)
 
+**Two holes the fix closed, found by fixtures that were relying on them** (neither is migration —
+each was accepting a program the checker should always have refused):
+
+- `tests/byte-identity/tls` bound `LET peer AS net::Address = net::lookup(…)`. `net::lookup`
+  answers a LIST of addresses; the old `compatible` compared the last `.` segment of the two
+  RENDERED spellings, so `List OF net.Address` and `net.Address` both ended in `Address` and a
+  list bound to a single-address slot. Respelled with `collections::get(…, 0)`, the spelling
+  `net::ping`'s own example uses.
+- `tests/rt-behavior/resources/p121d-state-reach-rt` declared its own `TYPE Accum` beside the
+  `state_reach_worker` package's exported `Accum` and relied on the two agreeing **by name**
+  across the boundary (its comment said so). Under spec §13 those are two types; the fixture now
+  names `state_reach_worker::Accum` and declares no twin, which is what it was always testing —
+  one STATE layout shared by both ends.
+
+Also fixed in the merge rename: a `CSTRUCT`'s `maps_to` names one of the package's own RECORDS and
+was left behind (`CSTRUCT 'SfFormatInfo' maps to 'AudioFormat', which is not a record type`).
+
 ### Phase 4 — corpus, goldens, spec, full validation
 
 - [ ] Respell every bare imported user-package type in `tests/`, `examples/` and man examples. The

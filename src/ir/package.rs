@@ -184,6 +184,13 @@ pub(crate) fn qualify_package_types(
             qualify_type(state, rename);
         }
     }
+    // A `CSTRUCT`'s `maps_to` names one of this package's RECORDS: the layout the
+    // marshaller copies the C struct into. Renaming the record without it left
+    // the mapping pointing at a name no type has —
+    // `CSTRUCT 'SfFormatInfo' maps to 'AudioFormat', which is not a record type`.
+    for cstruct in &mut pir.link_cstructs {
+        qualify_type(&mut cstruct.maps_to, rename);
+    }
 }
 
 /// The two renames `qualify_package_types` applies: every owned type name, and

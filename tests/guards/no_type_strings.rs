@@ -972,7 +972,11 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // them decides anything by COMPARING a spelling. One prior site is folded
     // into a shared `imported_type` binding, hence +5/-1.
     ("declared_sites", "ir", 52),
-    ("declared_sites", "manifest", 1),
+    // 1 -> 2: bug-632's `package_type_owners` asks the built-in-resource
+    // predicate about a name decoded from the `.mfp` RESOURCE table, so a
+    // package's reference to `fs.File` is not mistaken for a type it declares.
+    // A wire decode crossing into the type domain, exactly as the rows above.
+    ("declared_sites", "manifest", 2),
     // 8 -> 9: bug-631 gives the monomorphizer an imported package's exported
     // record layouts (`collect_imported_records`, `monomorph/helpers.rs`) so a
     // field of an imported record types for overload resolution instead of as
