@@ -55,6 +55,19 @@ END SUB
   (3 elements), `double_free_skips 0`.
 - Expected: equal `live_bytes` at both N.
 
+## Phase 1 measurement (main thread, `1963472c6`): the concrete list leaks too
+
+The doc frames this as a resource-**union** defect. It is not — a `List OF RES udp::Socket`
+built the same way leaks heavily as well, so the drain frees almost nothing for either
+element kind and the union merely adds its box and variant record on top:
+
+| element type | N=20 | N=40 | per outer iteration (3 elements) |
+| --- | --- | --- | --- |
+| `Chan` (union) | `302`/`102`, `live_bytes 16320` | `602`/`202`, `32640` | 816 B, 10 blocks |
+| `udp::Socket` (concrete) | `222`/`82`, `live_bytes 11520` | `442`/`162`, `23040` | 576 B, 7 blocks |
+
+`double_free_skips 0` for both. The fix must cover both shapes; both are pinned as tests.
+
 ## Root Cause
 
 Partly known: the owned-list drain (`builder_owned_cleanup.rs`, `emit_union_tag_dispatch_drop`

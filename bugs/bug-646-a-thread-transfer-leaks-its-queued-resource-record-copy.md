@@ -61,6 +61,24 @@ END SUB
 Contrast (subagent-measured): udp bind/close with a thread started and waited but no
 transfer is flat.
 
+## Phase 1 measurements (main thread, `1963472c6`)
+
+Both halves reproduce, and the `thread::send` figure in the header is corrected:
+
+| loop | N | counters | per operation |
+| --- | --- | --- | --- |
+| resource `thread::transfer` | 30 / 60 | `392`/`362` `live_bytes 2880`; `782`/`722` `5760` | 96 B |
+| resource `thread::transfer` | 100 / 200 | `live_bytes 9600`; `19200` | 96 B |
+| String `thread::send` | 30 / 60 | `332`/`302` `live_bytes 960`; `662`/`602` `1920` | **32 B**, not the 64 B estimated |
+| String `thread::send` | 200 / 400 | `live_bytes 6400`; `12800` | 32 B |
+
+`double_free_skips 0` throughout.
+
+Measurement trap for the regression tests: at 96 B and 32 B per operation, the N=30/60 counts
+in this doc grow 2880 B and 960 B — both **under** `rt_debug_soak.rs`'s `BLOCK_BOUND` (4096),
+so a test written to the numbers above passes while the leak is live. The tests run at
+100/200 and 200/400.
+
 ## Root Cause
 
 From the subagent's analysis, to be confirmed in Phase 1: the send side copies the record
