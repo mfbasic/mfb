@@ -14,6 +14,7 @@
 
 import { SaxesParser } from "saxes";
 import { DOMImplementation, XMLSerializer } from "@xmldom/xmldom";
+import xpathLib from "xpath";
 
 /** Refusal envelope. `kind` is triage only; the runner never compares it. */
 function refuse(kind, reason) {
@@ -266,6 +267,178 @@ function reindent(documentTree, indent) {
     return `${open}${inner}\n${indent.repeat(level)}</${name}>`;
   };
   return children.map((child) => one(child, 0)).join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// XPath.
+//
+// The DOM the query runs against is built from SAXES events, never by xmldom's
+// own parser: the read direction refuses what the package refuses, and a query
+// oracle that silently accepted a malformed document would disagree for the
+// wrong reason. Comments and processing instructions are kept here (unlike the
+// content projection, which drops them) because XPath can select them.
+// ---------------------------------------------------------------------------
+
+/** A full xmldom Document built from saxes events, or a refusal. */
+function domOf(text) {
+  const declaration = checkDeclaration(text);
+  if (declaration) return { failure: declaration };
+
+  const doc = new DOMImplementation().createDocument(null, null, null);
+  const stack = [doc];
+  let failure = null;
+
+  const parser = new SaxesParser({ xmlns: true, position: true, fileName: "case" });
+  parser.on("error", (error) => {
+    if (!failure) failure = refuse("parse", error.message);
+  });
+  parser.on("doctype", () => {
+    if (!failure) failure = refuse("unsupported", "a DOCTYPE declaration is not supported");
+  });
+  parser.on("opentag", (node) => {
+    if (failure) return;
+    const element = doc.createElement(node.name);
+    for (const [name, value] of Object.entries(node.attributes)) {
+      element.setAttribute(name, typeof value === "string" ? value : value.value);
+    }
+    stack[stack.length - 1].appendChild(element);
+    stack.push(element);
+  });
+  parser.on("closetag", () => {
+    if (failure) return;
+    stack.pop();
+  });
+  parser.on("text", (chunk) => {
+    if (failure) return;
+    // XPath 1.0 §5.1: the root node's children are the document element plus
+    // the prolog's and epilog's comments and processing instructions -- there
+    // are NO text nodes outside the document element, so the whitespace around
+    // it is not part of the data model.
+    if (stack.length === 1) return;
+    stack[stack.length - 1].appendChild(doc.createTextNode(chunk));
+  });
+  parser.on("cdata", (chunk) => {
+    if (failure) return;
+    if (stack.length === 1) return;
+    stack[stack.length - 1].appendChild(doc.createTextNode(chunk));
+  });
+  parser.on("comment", (chunk) => {
+    if (failure) return;
+    stack[stack.length - 1].appendChild(doc.createComment(chunk));
+  });
+  parser.on("processinginstruction", (node) => {
+    if (failure) return;
+    stack[stack.length - 1].appendChild(
+      doc.createProcessingInstruction(node.target, node.body ?? ""),
+    );
+  });
+
+  try {
+    parser.write(text).close();
+  } catch (error) {
+    if (!failure) failure = refuse("parse", error.message);
+  }
+  if (failure) return { failure };
+  return { doc };
+}
+
+/** XPath's own string() of a number (§4.2): "2", not "2.0". */
+export function xpathNumberToString(value) {
+  if (Number.isNaN(value)) return "NaN";
+  if (value === Infinity) return "Infinity";
+  if (value === -Infinity) return "-Infinity";
+  if (Number.isInteger(value)) return String(value);
+  return String(value);
+}
+
+/** One element of a result node-set, in the content-envelope shape. */
+function nodeEnvelope(node) {
+  // 9 = DOCUMENT_NODE. XPath's root node has no form of its own in this
+  // envelope, and selecting it (`.` at the top, or `/`) means the document --
+  // so it is reported as its document element, which is what the package does.
+  if (node.nodeType === 9) {
+    const element = Array.from(node.childNodes ?? []).find((child) => child.nodeType === 1);
+    return element ? nodeEnvelope(element) : ["t", ""];
+  }
+  // 1 = ELEMENT_NODE
+  if (node.nodeType !== 1) {
+    return ["t", node.nodeValue ?? node.textContent ?? ""];
+  }
+  const attributes = [];
+  for (const attribute of Array.from(node.attributes ?? [])) {
+    attributes.push([attribute.name, attribute.value]);
+  }
+  attributes.sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
+  const children = Array.from(node.childNodes ?? []).map((child) => {
+    if (child.nodeType === 1) return { kind: "e", element: child };
+    if (child.nodeType === 3 || child.nodeType === 4) return { kind: "t", text: child.nodeValue };
+    return { kind: "x" };
+  });
+  return ["e", node.nodeName, attributes, projectDomChildren(children)];
+}
+
+/** plan-138-A §4's projection over DOM children. */
+function projectDomChildren(children) {
+  const hasElement = children.some((child) => child.kind === "e");
+  const out = [];
+  let pending = "";
+  const flush = () => {
+    if (pending === "") return;
+    if (!(hasElement && isSpaceOnly(pending))) out.push(["t", pending]);
+    pending = "";
+  };
+  for (const child of children) {
+    if (child.kind === "t") {
+      pending += child.text;
+      continue;
+    }
+    if (child.kind !== "e") continue;
+    flush();
+    out.push(nodeEnvelope(child.element));
+  }
+  flush();
+  return out;
+}
+
+/** Evaluate `expr` against `text` and return the §3 XPath envelope. */
+export function xpath(text, expr) {
+  const built = domOf(text);
+  if (built.failure) return built.failure;
+
+  let result;
+  try {
+    result = xpathLib.select(expr, built.doc);
+  } catch (error) {
+    return refuse("unsupported", error.message);
+  }
+
+  if (typeof result === "boolean") return { ok: true, kind: "boolean", value: result };
+  if (typeof result === "number") {
+    return { ok: true, kind: "number", value: xpathNumberToString(result) };
+  }
+  if (typeof result === "string") return { ok: true, kind: "string", value: result };
+
+  const nodes = Array.from(result ?? []);
+  // 2 = ATTRIBUTE_NODE
+  const attributes = nodes.filter((node) => node.nodeType === 2);
+  if (attributes.length > 0) {
+    if (attributes.length !== nodes.length) {
+      return refuse("unsupported", "a node-set mixing attributes with other nodes");
+    }
+    return {
+      ok: true,
+      kind: "attributes",
+      value: nodes.map((node) => [node.name, node.value]),
+    };
+  }
+  return { ok: true, kind: "nodes", value: nodes.map(nodeEnvelope) };
+}
+
+/** Answer a whole `xpath` job. */
+export function xpathJob(job) {
+  return {
+    results: job.cases.map((entry) => ({ id: entry.id, ...xpath(entry.xml, entry.expr) })),
+  };
 }
 
 /** Answer a whole `write` job. */

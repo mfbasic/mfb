@@ -40,8 +40,8 @@ FUNC main() AS Integer
     RETURN 2
   END IF
   LET operation AS String = collections::get(args, 0)
-  IF operation <> "read" AND operation <> "write" THEN
-    io::printError("xmlprobe: unknown operation `" & operation & "` (expected read or write)")
+  IF operation <> "read" AND operation <> "write" AND operation <> "xpath" THEN
+    io::printError("xmlprobe: unknown operation `" & operation & "` (expected read, write or xpath)")
     RETURN 2
   END IF
   LET job AS json::Json = json::parse(fs::readText(collections::get(args, 1)))
@@ -49,6 +49,8 @@ FUNC main() AS Integer
   FOR EACH entry IN itemsOf(json::get(job, ["cases"]))
     IF operation = "read" THEN
       results = collections::append(results, readCase(entry))
+    ELSEIF operation = "xpath" THEN
+      results = collections::append(results, xpathCase(entry))
     ELSE
       results = collections::append(results, writeCase(entry))
     END IF
@@ -87,6 +89,72 @@ PRIVATE FUNC writeCase(entry AS json::Json) AS String
     RETURN refusal(id, problem.code, problem.message)
   END TRAP
   RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"xml\":" & quoted(text) & "}"
+END FUNC
+
+' One `xpath` case: `{"id", "xml", "expr"}`.
+'
+' A number comes back through `xml::valueOf` rather than from the `XNumber`
+' variant, for two reasons that point the same way: XPath compares a number by
+' its §4.2 STRING form, and the package refuses to hand back a NaN or an
+' infinity as a `Float` at all (no MFBASIC Float can hold one), so `valueOf` is
+' the only way to see those results. All three sides therefore compare the same
+' text.
+PRIVATE FUNC xpathCase(entry AS json::Json) AS String
+  LET id AS String = textOf(entry, "id", "")
+  LET text AS String = textOf(entry, "xml", "")
+  LET expr AS String = textOf(entry, "expr", "")
+
+  LET doc AS Document = xml::parse(text) TRAP(problem)
+    RETURN refusal(id, problem.code, problem.message)
+  END TRAP
+
+  LET value AS xml::XPathValue = xml::evaluate(doc, expr) TRAP(problem)
+    ' A NaN or infinite number is refused by `evaluate` but readable by
+    ' `valueOf`; anything else is a genuine refusal.
+    LET asText AS String = xml::valueOf(doc, expr) TRAP(inner)
+      RETURN refusal(id, problem.code, problem.message)
+    END TRAP
+    RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"number\",\"value\":" & quoted(asText) & "}"
+  END TRAP
+
+  MATCH value
+    CASE XNodes(n)
+      MUT parts AS List OF String = []
+      FOR EACH one IN n.nodes
+        parts = collections::append(parts, nodeEnvelope(one))
+      NEXT
+      RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"nodes\",\"value\":[" & strings::join(parts, ",") & "]}"
+    CASE XAttributes(a)
+      MUT parts AS List OF String = []
+      FOR EACH one IN a.attributes
+        parts = collections::append(parts, "[" & quoted(one.name) & "," & quoted(one.value) & "]")
+      NEXT
+      RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"attributes\",\"value\":[" & strings::join(parts, ",") & "]}"
+    CASE XString(s)
+      RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"string\",\"value\":" & quoted(s.value) & "}"
+    CASE XNumber(m)
+      RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"number\",\"value\":" & quoted(xml::valueOf(doc, expr)) & "}"
+    CASE XBoolean(b)
+      MUT flag AS String = "false"
+      IF b.value THEN flag = "true"
+      RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"boolean\",\"value\":" & flag & "}"
+  END MATCH
+END FUNC
+
+' One node of an XPath result, in the same content shape a `read` answer uses.
+PRIVATE FUNC nodeEnvelope(n AS xml::Node) AS String
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      out = elementText(e)
+    CASE Text(t)
+      out = "[\"t\"," & quoted(t.text) & "]"
+    CASE Comment(c)
+      out = "[\"t\"," & quoted(c.text) & "]"
+    CASE ProcessingInstruction(p)
+      out = "[\"t\"," & quoted(p.data) & "]"
+  END MATCH
+  RETURN out
 END FUNC
 
 ' A refusal envelope. `kind` is triage only -- two refusals agree without

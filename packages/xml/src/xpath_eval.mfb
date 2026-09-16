@@ -599,6 +599,38 @@ PRIVATE FUNC stringsOfValue(index AS List OF IndexedNode, value AS XValue) AS Li
   RETURN out
 END FUNC
 
+' Is this attribute already in the list? A union de-duplicates, and an attribute
+' is identified by its owner element and its position on that element.
+PRIVATE FUNC holdsAttr(attrs AS List OF AttrRef, one AS AttrRef) AS Boolean
+  FOR EACH existing IN attrs
+    IF existing.node = one.node AND existing.at = one.at THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Insert `one` keeping the list in DOCUMENT ORDER: by owner element first, then
+' by position on that element. A union returns its node-set in document order,
+' so `//book/@id | //book/@year` interleaves the two -- it does not append one
+' set after the other. Attribute sets are small, so a linear insertion is the
+' right shape here.
+PRIVATE FUNC insertAttrOrdered(attrs AS List OF AttrRef, one AS AttrRef) AS List OF AttrRef
+  MUT out AS List OF AttrRef = []
+  MUT placed AS Boolean = FALSE
+  FOR EACH existing IN attrs
+    IF NOT placed THEN
+      IF one.node < existing.node OR (one.node = existing.node AND one.at < existing.at) THEN
+        out = collections::append(out, one)
+        placed = TRUE
+      END IF
+    END IF
+    out = collections::append(out, existing)
+  NEXT
+  IF NOT placed THEN
+    out = collections::append(out, one)
+  END IF
+  RETURN out
+END FUNC
+
 PRIVATE FUNC isNodeSet(value AS XValue) AS Boolean
   MUT out AS Boolean = FALSE
   MATCH value
@@ -1033,11 +1065,51 @@ PUBLIC FUNC evalExpr(index AS List OF IndexedNode, context AS Integer, position 
       ELSEIF b.op = OP_UNION THEN
         LET left AS XValue = evalExpr(index, context, position, size, b.left)
         LET right AS XValue = evalExpr(index, context, position, size, b.right)
-        MUT merged AS List OF Integer = nodesOfValue(index, left, "a union")
-        FOR EACH one IN nodesOfValue(index, right, "a union")
-          merged = collections::append(merged, one)
-        NEXT
-        out = VNodes[orderNodes(merged)]
+        ' Two ATTRIBUTE sets union just as two node sets do; only a union that
+        ' MIXES them is refused, because this package keeps the two kinds of
+        ' result apart (`select` versus `selectAttributes`).
+        MUT leftAttrs AS Boolean = FALSE
+        MUT rightAttrs AS Boolean = FALSE
+        MATCH left
+          CASE VAttrs(a)
+            leftAttrs = TRUE
+          CASE ELSE
+        END MATCH
+        MATCH right
+          CASE VAttrs(a)
+            rightAttrs = TRUE
+          CASE ELSE
+        END MATCH
+        IF leftAttrs AND rightAttrs THEN
+          MUT mergedAttrs AS List OF AttrRef = []
+          MATCH left
+            CASE VAttrs(a)
+              FOR EACH one IN a.attrs
+                IF NOT holdsAttr(mergedAttrs, one) THEN
+                  mergedAttrs = insertAttrOrdered(mergedAttrs, one)
+                END IF
+              NEXT
+            CASE ELSE
+          END MATCH
+          MATCH right
+            CASE VAttrs(a)
+              FOR EACH one IN a.attrs
+                IF NOT holdsAttr(mergedAttrs, one) THEN
+                  mergedAttrs = insertAttrOrdered(mergedAttrs, one)
+                END IF
+              NEXT
+            CASE ELSE
+          END MATCH
+          out = VAttrs[mergedAttrs]
+        ELSEIF leftAttrs OR rightAttrs THEN
+          FAIL error(ERR_UNSUPPORTED, "xml: a union may not mix attributes with other nodes")
+        ELSE
+          MUT merged AS List OF Integer = nodesOfValue(index, left, "a union")
+          FOR EACH one IN nodesOfValue(index, right, "a union")
+            merged = collections::append(merged, one)
+          NEXT
+          out = VNodes[orderNodes(merged)]
+        END IF
       ELSEIF b.op = OP_EQ OR b.op = OP_NE OR b.op = OP_LT OR b.op = OP_LE OR b.op = OP_GT OR b.op = OP_GE THEN
         LET left AS XValue = evalExpr(index, context, position, size, b.left)
         LET right AS XValue = evalExpr(index, context, position, size, b.right)

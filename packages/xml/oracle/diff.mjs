@@ -19,7 +19,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readJob as nodeReadJob, writeJob as nodeWriteJob } from "./oracle.mjs";
+import {
+  readJob as nodeReadJob,
+  writeJob as nodeWriteJob,
+  xpathJob as nodeXPathJob,
+} from "./oracle.mjs";
 import { trees, STYLES, rng, write as writeStyled } from "./generate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -685,9 +689,94 @@ function runPerf() {
   return { count: 3, failures, diverged: 0, note: notes.join("; ") };
 }
 
+// ---------------------------------------------------------------------------
+// xpath: the same expression asked of all three engines.
+//
+// The documents here carry NO namespace declarations, and that is a scope
+// decision rather than an oversight. XPath 1.0's name test is namespace-aware:
+// on a document with `xmlns="urn:x"`, `//book` correctly selects NOTHING in
+// both oracles, while this package -- which never resolves a prefix -- matches
+// the literal name and selects every book. A namespace resolver bridges
+// PREFIXED names but cannot bridge a default namespace, so a namespaced
+// document is outside this mode (plan-138-E §3).
+// ---------------------------------------------------------------------------
+
+const XPATH_CORPUS = join(CORPUS, "xpath");
+
+/** Compare one XPath result across the three engines. */
+export function compareXPath(id, results) {
+  const [probe, node, rust] = results;
+  const accepted = (result) => Boolean(result && result.ok);
+  const shape = [accepted(probe), accepted(node), accepted(rust)];
+
+  if (!shape[0] && !shape[1] && !shape[2]) return null;
+  if (shape[0] !== shape[1] || shape[1] !== shape[2]) {
+    const say = (name, result) =>
+      `${name}=${accepted(result) ? "answered" : `refused(${result?.kind}: ${result?.reason})`}`;
+    return `${id}: accept/refuse disagreement — ${say("package", probe)}, ${say("node", node)}, ${say("rust", rust)}`;
+  }
+
+  const keys = [probe, node, rust].map((result) =>
+    JSON.stringify([result.kind, result.value]),
+  );
+  if (keys[0] === keys[1] && keys[1] === keys[2]) return null;
+  const which =
+    keys[1] === keys[2]
+      ? "the package disagrees with both oracles"
+      : keys[0] === keys[1]
+        ? "the Rust oracle disagrees"
+        : keys[0] === keys[2]
+          ? "the Node oracle disagrees"
+          : "all three disagree";
+  return [
+    `${id}: ${which}`,
+    `  package: ${keys[0]}`,
+    `  node:    ${keys[1]}`,
+    `  rust:    ${keys[2]}`,
+  ].join("\n");
+}
+
+function runXPath() {
+  const declared = loadDivergences();
+  const cases = [];
+  for (const name of readdirSync(XPATH_CORPUS).filter((file) => file.endsWith(".json")).sort()) {
+    const job = JSON.parse(readFileSync(join(XPATH_CORPUS, name), "utf8"));
+    const xml = readFileSync(join(CORPUS, job.doc), "utf8");
+    for (const expr of job.exprs) {
+      cases.push({ id: `${name}:${expr}`, xml, expr });
+    }
+  }
+  if (cases.length === 0) throw new Error("corpus/xpath/ holds no expressions");
+
+  const job = { cases };
+  const probe = asked.probe("xpath", job);
+  const rust = asked.rust("xpath", job);
+  const node = nodeXPathJob(job).results;
+
+  const failures = [];
+  let diverged = 0;
+  for (let index = 0; index < cases.length; index += 1) {
+    const id = cases[index].id;
+    const problem = compareXPath(id, [probe[index], node[index], rust[index]]);
+    if (!problem) {
+      if (declared[id]) {
+        failures.push(`${id}: declared divergent, but all three now agree — remove the entry`);
+      }
+      continue;
+    }
+    if (declared[id]) {
+      diverged += 1;
+      continue;
+    }
+    failures.push(problem);
+  }
+  return { count: cases.length, failures, diverged };
+}
+
 const MODES = {
   corpus: runCorpus,
   xmlconf: runXmlconf,
+  xpath: runXPath,
   "fuzz-read": runFuzzRead,
   "fuzz-write": runFuzzWrite,
   roundtrip: runRoundtrip,

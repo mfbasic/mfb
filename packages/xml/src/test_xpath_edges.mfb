@@ -208,6 +208,28 @@ TESTING
       expectString(valueOf(catalog(), "local-name(//book/@id)"), "id")
     END TCASE
 
+    TCASE "a union of two attribute sets is a node-set, not an error"
+      ' Found by the three-way XPath oracle: both oracles answered this and the
+      ' package refused it.
+      expectInteger(len(selectAttributes(catalog(), "//book/@id | //book/@lang")), 3)
+      expectInteger(len(selectAttributes(catalog(), "//book/@id | //book/@id")), 2)
+    END TCASE
+
+    TCASE "a union returns its attributes in DOCUMENT order, interleaved"
+      ' Also found by the oracle: the package appended one set after the other,
+      ' so //book/@id | //book/@lang gave both ids and then the lang. A union
+      ' yields a node-set, and a node-set is in document order.
+      MUT names AS List OF String = []
+      FOR EACH one IN selectAttributes(catalog(), "//book/@id | //book/@lang")
+        names = collections::append(names, one.name & "=" & one.value)
+      NEXT
+      expectString(strings::join(names, ","), "id=b1,lang=en,id=b2")
+    END TCASE
+
+    TCASE "a union that MIXES attributes with other nodes is still refused"
+      expectTrap(evaluate(catalog(), "//book | //book/@id"), 77050007)
+    END TCASE
+
     TCASE "a step after an attribute step is refused"
       expectTrap(evaluate(catalog(), "//book/@id/title"), 77050007)
     END TCASE

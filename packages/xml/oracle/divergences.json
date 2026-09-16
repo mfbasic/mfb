@@ -1,4 +1,13 @@
 {
-  "comment": "Declared divergences: a case listed here is allowed to disagree, for the recorded reason, and a case that STOPS diverging fails so the entry gets removed. Each entry cites the XML specification section or the W3C test id that settles it. Empty until a disagreement is found and adjudicated -- never used to silence one that has not been.",
-  "cases": {}
+  "comment": "Declared divergences: a case listed here is allowed to disagree, for the recorded reason, and a case that STOPS diverging fails so the entry gets removed. Each entry cites the specification section or the measurement that settles it. Never used to silence a disagreement that has not been adjudicated.",
+  "cases": {
+    "functions.json:sum(//price)": {
+      "reason": "XPath 1.0 §4.2 prints a number with as many digits as are needed to distinguish it from adjacent doubles, so 9.99 + 12.50 + 8.25 is 30.740000000000002 -- which both oracles produce. MFBASIC's toString(Float) is fixed at two decimal places, so the package can only say 30.74. Measured directly: a program printing toString(30.740000000000002) outputs 30.74, and toString(1.0/3.0) outputs 0.33. There is no float-formatting function with a precision argument (mfb man strings offers only padding; mfb man math offers round/ceil/floor). This is a limit of the language's number-to-text conversion, not of the XPath evaluator: the arithmetic itself agrees.",
+      "settles": "measured 2026-09-15; see packages/xml/README.md, 'Numbers are printed with two decimals'"
+    },
+    "operators.json:sum(//price)": {
+      "reason": "The same case as functions.json:sum(//price) -- both corpus files ask it, because it is where the numeric formatting limit shows.",
+      "settles": "measured 2026-09-15; see functions.json:sum(//price)"
+    }
+  }
 }

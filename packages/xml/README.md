@@ -165,11 +165,21 @@ such as `child::a`, a variable, or a function not listed above — is refused wi
 `ErrUnsupported` rather than misread. Text that is not XPath at all is
 `ErrInvalidFormat`.
 
-One consequence of the language worth knowing: XPath numbers include `NaN` and
-`±Infinity`, and MFBASIC's `Float` cannot hold either — the runtime raises
-instead. `xml::valueOf` prints them correctly (`"NaN"`, `"Infinity"`,
-`"-Infinity"`), so `xml::valueOf(doc, "string(1 div 0)")` works; `xml::evaluate`
-refuses such a result rather than inventing a number for it.
+Two consequences of the language are worth knowing, both about numbers.
+
+**`NaN` and `±Infinity` are values in XPath, and MFBASIC's `Float` cannot hold
+either** — the runtime raises instead. `xml::valueOf` prints them correctly
+(`"NaN"`, `"Infinity"`, `"-Infinity"`), so `xml::valueOf(doc, "string(1 div 0)")`
+works; `xml::evaluate` refuses such a result rather than inventing a number for
+it.
+
+**Numbers are printed with two decimals.** XPath 1.0 §4.2 asks for as many digits
+as are needed to tell a double from its neighbours, so `sum(//price)` over
+`9.99`, `12.50` and `8.25` is `30.740000000000002`. MFBASIC's `toString(Float)`
+is fixed at two decimal places, so `xml::valueOf` says `30.74` — and `1 div 3` is
+`0.33`, not `0.3333333333333333`. The arithmetic is unaffected; only the text
+form is. A caller who needs full precision should take the `XNumber` from
+`xml::evaluate` and format the `Float` itself.
 
 ## Writing
 

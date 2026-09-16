@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog updated="2026-09-15">
+  <book id="b1" lang="en" year="1965">
+    <title>Dune</title>
+    <author>Frank Herbert</author>
+    <price currency="USD">9.99</price>
+    <tags><tag>classic</tag><tag>desert</tag></tags>
+  </book>
+  <book id="b2" year="1984">
+    <title>Neuromancer</title>
+    <author>William Gibson</author>
+    <price currency="USD">12.50</price>
+    <tags><tag>cyberpunk</tag></tags>
+  </book>
+  <book id="b3" year="1969">
+    <title>The Left Hand of Darkness</title>
+    <author>Ursula K. Le Guin</author>
+    <price currency="GBP">8.25</price>
+    <tags/>
+  </book>
+  <!-- a note between books -->
+  <?render mode="list"?>
+  <empty/>
+  <mixed>before <em>middle</em> after</mixed>
+</catalog>

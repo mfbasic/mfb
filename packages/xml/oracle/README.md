@@ -129,6 +129,10 @@ character references for non-ASCII, and `<a></a>` versus `<a/>`.
 | harness (generator) | It indented an element whose only children were processing instructions — with no element child, that whitespace becomes DATA. The same bug the package's own writer had. | `generate.mjs`, same rule |
 | plan | `<!DOCTYPE` was detected by substring, so three suite documents holding that text inside a comment, a PI and a CDATA section were misjudged. | strip those first |
 | plan | `RECOMMENDATION="XML1.1"` was read as "must refuse". XML 1.0 **Fifth Edition** adopted XML 1.1's name characters, so `rmt-016` and `rmt-019` are legal here; the suite says which editions a test applies to via `EDITION`. | honour `EDITION` |
+| **package** | A union of two ATTRIBUTE sets (`//book/@id \| //book/@year`) was refused as "a union needs a node-set". Two attribute sets union like any others; only a union that MIXES attributes with elements is refused. | `xpath_eval.mfb`, behind a failing case |
+| **package** | That union then returned its attributes in the wrong ORDER — all the `id`s, then all the `year`s. A union yields a node-set, and a node-set is in document order, so the two interleave. | ordered insertion, with a case asserting the order |
+| harness (Node) | The DOM built from saxes events kept the whitespace text nodes from outside the document element, so `//text()` and `//node()` returned two more nodes than either other side. XPath 1.0 §5.1 gives the root node no text children. | `oracle.mjs` ignores text outside the root |
+| harness (both oracles) | Selecting the document node itself (`.` at the top) rendered three different ways, though all three had selected the same node. It is now reported as the document element, which is what the package does. | envelope rule in both oracles |
 
 Nothing is in `divergences.json`: every disagreement so far was resolved by
 fixing the side that was wrong.

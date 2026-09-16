@@ -6,6 +6,7 @@
   "description": "Differential-test packages/xml against an independent XML reader (saxes) and an independent writer (@xmldom/xmldom), with a Rust oracle as an equal peer.",
   "dependencies": {
     "saxes": "^6.0.0",
-    "@xmldom/xmldom": "^0.9.12"
+    "@xmldom/xmldom": "^0.9.12",
+    "xpath": "^0.0.34"
   }
 }

@@ -56,8 +56,9 @@ fn main() -> ExitCode {
     let results: Vec<Value> = match op.as_str() {
         "read" => cases.iter().map(read_case).collect(),
         "write" => cases.iter().map(write_case).collect(),
+        "xpath" => cases.iter().map(xpath_case).collect(),
         other => {
-            eprintln!("xmloracle: unknown operation `{other}` (expected read or write)");
+            eprintln!("xmloracle: unknown operation `{other}` (expected read, write or xpath)");
             return ExitCode::from(2);
         }
     };
@@ -68,6 +69,179 @@ fn main() -> ExitCode {
 
 fn refuse(id: &str, kind: &str, reason: impl std::fmt::Display) -> Value {
     json!({ "id": id, "ok": false, "kind": kind, "reason": reason.to_string() })
+}
+
+// ---------------------------------------------------------------------------
+// The XPath data model over roxmltree.
+//
+// `xpath-eval`'s `Node` trait is modeled after `roxmltree::Node`, but it cannot
+// BE one: XPath's data model (§5) makes attributes and namespaces nodes of the
+// same kind as elements, while roxmltree keeps attributes in a separate type
+// and namespaces in a scope list. So a handle is an enum — an element-ish node,
+// or one of an element's attributes or namespaces, addressed by index.
+//
+// `Eq` is implemented here rather than derived from roxmltree, whose `Node`
+// derives only `Clone, Copy`.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+enum Handle<'a> {
+    Tree(roxmltree::Node<'a, 'a>),
+    Attribute(roxmltree::Node<'a, 'a>, usize),
+    Namespace(roxmltree::Node<'a, 'a>, usize),
+}
+
+impl<'a> Handle<'a> {
+    /// A key that sorts in XPath document order: an element, then its namespace
+    /// nodes, then its attribute nodes, then its children. roxmltree assigns
+    /// node ids in document order, and every child's id is greater than its
+    /// parent's, so the element's own id orders the whole family correctly.
+    fn key(self) -> (usize, u8, usize) {
+        match self {
+            Handle::Tree(node) => (node.id().get_usize(), 0, 0),
+            Handle::Namespace(owner, at) => (owner.id().get_usize(), 1, at),
+            Handle::Attribute(owner, at) => (owner.id().get_usize(), 2, at),
+        }
+    }
+}
+
+impl<'a> PartialEq for Handle<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl<'a> Eq for Handle<'a> {}
+
+impl<'a> xpath_eval::Node<'a> for Handle<'a> {
+    fn kind(self) -> xpath_eval::NodeKind {
+        match self {
+            Handle::Attribute(_, _) => xpath_eval::NodeKind::Attribute,
+            Handle::Namespace(_, _) => xpath_eval::NodeKind::Namespace,
+            Handle::Tree(node) => match node.node_type() {
+                roxmltree::NodeType::Root => xpath_eval::NodeKind::Root,
+                roxmltree::NodeType::Element => xpath_eval::NodeKind::Element,
+                roxmltree::NodeType::PI => xpath_eval::NodeKind::ProcessingInstruction,
+                roxmltree::NodeType::Comment => xpath_eval::NodeKind::Comment,
+                roxmltree::NodeType::Text => xpath_eval::NodeKind::Text,
+            },
+        }
+    }
+
+    fn parent(self) -> Option<Self> {
+        match self {
+            // An attribute's and a namespace's parent is its owner element,
+            // even though neither is among that element's children.
+            Handle::Attribute(owner, _) => Some(Handle::Tree(owner)),
+            Handle::Namespace(owner, _) => Some(Handle::Tree(owner)),
+            Handle::Tree(node) => node.parent().map(Handle::Tree),
+        }
+    }
+
+    fn children(self) -> impl Iterator<Item = Self> + 'a {
+        let nodes: Vec<Self> = match self {
+            Handle::Tree(node) => node.children().map(Handle::Tree).collect(),
+            _ => Vec::new(),
+        };
+        nodes.into_iter()
+    }
+
+    fn attributes(self) -> impl Iterator<Item = Self> + 'a {
+        let nodes: Vec<Self> = match self {
+            Handle::Tree(node) if node.is_element() => (0..node.attributes().count())
+                .map(|at| Handle::Attribute(node, at))
+                .collect(),
+            _ => Vec::new(),
+        };
+        nodes.into_iter()
+    }
+
+    fn namespaces(self) -> impl Iterator<Item = Self> + 'a {
+        // XPath's namespace axis is every binding IN SCOPE, which is exactly
+        // what roxmltree's namespaces() yields (measured in plan-138-C).
+        let nodes: Vec<Self> = match self {
+            Handle::Tree(node) if node.is_element() => (0..node.namespaces().count())
+                .map(|at| Handle::Namespace(node, at))
+                .collect(),
+            _ => Vec::new(),
+        };
+        nodes.into_iter()
+    }
+
+    fn expanded_name(self) -> Option<xpath_eval::ExpandedName> {
+        match self {
+            Handle::Attribute(owner, at) => {
+                let attribute = owner.attributes().nth(at)?;
+                Some(xpath_eval::ExpandedName {
+                    namespace_uri: attribute.namespace().map(str::to_string),
+                    local_name: attribute.name().to_string(),
+                })
+            }
+            Handle::Namespace(owner, at) => {
+                let namespace = owner.namespaces().nth(at)?;
+                Some(xpath_eval::ExpandedName {
+                    namespace_uri: None,
+                    local_name: namespace.name().unwrap_or("").to_string(),
+                })
+            }
+            Handle::Tree(node) => match node.node_type() {
+                roxmltree::NodeType::Element => Some(xpath_eval::ExpandedName {
+                    namespace_uri: node.tag_name().namespace().map(str::to_string),
+                    local_name: node.tag_name().name().to_string(),
+                }),
+                roxmltree::NodeType::PI => Some(xpath_eval::ExpandedName {
+                    namespace_uri: None,
+                    local_name: node.pi().map(|pi| pi.target.to_string()).unwrap_or_default(),
+                }),
+                _ => None,
+            },
+        }
+    }
+
+    fn string_value(self) -> String {
+        match self {
+            Handle::Attribute(owner, at) => owner
+                .attributes()
+                .nth(at)
+                .map(|attribute| attribute.value().to_string())
+                .unwrap_or_default(),
+            Handle::Namespace(owner, at) => owner
+                .namespaces()
+                .nth(at)
+                .map(|namespace| namespace.uri().to_string())
+                .unwrap_or_default(),
+            Handle::Tree(node) => match node.node_type() {
+                roxmltree::NodeType::Root | roxmltree::NodeType::Element => node
+                    .descendants()
+                    .filter(|d| d.is_text())
+                    .filter_map(|d| d.text())
+                    .collect(),
+                roxmltree::NodeType::PI => node
+                    .pi()
+                    .and_then(|pi| pi.value)
+                    .unwrap_or("")
+                    .to_string(),
+                _ => node.text().unwrap_or("").to_string(),
+            },
+        }
+    }
+
+    fn document_order(self, other: Self) -> std::cmp::Ordering {
+        self.key().cmp(&other.key())
+    }
+}
+
+struct TreeDocument<'a>(&'a roxmltree::Document<'a>);
+
+impl<'a> xpath_eval::Document for TreeDocument<'a> {
+    type N<'b>
+        = Handle<'b>
+    where
+        Self: 'b;
+
+    fn root(&self) -> Self::N<'_> {
+        Handle::Tree(self.0.root())
+    }
 }
 
 /// XML 1.0 §2.2 Char.
@@ -589,6 +763,153 @@ fn read_case(case: &Value) -> Value {
 
     let children: Vec<roxmltree::Node> = document.root().children().collect();
     json!({ "id": id, "ok": true, "content": ["doc", project(&children, text)] })
+}
+
+/// XPath's own `string()` of a number (§4.2) — "2", not "2.0"; and the special
+/// values spelled the way the specification spells them. All three sides
+/// compare this text rather than a float, so the formatting is part of the
+/// answer.
+fn xpath_number_to_string(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_string();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    if value == value.trunc() && value.abs() < 1e15 {
+        return format!("{}", value as i64);
+    }
+    let mut text = format!("{value}");
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    text
+}
+
+/// Answer one `xpath` case: `{"id", "xml", "expr"}`.
+fn xpath_case(case: &Value) -> Value {
+    let id = case.get("id").and_then(Value::as_str).unwrap_or("");
+    let text = case.get("xml").and_then(Value::as_str).unwrap_or("");
+    let expr = case.get("expr").and_then(Value::as_str).unwrap_or("");
+
+    let options = roxmltree::ParsingOptions {
+        allow_dtd: false,
+        ..roxmltree::ParsingOptions::default()
+    };
+    let document = match roxmltree::Document::parse_with_options(text, options) {
+        Ok(document) => document,
+        Err(error) => return refuse(id, "parse", error),
+    };
+
+    let parsed = match xpath_eval::parse(expr) {
+        Ok(parsed) => parsed,
+        Err(error) => return refuse(id, "parse", format!("{error:?}")),
+    };
+
+    let adapter = TreeDocument(&document);
+    let root = <TreeDocument as xpath_eval::Document>::root(&adapter);
+    let context = xpath_eval::EvaluationContext::new(root);
+    let value = match xpath_eval::evaluate(&parsed, &context) {
+        Ok(value) => value,
+        Err(error) => return refuse(id, "unsupported", format!("{error:?}")),
+    };
+
+    match value {
+        xpath_eval::Value::Boolean(flag) => {
+            json!({ "id": id, "ok": true, "kind": "boolean", "value": flag })
+        }
+        xpath_eval::Value::Number(number) => {
+            json!({ "id": id, "ok": true, "kind": "number", "value": xpath_number_to_string(number) })
+        }
+        xpath_eval::Value::String(string) => {
+            json!({ "id": id, "ok": true, "kind": "string", "value": string })
+        }
+        xpath_eval::Value::NodeSet(nodes) => {
+            use xpath_eval::Node as _;
+            let mut ordered = nodes;
+            ordered.sort_by(|left, right| left.document_order(*right));
+            ordered.dedup();
+
+            // An attribute node-set and a node node-set are reported
+            // separately, because the package's API keeps them apart and a
+            // mixed set is refused on every side.
+            let attributes: Vec<&Handle> = ordered
+                .iter()
+                .filter(|node| node.kind() == xpath_eval::NodeKind::Attribute)
+                .collect();
+            if !attributes.is_empty() {
+                if attributes.len() != ordered.len() {
+                    return refuse(id, "unsupported", "a node-set mixing attributes with other nodes");
+                }
+                let pairs: Vec<Value> = ordered
+                    .iter()
+                    .map(|node| {
+                        let name = node
+                            .expanded_name()
+                            .map(|name| name.local_name)
+                            .unwrap_or_default();
+                        json!([name, node.string_value()])
+                    })
+                    .collect();
+                return json!({ "id": id, "ok": true, "kind": "attributes", "value": pairs });
+            }
+
+            let content: Vec<Value> = ordered
+                .iter()
+                .map(|node| match node {
+                    // The root node has no form of its own in this envelope,
+                    // and selecting it means the document -- so it is reported
+                    // as its document element, as the package reports it.
+                    Handle::Tree(inner) if inner.is_root() => {
+                        match inner.first_element_child() {
+                            Some(element) => {
+                                let children: Vec<roxmltree::Node> = element.children().collect();
+                                let name = qualified_element(element);
+                                let mut attrs: Vec<(String, String)> = declarations(element, text);
+                                for attribute in element.attributes() {
+                                    attrs.push((
+                                        qualified(element, attribute.namespace(), attribute.name()),
+                                        attribute.value().to_string(),
+                                    ));
+                                }
+                                attrs.sort_by(|left, right| left.0.cmp(&right.0));
+                                let attrs: Vec<Value> = attrs
+                                    .into_iter()
+                                    .map(|(name, value)| json!([name, value]))
+                                    .collect();
+                                json!(["e", name, attrs, project(&children, text)])
+                            }
+                            None => json!(["t", ""]),
+                        }
+                    }
+                    Handle::Tree(inner) if inner.is_element() => {
+                        let children: Vec<roxmltree::Node> = inner.children().collect();
+                        let name = qualified_element(*inner);
+                        let mut attrs: Vec<(String, String)> = declarations(*inner, text);
+                        for attribute in inner.attributes() {
+                            attrs.push((
+                                qualified(*inner, attribute.namespace(), attribute.name()),
+                                attribute.value().to_string(),
+                            ));
+                        }
+                        attrs.sort_by(|left, right| left.0.cmp(&right.0));
+                        let attrs: Vec<Value> = attrs
+                            .into_iter()
+                            .map(|(name, value)| json!([name, value]))
+                            .collect();
+                        json!(["e", name, attrs, project(&children, text)])
+                    }
+                    other => json!(["t", other.string_value()]),
+                })
+                .collect();
+            json!({ "id": id, "ok": true, "kind": "nodes", "value": content })
+        }
+    }
 }
 
 /// Answer one `write` case: a tree in the §3 envelope shape, written back out.
