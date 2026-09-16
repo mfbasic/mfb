@@ -188,7 +188,7 @@ Acceptance: the whole feature's gate passes.
   Coverage: `target/release/mfb test --coverage packages/xml` — exit 0, `Wrote coverage report to
   .../packages/xml/coverage.html`, and `packages/xml/coverage.covfail` is empty (`wc -l` = 0), so
   nothing the coverage gate tracks went unexercised.
-Commit: —
+Commit: `bb367078b`
 
 ## Validation Plan
 
