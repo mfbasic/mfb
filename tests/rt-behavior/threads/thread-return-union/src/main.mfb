@@ -7,9 +7,9 @@ FUNC main AS Integer
   thread::send(t, "sent-union", 10)
   LET result = thread::waitFor(t)
   MATCH result
-    CASE ReturnOk(value)
+    CASE thread_runtime_workers::ReturnOk(value)
       io::print(value.message)
-    CASE ReturnMissing(value)
+    CASE thread_runtime_workers::ReturnMissing(value)
       io::print("returned-missing")
   END MATCH
   RETURN 0
