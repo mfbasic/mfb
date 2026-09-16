@@ -1,4 +1,4 @@
-# bug-647: self-reassigning a list through `collections::take`/`drop` copies every returned element, so a build loop is O(n²)
+# bug-652: self-reassigning a list through `collections::take`/`drop` copies every returned element, so a build loop is O(n²)
 
 Last updated: 2026-09-15
 Effort: large (3h–1d)

@@ -153,7 +153,7 @@ Adds §5. Nothing earlier changes.
       none meets "parse + index + materialize one element ≤ 3 s", localize the copying operation with
       `mfb build --debug`'s arena report and fix the compiler defect under its own bug document
       before Phase 2 (AGENTS.md). — Not needed: candidate (a) meets the budget with room to spare,
-      and the copying that ruled the others out is already filed as `bug-647`.
+      and the copying that ruled the others out is already filed as `bug-652`.
 
 Acceptance: a materialization design is chosen with its measured cost recorded.
   Check: the `/tmp` consumer's output for all measured cases, 3 runs each, with the chosen design ≤ 3.00 s
@@ -336,7 +336,7 @@ on the space character only, so a tab or a line feed survived. §4.2 collapses a
 
 **Phase 1 — §3's "one iterative pass" cannot be used, and the strategy that works is not obvious.**
 An iterative walk has to reach each child with `collections::get` on a `List OF Node`, which returns
-an owned deep copy of that subtree (bug-538, and the copying measured in bug-647) — the same cost
+an owned deep copy of that subtree (bug-538, and the copying measured in bug-652) — the same cost
 that killed `dom`'s frame-stack builder in plan-138-A. A recursive walk with `FOR EACH` borrows
 instead, so the question becomes how the entries cross call boundaries. Three ways, measured at
 100,000 nodes:
