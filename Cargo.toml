@@ -645,6 +645,10 @@ name = "rt_inline_trap_nested_call"
 path = "tests/runtime/rt_inline_trap_nested_call.rs"
 
 [[test]]
+name = "rt_inline_trap_union_bind"
+path = "tests/runtime/rt_inline_trap_union_bind.rs"
+
+[[test]]
 name = "rt_inline_trap_raising_operator"
 path = "tests/runtime/rt_inline_trap_raising_operator.rs"
 
