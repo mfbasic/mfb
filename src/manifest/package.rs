@@ -732,6 +732,19 @@ fn imported_type_def(
         .foreign_owner
         .clone()
         .unwrap_or_else(|| package.to_string());
+    // …and a name that is ALREADY qualified carries its identity itself. A
+    // BUILT-IN value type a package re-exports (`regex.Group`, `http.Response`)
+    // has no `.mfp` of its own for the foreign-owner resolution to read, so the
+    // qualifier is all there is. Prefixing it again minted `regex.regex.Group`,
+    // and every consumer of such a package was refused with `PACKAGE_INVALID …
+    // exported type 'regex.Group' references unknown type 'regex.Group'`.
+    let qualified = |name: &str| {
+        if name.contains('.') {
+            name.to_string()
+        } else {
+            format!("{owner}.{name}")
+        }
+    };
     let kind = match export.kind {
         binary_repr::BinaryReprExportKind::Type => ir::ImportedTypeKind::Record,
         binary_repr::BinaryReprExportKind::Union => ir::ImportedTypeKind::Union,
@@ -741,7 +754,7 @@ fn imported_type_def(
         }
     };
     Some(ir::ImportedTypeDef {
-        name: format!("{owner}.{}", export.name),
+        name: qualified(&export.name),
         kind,
         fields: export
             .fields
@@ -752,7 +765,7 @@ fn imported_type_def(
             .variants
             .into_iter()
             .map(|variant| ir::ImportedTypeVariant {
-                name: format!("{owner}.{}", variant.name),
+                name: qualified(&variant.name),
                 fields: variant
                     .fields
                     .into_iter()

@@ -24,7 +24,7 @@ IMPORT thread
 ' thread boundary because thread transfer now deep-copies recursive values.
 EXPORT TYPE LoadResult
   ok AS Boolean
-  document AS Node
+  document AS dom::Node
   title AS String
   message AS String
   secure AS Boolean
@@ -185,7 +185,7 @@ FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS Loa
   IF NOT (strings::contains(ctype, "html") OR ctype = "") THEN
     RETURN LoadResult[TRUE, dom::textDocument(body), "", "", secure, 1, 1]
   END IF
-  MUT document AS Node = dom::parse(body)
+  MUT document AS dom::Node = dom::parse(body)
   LET links AS List OF String = dom::styleLinks(document)
   LET sheets AS SheetLoad = fetchStyles(u, links)
   ' filesLoaded/filesTotal count the HTML (always loaded here) plus each linked

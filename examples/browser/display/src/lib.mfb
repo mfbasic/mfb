@@ -213,9 +213,9 @@ END FUNC
 
 ' The laid-out page height in terminal rows: the root element's px box height mapped
 ' down by the line height `linePx`.
-FUNC pageHeight(root AS Node, linePx AS Integer) AS Integer
+FUNC pageHeight(root AS dom::Node, linePx AS Integer) AS Integer
   MATCH root
-    CASE ElementNode(e)
+    CASE dom::ElementNode(e)
       RETURN divRound(e.layout.height, linePx)
     CASE ELSE
       RETURN 0
@@ -225,9 +225,9 @@ END FUNC
 ' Draw one text run onto the canvas at its layout box.
 ' The column offset within a run's box for one wrapped line, honoring the run's
 ' horizontal alignment: left flush (0), centered, or right flush.
-FUNC alignOffset(align AS Justify, boxWidth AS Integer, lineWidth AS Integer) AS Integer
-  IF align = Justify.Center THEN RETURN maxOf(0, (boxWidth - lineWidth) / 2)
-  IF align = Justify.FlexEnd THEN RETURN maxOf(0, boxWidth - lineWidth)
+FUNC alignOffset(align AS dom::Justify, boxWidth AS Integer, lineWidth AS Integer) AS Integer
+  IF align = dom::Justify.Center THEN RETURN maxOf(0, (boxWidth - lineWidth) / 2)
+  IF align = dom::Justify.FlexEnd THEN RETURN maxOf(0, boxWidth - lineWidth)
   RETURN 0
 END FUNC
 
@@ -300,7 +300,7 @@ END TYPE
 
 ' The style covering grapheme `idx` per a run's spans (ordered, non-overlapping);
 ' default (unstyled) when none covers it.
-FUNC styleAt(spans AS List OF TextSpan, idx AS Integer) AS Style3
+FUNC styleAt(spans AS List OF dom::TextSpan, idx AS Integer) AS Style3
   FOR EACH sp IN spans
     IF idx >= sp.start AND idx <= sp.endIndex THEN
       RETURN Style3[sp.bold, sp.underline, sp.color, sp.href, sp.field]
@@ -318,7 +318,7 @@ END FUNC
 ' is source grapheme `lineOffset + j` (look its style up in `spans`) and lands at row
 ' column `startCol + j`, clipped at `rightBound` exactly as the drawn text is. Maximal
 ' same-style, contiguous columns are merged into one RowSpan.
-FUNC mapLineSpans(spans AS List OF TextSpan, line AS String, lineOffset AS Integer, startCol AS Integer, rightBound AS Integer) AS List OF RowSpan
+FUNC mapLineSpans(spans AS List OF dom::TextSpan, line AS String, lineOffset AS Integer, startCol AS Integer, rightBound AS Integer) AS List OF RowSpan
   MUT out AS List OF RowSpan = []
   MUT haveRun AS Boolean = FALSE
   MUT rs0 AS Integer = 0
@@ -391,8 +391,8 @@ END FUNC
 ' Draw one text run onto the canvas at its layout box, recording its styled spans.
 ' The DOM gives the box in CSS px; map it down with the glyph size (`cw` px wide,
 ' `linePx` tall): the run starts at column x/cw, row y/linePx, `box.width/cw` wide.
-FUNC paintRun(cv AS Canvas, t AS TextNode, widthCols AS Integer, cw AS Integer, linePx AS Integer) AS Canvas
-  LET box AS Layout = t.layout
+FUNC paintRun(cv AS Canvas, t AS dom::TextNode, widthCols AS Integer, cw AS Integer, linePx AS Integer) AS Canvas
+  LET box AS dom::Layout = t.layout
   LET wCols AS Integer = divRound(box.width, cw)
   IF wCols <= 0 THEN RETURN cv
   LET colX AS Integer = divRound(box.x, cw)
@@ -469,11 +469,11 @@ END FUNC
 ' run's styling onto the rows, and collects each link's text rectangles (see paintRun).
 ' This is where all px → cell conversion happens; the DOM never knows about terminal
 ' cells. Walks iteratively (the imported Node union does not lower to a recursive fn).
-EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS PaintResult
+EXPORT FUNC paint(root AS dom::Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS PaintResult
   LET cw AS Integer = maxOf(1, cellPx)
   LET lh AS Integer = maxOf(1, linePx)
   LET viewportPx AS Integer = maxOf(0, widthCols) * cw
-  LET laid AS Node = dom::updateLayout(root, viewportPx, cw, lh, TRUE)
+  LET laid AS dom::Node = dom::updateLayout(root, viewportPx, cw, lh, TRUE)
   LET h AS Integer = pageHeight(laid, lh)
   MUT rows AS List OF String = []
   MUT spans AS List OF List OF RowSpan = []
@@ -484,21 +484,21 @@ EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx 
   NEXT
   LET noTargets AS List OF Target = []
   MUT cv AS Canvas = Canvas[rows, spans, noTargets]
-  MUT stack AS List OF Node = [laid]
+  MUT stack AS List OF dom::Node = [laid]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
-    LET node AS Node = collections::get(stack, i)
+    LET node AS dom::Node = collections::get(stack, i)
     stack = collections::removeAt(stack, i)
     MATCH node
-      CASE ElementNode(e)
+      CASE dom::ElementNode(e)
         MUT j AS Integer = len(e.children) - 1
         DO WHILE j >= 0
           stack = collections::append(stack, collections::get(e.children, j))
           j = j - 1
         LOOP
-      CASE TextNode(t)
+      CASE dom::TextNode(t)
         cv = paintRun(cv, t, widthCols, cw, lh)
-      CASE HeaderNode(hn)
+      CASE dom::HeaderNode(hn)
       CASE ELSE
     END MATCH
   LOOP
@@ -521,9 +521,9 @@ END TYPE
 
 ' The concatenated text of an element's subtree, in document order (skipping a
 ' display:none subtree). Iterative — no recursion over the imported Node union.
-FUNC subtreeText(e AS ElementNode) AS String
+FUNC subtreeText(e AS dom::ElementNode) AS String
   MUT parts AS List OF String = []
-  MUT stack AS List OF Node = []
+  MUT stack AS List OF dom::Node = []
   MUT j AS Integer = len(e.children) - 1
   DO WHILE j >= 0
     stack = collections::append(stack, collections::get(e.children, j))
@@ -531,18 +531,18 @@ FUNC subtreeText(e AS ElementNode) AS String
   LOOP
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
-    LET node AS Node = collections::get(stack, i)
+    LET node AS dom::Node = collections::get(stack, i)
     stack = collections::removeAt(stack, i)
     MATCH node
-      CASE ElementNode(ce)
-        IF ce.style.display <> Display.None THEN
+      CASE dom::ElementNode(ce)
+        IF ce.style.display <> dom::Display.None THEN
           MUT k AS Integer = len(ce.children) - 1
           DO WHILE k >= 0
             stack = collections::append(stack, collections::get(ce.children, k))
             k = k - 1
           LOOP
         END IF
-      CASE TextNode(t)
+      CASE dom::TextNode(t)
         parts = collections::append(parts, t.text)
       CASE ELSE
     END MATCH
@@ -552,16 +552,16 @@ END FUNC
 
 ' Every hyperlink (an <a> with an href) on the page, in document order, with its
 ' visible text. Links inside a display:none subtree are skipped. Iterative walk.
-EXPORT FUNC links(root AS Node) AS List OF Link
+EXPORT FUNC links(root AS dom::Node) AS List OF Link
   MUT out AS List OF Link = []
-  MUT stack AS List OF Node = [root]
+  MUT stack AS List OF dom::Node = [root]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
-    LET node AS Node = collections::get(stack, i)
+    LET node AS dom::Node = collections::get(stack, i)
     stack = collections::removeAt(stack, i)
     MATCH node
-      CASE ElementNode(e)
-        IF e.style.display <> Display.None THEN
+      CASE dom::ElementNode(e)
+        IF e.style.display <> dom::Display.None THEN
           IF e.tag = "a" THEN
             LET href AS String = collections::getOr(e.attrs, "href", "")
             IF href <> "" THEN
@@ -660,15 +660,15 @@ END FUNC
 
 ' The readable page text: a pre-order walk emitting text, breaking lines on
 ' block tags, skipping the header and non-visible subtrees.
-EXPORT FUNC render(root AS Node, width AS Integer) AS String
+EXPORT FUNC render(root AS dom::Node, width AS Integer) AS String
   MUT parts AS List OF String = []
-  MUT stack AS List OF Node = [root]
+  MUT stack AS List OF dom::Node = [root]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
-    LET node AS Node = collections::get(stack, i)
+    LET node AS dom::Node = collections::get(stack, i)
     stack = collections::removeAt(stack, i)
     MATCH node
-      CASE ElementNode(e)
+      CASE dom::ElementNode(e)
         IF NOT skipTag(e.tag) THEN
           IF isBlock(e.tag) THEN
             parts = collections::append(parts, "\n")
@@ -679,9 +679,9 @@ EXPORT FUNC render(root AS Node, width AS Integer) AS String
             j = j - 1
           LOOP
         END IF
-      CASE TextNode(t)
+      CASE dom::TextNode(t)
         parts = collections::append(parts, t.text)
-      CASE HeaderNode(h)
+      CASE dom::HeaderNode(h)
         ' the header carries no visible text
       CASE ELSE
     END MATCH
@@ -706,7 +706,7 @@ END FUNC
 
 ' One frame of the tree walk: a node and its indent depth.
 TYPE Walk
-  node AS Node
+  node AS dom::Node
   depth AS Integer
 END TYPE
 
@@ -714,7 +714,7 @@ END TYPE
 ' StyleNode record's fields directly now that a transitively-reached record's
 ' fields are visible across a package boundary (bug-435 fix) — dom no longer has
 ' to pre-format the rules into strings.
-FUNC formatRule(r AS StyleNode) AS String
+FUNC formatRule(r AS dom::StyleNode) AS String
   MUT decls AS String = ""
   FOR EACH key IN collections::keys(r.props)
     IF decls <> "" THEN
@@ -726,7 +726,7 @@ FUNC formatRule(r AS StyleNode) AS String
 END FUNC
 
 ' An indented text rendering of the DOM tree itself (the "raw" view).
-EXPORT FUNC tree(root AS Node, width AS Integer) AS String
+EXPORT FUNC tree(root AS dom::Node, width AS Integer) AS String
   MUT lines AS List OF String = []
   MUT cssLines AS List OF String = []
   MUT stack AS List OF Walk = [Walk[root, 0]]
@@ -736,19 +736,19 @@ EXPORT FUNC tree(root AS Node, width AS Integer) AS String
     stack = collections::removeAt(stack, i)
     LET indent AS String = strings::repeat("  ", w.depth)
     MATCH w.node
-      CASE ElementNode(e)
+      CASE dom::ElementNode(e)
         lines = collections::append(lines, indent & "<" & e.tag & attrsBrief(e.attrs) & ">")
         MUT j AS Integer = len(e.children) - 1
         DO WHILE j >= 0
           stack = collections::append(stack, Walk[collections::get(e.children, j), w.depth + 1])
           j = j - 1
         LOOP
-      CASE TextNode(t)
+      CASE dom::TextNode(t)
         LET tx AS String = strings::trim(collapse(t.text))
         IF tx <> "" THEN
           lines = collections::append(lines, indent & "\"" & clip(tx, 60) & "\"")
         END IF
-      CASE HeaderNode(h)
+      CASE dom::HeaderNode(h)
         lines = collections::append(lines, indent & "#head  title=\"" & clip(h.title, 40) & "\"  scripts=" & toString(len(h.scripts)) & "  styles=" & toString(len(h.styles)) & "  css=" & toString(len(h.css)) & "  rules=" & toString(len(h.rules)))
         ' Format the header's CSS rules directly from the StyleNode records.
         FOR EACH r IN h.rules

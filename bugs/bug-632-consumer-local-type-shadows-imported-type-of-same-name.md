@@ -322,6 +322,38 @@ each was accepting a program the checker should always have refused):
 Also fixed in the merge rename: a `CSTRUCT`'s `maps_to` names one of the package's own RECORDS and
 was left behind (`CSTRUCT 'SfFormatInfo' maps to 'AudioFormat', which is not a record type`).
 
+**A third over-qualification, found by `examples/browser`** (`rt_debug_soak`'s paint-loop case builds
+it): an export whose name is ALREADY qualified carries its identity itself. A built-in value type a
+package re-exports (`regex.Group`, `http.Response`) has no `.mfp` of its own for the foreign-owner
+resolution to read, so the qualifier is all there is; prefixing it again minted `regex.regex.Group`
+and every consumer of such a package was refused with `PACKAGE_INVALID … exported type
+'regex.Group' references unknown type 'regex.Group'`. `imported_type_def` now leaves a dotted
+export name (and variant name) alone, the same rule `package_type_owners` already applied.
+
+**The corpus migration extends to `examples/`**: `examples/browser` is a four-package example
+(`dom`, `display`, `fetch`, `app`) whose `display`/`fetch`/`app` sources name `dom`'s types bare —
+`Node`, `ElementNode`, `TextNode`, `HeaderNode`, `StyleNode`, `TextSpan`, `Layout`, `Justify`,
+`FieldSpec`, `Style` — plus `display::{Link, PaintResult, Rect, Target}` and `fetch::LoadResult` in
+`app`. Migrated in every type position, including the two the first pass missed: a constructor head
+(`RETURN FieldSpec[…]`) and the type after `TO` in a thread handle
+(`Thread OF String TO LoadResult`).
+
+**Integrating `main`** (it advanced to `be9eec9a6` during this fix; merged as `6f1d4e19f`). One real
+interaction, in the one function both touched:
+
+- `main` added `scope_private_types`, which gives a package's PRIVATE types an identity-bearing
+  name, and a `Target::Type`/`Target::TypeName` arm to the shared IR walk (bug-624) — the same two
+  string positions this bug had to rename by hand. The two passes compose in a required ORDER:
+  private types are scoped first, and `qualify_package_types` leaves an already-qualified spelling
+  alone, so a private type is never qualified twice.
+- `qualify_package_types` now rides `visit_project_targets_mut` instead of the walkers this bug
+  wrote, and those (`TypeRenames`, `qualify_value_types`, `qualify_op_types`, …) are deleted. A type
+  position added to that walk is now qualified here for free, rather than silently missed by a
+  second, parallel walk.
+- The five `tls` `.ncodesum` goldens conflicted (main moved tls codegen; this branch changed the
+  fixture's source). Neither side's hash describes the merged compiler, so all five were rebuilt
+  from it.
+
 ### Phase 4 — corpus, goldens, spec, full validation
 
 - [x] Respell every bare imported user-package type in `tests/`. Found by running the suite, not by

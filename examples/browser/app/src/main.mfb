@@ -370,7 +370,7 @@ END SUB
 ' rewrites that field's value in the document (see the key handling in main).
 
 ' Whether any of target `t`'s text is on a currently visible row and column.
-FUNC targetVisible(t AS Target, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Boolean
+FUNC targetVisible(t AS display::Target, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Boolean
   FOR EACH rc IN t.rects
     IF rc.row >= scroll AND rc.row < scroll + contentH THEN
       IF rc.c1 >= hscroll AND rc.c0 < hscroll + cols THEN
@@ -383,7 +383,7 @@ END FUNC
 
 ' The next on-screen target after `from` in document order, wrapping around the visible
 ' set; -1 when no target is on screen. `from` = -1 starts the scan at the first target.
-FUNC nextVisibleTarget(targets AS List OF Target, from AS Integer, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Integer
+FUNC nextVisibleTarget(targets AS List OF display::Target, from AS Integer, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Integer
   LET n AS Integer = len(targets)
   IF n = 0 THEN RETURN -1
   MUT k AS Integer = 0
@@ -399,7 +399,7 @@ END FUNC
 
 ' The dom form-field ordinal of target `idx`, or -1 when it is a link (or `idx` names
 ' no target). This is what tells the two kinds of target apart everywhere.
-FUNC targetField(targets AS List OF Target, idx AS Integer) AS Integer
+FUNC targetField(targets AS List OF display::Target, idx AS Integer) AS Integer
   IF idx < 0 OR idx >= len(targets) THEN RETURN -1
   RETURN collections::get(targets, idx).field
 END FUNC
@@ -407,7 +407,7 @@ END FUNC
 ' The index of the target for dom field `field`, or -1 when the page has none. Used to
 ' carry a field's focus across a reflow: a keystroke rebuilds the document and repaints
 ' it, so the target list is new but the field ordinal is stable.
-FUNC fieldTargetIndex(targets AS List OF Target, field AS Integer) AS Integer
+FUNC fieldTargetIndex(targets AS List OF display::Target, field AS Integer) AS Integer
   IF field < 0 THEN RETURN -1
   MUT i AS Integer = 0
   LET n AS Integer = len(targets)
@@ -435,7 +435,7 @@ END FUNC
 
 ' One JSON object per form, seeded with the values the page shipped its fields with
 ' (an HTML `value=` attribute is the field's initial data, exactly as in a browser).
-FUNC initialFormData(fields AS List OF FieldSpec, forms AS Integer) AS List OF json::Json
+FUNC initialFormData(fields AS List OF dom::FieldSpec, forms AS Integer) AS List OF json::Json
   LET empty AS Map OF String TO json::Json = Map OF String TO json::Json {}
   MUT maps AS List OF Map OF String TO json::Json = []
   FOR i = 0 TO forms - 1
@@ -457,13 +457,13 @@ END FUNC
 
 ' The spec for field ordinal `ord`. fieldSpecs is in document order, so the ordinal is
 ' the index; an unknown ordinal yields a blank spec that reads and writes nothing.
-FUNC specOf(fields AS List OF FieldSpec, ord AS Integer) AS FieldSpec
+FUNC specOf(fields AS List OF dom::FieldSpec, ord AS Integer) AS dom::FieldSpec
   IF ord >= 0 AND ord < len(fields) THEN RETURN collections::get(fields, ord)
-  RETURN FieldSpec[-1, -1, "", "text", 0, ""]
+  RETURN dom::FieldSpec[-1, -1, "", "text", 0, ""]
 END FUNC
 
 ' The text `spec`'s field currently holds, or "" when its form has no entry for it.
-FUNC formValue(data AS List OF json::Json, spec AS FieldSpec) AS String
+FUNC formValue(data AS List OF json::Json, spec AS dom::FieldSpec) AS String
   IF spec.form < 0 OR spec.form >= len(data) THEN RETURN ""
   LET blank AS json::Json = json::JsonStr[""]
   LET got AS json::Json = json::getOr(collections::get(data, spec.form), [spec.key], blank)
@@ -476,7 +476,7 @@ FUNC formValue(data AS List OF json::Json, spec AS FieldSpec) AS String
 END FUNC
 
 ' `data` with `spec`'s field set to `value` — one keystroke's worth of work.
-FUNC setFormValue(data AS List OF json::Json, spec AS FieldSpec, value AS String) AS List OF json::Json
+FUNC setFormValue(data AS List OF json::Json, spec AS dom::FieldSpec, value AS String) AS List OF json::Json
   IF spec.form < 0 OR spec.form >= len(data) THEN RETURN data
   MUT members AS Map OF String TO json::Json = Map OF String TO json::Json {}
   LET current AS json::Json = collections::get(data, spec.form)
@@ -493,7 +493,7 @@ END FUNC
 
 ' Every field's current value in ordinal order — the render input dom::applyFieldValues
 ' folds into a copy of the document for a full re-layout.
-FUNC fieldValues(data AS List OF json::Json, fields AS List OF FieldSpec) AS List OF String
+FUNC fieldValues(data AS List OF json::Json, fields AS List OF dom::FieldSpec) AS List OF String
   MUT out AS List OF String = []
   FOR EACH sp IN fields
     out = collections::append(out, formValue(data, sp))
@@ -529,7 +529,7 @@ END FUNC
 ' just the edited boxes over the cached rows, through the same dom::fieldBox the next
 ' full layout will use, so the shortcut cannot drift from it.
 TYPE FieldPatch
-  rect AS Rect
+  rect AS display::Rect
   text AS String
   focused AS Boolean
 END TYPE
@@ -545,12 +545,12 @@ END FUNC
 ' The stamps for every field edited since the last full paint: each edited field's
 ' current box, at each rectangle its target occupies. A field whose target is gone
 ' (the page was reflowed into a shape without it) simply contributes nothing.
-FUNC fieldPatches(fields AS List OF FieldSpec, data AS List OF json::Json, targets AS List OF Target, edited AS List OF Integer, focusIdx AS Integer) AS List OF FieldPatch
+FUNC fieldPatches(fields AS List OF dom::FieldSpec, data AS List OF json::Json, targets AS List OF display::Target, edited AS List OF Integer, focusIdx AS Integer) AS List OF FieldPatch
   MUT out AS List OF FieldPatch = []
   FOR EACH ord IN edited
     LET idx AS Integer = fieldTargetIndex(targets, ord)
     IF idx >= 0 THEN
-      LET spec AS FieldSpec = specOf(fields, ord)
+      LET spec AS dom::FieldSpec = specOf(fields, ord)
       LET box AS String = dom::fieldBox(spec, formValue(data, spec))
       FOR EACH rc IN collections::get(targets, idx).rects
         ' Clip to the rectangle the paint actually gave the box, so a box the layout
@@ -582,7 +582,7 @@ FUNC isAlpha(ch AS String) AS Boolean
 END FUNC
 
 ' The index of the link whose label is `lab`, or -1 if none matches.
-FUNC labelIndex(items AS List OF Link, lab AS String) AS Integer
+FUNC labelIndex(items AS List OF display::Link, lab AS String) AS Integer
   LET n AS Integer = len(items)
   MUT i AS Integer = 0
   DO WHILE i < n
@@ -608,7 +608,7 @@ END FUNC
 ' rectangles; their cells get a selection background overlaid before the row is drawn.
 ' `patches` are the form-field boxes edited since the last full paint, stamped over
 ' the cached row afterwards (see FieldPatch).
-SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect, patches AS List OF FieldPatch)
+SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF display::Rect, patches AS List OF FieldPatch)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(color::rgb(0, 0, 0))
@@ -685,7 +685,7 @@ FUNC main AS Integer
   ' text held in `content` and hard-wrapped. display:: takes the width, so the
   ' content is recomputed on load, mode switch, and resize — tracked by
   ' needRecontent / lastContentWidth.
-  MUT pageDoc AS Node = dom::emptyDocument()
+  MUT pageDoc AS dom::Node = dom::emptyDocument()
   MUT haveDom AS Boolean = FALSE
   MUT fallback AS String = welcomeText()
   MUT content AS String = welcomeText()
@@ -704,7 +704,7 @@ FUNC main AS Integer
   ' field, -1 when it is a link or nothing. It is the editing state — while it is set,
   ' every printable key types into that field — and it is what survives a reflow: a
   ' keystroke rebuilds the document, so the target list is new but the ordinal is not.
-  MUT targets AS List OF Target = []
+  MUT targets AS List OF display::Target = []
   MUT focusIdx AS Integer = -1
   MUT focusField AS Integer = -1
   ' The fields typed into since the last full paint. Their boxes are stamped over the
@@ -714,17 +714,17 @@ FUNC main AS Integer
   ' The page's editable fields (dom::fieldSpecs, indexed by field ordinal) and the
   ' reader's data for them: one JSON object per form. This is where a typed value
   ' lives — see the form-data section above.
-  MUT fields AS List OF FieldSpec = []
+  MUT fields AS List OF dom::FieldSpec = []
   MUT formData AS List OF json::Json = []
   ' Every link on the current page (display::links), for the [L]inks view; recomputed
   ' on each load.
-  MUT pageLinks AS List OF Link = []
+  MUT pageLinks AS List OF display::Link = []
   ' A URL to load this frame (set by Address-Mode Enter or activating a focused link),
   ' consumed by the load section below; "" means nothing to load.
   MUT loadTarget AS String = ""
   ' An empty rect list, for drawing content with no link highlighted, and an empty
   ' patch list for content that has no form fields to stamp (the loading screen).
-  LET noRects AS List OF Rect = []
+  LET noRects AS List OF display::Rect = []
   LET noPatches AS List OF FieldPatch = []
   ' The widest content line, for clamping the horizontal scroll (Left/Right). The
   ' page can be laid out wider than the terminal (see layoutWidthFor / the width
@@ -776,8 +776,8 @@ FUNC main AS Integer
           ' The one place a whole document is needed: fold the reader's form data into
           ' a copy of the page and lay that out. pageDoc itself stays as the site sent
           ' it, so the JSON objects remain the only store of what has been typed.
-          LET filled AS Node = dom::applyFieldValues(pageDoc, fieldValues(formData, fields))
-          LET pr AS PaintResult = display::paint(filled, layoutW, termCellPx(), termLinePx())
+          LET filled AS dom::Node = dom::applyFieldValues(pageDoc, fieldValues(formData, fields))
+          LET pr AS display::PaintResult = display::paint(filled, layoutW, termCellPx(), termLinePx())
           wrapped = pr.rows
           targets = pr.targets
         ELSE
@@ -834,7 +834,7 @@ FUNC main AS Integer
         END IF
       END IF
 
-      MUT focusRects AS List OF Rect = noRects
+      MUT focusRects AS List OF display::Rect = noRects
       IF focusIdx >= 0 THEN
         focusRects = collections::get(targets, focusIdx).rects
       END IF
@@ -929,7 +929,7 @@ FUNC main AS Integer
       ELSEIF key = "ENTER" THEN
         ' A single-line <input> ignores newlines: Enter neither types nor submits.
       ELSEIF key = "BACKSPACE" THEN
-        LET spec AS FieldSpec = specOf(fields, focusField)
+        LET spec AS dom::FieldSpec = specOf(fields, focusField)
         LET current AS String = formValue(formData, spec)
         IF len(current) > 0 THEN
           formData = setFormValue(formData, spec, dropLastGrapheme(current))
@@ -955,7 +955,7 @@ FUNC main AS Integer
         hscroll = hscroll + 1
         contentDirty = TRUE
       ELSEIF isTextKey(key) THEN
-        LET spec AS FieldSpec = specOf(fields, focusField)
+        LET spec AS dom::FieldSpec = specOf(fields, focusField)
         formData = setFormValue(formData, spec, formValue(formData, spec) & key)
         IF NOT containsInt(editedFields, focusField) THEN
           editedFields = collections::append(editedFields, focusField)
@@ -1048,7 +1048,7 @@ FUNC main AS Integer
       drawContent(size, loadingLines, 0, 0, noRects, noPatches)
       term::sync()
 
-      LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
+      LET worker AS Thread OF String TO fetch::LoadResult = thread::start(fetch::fetch, target)
       DO WHILE thread::isRunning(worker)
         spinner = spinner + 1
         drawChrome(size, FALSE, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
@@ -1067,7 +1067,7 @@ FUNC main AS Integer
       IF running THEN
         ' Not aborted: take the result. (On abort the handle drops here, cancelling
         ' and detaching the worker so quitting is immediate.)
-        LET page AS LoadResult = thread::waitFor(worker)
+        LET page AS fetch::LoadResult = thread::waitFor(worker)
         ' The worker parsed the page into a DOM and deep-copied it back. The title
         ' goes in the top bar; the document drives the content. A new page opens in
         ' Display Mode. On error there is no DOM, so the message shows via `fallback`.
