@@ -360,6 +360,22 @@ copied the `STATE` pointer into the receiver's record, so freeing it here would 
 another thread a dangling payload. (`./mfb spec language resource-management` specifies the
 close/drop split.) [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
 
+A resource that **floats** into an owner collection (`./mfb spec language
+resource-management` §15.6) has no binding of its own left to drop, so its memory is
+reclaimed by that collection's owned-list drain instead. The drain always frees the
+16-byte `{record, next}` node it allocated for the element, which nothing but the drain
+can name. Everything the node POINTS at — the element's `STATE` block, its per-`File`
+I/O buffers, its record for the five record-freeing kinds above, a union element's
+`{tag, record-ptr}` box, and the collection block itself — is freed only for a
+collection proved to be their one owner (bug-645): every store into it is a collection
+literal or a self-receiving `collections::` mutator, it is never named outside a call's
+argument position, no `collections::get`/`getOr` (nor a `*::poll`) reads an element back
+out of it, and every element that floats into it is a fresh producer record that does
+not escape. A collection that fails any of those keeps a close-only drain, which leaks
+those blocks rather than risking a double free.
+[[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
+
 Two classes of value are **excluded** from scope-drop frees because they are not
 plain arena blocks this scope owns: **runtime-managed thread
 results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing

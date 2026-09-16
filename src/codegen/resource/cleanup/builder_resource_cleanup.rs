@@ -1069,12 +1069,18 @@ impl CodeBuilder<'_> {
             return Ok(OwnedListDrop::Union {
                 variants,
                 state_type: element.state(),
+                record_free_tags: self.resource_union_record_free_tags(element),
             });
         }
         let symbol = self.resource_cleanup_symbol(element).ok_or_else(|| {
             format!("owned-list element type '{element}' has no registered close op")
         })?;
-        Ok(OwnedListDrop::Concrete(symbol))
+        Ok(OwnedListDrop::Concrete {
+            close: symbol,
+            state_type: element.state(),
+            has_io_buffers: Self::resource_uses_io_buffers(element),
+            frees_record: Self::resource_record_freed_at_drop(element),
+        })
     }
 
     /// The resource payload of a **record** owned-list owner: the type of its
