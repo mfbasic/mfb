@@ -192,6 +192,17 @@ TESTING
       expectInteger(len(select(catalog(), "/..")), 0)
     END TCASE
 
+    TCASE "selecting the document gives the document ELEMENT, not the prolog"
+      ' Found by fuzz-xpath: with a comment before the root element, `..` from
+      ' that element returned the comment as well. The document node has no Node
+      ' form, and the prolog is not the document.
+      LET withProlog AS Document = parse("<!--note--><?pi data?><root><a/></root>")
+      expectInteger(len(select(withProlog, "/")), 1)
+      expectInteger(len(select(withProlog, "//a/..")), 1)
+      expectString(valueOf(withProlog, "name(//a/..)"), "root")
+      expectString(valueOf(withProlog, "name(/*)"), "root")
+    END TCASE
+
     TCASE "the string-value of a text node is its own text"
       expectString(valueOf(catalog(), "string(//text())"), "Dune")
     END TCASE

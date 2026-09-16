@@ -109,7 +109,7 @@ Acceptance: the Rust oracle answers the three probe expressions with XPath 1.0 r
   `string(1 div 0)` → `{"kind":"string","value":"Infinity"}`;
   and two more asked at the same time — `//a/@x` → `{"kind":"attributes","value":[["x","1"],["x","2"]]}`
   and `string(//a)` → `{"kind":"string","value":"hi"}`.
-Commit: —
+Commit: `dd4a2bf92` (with Phase 2)
 
 ### Phase 2 — Node XPath and `xpath` mode
 
@@ -130,17 +130,28 @@ Acceptance: the XPath corpus agrees three-way.
   remaining two are one declared divergence recorded with its measurement. This is also the first
   time the divergence machinery has been used at all — letters C and D resolved every disagreement
   by fixing a side.
-Commit: —
+Commit: `dd4a2bf92` (with Phase 1)
 
 ### Phase 3 — `fuzz-xpath`
 
-- [ ] `diff.mjs fuzz-xpath` — for each random tree from plan-138-C's generator, generate expressions
+- [x] `diff.mjs fuzz-xpath` — for each random tree from plan-138-C's generator, generate expressions
       from names, attribute values and text actually present (paths, predicates, comparisons,
-      functions from plan-138-D §4), seeded and replayable.
-- [ ] Fix defects as in Phase 2.
+      functions from plan-138-D §4), seeded and replayable. `generate.mjs` gained `plainTree`
+      (namespace-free, per the Phase 2 correction), `inventory` (the names, attribute pairs and text
+      runs a tree actually holds) and `expressionsFor`; `diff.mjs` asks `XPATH_PER_TREE = 10`
+      expressions of each tree, in batches of `XPATH_BATCH = 2000`, with `--seed`/`--count` printed
+      on every failure line.
+- [x] Fix defects as in Phase 2. Two found, one on each side — a package defect (the prolog came back
+      when the document node was selected) and a Node-oracle defect (UTF-16 code units in
+      `string-length`). Both in Corrections; the package suite went 252 → 253.
 
 Acceptance: random queries agree exactly.
   Check: `node packages/xml/oracle/diff.mjs fuzz-xpath --count 2000` → exit 0 (est. 3 min).
+  MET: `node packages/xml/oracle/diff.mjs fuzz-xpath --count 2000` →
+  `ok   fuzz-xpath: 20000 case(s) agreed three ways`, exit 0. The run before the two fixes reported
+  `FAIL fuzz-xpath: 52 of 20000 case(s) disagreed`. `node packages/xml/oracle/diff.mjs xpath` was
+  re-run after the oracle change and still reports `ok   xpath: 148 case(s) agreed three ways,
+  2 declared divergent`.
 Commit: —
 
 ### Phase 4 — final gate and archive
@@ -225,6 +236,40 @@ float-formatting function with a precision argument (`mfb man strings` has only 
 math` only `round`/`ceil`/`floor`). The arithmetic agrees — only the text form differs — so this is a
 limit of the language's number-to-text conversion. Recorded in `divergences.json` with that evidence,
 and in `packages/xml/README.md` so a caller meets it in the documentation rather than in a surprise.
+
+**Phase 3 — the package returned the prolog when asked for the document.** `publicValue` mapped the
+document node to every top-level node, so `//a/..` on a document opening with a comment came back
+with the comment beside the root element. XPath 1.0 §5.1 gives the root node children that include
+the prolog's comments and processing instructions, but this envelope has no form for the document
+node — plan-138-E §3 and the Phase 2 correction settled that it is reported as the document ELEMENT.
+Returning the prolog as well was neither. Fixed to the document element only, behind a failing case
+in `test_xpath_edges.mfb`.
+
+**Phase 3 — all 52 fuzz disagreements were one oracle defect: JavaScript counts UTF-16 code units.**
+Every failing case was `string-length`, and every one was "the Node oracle disagrees" — classified
+across all 52 rather than the visible few, so the single cause is confirmed rather than assumed:
+`by leading function: {'string-length': 52}`, `by disagreement kind: {'the Node oracle disagrees': 52}`.
+`string-length(string(//Ωmega))` gave 4 in Node against 3 in both the package and roxmltree, because
+the generator's `𐍈` is one character but two UTF-16 code units, and JavaScript's
+`String.length` counts the latter. XPath 1.0 §4.2 defines `string-length` over *characters*, so the
+package and the Rust oracle are both right and the Node oracle was wrong.
+
+The plan's non-goal says a disagreement is resolved by fixing the side that is wrong, or by a
+declared divergence — never by narrowing the corpus. This was fixable, so it was fixed rather than
+declared: npm `xpath` accepts a function resolver (`xpath.parse(expr).evaluate({node, functions})`)
+that falls back to its own implementation for anything the resolver declines, so `oracle.mjs` now
+supplies its own `string-length`. `substring` and `translate` were corrected in the same place
+although no case had yet failed on them: they are the other two §4.2 functions defined over
+characters, npm `xpath` implements both on raw JavaScript strings, and an oracle that is right only
+because the fuzzer has not yet hit the astral case is not an oracle. The three replacements are
+checked against §4.2's own worked examples — `substring("12345", 1.5, 2.6)` → `"234"`,
+`(0, 3)` → `"12"`, `(0 div 0, 3)` → `""`, `(-42, 1 div 0)` → `"12345"`,
+`(-1 div 0, 1 div 0)` → `""`, and `translate("bar", "abc", "ABC")` → `"BAr"`.
+
+Switching from `xpath.select` to `xpath.parse(...).evaluate(...)` changes the return from a raw
+JavaScript value to an XPath value object, so the envelope now tests `instanceof XBoolean/XNumber/
+XString` instead of `typeof`. That distinguishes an empty node-set from an empty string, which
+`typeof` could not.
 
 ## Summary
 

@@ -981,8 +981,15 @@ PUBLIC FUNC publicValue(index AS List OF IndexedNode, value AS XValue) AS XPathV
         IF at >= 0 THEN
           nodes = collections::append(nodes, nodeAt(index, at))
         ELSE
+          ' The document node has no `Node` form. Selecting it -- `/`, or `..`
+          ' from the root element -- means the document, so it comes back as the
+          ' document ELEMENT. Returning every top-level node instead would add
+          ' the prolog's comments and processing instructions, which are not the
+          ' document.
           FOR EACH one IN rootsOf(index)
-            nodes = collections::append(nodes, nodeAt(index, one))
+            IF collections::get(index, one).kind = KIND_ELEMENT THEN
+              nodes = collections::append(nodes, nodeAt(index, one))
+            END IF
           NEXT
         END IF
       NEXT

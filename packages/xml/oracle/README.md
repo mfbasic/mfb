@@ -100,6 +100,21 @@ shared would hide exactly the disagreements this oracle exists to find.
 | `roundtrip` | corpus + random trees | `content(read(write(read(x)))) = content(read(x))`, compact and pretty |
 | `mutate` | corpus documents with random byte damage | robustness, not correctness: the probe always answers a well-formed envelope, exits 0, and finishes inside 30 s. Agreement is *reported*, never asserted — damaged input has no right answer |
 | `perf` | generated 100k-node flat, deep and wide documents | `xmlprobe read` of each within 3.00 s |
+| `xpath` | `corpus/xpath/*.json` — 148 expressions over `corpus/catalog.xml` | the three XPath engines agree on the result's kind and value |
+| `fuzz-xpath` | expressions drawn from each random tree's own names, attributes and text | the same, over documents nobody wrote by hand |
+
+The XPath modes run over documents with **no namespace declarations**, and that
+is a scope decision rather than an oversight. XPath 1.0's unprefixed name test
+matches only no-namespace elements, so on a document with `xmlns="urn:x"` both
+oracles correctly select *nothing* for `//book`, while this package — which never
+resolves a prefix — matches the literal name and selects every book. A resolver
+bridges a prefixed name; nothing bridges a default namespace. Neither side is
+wrong, so such documents are outside these modes.
+
+The XPath engines are a third independent pair: `xpath-eval` over the same
+roxmltree parse on the Rust side, and npm `xpath` over a DOM built from saxes
+events on the Node side. A number is compared as its XPath `string()` text, so
+all three must agree on §4.2 formatting, not merely on the value.
 
 `mutate`'s damage is a bit flip, a deleted byte, a truncation, an inserted `<`,
 `&`, `]]>`, CR, NUL or `</`, or a raw `0xFF`. A mutation that leaves the document
@@ -133,16 +148,21 @@ character references for non-ASCII, and `<a></a>` versus `<a/>`.
 | **package** | That union then returned its attributes in the wrong ORDER — all the `id`s, then all the `year`s. A union yields a node-set, and a node-set is in document order, so the two interleave. | ordered insertion, with a case asserting the order |
 | harness (Node) | The DOM built from saxes events kept the whitespace text nodes from outside the document element, so `//text()` and `//node()` returned two more nodes than either other side. XPath 1.0 §5.1 gives the root node no text children. | `oracle.mjs` ignores text outside the root |
 | harness (both oracles) | Selecting the document node itself (`.` at the top) rendered three different ways, though all three had selected the same node. It is now reported as the document element, which is what the package does. | envelope rule in both oracles |
+| **package** | Selecting the document node returned the PROLOG too — `//a/..` on a document opening with a comment came back with the comment beside the root element. The document node has no `Node` form here, so it is reported as the document element; the prolog is not the document. | `xpath_eval.mfb`, behind a failing case in `test_xpath_edges.mfb` |
+| harness (Node) | npm `xpath` implements `string-length`, `substring` and `translate` on raw JavaScript strings, which count UTF-16 code units — so every character above the BMP counted twice. `string-length(string(//Ωmega))` said 4 where the package and roxmltree said 3. XPath 1.0 §4.2 defines all three in terms of *characters*. 52 of 20,000 `fuzz-xpath` cases. | `oracle.mjs` supplies its own three, over code points |
 
-Nothing is in `divergences.json`: every disagreement so far was resolved by
-fixing the side that was wrong.
+Every row above was resolved by fixing the side that was wrong. `divergences.json`
+holds exactly one thing, and it is not a disagreement about XML or XPath:
+`sum(//price)` is `30.740000000000002` in both oracles and `30.74` in the
+package, because MFBASIC's `toString(Float)` is fixed at two decimal places. The
+arithmetic agrees; only the text form differs.
 
 ## Layout
 
 ```
 README.md            this file
-package.json         saxes, @xmldom/xmldom
-oracle.mjs           the Node side: read (saxes) and write (xmldom)
+package.json         saxes, @xmldom/xmldom, xpath
+oracle.mjs           the Node side: read (saxes), write (xmldom), evaluate (xpath)
 generate.mjs         the seeded tree generator and its style writer
 diff.mjs             the runner: modes, three-way comparison, divergences
 divergences.json     case → reason, with a spec section or W3C test id

@@ -117,6 +117,122 @@ export function tree(next) {
   return ["doc", children];
 }
 
+/**
+ * A tree with NO namespace declarations and no prefixed names.
+ *
+ * The XPath modes need these: XPath 1.0's unprefixed name test matches only
+ * no-namespace elements, so on a document with `xmlns="urn:x"` both oracles
+ * correctly select nothing for `//a` while this package -- which never resolves
+ * a prefix -- matches the literal name. No resolver bridges that, so namespaced
+ * documents are outside those modes (plan-138-E §3).
+ */
+export function plainTree(next) {
+  const root = element(next, 3, []);
+  const children = [];
+  if (next() < 0.3) children.push(["c", "prolog"]);
+  children.push(root);
+  if (next() < 0.2) children.push(["p", "epilog", "data"]);
+  return ["doc", children];
+}
+
+/** Every element name, attribute pair and text run a tree actually holds. */
+export function inventory(tree) {
+  const names = new Set();
+  const attributes = [];
+  const texts = new Set();
+  const visit = (node) => {
+    const [kind] = node;
+    if (kind === "t") {
+      if (node[1].trim() !== "") texts.add(node[1]);
+      return;
+    }
+    if (kind !== "e") return;
+    names.add(node[1]);
+    for (const [key, value] of node[2]) attributes.push([key, value]);
+    for (const child of node[3]) visit(child);
+  };
+  for (const child of tree[1]) visit(child);
+  return {
+    names: [...names],
+    attributes,
+    texts: [...texts],
+  };
+}
+
+/** A string literal for an XPath expression, quoted so the value survives. */
+function literal(value) {
+  if (!value.includes("'")) return `'${value}'`;
+  if (!value.includes('"')) return `"${value}"`;
+  return null; // XPath 1.0 has no escape for a literal holding both quotes.
+}
+
+/**
+ * Expressions drawn from what this tree actually contains.
+ *
+ * Deliberately avoided: fractional arithmetic, because MFBASIC prints a Float
+ * with two decimals and XPath asks for as many digits as distinguish a double
+ * (the feature's one declared divergence); and anything namespace-dependent,
+ * for the reason `plainTree` gives.
+ */
+export function expressionsFor(tree, next) {
+  const { names, attributes, texts } = inventory(tree);
+  const out = [
+    "//*",
+    "/*",
+    "//text()",
+    "//node()",
+    "//comment()",
+    "//processing-instruction()",
+    "count(//*)",
+    "count(//text())",
+    "boolean(//*)",
+    "not(//missing-element)",
+    "count(//missing-element)",
+    "string(/*)",
+    "name(/*)",
+    "local-name(/*)",
+  ];
+  if (names.length === 0) return out;
+
+  const pick = (list) => list[Math.floor(next() * list.length) % list.length];
+  for (let index = 0; index < 6; index += 1) {
+    const name = pick(names);
+    out.push(
+      `//${name}`,
+      `//${name}[1]`,
+      `(//${name})[1]`,
+      `//${name}[last()]`,
+      `(//${name})[last()]`,
+      `count(//${name})`,
+      `string(//${name})`,
+      `//${name}/..`,
+      `//${name}/*`,
+      `//${name}//*`,
+      `//${name}[position() < 3]`,
+      `boolean(//${name})`,
+      `string-length(string(//${name}))`,
+      `count(//${name}) > 0`,
+      `//${name} | //${pick(names)}`,
+    );
+  }
+
+  for (let index = 0; index < 4 && attributes.length > 0; index += 1) {
+    const [key, value] = pick(attributes);
+    const quoted = literal(value);
+    out.push(`//@${key}`, `//*[@${key}]`, `count(//@${key})`, `name(//@${key})`);
+    if (quoted !== null) {
+      out.push(`//*[@${key}=${quoted}]`, `count(//*[@${key}=${quoted}])`);
+    }
+  }
+
+  for (let index = 0; index < 3 && texts.length > 0; index += 1) {
+    const quoted = literal(pick(texts));
+    if (quoted === null) continue;
+    out.push(`//*[string(.)=${quoted}]`, `count(//*[contains(string(.), ${quoted})])`);
+  }
+  return out;
+}
+
 /** `count` trees from `seed`, as {id, tree} cases. */
 export function trees(seed, count) {
   const next = rng(seed);

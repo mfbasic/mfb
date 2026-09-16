@@ -24,7 +24,14 @@ import {
   writeJob as nodeWriteJob,
   xpathJob as nodeXPathJob,
 } from "./oracle.mjs";
-import { trees, STYLES, rng, write as writeStyled } from "./generate.mjs";
+import {
+  trees,
+  STYLES,
+  rng,
+  plainTree,
+  expressionsFor,
+  write as writeStyled,
+} from "./generate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../../..");
@@ -773,10 +780,63 @@ function runXPath() {
   return { count: cases.length, failures, diverged };
 }
 
+/**
+ * fuzz-xpath: expressions drawn from each random tree's own names, attribute
+ * values and text, asked of all three engines.
+ *
+ * The trees carry no namespaces, for the reason the `xpath` mode gives.
+ */
+/** How many of a tree's expressions to ask, and how many cases per batch. */
+const XPATH_PER_TREE = 10;
+const XPATH_BATCH = 2000;
+
+function runFuzzXPath(options) {
+  const declared = loadDivergences();
+  const next = rng(options.seed);
+  const cases = [];
+  for (let index = 0; index < options.count; index += 1) {
+    const tree = plainTree(next);
+    const xml = writeStyled(tree, STYLES[0]);
+    // A tree yields well over a hundred expressions; asking all of them for
+    // thousands of trees would build a job file of hundreds of megabytes. A
+    // seeded sample keeps the breadth (a different ten per tree) without it.
+    const all = expressionsFor(tree, next);
+    for (let taken = 0; taken < XPATH_PER_TREE && all.length > 0; taken += 1) {
+      const expr = all[Math.floor(next() * all.length) % all.length];
+      cases.push({ id: `seed${options.seed}-${index}:${expr}`, xml, expr });
+    }
+  }
+
+  const failures = [];
+  let diverged = 0;
+  // Batched, so memory stays flat however large --count is: each side answers
+  // one chunk per invocation rather than the whole run at once.
+  for (let start = 0; start < cases.length; start += XPATH_BATCH) {
+    const batch = cases.slice(start, start + XPATH_BATCH);
+    const job = { cases: batch };
+    const probe = asked.probe("xpath", job);
+    const rust = asked.rust("xpath", job);
+    const node = nodeXPathJob(job).results;
+
+    for (let index = 0; index < batch.length; index += 1) {
+      const id = batch[index].id;
+      const problem = compareXPath(id, [probe[index], node[index], rust[index]]);
+      if (!problem) continue;
+      if (declared[id]) {
+        diverged += 1;
+        continue;
+      }
+      failures.push(`${problem}\n     replay: --seed ${options.seed} --count ${options.count}`);
+    }
+  }
+  return { count: cases.length, failures, diverged };
+}
+
 const MODES = {
   corpus: runCorpus,
   xmlconf: runXmlconf,
   xpath: runXPath,
+  "fuzz-xpath": runFuzzXPath,
   "fuzz-read": runFuzzRead,
   "fuzz-write": runFuzzWrite,
   roundtrip: runRoundtrip,

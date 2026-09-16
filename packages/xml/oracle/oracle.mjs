@@ -400,25 +400,82 @@ function projectDomChildren(children) {
   return out;
 }
 
+/**
+ * XPath 1.0 counts *characters*; JavaScript's `String.length`, indexing and
+ * iteration all count UTF-16 code units, so every character above the BMP
+ * counts twice. `string-length`, `substring` and `translate` are the three
+ * §4.2 functions defined in terms of characters, and npm `xpath` implements
+ * all three on raw JavaScript strings -- so the Node oracle supplies its own.
+ * Everything else falls through to the library's implementation.
+ */
+const characters = (text) => Array.from(text);
+
+/** The context node's string-value, for the one-argument forms. */
+function contextString(context) {
+  return xpathLib.XNodeSet.prototype.stringForNode(context.contextNode);
+}
+
+/** `String.prototype.substring`'s clamping (NaN and negatives to 0, swap if crossed), over code points. */
+function substringByCharacter(cps, from, to) {
+  const clamp = (value) => (value > 0 ? Math.min(Math.floor(value), cps.length) : 0);
+  let a = clamp(from);
+  let b = to === undefined ? cps.length : clamp(to);
+  if (a > b) [a, b] = [b, a];
+  return cps.slice(a, b).join("");
+}
+
+const XPATH_FUNCTIONS = {
+  "string-length": (context, text) =>
+    characters(text === undefined ? contextString(context) : text.stringValue()).length,
+
+  substring: (context, text, start, length) => {
+    const cps = characters(text.stringValue());
+    const from = Math.round(start.numberValue()) - 1;
+    const to = length === undefined ? undefined : from + Math.round(length.numberValue());
+    return substringByCharacter(cps, from, to);
+  },
+
+  translate: (context, text, from, to) => {
+    const target = characters(to.stringValue());
+    const map = new Map();
+    characters(from.stringValue()).forEach((character, index) => {
+      if (!map.has(character)) map.set(character, index < target.length ? target[index] : "");
+    });
+    return characters(text.stringValue())
+      .map((character) => (map.has(character) ? map.get(character) : character))
+      .join("");
+  },
+};
+
+/** npm `xpath`'s resolver protocol: return nothing and the library's own function is used. */
+function xpathFunction(name, namespace) {
+  if (namespace) return undefined;
+  return XPATH_FUNCTIONS[name];
+}
+
 /** Evaluate `expr` against `text` and return the §3 XPath envelope. */
 export function xpath(text, expr) {
   const built = domOf(text);
   if (built.failure) return built.failure;
 
-  let result;
+  let value;
   try {
-    result = xpathLib.select(expr, built.doc);
+    value = xpathLib.parse(expr).evaluate({ node: built.doc, functions: xpathFunction });
   } catch (error) {
     return refuse("unsupported", error.message);
   }
 
-  if (typeof result === "boolean") return { ok: true, kind: "boolean", value: result };
-  if (typeof result === "number") {
-    return { ok: true, kind: "number", value: xpathNumberToString(result) };
+  if (value instanceof xpathLib.XBoolean) {
+    return { ok: true, kind: "boolean", value: value.booleanValue() };
   }
-  if (typeof result === "string") return { ok: true, kind: "string", value: result };
+  if (value instanceof xpathLib.XNumber) {
+    return { ok: true, kind: "number", value: xpathNumberToString(value.numberValue()) };
+  }
+  if (value instanceof xpathLib.XString) {
+    return { ok: true, kind: "string", value: value.stringValue() };
+  }
 
-  const nodes = Array.from(result ?? []);
+  const nodes = value.nodeset().toArray();
   // 2 = ATTRIBUTE_NODE
   const attributes = nodes.filter((node) => node.nodeType === 2);
   if (attributes.length > 0) {
