@@ -125,32 +125,71 @@ fn emit_release_thread_plumbing(
         let absent = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_absent");
         let drain = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drain");
         let drained = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drained");
+        let retire = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_retire");
+        // bug-646: THIS thread is the queue's sender only on the two INBOUND queues (it
+        // spawned the worker, so it is the one that `send`s / `transfer`s into them), and
+        // every block on a pending-free list was carved by that queue's sender (bug-498).
+        // Reclaiming an OUTBOUND queue's list here would push the WORKER's blocks onto
+        // this thread's bins — sound as adoption, but it charges a free to an arena that
+        // never allocated the block (`free_calls` outruns `alloc_calls` in the `--debug`
+        // report, which is the signature of a double free) and it is not this thread's
+        // memory to recycle. An outbound list is drained by the worker's own next
+        // `thread::send`; whatever is left when it exits stays in the worker's arena,
+        // where it was carved.
+        let reclaims_pending_free = matches!(
+            cb_queue_offset,
+            THREAD_OFFSET_INBOUND_QUEUE | THREAD_OFFSET_RESOURCE_INBOUND_QUEUE
+        );
         ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v9", "%v8", cb_queue_offset),
             abi::compare_immediate("%v9", "0"),
             abi::branch_eq(&absent),
             abi::store_u64("%v9", abi::stack_pointer(), queue_offset),
-            abi::label(&drain),
-            abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
-            abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_eq(&drained),
-            abi::load_u64("%v11", "%v10", 0),
-            abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-            abi::load_u64(abi::c_arg(1), "%v10", 8),
-            abi::move_register(abi::c_arg(0), "%v10"),
-            abi::branch_link(ARENA_FREE_SYMBOL),
         ]);
-        ctx.relocations
-            .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-        // The value ring: `capacity * 8` bytes, the size `emit_thread_queue_alloc` gave it.
+        if reclaims_pending_free {
+            ctx.instructions.extend([
+                // bug-646: the block the reader's LAST read handed out was never retired
+                // (no further read followed it), so park it on the pending-free list here
+                // and let the drain below reclaim it with everything else. The worker is
+                // joined by the time the plumbing is released, so this is the only thread
+                // touching the queue and the mutex is not needed. Size 0 = not
+                // reclaimable; drop the reference.
+                abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
+                abi::compare_immediate("%v10", "0"),
+                abi::branch_eq(&retire),
+                abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+                abi::compare_immediate("%v11", "0"),
+                abi::branch_eq(&retire),
+                abi::load_u64("%v12", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+                abi::store_u64("%v12", "%v10", 0),
+                abi::store_u64("%v11", "%v10", 8),
+                abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+                abi::label(&retire),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+                abi::label(&drain),
+                abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+                abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+                abi::compare_immediate("%v10", "0"),
+                abi::branch_eq(&drained),
+                abi::load_u64("%v11", "%v10", 0),
+                abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+                abi::load_u64(abi::c_arg(1), "%v10", 8),
+                abi::move_register(abi::c_arg(0), "%v10"),
+                abi::branch_link(ARENA_FREE_SYMBOL),
+            ]);
+            ctx.relocations
+                .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+            ctx.instructions
+                .extend([abi::branch(&drain), abi::label(&drained)]);
+        }
+        // The value ring: `capacity * THREAD_QUEUE_ENTRY_SIZE` bytes, the size
+        // `emit_thread_queue_alloc` gave it.
         ctx.instructions.extend([
-            abi::branch(&drain),
-            abi::label(&drained),
             abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
             abi::load_u64("%v10", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
-            abi::move_immediate("%v11", "Integer", "8"),
+            abi::move_immediate("%v11", "Integer", &THREAD_QUEUE_ENTRY_SIZE.to_string()),
             abi::multiply_registers(abi::c_arg(1), "%v10", "%v11"),
             abi::load_u64(abi::c_arg(0), "%v9", THREAD_QUEUE_VALUES_OFFSET),
             abi::branch_link(ARENA_FREE_SYMBOL),
@@ -1474,6 +1513,32 @@ pub(crate) fn thread_queue_write_helper(
         },
         "pthread_mutex_lock",
     )?;
+    // bug-646: drain the queue's pending-free list — every block on it was carved by
+    // THIS side (the sender allocates the boundary copy in its own arena, bug-498), so
+    // this is the thread whose bins the memory must go back to. Two paths put blocks
+    // there: a failed send's orphaned copy (bug-147.5b) and a successful hand-over the
+    // reader has finished with (bug-646). We hold the queue mutex, and each node carries
+    // `{next, size}` in its own first two words. The queue pointer is reloaded from its
+    // frame slot every iteration because `arena_free` clobbers caller-saved registers.
+    let write_drain_loop = format!("{symbol}_pending_free_drain");
+    let write_drain_done = format!("{symbol}_pending_free_done");
+    instructions.extend([
+        abi::label(&write_drain_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&write_drain_done),
+        abi::load_u64("%v11", "%v10", 0),
+        abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::load_u64(abi::c_arg(1), "%v10", 8),
+        abi::move_register(abi::c_arg(0), "%v10"),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    instructions.extend([
+        abi::branch(&write_drain_loop),
+        abi::label(&write_drain_done),
+    ]);
     instructions.push(abi::label(&wait_loop));
     if parent_send {
         instructions.extend([
@@ -1552,10 +1617,15 @@ pub(crate) fn thread_queue_write_helper(
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
         abi::load_u64("%v10", "%v9", THREAD_QUEUE_TAIL_OFFSET),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        abi::shift_left_immediate("%v12", "%v10", 3),
+        abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
         abi::add_registers("%v11", "%v11", "%v12"),
         abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("%v12", "%v11", 0),
+        // bug-646: the entry's second word is the copy's byte size (arg 3; 0 = "not
+        // reclaimable"), so the reader can hand the block back for the sender to free
+        // without knowing the message type.
+        abi::load_u64("%v12", abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::store_u64("%v12", "%v11", 8),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),
@@ -1775,29 +1845,45 @@ pub(crate) fn thread_queue_read_helper(
         },
         "pthread_mutex_lock",
     )?;
-    // bug-147.5b: drain the queue's pending-free list — the message copies a failed
-    // send orphaned. We hold the queue mutex, and `arena_free` only ever touches the
-    // freeing thread's own arena state (x19), so reclaiming a block the sender's arena
-    // carved (bug-498: the copy is made in the sender's arena and handed across) is
-    // race-free adoption, not a cross-thread free. Each node stores `{next, size}` in its
-    // own first two words; the queue pointer is reloaded from its frame slot every
-    // iteration because `arena_free` clobbers caller-saved registers.
-    let drain_loop = format!("{symbol}_pending_free_drain");
-    let drain_done = format!("{symbol}_pending_free_done");
+    // bug-646: retire the block the PREVIOUS read handed out. `thread::receive` /
+    // `thread::accept` deep-copy the queued block into the reader's OWN arena at the
+    // call site, after which the queued block — carved by the sender (bug-498) — has no
+    // owner at all; that was the leak. It cannot be parked the instant it is handed out
+    // (the call-site copy has not run yet, and the sender's drain would free it out from
+    // under the copy), so each read parks the one before it: the copy of block N-1 is
+    // finished by the time this thread asks for block N, and each queue has exactly one
+    // reader (the worker for an inbound queue, the parent for an outbound one), so
+    // "the previous read" is a strictly earlier point on THIS thread.
+    //
+    // The park is a push onto the queue's pending-free list under the queue mutex, using
+    // the dead block's own first two words as `{next, size}` — the SENDER drains it (at
+    // its next write, or at `emit_release_thread_plumbing`), because the sender's arena
+    // is where the memory came from and a worker's bins die with the worker. A size of 0
+    // means "not reclaimable" (a scalar message, or a type whose exact copy size the send
+    // helper does not compute): drop the reference without freeing.
+    //
+    // This replaces bug-147.5b's reader-side drain of the same list, which freed the
+    // sender's blocks into the READER's bins — memory-safe adoption, but it only moved
+    // the leak when the reader was a short-lived worker.
+    let retire_clear = format!("{symbol}_pending_free_clear");
+    let retire_done = format!("{symbol}_pending_free_done");
     instructions.extend([
-        abi::label(&drain_loop),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
         abi::compare_immediate("%v10", "0"),
-        abi::branch_eq(&drain_done),
-        abi::load_u64("%v11", "%v10", 0),
-        abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v10", 8),
-        abi::move_register(abi::c_arg(0), "%v10"),
-        abi::branch_link(ARENA_FREE_SYMBOL),
+        abi::branch_eq(&retire_done),
+        abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+        abi::compare_immediate("%v11", "0"),
+        abi::branch_eq(&retire_clear),
+        abi::load_u64("%v12", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::store_u64("%v12", "%v10", 0),
+        abi::store_u64("%v11", "%v10", 8),
+        abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::label(&retire_clear),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+        abi::label(&retire_done),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    instructions.extend([abi::branch(&drain_loop), abi::label(&drain_done)]);
     instructions.extend([
         abi::label(&wait_loop),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
@@ -1876,9 +1962,19 @@ pub(crate) fn thread_queue_read_helper(
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
         abi::load_u64("%v10", "%v9", THREAD_QUEUE_HEAD_OFFSET),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        abi::shift_left_immediate("%v12", "%v10", 3),
+        abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
         abi::add_registers("%v11", "%v11", "%v12"),
         abi::load_u64(RESULT_VALUE_REGISTER, "%v11", 0),
+        // bug-646: remember the block (and the size the sender recorded with it) as the
+        // one to retire on this queue's next read — the reader's only chance to give the
+        // sender its memory back, since the call site copies the block and then drops it.
+        abi::load_u64("%v12", "%v11", 8),
+        abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            "%v9",
+            THREAD_QUEUE_LAST_READ_PTR_OFFSET,
+        ),
+        abi::store_u64("%v12", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),

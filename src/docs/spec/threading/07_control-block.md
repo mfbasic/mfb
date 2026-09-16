@@ -96,7 +96,7 @@ that contract.
 
 ## Queue record layout
 
-Each queue record is 240 bytes (`THREAD_QUEUE_BLOCK_SIZE`):
+Each queue record is 264 bytes (`THREAD_QUEUE_BLOCK_SIZE`):
 
 ```text
 offset  field
@@ -108,13 +108,44 @@ offset  field
 208     head index
 216     tail index
 224     closed flag
-232     values pointer                (ring buffer of capacity * 8-byte slots)
+232     values pointer                (ring buffer of capacity * 16-byte entries)
+240     pending-free list head        (blocks the SENDER still has to reclaim)
+248     last-read block pointer       (retired on this queue's next read)
+256     last-read block size          (0 = not reclaimable)
 ```
 [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_BLOCK_SIZE]]
 
 The mutex and both condition variables are `pthread_*_init`-ed when the queue is
 allocated in `thread::start`. The values pointer is a separately arena-allocated
-ring buffer of `capacity` eight-byte slots.
+ring of `capacity` sixteen-byte entries, each `{value, size}`: the enqueued value
+(a pointer for a block-shaped message, the scalar itself otherwise) and the byte
+size the sender computed for it, so the reader can hand the block back for
+reclamation without knowing its type. `size` is `0` when the message has no
+reclaimable block of a size the sender computes.
+
+### Reclaiming a queued message copy
+
+A send deep-copies its message into the SENDER's own arena and hands that block
+across; `thread::receive` / `thread::accept` copy it AGAIN into the reader's arena,
+so once the reader's copy is made the queued block has no owner. Two fields make
+that block reclaimable without any thread allocating in, or freeing into, another
+thread's arena:
+
+* the reader stores each block it is handed in the **last-read** fields, and the
+  NEXT read on that queue pushes it onto the **pending-free list** (under the queue
+  mutex, reusing the dead block's own first two words as `{next, size}`). One read
+  behind is the earliest safe point: the caller's copy of block *N* is complete
+  before that thread asks for block *N+1*, and each queue has exactly one reader.
+* the **sender** drains the pending-free list — at the top of its next write, and,
+  for the queues the spawning thread sends into, when the handle's plumbing is
+  released. The sender is the thread whose arena carved every block on the list, and
+  a free pushes onto the FREEING thread's own bins, so draining on the reader would
+  return the sender's memory to a heap that is never reused.
+
+A failed send's orphaned copy joins the same list from the write helper's failure
+path.
+[[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_PENDING_FREE_OFFSET]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_LAST_READ_PTR_OFFSET]]
 
 Queue storage must preserve enough type metadata to drop or close queued values
 without receiving them. For queued resource handles, the runtime uses the
