@@ -6,11 +6,11 @@ IMPORT collections
 IMPORT sqlite3
 IMPORT io
 
-FUNC cellText(cell AS SqlValue) AS String
+FUNC cellText(cell AS sqlite3::SqlValue) AS String
   MATCH cell
-    CASE SqlInt(i)
+    CASE sqlite3::SqlInt(i)
       RETURN toString(i.value)
-    CASE SqlText(t)
+    CASE sqlite3::SqlText(t)
       RETURN t.value
     CASE ELSE
       RETURN "?"
