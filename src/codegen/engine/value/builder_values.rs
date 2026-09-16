@@ -1121,6 +1121,39 @@ impl CodeBuilder<'_> {
             && (self.is_freeable_flat_value(result_type) || self.owns_graph(result_type))
     }
 
+    /// bug-643: whether the RAW result of a runtime helper is a **resource record**
+    /// this frame's own arena holds — the one owned shape
+    /// [`Self::runtime_result_is_caller_owned`] deliberately answers `false` for,
+    /// because `is_freeable_flat_value` excludes resources (their record is
+    /// reclaimed by the resource cleanup, never by a generic `arena_free`).
+    ///
+    /// The distinction matters at exactly one place: the inline-`TRAP` `Result`
+    /// wrap (`materialize_current_result`). For a **sendable** resource it used to
+    /// route the producer's record through `copy_resource_to_current_arena`, which
+    /// allocates a SECOND 96-byte record, copies the header into it, and tombstones
+    /// the source `moved|closed`. That is right across a thread boundary and wrong
+    /// in the same arena: the producer's record is already here, nothing else names
+    /// it, the moved bit makes `emit_resource_block_reclaim` skip it — so every
+    /// `RES c = udp::bind(…) TRAP … END TRAP` leaked one record per bind. A
+    /// non-sendable resource (`tls::Socket`, audio) already takes the pointer-carry
+    /// arm and never leaked, which is why the leak looked resource-kind-specific.
+    ///
+    /// Two exclusions, both inherited rather than restated: a `thread.*` result is
+    /// the WORKER's record (`runtime_call_result_is_foreign_arena`) and must keep
+    /// its deep copy, and a **borrowed** element result (`collections::get`,
+    /// `tcp::poll` over a list) is a pointer into a collection whose owner closes
+    /// it — carrying that pointer into the `Result` would hand the `TRAP` binding a
+    /// close obligation on a live element.
+    pub(crate) fn runtime_result_is_owned_resource_record(
+        &self,
+        target: &str,
+        result_type: &ParameterType,
+    ) -> bool {
+        !Self::runtime_call_result_is_foreign_arena(target)
+            && !Self::target_returns_borrowed_resource(target)
+            && self.is_sendable_resource_nominal(result_type)
+    }
+
     /// bug-576: whether a runtime helper must MARK its result fresh
     /// (`mark_fresh_string`) for the statement-scope free to claim it — the extra
     /// hurdle exactly one result type has.
@@ -1253,13 +1286,22 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. }
             | NirValue::CallResult { target, .. }
             | NirValue::RuntimeCall { target, .. } => {
-                matches!(
-                    crate::codegen::registry::native_bare_target(target),
-                    Some("get" | "getOr")
-                ) || matches!(target.as_str(), "tcp.poll" | "udp.poll" | "tls.poll")
+                Self::target_returns_borrowed_resource(target)
             }
             _ => false,
         }
+    }
+
+    /// The call TARGETS whose resource result is a pointer to a resource another
+    /// owner still closes — the borrowed-element shapes named in
+    /// [`Self::value_aliases_live_resource`]'s doc, split out so the raw
+    /// inline-`TRAP` path can ask the same question of a bare target string
+    /// (bug-643) instead of restating the list.
+    pub(crate) fn target_returns_borrowed_resource(target: &str) -> bool {
+        matches!(
+            crate::codegen::registry::native_bare_target(target),
+            Some("get" | "getOr")
+        ) || matches!(target, "tcp.poll" | "udp.poll" | "tls.poll")
     }
 
     /// A NIR value node that yields a pointer to a **pre-existing** arena block

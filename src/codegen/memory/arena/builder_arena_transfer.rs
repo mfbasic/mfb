@@ -246,7 +246,30 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, RESULT_OK_TAG));
         self.emit(abi::branch_ne(&wrap_error_label));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), value_slot));
-        let copied_success = self.copy_value_to_current_arena(success_type, &scratch9)?;
+        // bug-643: the producer's resource record is already in THIS arena and
+        // nothing else names it, so carry the pointer — exactly what the
+        // non-sendable resource and `ThreadHandle` arms of
+        // `copy_value_to_current_arena` already do, and for the same reason.
+        //
+        // Sending it through the copy instead allocated a second 96-byte record,
+        // copied the canonical header into it, and tombstoned the source
+        // `moved|closed` (`copy_resource_to_current_arena`, the thread hand-over
+        // path). In the same arena that source has no other owner and the moved bit
+        // makes `emit_resource_block_reclaim` skip it, so every inline-`TRAP` bind
+        // of a SENDABLE resource — `RES c = udp::bind(…) TRAP` and the resource
+        // UNION spelling of the same bind, whose `$trap_val` temp is the concrete
+        // variant — orphaned one record per bind. `RawSuccessBlock::OwnedByThisFrame`
+        // is the audited answer to "is this record this frame's?"; a worker's record
+        // (`thread.*`) and a borrowed element keep the deep copy.
+        let carry_resource_pointer = raw_success == RawSuccessBlock::OwnedByThisFrame
+            && self.is_sendable_resource_nominal(success_type);
+        let copied_success = if carry_resource_pointer {
+            let carried = self.allocate_register();
+            self.emit(abi::move_register(&carried, &scratch9));
+            carried
+        } else {
+            self.copy_value_to_current_arena(success_type, &scratch9)?
+        };
         self.emit(abi::store_u64(
             &copied_success,
             abi::stack_pointer(),

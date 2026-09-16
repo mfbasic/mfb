@@ -442,7 +442,14 @@ impl CodeBuilder<'_> {
             // thread's arena and handed back the only pointer; the `Result` is
             // built by copying it, after which nothing owned it. The predicate is
             // the `Bind` gate for the same call, asked here.
-            let raw_success = if self.runtime_result_is_caller_owned(target, result_type) {
+            // bug-643: a resource RECORD is the second shape this frame owns. It
+            // is not `is_freeable_flat_value`, so the predicate above declines it;
+            // `runtime_result_is_owned_resource_record` answers for it, and
+            // `materialize_current_result` reads the verdict as "carry the
+            // producer's record into the `Result` instead of deep-copying it".
+            let raw_success = if self.runtime_result_is_caller_owned(target, result_type)
+                || self.runtime_result_is_owned_resource_record(target, result_type)
+            {
                 RawSuccessBlock::OwnedByThisFrame
             } else {
                 RawSuccessBlock::OwnedElsewhere
