@@ -5,8 +5,22 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/runtime/rt_debug_soak.rs` —
+`a_trap_bound_resource_union_keeps_live_bytes_constant`,
+`a_trap_bound_concrete_resource_keeps_live_bytes_constant`, and the handler-path control
+`a_trap_bind_whose_producer_fails_keeps_live_bytes_constant`
+
+> **STATUS: FIXED (61a688e31)** — `materialize_current_result` now carries the producer's
+> record pointer into the `Result` for a sendable resource this frame owns, instead of
+> deep-copying it into a second record and tombstoning the original. Both shapes flat
+> (`live_bytes 0`, `free_calls == alloc_calls`, `double_free_skips 0`) and the handler-path
+> control unchanged. **Deviation:** the filed root cause was wrong twice over — it is not the
+> ownership pass and not the closed default record, but a thread hand-over lowering reached in
+> a thread-free program. See Root Cause, which records how the two 96 B candidates were told
+> apart. **Residual, filed separately:** `fs::File` under inline `TRAP` still leaks 192 B per
+> bind (bug-647), and the borrowed-`poll` shape is left on the copy path deliberately
+> (bug-648).
 
 `RES c AS Chan = udp::bind(...) TRAP(e) ... END TRAP` leaves one 96 B block live per bind,
 even when the TRAP never fires. A function that opens a union handle per call leaks forever.
@@ -65,10 +79,38 @@ Contrast: `RES c AS Chan = udp::bind("127.0.0.1", 0)` without TRAP is flat
 
 ## Root Cause
 
-**Confirmed on the main thread at `1963472c6`, and it is neither the union's nor the
-producer's record — it is the closed DEFAULT record the desugar allocates and then orphans.**
+**Confirmed: the orphan is the PRODUCER's record, dropped by a thread hand-over lowering
+reached in a thread-free program.**
 
-The desugar (`ir/lower.rs::lower_inline_trap`) emits, for `RES c AS T = producer() TRAP …`:
+`materialize_current_result` (`codegen/memory/arena/builder_arena_transfer.rs`) runs the raw
+success value through `copy_value_to_current_arena`, whose sendable-resource arm
+`copy_resource_to_current_arena` allocates a **second** 96 B record, copies the canonical
+header into it, and tombstones the source `moved|closed`. That is the thread-transfer
+lowering; the plan-114-C4 comment beside it already recorded that "the `Result` wrap is
+reached by any `TRAP` in a thread-free program". In the same arena the source has no other
+owner, and the moved bit makes `emit_resource_block_reclaim` skip it — so `udp::bind`'s own
+record leaked, once per bind. A **non-sendable** resource (`tls::Socket`, audio) already took
+the pointer-carry arm and never leaked, which is why the leak looked resource-kind specific.
+
+### Correction: the closed default record is NOT the leak
+
+An earlier reading on the main thread (recorded here, and wrong) blamed the closed default
+record that `bind $trap_valN` with no initializer materializes, on the argument that the
+success-path assign orphans it. It does not: `--ncode` on the reproduction shows the
+`NirOp::Assign` arm's `emit_resource_cleanup_call` already closes **and** reclaims that record
+at the instant the assign overwrites the slot (`resource_cleanup_reclaim_*` →
+`bl _mfb_arena_free`, size 96). Only one 96 B block leaks per bind, so it cannot be both.
+
+The decisive discriminator is the alloc/free signature of the fix, not the leak size — both
+candidate records are 96 B. Measured on the concrete probe: before `alloc_calls 502` /
+`free_calls 402` at N=100, after **`402`/`402`**. The fix removed one **allocation**; frees
+did not move. Freeing an orphaned default record would have had to raise `free_calls` to 502
+instead. The "always-failing TRAP is flat" control is consistent with BOTH accounts — on the
+handler path there is no success value, so neither the default is orphaned nor the copy is
+made — so that control localizes the leak to the success path but does not choose between
+them. It was over-read.
+
+For the record, the desugar's shape (`ir/lower.rs::lower_inline_trap`) is:
 
 ```
 bind $trap_res0 : Result OF T = callResult producer(...)
@@ -80,22 +122,18 @@ bind c : T = local $trap_val1
 
 A `Bind` with no initializer is lowered through `lower_default_value`
 (`builder_value_semantics.rs:184`, whose doc comment names exactly this site), which for a
-resource type **materializes a closed default resource record** — a fresh 96 B block. On the
-success path the `assign` then overwrites the slot with the producer's record, and the default
-record it displaced has no owner left.
+resource type **materializes a closed default resource record** — a fresh 96 B block, which is
+duly reclaimed at the assign, as above.
 
-The control is what proves it. A `TRAP` whose producer ALWAYS fails is **flat**:
+Measured shapes, all at `1963472c6`:
 
 | shape | N=100 / N=200 `live_bytes` |
 | --- | --- |
 | success path (`TRAP` never fires) | 9600 / 19200 — leaks 96 B per bind |
-| handler path (producer genuinely fails) | **0 / 0 — flat** |
+| handler path (producer genuinely fails) | 0 / 0 — flat |
 | no `TRAP` at all | 0 / 0 — flat |
 
-When the producer fails the assign never runs, the slot still holds the default record, and
-the drop reclaims it. The leak appears exactly when the assign orphans it.
-
-Two corrections to the hypothesis above:
+Two further corrections to the original hypothesis:
 
 - The ownership pass is **not** the problem. `record_ownership.rs::classify` already has an
   explicit arm treating a no-value `Bind` as `Source::Fresh`, commented as "the closed default
@@ -105,9 +143,9 @@ Two corrections to the hypothesis above:
   does. Anything reasoning about "the failing-bind path" from the reproduction as written is
   reasoning about the success path.
 
-Also confirmed: `$trap_valN` never appears in the function's NIR `resourceOwners` map (the
-escape analysis in `ir/resource_escape.rs` runs on the AST, where these desugar temps do not
-exist yet).
+Also noted: `$trap_valN` never appears in the function's NIR `resourceOwners` map (the escape
+analysis in `ir/resource_escape.rs` runs on the AST, where these desugar temps do not exist
+yet). That is real but not the cause here.
 
 ## Goal
 
@@ -122,22 +160,27 @@ exist yet).
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak test for the reproduction (both the success and the failing-bind path); confirm RED.
-- [ ] Confirm the ownership hypothesis.
+- [x] Soak tests for the reproduction, union and concrete, plus a genuinely-failing-bind
+      control (the filed reproduction's `port = -1` does NOT fail).
+- [x] Confirm the ownership hypothesis — **refuted**, twice; see Root Cause.
 
-Commit: —
+Commit: `60aac1623` (tests), `61a688e31` (audit)
 
 ### Phase 2 — the fix
 
-- [ ] Resolve the TRAP-bound union as the owner of a fresh producer's record.
+- [x] ~~Resolve the TRAP-bound union as the owner of a fresh producer's record.~~ Not the
+      fix. `materialize_current_result` carries the producer's record pointer into the
+      `Result` for a sendable resource this frame owns, instead of deep-copying it into a
+      second record and tombstoning the original — matching what the non-sendable-resource
+      and `ThreadHandle` arms beside it already do.
 
-Commit: —
+Commit: `61a688e31`
 
 ### Phase 3 — full validation
 
-- [ ] Goldens; full suite.
+- [x] Goldens; full suite — see the integration commit.
 
-Commit: —
+Commit: `61a688e31`
 
 ## Widened scope (2026-09-15): a concrete resource bound through TRAP leaks the same 96 B
 
