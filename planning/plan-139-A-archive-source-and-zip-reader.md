@@ -399,6 +399,21 @@ already states.
 
 No `- [ ]` box in any letter was ticked; no `packages/zip` or `packages/tar` file was created.
 
+**Re-verified after main advanced.** While the gate was being measured, `main` moved from
+`8957025e4` to `e0f72a1ae` (another session's codegen/resource-cleanup work, bugs 642-646).
+`main` was merged into `worktree-P-139` and the release compiler rebuilt at the merged tip
+(`cargo build --release` → `Finished \`release\` profile [optimized] target(s) in 1m 20s`).
+Both blocked rows give the identical result at the new tip:
+
+    $ target/release/mfb man fs size
+    error: unknown fs function `size`
+    $ target/release/mfb man fs readBytesAt
+    error: unknown fs function `readBytesAt`
+
+`ls src/codegen/builtins/fs/func_*.rs | wc -l` → 41 (unchanged), and the registry probe still
+returns no matches. main's changes did not touch `fs`, so the gate verdict stands against
+current main.
+
 ## Summary
 
 The engineering risk is untrusted offsets driving positional reads, contained by bounds-checking
