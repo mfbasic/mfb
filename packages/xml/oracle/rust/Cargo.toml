@@ -1,0 +1,21 @@
+[package]
+name = "xmloracle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Rust side of the packages/xml differential oracle: reads and writes XML through roxmltree and quick-xml, and answers a JSON job file."
+
+# Its own workspace table, deliberately empty. Without it Cargo attaches this
+# project to the repository root workspace (members = [".", "repository",
+# "wire"]), which would make the oracle's dependencies part of the compiler's
+# build graph. plan-138-C's non-goals forbid touching the root workspace.
+[workspace]
+
+[dependencies]
+roxmltree = "0.21.1"
+quick-xml = "0.42.0"
+serde_json = "1"
+xpath-eval = "0.2.2"
+
+[profile.release]
+debug = false

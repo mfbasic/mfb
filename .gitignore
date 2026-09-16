@@ -81,3 +81,13 @@ tests/.gate.lock/
 # package directory or the CWD) unless given --out. It is generated output, and
 # no doc.html is a tracked file anywhere in the tree.
 doc.html
+
+# `mfb test --coverage <project>` writes its report, and the raw data behind it,
+# next to the project it tested. Generated output for the same reason doc.html
+# is, and the Validation Plan of any package with a coverage gate asks for a
+# run -- so a blanket `add -A` would otherwise sweep four scratch files per
+# package into a commit.
+coverage.html
+coverage.covdata
+coverage.covmap.json
+coverage.covfail

@@ -23,8 +23,8 @@ See plan-138-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | NOT MET |
-| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | PARTIALLY MET (2026-09-15): bug-631 fixed on `worktree-B-631` (`73ab94edc`); every ✗ reproduction row now builds and prints its expected output. The `packages/xml` consumer check waits on plan-138-A; re-run it then. |
+| plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | MET (re-measured 2026-09-15 → `planning/completed/plan-138-A-xml-tree-builder-and-reader.md`; archived in `2281f1932`) |
+| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | MET (re-measured 2026-09-15, both halves). `ls bugs/completed/bug-631-*` → `bugs/completed/bug-631-imported-overload-ambiguous-on-imported-record-field-argument.md`. The deferred consumer check now runs against the real package (`/tmp/xml-consumer`, importing the built `xml.mfp`): `mfb build app` → `Wrote executable to app/build/xmlconsumer.out`, and running it prints `<!--note-->`, `<a><b id="1"/></a>`, `<?p d?>` for `FOR EACH n IN doc.children` / `xml::stringify(n)`, the pretty forms for `xml::stringify(n, 2)`, and the whole document for `xml::stringify(doc)`. So the untyped loop variable bound to a field of an imported record resolves against both imported overloads, which is the bug-631 shape. |
 
 ## 1. Goal
 
@@ -62,7 +62,7 @@ See plan-138-A. Additionally:
 | What | Value | Command |
 |---|---|---|
 | packages with a `check-doc-examples.sh` | 4 (cli, json_schema, logger, mustache) | `ls packages/*/check-doc-examples.sh` |
-| packages with a tracked `doc.html` | 6 (json_schema, jwt, logger, mustache, timezones, yaml) | `ls packages/*/doc.html \| wc -l` → 6 |
+| packages with a tracked `doc.html` | **0** — the plan's "6" counted files on disk, not tracked ones | `git ls-files packages/*/doc.html` → (no output). `ls packages/*/doc.html \| wc -l` counts generated artifacts, which is how the 6 was arrived at. |
 
 ### Verified properties
 
@@ -141,55 +141,96 @@ anything plan-138-A shipped.
 
 ### Phase 1 — compact writer
 
-- [ ] `packages/xml/src/write.mfb` — compact walk with §4 escaping and refusals.
-- [ ] `packages/xml/src/lib.mfb` — `EXPORT FUNC stringify(doc AS Document) AS String` and
+- [x] `packages/xml/src/write.mfb` — compact walk with §4 escaping and refusals.
+- [x] `packages/xml/src/lib.mfb` — `EXPORT FUNC stringify(doc AS Document) AS String` and
       `EXPORT FUNC stringify(n AS Node) AS String`.
-- [ ] `packages/xml/src/content.mfb` — `PUBLIC FUNC contentKey(doc AS Document) AS String`, a
+- [x] `packages/xml/src/content.mfb` — `PUBLIC FUNC contentKey(doc AS Document) AS String`, a
       canonical string of plan-138-A §4's projection, for tests only (package-internal).
-- [ ] Tests: `packages/xml/src/test_write.mfb` — each §4 escaping row, with the exact output string;
+- [x] Tests: `packages/xml/src/test_write.mfb` — each §4 escaping row, with the exact output string;
       each refusal with its code; for every `test_read.mfb` accepting fixture,
       `contentKey(parse(stringify(parse(x)))) = contentKey(parse(x))`.
+- [x] Added task: a "writing twice is stable" case over every fixture
+      (`stringify(parse(stringify(parse(x)))) = stringify(parse(x))`), and cases pinning the content
+      projection itself — that comments/PIs are not content, that text split by a comment merges,
+      that layout whitespace is dropped but sole whitespace is kept, and that attribute ORDER is not
+      content while attribute VALUES are. Without these the round-trip assertions could pass
+      vacuously on a projection that hides differences.
 
 Acceptance: compact output is exact and content-preserving on every reader fixture.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
-Commit: —
+  MET: `./target/release/mfb test packages/xml` → `Tests: 141  Pass: 141  Fail: 0`, exit 0 (27 added
+  here, over the 114 letter A left).
+Commit: `904071bea`
 
 ### Phase 2 — pretty writer
 
-- [ ] `write.mfb` — §5 formatting; `stringify(doc, count AS Integer)` and
+- [x] `write.mfb` — §5 formatting; `stringify(doc, count AS Integer)` and
       `stringify(doc, indent AS String)` (and Node forms).
-- [ ] Tests: in `test_write.mfb` — exact expected output for element-only nesting, mixed content
+- [x] Tests: in `test_write.mfb` — exact expected output for element-only nesting, mixed content
       left inline, `<a>  </a>` left inline, comments/PIs on their own lines; the clamp rules
       (`11` → 10 spaces, `"abcdefghijkl"` → first 10, `0`/`""` byte-equal to compact); content
       equality for every reader fixture at indent `2` and `"\t"`.
+- [x] Added task: a case pinning an element whose children are ONLY comments or processing
+      instructions as inline at any indent — the Corrections entry below is a content bug the fixture
+      loop caught, and this pins it directly rather than leaving it to one fixture inside a loop.
 
 Acceptance: pretty output matches the exact expectations and preserves content on every fixture.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
-Commit: —
+  MET: `./target/release/mfb test packages/xml` → `Tests: 154  Pass: 154  Fail: 0`, exit 0 (13 added
+  here). The run before the §5 correction was `Pass: 153  Fail: 1`, failing exactly on content.
+  With the added inline-comments case the suite is `Tests: 155  Pass: 155  Fail: 0`.
+Commit: `ea4d79040`
 
 ### Phase 3 — documentation
 
-- [ ] `packages/xml/src/lib.mfb` — full `DOC` blocks (`PACKAGE` intro like yaml's, with the
+- [x] `packages/xml/src/lib.mfb` — full `DOC` blocks (`PACKAGE` intro like yaml's, with the
       compatibility policy as `INFO` paragraphs: no DTD, prefixes not resolved, UTF-8 / 1.0 only,
       limits, what content means), an `EXAMPLE` on `parse`, `root`, `attr`, `stringify`.
-- [ ] `packages/xml/README.md` — mirror `packages/yaml/README.md`: usage, "Why this is a package",
-      what it reads, a policy table (decision / behaviour / code), content vs. formatting.
-- [ ] `packages/xml/check-doc-examples.sh` — copy `packages/mustache/check-doc-examples.sh`, adjust
+- [x] `packages/xml/README.md` — mirror `packages/yaml/README.md`: usage, "Why this is a package",
+      what it reads, a policy table (decision / behaviour / code), content vs. formatting. Also
+      states the `root(doc)`-widening rule from Corrections, so the first user does not hit it cold.
+- [x] `packages/xml/check-doc-examples.sh` — copy `packages/mustache/check-doc-examples.sh`, adjust
       the package name.
-- [ ] `packages/xml/doc.html` — `target/release/mfb build packages/xml && target/release/mfb pkg doc packages/xml/xml.mfp --out packages/xml/doc.html`.
-- [ ] `planning/todo.md` — row 6 and the "XML as pure MFB" note point at plan-138.
-- [ ] `examples/browser/README.md` — correct the two stale claims plan-138-A measured (arena
+- [x] `packages/xml/doc.html` — `target/release/mfb build packages/xml && target/release/mfb pkg doc packages/xml/xml.mfp --out packages/xml/doc.html`
+      → `Wrote documentation to packages/xml/doc.html` (25,479 bytes). Generated and verified, but
+      **not committed**: `doc.html` is git-ignored tree-wide and no package tracks one. See
+      Corrections.
+- [x] `planning/todo.md` — row 6 and the "XML as pure MFB" note point at plan-138.
+- [x] `examples/browser/README.md` — correct the two stale claims plan-138-A measured (arena
       free-list "known open issue"; imported-union recursion), citing the plan-138-A measurements.
+      The section also now states what IS still true and why `dom` keeps its work-stack: rebuilding a
+      shared list of subtrees is quadratic (bug-647), which is a different claim from either stale one.
 
 Acceptance: every documented example compiles and runs.
   Check: `packages/xml/check-doc-examples.sh` → exit 0 (est. 3 min).
-Commit: —
+  MET: `./packages/xml/check-doc-examples.sh` → `all 5 example(s) built and ran`, exit 0. Each
+  example's printed output matches the expectation written beside it in its `DOC` block: `feed`;
+  `catalog holds 1 child` then `refused: 77050003`; the three `stringify` forms; `catalog`; and
+  `page` then `none`.
+Commit: `809c3a979` (also carries the coverage follow-up: the empty-prefix writer bug, the two dead
+  guards, and `Tests: 157  Pass: 157  Fail: 0`)
 
 ## Validation Plan
 
 - Tests: `packages/xml/src/test_write.mfb` (escaping, refusals, pretty rules, content equality).
 - Coverage check: `target/release/mfb test --coverage packages/xml`; every refusal branch in
   `write.mfb` is hit.
+  DONE: `Tests: 157  Pass: 157  Fail: 0`; slot coverage (`coverage.covmap.json` paired with
+  `coverage.covdata`) `write.mfb` **173/173**, `content.mfb` 46/47, `chars.mfb` 113/113,
+  `lib.mfb` 34/34, `scan.mfb` 89/89, `core.mfb` 4/4, `read.mfb` 384/389. `content.mfb`'s one slot is
+  the `CASE ELSE` a `MATCH` over the four-variant union needs for exhaustiveness, and `read.mfb`'s
+  five are letter A's `RETURN`s after a `FAIL` — all unreachable by construction.
+
+  **The coverage read found a writer bug, not just untested lines.** `requireWritableName` returned
+  early whenever the prefix was empty, so `stringify(element(":a", …))` emitted `<:a/>` — which this
+  package's own reader refuses (`parse("<:a/>")` → `ErrInvalidFormat`). That breaks the writer's
+  contract of never emitting XML its own reader rejects. A colon is a `NameChar`, so `isName` accepts
+  `:a`, `a:` and `a:b:c` alike; the QName rules belong in the writer's own check. Fixed, with cases
+  for all four spellings over both element and attribute names.
+
+  Two further branches were dead and were deleted rather than tested: `isLayoutText`'s and
+  `isAllSpace`'s empty-string guards, whose callers already skip empty text. That fix also corrected
+  a real classification: empty text is **not** data, so it no longer forces an element inline.
 - Runtime proof: `check-doc-examples.sh` runs the `stringify` example end to end.
 - Doc sync: `packages/xml/README.md`, `packages/xml/doc.html`, `planning/todo.md`,
   `examples/browser/README.md`.
@@ -204,7 +245,41 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**Phase 1 — same-named overloads share ONE `DOC` block.** A `DOC` block per overload is rejected:
+`error[2-205-0003 DOC_DUPLICATE]: two DOC blocks name the same declaration`. The block attaches to
+the first `EXPORT FUNC` and carries the union of the `ARG` lines, which is what `packages/timezones`
+already does for its two `toIso` overloads (`packages/timezones/src/lib.mfb:189-224`: one block,
+`ARG dt` / `ARG digits` / `ARG name`). §8's table lists the six `stringify` forms as separate rows;
+that is the API surface, not six doc blocks.
+
+**Phase 3 — `doc.html` is generated, never committed; the plan's "6 tracked" was miscounted.** §2's
+Measured populations row claimed six packages carry a tracked `doc.html`, and Phase 3 listed
+`packages/xml/doc.html` as a deliverable. Both rest on `ls packages/*/doc.html | wc -l`, which counts
+files on disk. The tracked count is **zero**: `git ls-files packages/*/doc.html` prints nothing, and
+`.gitignore:83` ignores `doc.html` tree-wide — its own comment says so, "no doc.html is a tracked
+file anywhere in the tree" (`git check-ignore -v packages/xml/doc.html` → `.gitignore:83:doc.html`).
+Committing mine would need `git add -f` and would make `packages/xml` the only package in the tree
+carrying one. The file is therefore generated and verified as the task asks, and left untracked like
+every other package's. The command stays in the README and in this plan, which is what a reader
+needs.
+
+**Phase 2 — §5's indent condition was incomplete: it must also require an ELEMENT child.** §5 says an
+element's children go on their own lines "only when the element has no data text child". That is not
+sufficient. An element whose children are only comments or processing instructions has no data text
+child, so the rule as written indents it — but it also has no *element* child, and plan-138-A §4
+step 3 counts whitespace-only text as layout only when the parent **also has an element child**. The
+newlines the writer added therefore read back as DATA. Caught by the Phase 2 content test on the
+`<a><!-- note --></a>` fixture: `expected e(a[]), got e(a[t(` — the content projection saw the
+writer's own indentation as the element's text. The condition is now "has an element child, and no
+data text child"; `<a><!--c--><b/></a>` still indents, because it has one.
+
+**Phase 1 — `root(doc)` returns an `Element` record, so `stringify(root(doc))` matches no overload.**
+`stringify` is declared over `Document` and `Node`; `Element` is a variant record of `Node`, and the
+call fails with `Callable \`stringify\` is not a top-level function`. A caller widens through a typed
+binding first (`LET n AS xml::Node = root(doc)`), which is the same pattern the constructors use
+internally. This is not the bug-631 imported-overload ambiguity — it reproduces inside the package,
+where no import is involved. Worth stating in the README (Phase 3) so the first user does not hit it
+cold.
 
 ## Summary
 

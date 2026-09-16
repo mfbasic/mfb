@@ -57,12 +57,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     // lowering leaves the canonical `encoding.utf8Decode` for the monomorphizer to
     // resolve to `#encoding_utf8Decode`. The two `__encoding_utf8Decode` bodies live
     // in `package.mfb`.
-    let value = |ty: ParameterType| Parameter {
+    let value = |ty: ParameterType| {
+        Parameter {
         name: "value",
         desc: "The UTF-8 byte or code-unit sequence to decode. Integer code units must be `0`–`255`; an empty list gives the empty string.",
         aliases: &[],
         ty,
         default: DefaultValue::None,
+    }
     };
     pkg.add_function(RegistryFunction {
         name: "utf8Decode",

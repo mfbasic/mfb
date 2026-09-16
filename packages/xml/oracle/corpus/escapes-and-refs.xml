@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<doc>
+  <escaped>a &amp; b &lt; c &gt; d &quot;e&quot; &apos;f&apos;</escaped>
+  <refs>&#65;&#x42;&#x43;&#x10348;&#x6a;&#x6A;</refs>
+  <edge>]&#93;&gt; and a lone ] and ]]</edge>
+</doc>

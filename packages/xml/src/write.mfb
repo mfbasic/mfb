@@ -1,0 +1,366 @@
+' ---------------------------------------------------------------------------
+' xml/write.mfb — the serializer.
+'
+' `stringify` writes a tree back as XML whose CONTENT (plan-138-A §4) equals the
+' tree's. Formatting is free to change; content is not.
+'
+' The writer refuses a tree it cannot write faithfully rather than emitting XML
+' that reads back as something else -- a name that is not a Name, a duplicate
+' attribute, a comment holding `--`. Every one of those would produce output
+' this package's own reader rejects, so writing it would break the round trip
+' that is this feature's whole promise.
+'
+' Output is built through a List OF String joined once per node, never by
+' appending to a String in a loop: the latter is quadratic in the document size.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' Refuse a string that holds a scalar XML 1.0 does not allow. The reader can
+' never produce one, but a hand-built tree can.
+PRIVATE FUNC requireWritableText(what AS String, s AS String) AS Nothing
+  FOR EACH sc IN strings::toScalars(s)
+    IF NOT isChar(toInt(sc)) THEN
+      FAIL error(ERR_ARGUMENT, "xml: " & what & " holds U+" & toString(toInt(sc)) & ", which XML 1.0 does not allow")
+    END IF
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+' Refuse a name that is not a Name, or that is not a legal QName.
+PRIVATE FUNC requireWritableName(what AS String, name AS String) AS Nothing
+  IF NOT isName(name) THEN
+    FAIL error(ERR_ARGUMENT, "xml: `" & name & "` is not a valid XML " & what)
+  END IF
+  ' A colon is a NameChar, so `isName` accepts `:a`, `a:` and `a:b:c` -- the
+  ' QName rules are checked here, not there. An empty prefix must be refused
+  ' like an empty local part: the reader rejects both, and the writer may never
+  ' emit a name its own reader would reject.
+  LET colon AS Integer = strings::find(name, ":", 0) TRAP(e)
+    RECOVER -1
+  END TRAP
+  IF colon < 0 THEN RETURN NOTHING
+  IF colon = 0 THEN
+    FAIL error(ERR_ARGUMENT, "xml: " & what & " `" & name & "` has an empty namespace prefix")
+  END IF
+  LET local AS String = localOf(name)
+  LET more AS Integer = strings::find(local, ":", 0) TRAP(e)
+    RECOVER -1
+  END TRAP
+  IF more >= 0 THEN
+    FAIL error(ERR_ARGUMENT, "xml: " & what & " `" & name & "` has more than one colon")
+  END IF
+  IF len(local) = 0 THEN
+    FAIL error(ERR_ARGUMENT, "xml: " & what & " `" & name & "` has an empty local name")
+  END IF
+  RETURN NOTHING
+END FUNC
+
+' Escape character data.
+'
+' `>` is always escaped, not only where it would close a CDATA section: that
+' makes `]]>` impossible to emit by accident. A literal #xD is written as a
+' character reference because the reader normalizes a literal one to #xA
+' (§2.11), which would silently change the text on the way back in.
+PUBLIC FUNC escapeText(s AS String) AS String
+  requireWritableText("text", s)
+  MUT parts AS List OF String = []
+  FOR EACH sc IN strings::toScalars(s)
+    LET code AS Integer = toInt(sc)
+    IF code = B_AMP THEN
+      parts = collections::append(parts, "&amp;")
+    ELSEIF code = B_LT THEN
+      parts = collections::append(parts, "&lt;")
+    ELSEIF code = B_GT THEN
+      parts = collections::append(parts, "&gt;")
+    ELSEIF code = B_CR THEN
+      parts = collections::append(parts, "&#13;")
+    ELSE
+      parts = collections::append(parts, toString(sc))
+    END IF
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' Escape an attribute value. Values are always double-quoted, so `"` is escaped
+' and `'` is not. Tab, line feed and carriage return are written as character
+' references because §3.3.3 attribute-value normalization turns a literal one
+' into a space when the value is read back.
+PUBLIC FUNC escapeAttribute(s AS String) AS String
+  requireWritableText("an attribute value", s)
+  MUT parts AS List OF String = []
+  FOR EACH sc IN strings::toScalars(s)
+    LET code AS Integer = toInt(sc)
+    IF code = B_AMP THEN
+      parts = collections::append(parts, "&amp;")
+    ELSEIF code = B_LT THEN
+      parts = collections::append(parts, "&lt;")
+    ELSEIF code = B_DQUOTE THEN
+      parts = collections::append(parts, "&quot;")
+    ELSEIF code = B_TAB THEN
+      parts = collections::append(parts, "&#9;")
+    ELSEIF code = B_LF THEN
+      parts = collections::append(parts, "&#10;")
+    ELSEIF code = B_CR THEN
+      parts = collections::append(parts, "&#13;")
+    ELSE
+      parts = collections::append(parts, toString(sc))
+    END IF
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' An element's start-tag attributes, refusing a duplicate name.
+PRIVATE FUNC writeAttributes(attributes AS List OF Attribute) AS String
+  MUT parts AS List OF String = []
+  LET count AS Integer = len(attributes)
+  MUT i AS Integer = 0
+  DO WHILE i < count
+    LET a AS Attribute = collections::get(attributes, i)
+    requireWritableName("attribute name", a.name)
+    MUT j AS Integer = i + 1
+    DO WHILE j < count
+      IF collections::get(attributes, j).name = a.name THEN
+        FAIL error(ERR_ARGUMENT, "xml: attribute `" & a.name & "` appears twice on the same element")
+      END IF
+      j = j + 1
+    LOOP
+    parts = collections::append(parts, " " & a.name & "=\"" & escapeAttribute(a.value) & "\"")
+    i = i + 1
+  LOOP
+  RETURN strings::join(parts, "")
+END FUNC
+
+' A comment, refused when it could not be read back: `--` may not appear inside
+' one, and a comment ending in `-` would produce `--->`.
+PRIVATE FUNC writeComment(s AS String) AS String
+  requireWritableText("a comment", s)
+  IF strings::contains(s, "--") THEN
+    FAIL error(ERR_ARGUMENT, "xml: a comment may not hold `--`")
+  END IF
+  IF len(s) > 0 AND strings::endsWith(s, "-") THEN
+    FAIL error(ERR_ARGUMENT, "xml: a comment may not end with `-`")
+  END IF
+  RETURN "<!--" & s & "-->"
+END FUNC
+
+' A processing instruction, refused when its target is reserved or its data
+' would close it early.
+PRIVATE FUNC writeProcessingInstruction(target AS String, data AS String) AS String
+  requireWritableName("processing-instruction target", target)
+  requireWritableText("processing-instruction data", data)
+  IF strings::lower(target) = "xml" THEN
+    FAIL error(ERR_ARGUMENT, "xml: `" & target & "` is a reserved processing-instruction target")
+  END IF
+  IF strings::contains(data, "?>") THEN
+    FAIL error(ERR_ARGUMENT, "xml: processing-instruction data may not hold `?>`")
+  END IF
+  IF len(data) = 0 THEN RETURN "<?" & target & "?>"
+  RETURN "<?" & target & " " & data & "?>"
+END FUNC
+
+' Write one node compactly. `depth` bounds recursion exactly as the reader's
+' does, so a hand-built tree deeper than DEPTH_LIMIT is refused before the
+' writer descends into it.
+PUBLIC FUNC writeNodeCompact(n AS Node, depth AS Integer) AS String
+  IF depth > DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+  END IF
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      requireWritableName("element name", e.name)
+      LET head AS String = "<" & e.name & writeAttributes(e.attributes)
+      IF len(e.children) = 0 THEN
+        out = head & "/>"
+      ELSE
+        MUT parts AS List OF String = []
+        parts = collections::append(parts, head & ">")
+        FOR EACH k IN e.children
+          parts = collections::append(parts, writeNodeCompact(k, depth + 1))
+        NEXT
+        parts = collections::append(parts, "</" & e.name & ">")
+        out = strings::join(parts, "")
+      END IF
+    CASE Text(t)
+      out = escapeText(t.text)
+    CASE Comment(c)
+      out = writeComment(c.text)
+    CASE ProcessingInstruction(p)
+      out = writeProcessingInstruction(p.target, p.data)
+  END MATCH
+  RETURN out
+END FUNC
+
+' Refuse a document that is not one: XML requires exactly one root element, and
+' no text at the top level.
+PUBLIC FUNC requireWritableDocument(doc AS Document) AS Nothing
+  MUT elements AS Integer = 0
+  FOR EACH n IN doc.children
+    MATCH n
+      CASE Element(e)
+        elements = elements + 1
+      CASE Text(t)
+        FAIL error(ERR_ARGUMENT, "xml: a document may not hold text outside its root element")
+      CASE ELSE
+    END MATCH
+  NEXT
+  IF elements <> 1 THEN
+    FAIL error(ERR_ARGUMENT, "xml: a document must hold exactly one root element, not " & toString(elements))
+  END IF
+  RETURN NOTHING
+END FUNC
+
+' The XML declaration every written document carries. Output is always UTF-8.
+PUBLIC LET DECLARATION AS String = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+
+PUBLIC FUNC writeDocumentCompact(doc AS Document) AS String
+  requireWritableDocument(doc)
+  MUT parts AS List OF String = []
+  parts = collections::append(parts, DECLARATION)
+  FOR EACH n IN doc.children
+    parts = collections::append(parts, writeNodeCompact(n, 1))
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Pretty printing.
+'
+' The rule that keeps pretty output CONTENT-identical to compact output: an
+' element's children go on their own lines only when the element has no data
+' text child. Indenting inside mixed content would insert text that was never
+' there -- `<p>Hello <b>x</b></p>` pretty-printed across lines reads back with
+' different text -- so an element holding data text is written exactly as
+' compact, children and all.
+'
+' A whitespace-only text node is layout ONLY when the element also has an
+' element child (plan-138-A §4 step 3). `<a>   </a>` therefore holds data, and
+' is left inline; `<a> <b/> </a>` holds layout, which is dropped and replaced by
+' the writer's own newlines and indentation.
+' ---------------------------------------------------------------------------
+
+' The indentation a count asks for: clamped to 0..=10 spaces, matching
+' json::stringify. 0 means compact.
+PUBLIC FUNC indentOfCount(count AS Integer) AS String
+  MUT n AS Integer = count
+  IF n < 0 THEN n = 0
+  IF n > 10 THEN n = 10
+  RETURN strings::repeat(" ", n)
+END FUNC
+
+' An explicit indent string, truncated to its first 10 characters, matching
+' json::stringify. "" means compact.
+PUBLIC FUNC clampIndent(indent AS String) AS String
+  IF len(indent) <= 10 THEN RETURN indent
+  RETURN strings::mid(indent, 0, 10)
+END FUNC
+
+' TRUE when any child is an element.
+PRIVATE FUNC holdsElement(children AS List OF Node) AS Boolean
+  FOR EACH k IN children
+    MATCH k
+      CASE Element(e)
+        RETURN TRUE
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' TRUE when `s` is entirely XML whitespace. The only caller skips empty text
+' before asking, so there is no empty-string case to answer for.
+PRIVATE FUNC isAllSpace(s AS String) AS Boolean
+  FOR EACH sc IN strings::toScalars(s)
+    IF NOT isSpace(toInt(sc)) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' TRUE when these children hold text that is DATA rather than layout -- which
+' is what forbids re-indenting them.
+PRIVATE FUNC holdsDataText(children AS List OF Node) AS Boolean
+  LET withElement AS Boolean = holdsElement(children)
+  FOR EACH k IN children
+    MATCH k
+      CASE Text(t)
+        ' Empty text is not data: it contributes nothing to the content, and
+        ' treating it as data would wrongly force the whole element inline.
+        IF len(t.text) > 0 THEN
+          IF NOT withElement THEN RETURN TRUE
+          IF NOT isAllSpace(t.text) THEN RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Write one node at `level` indents deep. `indent` is already clamped and
+' non-empty.
+PUBLIC FUNC writeNodePretty(n AS Node, indent AS String, depth AS Integer, level AS Integer) AS String
+  IF depth > DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+  END IF
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      requireWritableName("element name", e.name)
+      LET head AS String = "<" & e.name & writeAttributes(e.attributes)
+      IF len(e.children) = 0 THEN
+        out = head & "/>"
+      ELSEIF holdsDataText(e.children) OR NOT holdsElement(e.children) THEN
+        ' Two cases write exactly as compact, adding nothing inside.
+        '
+        ' Data text is the obvious one. The second is subtler: an element whose
+        ' children are only comments or processing instructions has NO element
+        ' child, and plan-138-A §4 step 3 calls whitespace-only text layout only
+        ' when the parent also has an element child. So newlines added here
+        ' would read back as DATA, changing the content -- `<a><!--c--></a>`
+        ' pretty-printed across lines comes back as `<a>` + text + `</a>`.
+        out = writeNodeCompact(n, depth)
+      ELSE
+        MUT parts AS List OF String = []
+        parts = collections::append(parts, head & ">")
+        LET inner AS String = strings::repeat(indent, level + 1)
+        FOR EACH k IN e.children
+          MUT layout AS Boolean = FALSE
+          MATCH k
+            CASE Text(t)
+              layout = TRUE
+            CASE ELSE
+          END MATCH
+          IF NOT layout THEN
+            parts = collections::append(parts, "\n" & inner & writeNodePretty(k, indent, depth + 1, level + 1))
+          END IF
+        NEXT
+        parts = collections::append(parts, "\n" & strings::repeat(indent, level) & "</" & e.name & ">")
+        out = strings::join(parts, "")
+      END IF
+    CASE ELSE
+      ' Text, comments and processing instructions have no inner structure to
+      ' indent, so they are written exactly as compact.
+      out = writeNodeCompact(n, depth)
+  END MATCH
+  RETURN out
+END FUNC
+
+' A whole document with `indent` per level. An empty indent is compact, and
+' byte-identical to `writeDocumentCompact`.
+PUBLIC FUNC writeDocumentPretty(doc AS Document, indent AS String) AS String
+  IF indent = "" THEN RETURN writeDocumentCompact(doc)
+  requireWritableDocument(doc)
+  MUT parts AS List OF String = []
+  parts = collections::append(parts, DECLARATION)
+  FOR EACH n IN doc.children
+    parts = collections::append(parts, "\n" & writeNodePretty(n, indent, 1, 0))
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' One node with `indent` per level, as a fragment: no declaration.
+PUBLIC FUNC writeNodeIndented(n AS Node, indent AS String) AS String
+  IF indent = "" THEN RETURN writeNodeCompact(n, 1)
+  RETURN writeNodePretty(n, indent, 1, 0)
+END FUNC

@@ -1,0 +1,291 @@
+' ---------------------------------------------------------------------------
+' Tests: the reader, refusing side — one case per refusal cell of the plan's
+' grammar table, asserting the ERROR CODE, not merely that it failed.
+'
+' These are the cases that make the package trustworthy: every one of them is a
+' document some lenient reader accepts, and accepting it would silently change
+' what the document means.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' Shorthand: the shared registry codes this package raises.
+' 77050003 ErrInvalidFormat, 77050005 ErrAlreadyExists, 77050007 ErrUnsupported.
+
+TESTING
+  TGROUP "the XML declaration"
+    TCASE "a version other than 1.0 is unsupported"
+      expectTrap(parse("<?xml version=\"1.1\"?><a/>"), 77050007)
+      expectTrap(parse("<?xml version=\"2.0\"?><a/>"), 77050007)
+    END TCASE
+
+    TCASE "an encoding other than UTF-8 is unsupported"
+      expectTrap(parse("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><a/>"), 77050007)
+      expectTrap(parse("<?xml version=\"1.0\" encoding=\"UTF-16\"?><a/>"), 77050007)
+    END TCASE
+
+    TCASE "a malformed declaration is a format error"
+      ' No version at all.
+      expectTrap(parse("<?xml?><a/>"), 77050003)
+      expectTrap(parse("<?xml encoding=\"UTF-8\"?><a/>"), 77050003)
+      ' Unquoted value, and an unknown pseudo-attribute.
+      expectTrap(parse("<?xml version=1.0?><a/>"), 77050003)
+      expectTrap(parse("<?xml version=\"1.0\" bogus=\"x\"?><a/>"), 77050003)
+      ' Pseudo-attributes out of order.
+      expectTrap(parse("<?xml encoding=\"UTF-8\" version=\"1.0\"?><a/>"), 77050003)
+      ' standalone must be yes or no.
+      expectTrap(parse("<?xml version=\"1.0\" standalone=\"maybe\"?><a/>"), 77050003)
+      ' Never closed.
+      expectTrap(parse("<?xml version=\"1.0\"><a/>"), 77050003)
+      ' A `?` inside the declaration that does not close it.
+      expectTrap(parse("<?xml version=\"1.0\" ?x?><a/>"), 77050003)
+      ' encoding after standalone is out of order too.
+      expectTrap(parse("<?xml version=\"1.0\" standalone=\"yes\" encoding=\"UTF-8\"?><a/>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "DOCTYPE"
+    TCASE "every DOCTYPE form is unsupported"
+      expectTrap(parse("<!DOCTYPE a><a/>"), 77050007)
+      expectTrap(parse("<!DOCTYPE a SYSTEM \"a.dtd\"><a/>"), 77050007)
+      expectTrap(parse("<!DOCTYPE a PUBLIC \"-//X//EN\" \"a.dtd\"><a/>"), 77050007)
+      expectTrap(parse("<!DOCTYPE a [<!ENTITY x \"y\">]><a/>"), 77050007)
+      expectTrap(parse("<?xml version=\"1.0\"?><!DOCTYPE a><a/>"), 77050007)
+      ' Inside an element it is just as unsupported, and refused there too.
+      expectTrap(parse("<a><!DOCTYPE b></a>"), 77050007)
+    END TCASE
+  END TGROUP
+
+  TGROUP "elements"
+    TCASE "a mismatched end tag is refused"
+      expectTrap(parse("<a></b>"), 77050003)
+      expectTrap(parse("<a><b></a></b>"), 77050003)
+      ' Names are case-sensitive: this is not HTML.
+      expectTrap(parse("<a></A>"), 77050003)
+      ' An end tag may hold whitespace before its `>`, but nothing else.
+      expectTrap(parse("<a></a x>"), 77050003)
+    END TCASE
+
+    TCASE "an unclosed element is refused"
+      expectTrap(parse("<a>"), 77050003)
+      expectTrap(parse("<a><b/>"), 77050003)
+      expectTrap(parse("<a"), 77050003)
+      expectTrap(parse("<a><b></b>"), 77050003)
+    END TCASE
+
+    TCASE "a document with no root element is refused"
+      expectTrap(parse(""), 77050003)
+      expectTrap(parse("   "), 77050003)
+      expectTrap(parse("<!--just a comment-->"), 77050003)
+      expectTrap(parse("<?xml version=\"1.0\"?>"), 77050003)
+    END TCASE
+
+    TCASE "a second root element is refused"
+      expectTrap(parse("<a/><b/>"), 77050003)
+      expectTrap(parse("<a></a><a></a>"), 77050003)
+    END TCASE
+
+    TCASE "text outside the root element is refused"
+      expectTrap(parse("text<a/>"), 77050003)
+      expectTrap(parse("<a/>text"), 77050003)
+    END TCASE
+
+    TCASE "a tag with no name is refused"
+      expectTrap(parse("< a/>"), 77050003)
+      expectTrap(parse("<1a/>"), 77050003)
+      expectTrap(parse("</a>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "attributes"
+    TCASE "a duplicate attribute name is ErrAlreadyExists"
+      expectTrap(parse("<a id=\"1\" id=\"2\"/>"), 77050005)
+      expectTrap(parse("<a id=\"1\" id=\"1\"/>"), 77050005)
+    END TCASE
+
+    TCASE "a literal < in an attribute value is refused"
+      expectTrap(parse("<a id=\"x<y\"/>"), 77050003)
+    END TCASE
+
+    TCASE "an unquoted or unterminated attribute value is refused"
+      expectTrap(parse("<a id=1/>"), 77050003)
+      expectTrap(parse("<a id=\"1/>"), 77050003)
+      expectTrap(parse("<a id='1\"/>"), 77050003)
+    END TCASE
+
+    TCASE "a missing = is refused"
+      expectTrap(parse("<a id/>"), 77050003)
+      expectTrap(parse("<a id \"1\"/>"), 77050003)
+    END TCASE
+
+    TCASE "two attributes not separated by whitespace are refused"
+      expectTrap(parse("<a id=\"1\"class=\"x\"/>"), 77050003)
+    END TCASE
+
+    TCASE "a stray / in a start tag is refused"
+      expectTrap(parse("<a / >"), 77050003)
+      expectTrap(parse("<a /x>"), 77050003)
+    END TCASE
+
+    TCASE "a character that cannot begin an attribute name is refused"
+      expectTrap(parse("<a %=\"1\"/>"), 77050003)
+      expectTrap(parse("<a 1=\"x\"/>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "references"
+    TCASE "an undeclared entity is refused, since there is no DTD"
+      expectTrap(parse("<a>&nbsp;</a>"), 77050003)
+      expectTrap(parse("<a>&unknown;</a>"), 77050003)
+      expectTrap(parse("<a id=\"&nbsp;\"/>"), 77050003)
+    END TCASE
+
+    TCASE "an unterminated reference is refused"
+      expectTrap(parse("<a>&amp</a>"), 77050003)
+      expectTrap(parse("<a>&#65</a>"), 77050003)
+    END TCASE
+
+    TCASE "a character reference to a non-Char is refused"
+      ' U+0000, a lone surrogate, U+FFFE, and a value above U+10FFFF.
+      expectTrap(parse("<a>&#0;</a>"), 77050003)
+      expectTrap(parse("<a>&#xD800;</a>"), 77050003)
+      expectTrap(parse("<a>&#xFFFE;</a>"), 77050003)
+      expectTrap(parse("<a>&#x110000;</a>"), 77050003)
+      ' A control character XML 1.0 excludes.
+      expectTrap(parse("<a>&#8;</a>"), 77050003)
+    END TCASE
+
+    TCASE "a malformed character reference is refused"
+      expectTrap(parse("<a>&#;</a>"), 77050003)
+      expectTrap(parse("<a>&#x;</a>"), 77050003)
+      expectTrap(parse("<a>&#xZZ;</a>"), 77050003)
+      expectTrap(parse("<a>&#9x9;</a>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "character data and CDATA"
+    TCASE "a literal ]]> in text is refused"
+      expectTrap(parse("<a>]]></a>"), 77050003)
+      expectTrap(parse("<a>x]]>y</a>"), 77050003)
+    END TCASE
+
+    TCASE "an unterminated CDATA section is refused"
+      expectTrap(parse("<a><![CDATA[x</a>"), 77050003)
+      expectTrap(parse("<a><![CDATA[x]]</a>"), 77050003)
+    END TCASE
+
+    TCASE "an unknown <! construct is refused"
+      expectTrap(parse("<a><!FOO></a>"), 77050003)
+      expectTrap(parse("<a><![INCLUDE[x]]></a>"), 77050003)
+    END TCASE
+
+    TCASE "a character XML 1.0 does not allow is refused wherever it appears"
+      ' A raw control character in text, and in an attribute value.
+      LET nul AS String = toString(toScalar(0))
+      expectTrap(parse("<a>" & nul & "</a>"), 77050003)
+      expectTrap(parse("<a id=\"" & nul & "\"/>"), 77050003)
+      expectTrap(parse("<a><!--" & nul & "--></a>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "comments and processing instructions"
+    TCASE "-- inside a comment is refused"
+      expectTrap(parse("<a><!-- x -- y --></a>"), 77050003)
+      expectTrap(parse("<a><!--a--b--></a>"), 77050003)
+    END TCASE
+
+    TCASE "a comment ending in ---> is refused"
+      ' Refused by the `--` rule itself: the comment's trailing `-` and the
+      ' first `-` of `-->` are a `--` before the close.
+      expectTrap(parse("<a><!--x---></a>"), 77050003)
+    END TCASE
+
+    TCASE "an unterminated comment is refused"
+      expectTrap(parse("<a><!-- x </a>"), 77050003)
+      expectTrap(parse("<!-- x"), 77050003)
+    END TCASE
+
+    TCASE "a reserved xml processing-instruction target is refused"
+      expectTrap(parse("<a><?xml version=\"1.0\"?></a>"), 77050003)
+      expectTrap(parse("<a><?XML x?></a>"), 77050003)
+      expectTrap(parse("<a><?xMl x?></a>"), 77050003)
+      ' A declaration is only a declaration at the very start of the document.
+      expectTrap(parse("<!--c--><?xml version=\"1.0\"?><a/>"), 77050003)
+    END TCASE
+
+    TCASE "a processing instruction with no target, or never closed, is refused"
+      expectTrap(parse("<a><? ?></a>"), 77050003)
+      expectTrap(parse("<a><?target</a>"), 77050003)
+      ' The target must be followed by whitespace or by `?>`, not by data.
+      expectTrap(parse("<a><?target\"x\"?></a>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "namespace prefixes"
+    TCASE "an undeclared element or attribute prefix is refused"
+      expectTrap(parse("<p:a/>"), 77050003)
+      expectTrap(parse("<a p:id=\"1\"/>"), 77050003)
+      ' Declared on a CHILD, so not in scope on the parent.
+      expectTrap(parse("<p:a><b xmlns:p=\"urn:x\"/></p:a>"), 77050003)
+      ' Out of scope again after the declaring element closes.
+      expectTrap(parse("<a><b xmlns:p=\"urn:x\"/><p:c/></a>"), 77050003)
+    END TCASE
+
+    TCASE "binding a prefix to an empty URI is refused"
+      expectTrap(parse("<a xmlns:p=\"\"><p:b/></a>"), 77050003)
+    END TCASE
+
+    TCASE "declaring or binding xmlns is refused"
+      expectTrap(parse("<a xmlns:xmlns=\"urn:x\"/>"), 77050003)
+      expectTrap(parse("<a xmlns:p=\"http://www.w3.org/2000/xmlns/\"/>"), 77050003)
+      expectTrap(parse("<a xmlns=\"http://www.w3.org/2000/xmlns/\"/>"), 77050003)
+    END TCASE
+
+    TCASE "misbinding the xml prefix or its URI is refused"
+      expectTrap(parse("<a xmlns:xml=\"urn:x\"/>"), 77050003)
+      expectTrap(parse("<a xmlns:p=\"http://www.w3.org/XML/1998/namespace\"/>"), 77050003)
+      expectTrap(parse("<a xmlns=\"http://www.w3.org/XML/1998/namespace\"/>"), 77050003)
+      ' Binding xml to its own URI is explicitly allowed.
+      expectNTrap(parse("<a xmlns:xml=\"http://www.w3.org/XML/1998/namespace\"/>"))
+    END TCASE
+
+    TCASE "a name with more than one colon, or an empty part, is refused"
+      expectTrap(parse("<a:b:c xmlns:a=\"urn:x\"/>"), 77050003)
+      expectTrap(parse("<:a/>"), 77050003)
+      expectTrap(parse("<a: xmlns:a=\"urn:x\"/>"), 77050003)
+      expectTrap(parse("<a xmlns:p=\"urn:x\" p:q:r=\"1\"/>"), 77050003)
+    END TCASE
+
+    TCASE "a colon in a processing-instruction target is refused"
+      ' Namespaces in XML 1.0 erratum NE08: a PI target is an NCName. Found by
+      ' the W3C conformance suite (`rmt-ns10-042`, TYPE="not-wf"), which this
+      ' reader accepted until the oracle ran it.
+      expectTrap(parse("<doc><?a:b bogus?></doc>"), 77050003)
+      expectTrap(parse("<?a:b bogus?><doc/>"), 77050003)
+      ' A target with no colon is still fine.
+      expectNTrap(parse("<doc><?ab bogus?></doc>"))
+    END TCASE
+
+    TCASE "two attributes with the same expanded name are refused"
+      ' Different prefixes, same URI, same local name.
+      expectTrap(parse("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:x\" p:id=\"1\" q:id=\"2\"/>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "encoding"
+    TCASE "invalid UTF-8 cannot reach the reader at all: String forbids it"
+      ' The reader's own UTF-8 refusals live in chars.mfb and are pinned by
+      ' test_chars.mfb, which drives them at the byte level. They are
+      ' UNREACHABLE through parse(text), because a String is valid UTF-8 by
+      ' construction: building one from bad bytes fails first, with
+      ' 77020004, before the reader is ever called. This case pins that
+      ' boundary so the decoder's tests are not mistaken for dead code.
+      LET badBytes AS List OF Byte = collections::append(strings::toBytes("<a>"), toByte(255))
+      expectTrap(toString(badBytes), 77020004)
+      ' Handed the same bytes directly, the scanner refuses them as a format
+      ' error, which is what parse would report if such a String existed.
+      expectTrap(requireScalar(badBytes, 3), 77050003)
+    END TCASE
+  END TGROUP
+END TESTING

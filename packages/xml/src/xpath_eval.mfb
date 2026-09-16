@@ -1,0 +1,1143 @@
+' ---------------------------------------------------------------------------
+' xml/xpath_eval.mfb — evaluating a parsed XPath expression over the index.
+'
+' Node-sets are `List OF Integer`: positions into the flat index, which IS
+' document order, so ordering and de-duplication are integer work. Nothing is
+' turned back into a `Node` until the caller asks for the result — plan-138-D
+' Phase 1 measured that rebuilding a result subtree from the index costs
+' 0.53-0.55 s for a thousand results, while walking the tree per result costs
+' 18-22 s.
+'
+' The DOCUMENT NODE is position -1. XPath's root is the parent of the root
+' element, and giving it a position means `/a` and `//a` need no special case:
+' `/` starts the context at -1, whose children are the top-level nodes.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' A reference to one attribute: which element, and which of its attributes.
+PUBLIC TYPE AttrRef
+  node AS Integer
+  at AS Integer
+END TYPE
+
+PUBLIC TYPE VNodes
+  nodes AS List OF Integer
+END TYPE
+
+PUBLIC TYPE VAttrs
+  attrs AS List OF AttrRef
+END TYPE
+
+PUBLIC TYPE VString
+  value AS String
+END TYPE
+
+' The internal number value carries the special tag; the PUBLIC `XNumber` holds
+' a plain `Float`, because that is what §5 declares and what a caller can use.
+PUBLIC TYPE VNumber
+  number AS Num
+END TYPE
+
+PUBLIC TYPE VBoolean
+  value AS Boolean
+END TYPE
+
+PUBLIC UNION XValue
+  VNodes
+  VAttrs
+  VString
+  VNumber
+  VBoolean
+END UNION
+
+' ---------------------------------------------------------------------------
+' The PUBLIC result type. Everything above works in index positions; this is
+' where a result becomes nodes a caller can hold.
+' ---------------------------------------------------------------------------
+
+EXPORT TYPE XNodes
+  nodes AS List OF Node
+END TYPE
+
+EXPORT TYPE XAttributes
+  attributes AS List OF Attribute
+END TYPE
+
+EXPORT TYPE XString
+  value AS String
+END TYPE
+
+EXPORT TYPE XNumber
+  value AS Float
+END TYPE
+
+EXPORT TYPE XBoolean
+  value AS Boolean
+END TYPE
+
+EXPORT UNION XPathValue
+  XNodes
+  XAttributes
+  XString
+  XNumber
+  XBoolean
+END UNION
+
+' ---------------------------------------------------------------------------
+' Numbers.
+'
+' XPath 1.0 numbers include NaN, +Infinity and -Infinity as ORDINARY VALUES:
+' `1 div 0` is Infinity, `0 div 0` is NaN, `number('x')` is NaN, and every
+' comparison involving NaN is false. None of that is an error in XPath.
+'
+' MFBASIC cannot hold any of them. A float operation that would produce one is
+' caught at the observation boundary and raised instead -- `ErrFloatOverflow`
+' (77050015) or `ErrFloatNaN` (77050013). So a `Float` alone cannot model an
+' XPath number, and this file carries the special values as a TAG beside the
+' value. Arithmetic and comparison propagate the tag; §4.2 printing reads it.
+'
+' §4.2 also decides how an ordinary number prints, and it is not how `toString`
+' prints one: 2.0 is "2", not "2.00".
+' ---------------------------------------------------------------------------
+
+PUBLIC LET NUM_NORMAL AS Integer = 0
+PUBLIC LET NUM_NAN AS Integer = 1
+PUBLIC LET NUM_POSITIVE_INFINITY AS Integer = 2
+PUBLIC LET NUM_NEGATIVE_INFINITY AS Integer = 3
+
+PUBLIC TYPE Num
+  value AS Float
+  special AS Integer
+END TYPE
+
+PUBLIC FUNC plainNumber(value AS Float) AS Num
+  RETURN Num[value, NUM_NORMAL]
+END FUNC
+
+PUBLIC FUNC nanNumber() AS Num
+  RETURN Num[0.0, NUM_NAN]
+END FUNC
+
+PUBLIC FUNC infiniteNumber(positive AS Boolean) AS Num
+  IF positive THEN RETURN Num[0.0, NUM_POSITIVE_INFINITY]
+  RETURN Num[0.0, NUM_NEGATIVE_INFINITY]
+END FUNC
+
+PUBLIC FUNC numberToString(number AS Num) AS String
+  IF number.special = NUM_NAN THEN RETURN "NaN"
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN "Infinity"
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN "-Infinity"
+  ' An integral value prints without a fractional part.
+  LET whole AS Integer = toInt(number.value)
+  IF number.value = toFloat(whole) THEN RETURN toString(whole)
+  ' Only a non-integral value reaches here -- the integral case returned above --
+  ' so stripping the trailing zeros always leaves a digit after the point, and
+  ' there is never a bare `.` left to remove.
+  MUT text AS String = toString(number.value)
+  IF strings::contains(text, ".") THEN
+    DO WHILE strings::endsWith(text, "0")
+      text = strings::mid(text, 0, len(text) - 1)
+    LOOP
+  END IF
+  RETURN text
+END FUNC
+
+' XPath's number(): a string that is not a number is NaN, never an error.
+PUBLIC FUNC stringToNumber(text AS String) AS Num
+  LET trimmed AS String = strings::trim(text)
+  IF trimmed = "" THEN RETURN nanNumber()
+  LET value AS Float = toFloat(trimmed) TRAP(e)
+    RECOVER 0.0
+  END TRAP
+  ' `toFloat` raises on text that is not a number, and recovering cannot tell
+  ' that apart from a genuine 0 -- so the text decides.
+  IF value = 0.0 AND trimmed <> "0" AND trimmed <> "0.0" AND trimmed <> "-0" AND trimmed <> "+0" THEN
+    RETURN nanNumber()
+  END IF
+  RETURN plainNumber(value)
+END FUNC
+
+' ----- arithmetic, with the special values propagated -----
+'
+' The raw operations are their own functions because an inline `TRAP` wraps a
+' CALL, not an expression -- and they must be trapped, since MFBASIC raises
+' `ErrFloatOverflow` where XPath wants an infinity.
+
+PRIVATE FUNC rawAdd(left AS Float, right AS Float) AS Float
+  RETURN left + right
+END FUNC
+
+PRIVATE FUNC rawMultiply(left AS Float, right AS Float) AS Float
+  RETURN left * right
+END FUNC
+
+PRIVATE FUNC rawDivide(left AS Float, right AS Float) AS Float
+  RETURN left / right
+END FUNC
+
+PRIVATE FUNC addNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL OR right.special <> NUM_NORMAL THEN
+    IF left.special = NUM_NORMAL THEN RETURN right
+    IF right.special = NUM_NORMAL THEN RETURN left
+    IF left.special = right.special THEN RETURN left
+    RETURN nanNumber()
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET total AS Float = rawAdd(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    ' Two finite values can only overflow away from zero, and only when they
+    ' share a sign, so either one gives the direction.
+    RETURN infiniteNumber(left.value > 0.0)
+  END IF
+  RETURN plainNumber(total)
+END FUNC
+
+PRIVATE FUNC negateNumber(number AS Num) AS Num
+  IF number.special = NUM_NAN THEN RETURN number
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN infiniteNumber(FALSE)
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN infiniteNumber(TRUE)
+  RETURN plainNumber(0.0 - number.value)
+END FUNC
+
+PRIVATE FUNC subtractNumbers(left AS Num, right AS Num) AS Num
+  RETURN addNumbers(left, negateNumber(right))
+END FUNC
+
+PRIVATE FUNC multiplyNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL OR right.special <> NUM_NORMAL THEN
+    ' Infinity times zero is NaN; otherwise the sign decides.
+    IF left.special = NUM_NORMAL AND left.value = 0.0 THEN RETURN nanNumber()
+    IF right.special = NUM_NORMAL AND right.value = 0.0 THEN RETURN nanNumber()
+    LET negative AS Boolean = signOf(left) <> signOf(right)
+    RETURN infiniteNumber(NOT negative)
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET product AS Float = rawMultiply(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  RETURN plainNumber(product)
+END FUNC
+
+' -1 for a negative value or -Infinity, 1 otherwise.
+PRIVATE FUNC signOf(number AS Num) AS Integer
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN -1
+  IF number.special = NUM_NORMAL AND number.value < 0.0 THEN RETURN -1
+  RETURN 1
+END FUNC
+
+PRIVATE FUNC divideNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL AND right.special <> NUM_NORMAL THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL THEN
+    ' Infinity divided by a finite number stays infinite.
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  IF right.special <> NUM_NORMAL THEN RETURN plainNumber(0.0)
+  IF right.value = 0.0 THEN
+    ' This is the case MFBASIC cannot compute: it raises rather than producing
+    ' a value, so the answer is given directly.
+    IF left.value = 0.0 THEN RETURN nanNumber()
+    RETURN infiniteNumber(left.value > 0.0)
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET quotient AS Float = rawDivide(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  RETURN plainNumber(quotient)
+END FUNC
+
+PRIVATE FUNC moduloNumbers(left AS Num, right AS Num) AS Num
+  IF left.special <> NUM_NORMAL OR right.special <> NUM_NORMAL THEN RETURN nanNumber()
+  IF right.value = 0.0 THEN RETURN nanNumber()
+  LET quotient AS Integer = toInt(left.value / right.value)
+  RETURN plainNumber(left.value - toFloat(quotient) * right.value)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Converting between the four value kinds (§4.2, §4.3).
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC stringOfValue(index AS List OF IndexedNode, value AS XValue) AS String
+  MUT out AS String = ""
+  MATCH value
+    CASE VNodes(n)
+      IF len(n.nodes) > 0 THEN
+        out = stringValueOf(index, collections::get(n.nodes, 0))
+      END IF
+    CASE VAttrs(a)
+      IF len(a.attrs) > 0 THEN
+        LET one AS AttrRef = collections::get(a.attrs, 0)
+        out = attributeValueAt(index, one)
+      END IF
+    CASE VString(s)
+      out = s.value
+    CASE VNumber(m)
+      out = numberToString(m.number)
+    CASE VBoolean(b)
+      IF b.value THEN
+        out = "true"
+      ELSE
+        out = "false"
+      END IF
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC booleanOfValue(index AS List OF IndexedNode, value AS XValue) AS Boolean
+  MUT out AS Boolean = FALSE
+  MATCH value
+    CASE VNodes(n)
+      out = len(n.nodes) > 0
+    CASE VAttrs(a)
+      out = len(a.attrs) > 0
+    CASE VString(s)
+      out = len(s.value) > 0
+    CASE VNumber(m)
+      ' NaN is false, an infinity is true, and 0 is false.
+      IF m.number.special = NUM_NAN THEN
+        out = FALSE
+      ELSEIF m.number.special <> NUM_NORMAL THEN
+        out = TRUE
+      ELSE
+        out = m.number.value <> 0.0
+      END IF
+    CASE VBoolean(b)
+      out = b.value
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC numberOfValue(index AS List OF IndexedNode, value AS XValue) AS Num
+  MUT out AS Num = nanNumber()
+  MATCH value
+    CASE VNumber(m)
+      out = m.number
+    CASE VBoolean(b)
+      IF b.value THEN
+        out = plainNumber(1.0)
+      ELSE
+        out = plainNumber(0.0)
+      END IF
+    CASE ELSE
+      out = stringToNumber(stringOfValue(index, value))
+  END MATCH
+  RETURN out
+END FUNC
+
+' The string-value of one index position, with the document node handled: its
+' string-value is every text node in the document, concatenated.
+PUBLIC FUNC stringValueOf(index AS List OF IndexedNode, at AS Integer) AS String
+  IF at >= 0 THEN RETURN stringValueAt(index, at)
+  MUT parts AS List OF String = []
+  MUT i AS Integer = 0
+  DO WHILE i < len(index)
+    LET entry AS IndexedNode = collections::get(index, i)
+    IF entry.kind = KIND_TEXT THEN
+      parts = collections::append(parts, entry.value)
+    END IF
+    i = i + 1
+  LOOP
+  RETURN strings::join(parts, "")
+END FUNC
+
+PRIVATE FUNC attributeValueAt(index AS List OF IndexedNode, one AS AttrRef) AS String
+  LET entry AS IndexedNode = collections::get(index, one.node)
+  RETURN collections::get(entry.attributes, one.at).value
+END FUNC
+
+PRIVATE FUNC attributeNameAt(index AS List OF IndexedNode, one AS AttrRef) AS String
+  LET entry AS IndexedNode = collections::get(index, one.node)
+  RETURN collections::get(entry.attributes, one.at).name
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Location steps.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC matchesTest(index AS List OF IndexedNode, at AS Integer, entry AS PathStep) AS Boolean
+  IF at < 0 THEN
+    ' Only node() and self match the document node.
+    RETURN entry.test = TEST_NODE
+  END IF
+  LET node AS IndexedNode = collections::get(index, at)
+  IF entry.test = TEST_NODE THEN RETURN TRUE
+  IF entry.test = TEST_TEXT THEN RETURN node.kind = KIND_TEXT
+  IF entry.test = TEST_COMMENT THEN RETURN node.kind = KIND_COMMENT
+  IF entry.test = TEST_PI THEN RETURN node.kind = KIND_PI
+  ' A name test selects elements only, and `*` selects every element.
+  IF node.kind <> KIND_ELEMENT THEN RETURN FALSE
+  IF entry.test = TEST_STAR THEN RETURN TRUE
+  RETURN node.name = entry.name
+END FUNC
+
+' Every position an axis reaches from `at`, in document order.
+PRIVATE FUNC axisFrom(index AS List OF IndexedNode, at AS Integer, axis AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = []
+  IF axis = AXIS_SELF THEN
+    out = collections::append(out, at)
+    RETURN out
+  END IF
+  IF axis = AXIS_PARENT THEN
+    IF at < 0 THEN RETURN out
+    LET entry AS IndexedNode = collections::get(index, at)
+    out = collections::append(out, entry.parent)
+    RETURN out
+  END IF
+  ' AXIS_CHILD. The descendant-or-self axis never reaches here: `applyStep`
+  ' scans that range and applies the node test in one pass, because
+  ' materializing it first built a list the size of the document for every `//`
+  ' step (plan-138-D Phase 4).
+  IF at < 0 THEN RETURN rootsOf(index)
+  RETURN childrenOf(index, at)
+END FUNC
+
+' Sort and de-duplicate a node-set. Document order IS index order, so this is
+' integer work -- the whole reason the index exists.
+PUBLIC FUNC orderNodes(nodes AS List OF Integer) AS List OF Integer
+  ' A forward axis walked from one context node already yields ascending,
+  ' distinct positions, which is the overwhelmingly common case -- `//item` on a
+  ' 100,000-node document produces 50,000 of them. Sorting those again is the
+  ' single most expensive thing a query can do for no result, so the ordering is
+  ' checked first and the list handed back untouched when it already holds.
+  MUT ascending AS Boolean = TRUE
+  MUT previous AS Integer = -2
+  FOR EACH one IN nodes
+    IF one <= previous THEN
+      ascending = FALSE
+    END IF
+    previous = one
+  NEXT
+  IF ascending THEN RETURN nodes
+
+  LET sorted AS List OF Integer = collections::sort(nodes)
+  MUT out AS List OF Integer = []
+  MUT last AS Integer = -2
+  FOR EACH one IN sorted
+    IF one <> last THEN
+      out = collections::append(out, one)
+      last = one
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Evaluation.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC predicateHolds(index AS List OF IndexedNode, value AS XValue, position AS Integer) AS Boolean
+  MUT out AS Boolean = FALSE
+  MATCH value
+    CASE VNumber(m)
+      ' A numeric predicate selects by position, so a special value selects
+      ' nothing.
+      out = m.number.special = NUM_NORMAL AND m.number.value = toFloat(position)
+    CASE ELSE
+      out = booleanOfValue(index, value)
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC filterNodes(index AS List OF IndexedNode, nodes AS List OF Integer, predicates AS List OF Expr) AS List OF Integer
+  MUT current AS List OF Integer = nodes
+  FOR EACH predicate IN predicates
+    MUT kept AS List OF Integer = []
+    MUT position AS Integer = 0
+    LET size AS Integer = len(current)
+    FOR EACH one IN current
+      position = position + 1
+      LET value AS XValue = evalExpr(index, one, position, size, predicate)
+      IF predicateHolds(index, value, position) THEN
+        kept = collections::append(kept, one)
+      END IF
+    NEXT
+    current = kept
+  NEXT
+  RETURN current
+END FUNC
+
+PRIVATE FUNC filterAttrs(index AS List OF IndexedNode, attrs AS List OF AttrRef, predicates AS List OF Expr) AS List OF AttrRef
+  MUT current AS List OF AttrRef = attrs
+  FOR EACH predicate IN predicates
+    MUT kept AS List OF AttrRef = []
+    MUT position AS Integer = 0
+    LET size AS Integer = len(current)
+    FOR EACH one IN current
+      position = position + 1
+      ' An attribute is its own context node for a predicate; the subset's
+      ' predicates over attributes are positional or value-based.
+      LET value AS XValue = evalExpr(index, one.node, position, size, predicate)
+      IF predicateHolds(index, value, position) THEN
+        kept = collections::append(kept, one)
+      END IF
+    NEXT
+    current = kept
+  NEXT
+  RETURN current
+END FUNC
+
+' Apply one step to a whole node-set.
+PRIVATE FUNC applyStep(index AS List OF IndexedNode, context AS List OF Integer, entry AS PathStep) AS XValue
+  IF entry.axis = AXIS_ATTRIBUTE THEN
+    ' Predicates apply PER CONTEXT NODE here too: `//book/@*[1]` is the first
+    ' attribute of EACH book, so a catalogue of two books yields two.
+    MUT attrs AS List OF AttrRef = []
+    FOR EACH at IN context
+      IF at >= 0 THEN
+        LET node AS IndexedNode = collections::get(index, at)
+        MUT mine AS List OF AttrRef = []
+        MUT i AS Integer = 0
+        FOR EACH a IN node.attributes
+          IF entry.test = TEST_STAR OR (entry.test = TEST_NAME AND a.name = entry.name) THEN
+            mine = collections::append(mine, AttrRef[at, i])
+          END IF
+          i = i + 1
+        NEXT
+        FOR EACH one IN filterAttrs(index, mine, entry.predicates)
+          attrs = collections::append(attrs, one)
+        NEXT
+      END IF
+    NEXT
+    LET value AS XValue = VAttrs[attrs]
+    RETURN value
+  END IF
+
+  ' Predicates apply PER CONTEXT NODE, not to the merged result. `//book[1]` is
+  ' "the first book of each shelf", so a document with two shelves yields two
+  ' nodes -- while `(//book)[1]`, a filter expression, yields one. Merging first
+  ' and filtering afterwards would collapse that distinction, which is one XPath
+  ' 1.0 draws deliberately.
+  MUT reached AS List OF Integer = []
+  FOR EACH at IN context
+    MUT candidates AS List OF Integer = []
+    IF entry.axis = AXIS_DESCENDANT_OR_SELF THEN
+      ' Fused: the descendant range is a contiguous span of the index, so it is
+      ' scanned and tested in one pass. Materializing the span first would build
+      ' a 100,001-element list for every `//` step before testing anything.
+      IF matchesTest(index, at, entry) THEN
+        candidates = collections::append(candidates, at)
+      END IF
+      MUT i AS Integer = 0
+      MUT stop AS Integer = len(index)
+      IF at >= 0 THEN
+        i = at + 1
+        stop = subtreeEnd(index, at)
+      END IF
+      DO WHILE i < stop
+        IF matchesTest(index, i, entry) THEN
+          candidates = collections::append(candidates, i)
+        END IF
+        i = i + 1
+      LOOP
+    ELSE
+      FOR EACH candidate IN axisFrom(index, at, entry.axis)
+        IF matchesTest(index, candidate, entry) THEN
+          candidates = collections::append(candidates, candidate)
+        END IF
+      NEXT
+    END IF
+    LET ordered AS List OF Integer = orderNodes(candidates)
+    FOR EACH one IN filterNodes(index, ordered, entry.predicates)
+      reached = collections::append(reached, one)
+    NEXT
+  NEXT
+  LET value AS XValue = VNodes[orderNodes(reached)]
+  RETURN value
+END FUNC
+
+PRIVATE FUNC applySteps(index AS List OF IndexedNode, start AS List OF Integer, steps AS List OF PathStep) AS XValue
+  MUT current AS List OF Integer = start
+  MUT result AS XValue = VNodes[current]
+  MUT at AS Integer = 0
+  FOR EACH entry IN steps
+    at = at + 1
+    result = applyStep(index, current, entry)
+    MATCH result
+      CASE VNodes(n)
+        current = n.nodes
+      CASE ELSE
+        ' An attribute step must be the last one: attributes have no children
+        ' in this subset.
+        IF at < len(steps) THEN
+          FAIL error(ERR_UNSUPPORTED, "xml: a step after an attribute step is not supported")
+        END IF
+    END MATCH
+  NEXT
+  RETURN result
+END FUNC
+
+' The two node-set operands of a comparison, as the strings §3.4 compares.
+PRIVATE FUNC stringsOfValue(index AS List OF IndexedNode, value AS XValue) AS List OF String
+  MUT out AS List OF String = []
+  MATCH value
+    CASE VNodes(n)
+      FOR EACH one IN n.nodes
+        out = collections::append(out, stringValueOf(index, one))
+      NEXT
+    CASE VAttrs(a)
+      FOR EACH one IN a.attrs
+        out = collections::append(out, attributeValueAt(index, one))
+      NEXT
+    CASE ELSE
+      out = collections::append(out, stringOfValue(index, value))
+  END MATCH
+  RETURN out
+END FUNC
+
+' Is this attribute already in the list? A union de-duplicates, and an attribute
+' is identified by its owner element and its position on that element.
+PRIVATE FUNC holdsAttr(attrs AS List OF AttrRef, one AS AttrRef) AS Boolean
+  FOR EACH existing IN attrs
+    IF existing.node = one.node AND existing.at = one.at THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Insert `one` keeping the list in DOCUMENT ORDER: by owner element first, then
+' by position on that element. A union returns its node-set in document order,
+' so `//book/@id | //book/@year` interleaves the two -- it does not append one
+' set after the other. Attribute sets are small, so a linear insertion is the
+' right shape here.
+PRIVATE FUNC insertAttrOrdered(attrs AS List OF AttrRef, one AS AttrRef) AS List OF AttrRef
+  MUT out AS List OF AttrRef = []
+  MUT placed AS Boolean = FALSE
+  FOR EACH existing IN attrs
+    IF NOT placed THEN
+      IF one.node < existing.node OR (one.node = existing.node AND one.at < existing.at) THEN
+        out = collections::append(out, one)
+        placed = TRUE
+      END IF
+    END IF
+    out = collections::append(out, existing)
+  NEXT
+  IF NOT placed THEN
+    out = collections::append(out, one)
+  END IF
+  RETURN out
+END FUNC
+
+PRIVATE FUNC isNodeSet(value AS XValue) AS Boolean
+  MUT out AS Boolean = FALSE
+  MATCH value
+    CASE VNodes(n)
+      out = TRUE
+    CASE VAttrs(a)
+      out = TRUE
+    CASE ELSE
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC compareStrings(op AS Integer, left AS String, right AS String) AS Boolean
+  IF op = OP_EQ THEN RETURN left = right
+  RETURN left <> right
+END FUNC
+
+' Every comparison involving NaN is false, including `NaN != NaN`.
+PRIVATE FUNC compareNumbers(op AS Integer, left AS Num, right AS Num) AS Boolean
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN FALSE
+  ' Infinities compare by rank: -Infinity < every finite value < +Infinity.
+  LET leftRank AS Integer = rankOf(left)
+  LET rightRank AS Integer = rankOf(right)
+  IF leftRank <> 0 OR rightRank <> 0 THEN
+    IF leftRank = rightRank THEN
+      IF op = OP_EQ OR op = OP_LE OR op = OP_GE THEN RETURN TRUE
+      RETURN FALSE
+    END IF
+    IF op = OP_EQ THEN RETURN FALSE
+    IF op = OP_NE THEN RETURN TRUE
+    IF op = OP_LT OR op = OP_LE THEN RETURN leftRank < rightRank
+    RETURN leftRank > rightRank
+  END IF
+  IF op = OP_EQ THEN RETURN left.value = right.value
+  IF op = OP_NE THEN RETURN left.value <> right.value
+  IF op = OP_LT THEN RETURN left.value < right.value
+  IF op = OP_LE THEN RETURN left.value <= right.value
+  IF op = OP_GT THEN RETURN left.value > right.value
+  RETURN left.value >= right.value
+END FUNC
+
+' -1 for -Infinity, 1 for +Infinity, 0 for an ordinary number.
+PRIVATE FUNC rankOf(number AS Num) AS Integer
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN 1
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN -1
+  RETURN 0
+END FUNC
+
+' §3.4: when either operand is a node-set the comparison is EXISTENTIAL — true
+' when ANY pairing satisfies it. `@a = 'x'` over several elements is true when
+' one of them has `a="x"`, not when all do.
+PRIVATE FUNC compareValues(index AS List OF IndexedNode, op AS Integer, left AS XValue, right AS XValue) AS Boolean
+  LET leftSet AS Boolean = isNodeSet(left)
+  LET rightSet AS Boolean = isNodeSet(right)
+
+  IF leftSet AND rightSet THEN
+    FOR EACH l IN stringsOfValue(index, left)
+      FOR EACH r IN stringsOfValue(index, right)
+        IF op = OP_EQ OR op = OP_NE THEN
+          IF compareStrings(op, l, r) THEN
+            RETURN TRUE
+          END IF
+        ELSE
+          IF compareNumbers(op, stringToNumber(l), stringToNumber(r)) THEN
+            RETURN TRUE
+          END IF
+        END IF
+      NEXT
+    NEXT
+    RETURN FALSE
+  END IF
+
+  IF leftSet OR rightSet THEN
+    LET set AS XValue = left
+    MUT other AS XValue = right
+    MUT flipped AS Boolean = FALSE
+    IF rightSet THEN
+      flipped = TRUE
+    END IF
+    MUT values AS List OF String = []
+    IF flipped THEN
+      values = stringsOfValue(index, right)
+      other = left
+    ELSE
+      values = stringsOfValue(index, left)
+      other = right
+    END IF
+
+    FOR EACH one IN values
+      MUT holds AS Boolean = FALSE
+      MATCH other
+        CASE VBoolean(b)
+          LET asBoolean AS Boolean = len(one) > 0
+          IF op = OP_EQ THEN
+            holds = asBoolean = b.value
+          ELSEIF op = OP_NE THEN
+            holds = asBoolean <> b.value
+          END IF
+        CASE VNumber(m)
+          LET l AS Num = stringToNumber(one)
+          LET r AS Num = m.number
+          IF flipped THEN
+            holds = compareNumbers(op, r, l)
+          ELSE
+            holds = compareNumbers(op, l, r)
+          END IF
+        CASE ELSE
+          LET text AS String = stringOfValue(index, other)
+          IF op = OP_EQ OR op = OP_NE THEN
+            holds = compareStrings(op, one, text)
+          ELSE
+            LET l2 AS Num = stringToNumber(one)
+            LET r2 AS Num = stringToNumber(text)
+            IF flipped THEN
+              holds = compareNumbers(op, r2, l2)
+            ELSE
+              holds = compareNumbers(op, l2, r2)
+            END IF
+          END IF
+      END MATCH
+      IF holds THEN RETURN TRUE
+    NEXT
+    RETURN FALSE
+  END IF
+
+  ' Neither side is a node-set: boolean wins, then number, then string.
+  MUT leftBoolean AS Boolean = FALSE
+  MUT rightBoolean AS Boolean = FALSE
+  MATCH left
+    CASE VBoolean(b)
+      leftBoolean = TRUE
+    CASE ELSE
+  END MATCH
+  MATCH right
+    CASE VBoolean(b)
+      rightBoolean = TRUE
+    CASE ELSE
+  END MATCH
+  IF leftBoolean OR rightBoolean THEN
+    LET l AS Boolean = booleanOfValue(index, left)
+    LET r AS Boolean = booleanOfValue(index, right)
+    IF op = OP_EQ THEN RETURN l = r
+    IF op = OP_NE THEN RETURN l <> r
+    RETURN compareNumbers(op, numberOfValue(index, left), numberOfValue(index, right))
+  END IF
+
+  MUT leftNumber AS Boolean = FALSE
+  MUT rightNumber AS Boolean = FALSE
+  MATCH left
+    CASE VNumber(m)
+      leftNumber = TRUE
+    CASE ELSE
+  END MATCH
+  MATCH right
+    CASE VNumber(m)
+      rightNumber = TRUE
+    CASE ELSE
+  END MATCH
+  IF leftNumber OR rightNumber OR op = OP_LT OR op = OP_LE OR op = OP_GT OR op = OP_GE THEN
+    RETURN compareNumbers(op, numberOfValue(index, left), numberOfValue(index, right))
+  END IF
+  RETURN compareStrings(op, stringOfValue(index, left), stringOfValue(index, right))
+END FUNC
+
+PRIVATE FUNC nodesOfValue(index AS List OF IndexedNode, value AS XValue, what AS String) AS List OF Integer
+  MUT out AS List OF Integer = []
+  MATCH value
+    CASE VNodes(n)
+      out = n.nodes
+    CASE ELSE
+      FAIL error(ERR_UNSUPPORTED, "xml: " & what & " needs a node-set")
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC evalFunction(index AS List OF IndexedNode, context AS Integer, position AS Integer, size AS Integer, c AS Call) AS XValue
+  LET count AS Integer = len(c.args)
+
+  IF c.name = "true" THEN
+    LET value AS XValue = VBoolean[TRUE]
+    RETURN value
+  END IF
+  IF c.name = "false" THEN
+    LET value AS XValue = VBoolean[FALSE]
+    RETURN value
+  END IF
+  IF c.name = "position" THEN
+    LET value AS XValue = VNumber[plainNumber(toFloat(position))]
+    RETURN value
+  END IF
+  IF c.name = "last" THEN
+    LET value AS XValue = VNumber[plainNumber(toFloat(size))]
+    RETURN value
+  END IF
+
+  ' Everything else takes arguments, and an argument list of the wrong length is
+  ' a syntax error rather than a silent default.
+  MUT first AS XValue = VNodes[[context]]
+  IF count > 0 THEN
+    first = evalExpr(index, context, position, size, collections::get(c.args, 0))
+  END IF
+
+  IF c.name = "count" THEN
+    MUT total AS Integer = 0
+    MATCH first
+      CASE VNodes(n)
+        total = len(n.nodes)
+      CASE VAttrs(a)
+        total = len(a.attrs)
+      CASE ELSE
+        FAIL error(ERR_UNSUPPORTED, "xml: count() needs a node-set")
+    END MATCH
+    LET value AS XValue = VNumber[plainNumber(toFloat(total))]
+    RETURN value
+  END IF
+
+  IF c.name = "string" THEN
+    LET value AS XValue = VString[stringOfValue(index, first)]
+    RETURN value
+  END IF
+  IF c.name = "boolean" THEN
+    LET value AS XValue = VBoolean[booleanOfValue(index, first)]
+    RETURN value
+  END IF
+  IF c.name = "not" THEN
+    LET value AS XValue = VBoolean[NOT booleanOfValue(index, first)]
+    RETURN value
+  END IF
+  IF c.name = "number" THEN
+    LET value AS XValue = VNumber[numberOfValue(index, first)]
+    RETURN value
+  END IF
+  IF c.name = "string-length" THEN
+    LET value AS XValue = VNumber[plainNumber(toFloat(len(stringOfValue(index, first))))]
+    RETURN value
+  END IF
+  IF c.name = "normalize-space" THEN
+    ' §4.2: strip leading and trailing whitespace and collapse every internal
+    ' RUN of whitespace to one space -- any XML whitespace, not just the space
+    ' character, so a tab or a line feed collapses too.
+    MUT parts AS List OF String = []
+    MUT word AS String = ""
+    FOR EACH sc IN strings::toScalars(stringOfValue(index, first))
+      LET code AS Integer = toInt(sc)
+      IF code = 32 OR code = 9 OR code = 13 OR code = 10 THEN
+        IF len(word) > 0 THEN
+          parts = collections::append(parts, word)
+          word = ""
+        END IF
+      ELSE
+        word = word & toString(sc)
+      END IF
+    NEXT
+    IF len(word) > 0 THEN
+      parts = collections::append(parts, word)
+    END IF
+    LET value AS XValue = VString[strings::join(parts, " ")]
+    RETURN value
+  END IF
+  IF c.name = "sum" THEN
+    MUT total AS Num = plainNumber(0.0)
+    FOR EACH text IN stringsOfValue(index, first)
+      total = addNumbers(total, stringToNumber(text))
+    NEXT
+    LET value AS XValue = VNumber[total]
+    RETURN value
+  END IF
+
+  IF c.name = "name" OR c.name = "local-name" THEN
+    MUT text AS String = ""
+    MATCH first
+      CASE VNodes(n)
+        IF len(n.nodes) > 0 THEN
+          LET at AS Integer = collections::get(n.nodes, 0)
+          IF at >= 0 THEN
+            text = collections::get(index, at).name
+          END IF
+        END IF
+      CASE VAttrs(a)
+        IF len(a.attrs) > 0 THEN
+          text = attributeNameAt(index, collections::get(a.attrs, 0))
+        END IF
+      CASE ELSE
+        FAIL error(ERR_UNSUPPORTED, "xml: " & c.name & "() needs a node-set")
+    END MATCH
+    IF c.name = "local-name" THEN
+      text = localOf(text)
+    END IF
+    LET value AS XValue = VString[text]
+    RETURN value
+  END IF
+
+  ' Two-argument string functions.
+  IF c.name = "contains" OR c.name = "starts-with" THEN
+    IF count <> 2 THEN
+      FAIL error(ERR_FORMAT, "xml: " & c.name & "() takes two arguments")
+    END IF
+    LET second AS XValue = evalExpr(index, context, position, size, collections::get(c.args, 1))
+    LET haystack AS String = stringOfValue(index, first)
+    LET needle AS String = stringOfValue(index, second)
+    MUT holds AS Boolean = FALSE
+    IF c.name = "contains" THEN
+      holds = strings::contains(haystack, needle)
+    ELSE
+      holds = strings::startsWith(haystack, needle)
+    END IF
+    LET value AS XValue = VBoolean[holds]
+    RETURN value
+  END IF
+
+  IF c.name = "concat" THEN
+    IF count < 2 THEN
+      FAIL error(ERR_FORMAT, "xml: concat() takes at least two arguments")
+    END IF
+    MUT parts AS List OF String = []
+    parts = collections::append(parts, stringOfValue(index, first))
+    MUT i AS Integer = 1
+    DO WHILE i < count
+      LET piece AS XValue = evalExpr(index, context, position, size, collections::get(c.args, i))
+      parts = collections::append(parts, stringOfValue(index, piece))
+      i = i + 1
+    LOOP
+    LET value AS XValue = VString[strings::join(parts, "")]
+    RETURN value
+  END IF
+
+  FAIL error(ERR_UNSUPPORTED, "xml: the function `" & c.name & "()` is not part of this package's XPath subset")
+  LET unreachable AS XValue = VBoolean[FALSE]
+  RETURN unreachable
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Handing a result back.
+'
+' This is the ONLY place index positions become `Node` values, which is what
+' keeps a query proportional to its result rather than to the document
+' (plan-138-D Phase 1).
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC publicValue(index AS List OF IndexedNode, value AS XValue) AS XPathValue
+  MUT out AS XPathValue = XBoolean[FALSE]
+  MATCH value
+    CASE VNodes(n)
+      MUT nodes AS List OF Node = []
+      FOR EACH at IN n.nodes
+        ' The document node itself has no `Node` form; a query that selects it
+        ' (`/`) yields the top-level nodes instead.
+        IF at >= 0 THEN
+          nodes = collections::append(nodes, nodeAt(index, at))
+        ELSE
+          ' The document node has no `Node` form. Selecting it -- `/`, or `..`
+          ' from the root element -- means the document, so it comes back as the
+          ' document ELEMENT. Returning every top-level node instead would add
+          ' the prolog's comments and processing instructions, which are not the
+          ' document.
+          FOR EACH one IN rootsOf(index)
+            IF collections::get(index, one).kind = KIND_ELEMENT THEN
+              nodes = collections::append(nodes, nodeAt(index, one))
+            END IF
+          NEXT
+        END IF
+      NEXT
+      out = XNodes[nodes]
+    CASE VAttrs(a)
+      MUT attributes AS List OF Attribute = []
+      FOR EACH one IN a.attrs
+        attributes = collections::append(attributes, attributeAt(index, one.node, one.at))
+      NEXT
+      out = XAttributes[attributes]
+    CASE VString(s)
+      out = XString[s.value]
+    CASE VNumber(m)
+      ' `XNumber.value` is a `Float`, and MFBASIC cannot hold NaN or an
+      ' infinity in one -- the language raises rather than producing such a
+      ' value. Those results are still computable and still printable: ask for
+      ' them with `xml::valueOf`, which yields "NaN", "Infinity" or
+      ' "-Infinity". Handing back a `Float` here would have to invent a number.
+      IF m.number.special <> NUM_NORMAL THEN
+        FAIL error(ERR_UNSUPPORTED, "xml: the result is " & numberToString(m.number) & ", which no Float can hold -- use xml::valueOf to read it as text")
+      END IF
+      out = XNumber[m.number.value]
+    CASE VBoolean(b)
+      out = XBoolean[b.value]
+  END MATCH
+  RETURN out
+END FUNC
+
+' The XPath string-value of any result, without materializing a node.
+PUBLIC FUNC stringOfXValue(index AS List OF IndexedNode, value AS XValue) AS String
+  RETURN stringOfValue(index, value)
+END FUNC
+
+PUBLIC FUNC evalExpr(index AS List OF IndexedNode, context AS Integer, position AS Integer, size AS Integer, e AS Expr) AS XValue
+  MUT out AS XValue = VBoolean[FALSE]
+  MATCH e
+    CASE Literal(l)
+      out = VString[l.value]
+    CASE Numeric(n)
+      out = VNumber[plainNumber(n.value)]
+    CASE Call(c)
+      out = evalFunction(index, context, position, size, c)
+    CASE Unary(u)
+      LET operand AS XValue = evalExpr(index, context, position, size, u.operand)
+      out = VNumber[negateNumber(numberOfValue(index, operand))]
+    CASE Path(p)
+      MUT start AS List OF Integer = []
+      IF p.absolute THEN
+        start = collections::append(start, -1)
+      ELSE
+        start = collections::append(start, context)
+      END IF
+      out = applySteps(index, start, p.steps)
+    CASE Filter(f)
+      LET base AS XValue = evalExpr(index, context, position, size, f.base)
+      LET nodes AS List OF Integer = nodesOfValue(index, base, "a filter expression")
+      LET kept AS List OF Integer = filterNodes(index, nodes, f.predicates)
+      IF len(f.steps) = 0 THEN
+        out = VNodes[kept]
+      ELSE
+        out = applySteps(index, kept, f.steps)
+      END IF
+    CASE Binary(b)
+      IF b.op = OP_OR THEN
+        LET left AS XValue = evalExpr(index, context, position, size, b.left)
+        IF booleanOfValue(index, left) THEN
+          out = VBoolean[TRUE]
+        ELSE
+          LET right AS XValue = evalExpr(index, context, position, size, b.right)
+          out = VBoolean[booleanOfValue(index, right)]
+        END IF
+      ELSEIF b.op = OP_AND THEN
+        LET left AS XValue = evalExpr(index, context, position, size, b.left)
+        IF NOT booleanOfValue(index, left) THEN
+          out = VBoolean[FALSE]
+        ELSE
+          LET right AS XValue = evalExpr(index, context, position, size, b.right)
+          out = VBoolean[booleanOfValue(index, right)]
+        END IF
+      ELSEIF b.op = OP_UNION THEN
+        LET left AS XValue = evalExpr(index, context, position, size, b.left)
+        LET right AS XValue = evalExpr(index, context, position, size, b.right)
+        ' Two ATTRIBUTE sets union just as two node sets do; only a union that
+        ' MIXES them is refused, because this package keeps the two kinds of
+        ' result apart (`select` versus `selectAttributes`).
+        MUT leftAttrs AS Boolean = FALSE
+        MUT rightAttrs AS Boolean = FALSE
+        MATCH left
+          CASE VAttrs(a)
+            leftAttrs = TRUE
+          CASE ELSE
+        END MATCH
+        MATCH right
+          CASE VAttrs(a)
+            rightAttrs = TRUE
+          CASE ELSE
+        END MATCH
+        IF leftAttrs AND rightAttrs THEN
+          MUT mergedAttrs AS List OF AttrRef = []
+          MATCH left
+            CASE VAttrs(a)
+              FOR EACH one IN a.attrs
+                IF NOT holdsAttr(mergedAttrs, one) THEN
+                  mergedAttrs = insertAttrOrdered(mergedAttrs, one)
+                END IF
+              NEXT
+            CASE ELSE
+          END MATCH
+          MATCH right
+            CASE VAttrs(a)
+              FOR EACH one IN a.attrs
+                IF NOT holdsAttr(mergedAttrs, one) THEN
+                  mergedAttrs = insertAttrOrdered(mergedAttrs, one)
+                END IF
+              NEXT
+            CASE ELSE
+          END MATCH
+          out = VAttrs[mergedAttrs]
+        ELSEIF leftAttrs OR rightAttrs THEN
+          FAIL error(ERR_UNSUPPORTED, "xml: a union may not mix attributes with other nodes")
+        ELSE
+          MUT merged AS List OF Integer = nodesOfValue(index, left, "a union")
+          FOR EACH one IN nodesOfValue(index, right, "a union")
+            merged = collections::append(merged, one)
+          NEXT
+          out = VNodes[orderNodes(merged)]
+        END IF
+      ELSEIF b.op = OP_EQ OR b.op = OP_NE OR b.op = OP_LT OR b.op = OP_LE OR b.op = OP_GT OR b.op = OP_GE THEN
+        LET left AS XValue = evalExpr(index, context, position, size, b.left)
+        LET right AS XValue = evalExpr(index, context, position, size, b.right)
+        out = VBoolean[compareValues(index, b.op, left, right)]
+      ELSE
+        LET left AS XValue = evalExpr(index, context, position, size, b.left)
+        LET right AS XValue = evalExpr(index, context, position, size, b.right)
+        LET l AS Num = numberOfValue(index, left)
+        LET r AS Num = numberOfValue(index, right)
+        IF b.op = OP_ADD THEN
+          out = VNumber[addNumbers(l, r)]
+        ELSEIF b.op = OP_SUB THEN
+          out = VNumber[subtractNumbers(l, r)]
+        ELSEIF b.op = OP_MUL THEN
+          out = VNumber[multiplyNumbers(l, r)]
+        ELSEIF b.op = OP_DIV THEN
+          out = VNumber[divideNumbers(l, r)]
+        ELSE
+          out = VNumber[moduloNumbers(l, r)]
+        END IF
+      END IF
+  END MATCH
+  RETURN out
+END FUNC

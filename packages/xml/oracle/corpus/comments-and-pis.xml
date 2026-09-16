@@ -1,0 +1,8 @@
+<!--a prolog comment-->
+<?prolog-pi data?>
+<doc>
+  <!-- an inner comment -->
+  <a>text<!--between-->more</a>
+  <?target instruction data?>
+</doc>
+<!--an epilog comment-->

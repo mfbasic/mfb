@@ -1,0 +1,57 @@
+' ---------------------------------------------------------------------------
+' xml/tree.mfb — the document tree every other file in the package reads,
+' builds or writes.
+'
+' A document is an immutable value: a `Document` holding its top-level nodes,
+' each node one of four records under the `Node` union. Names are the raw
+' `prefix:local` text from the source; namespace prefixes are checked by the
+' reader but never resolved. `xmlns` and `xmlns:p` declarations are ordinary
+' attributes. Attributes are a List, not a Map, so document order survives.
+' ---------------------------------------------------------------------------
+
+' One attribute of an element. `value` is the text after reference expansion
+' and XML 1.0 §3.3.3 attribute-value normalization.
+EXPORT TYPE Attribute
+  name AS String
+  value AS String
+END TYPE
+
+' An element: its name, its attributes in document order (never two with the
+' same name), and its child nodes in document order.
+EXPORT TYPE Element
+  name AS String
+  attributes AS List OF Attribute
+  children AS List OF Node
+END TYPE
+
+' Character data. A CDATA section arrives merged into the Text around it, so
+' two Text nodes are never adjacent in a parsed tree.
+EXPORT TYPE Text
+  text AS String
+END TYPE
+
+' The text between `<!--` and `-->`.
+EXPORT TYPE Comment
+  text AS String
+END TYPE
+
+' A `<?target data?>` processing instruction. `data` excludes the whitespace
+' that separates it from the target.
+EXPORT TYPE ProcessingInstruction
+  target AS String
+  data AS String
+END TYPE
+
+EXPORT UNION Node
+  Element
+  Text
+  Comment
+  ProcessingInstruction
+END UNION
+
+' A whole document: the comments and processing instructions before and after
+' the root element, and exactly one Element. The XML declaration and the
+' whitespace outside the root element are not stored.
+EXPORT TYPE Document
+  children AS List OF Node
+END TYPE

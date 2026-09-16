@@ -118,12 +118,28 @@ drops `<script>`/`<style>`/comments (recording their src/href/inline markers in 
 character references (`encoding::htmlUnescape`), and handles unclosed tags. The
 document is an `ElementNode` tagged `#document` whose first child is the header.
 
-Everything is **iterative** (an explicit stack, never a recursive function over
-`Node`) — a recursive function over an *imported* union does not lower to native
-code across a package boundary, so `dom`/`display` walk trees with a work-stack.
-`dom::parse` also caps its node count: extracting nodes churns short-lived arena
-allocations, whose free list is quadratic (a known open arena issue), so a
-multi-megabyte page is rendered as a truncated preview rather than hanging.
+Everything here is **iterative** (an explicit stack, never a recursive function
+over `Node`), and `dom::parse` caps its node count, so a multi-megabyte page is
+rendered as a truncated preview rather than hanging.
+
+Both of the reasons this section used to give for that are **stale**, measured by
+plan-138-A (`planning/completed/plan-138-A-xml-tree-builder-and-reader.md`):
+
+- A recursive function over an *imported* union **does** lower across a package
+  boundary: a consumer-side recursive `FUNC` over an imported `Node` union
+  returned `10002` for a 10,000-node tree, and `packages/xml` ships consumers
+  that recurse over `xml::Node`.
+- The arena free list is **no longer quadratic**. `mfb spec memory arenas`
+  documents the segregated quick/large bins that replaced the quadratic insert,
+  and a probe allocated and freed 1,000,000 records in 0.35 s.
+
+What is still true, and is the real reason to keep a work-stack here, is that
+rebuilding a shared list of subtrees is quadratic: self-assigning a
+`List OF <recursive union>` through `collections::take`/`drop` deep-copies every
+element it returns (21.96 s versus 0.02 s for `append` at 8,000 nodes — see
+`bugs/bug-647-take-drop-self-reassignment-copies-every-returned-element.md`).
+A builder that appends to a frame-local list instead handles 100,000 nodes in
+about 0.3 s.
 
 ## CSS
 
