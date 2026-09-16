@@ -1,0 +1,182 @@
+' ---------------------------------------------------------------------------
+' xml/xpath_index.mfb — the flat evaluation index.
+'
+' An XPath step needs three things a `Node` tree does not give cheaply: document
+' order, parent links, and de-duplication. Flattening the document once into a
+' list in document order supplies all three — order is index order, so sorting
+' and de-duplicating a node-set is sorting integers.
+'
+' HOW it is flattened is a measured decision, not an obvious one (plan-138-D
+' Phase 1, at 100,000 nodes):
+'
+'   threaded accumulator      quadratic: 8,000 nodes took 8.5-14.1 s, and
+'                             100,000 blew a 120 s alarm. Every call copies the
+'                             whole accumulator on the way in.
+'   subtree return + concat   flat 0.53-0.57 s, deep 4.58-5.99 s — over budget
+'                             on deep, because each entry is REBUILT (`WITH`) at
+'                             every level to fix its parent link.
+'   what this file does       flat 0.55-0.71 s, deep 0.96-1.33 s, wide 0.38 s.
+'
+' So: the walk records DEPTH only and never rewrites an entry, each caller bulk-
+' appends its child's whole list, and parent links are assigned afterwards in one
+' linear pass using a stack of the most recent node at each depth.
+'
+' There are no firstChild/nextSibling links. In a depth-first flat array the
+' children of node `i` are exactly the entries after it whose depth is
+' `depth(i) + 1`, up to the first entry whose depth is `depth(i)` or less — so a
+' child scan costs what walking that subtree costs anyway, and nothing has to be
+' mutated after the fact.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PUBLIC LET KIND_ELEMENT AS Integer = 1
+PUBLIC LET KIND_TEXT AS Integer = 2
+PUBLIC LET KIND_COMMENT AS Integer = 3
+PUBLIC LET KIND_PI AS Integer = 4
+
+PUBLIC TYPE IndexedAttr
+  name AS String
+  value AS String
+END TYPE
+
+' One node in document order. `parent` is -1 for a top-level node.
+PUBLIC TYPE IndexedNode
+  kind AS Integer
+  name AS String
+  value AS String
+  parent AS Integer
+  depth AS Integer
+  attributes AS List OF IndexedAttr
+END TYPE
+
+PRIVATE FUNC attributesOf(e AS Element) AS List OF IndexedAttr
+  MUT out AS List OF IndexedAttr = []
+  FOR EACH a IN e.attributes
+    out = collections::append(out, IndexedAttr[a.name, a.value])
+  NEXT
+  RETURN out
+END FUNC
+
+' The walk. Each call returns its own subtree's entries, with parent left unset.
+PRIVATE FUNC walk(n AS Node, depth AS Integer) AS List OF IndexedNode
+  MUT out AS List OF IndexedNode = []
+  MATCH n
+    CASE Element(e)
+      out = collections::append(out, IndexedNode[KIND_ELEMENT, e.name, "", -1, depth, attributesOf(e)])
+      FOR EACH k IN e.children
+        out = collections::append(out, walk(k, depth + 1))
+      NEXT
+    CASE Text(t)
+      out = collections::append(out, IndexedNode[KIND_TEXT, "", t.text, -1, depth, []])
+    CASE Comment(c)
+      out = collections::append(out, IndexedNode[KIND_COMMENT, "", c.text, -1, depth, []])
+    CASE ProcessingInstruction(p)
+      out = collections::append(out, IndexedNode[KIND_PI, p.target, p.data, -1, depth, []])
+  END MATCH
+  RETURN out
+END FUNC
+
+' The whole document, flattened in document order with parent links filled in.
+PUBLIC FUNC buildIndex(doc AS Document) AS List OF IndexedNode
+  MUT flat AS List OF IndexedNode = []
+  FOR EACH n IN doc.children
+    flat = collections::append(flat, walk(n, 0))
+  NEXT
+
+  ' One linear pass: the parent of a node at depth d is the most recent node
+  ' seen at depth d-1, which a stack indexed by depth gives directly.
+  MUT recent AS List OF Integer = []
+  MUT out AS List OF IndexedNode = []
+  MUT at AS Integer = 0
+  FOR EACH entry IN flat
+    DO WHILE len(recent) > entry.depth
+      recent = collections::take(recent, len(recent) - 1)
+    LOOP
+    MUT parent AS Integer = -1
+    IF entry.depth > 0 AND len(recent) = entry.depth THEN
+      parent = collections::get(recent, entry.depth - 1)
+    END IF
+    out = collections::append(out, IndexedNode[entry.kind, entry.name, entry.value, parent, entry.depth, entry.attributes])
+    recent = collections::append(recent, at)
+    at = at + 1
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Walking the index.
+' ---------------------------------------------------------------------------
+
+' The offset just past the subtree rooted at `at` — the first entry whose depth
+' is no deeper than `at`'s.
+PUBLIC FUNC subtreeEnd(index AS List OF IndexedNode, at AS Integer) AS Integer
+  LET total AS Integer = len(index)
+  LET depth AS Integer = collections::get(index, at).depth
+  MUT i AS Integer = at + 1
+  DO WHILE i < total
+    IF collections::get(index, i).depth <= depth THEN RETURN i
+    i = i + 1
+  LOOP
+  RETURN total
+END FUNC
+
+' The immediate children of `at`, in document order.
+PUBLIC FUNC childrenOf(index AS List OF IndexedNode, at AS Integer) AS List OF Integer
+  LET stop AS Integer = subtreeEnd(index, at)
+  LET depth AS Integer = collections::get(index, at).depth
+  MUT out AS List OF Integer = []
+  MUT i AS Integer = at + 1
+  DO WHILE i < stop
+    LET entry AS IndexedNode = collections::get(index, i)
+    IF entry.depth = depth + 1 THEN
+      out = collections::append(out, i)
+    END IF
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' Every descendant of `at`, in document order.
+PUBLIC FUNC descendantsOf(index AS List OF IndexedNode, at AS Integer) AS List OF Integer
+  LET stop AS Integer = subtreeEnd(index, at)
+  MUT out AS List OF Integer = []
+  MUT i AS Integer = at + 1
+  DO WHILE i < stop
+    out = collections::append(out, i)
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' The top-level nodes: everything at depth 0.
+PUBLIC FUNC rootsOf(index AS List OF IndexedNode) AS List OF Integer
+  MUT out AS List OF Integer = []
+  MUT i AS Integer = 0
+  DO WHILE i < len(index)
+    IF collections::get(index, i).depth = 0 THEN
+      out = collections::append(out, i)
+    END IF
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' The XPath string-value of a node: for an element, every descendant text node
+' concatenated; for text, comment and PI nodes, their own text.
+PUBLIC FUNC stringValueAt(index AS List OF IndexedNode, at AS Integer) AS String
+  LET entry AS IndexedNode = collections::get(index, at)
+  IF entry.kind <> KIND_ELEMENT THEN RETURN entry.value
+  LET stop AS Integer = subtreeEnd(index, at)
+  MUT parts AS List OF String = []
+  MUT i AS Integer = at + 1
+  DO WHILE i < stop
+    LET inner AS IndexedNode = collections::get(index, i)
+    IF inner.kind = KIND_TEXT THEN
+      parts = collections::append(parts, inner.value)
+    END IF
+    i = i + 1
+  LOOP
+  RETURN strings::join(parts, "")
+END FUNC

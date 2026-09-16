@@ -48,7 +48,11 @@ See plan-138-A. Additionally:
 
 | What | Value | Command |
 |---|---|---|
-| Evaluation-index build and node materialization cost at 100k nodes | UNMEASURED | Phase 1 measures it before any other phase |
+| Evaluation-index build at 100k nodes, by strategy | **threaded accumulator: quadratic** (2,000 nodes 0.49–0.53 s; 8,000 nodes 8.53–14.07 s; 100,000 exceeded a 120 s alarm). **Subtree-return + concat: flat 0.53–0.57 s, deep 4.58–5.99 s, wide 0.38 s** — over budget on deep. **Depth-only walk + bulk append + one linear parent pass: flat 0.55–0.71 s, deep 0.96–1.33 s, wide 0.37–0.38 s** — inside budget everywhere | `/tmp/xpath-spike`, `bash /tmp/xpath-spike/time.sh …/xpathspike.out <n> <shape> <mode>`, 3 runs each |
+| `xml::parse` baseline at 100k, same shapes | flat 0.44–0.57 s, deep 0.30–0.32 s, wide 0.28–0.30 s | same harness, mode `parse` |
+| Materialization candidate (b), walking from the root by child ordinals | **18.43–22.47 s for 1,000 results** on the flat shape — rejected | same harness, mode `matB1000` |
+| Materialization candidate (c), one walk with a threaded `List OF Node` accumulator | 1 result: flat 1.21–1.86 s, deep 0.99–1.49 s. **1,000 results: 14.82–20.55 s** — rejected | same harness, modes `matC1`, `matC1000` |
+| **Materialization candidate (a), rebuilding each result subtree from the flat index — CHOSEN** | 1 result: flat 0.53–0.87 s, deep 0.96–0.97 s. 1,000 results: **0.53–0.55 s**. All 49,999 `item` elements: **0.65–1.66 s** | same harness, modes `matA1`, `matA1000`, `matAall` |
 
 ### Verified properties
 
@@ -138,30 +142,45 @@ Adds §5. Nothing earlier changes.
 
 ### Phase 1 — index and materialization spike
 
-- [ ] In a `/tmp` consumer of `packages/xml/xml.mfp`, build the §3 index iteratively for the three
+- [x] In a `/tmp` consumer of `packages/xml/xml.mfp`, build the §3 index iteratively for the three
       plan-138-A Phase 1 shapes at 100k nodes; measure build time (3 runs).
-- [ ] Measure materialization candidates (a) and (b) for: one deep node; 1,000 scattered elements;
-      all 50,000 `item` elements.
-- [ ] Record numbers and the chosen candidate in Corrections; replace the UNMEASURED row above. If
+      Measured — but **not iteratively**: an iterative walk cannot be afforded, and two of the three
+      strategies tried are unusable. See Corrections.
+- [x] Measure materialization candidates (a) and (b) for: one deep node; 1,000 scattered elements;
+      all 50,000 `item` elements. Both measured, plus a third candidate (c) the measurements
+      suggested. (a) wins by roughly 30× at 1,000 results.
+- [x] Record numbers and the chosen candidate in Corrections; replace the UNMEASURED row above. If
       none meets "parse + index + materialize one element ≤ 3 s", localize the copying operation with
       `mfb build --debug`'s arena report and fix the compiler defect under its own bug document
-      before Phase 2 (AGENTS.md).
+      before Phase 2 (AGENTS.md). — Not needed: candidate (a) meets the budget with room to spare,
+      and the copying that ruled the others out is already filed as `bug-647`.
 
 Acceptance: a materialization design is chosen with its measured cost recorded.
   Check: the `/tmp` consumer's output for all measured cases, 3 runs each, with the chosen design ≤ 3.00 s
   for parse + index + one-element materialization (est. 5 min).
-Commit: — (plan update only)
+  MET: candidate (a), parse + index + one element — flat **0.53–0.87 s**, deep **0.96–0.97 s**, both
+  inside the 3.00 s budget; and it holds at scale, 0.53–0.55 s for 1,000 results and 0.65–1.66 s for
+  all 49,999 `item` elements. Every number is 3 runs through `/tmp/xpath-spike`.
+Commit: — (plan update only; the spike stays in `/tmp`)
 
 ### Phase 2 — parser
 
-- [ ] `packages/xml/src/xpath_parse.mfb` — tokenizer (XPath 1.0 §3.7 lexical rules, including the
+- [x] `packages/xml/src/xpath_parse.mfb` — tokenizer (XPath 1.0 §3.7 lexical rules, including the
       `*`/`div`/`mod` operator-vs-name disambiguation) and a precedence-climbing parser for §4 →
       AST records.
-- [ ] Tests: `packages/xml/src/test_xpath_parse.mfb` — each §4 row parses to the expected AST; syntax
+- [x] Tests: `packages/xml/src/test_xpath_parse.mfb` — each §4 row parses to the expected AST; syntax
       errors → `ErrInvalidFormat`; `child::a`, `$x`, `id('x')` → `ErrUnsupported`.
+- [x] Added task: the AST type is `PathStep`, not `Step`, and no binding may be called `step` —
+      `STEP` is a reserved word (`FOR … STEP`), rejected as both a type name
+      (`Type declaration name must be an identifier`) and a parameter name.
 
 Acceptance: the grammar and its refusals are pinned.
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 179  Pass: 179  Fail: 0`, exit 0 (21 added
+  here). Each case asserts the AST's SHAPE, not merely that the text parsed: `//a[1]` puts the
+  predicate on the step (`{abs dos:node()/child:a[#1.00]}`) while `(//a)[1]` puts it on the filter
+  (`filter({abs dos:node()/child:a})[#1.00]`), which is the distinction XPath 1.0 answers differently
+  and which Phase 3 must preserve.
 Commit: —
 
 ### Phase 3 — index and evaluator
@@ -212,6 +231,43 @@ Commit: —
   which has no XML meaning. (§5)
 
 ## Corrections
+
+**Phase 1 — §3's "one iterative pass" cannot be used, and the strategy that works is not obvious.**
+An iterative walk has to reach each child with `collections::get` on a `List OF Node`, which returns
+an owned deep copy of that subtree (bug-538, and the copying measured in bug-647) — the same cost
+that killed `dom`'s frame-stack builder in plan-138-A. A recursive walk with `FOR EACH` borrows
+instead, so the question becomes how the entries cross call boundaries. Three ways, measured at
+100,000 nodes:
+
+| strategy | flat | deep | wide |
+|---|---|---|---|
+| threaded accumulator — `walk(node, index) AS List OF IndexedNode` | **>120 s (alarm)** | — | — |
+| subtree return + concat, fixing each parent link with `WITH` | 0.53–0.57 s | **4.58–5.99 s** | 0.38 s |
+| **depth-only walk + bulk append + one linear parent pass (chosen)** | 0.55–0.71 s | **0.96–1.33 s** | 0.37–0.38 s |
+
+The threaded accumulator is quadratic — 2,000 nodes 0.49–0.53 s, 8,000 nodes 8.53–14.07 s — because
+`MUT out = index` copies the whole accumulator on the way into every call. The concat version is
+linear in the list but pays a `WITH` rebuild per entry per level, which the deep shape turns into
+4.6–6.0 s. Recording only DEPTH during the walk, bulk-appending each child's list, and assigning
+parents afterwards in one linear pass removes both costs.
+
+`xpath_index.mfb` also drops the `firstChild`/`nextSibling` links §3 lists. In a depth-first flat
+array they are unnecessary: the children of node `i` are the entries after it at depth `depth(i)+1`,
+up to the first entry at depth `depth(i)` or less. That keeps the build a single pass with nothing
+mutated after the fact — and mutating an earlier entry would mean rebuilding that record anyway.
+
+**Phase 1 — materialization: candidate (a) wins, and the two rejects fail the same way.** §3 asked
+for (a) rebuild-from-index versus (b) walk-down-from-the-root. (b) is dead as predicted: 18.43–22.47 s
+for 1,000 results, because each ordinal step deep-copies the subtree it returns. A third candidate
+(c) — one walk collecting matches — looked promising and measured 14.82–20.55 s for 1,000 results,
+for exactly the reason the threaded index build failed: it threads a `List OF Node` accumulator, so
+every subtree collected so far is copied at every call. Candidate (a) threads nothing: each result is
+rebuilt on its own from flat entries and appended once, in a single frame. 0.53–0.55 s for 1,000
+results, 0.65–1.66 s for all 49,999.
+
+The through-line worth carrying into Phase 3: **never thread a growing collection of a
+cycle-reaching type through a recursion.** It is the same defect three times over — in
+plan-138-A's builder, in this index build, and in this materialization walk.
 
 **Phase 1 — `xml::textOf` was unusable from any consumer, and the spike is what found it.** The
 package exported `textOf(n AS Node) AS String` (plan-138-A §8) while `src/scan.mfb` held a

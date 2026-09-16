@@ -1,0 +1,644 @@
+' ---------------------------------------------------------------------------
+' xml/xpath_parse.mfb — XPath 1.0 expression text to an AST.
+'
+' The supported subset is plan-138-D §4. Two kinds of refusal, and the
+' difference matters to a caller:
+'
+'   ErrInvalidFormat   the text is not XPath at all -- a stray bracket, a
+'                      missing operand, an unterminated literal;
+'   ErrUnsupported     the text IS XPath, but outside this subset -- an
+'                      unabbreviated axis (`child::a`), a variable (`$x`), or a
+'                      function this package does not implement.
+'
+' Telling them apart is the whole point: "I cannot read that" and "I read it and
+' will not do it" send a caller to different fixes.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' ----- tokens -----
+
+PUBLIC LET T_EOF AS Integer = 0
+PUBLIC LET T_NAME AS Integer = 1
+PUBLIC LET T_LITERAL AS Integer = 2
+PUBLIC LET T_NUMBER AS Integer = 3
+PUBLIC LET T_SLASH AS Integer = 4
+PUBLIC LET T_DSLASH AS Integer = 5
+PUBLIC LET T_DOT AS Integer = 6
+PUBLIC LET T_DDOT AS Integer = 7
+PUBLIC LET T_AT AS Integer = 8
+PUBLIC LET T_STAR AS Integer = 9
+PUBLIC LET T_LPAREN AS Integer = 10
+PUBLIC LET T_RPAREN AS Integer = 11
+PUBLIC LET T_LBRACKET AS Integer = 12
+PUBLIC LET T_RBRACKET AS Integer = 13
+PUBLIC LET T_COMMA AS Integer = 14
+PUBLIC LET T_PIPE AS Integer = 15
+PUBLIC LET T_OP AS Integer = 16
+PUBLIC LET T_COLONCOLON AS Integer = 17
+PUBLIC LET T_DOLLAR AS Integer = 18
+
+PUBLIC TYPE Token
+  kind AS Integer
+  text AS String
+  number AS Float
+END TYPE
+
+' ----- the AST -----
+'
+' Operators are integers rather than strings so the evaluator switches on a
+' number; the spelling is kept only for diagnostics.
+
+PUBLIC LET OP_OR AS Integer = 1
+PUBLIC LET OP_AND AS Integer = 2
+PUBLIC LET OP_EQ AS Integer = 3
+PUBLIC LET OP_NE AS Integer = 4
+PUBLIC LET OP_LT AS Integer = 5
+PUBLIC LET OP_LE AS Integer = 6
+PUBLIC LET OP_GT AS Integer = 7
+PUBLIC LET OP_GE AS Integer = 8
+PUBLIC LET OP_ADD AS Integer = 9
+PUBLIC LET OP_SUB AS Integer = 10
+PUBLIC LET OP_MUL AS Integer = 11
+PUBLIC LET OP_DIV AS Integer = 12
+PUBLIC LET OP_MOD AS Integer = 13
+PUBLIC LET OP_UNION AS Integer = 14
+PUBLIC LET OP_NEG AS Integer = 15
+
+' Axes. Only the four the abbreviated syntax can express, plus attribute.
+PUBLIC LET AXIS_CHILD AS Integer = 1
+PUBLIC LET AXIS_DESCENDANT_OR_SELF AS Integer = 2
+PUBLIC LET AXIS_PARENT AS Integer = 3
+PUBLIC LET AXIS_SELF AS Integer = 4
+PUBLIC LET AXIS_ATTRIBUTE AS Integer = 5
+
+' Node tests.
+PUBLIC LET TEST_NAME AS Integer = 1
+PUBLIC LET TEST_STAR AS Integer = 2
+PUBLIC LET TEST_TEXT AS Integer = 3
+PUBLIC LET TEST_NODE AS Integer = 4
+PUBLIC LET TEST_COMMENT AS Integer = 5
+PUBLIC LET TEST_PI AS Integer = 6
+
+PUBLIC TYPE Binary
+  op AS Integer
+  left AS Expr
+  right AS Expr
+END TYPE
+
+PUBLIC TYPE Unary
+  op AS Integer
+  operand AS Expr
+END TYPE
+
+PUBLIC TYPE Literal
+  value AS String
+END TYPE
+
+PUBLIC TYPE Numeric
+  value AS Float
+END TYPE
+
+PUBLIC TYPE Call
+  name AS String
+  args AS List OF Expr
+END TYPE
+
+' One location step: an axis, a node test, and its predicates.
+PUBLIC TYPE PathStep
+  axis AS Integer
+  test AS Integer
+  name AS String
+  predicates AS List OF Expr
+END TYPE
+
+PUBLIC TYPE Path
+  absolute AS Boolean
+  steps AS List OF PathStep
+END TYPE
+
+' A filter expression: `(expr)[1]`, where the predicates apply to the result of
+' an expression rather than to a step.
+PUBLIC TYPE Filter
+  base AS Expr
+  predicates AS List OF Expr
+  steps AS List OF PathStep
+END TYPE
+
+PUBLIC UNION Expr
+  Binary
+  Unary
+  Literal
+  Numeric
+  Call
+  Path
+  Filter
+END UNION
+
+' Every function the subset implements (plan-138-D §4). A name outside this list
+' is recognized as a function call and refused as unsupported, rather than
+' reported as a syntax error.
+PRIVATE FUNC isSupportedFunction(name AS String) AS Boolean
+  IF name = "count" THEN RETURN TRUE
+  IF name = "contains" THEN RETURN TRUE
+  IF name = "starts-with" THEN RETURN TRUE
+  IF name = "string" THEN RETURN TRUE
+  IF name = "normalize-space" THEN RETURN TRUE
+  IF name = "not" THEN RETURN TRUE
+  IF name = "position" THEN RETURN TRUE
+  IF name = "last" THEN RETURN TRUE
+  IF name = "name" THEN RETURN TRUE
+  IF name = "local-name" THEN RETURN TRUE
+  IF name = "concat" THEN RETURN TRUE
+  IF name = "string-length" THEN RETURN TRUE
+  IF name = "number" THEN RETURN TRUE
+  IF name = "sum" THEN RETURN TRUE
+  IF name = "true" THEN RETURN TRUE
+  IF name = "false" THEN RETURN TRUE
+  IF name = "boolean" THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The tokenizer.
+'
+' XPath 1.0 §3.7's disambiguation rule is the subtle part: `*` is a multiply
+' operator, and `and`/`or`/`div`/`mod` are operators, ONLY when a token precedes
+' them and that token is not `@`, `::`, `(`, `[`, `,` or another operator.
+' Otherwise `*` is a name test and those words are element names. Without the
+' rule, `a * b` and `//*` cannot both parse, and neither can an element actually
+' called `div`.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC isOperatorContext(tokens AS List OF Token) AS Boolean
+  IF len(tokens) = 0 THEN RETURN FALSE
+  LET previous AS Token = collections::get(tokens, len(tokens) - 1)
+  IF previous.kind = T_AT THEN RETURN FALSE
+  IF previous.kind = T_COLONCOLON THEN RETURN FALSE
+  IF previous.kind = T_LPAREN THEN RETURN FALSE
+  IF previous.kind = T_LBRACKET THEN RETURN FALSE
+  IF previous.kind = T_COMMA THEN RETURN FALSE
+  IF previous.kind = T_OP THEN RETURN FALSE
+  IF previous.kind = T_SLASH THEN RETURN FALSE
+  IF previous.kind = T_DSLASH THEN RETURN FALSE
+  IF previous.kind = T_PIPE THEN RETURN FALSE
+  RETURN TRUE
+END FUNC
+
+PRIVATE FUNC isNameByte(code AS Integer) AS Boolean
+  IF code >= 97 AND code <= 122 THEN RETURN TRUE
+  IF code >= 65 AND code <= 90 THEN RETURN TRUE
+  IF code >= 48 AND code <= 57 THEN RETURN TRUE
+  IF code = 45 OR code = 46 OR code = 95 OR code = 58 THEN RETURN TRUE
+  RETURN code > 127
+END FUNC
+
+PRIVATE FUNC failFormat(what AS String) AS Nothing
+  FAIL error(ERR_FORMAT, "xml: " & what)
+END FUNC
+
+PRIVATE FUNC failUnsupported(what AS String) AS Nothing
+  FAIL error(ERR_UNSUPPORTED, "xml: " & what)
+END FUNC
+
+PUBLIC FUNC tokenize(expression AS String) AS List OF Token
+  LET bytes AS List OF Byte = strings::toBytes(expression)
+  LET total AS Integer = len(bytes)
+  MUT tokens AS List OF Token = []
+  MUT i AS Integer = 0
+  DO WHILE i < total
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = 32 OR code = 9 OR code = 13 OR code = 10 THEN
+      i = i + 1
+    ELSEIF code = 47 THEN
+      IF byteAt(bytes, i + 1) = 47 THEN
+        tokens = collections::append(tokens, Token[T_DSLASH, "//", 0.0])
+        i = i + 2
+      ELSE
+        tokens = collections::append(tokens, Token[T_SLASH, "/", 0.0])
+        i = i + 1
+      END IF
+    ELSEIF code = 46 THEN
+      IF byteAt(bytes, i + 1) = 46 THEN
+        tokens = collections::append(tokens, Token[T_DDOT, "..", 0.0])
+        i = i + 2
+      ELSEIF byteAt(bytes, i + 1) >= 48 AND byteAt(bytes, i + 1) <= 57 THEN
+        LET start AS Integer = i
+        i = i + 1
+        DO WHILE i < total AND byteAt(bytes, i) >= 48 AND byteAt(bytes, i) <= 57
+          i = i + 1
+        LOOP
+        tokens = collections::append(tokens, Token[T_NUMBER, sliceText(bytes, start, i), toFloat(sliceText(bytes, start, i))])
+      ELSE
+        tokens = collections::append(tokens, Token[T_DOT, ".", 0.0])
+        i = i + 1
+      END IF
+    ELSEIF code >= 48 AND code <= 57 THEN
+      LET start AS Integer = i
+      DO WHILE i < total AND byteAt(bytes, i) >= 48 AND byteAt(bytes, i) <= 57
+        i = i + 1
+      LOOP
+      IF i < total AND byteAt(bytes, i) = 46 THEN
+        i = i + 1
+        DO WHILE i < total AND byteAt(bytes, i) >= 48 AND byteAt(bytes, i) <= 57
+          i = i + 1
+        LOOP
+      END IF
+      tokens = collections::append(tokens, Token[T_NUMBER, sliceText(bytes, start, i), toFloat(sliceText(bytes, start, i))])
+    ELSEIF code = 34 OR code = 39 THEN
+      LET closing AS Integer = findFrom(bytes, sliceText(bytes, i, i + 1), i + 1)
+      IF closing < 0 THEN
+        failFormat("a string literal in the expression is not closed")
+      END IF
+      tokens = collections::append(tokens, Token[T_LITERAL, sliceText(bytes, i + 1, closing), 0.0])
+      i = closing + 1
+    ELSEIF code = 64 THEN
+      tokens = collections::append(tokens, Token[T_AT, "@", 0.0])
+      i = i + 1
+    ELSEIF code = 36 THEN
+      tokens = collections::append(tokens, Token[T_DOLLAR, "$", 0.0])
+      i = i + 1
+    ELSEIF code = 40 THEN
+      tokens = collections::append(tokens, Token[T_LPAREN, "(", 0.0])
+      i = i + 1
+    ELSEIF code = 41 THEN
+      tokens = collections::append(tokens, Token[T_RPAREN, ")", 0.0])
+      i = i + 1
+    ELSEIF code = 91 THEN
+      tokens = collections::append(tokens, Token[T_LBRACKET, "[", 0.0])
+      i = i + 1
+    ELSEIF code = 93 THEN
+      tokens = collections::append(tokens, Token[T_RBRACKET, "]", 0.0])
+      i = i + 1
+    ELSEIF code = 44 THEN
+      tokens = collections::append(tokens, Token[T_COMMA, ",", 0.0])
+      i = i + 1
+    ELSEIF code = 124 THEN
+      tokens = collections::append(tokens, Token[T_PIPE, "|", 0.0])
+      i = i + 1
+    ELSEIF code = 42 THEN
+      ' §3.7: a multiply operator only where an operator may follow.
+      IF isOperatorContext(tokens) THEN
+        tokens = collections::append(tokens, Token[T_OP, "*", 0.0])
+      ELSE
+        tokens = collections::append(tokens, Token[T_STAR, "*", 0.0])
+      END IF
+      i = i + 1
+    ELSEIF code = 61 THEN
+      tokens = collections::append(tokens, Token[T_OP, "=", 0.0])
+      i = i + 1
+    ELSEIF code = 33 THEN
+      IF byteAt(bytes, i + 1) <> 61 THEN
+        failFormat("`!` may only appear as `!=`")
+      END IF
+      tokens = collections::append(tokens, Token[T_OP, "!=", 0.0])
+      i = i + 2
+    ELSEIF code = 60 OR code = 62 THEN
+      IF byteAt(bytes, i + 1) = 61 THEN
+        tokens = collections::append(tokens, Token[T_OP, sliceText(bytes, i, i + 2), 0.0])
+        i = i + 2
+      ELSE
+        tokens = collections::append(tokens, Token[T_OP, sliceText(bytes, i, i + 1), 0.0])
+        i = i + 1
+      END IF
+    ELSEIF code = 43 OR code = 45 THEN
+      tokens = collections::append(tokens, Token[T_OP, sliceText(bytes, i, i + 1), 0.0])
+      i = i + 1
+    ELSEIF code = 58 THEN
+      IF byteAt(bytes, i + 1) = 58 THEN
+        tokens = collections::append(tokens, Token[T_COLONCOLON, "::", 0.0])
+        i = i + 2
+      ELSE
+        failFormat("a bare `:` is not valid here")
+      END IF
+    ELSEIF isNameByte(code) THEN
+      LET start AS Integer = i
+      DO WHILE i < total AND isNameByte(byteAt(bytes, i))
+        ' `::` ends a name; a single `:` inside one is a prefix separator.
+        IF byteAt(bytes, i) = 58 AND byteAt(bytes, i + 1) = 58 THEN EXIT DO
+        i = i + 1
+      LOOP
+      LET word AS String = sliceText(bytes, start, i)
+      IF isOperatorContext(tokens) AND (word = "and" OR word = "or" OR word = "div" OR word = "mod") THEN
+        tokens = collections::append(tokens, Token[T_OP, word, 0.0])
+      ELSE
+        tokens = collections::append(tokens, Token[T_NAME, word, 0.0])
+      END IF
+    ELSE
+      failFormat("`" & sliceText(bytes, i, i + 1) & "` may not appear in an XPath expression")
+    END IF
+  LOOP
+  tokens = collections::append(tokens, Token[T_EOF, "", 0.0])
+  RETURN tokens
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The parser: precedence climbing over the token list.
+'
+' The cursor is an Integer threaded through every function, and each one returns
+' what it parsed together with where it stopped. That keeps the token list
+' itself a borrow rather than something copied at every level.
+' ---------------------------------------------------------------------------
+
+PUBLIC TYPE ParsedExpr
+  expr AS Expr
+  at AS Integer
+END TYPE
+
+PRIVATE TYPE ParsedSteps
+  steps AS List OF PathStep
+  at AS Integer
+END TYPE
+
+PRIVATE TYPE ParsedPredicates
+  predicates AS List OF Expr
+  at AS Integer
+END TYPE
+
+PRIVATE FUNC tokenAt(tokens AS List OF Token, at AS Integer) AS Token
+  IF at >= len(tokens) THEN RETURN Token[T_EOF, "", 0.0]
+  RETURN collections::get(tokens, at)
+END FUNC
+
+' Binding power of an infix operator, or 0 when it is not one.
+PRIVATE FUNC precedenceOf(text AS String) AS Integer
+  IF text = "or" THEN RETURN 1
+  IF text = "and" THEN RETURN 2
+  IF text = "=" OR text = "!=" THEN RETURN 3
+  IF text = "<" OR text = "<=" OR text = ">" OR text = ">=" THEN RETURN 4
+  IF text = "+" OR text = "-" THEN RETURN 5
+  IF text = "*" OR text = "div" OR text = "mod" THEN RETURN 6
+  RETURN 0
+END FUNC
+
+PRIVATE FUNC operatorOf(text AS String) AS Integer
+  IF text = "or" THEN RETURN OP_OR
+  IF text = "and" THEN RETURN OP_AND
+  IF text = "=" THEN RETURN OP_EQ
+  IF text = "!=" THEN RETURN OP_NE
+  IF text = "<" THEN RETURN OP_LT
+  IF text = "<=" THEN RETURN OP_LE
+  IF text = ">" THEN RETURN OP_GT
+  IF text = ">=" THEN RETURN OP_GE
+  IF text = "+" THEN RETURN OP_ADD
+  IF text = "-" THEN RETURN OP_SUB
+  IF text = "*" THEN RETURN OP_MUL
+  IF text = "div" THEN RETURN OP_DIV
+  IF text = "mod" THEN RETURN OP_MOD
+  RETURN 0
+END FUNC
+
+' `[ expr ]` zero or more times.
+PRIVATE FUNC parsePredicates(tokens AS List OF Token, start AS Integer) AS ParsedPredicates
+  MUT predicates AS List OF Expr = []
+  MUT at AS Integer = start
+  DO WHILE tokenAt(tokens, at).kind = T_LBRACKET
+    LET inner AS ParsedExpr = parseExpr(tokens, at + 1, 0)
+    IF tokenAt(tokens, inner.at).kind <> T_RBRACKET THEN
+      failFormat("a predicate is missing its `]`")
+    END IF
+    predicates = collections::append(predicates, inner.expr)
+    at = inner.at + 1
+  LOOP
+  RETURN ParsedPredicates[predicates, at]
+END FUNC
+
+' One location step, after any axis marker has been consumed.
+PRIVATE FUNC parseStep(tokens AS List OF Token, start AS Integer, axis AS Integer) AS ParsedSteps
+  MUT at AS Integer = start
+  LET token AS Token = tokenAt(tokens, at)
+  MUT test AS Integer = TEST_NAME
+  MUT name AS String = ""
+
+  IF token.kind = T_STAR THEN
+    test = TEST_STAR
+    at = at + 1
+  ELSEIF token.kind = T_NAME THEN
+    ' A name followed by `(` is a node-type test, not an element name.
+    IF tokenAt(tokens, at + 1).kind = T_LPAREN THEN
+      IF token.text = "text" THEN
+        test = TEST_TEXT
+      ELSEIF token.text = "node" THEN
+        test = TEST_NODE
+      ELSEIF token.text = "comment" THEN
+        test = TEST_COMMENT
+      ELSEIF token.text = "processing-instruction" THEN
+        test = TEST_PI
+      ELSE
+        failFormat("`" & token.text & "()` is not a node test")
+      END IF
+      IF tokenAt(tokens, at + 2).kind <> T_RPAREN THEN
+        failUnsupported("a node test with arguments is not supported")
+      END IF
+      at = at + 3
+    ELSE
+      IF tokenAt(tokens, at + 1).kind = T_COLONCOLON THEN
+        failUnsupported("the unabbreviated axis `" & token.text & "::` is not supported -- use `/`, `//`, `.`, `..` or `@`")
+      END IF
+      name = token.text
+      at = at + 1
+    END IF
+  ELSE
+    failFormat("expected a name, `*` or a node test in a location step")
+  END IF
+
+  LET predicates AS ParsedPredicates = parsePredicates(tokens, at)
+  MUT steps AS List OF PathStep = []
+  steps = collections::append(steps, PathStep[axis, test, name, predicates.predicates])
+  RETURN ParsedSteps[steps, predicates.at]
+END FUNC
+
+' A whole location path's steps, after any leading `/` or `//`.
+PRIVATE FUNC parseSteps(tokens AS List OF Token, start AS Integer) AS ParsedSteps
+  MUT steps AS List OF PathStep = []
+  MUT at AS Integer = start
+  MUT expectSeparator AS Boolean = FALSE
+  DO WHILE TRUE
+    IF expectSeparator THEN
+      LET separator AS Token = tokenAt(tokens, at)
+      IF separator.kind = T_SLASH THEN
+        at = at + 1
+      ELSEIF separator.kind = T_DSLASH THEN
+        steps = collections::append(steps, PathStep[AXIS_DESCENDANT_OR_SELF, TEST_NODE, "", []])
+        at = at + 1
+      ELSE
+        EXIT DO
+      END IF
+    END IF
+
+    LET token AS Token = tokenAt(tokens, at)
+    IF token.kind = T_DOT THEN
+      LET predicates AS ParsedPredicates = parsePredicates(tokens, at + 1)
+      steps = collections::append(steps, PathStep[AXIS_SELF, TEST_NODE, "", predicates.predicates])
+      at = predicates.at
+    ELSEIF token.kind = T_DDOT THEN
+      LET predicates AS ParsedPredicates = parsePredicates(tokens, at + 1)
+      steps = collections::append(steps, PathStep[AXIS_PARENT, TEST_NODE, "", predicates.predicates])
+      at = predicates.at
+    ELSEIF token.kind = T_AT THEN
+      LET parsed AS ParsedSteps = parseStep(tokens, at + 1, AXIS_ATTRIBUTE)
+      FOR EACH one IN parsed.steps
+        steps = collections::append(steps, one)
+      NEXT
+      at = parsed.at
+    ELSE
+      LET parsed AS ParsedSteps = parseStep(tokens, at, AXIS_CHILD)
+      FOR EACH one IN parsed.steps
+        steps = collections::append(steps, one)
+      NEXT
+      at = parsed.at
+    END IF
+    expectSeparator = TRUE
+  LOOP
+  RETURN ParsedSteps[steps, at]
+END FUNC
+
+' A primary expression: a literal, a number, `(expr)`, a function call, or a
+' location path.
+PRIVATE FUNC parsePrimary(tokens AS List OF Token, start AS Integer) AS ParsedExpr
+  LET token AS Token = tokenAt(tokens, start)
+
+  IF token.kind = T_DOLLAR THEN
+    failUnsupported("a variable reference (`$" & tokenAt(tokens, start + 1).text & "`) is not supported")
+  END IF
+
+  IF token.kind = T_LITERAL THEN
+    LET value AS Expr = Literal[token.text]
+    RETURN ParsedExpr[value, start + 1]
+  END IF
+
+  IF token.kind = T_NUMBER THEN
+    LET value AS Expr = Numeric[token.number]
+    RETURN ParsedExpr[value, start + 1]
+  END IF
+
+  ' A parenthesised expression may carry predicates and further steps:
+  ' `(//a)[1]`, `(//a)[1]/b`.
+  IF token.kind = T_LPAREN THEN
+    LET inner AS ParsedExpr = parseExpr(tokens, start + 1, 0)
+    IF tokenAt(tokens, inner.at).kind <> T_RPAREN THEN
+      failFormat("a parenthesised expression is missing its `)`")
+    END IF
+    LET predicates AS ParsedPredicates = parsePredicates(tokens, inner.at + 1)
+    MUT following AS List OF PathStep = []
+    MUT at AS Integer = predicates.at
+    IF tokenAt(tokens, at).kind = T_SLASH OR tokenAt(tokens, at).kind = T_DSLASH THEN
+      IF tokenAt(tokens, at).kind = T_DSLASH THEN
+        following = collections::append(following, PathStep[AXIS_DESCENDANT_OR_SELF, TEST_NODE, "", []])
+      END IF
+      LET rest AS ParsedSteps = parseSteps(tokens, at + 1)
+      FOR EACH one IN rest.steps
+        following = collections::append(following, one)
+      NEXT
+      at = rest.at
+    END IF
+    LET value AS Expr = Filter[inner.expr, predicates.predicates, following]
+    RETURN ParsedExpr[value, at]
+  END IF
+
+  ' A function call: a name immediately followed by `(`, where the name is not a
+  ' node test.
+  IF token.kind = T_NAME AND tokenAt(tokens, start + 1).kind = T_LPAREN THEN
+    IF token.text <> "text" AND token.text <> "node" AND token.text <> "comment" AND token.text <> "processing-instruction" THEN
+      IF NOT isSupportedFunction(token.text) THEN
+        failUnsupported("the function `" & token.text & "()` is not part of this package's XPath subset")
+      END IF
+      MUT args AS List OF Expr = []
+      MUT at AS Integer = start + 2
+      IF tokenAt(tokens, at).kind <> T_RPAREN THEN
+        DO WHILE TRUE
+          LET argument AS ParsedExpr = parseExpr(tokens, at, 0)
+          args = collections::append(args, argument.expr)
+          at = argument.at
+          IF tokenAt(tokens, at).kind = T_COMMA THEN
+            at = at + 1
+          ELSE
+            EXIT DO
+          END IF
+        LOOP
+      END IF
+      IF tokenAt(tokens, at).kind <> T_RPAREN THEN
+        failFormat("the call to `" & token.text & "()` is missing its `)`")
+      END IF
+      LET value AS Expr = Call[token.text, args]
+      RETURN ParsedExpr[value, at + 1]
+    END IF
+  END IF
+
+  ' Otherwise it is a location path.
+  IF token.kind = T_SLASH OR token.kind = T_DSLASH THEN
+    MUT steps AS List OF PathStep = []
+    MUT at AS Integer = start + 1
+    IF token.kind = T_DSLASH THEN
+      steps = collections::append(steps, PathStep[AXIS_DESCENDANT_OR_SELF, TEST_NODE, "", []])
+    END IF
+    ' `/` alone selects the document node.
+    LET following AS Token = tokenAt(tokens, at)
+    IF token.kind = T_SLASH AND (following.kind = T_EOF OR following.kind = T_RPAREN OR following.kind = T_RBRACKET OR following.kind = T_OP) THEN
+      LET value AS Expr = Path[TRUE, steps]
+      RETURN ParsedExpr[value, at]
+    END IF
+    LET parsed AS ParsedSteps = parseSteps(tokens, at)
+    FOR EACH one IN parsed.steps
+      steps = collections::append(steps, one)
+    NEXT
+    LET value AS Expr = Path[TRUE, steps]
+    RETURN ParsedExpr[value, parsed.at]
+  END IF
+
+  LET parsed AS ParsedSteps = parseSteps(tokens, start)
+  IF len(parsed.steps) = 0 THEN
+    failFormat("expected an expression")
+  END IF
+  LET value AS Expr = Path[FALSE, parsed.steps]
+  RETURN ParsedExpr[value, parsed.at]
+END FUNC
+
+PRIVATE FUNC parseUnary(tokens AS List OF Token, start AS Integer) AS ParsedExpr
+  LET token AS Token = tokenAt(tokens, start)
+  IF token.kind = T_OP AND token.text = "-" THEN
+    LET operand AS ParsedExpr = parseUnary(tokens, start + 1)
+    LET value AS Expr = Unary[OP_NEG, operand.expr]
+    RETURN ParsedExpr[value, operand.at]
+  END IF
+  RETURN parsePrimary(tokens, start)
+END FUNC
+
+' `a | b`, which binds tighter than every comparison but looser than a step.
+PRIVATE FUNC parseUnion(tokens AS List OF Token, start AS Integer) AS ParsedExpr
+  MUT left AS ParsedExpr = parseUnary(tokens, start)
+  DO WHILE tokenAt(tokens, left.at).kind = T_PIPE
+    LET right AS ParsedExpr = parseUnary(tokens, left.at + 1)
+    LET combined AS Expr = Binary[OP_UNION, left.expr, right.expr]
+    left = ParsedExpr[combined, right.at]
+  LOOP
+  RETURN left
+END FUNC
+
+PUBLIC FUNC parseExpr(tokens AS List OF Token, start AS Integer, minimum AS Integer) AS ParsedExpr
+  MUT left AS ParsedExpr = parseUnion(tokens, start)
+  DO WHILE TRUE
+    LET token AS Token = tokenAt(tokens, left.at)
+    IF token.kind <> T_OP THEN EXIT DO
+    LET precedence AS Integer = precedenceOf(token.text)
+    IF precedence = 0 OR precedence < minimum THEN EXIT DO
+    LET right AS ParsedExpr = parseExpr(tokens, left.at + 1, precedence + 1)
+    LET combined AS Expr = Binary[operatorOf(token.text), left.expr, right.expr]
+    left = ParsedExpr[combined, right.at]
+  LOOP
+  RETURN left
+END FUNC
+
+' Parse a whole expression, and refuse anything left over.
+PUBLIC FUNC parseXPath(expression AS String) AS Expr
+  LET tokens AS List OF Token = tokenize(expression)
+  IF len(tokens) = 1 THEN
+    failFormat("the XPath expression is empty")
+  END IF
+  LET parsed AS ParsedExpr = parseExpr(tokens, 0, 0)
+  IF tokenAt(tokens, parsed.at).kind <> T_EOF THEN
+    failFormat("unexpected `" & tokenAt(tokens, parsed.at).text & "` after the expression")
+  END IF
+  RETURN parsed.expr
+END FUNC
