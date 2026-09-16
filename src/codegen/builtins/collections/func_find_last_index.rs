@@ -205,7 +205,7 @@ impl CodeBuilder<'_> {
 // --- source-generic descriptor + body ---
 
 const INTRO: &str =
-    r#"Index of the last element at or before an end position that satisfies a predicate"#;
+    r#"Index of the last element at or before a start position that satisfies a predicate"#;
 
 const DESC: &str = r#"`collections::findLastIndex` scans `value` **backward**, beginning at the
 element selected by `start` and decreasing by one down to index `0`, calling
@@ -239,9 +239,8 @@ begin at. `findLastIndex` on an empty list therefore raises
 `predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
 `FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
 inside `predicate` propagates out of the `collections::findLastIndex` call to
-the caller rather than being reported as a non-match. Note that a lambda passed
-here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findLastIndex`.It does not mutate `value`.
+the caller rather than being reported as a non-match. A lambda passed here cannot use a `MUT` binding from the surrounding function;
+see `mfb man lambda`.
 
 `T` is inferred from the element type of `value` and may be any type;
 `findLastIndex` imposes no comparability or orderability constraint on `T`,

@@ -678,9 +678,38 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 ### Phase 4 — collections (50 units)
 
 - [ ] 49 function pages + overview.
-      **Progress (2026-09-15):** 4 of 50 reviewed and applied (overview, `add`,
-      `all`, `any`). The Codex usage limit stopped the batch; the other 46 are in
+      **Progress (2026-09-15):** 27 of 50 reviewed and applied. Round 1 (4):
+      overview, `add`, `all`, `any`. Round 2 (23): `append`, `chunks`, `contains`,
+      `difference`, `distinct`, `drop`, `filter`, `find`, `findIndex`,
+      `findLastIndex`, `flatten`, `forEach`, `get`, `getOr`, `groupBy`, `hasKey`,
+      `insert`, `intersection`, `isDisjoint`, `isSubset`, `isSuperset`, `keys`,
+      `mapValues` (no findings). The Codex usage limit stopped both batches
+      (second reset 9:47 PM); the remaining 23 are in
       `planning/plan-125-units/C-phase4-retry.txt`.
+      Round-2 probes, each finding verified before it was applied:
+      `/tmp/p125-ex/colmix`, `colmix2`, `colmix3`, `colmix4`, `colfli`,
+      `colfli_lambda`, `colapp`, `colapplet`, `coldrop`, `colfind`, `coldist`,
+      `colcmp`, `colnest`, `colres`, `colget`, `colgetor`, `colhas`, `colinter`,
+      `colsub`, `colkeys`, `colfe`, `colreduce`, `coltrans`, `coladd`.
+      Rejected in round 2: `add` #1 and `insert` #3/#4 — the `Float` error is
+      raised by the argument's own arithmetic before the call (`coladd`:
+      `LET inf AS Float = big * big` alone raises `77050015`); `add` #2, because
+      plan-108-D kept "the cheap shape" deliberately
+      (`planning/completed/plan-108-D-verify-filled-batch-1.md:160`); and
+      `groupBy` #1's claim that `ErrOutOfMemory` cannot be caught, since
+      `src/docs/spec/memory/04_arenas.md:213` says it surfaces as an ordinary
+      language-level error.
+      Applied beyond the findings, on reviewed pages only, each class already
+      fixed on a sibling page: "dead handler" (`add`, `hasKey`, `keys`),
+      "neither copied nor mutated" (`contains`, `get`, `getOr`), "does not
+      resolve" (`difference`, `intersection`, `isSuperset`), and the two pages
+      that claimed running out of memory cannot be trapped (`add`, `keys`).
+      **bug-641** filed: `collections` helpers raise `ErrOutOfMemory` while their
+      descriptors declare no errors (the `collections` instance of bug-606's class).
+      Process note: one edit used an open-ended regex and swallowed a `DESC`
+      terminator in `func_group_by.rs`; the release build caught it
+      (`E0425: cannot find value EX`) and it was repaired before any check ran.
+      Doc edits now use literal anchors with an exact-count assert.
       Contract probes, run before any review landed, all matching the pages:
       - `/tmp/p125-ex/colcontract`: copying keeps bindings apart (`xs` 3, `ys` 4);
         `FOR EACH` walks the list as of loop start (3 iterations, final length 6);

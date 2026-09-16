@@ -17,28 +17,19 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
-const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
-is neither copied nor mutated: the call reads it and returns just the selected
-item or value.
+const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection is not modified: the call
+returns just the selected item or value.
 
-The value returned is yours to keep and independent of the collection — you get
-a copy, so nothing you do with it afterwards can disturb the collection it came
+The value returned is a copy: changing it does not change the collection it came
 from. See `mfb man variable` for what a copy means in MFBASIC.
 
 `get` is the only fallible member of this group. It reports a missing element as
-a trappable domain error rather than substituting anything, and it is
-raw-supported, so an inline `TRAP` on a `collections::get` call catches the real
-runtime error. When a fallback value is more convenient than an error, use
+a trappable error rather than substituting a value, so an inline `TRAP` on a
+`collections::get` call handles it. When a fallback value is more convenient than an error, use
 `collections::getOr`; when only presence matters, use `collections::hasKey`.
 
 For the map overload, keys compare exactly: a `String` key byte for byte, and a
-`Float` key by bit pattern, so `-0.0` does not find a key stored as `0.0`.
-
-Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` is a direct lookup; other key types are found by scanning
-the map. This is a performance difference
-only — both paths select the same entry and raise the same error when the key is
-absent."#;
+`Float` key by bit pattern, so `-0.0` does not find a key stored as `0.0`."#;
 
 /// The descriptor entry for `collections::get`, wired to `lower_get`.
 const EX: &str = r#"Read a list item by index:
@@ -102,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "index",
-                        desc: "The list index, zero-based. Out of range raises — use `collections::getOr` to supply a fallback instead.",
+                        desc: "The zero-based list index. It must be at least 0 and less than `len(value)`; a negative index, an index equal to `len(value)`, or any index into an empty list raises `ErrIndexOutOfRange`. Use `collections::getOr` to supply a fallback instead.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,

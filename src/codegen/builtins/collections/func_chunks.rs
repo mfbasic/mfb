@@ -354,9 +354,10 @@ block holding the whole list.
 with `ErrInvalidArgument`; there is no clamping and no default, so the argument
 is always required.
 
-Each block is a new list holding its own copy of the corresponding elements, and
-bulk copy, so the elements are copied into new lists and
-nothing you do with a block affects `value`. `value` is not modified.
+Each block is a new list. For ordinary values it holds copies of the
+corresponding elements, so nothing you do with a block affects `value`, and
+`value` is not modified. If `T` is a `RES` handle, a block holds an alias of the
+same open resource: closing it through either list closes it for both.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `chunks` copies contiguous ranges and never inspects an element, so

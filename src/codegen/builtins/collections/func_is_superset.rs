@@ -17,10 +17,11 @@ one that is absent from `a`, returning `TRUE` if the walk finds no such element.
 set is a superset of the empty set, so `isSuperset(a, Set OF T { })` is always
 `TRUE`. A set is a superset of itself, and equal sets are supersets of each other.
 
-`isSuperset` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isSuperset` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"A larger set containing a smaller one:
 

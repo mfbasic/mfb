@@ -80,7 +80,19 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 44 | `encoding::utf8Decode` | `The overload is settled once the argument type is known, so the selection is a compile-time decision, not a runtime dispatch.` | `internals` | language | OPEN | — |
 | 45 | `encoding::punycodeEncode` | `The input `String` is decoded to Unicode scalar values through the package's UTF-8 decoder before encoding.` | `internals` | stdlib | OPEN | — |
 | 46 | `collections (overview)` | `and access reads without copying the collection.` | `internals` | memory | OPEN | — |
-| 47 | `collections::any`, `all` | `the callback position proven non-escaping is `collections::forEach`, not `any`.` (same sentence on `all`) | `internals` | language | OPEN | — |
+| 47 | `collections::any`, `all`, `findIndex`, `findLastIndex` | `the callback position proven non-escaping is `collections::forEach`, not `any`.` (same sentence on each of the four pages) | `internals` | language | OPEN | — |
+| 48 | `collections::contains` | `the compiler picks the overload from the static type of the first argument` | `internals` | language | OPEN | — |
+| 49 | `collections::append` | `The compiler picks the overload from the static type of that argument: an argument whose type is exactly the element type appends one element, and an argument whose type is exactly the same list type concatenates.` | `internals` | language | OPEN | — |
+| 50 | `collections::drop` | `The remaining elements are copied as a bulk range copy, and that is what defines the boundary behavior: the range start is clamped into `[0, len]` and the range stop into `[start, len]`.` | `internals` | memory | OPEN | — |
+| 51 | `collections::difference` | `Running out of memory is not a trappable domain error, and the `add` it is built on is classified infallible.` | `internals` | stdlib | OPEN | — |
+| 52 | `collections::forEach` | ``action` is invoked through the shared direct-callable path, which restores a closure's captured environment around each call, so a callable value that carries an environment works as well as a plain named reference.` | `internals` | language | OPEN | — |
+| 53 | `collections::forEach` | `Because `forEach` holds no accumulator, no cleanup runs on that path.` | `internals` | memory | OPEN | — |
+| 54 | `collections::get` | `it is raw-supported, so an inline `TRAP` on a `collections::get` call catches the real runtime error.` | `internals` | language | OPEN | — |
+| 55 | `collections::get`, `getOr` | `Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean` is a direct lookup; other key types are found by scanning the map.` | `internals` | memory | OPEN | — |
+| 56 | `collections::hasKey`, `contains`, `get`, `getOr` | `The map is neither copied nor mutated, and the matching value is never copied out — only the key is compared.` (the same copy-detail claim on all four) | `internals` | memory | OPEN | — |
+| 57 | `collections::groupBy` | ``groupBy` is generic over three template parameters: `T`, the element type of `value`; `K`, the key type returned by `keyFn`; and `V`, the value type returned by `valFn`. All three are inferred from the argument types ... `V` cannot be supplied from the annotation on the binding that receives the result.` | `internals` | language | OPEN | — |
+| 58 | `collections::difference`, `intersection`, `isDisjoint`, `isSubset`, `isSuperset` | `A call whose arguments are not both sets of the same element type does not resolve and is rejected at compile time.` | `internals` | language | OPEN | — |
+| 59 | `collections::add`, `contains`, `hasKey`, `keys` | `an inline `TRAP` written on an `add` call has a dead handler.` | `internals` | diagnostics | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -110,7 +122,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 | Letter | Rows appended | Running total |
 |---|---|---|
 | B | — | — |
-| C | 20 | 47 |
+| C | 32 | 59 |
 | D | — | — |
 | E | — | — |
 | F | — | — |

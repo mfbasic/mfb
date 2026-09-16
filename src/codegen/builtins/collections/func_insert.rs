@@ -21,22 +21,17 @@ position and is accepted, producing the same result as
 `collections::append(value, item)`. A negative `index`, or an `index` strictly
 greater than the length, raises `ErrIndexOutOfRange`.
 
-Only the single-element form exists. `item` must have exactly the element type
-`T`; passing another `List OF T` resolves no overload, and the call rejects a
-list-typed item explicitly with "insert expects a single item, not a list".
+Only the single-element form exists. `item` must have the list's element type
+`T`; passing another `List OF T` is a type mismatch.
 `insert` at `index = len(value)` is `append`, and at `index = 0` is `prepend`;
 use those names when that is what you mean.
 
 `insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. Unlike `append`, `prepend`, and `set`, there is
-no cheap in-place shape for `insert` at an arbitrary index: every call copies
-the list.
+it does with that return value. 
 
-`insert` is **fallible**: the range check is a real trappable domain error, so an
-inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
-rather than being reported as a dead handler. The bounds test runs before any
-anything for the result, so a rejected index builds nothing."#;
+An index outside `0 .. len(value)` raises `ErrIndexOutOfRange`, which an inline
+`TRAP` on the call can catch."#;
 
 const EX: &str = r#"Insert in the middle:
 

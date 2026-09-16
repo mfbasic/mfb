@@ -13,26 +13,26 @@ followed by the appended content. It takes exactly two arguments; neither is
 optional and neither is variadic.
 
 The second argument may be either a single element of the list's element type
-`T`, or another `List OF T`. The compiler picks the overload from the static type
-of that argument: an argument whose type is exactly the element type appends one
-element, and an argument whose type is exactly the same list type concatenates.
-Any other type is a compile-time error, because no other combination resolves.
+`T`, or another `List OF T`. Pass an element to add one element, or
+another `List OF T` to add that list's elements. Any other type is a compile-time
+error.
 
 Both forms behave the same way: existing elements keep their relative order, and
 the appended content is placed after all of them, in its own order.
 
 `append` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. Assigning straight back to the same local
-variable — `list = collections::append(list, x)` — is the cheap shape: it grows
-the list instead of copying it, so appending in a loop costs about the same per
-element however long the list gets. Appending to something reached another way
+it does with that return value. Assigning straight back to the same `MUT`
+local variable — `list = collections::append(list, x)` — is the cheap shape: it
+grows the list instead of copying it, so appending in a loop costs about the same
+per element however long the list gets. (A `LET` binding cannot be assigned to at
+all: that is `TYPE_ASSIGN_REQUIRES_MUT`.) Appending to something reached another way
 (a parameter, a module-level `MUT`, or the list a `FOR EACH` is walking) copies
 the whole list on every call. The result is the same either way.
 
-`append` is **infallible**: nothing it does raises a trappable error. It has no
-index to range-check and no lookup to miss, so an inline `TRAP` written on an
-`append` call has a handler that can never run, and the compiler reports it.
+`append` has no index to range-check and no lookup to miss, so it raises no
+error of its own. Building the result needs memory, so it can raise
+`ErrOutOfMemory`.
 
 Appending an empty list returns a copy of `value` with the same elements in the
 same order."#;
@@ -97,7 +97,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to add at the end. Appending a list appends every one of its elements, not the list itself.",
+                        desc: "The single element to add at the end. If the element type is itself a list, that list is added as one element.",
                         aliases: &["items"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -118,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to add at the end. Appending a list appends every one of its elements, not the list itself.",
+                        desc: "The single element to add at the end. If the element type is itself a list, that list is added as one element.",
                         aliases: &["items"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,

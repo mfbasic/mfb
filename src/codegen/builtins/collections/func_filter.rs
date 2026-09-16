@@ -21,10 +21,10 @@ order they had in `value`. The result has the same type as `value`, so filtering
 a `List OF String` yields a `List OF String`, and its length is between zero and
 the length of `value`.
 
-`value` is neither modified nor closed; the result is a new list.
+`value` is not modified; the result is a new list.
 
 `predicate` must accept exactly one argument of the element type `T` and return
-`Boolean`. This is enforced both when the call is resolved and again in the.
+`Boolean`. A callable of any other shape is rejected at compile time.
 
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
@@ -33,8 +33,8 @@ argument type matches the element type.
 
 An empty `value` calls `predicate` zero times and yields an empty list.
 
-`filter` raises no domain error of its own. It can fail only
-because a failing `predicate` propagates: when the callback fails, the loop stops immediately at that element, later elements are never
+`filter` raises no domain error of its own. It fails when a failing `predicate`
+propagates: when the callback fails, the loop stops immediately at that element, later elements are never
 visited, no result list is produced, and the callback's own error is passed
 through unchanged. The partially built output is discarded on that path before the
 error leaves.

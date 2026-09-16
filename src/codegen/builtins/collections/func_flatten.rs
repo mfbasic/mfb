@@ -119,12 +119,8 @@ impl CodeBuilder<'_> {
 const INTRO: &str = r#"Concatenate a list of lists into a single list, one level deep"#;
 
 const DESC: &str = r#"`collections::flatten` walks `value` from index 0 upward and concatenates each
-inner list onto an accumulating result. It does this by calling
-`collections::append(result, inner)` where `inner` is itself a `List OF T` — that
-is the list-concatenation overload of `append`, which accepts a second argument
-that is either the element type or the same list type as the first argument.
-Each inner list is therefore spliced in whole rather than nested as a single
-element.
+inner list onto an accumulating result. Each inner list contributes all of its
+elements to the result rather than becoming a single nested element.
 
 `flatten` removes exactly **one** level of nesting. Its parameter type is
 `List OF List OF T`, so applying it to a `List OF List OF List OF Integer`
