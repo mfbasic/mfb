@@ -5,8 +5,24 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/runtime/rt_debug_soak.rs` —
+`a_thread_resource_transfer_loop_keeps_live_bytes_constant`,
+`a_thread_string_send_loop_keeps_live_bytes_constant`
+
+> **STATUS: FIXED (e124b7eee)** — the queued copy is now parked on the queue's pending-free
+> list and reclaimed by the SENDER, which is the only thread whose bins the memory can return
+> to. A ring entry grew from a bare value to a `{value, size}` pair so a type-agnostic reader
+> can hand the block back; each read parks the PREVIOUS read's block, which is the earliest
+> safe point (the call-site copy of the current one has not run yet). Both shapes report
+> `free_calls == alloc_calls`, `live_bytes 0`, `double_free_skips 0`. **Deviation:** the
+> release-time drain is restricted to the two INBOUND queues — an intermediate version with
+> the parent draining outbound queues was measured to double-free (`free_calls 884 >
+> alloc_calls 725` on a worker→parent send loop; restricting it restored 725/725). bug-498's
+> rule holds: no thread allocates in another's arena, and none frees into one. Stability: 3
+> programs × 20 runs = 60/60 clean, no crash report. **Residuals filed separately:** bug-649
+> (the caller's computed argument temp) and bug-650 (undelivered messages, a stateful
+> resource's STATE block, and messages whose copy size is not computable).
 
 Every `thread::transfer` of a resource leaves one 96 B block live in the SENDER's arena. A
 server that hands each accepted connection to a worker grows without bound. A data message
@@ -107,18 +123,36 @@ thread frees it at `thread.drop`, or the receiver must stop making a second copy
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak tests for a resource transfer and a String send; confirm RED.
-- [ ] Localize each block (queued copy, receiver copy) and audit every queue hand-over.
+- [x] Soak tests for a resource transfer and a String send; confirm RED. (Measurements above;
+      the send figure is 32 B, not the estimated 64 B.)
+- [x] Localize each block and audit every queue hand-over. Confirmed: the send deep-copies
+      into the SENDER's arena (bug-498), the reader copies again at the call site
+      (`runtime_call_result_is_copied_at_call_site`), and the queued block then has no owner.
 
-Commit: —
+Commit: `60aac1623` (tests), `e124b7eee` (audit)
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] Pending-free list drained by the sender, not the receiver. Receiver-adopts and
+      receiver-frees were both rejected on the same ground: `arena_free` pushes onto the
+      FREEING thread's bins and a worker's bins die with the worker, so either merely moves
+      the leak instead of returning the sender's memory.
+
+Commit: `e124b7eee`
 
 ### Phase 3 — full validation
 
-Commit: —
+- [x] 88 `test-accept.sh` thread fixtures; `rt_thread_accept_res_drop_closes`,
+      `rt_recursive_thread_transfer`, `rt_thread_send_cross_arena`,
+      `rt_native_size_arith_overflow` — 8 passed, including both cross-arena race tests and
+      both queue-limit boundary tests.
+- [x] 20× stability loop over three programs (resource transfer, string send, and an 8-deep
+      bidirectional ping-pong): 60/60 clean, `live_bytes 0` and `double_free_skips 0` every
+      run, and no new macOS crash report.
+- [x] Spec synced (`threading/07_control-block.md`: the queue record was already documented
+      stale at 240 B with a `capacity * 8` array); full suite — see the integration commit.
+
+Commit: `e124b7eee`
 
 ## Summary
 

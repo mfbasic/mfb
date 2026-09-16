@@ -11,10 +11,14 @@
 //!
 //! The thread-queue case IS reachable with a realistic (user-supplied) limit:
 //! `thread::start` accepts an `inLimit`/`outLimit` and previously only checked
-//! `>= 1`. A limit past `u64::MAX / 8` would wrap the `capacity * 8` value-array
-//! size to a tiny block while the huge capacity is stored, so a later enqueue
-//! would index out of the allocation. It is now rejected as an invalid argument,
-//! which the runtime tests below execute and observe.
+//! `>= 1`. A limit past `u64::MAX / THREAD_QUEUE_ENTRY_SIZE` would wrap the
+//! `capacity * THREAD_QUEUE_ENTRY_SIZE` entry-array size to a tiny block while
+//! the huge capacity is stored, so a later enqueue would index out of the
+//! allocation. It is now rejected as an invalid argument, which the runtime tests
+//! below execute and observe. (bug-646 grew a ring entry from a bare 8-byte value
+//! to a 16-byte `{value, size}` pair so the sender can reclaim the queued block,
+//! so the cap is now `u64::MAX / 16`; the bound is written against the constant
+//! rather than a literal `8` because it moves with the entry layout.)
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -214,12 +218,14 @@ fn thread_project(name: &str, in_limit: &str, out_limit: &str) -> PathBuf {
     root
 }
 
-/// A queue limit past `u64::MAX / 8` (the largest whose `* 8` byte size still
-/// fits in 64 bits) is rejected as an invalid argument instead of wrapping the
-/// value-array size and under-allocating.
+/// A queue limit past `u64::MAX / THREAD_QUEUE_ENTRY_SIZE` (the largest whose
+/// byte size still fits in 64 bits) is rejected as an invalid argument instead of
+/// wrapping the entry-array size and under-allocating.
 #[test]
 fn thread_queue_limit_out_of_range_rejected() {
-    // u64::MAX / 8 + 1.
+    // 2^61 — `u64::MAX / 8 + 1`, and still comfortably past the current
+    // `u64::MAX / 16` cap, so this value keeps exercising the rejection across
+    // bug-646's entry-size change.
     let root = thread_project("bug60_thread_reject", "2305843009213693952", "3");
     let exe = build_executable(&root).expect("build executable");
     let result = run_allow_failure(&exe);
