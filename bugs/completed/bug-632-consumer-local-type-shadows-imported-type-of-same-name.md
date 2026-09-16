@@ -5,8 +5,41 @@ Effort: x-large (1d–3d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Regression Test: tests/runtime/rt_imported_type_name_collision.rs
+
+## STATUS: FIXED (bf630e0ae, d7c2f6b46, c39c686e1, 78b168870, 7f87bcad2, f9d7a401e, 8f53fdec1, aabf5be61)
+
+An imported user-package type now carries a package-qualified identity (`ov.A`) from the parser to
+codegen, which is what spec §13 has required of every imported name since bug-480 and what bug-480
+Phase 4b implemented for built-in packages only. A bare imported type is refused. Goldens:
+`a965e79b1`, `e94584be6`, `2fe2190ec`; formatting `788a29cca`; `main` merged at `6f1d4e19f`.
+
+What shipped, beyond the Fix Design:
+
+- **Ownership is a name → DECLARING package map**, not a flat set, because a `.mfp` records a
+  re-exported FOREIGN type bare plus its owner (bug-390) and a built-in type it merely references
+  by that built-in's own qualified name. Three over-qualifications came out of this, each found by
+  a test rather than by reading: `signer.crypto.Certificate` (a built-in the package references),
+  `worker391.Node` (a foreign re-export), and `regex.regex.Group` (an already-qualified export).
+- **The merge reads that map off the `.mfp`, not the decoded IR**, because a decoded package
+  carries no `native_resources` — without it `sqlite3.Db` stayed bare in the package while every
+  consumer-side table qualified it.
+- **Two compatibility checks stopped equating a qualified nominal with a bare leaf** unless the
+  qualifier is a built-in (`codegen::builtins::builtin_qualified_bare_leaf`). Until this,
+  `LET mine AS A = ov::make()` type-checked against a local `A` of a different shape.
+- **`MATCH`/comparability diagnostics spell types as source writes them** (`shapes::Item`), per
+  bug-605's `display()` rule.
+- **Corpus migration** across `tests/` and `examples/` — the full list is in Phase 4.
+
+Two fixtures were relying on holes this closes, and both are now correct rather than migrated:
+`byte-identity/tls` bound `List OF net.Address` into a single `net::Address` slot (the old check
+compared the last `.` segment of the rendered spellings), and `p121d-state-reach-rt` declared a twin
+`Accum` that matched the worker package's by name across the boundary.
+
+**This is a breaking language change.** Source that names an imported type without its prefix no
+longer compiles — which is what spec §13 already specified, and what `SYMBOL_UNKNOWN_TYPE` now says
+at the site.
 
 A program fails to build when two of its types share a bare name. There are three ways to hit it:
 
@@ -371,10 +404,20 @@ interaction, in the one function both touched:
       `byte-identity/tls`.
       Checked and NOT migrated: `thread-transfer-union-state-rt` and
       `thread-transfer-union-stateless-rt` declare their own `Stream`/`Cursor` and still build.
-- [ ] Artifact gate: inspect every golden diff fixture by fixture.
-- [ ] `cargo test --no-fail-fast`; `scripts/man-examples-gate.sh target/release/mfb`.
-- [ ] Spec §13 and `resolver::packages` comments stop describing bare imported types as a
-      convention.
+- [x] Artifact gate: every golden diff inspected fixture by fixture before regenerating. 3412
+      goldens synced across 1460 tests, 19 changed, and the delta is only the qualified spelling,
+      the two `display()` diagnostics, and line renumbering in the migrated fixtures. The five
+      `tls` `.ncodesum` hashes are not refreshed by `sync-goldens.sh` and were rebuilt by hand
+      (twice: once on this branch, once on the merged tree).
+- [x] `cargo test --no-fail-fast`: **191 binaries ok, 0 failures**, `artifact_gate_all` included.
+- [x] `scripts/man-examples-gate.sh target/release/mfb`: 1078 examples checked, 1 failed —
+      `http::server#2(run)`, which is ENVIRONMENTAL on this machine and not this fix: port 8080 is
+      held by an unrelated long-running process (`lsof -nP -i :8080` → `learn-ser`, pid 15378), the
+      example fails with `7-707-0003 Network operation failed before a connection was established`,
+      and `http::server` names only built-in `http` types, which this bug does not touch.
+- [x] Spec §13 already states the rule this bug implements, so it needs no change; the
+      `resolver::packages::install_package_type_names` comment that called bare imported names
+      "the established convention" is replaced by the §13 citation.
 
 Acceptance: full suite green; every golden delta explained; every reproduction case prints its
 expected output.
