@@ -120,6 +120,57 @@ comments, which has no element child to make its whitespace layout.
 The reader keeps whitespace-only text nodes in the tree. Only the content
 projection, and the pretty-printer, treat them as layout.
 
+## Querying: an XPath 1.0 subset
+
+```mfb
+FOR EACH found IN xml::select(doc, "//book[@id='b2']")
+  io::print(xml::textOf(found))
+NEXT
+
+LET total AS String = xml::valueOf(doc, "count(//book)")
+```
+
+| Construct | Examples |
+| --- | --- |
+| Absolute and relative paths | `/a/b`, `a/b`, `.`, `..` |
+| Descendant-or-self | `//a`, `a//b`, `.//b` |
+| Name tests | `name`, `p:name` (literal), `*` |
+| Node-type tests | `text()`, `node()`, `comment()`, `processing-instruction()` |
+| Attributes | `@name`, `@*` |
+| Predicates | `[1]`, `[last()]`, `[position() < 3]`, `[@a]`, `[@a='v']`, `[b]`, `[b='v']`, chained `[..][..]` |
+| Filter expression | `(//a)[1]` |
+| Operators | `or`, `and`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `div`, `mod`, unary `-`, `\|` |
+| Literals | `'…'`, `"…"`, numbers |
+| Functions | `count`, `contains`, `starts-with`, `string`, `normalize-space`, `not`, `position`, `last`, `name`, `local-name`, `concat`, `string-length`, `number`, `sum`, `true`, `false`, `boolean` |
+
+**Prefixes are matched literally.** `p:name` selects elements whose name is the
+text `p:name` — the reader never resolved the prefix, so neither does the query.
+`local-name()` returns the part after the colon.
+
+**`//a[1]` and `(//a)[1]` are different**, as XPath 1.0 intends: a predicate on a
+step applies per context node (the first `a` of *each* parent), while a filter
+expression applies to the whole result (the first `a` overall).
+
+Four entry points:
+
+| Function | Returns |
+| --- | --- |
+| `xml::evaluate(doc, expr)` | an `xml::XPathValue`: nodes, attributes, a string, a number or a boolean |
+| `xml::select(doc, expr)` | `List OF Node`, in document order |
+| `xml::selectAttributes(doc, expr)` | `List OF Attribute`, in document order |
+| `xml::valueOf(doc, expr)` | the XPath string-value of any result |
+
+Anything recognizable as XPath but outside the subset — an unabbreviated axis
+such as `child::a`, a variable, or a function not listed above — is refused with
+`ErrUnsupported` rather than misread. Text that is not XPath at all is
+`ErrInvalidFormat`.
+
+One consequence of the language worth knowing: XPath numbers include `NaN` and
+`±Infinity`, and MFBASIC's `Float` cannot hold either — the runtime raises
+instead. `xml::valueOf` prints them correctly (`"NaN"`, `"Infinity"`,
+`"-Infinity"`), so `xml::valueOf(doc, "string(1 div 0)")` works; `xml::evaluate`
+refuses such a result rather than inventing a number for it.
+
 ## Writing
 
 ```mfb

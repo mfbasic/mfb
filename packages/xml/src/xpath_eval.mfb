@@ -421,13 +421,28 @@ END FUNC
 ' Sort and de-duplicate a node-set. Document order IS index order, so this is
 ' integer work -- the whole reason the index exists.
 PUBLIC FUNC orderNodes(nodes AS List OF Integer) AS List OF Integer
+  ' A forward axis walked from one context node already yields ascending,
+  ' distinct positions, which is the overwhelmingly common case -- `//item` on a
+  ' 100,000-node document produces 50,000 of them. Sorting those again is the
+  ' single most expensive thing a query can do for no result, so the ordering is
+  ' checked first and the list handed back untouched when it already holds.
+  MUT ascending AS Boolean = TRUE
+  MUT previous AS Integer = -2
+  FOR EACH one IN nodes
+    IF one <= previous THEN
+      ascending = FALSE
+    END IF
+    previous = one
+  NEXT
+  IF ascending THEN RETURN nodes
+
   LET sorted AS List OF Integer = collections::sort(nodes)
   MUT out AS List OF Integer = []
-  MUT previous AS Integer = -2
+  MUT last AS Integer = -2
   FOR EACH one IN sorted
-    IF one <> previous THEN
+    IF one <> last THEN
       out = collections::append(out, one)
-      previous = one
+      last = one
     END IF
   NEXT
   RETURN out
@@ -517,11 +532,32 @@ PRIVATE FUNC applyStep(index AS List OF IndexedNode, context AS List OF Integer,
   MUT reached AS List OF Integer = []
   FOR EACH at IN context
     MUT candidates AS List OF Integer = []
-    FOR EACH candidate IN axisFrom(index, at, entry.axis)
-      IF matchesTest(index, candidate, entry) THEN
-        candidates = collections::append(candidates, candidate)
+    IF entry.axis = AXIS_DESCENDANT_OR_SELF THEN
+      ' Fused: the descendant range is a contiguous span of the index, so it is
+      ' scanned and tested in one pass. Materializing the span first would build
+      ' a 100,001-element list for every `//` step before testing anything.
+      IF matchesTest(index, at, entry) THEN
+        candidates = collections::append(candidates, at)
       END IF
-    NEXT
+      MUT i AS Integer = 0
+      MUT stop AS Integer = len(index)
+      IF at >= 0 THEN
+        i = at + 1
+        stop = subtreeEnd(index, at)
+      END IF
+      DO WHILE i < stop
+        IF matchesTest(index, i, entry) THEN
+          candidates = collections::append(candidates, i)
+        END IF
+        i = i + 1
+      LOOP
+    ELSE
+      FOR EACH candidate IN axisFrom(index, at, entry.axis)
+        IF matchesTest(index, candidate, entry) THEN
+          candidates = collections::append(candidates, candidate)
+        END IF
+      NEXT
+    END IF
     LET ordered AS List OF Integer = orderNodes(candidates)
     FOR EACH one IN filterNodes(index, ordered, entry.predicates)
       reached = collections::append(reached, one)
