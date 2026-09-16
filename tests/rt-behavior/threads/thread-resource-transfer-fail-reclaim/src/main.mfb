@@ -3,14 +3,14 @@ IMPORT thread
 IMPORT fs
 IMPORT thread_res_sink
 
-' bug-425 (dest-copy reclaim): a failed transfer's orphaned destination-arena copy
-' of a bare resource is recorded on the inbound resource queue's pending-free list
-' (sized RESOURCE_RECORD_SIZE) so the worker reclaims it on its next accept. This
-' fixture forces that path deterministically: fill the cap-1 queue, fail one
-' transfer (pushing f2's copy to pending-free), then signal the worker to accept —
-' the accept drains the pending-free entry (frees f2's copy in the worker arena)
-' and returns the queued f1. A clean drain returns f1's byte length (22); a
-' double-free or corrupted free would crash or misbehave here.
+' bug-425 (copy reclaim): a failed transfer's orphaned copy of a bare resource is
+' recorded on the inbound resource queue's pending-free list (sized
+' RESOURCE_RECORD_SIZE) so it is reclaimed, not leaked. bug-498 later moved that
+' copy into the SENDER's arena and bug-646 made the sender drain the list (a free
+' lands on the freeing thread's bins); what this fixture observes is unchanged.
+' It forces the path deterministically: fill the cap-1 queue, fail one transfer
+' (pushing f2's copy to pending-free), then signal the worker to accept, returning
+' the queued f1 — 22 bytes. A double free or corrupted free misbehaves here.
 FUNC main AS Integer
   LET t AS Thread OF String RES fs::File TO Integer = thread::start(thread_res_sink::acceptAfterSignal, "seed", 1, 1)
   RES f1 AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")

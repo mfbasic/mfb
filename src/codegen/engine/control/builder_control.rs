@@ -1409,6 +1409,44 @@ impl CodeBuilder<'_> {
                         // STATE lives in the active variant's record at `+8`
                         // (plan-74). Concrete resources address their record directly.
                         let resource_type = local.type_.clone();
+                        // bug-644: this arm REBUILDS the whole STATE record into a
+                        // fresh block and republishes it through the record's
+                        // `RESOURCE_OFFSET_STATE` slot. The block it displaces has no
+                        // other owner — every alias of the handle reads the slot
+                        // (§15), so once the slot names the new block nothing can
+                        // reach the old one — and it used to leak, one STATE record
+                        // per `s.state.field = v` that is not an in-place store
+                        // (32 B an iteration for a `String` field, which never takes
+                        // the inline-scalar fast path above).
+                        //
+                        // Freeing it is gated on two things. The size must be
+                        // derivable exactly as the scope-exit drop derives it
+                        // (`emit_free_resource_state_block` →
+                        // `emit_inlined_block_size_from_ptr_slot`); a STATE type that
+                        // sizer cannot answer for keeps the old, leaking behavior
+                        // instead of turning a program that builds today into a
+                        // codegen error. And no live `FOR EACH` may be walking this
+                        // resource's STATE: such a loop snapshots an alias INTO the
+                        // block, so freeing it mid-iteration is a use-after-free —
+                        // the same reason the in-place grow declines for
+                        // `for_each_iterable_state_fields` (bug-430). Leak it there,
+                        // matching the reassign arm's `for_each` carve-outs.
+                        let replaced_state_type = resource_type.state().filter(|state| {
+                            (*state == ParameterType::String
+                                || self.type_model.record_fields.contains_key(state)
+                                || self.union_is_data(state)
+                                || matches!(state, ParameterType::ResultOf(_))
+                                || typed_is_collection_type(state))
+                                && !self
+                                    .for_each_iterable_state_fields
+                                    .iter()
+                                    .any(|(res, _)| res == resource)
+                                && !self
+                                    .for_each_iterable_record_fields
+                                    .iter()
+                                    .any(|(base, _)| base == resource)
+                                && !self.for_each_iterable_locals.iter().any(|n| n == resource)
+                        });
                         // plan-134-E: the replacement is stored into the resource.
                         let result = self.lower_value_stored_field(value)?;
                         // A register-native vector STATE payload materializes to its
@@ -1427,9 +1465,56 @@ impl CodeBuilder<'_> {
                         let block = self.allocate_register();
                         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
                         let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
+                        // bug-644: capture the outgoing block BEFORE the publish
+                        // overwrites the slot. It is read here rather than before the
+                        // operands on purpose: an operand that itself reaches a STATE
+                        // assignment (the `G25` shape) has already republished and
+                        // freed by now, so the slot names the block this statement is
+                        // actually displacing and neither block is freed twice.
+                        let replaced_slot = replaced_state_type.as_ref().map(|_| {
+                            let slot = self.allocate_stack_object("state_assign_replaced", 8);
+                            let previous = self.allocate_register();
+                            self.emit(abi::load_u64(&previous, &ptr, RESOURCE_OFFSET_STATE));
+                            self.emit(abi::store_u64(&previous, abi::stack_pointer(), slot));
+                            slot
+                        });
                         let val = self.allocate_register();
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
                         self.emit(abi::store_u64(&val, &ptr, RESOURCE_OFFSET_STATE));
+                        // bug-644: reclaim the displaced block, AFTER the new one is
+                        // published so no window exists where the slot names freed
+                        // memory. Two run-time guards keep this to the one block that
+                        // is definitively gone:
+                        //   * a null STATE pointer is skipped — the first assignment
+                        //     on a record whose `emit_resource_state_init` has not run
+                        //     (or a resource handed in already drained) has nothing to
+                        //     free, and `arena_free(0)` faults.
+                        //     `emit_shallow_block_free` null-guards.
+                        //   * old == published is skipped — an in-place store or an
+                        //     `InlineGrow` realloc republishes THE SAME block, and
+                        //     freeing it is a use-after-free of state the resource
+                        //     still reads through `RESOURCE_OFFSET_STATE`. The two
+                        //     in-place layers above return early, so this arm should
+                        //     never see that, but the identity test costs two
+                        //     instructions and is what makes the free unconditionally
+                        //     safe rather than safe-by-reachability-argument.
+                        if let (Some(state_type), Some(replaced_slot)) =
+                            (replaced_state_type, replaced_slot)
+                        {
+                            let kept = self.label("state_assign_replaced_kept");
+                            let previous = self.allocate_register();
+                            self.emit(abi::load_u64(
+                                &previous,
+                                abi::stack_pointer(),
+                                replaced_slot,
+                            ));
+                            let published = self.allocate_register();
+                            self.emit(abi::load_u64(&published, abi::stack_pointer(), value_slot));
+                            self.emit(abi::compare_registers(&previous, &published));
+                            self.emit(abi::branch_eq(&kept));
+                            self.emit_shallow_block_free(&state_type, replaced_slot)?;
+                            self.emit(abi::label(&kept));
+                        }
                     }
                     NirOp::Eval { value } => {
                         self.lower_value(value)?;

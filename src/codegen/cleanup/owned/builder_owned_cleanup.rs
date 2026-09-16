@@ -15,6 +15,44 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
     ) -> Result<(), String> {
         let drop = self.collection_resource_drop(type_)?;
+        let owns_elements = self.owned_list_owning_collections.contains(name);
+        // bug-645: the collection BLOCK itself. A `List OF RES X` is not
+        // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
+        // marker, so the walk sees a bare resource nominal and answers "not flat"
+        // (`a_res_collection_does_not_diverge` pins that, and it is what keeps such a
+        // list out of `copy_flat_block`). The consequence nobody had measured is that
+        // NO scope-drop frees the block either: an owner collection rebuilt in a loop
+        // leaked one whole list block per iteration (48 B empty, 240 B and up once
+        // appended to) on top of its elements.
+        //
+        // The free is registered as an ordinary [`ActiveCleanup::OwnedValue`], pushed
+        // BEFORE the drain so it runs after it, because every rule that governs it is
+        // already written there and keyed on the slot: `plan_returned_move` retires it
+        // when the list is RETURNed, `trap_route_cleanups` keeps a function-level one
+        // live for the handler to read, and `_mfb_rt_drop_owned_collection` null-guards
+        // and nulls the slot, so a re-reached drop frees nothing. Gated on the same
+        // sole-ownership proof as the elements: copy-insertion does NOT deep-copy such
+        // a list (it is not flat), so an aliasing store really can leave two holders,
+        // and only `owning_collections` rules that out.
+        //
+        // Restricted to a collection: the other owner-container kind is a record with a
+        // `RES` field (plan-114-C), which IS freeable-flat (its fields walk unstripped
+        // to the `Res(_)` arm) and so already has its own `OwnedValue` from the bind —
+        // adding a second here would be the double free this whole file guards against.
+        if owns_elements && typed_is_collection_type(type_) && !self.is_freeable_flat_value(type_) {
+            if let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) {
+                self.active_cleanups
+                    .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                        type_: type_.clone(),
+                        stack_offset,
+                        closure_captures: None,
+                        capacity_slot: None,
+                        loop_alias_slot: None,
+                        result_wrapper: None,
+                    }));
+                self.owned_value_slots.push(stack_offset);
+            }
+        }
         let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
         let scratch9 = self.temporary_vreg();
         self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
@@ -25,6 +63,7 @@ impl CodeBuilder<'_> {
                 name: name.to_string(),
                 head_slot,
                 drop,
+                owns_elements,
             }));
         Ok(())
     }
@@ -33,12 +72,26 @@ impl CodeBuilder<'_> {
     /// its drain obligation from this scope so the resources are not closed here
     /// (the caller's scope adopts and closes them). Other scopes' owned-lists are
     /// untouched (§15.6).
+    ///
+    /// bug-645: the block free `setup_owned_list` paired with the drain goes with it.
+    /// `plan_returned_move` usually gets there first (it retires the same cleanup by
+    /// slot), but it declines for several shapes — an address-taken local, a `FOR EACH`
+    /// iterable — and the container is still transferred on every one of them. Left
+    /// registered, this scope would free the block the caller is about to adopt.
     pub(crate) fn deactivate_owned_list(&mut self, name: &str) {
         if let Some(index) = self
             .active_cleanups
             .iter()
             .rposition(|cleanup| matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name))
         {
+            self.active_cleanups.remove(index);
+        }
+        let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) else {
+            return;
+        };
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(o) if o.stack_offset == stack_offset)
+        }) {
             self.active_cleanups.remove(index);
         }
     }
@@ -152,6 +205,17 @@ impl CodeBuilder<'_> {
     /// tag-dispatched to the active variant's close op and its uniform STATE
     /// block freed — the same drop a lone `RES u AS Union STATE S` binding runs,
     /// via the shared `emit_union_tag_dispatch_drop`.
+    ///
+    /// **bug-645: the drain reclaims, it does not only close.** Every node it visits
+    /// is a 16-byte `{record, next}` block `emit_owned_list_push` allocated and this
+    /// loop is the only reader of — nothing else can name it — so that block is freed
+    /// unconditionally. The blocks the node POINTS at are a different question, and
+    /// answered by `cleanup.owns_elements` (`record_ownership::owning_collections`):
+    /// with the collection proved the one owner, the concrete arm runs the same
+    /// `emit_resource_block_reclaim` an `ActiveCleanup::Resource` drop runs, and the
+    /// union arm passes its real `record_free_tags` and frees the `{tag, record}` box
+    /// the wrap allocated. Unproved, both fall back to close-only — the leak this fix
+    /// narrows, never a double free.
     pub(crate) fn emit_owned_list_drain(
         &mut self,
         cleanup: &OwnedListCleanup,
@@ -159,6 +223,11 @@ impl CodeBuilder<'_> {
         let loop_label = self.label("owned_list_drain_loop");
         let done_label = self.label("owned_list_drain_done");
         let close_ok = self.label("owned_list_close_ok");
+        // The node pointer must survive the close and the frees below, all of which
+        // clobber every caller-saved register (`.ai/compiler.md`), so it lives in a
+        // slot from here on.
+        let node_slot = self.allocate_stack_object("owned_list_drain_node", 8);
+        let payload_slot = self.allocate_stack_object("owned_list_drain_payload", 8);
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
@@ -169,31 +238,75 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), node_slot));
         // Advance the head past this node before the call(s) below, which clobber
         // caller-saved registers; the loop reloads the head from memory. Node
         // field 0 is the value to close — the record pointer for a concrete
         // element, the union block pointer (`{tag@0, record-ptr@8}`) for a union.
         match &cleanup.drop {
-            OwnedListDrop::Concrete(close_symbol) => {
+            OwnedListDrop::Concrete {
+                close,
+                state_type,
+                has_io_buffers,
+                frees_record,
+            } => {
+                let close = close.clone();
+                let state_type = state_type.clone();
+                let has_io_buffers = *has_io_buffers;
+                let frees_record = *frees_record;
                 self.emit(abi::load_u64(abi::return_register(), &scratch9, 0));
+                self.emit(abi::store_u64(
+                    abi::return_register(),
+                    abi::stack_pointer(),
+                    payload_slot,
+                ));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8));
                 self.emit(abi::store_u64(
                     &scratch10,
                     abi::stack_pointer(),
                     cleanup.head_slot,
                 ));
-                self.emit_symbol_call(close_symbol);
+                let node_done = self.label("owned_list_node_done");
+                // A node's record is never null in a well-formed list, but the close
+                // helper dereferences the closed flag, so guard it like every other
+                // resource drop (bug-246).
+                self.emit(abi::compare_immediate(abi::return_register(), "0"));
+                self.emit(abi::branch_eq(&node_done));
+                self.emit_symbol_call(&close);
                 self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
                 self.emit(abi::branch_eq(&close_ok));
                 self.record_secondary_cleanup_failure();
                 self.emit(abi::label(&close_ok));
+                if cleanup.owns_elements {
+                    // Ordered after the close, exactly as `emit_resource_cleanup_call`
+                    // orders it: a `File`'s mandatory flush-on-close drains the output
+                    // buffer this then frees. The helper skips a `moved` record (a
+                    // thread transfer owns it now), nulls each pointer word as it goes
+                    // and nulls the slot after the record free, so it is idempotent.
+                    self.emit_resource_block_reclaim(
+                        payload_slot,
+                        state_type.as_ref(),
+                        has_io_buffers,
+                        frees_record,
+                    )?;
+                }
+                self.emit(abi::label(&node_done));
             }
             OwnedListDrop::Union {
                 variants,
                 state_type,
+                record_free_tags,
             } => {
+                let variants = variants.clone();
+                let state_type = state_type.clone();
+                let record_free_tags = record_free_tags.clone();
                 let union_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
+                self.emit(abi::store_u64(
+                    &union_ptr,
+                    abi::stack_pointer(),
+                    payload_slot,
+                ));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8));
                 self.emit(abi::store_u64(
                     &scratch10,
@@ -204,20 +317,44 @@ impl CodeBuilder<'_> {
                 // non-null, but guard like the single-binding path so a null can
                 // never fault the tag load at `union_ptr+0` (bug-246).
                 let node_done = self.label("owned_list_union_node_done");
+                let dropped = self.label("owned_list_union_drop_box");
                 self.emit(abi::compare_immediate(&union_ptr, "0"));
                 self.emit(abi::branch_eq(&node_done));
-                // No record frees here: a floated element's record ownership is not
-                // resolved (bug-623 B), so the drain keeps its close-only behaviour.
                 self.emit_union_tag_dispatch_drop(
                     &union_ptr,
-                    variants,
+                    &variants,
                     state_type.as_ref(),
-                    &[],
-                    &node_done,
+                    if cleanup.owns_elements {
+                        &record_free_tags
+                    } else {
+                        &[]
+                    },
+                    &dropped,
                 )?;
+                // Both a matched variant (which branches here) and an unrecognised tag
+                // (which falls out of the dispatch) converge on the box free, mirroring
+                // `emit_resource_union_cleanup_call`'s `dropped` label.
+                self.emit(abi::label(&dropped));
+                if cleanup.owns_elements {
+                    let box_ptr = self.allocate_register();
+                    self.emit(abi::load_u64(&box_ptr, abi::stack_pointer(), payload_slot));
+                    self.emit(abi::move_register(abi::c_arg(0), &box_ptr));
+                    self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+                    self.emit_arena_free_call();
+                }
                 self.emit(abi::label(&node_done));
             }
         }
+        // The node block itself: allocated by `emit_owned_list_push`, reachable only
+        // through the chain this loop has already advanced past, so this free is
+        // unaliased and once-only regardless of what the element turned out to own.
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            node_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit_arena_free_call();
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
         Ok(())

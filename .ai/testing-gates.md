@@ -19,6 +19,9 @@ Reference for the MFB compiler's test/golden/gate harness — the codegen artifa
 
 - **A `<pkg>_codegen_cover_rt` fixture does not call every member.** Before trusting a green gate for a change to one member, `grep -n '<pkg>::<member>' tests/byte-identity/<pkg>/src/main.mfb`. No hit means the gate never emitted your code; add the call (that fixture's `.ast`/`.ir` goldens move too).
 
+- **Two shapes no committed golden exercises at all** (measured): no byte-identity fixture contains an inline `TRAP` (`grep -rl "END TRAP" tests/byte-identity/` → 0 files), and no golden covers a whole-record STATE replace (`grep -rl state_assign_value tests/` → only `tests/runtime/rt_res_state_inplace_mutation.rs`). So `artifact-gate.sh` reporting 0 diffs after a change to the `TRAP` desugar or the STATE-assign path is a drift sentinel, never coverage — same trap as `canvas` above.
+- **`.ast` and `.ir` goldens embed source line numbers** (`"line": N` on every node), so editing a fixture's `src/main.mfb` churns both goldens even when the edit is a pure COMMENT. Keep such edits line-count-neutral instead of re-baselining goldens for a comment.
+
 ### Broadly-emitted changes break goldens BEYOND byte-identity/
 The `byte-identity/<pkg>` fixtures are a per-package SMOKE test, not the whole golden surface. `syntax/**` and `rt-behavior/**` also carry `.ir` host dumps and `.app.ncode`/`.ncodesum` native goldens the gate checks. A change to a broadly-emitted path breaks those too, and a per-phase check that only regenerates `byte-identity/` MISSES them — the full gate is the only authoritative finder. `sync-goldens.sh` refreshes `.ir`/`.ast`/`build.log` for byte-identity + rt-behavior but SKIPS `syntax/**` and does NOT refresh target-infixed `.ncodesum` or `.app.ncode` — regen those by hand (`mfb build -q -ncode [-target T] [--app]` then `cp`/`shasum` into `golden/`). Rule: after any shared-codegen change, run the FULL gate once before merge and regenerate every fixture it flags, tree-wide.
 
@@ -826,6 +829,14 @@ The reverse: when a codegen-inspection `rt_*` test goes red after a layout or AB
 ## An RSS leak pin calibrated on macOS passes on Linux with the leak present
 
 Peak-RSS growth per iteration is about 4× smaller on Linux, and the arena chunk floor hides it entirely at low counts. Calibrate at 200k iterations or more and confirm on a Linux box. Measure RSS with `--test-threads=1`; parallel tests produce bogus failures.
+
+## Discriminate same-size leak candidates by the alloc/free delta, not the leak size
+
+When two different records of the same size (two 96 B resource records, say) are both plausible culprits, the **fix's** signature is what tells them apart: removing a redundant ALLOCATION shows as *fewer allocs, frees unchanged*; adding a missing FREE shows as *frees up, allocs unchanged*. A "this shape is now flat" control can be consistent with BOTH hypotheses at once — it localizes without discriminating, so never stop at flatness when two candidates remain.
+
+## A soak bound can make the test incapable of failing
+
+`tests/runtime/rt_debug_soak.rs`'s `BLOCK_BOUND` is 4096 B of allowed growth between the N-iteration and 2N-iteration runs. At 32 B or 96 B leaked per iteration, the N a bug report happens to quote often grows LESS than 4096 B — the soak passes green while the leak is live. Before trusting a soak (or picking its N), check `(2N - N) * per_iteration_bytes > BLOCK_BOUND`.
 
 ## Pin an allocation formula with `--debug` `alloc_bytes`, not RSS
 

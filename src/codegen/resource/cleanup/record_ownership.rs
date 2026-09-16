@@ -36,9 +36,13 @@
 //! conditions that make those maps coincide with this pass: the union local has that one
 //! store, every bare-local hop to the wrapped root has one store, and the root itself is
 //! fresh and has not floated into a collection.
+//!
+//! bug-645 asks the same question one container out: which OWNER COLLECTIONS may have
+//! their owned-list drain free what it closes. See [`owning_collections`] — the rules,
+//! and the direction they fail in, are this module's.
 
 use crate::codegen::engine::builder::CodeBuilder;
-use crate::target::shared::nir::visit::{walk_op, NirVisitor};
+use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirOp, NirValue};
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
@@ -50,6 +54,9 @@ pub(crate) struct RecordOwnership {
     /// Locals whose single store is a bare `Local(src)` — the alias chains a `RETURN`
     /// follows to the binding that actually owns a union's box.
     pub(crate) alias_sources: HashMap<String, String>,
+    /// bug-645: owner-collection locals whose owned-list drain provably owns every
+    /// block it can reach — see [`owning_collections`].
+    pub(crate) owning_collections: HashSet<String>,
 }
 
 /// Where one store into a local comes from, as far as record ownership is concerned.
@@ -313,8 +320,407 @@ pub(crate) fn record_ownership(
             _ => None,
         })
         .collect();
+    let owning_collections = owning_collections(function, functions, record_type, &stores, &params);
     RecordOwnership {
         owning_locals,
         alias_sources,
+        owning_collections,
+    }
+}
+
+/// bug-645: which owner collections an owned-list drain may RECLAIM through, not just
+/// close through.
+///
+/// The drain walks the `{record, next}` nodes a floated `RES` bind pushed (§15.6) and
+/// closes each element. Closing is unconditional — a close is idempotent. *Freeing* is
+/// not, so it asks the same question this module asks everywhere else, in the same
+/// fail-SAFE direction: unless the collection is provably the ONE owner of every block
+/// the drain would release, the drain keeps today's close-only behaviour and the memory
+/// stays leaked. A bounded leak is acceptable; a double free is not.
+///
+/// A collection `c` qualifies only when all four hold:
+///
+/// * **Its own block is fresh.** Every store into `c` is a collection LITERAL or a
+///   self-receiving `collections::` mutator (`c = collections::append(c, …)`), whose
+///   lowering either grows the block in place or allocates a replacement and frees the
+///   original. Anything else — `MUT d = c`, a field read, a call that hands back
+///   somebody else's list — means a second holder may exist, so the block is not freed.
+/// * **Nothing else holds `c`.** `c` never appears as a bare `Local` outside a call's
+///   ARGUMENT position. An argument creates no second owner (no callee frees a
+///   `List OF RES` block: `is_freeable_flat_value` is false for one, so no
+///   `OwnedValue` cleanup can exist for it anywhere), while a bind, a `RETURN`, a
+///   record field, a union wrap, a closure capture or a `FOR EACH` iterable does.
+/// * **No element is read back out.** No `collections::get`/`getOr` — nor a borrowed
+///   `tcp`/`udp`/`tls::poll` — names `c`. Those "yield a POINTER to the one resource"
+///   (§15.6), so a freed record could still be live in the caller's hands.
+/// * **Every floated element is a fresh record that does not escape.** Fresh by this
+///   module's existing rules (a producer call, a closed `TRAP` default, a wrap of one
+///   of those); a wrap of a LOCAL is an alias whose record another binding still frees,
+///   and is refused. And the element local itself never appears outside an argument
+///   position, so no `RETURN c` / `LET keep = c` hands the record on.
+///
+/// The float exclusion in [`Resolver::local_fresh`] is lifted for exactly the elements
+/// of the collection being asked about: "this local floated into a collection" is the
+/// reason its own binding must not free the record, and the reason the collection may.
+fn owning_collections(
+    function: &NirFunction,
+    functions: &HashMap<String, &NirFunction>,
+    record_type: &dyn Fn(&ParameterType) -> bool,
+    stores: &Stores,
+    params: &HashSet<String>,
+) -> HashSet<String> {
+    let mut floats: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, owner) in &function.resource_owners {
+        if let crate::ir::resource_escape::ResOwner::Float(collection) = owner {
+            floats
+                .entry(collection.clone())
+                .or_default()
+                .push(name.clone());
+        }
+    }
+    if floats.is_empty() {
+        return HashSet::new();
+    }
+    let uses = CollectionUses::of(function);
+    let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
+    let mut owning = HashSet::new();
+    for (collection, elements) in &floats {
+        if uses.escaping.contains(collection) || uses.element_readers.contains(collection) {
+            continue;
+        }
+        if !uses.block_is_fresh(collection) {
+            continue;
+        }
+        // A callee's floats stay excluded, and so do the floats of every OTHER
+        // collection in this function; only this collection's own elements are asked.
+        let mut other_floats = all_floated.clone();
+        for element in elements {
+            other_floats.remove(element);
+        }
+        let mut resolver = Resolver {
+            functions,
+            record_type,
+            floats: vec![other_floats],
+            memo: HashMap::new(),
+            visiting_functions: HashSet::new(),
+        };
+        let elements_owned = elements.iter().all(|element| {
+            !uses.escaping.contains(element)
+                && !stores
+                    .stores
+                    .get(element)
+                    .is_some_and(|s| s.iter().any(|s| matches!(s, Source::WrapLocal(_))))
+                && resolver.local_fresh(element, stores, params, &mut HashSet::new())
+        });
+        if elements_owned {
+            owning.insert(collection.clone());
+        }
+    }
+    owning
+}
+
+/// Where each local is NAMED, for [`owning_collections`]: the positions that can create
+/// a second holder of a block, and the calls that hand a resource pointer back out of a
+/// collection.
+#[derive(Default)]
+struct CollectionUses {
+    /// Locals named as a bare `Local` somewhere other than a call's argument list.
+    escaping: HashSet<String>,
+    /// Collections named as an argument to a borrowed-element read
+    /// (`CodeBuilder::value_aliases_live_resource`): `collections::get`/`getOr`, or a
+    /// `*::poll` over a socket list.
+    element_readers: HashSet<String>,
+    /// Per local: whether EVERY store into it is a fresh collection block.
+    fresh_block: HashMap<String, bool>,
+}
+
+impl CollectionUses {
+    fn of(function: &NirFunction) -> Self {
+        let mut collector = CollectionUses::default();
+        collector.visit_ops(&function.body);
+        collector
+    }
+
+    fn block_is_fresh(&self, name: &str) -> bool {
+        self.fresh_block.get(name).copied().unwrap_or(false)
+    }
+
+    fn note_store(&mut self, name: &str, value: Option<&NirValue>) {
+        let fresh = collection_store_is_fresh(name, value);
+        let entry = self.fresh_block.entry(name.to_string()).or_insert(true);
+        *entry &= fresh;
+    }
+}
+
+impl NirVisitor for CollectionUses {
+    fn visit_op(&mut self, op: &NirOp) {
+        match op {
+            NirOp::Bind { name, value, .. } => self.note_store(name, value.as_ref()),
+            NirOp::Assign { name, value } => self.note_store(name, Some(value)),
+            // `s.state.f = v` desugars to a whole-state `WITH` whose target is, BY
+            // CONSTRUCTION, `MemberAccess{Local(<resource>), "state"}` — the op names the
+            // resource itself. That target is a write THROUGH the handle to the block at
+            // `RESOURCE_OFFSET_STATE`; it leaves no second holder of the record, so
+            // skipping it is what lets a floated `RES s AS Stream STATE S` element still
+            // qualify. Only the target is skipped: each update's own value walks
+            // normally, and an op whose target is not that exact shape falls through to
+            // the ordinary (escaping) walk.
+            NirOp::StateAssign {
+                resource,
+                value:
+                    NirValue::WithUpdate {
+                        target, updates, ..
+                    },
+            } if matches!(
+                target.as_ref(),
+                NirValue::MemberAccess { target, member }
+                    if member == "state"
+                        && matches!(target.as_ref(), NirValue::Local(name) if name == resource)
+            ) =>
+            {
+                for update in updates {
+                    self.visit_value(&update.value);
+                }
+                return;
+            }
+            _ => {}
+        }
+        walk_op(self, op);
+    }
+
+    fn visit_value(&mut self, value: &NirValue) {
+        match value {
+            // Any other position that names a local can leave a second holder behind,
+            // so the default is "escapes" and only the argument arm below narrows it —
+            // a NIR variant added tomorrow lands here and answers fail-safe.
+            NirValue::Local(name) => {
+                self.escaping.insert(name.clone());
+            }
+            NirValue::Call { args, .. }
+            | NirValue::CallResult { args, .. }
+            | NirValue::RuntimeCall { args, .. } => {
+                if CodeBuilder::value_aliases_live_resource(value) {
+                    for arg in args {
+                        if let NirValue::Local(name) = arg {
+                            self.element_readers.insert(name.clone());
+                        }
+                    }
+                }
+                // An argument is a USE, not a second owner: `len(c)`,
+                // `collections::append(c, x)` and `udp::close(s)` all read through the
+                // pointer and none of them take over freeing the block. Nested values
+                // inside an argument still walk normally.
+                for arg in args {
+                    if !matches!(arg, NirValue::Local(_)) {
+                        self.visit_value(arg);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+        walk_value(self, value);
+    }
+}
+
+/// The `collections::` members that mutate a collection and are stored back into it.
+/// Each either grows the block in place or allocates a replacement and frees the
+/// original, so the destination stays the block's one owner.
+const COLLECTION_SELF_MUTATORS: &[&str] = &[
+    "collections.append",
+    "collections.prepend",
+    "collections.insert",
+    "collections.set",
+    "collections.add",
+    "collections.remove",
+    "collections.removeAt",
+    "collections.removeKey",
+];
+
+/// Whether one store into `dest` leaves it holding a block nothing else owns.
+fn collection_store_is_fresh(dest: &str, value: Option<&NirValue>) -> bool {
+    let Some(value) = value else {
+        // A bind with no initializer materializes its own default empty collection.
+        return true;
+    };
+    match value {
+        NirValue::ListLiteral { .. }
+        | NirValue::SetLiteral { .. }
+        | NirValue::MapLiteral { .. } => true,
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. } => {
+            COLLECTION_SELF_MUTATORS.contains(&target.as_str())
+                && matches!(args.first(), Some(NirValue::Local(name)) if name == dest)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod owned_list_ownership_tests {
+    use super::*;
+    use crate::target::shared::nir::{NirOp, NirSourceLoc};
+
+    fn call(target: &str, args: Vec<NirValue>) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args,
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    fn local(name: &str) -> NirValue {
+        NirValue::Local(name.to_string())
+    }
+
+    /// The two stores that leave a `List OF RES X` binding holding a block nothing
+    /// else owns — which is what licenses freeing it at the drain (bug-645).
+    #[test]
+    fn a_literal_and_a_self_receiving_mutator_are_fresh_blocks() {
+        let literal = NirValue::ListLiteral {
+            type_: ParameterType::parse("List OF RES udp.Socket"),
+            values: Vec::new(),
+        };
+        assert!(collection_store_is_fresh("chans", Some(&literal)));
+        let append = call("collections.append", vec![local("chans"), local("c")]);
+        assert!(collection_store_is_fresh("chans", Some(&append)));
+        // A bind with no initializer materializes its own default empty collection.
+        assert!(collection_store_is_fresh("chans", None));
+    }
+
+    /// The guard, and the reason it is a *self*-receiving test: `a = append(b, x)`
+    /// leaves `a` holding a block grown from `b`'s, which `b` still names. Freeing
+    /// both at scope exit is the double free this module exists to refuse.
+    #[test]
+    fn a_mutator_of_another_collection_is_not_a_fresh_block() {
+        let append = call("collections.append", vec![local("other"), local("c")]);
+        assert!(!collection_store_is_fresh("chans", Some(&append)));
+    }
+
+    /// Every other store shape answers "not fresh": an alias of another binding, a
+    /// call that hands back somebody else's list, a non-mutating `collections::`
+    /// member. Fail-safe is the default, not an enumerated case.
+    #[test]
+    fn any_other_store_is_not_a_fresh_block() {
+        assert!(!collection_store_is_fresh("chans", Some(&local("other"))));
+        assert!(!collection_store_is_fresh(
+            "chans",
+            Some(&call("build", vec![]))
+        ));
+        assert!(!collection_store_is_fresh(
+            "chans",
+            Some(&call("collections.slice", vec![local("chans")]))
+        ));
+    }
+
+    /// An argument is a USE of a collection, not a second owner — `len(c)` and
+    /// `collections::append(c, x)` must not disqualify `c`, or the fix would never
+    /// fire on the shape §15.6 is written for.
+    #[test]
+    fn an_argument_position_does_not_escape() {
+        let mut uses = CollectionUses::default();
+        uses.visit_op(&NirOp::Assign {
+            name: "chans".to_string(),
+            value: call("collections.append", vec![local("chans"), local("c")]),
+        });
+        uses.visit_op(&NirOp::Assign {
+            name: "total".to_string(),
+            value: call("len", vec![local("chans")]),
+        });
+        assert!(!uses.escaping.contains("chans"));
+        assert!(!uses.escaping.contains("c"));
+        assert!(uses.block_is_fresh("chans"));
+    }
+
+    /// Every other position does escape: a bind from the collection, a `RETURN`, a
+    /// `FOR EACH` over it. Each leaves a second name on the one block.
+    #[test]
+    fn a_bind_a_return_and_a_for_each_escape() {
+        for op in [
+            NirOp::Bind {
+                mutable: false,
+                name: "same".to_string(),
+                type_: ParameterType::parse("List OF RES udp.Socket"),
+                value: Some(local("chans")),
+            },
+            NirOp::Return {
+                value: Some(local("chans")),
+            },
+            NirOp::ForEach {
+                name: "h".to_string(),
+                type_: ParameterType::parse("udp.Socket"),
+                iterable: local("chans"),
+                body: Vec::new(),
+            },
+        ] {
+            let mut uses = CollectionUses::default();
+            uses.visit_op(&op);
+            assert!(
+                uses.escaping.contains("chans"),
+                "a collection named outside an argument position must not be freed"
+            );
+        }
+    }
+
+    /// `collections::get`/`getOr` "yield a POINTER to the one resource" (§15.6), so
+    /// a list they are applied to keeps the close-only drain: a freed record could
+    /// still be live in the reader's hands.
+    #[test]
+    fn a_borrowed_element_read_disqualifies_its_collection() {
+        let mut uses = CollectionUses::default();
+        uses.visit_op(&NirOp::Bind {
+            mutable: false,
+            name: "pick".to_string(),
+            type_: ParameterType::parse("udp.Socket"),
+            value: Some(call(
+                "collections.get",
+                vec![local("chans"), NirValue::Local("i".to_string())],
+            )),
+        });
+        assert!(uses.element_readers.contains("chans"));
+    }
+
+    /// `s.state.f = v` writes THROUGH the handle: the `WITH` target names the resource
+    /// but leaves no second holder of its record, so a floated `RES s AS U STATE S`
+    /// element still qualifies. The update's own value keeps walking.
+    #[test]
+    fn a_state_assign_does_not_escape_its_resource() {
+        let mut uses = CollectionUses::default();
+        uses.visit_op(&NirOp::StateAssign {
+            resource: "c".to_string(),
+            value: NirValue::WithUpdate {
+                type_: ParameterType::declared("Cursor"),
+                target: Box::new(NirValue::MemberAccess {
+                    target: Box::new(local("c")),
+                    member: "state".to_string(),
+                }),
+                updates: vec![crate::target::shared::nir::NirRecordUpdate {
+                    field: "pos".to_string(),
+                    value: local("j"),
+                }],
+            },
+        });
+        assert!(!uses.escaping.contains("c"));
+        assert!(uses.escaping.contains("j"), "the update value still walks");
+    }
+
+    /// The guard on that narrowing: a `WITH` target that is NOT this op's own
+    /// `<resource>.state` falls through to the ordinary walk and escapes.
+    #[test]
+    fn a_state_assign_naming_another_resource_still_escapes() {
+        let mut uses = CollectionUses::default();
+        uses.visit_op(&NirOp::StateAssign {
+            resource: "c".to_string(),
+            value: NirValue::WithUpdate {
+                type_: ParameterType::declared("Cursor"),
+                target: Box::new(NirValue::MemberAccess {
+                    target: Box::new(local("other")),
+                    member: "state".to_string(),
+                }),
+                updates: Vec::new(),
+            },
+        });
+        assert!(uses.escaping.contains("other"));
     }
 }

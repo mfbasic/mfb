@@ -976,3 +976,241 @@ fn a_resource_not_returned_on_a_sibling_path_is_still_closed() {
         "ret_sibling: live_bytes grew {at_small} -> {at_large} between 300 and 600"
     );
 }
+
+/// Run `source` at `small` and `large`, require `expect` on stdout at both counts, no
+/// `double_free_skips`, `free_calls <= alloc_calls`, and `live_bytes` flat within
+/// [`BLOCK_BOUND`]. The shared gate for the one-small-block-per-iteration leaks: the
+/// `live_bytes` bound catches the leak and the skip/free counts catch a fix that trades it
+/// for a double free.
+fn assert_block_flat(case: &str, source: &str, small: u64, large: u64, expect: &str, owner: &str) {
+    let (out_small, (allocs_small, frees_small, at_small, skips_small)) =
+        debug_run(case, source, small);
+    let (out_large, (allocs_large, frees_large, at_large, skips_large)) =
+        debug_run(case, source, large);
+    assert!(
+        out_small.contains(expect) && out_large.contains(expect),
+        "{case}: expected {expect:?} on stdout at both counts, got {out_small:?} / {out_large:?}"
+    );
+    assert!(
+        skips_small == 0 && skips_large == 0,
+        "{case}: double_free_skips {skips_small}/{skips_large} — {owner} is now freed twice"
+    );
+    assert!(
+        frees_small <= allocs_small && frees_large <= allocs_large,
+        "{case}: free_calls {frees_small}/{frees_large} exceed alloc_calls \
+         {allocs_small}/{allocs_large} — {owner} is now freed twice"
+    );
+    let grew = at_large.saturating_sub(at_small);
+    assert!(
+        grew < BLOCK_BOUND,
+        "{case}: main-arena live_bytes grew {grew} B between {small} and {large} iterations \
+         ({at_small} -> {at_large}); {owner}"
+    );
+}
+
+/// bug-643: `RES c AS Chan = udp::bind(...) TRAP(e) ... END TRAP` left one 96 B block live
+/// per bind even though the `TRAP` never fired. Measured at `1963472c6`: N=100
+/// `alloc_calls 504`, `free_calls 404`, `live_bytes 9600`; N=200 `1004`/`804`,
+/// `live_bytes 19200` — one resource record per call, `double_free_skips 0`.
+///
+/// The desugar emits `bind $trap_valN : T` with no initializer — which materializes a
+/// CLOSED DEFAULT resource record — then `$trap_valN = ResultValue($trap_resN)` on the
+/// success path and `bind c = local $trap_valN`. The assign overwrites the slot with the
+/// producer's record and orphans the default one, which no binding owns thereafter. The
+/// sibling `a_trap_bind_whose_producer_fails_keeps_live_bytes_constant` is the control that
+/// localizes it: when the producer fails the assign never runs, the slot still holds the
+/// default, and the loop is flat. `tcp::listen` works around bug-642.
+#[test]
+fn a_trap_bound_resource_union_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT tcp\n\nUNION Chan\n  udp::Socket\n  tcp::Socket\nEND UNION\n\nFUNC openOr(bad AS Boolean) AS Integer\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES c AS Chan = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  RES keep AS tcp::Listener = tcp::listen(\"127.0.0.1\", 0)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + openOr(i MOD 2 = 0)\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b643_union_trap",
+        SOURCE,
+        100,
+        200,
+        "ok=",
+        "a `TRAP`-bound resource union leaks a 96 B resource record per bind (bug-643)",
+    );
+}
+
+/// bug-643 widened: the same 96 B per bind on a plain concrete resource — the leak is the
+/// inline-`TRAP` desugar's, not the union's. Measured at `1963472c6`: N=100
+/// `alloc_calls 1202`, `free_calls 1102`, `live_bytes 9600`; N=200 `2402`/`2202`,
+/// `live_bytes 19200`.
+#[test]
+fn a_trap_bound_concrete_resource_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC risky(bad AS Boolean) AS RES udp::Socket\n  RES keep AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES spare AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES tried AS udp::Socket = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN spare\n  END TRAP\n  IF port = 0 THEN\n    RETURN keep\n  END IF\n  RETURN tried\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = risky((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b643_concrete_trap",
+        SOURCE,
+        100,
+        200,
+        "ok=",
+        "a `TRAP`-bound concrete resource leaks a 96 B resource record per bind (bug-643)",
+    );
+}
+
+/// bug-643's control, and what localizes the leak: an inline `TRAP` whose producer ALWAYS
+/// fails is already FLAT (measured at `1963472c6`: `ok=0`, `live_bytes 0` at both counts).
+///
+/// The handler path reclaims everything; only the success path leaks. That is the whole
+/// diagnosis: the `$trap_valN` bind materializes a closed default record, and on the
+/// success path the `$trap_valN = ResultValue(...)` assign overwrites the slot with the
+/// producer's record, orphaning the default — 96 B with no owner left. When the producer
+/// fails the slot still holds the default, so the drop reclaims it and nothing leaks.
+///
+/// Note `udp::bind("127.0.0.1", -1)` SUCCEEDS, so a negative port does not exercise this
+/// path — an unresolvable host does. Green before the fix and after; it fails only if a fix
+/// reclaims the default record twice, or reclaims one the binding still holds.
+#[test]
+fn a_trap_bind_whose_producer_fails_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC f(host AS String) AS Integer\n  RES c AS udp::Socket = udp::bind(host, 0) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + f(\"300.0.0.1\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b643_trap_fires",
+        SOURCE,
+        100,
+        200,
+        "ok=0",
+        "the handler path of an inline `TRAP` bind must stay flat (bug-643 control)",
+    );
+}
+
+/// bug-644: `RES c AS Chan STATE Cur = udp::bind(...)` with a String STATE field assigned
+/// after the bind left one 32 B block live per iteration. Measured at `1963472c6`: N=50
+/// `alloc_calls 252`, `free_calls 202`, `live_bytes 1600`; N=100 `502`/`402`,
+/// `live_bytes 3200`, `double_free_skips 0`.
+///
+/// Run at 300/600, not the bug doc's 50/100: at 32 B per iteration the doc's counts grow
+/// only 1600 B, *under* [`BLOCK_BOUND`], so a test written to them passes while the leak is
+/// live. 300/600 grows 9600 B (measured), which the bound catches.
+///
+/// Bisected on the main thread: dropping the `c.state.note = "seen"` assignment (leaving the
+/// inline-scalar `hits` update, which takes `try_inplace_state_scalar_assign`) is flat, so
+/// the leak is the whole-record `StateAssign` rebuild — it allocates a new STATE block and
+/// republishes it through `RESOURCE_OFFSET_STATE` without reclaiming the block it replaced.
+#[test]
+fn a_stateful_resource_union_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b644_union_state",
+        SOURCE,
+        300,
+        600,
+        "ok=",
+        "a stateful resource union leaks the STATE block each whole-record rebuild replaces \
+         (bug-644)",
+    );
+}
+
+/// bug-644 on the concrete shape — the same 32 B per iteration with no union in sight
+/// (measured at `1963472c6`: N=50 `alloc_calls 202`, `free_calls 152`, `live_bytes 1600`;
+/// N=100 `402`/`302`, `live_bytes 3200`; at the 300/600 this runs, `live_bytes`
+/// 9600 -> 19200). The union arm and the concrete arm share the `StateAssign` rebuild, so a
+/// fix that only reaches the union path leaves this red.
+#[test]
+fn a_stateful_concrete_resource_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b644_concrete_state",
+        SOURCE,
+        300,
+        600,
+        "ok=",
+        "a stateful concrete resource leaks the STATE block each whole-record rebuild \
+         replaces (bug-644)",
+    );
+}
+
+/// bug-644's decline pin: with only the inline-scalar `hits` update, the in-place store
+/// path fires, no block is replaced and nothing is freed. Flat before the fix and after —
+/// it fails only if a fix frees a STATE block the resource still reads through
+/// `RESOURCE_OFFSET_STATE`, which would be a use-after-free, not a leak.
+#[test]
+fn an_in_place_state_scalar_update_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b644_state_inplace",
+        SOURCE,
+        300,
+        600,
+        "ok=",
+        "the in-place STATE scalar store must neither leak nor free a live STATE block \
+         (bug-644)",
+    );
+}
+
+/// bug-645: a `List OF RES Chan` that owns floated resource-union handles closes each one at
+/// drop but frees none of their memory. Measured at `1963472c6`: N=20 `alloc_calls 302`,
+/// `free_calls 102`, `live_bytes 16320`; N=40 `602`/`202`, `live_bytes 32640` — 816 B and
+/// 10 blocks per outer iteration over 3 elements, `double_free_skips 0`.
+#[test]
+fn an_owned_list_of_resource_unions_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\nIMPORT collections\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES Chan = []\n    FOR j = 1 TO 3\n      RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b645_union_list",
+        SOURCE,
+        20,
+        40,
+        "total=",
+        "an owned List OF RES of resource unions frees none of its elements' memory \
+         (bug-645)",
+    );
+}
+
+/// bug-645 on the concrete shape: measured on the main thread at `1963472c6`, a
+/// `List OF RES udp::Socket` of the same 3 floated elements leaks 576 B and 7 blocks per
+/// outer iteration (N=20 `alloc_calls 222`, `free_calls 82`, `live_bytes 11520`; N=40
+/// `442`/`162`, `live_bytes 23040`). So the drain frees almost nothing for EITHER element
+/// kind — the union only adds its box and variant record on top.
+#[test]
+fn an_owned_list_of_concrete_resources_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES udp::Socket = []\n    FOR j = 1 TO 3\n      RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b645_concrete_list",
+        SOURCE,
+        20,
+        40,
+        "total=",
+        "an owned List OF RES of concrete resources frees none of its elements' memory \
+         (bug-645)",
+    );
+}
+
+/// bug-646: every `thread::transfer` of a resource leaves one 96 B block live in the
+/// SENDER's arena. Measured at `1963472c6`: N=30 `alloc_calls 392`, `free_calls 362`,
+/// `live_bytes 2880`; N=60 `782`/`722`, `live_bytes 5760`, `double_free_skips 0`. The send
+/// path deep-copies the record into the sender's own arena for the queue (bug-498), the
+/// receiver copies it again at `thread::accept`, and nothing frees the queued copy.
+///
+/// Run at 100/200, not the doc's 30/60: 30/60 grows 2880 B, *under* [`BLOCK_BOUND`], so a
+/// test written to the doc's counts cannot fail. 100/200 grows 9600 B (measured).
+#[test]
+fn a_thread_resource_transfer_loop_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    LET a AS Thread OF RES udp::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b646_transfer",
+        SOURCE,
+        100,
+        200,
+        "total=",
+        "thread::transfer leaks the queued copy of the resource record (bug-646)",
+    );
+}
+
+/// bug-646 on the data plane: a `thread::send` of a String leaks 32 B per send in the
+/// sender's arena (measured on the main thread at `1963472c6`: N=30 `alloc_calls 332`,
+/// `free_calls 302`, `live_bytes 960`; N=60 `662`/`602`, `live_bytes 1920`; at the 200/400
+/// this runs, `live_bytes` 6400 -> 12800). Same queue hand-over, same missing owner for the
+/// queued copy — the bug doc's 64 B was an unverified estimate.
+#[test]
+fn a_thread_string_send_loop_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"hello-world\")\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b646_send",
+        SOURCE,
+        200,
+        400,
+        "total=",
+        "thread::send leaks the queued copy of the message (bug-646)",
+    );
+}

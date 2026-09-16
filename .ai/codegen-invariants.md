@@ -457,6 +457,19 @@ around an arbitrary value instead. Three traps around it:
   (whose negation raises `ErrUnderflow` for any non-zero operand). The i64::MIN spelling
   is safe because lowering folds `-9223372036854775808` to a single `Const`.
 
+**The desugar's delivery bypasses the ordinary value coercions.** `lower_inline_trap`
+stages the trapped expression in a `$trap_valN` temp typed with the **producer's** type,
+then hands it to the target as a bare `IrValue::Local(slot)` — while every other
+bind/assign path runs its value through `wrap_union_value` first. So a union-typed target
+initialized from a variant-typed fallible producer got no `UnionWrap` and held an untagged
+variant: `MATCH` on it read a tag that was never written and fell through EVERY case, with
+no diagnostic and a clean exit — the block silently skipped; in assignment position the
+same bind clobbered a previously-valid union value. Data unions and resource unions alike.
+Anything added to that delivery has to apply the coercions the ordinary path does
+(`wrap_trap_slot_value` is where they go). A `StateAssign` target can never need one: a
+STATE type must be copyable and defaultable (`TYPE_STATE_INVALID` 2-203-0085), which
+rejects a union outright.
+
 The scan and the rewrite (`scan_trap_call` / `rewrite_trap_call`) must agree, node for
 node, on which nodes are indexed — a position means `fallible[position]` to one and
 "lift or leave" to the other. Both ask the single `trap_hoist_kind` predicate; a
