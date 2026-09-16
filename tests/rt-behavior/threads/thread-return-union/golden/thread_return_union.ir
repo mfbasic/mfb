@@ -19,10 +19,10 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 6, "mutable": false, "name": "t", "type": "Thread OF String TO ReturnChoice", "value": { "kind": "call", "type": "Thread OF String TO ReturnChoice", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnUnion", "type": "ISOLATED FUNC(ThreadWorker OF String TO ReturnChoice, String) AS ReturnChoice" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "t", "type": "Thread OF String TO thread_runtime_workers.ReturnChoice", "value": { "kind": "call", "type": "Thread OF String TO thread_runtime_workers.ReturnChoice", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnUnion", "type": "ISOLATED FUNC(ThreadWorker OF String TO thread_runtime_workers.ReturnChoice, String) AS thread_runtime_workers.ReturnChoice" }, { "kind": "const", "type": "String", "value": "seed" }] } },
     { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "sent-union" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "line": 8, "mutable": false, "name": "result", "type": "ReturnChoice", "value": { "kind": "call", "type": "ReturnChoice", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "line": 9, "mutable": false, "name": "$match0", "type": "ReturnChoice", "value": { "kind": "local", "name": "result" } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "result", "type": "thread_runtime_workers.ReturnChoice", "value": { "kind": "call", "type": "thread_runtime_workers.ReturnChoice", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "$match0", "type": "thread_runtime_workers.ReturnChoice", "value": { "kind": "local", "name": "result" } },
     {
       "op": "match",
       "line": 9,
@@ -30,19 +30,19 @@
       "cases": [
       {
         "line": 10,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "ReturnOk" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "thread_runtime_workers.ReturnOk" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 10, "mutable": false, "name": "value", "type": "ReturnOk", "value": { "kind": "unionExtract", "type": "ReturnOk", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "bind", "line": 10, "mutable": false, "name": "value", "type": "thread_runtime_workers.ReturnOk", "value": { "kind": "unionExtract", "type": "thread_runtime_workers.ReturnOk", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "value" }, "member": "message" }] } }
         ]
       },
       {
         "line": 12,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "ReturnMissing" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "thread_runtime_workers.ReturnMissing" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 12, "mutable": false, "name": "value", "type": "ReturnMissing", "value": { "kind": "unionExtract", "type": "ReturnMissing", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "bind", "line": 12, "mutable": false, "name": "value", "type": "thread_runtime_workers.ReturnMissing", "value": { "kind": "unionExtract", "type": "thread_runtime_workers.ReturnMissing", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "returned-missing" }] } }
         ]
       }

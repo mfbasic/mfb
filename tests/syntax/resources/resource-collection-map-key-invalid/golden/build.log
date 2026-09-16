@@ -10,7 +10,7 @@ tests/syntax/resources/resource-collection-map-key-invalid/src/main.mfb:5 error[
    5 |   LET m AS Map OF fs::File TO Integer = Map OF fs::File TO Integer { }
      | ^
 tests/syntax/resources/resource-collection-map-key-invalid/src/main.mfb:5 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Map key type requires a comparable type, got `fs.File`.
+               Map key type requires a comparable type, got `fs::File`.
    3 | ' A resource may not be a Map key: handles are not comparable (§15.6).
    4 | FUNC main AS Integer
    5 |   LET m AS Map OF fs::File TO Integer = Map OF fs::File TO Integer { }
@@ -22,5 +22,5 @@ tests/syntax/resources/resource-collection-map-key-invalid/src/main.mfb:5 error[
    5 |   LET m AS Map OF fs::File TO Integer = Map OF fs::File TO Integer { }
      | ^
 tests/syntax/resources/resource-collection-map-key-invalid/src/main.mfb:5 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Map key type requires a comparable type, got `fs.File`.
+               Map key type requires a comparable type, got `fs::File`.
 [exit 1]

@@ -28,7 +28,7 @@
         "line": 9,
         "cases": [
         {
-          "pattern": { "kind": "union", "type": "ReturnOk", "binding": "value" },
+          "pattern": { "kind": "union", "type": "thread_runtime_workers.ReturnOk", "binding": "value" },
           "guard": null,
           "line": 10,
           "body": [
@@ -36,7 +36,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "ReturnMissing", "binding": "value" },
+          "pattern": { "kind": "union", "type": "thread_runtime_workers.ReturnMissing", "binding": "value" },
           "guard": null,
           "line": 12,
           "body": [

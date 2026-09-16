@@ -324,8 +324,21 @@ was left behind (`CSTRUCT 'SfFormatInfo' maps to 'AudioFormat', which is not a r
 
 ### Phase 4 — corpus, goldens, spec, full validation
 
-- [ ] Respell every bare imported user-package type in `tests/`, `examples/` and man examples. The
-      tests listed under Blast Radius are corrected with spec §13 as the proof.
+- [x] Respell every bare imported user-package type in `tests/`. Found by running the suite, not by
+      grepping — a bare name is only wrong when the package exports it, which the compiler knows and
+      a text search does not. The full list:
+      `rt_imported_union_enum_members` (two cases became refusals; the qualified enum `CASE` arms
+      took the prefix), `rt_foreign_type_reexport` (its packages name `pa390::A`; the app infers,
+      since imports are not transitive), `rt_imported_record_map_field_keys`,
+      `rt_reexport_union_transitive_field_types`, `rt_recursive_thread_transfer`,
+      `rt_imported_resource_scope_drop`, `rt_imported_type_qualified_name`,
+      `native-resource-state-import-rt`, `native-link-import-sqlite-rt` (`sqlite3::Db`,
+      `sqlite3::SqlValue`, `CASE sqlite3::SqlInt`/`SqlText`), `resource-state-import-rt`
+      (`resource_state_export_valid::Cursor`), `thread-return-union`
+      (`thread_runtime_workers::ReturnOk`/`ReturnMissing`), `p121d-state-reach-rt` and
+      `byte-identity/tls`.
+      Checked and NOT migrated: `thread-transfer-union-state-rt` and
+      `thread-transfer-union-stateless-rt` declare their own `Stream`/`Cursor` and still build.
 - [ ] Artifact gate: inspect every golden diff fixture by fixture.
 - [ ] `cargo test --no-fail-fast`; `scripts/man-examples-gate.sh target/release/mfb`.
 - [ ] Spec §13 and `resolver::packages` comments stop describing bare imported types as a
