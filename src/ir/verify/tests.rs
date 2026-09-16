@@ -6829,7 +6829,7 @@ fn enum_missing_member_wording() {
 // --- compatible: qualified bare-name ---------------------------------------
 
 #[test]
-fn accepts_qualified_type_name_match() {
+fn a_qualified_type_name_and_a_bare_one_are_different_types() {
     // bug-632: a `pkg.Point` value and a local `Point` are DIFFERENT types —
     // spec §13 gives an imported type a package-qualified identity, and the
     // bare-name equality this case used to assert is the confusion that
@@ -6837,7 +6837,7 @@ fn accepts_qualified_type_name_match() {
     // accepted the package's, whatever its fields).
     let body = vec![ret(IrValue::Local("p".to_string()))];
     let f = func_returns("run", "Point", vec![param("p", "pkg.Point", None)], body);
-    reject(
+    expect_rule(
         &project(vec![f], vec![record("Point", &["x"])]),
         "TYPE_RETURN_MISMATCH",
     );

@@ -18,7 +18,7 @@ FUNC cellText(cell AS SqlValue) AS String
 END FUNC
 
 FUNC main AS Integer
-  RES db AS Db = sqlite3::create(":memory:")
+  RES db AS sqlite3::Db = sqlite3::create(":memory:")
   sqlite3::createTable(db, "users", "id INTEGER, name TEXT")
   sqlite3::query(db, "INSERT INTO users VALUES (1, ?)", ["alice"])
   sqlite3::query(db, "INSERT INTO users VALUES (2, ?)", ["bob"])
