@@ -356,8 +356,9 @@ is always required.
 
 Each block is a new list. For ordinary values it holds copies of the
 corresponding elements, so nothing you do with a block affects `value`, and
-`value` is not modified. If `T` is a `RES` handle, a block holds an alias of the
-same open resource: closing it through either list closes it for both.
+`value` is not modified. If `T` is a `RES` handle, the current build closes those
+resources during the call, so the handles in `value` are already closed afterwards;
+do not pass a list of open resources to `chunks`.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `chunks` copies contiguous ranges and never inspects an element, so

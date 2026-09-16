@@ -678,7 +678,46 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 ### Phase 4 — collections (50 units)
 
 - [ ] 49 function pages + overview.
-      **Progress (2026-09-15):** 27 of 50 reviewed and applied. Round 1 (4):
+      **Progress (2026-09-16):** 49 of 50 reviewed and applied. Round 3 (22):
+      `merge`, `mid`, `partition`, `prepend`, `reduce`, `reduceRight`, `remove`,
+      `removeAt`, `removeKey`, `replace`, `set`, `sort`, `sortBy`, `sum`,
+      `symmetricDifference`, `take`, `toList`, `toSet`, `transform`, `union`, `values`
+      (no findings), `zip`. The Codex usage limit stopped the batch on its last unit,
+      `window`, which is the only entry left in
+      `planning/plan-125-units/C-phase4-retry.txt`. My own probe-verified `window`
+      fixes are applied without its review: the run-together sentence, and the
+      bug-643 statement that the call closes resource handles.
+      Round-3 probes: `/tmp/p125-ex/colmix5`, `colmix6`, `colmerge`, `colprep`,
+      `colprep2`, `colsortf`, `colsortb`, `colsortby`, `colsumtrap`, `colsumfixed`,
+      `colsumflt`, `colsumflt2`, `colsumflt3`, `colmid`, `colrr`, `colrk`, `colrepf`,
+      `coltakeres`, `coltolist`, `coltransfn`, `colwin`, `colwin2`, `colwin3`,
+      `colchunkclose`.
+      Rejected in round 3: `set` #3/#4 and `replace` #1 — true "cheap shape" and
+      copy-cost guidance that plan-108-D kept deliberately (its ledger row names
+      `set`); `symmetricDifference` #3 — the "`T` is inferred… must be comparable"
+      sentence stays identical across all seven set pages.
+      Bugs filed in round 3:
+      - **bug-642**: a type error inside a source-generic builtin (`sort` over
+        `Boolean`) is reported at `main.mfb:43` in an 8-line file;
+      - **bug-643**: `chunks` and `window` close the caller's resource handles during
+        the call (`take`/`mid` controls stay open);
+      - **bug-644**: an inline `TRAP` on an overflowing `Float` `sum` returns
+        `1.797e308` instead of raising or recovering;
+      - **bug-645**: per-overload declared errors are wrong (`set` map overload,
+        `sum` `Float` overload).
+      bug-641 now lists every confirmed `ErrOutOfMemory` raise path.
+      Every "can raise `ErrOutOfMemory`" sentence added to a page is backed by a
+      traced raise site (`lower_collection_end_insert`, `lower_map_set_in_place`,
+      `lower_map_projection`, `lower_reserved_list`, `lower_list_replace`,
+      `func_zip.rs:175`).
+      Correction to my own round-2 edit: the `chunks` page said a block "holds an
+      alias of the same open resource". The bug-643 probe showed the call itself
+      closes the handles, so the page now states that as-is.
+      Not a bug after checking: an inline `TRAP` on `sum` catches `Integer` and
+      `Fixed` overflow; `prepend` rejects a flat list item at the call
+      (`TYPE_CALL_ARGUMENT_MISMATCH`), the first probe's error was only masked by a
+      downstream one.
+      **Earlier (2026-09-15):** 27 of 50 reviewed and applied. Round 1 (4):
       overview, `add`, `all`, `any`. Round 2 (23): `append`, `chunks`, `contains`,
       `difference`, `distinct`, `drop`, `filter`, `find`, `findIndex`,
       `findLastIndex`, `flatten`, `forEach`, `get`, `getOr`, `groupBy`, `hasKey`,

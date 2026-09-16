@@ -92,6 +92,30 @@ builds its result through `lower_reserved_list`. Every member that builds a new
 list that way — `filter`, `transform`, and the other higher-order helpers — belongs
 in the Phase 1 census.
 
+A third site sits outside `collections/` and would be missed by a directory-scoped
+census: `collections::replace` lowers in
+`src/codegen/string/repr/builder_strings.rs:lower_list_replace`, which raises
+`ErrOutOfMemory` both on allocation failure and on result-size overflow (the
+`replace_list_alloc_ok` / `replace_list_overflow` branches), while
+`func_replace.rs` declares no errors. `merge`, `removeKey` and `groupBy` were also
+confirmed during plan-125-C Phase 4 triage.
+
+Confirmed raise paths, traced to a real `raise_error_bare("ErrOutOfMemory")` or
+`runtime_error("ErrOutOfMemory")` site (not to page prose):
+
+| Member | Path to the raise |
+|---|---|
+| `append`, `prepend`, `insert` | `gen_mutate.rs:lower_collection_end_insert` → `list_mutate.rs:lower_list_insert_collection` |
+| `add` (and `toSet`, built on it) | `collection/map/map_mutate.rs:lower_map_set_in_place` |
+| `keys` | `gen_memory.rs:lower_map_projection` |
+| `partition` | its body calls `collections::append` |
+| `filter`, `transform` | `gen_mutate.rs:lower_reserved_list` |
+| `replace` | `string/repr/builder_strings.rs:lower_list_replace` |
+| `zip` | `func_zip.rs:175` |
+| `merge`, `removeKey`, `groupBy` | cited by their plan-125-C reviews (`func_merge.rs:copy_map_with_capacity`, `gen_mutate.rs:lower_map_remove_key`, `func_group_by.rs:lower_collection_group_by_call`) |
+
+Each of these descriptors declares `errors: vec![]` for the affected overloads.
+
 Each needs its own verdict in Phase 1: reaches the raise (declare it), or only
 allocates through a path that cannot fail that way (leave as is). Also check
 `strings` and other packages that build new collection values through the same

@@ -9,13 +9,9 @@
 const INTRO: &str = r#"Return a new list holding the first `count` elements of a list"#;
 
 const DESC: &str = r#"`collections::take` returns a new list containing the leading `count` elements
-of `value`, in their original order.`take(value, count)` is defined as the half-open range `[0, count)` of `value`,
-The selected elements are copied as a
-bulk range copy, and that is what defines the boundary behavior:
-the range start is clamped into `[0, len]` and the range stop into
-`[start, len]`.
+of `value`, in their original order.
 
-That clamping makes `take` **total** — every `Integer` value of `count` is
+`take` is **total** — every `Integer` value of `count` is
 accepted and no index is ever rejected:
 
 - `count` of 0 or any negative value clamps the stop back to the start, so the
@@ -24,8 +20,9 @@ accepted and no index is ever rejected:
   length, so the whole list is returned.
 - Otherwise the result holds exactly `count` elements.
 
-The result is a new list; the elements are copied into it, so
-nothing you do with the result affects `value`. `value` is not modified.
+The result is a new list; `value` is not modified. For ordinary values the
+elements are copies. If `T` is a `RES` handle, the result holds an alias of the
+same open resource: closing it through either list closes it for both.
 `collections::drop` is the complementary operation, returning what `take` leaves
 behind.
 

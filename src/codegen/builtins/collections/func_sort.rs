@@ -570,17 +570,14 @@ impl CodeBuilder<'_> {
 const INTRO: &str = r#"Return a new list holding the elements of a list in ascending order"#;
 
 const DESC: &str = r#"`collections::sort` returns a new list containing every element of `value`
-arranged in ascending order.The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
-width 1 are merged into runs of width 2, then 4, and so on, until a single run
-covers the list. The merge is **stable**: when a left-run element and a
-right-run element compare equal, the left-run element is emitted first, because
-the right-run element is taken only when it is *strictly less than* the left-run
-element. Elements that compare equal therefore keep their original relative
-order.
+arranged in ascending order.
+
+Sorting uses O(n log n) comparisons and is **stable**: elements that compare equal
+keep their original relative order.
 
 Ordering is determined entirely by the `<` operator applied to whole elements.
-For the numeric element types that is numeric order; for `String` it is the
-ordering the `<` operator defines on strings; for `Scalar` it is codepoint
+For the numeric element types that is numeric order; for `String` it is unsigned UTF-8 byte order, so it is neither locale-aware nor
+case-insensitive and uppercase ASCII letters sort before lowercase; for `Scalar` it is codepoint
 order. There is no descending form, no comparison-function parameter, and no
 locale or case-insensitivity option. To sort by something other than the element
 itself, use `collections::sortBy`, which orders by a computed key.
@@ -597,11 +594,9 @@ the instantiated element type must be one the `<` operator accepts: `Integer`,
 `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`. `Money` compares only
 against `Money`, and `Scalar` never orders against `String`.
 
-The constraint is enforced once the element type is known, when the generic body has
-been given a concrete element type. Sorting a list whose element type the `<`
-operator does not accept — a `Boolean`, a record, a nested `List`, or a `Map` —
-is a compile-time `TYPE_BINARY_OPERATOR_MISMATCH` error reported against the
-comparison inside the merge, not a runtime failure."#;
+A list whose element type the `<` operator does not accept — a `Boolean`, a
+record, a nested `List`, or a `Map` — does not compile
+(`TYPE_BINARY_OPERATOR_MISMATCH`)."#;
 
 const EX: &str = r#"Sort a list of integers:
 

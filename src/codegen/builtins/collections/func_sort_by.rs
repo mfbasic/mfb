@@ -563,23 +563,20 @@ const INTRO: &str = r#"Return a new list ordered ascending by a key computed fro
 
 const DESC: &str = r#"`collections::sortBy` returns a new list containing every element of `value`,
 arranged in ascending order of the key `keyFn(element)`. The elements themselves
-are never compared; only the keys are.`keyFn` is applied to the whole list up front, in one pass, via
-`collections::transform`, producing a parallel list of keys. Each element's key
+are never compared; only the keys are.
+
+`keyFn` is applied to every element before any comparison. Each element's key
 is therefore computed **exactly once**, no matter how many comparisons that
 element takes part in. `keyFn` must be a function value — for example a named
 `FUNC` — and it is called once per element, in index order, before any
 comparison happens.
 
-The sort is a bottom-up merge sort with O(n log n) comparisons, merging runs of
-width 1, then 2, then 4, and so on. Items and their keys are carried through the
-merge in parallel, so an element always travels with its own key. The merge is
-**stable**: a right-run item is taken only when its key is *strictly less than*
-the left-run item's key, so elements whose keys compare equal keep their original
-relative order.
+The sort uses O(n log n) comparisons and is **stable**: elements whose keys compare
+equal keep their original relative order. If `keyFn` fails for an element, its
+error propagates and no list is returned.
 
-When `value` has fewer than two elements, `sortBy` returns `value` unchanged.
-In that case `keyFn` is never called, because the key pass is skipped along with
-the sort.
+When `value` has fewer than two elements, `sortBy` returns it unchanged. `keyFn`
+is not called for an empty list and is called once for a one-element list.
 
 There is no descending form. To order descending by a numeric key, have `keyFn`
 return the negated key. `value` is not modified.
@@ -593,9 +590,8 @@ accepts — `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`.
 
 `T` carries no ordering requirement. A list of records, of nested lists, or of
 any other unordered element type sorts fine as long as `keyFn` projects it to an
-orderable `U`. A `U` the `<` operator does not accept is a compile-time
-`TYPE_BINARY_OPERATOR_MISMATCH` error, reported once the element type is known, against
-the key comparison inside the merge."#;
+orderable `U`. If `keyFn` returns a type the `<` operator cannot order, the program does not
+compile (`TYPE_BINARY_OPERATOR_MISMATCH`)."#;
 
 const EX: &str = r#"Sort descending by negating an integer key:
 

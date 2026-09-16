@@ -23,14 +23,10 @@ therefore always raises, since no index satisfies the range.
 
 `removeAt` does not change `value`. The list it names is unchanged; the
 shortened list is the returned value, and a program observes the update only
-through what it does with that return value. Unlike `append`, `prepend`, and
-`set`, there is no cheap in-place shape for `removeAt`: every call copies the
-list.
+through what it does with that return value.
 
-`removeAt` is **fallible**: the range check is a real trappable domain error, so
-an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
-failure rather than being reported as a dead handler. The bounds test runs before
-the result is built, so a rejected index builds nothing.
+An out-of-range `index` raises `ErrIndexOutOfRange`, which an inline `TRAP` on
+the call can catch.
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not

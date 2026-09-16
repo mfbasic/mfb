@@ -17,7 +17,7 @@ calls `action` once per element, passing the element as the single argument.
 
 The loop visits each element once, front to back, with no
 reordering and no skipping, so `action` observes exactly the elements of `value`
-in their stored order. `value` is neither copied nor modified; `forEach` builds
+in their stored order. `value` is not modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.
 
 `action` must accept exactly one argument of the element type `T` and its

@@ -80,19 +80,31 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 44 | `encoding::utf8Decode` | `The overload is settled once the argument type is known, so the selection is a compile-time decision, not a runtime dispatch.` | `internals` | language | OPEN | — |
 | 45 | `encoding::punycodeEncode` | `The input `String` is decoded to Unicode scalar values through the package's UTF-8 decoder before encoding.` | `internals` | stdlib | OPEN | — |
 | 46 | `collections (overview)` | `and access reads without copying the collection.` | `internals` | memory | OPEN | — |
-| 47 | `collections::any`, `all`, `findIndex`, `findLastIndex` | `the callback position proven non-escaping is `collections::forEach`, not `any`.` (same sentence on each of the four pages) | `internals` | language | OPEN | — |
+| 47 | `collections::any`, `all`, `findIndex`, `findLastIndex`, `partition` | `the callback position proven non-escaping is `collections::forEach`, not `any`.` (same sentence on each of the four pages) | `internals` | language | OPEN | — |
 | 48 | `collections::contains` | `the compiler picks the overload from the static type of the first argument` | `internals` | language | OPEN | — |
 | 49 | `collections::append` | `The compiler picks the overload from the static type of that argument: an argument whose type is exactly the element type appends one element, and an argument whose type is exactly the same list type concatenates.` | `internals` | language | OPEN | — |
-| 50 | `collections::drop` | `The remaining elements are copied as a bulk range copy, and that is what defines the boundary behavior: the range start is clamped into `[0, len]` and the range stop into `[start, len]`.` | `internals` | memory | OPEN | — |
-| 51 | `collections::difference` | `Running out of memory is not a trappable domain error, and the `add` it is built on is classified infallible.` | `internals` | stdlib | OPEN | — |
+| 50 | `collections::drop`, `take` | `The remaining elements are copied as a bulk range copy, and that is what defines the boundary behavior: the range start is clamped into `[0, len]` and the range stop into `[start, len]`.` | `internals` | memory | OPEN | — |
+| 51 | `collections::difference`, `intersection`, `partition`, `symmetricDifference`, `toSet`, `union` | `Running out of memory is not a trappable domain error, and the `add` it is built on is classified infallible.` | `internals` | stdlib | OPEN | — |
 | 52 | `collections::forEach` | ``action` is invoked through the shared direct-callable path, which restores a closure's captured environment around each call, so a callable value that carries an environment works as well as a plain named reference.` | `internals` | language | OPEN | — |
 | 53 | `collections::forEach` | `Because `forEach` holds no accumulator, no cleanup runs on that path.` | `internals` | memory | OPEN | — |
 | 54 | `collections::get` | `it is raw-supported, so an inline `TRAP` on a `collections::get` call catches the real runtime error.` | `internals` | language | OPEN | — |
 | 55 | `collections::get`, `getOr` | `Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean` is a direct lookup; other key types are found by scanning the map.` | `internals` | memory | OPEN | — |
-| 56 | `collections::hasKey`, `contains`, `get`, `getOr` | `The map is neither copied nor mutated, and the matching value is never copied out — only the key is compared.` (the same copy-detail claim on all four) | `internals` | memory | OPEN | — |
+| 56 | `collections::hasKey`, `contains`, `get`, `getOr`, `toList` | `The map is neither copied nor mutated, and the matching value is never copied out — only the key is compared.` (the same copy-detail claim on all four) | `internals` | memory | OPEN | — |
 | 57 | `collections::groupBy` | ``groupBy` is generic over three template parameters: `T`, the element type of `value`; `K`, the key type returned by `keyFn`; and `V`, the value type returned by `valFn`. All three are inferred from the argument types ... `V` cannot be supplied from the annotation on the binding that receives the result.` | `internals` | language | OPEN | — |
 | 58 | `collections::difference`, `intersection`, `isDisjoint`, `isSubset`, `isSuperset` | `A call whose arguments are not both sets of the same element type does not resolve and is rejected at compile time.` | `internals` | language | OPEN | — |
-| 59 | `collections::add`, `contains`, `hasKey`, `keys` | `an inline `TRAP` written on an `add` call has a dead handler.` | `internals` | diagnostics | OPEN | — |
+| 59 | `collections::add`, `contains`, `hasKey`, `keys`, `remove`, `replace`, `toList`, `values` | `an inline `TRAP` written on an `add` call has a dead handler.` | `internals` | diagnostics | OPEN | — |
+| 60 | `collections::remove`, `prepend` | `When the compiler can prove the target is a same local being reassigned — the `set = collections::remove(set, x)` shape — is the cheap shape: it updates the set rather than building a second one.` | `internals` | memory | OPEN | — |
+| 61 | `collections::prepend` | `prepending must shift every existing lookup entry right by one, so a repeated prepend stays O(n) per call even on the in-place path, unlike `append`.` | `internals` | memory | OPEN | — |
+| 62 | `collections::removeAt`, `insert` | `The bounds test runs before the result is built, so a rejected index builds nothing.` | `internals` | memory | OPEN | — |
+| 63 | `collections::removeKey` | `It does not edit `value` in place: it counts the entries it will keep and how much room they need, builds a new map, and copies the retained entries into it.` | `internals` | memory | OPEN | — |
+| 64 | `collections::reduce` | `No cleanup runs on that path, since the accumulator may still be the `initial` value you passed in.` | `internals` | memory | OPEN | — |
+| 65 | `collections::transform`, `filter` | `The partially built output is discarded on that path before the error leaves.` | `internals` | memory | OPEN | — |
+| 66 | `collections::sort`, `sortBy` | `The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of width 1 are merged into runs of width 2, then 4, and so on, until a single run covers the list. The merge is **stable**: when a left-run element and a right-run element compare equal, the left-run element is emitted first, because the right-run element is taken only when it is *strictly less than* the left-run element.` | `internals` | stdlib | OPEN | — |
+| 67 | `collections::sort`, `sortBy` | `The constraint is enforced once the element type is known, when the generic body has been given a concrete element type. ... reported against the comparison inside the merge` | `internals` | diagnostics | OPEN | — |
+| 68 | `collections::sortBy` | ``keyFn` is applied to the whole list up front, in one pass, via `collections::transform`, producing a parallel list of keys.` | `internals` | stdlib | OPEN | — |
+| 69 | `collections::sum` | ``Fixed` shares the `Integer` path because it is a scaled 64-bit integer.` | `internals` | stdlib | OPEN | — |
+| 70 | `collections::sum` | `any other element type fails to resolve at compile time, and the call rejects it a second time.` | `internals` | diagnostics | OPEN | — |
+| 71 | `collections::symmetricDifference` | `It is computed as a two-pass fold: it keeps each element of `a` that `collections::contains` reports as absent from `b`, then adds each element of `b` that is absent from `a`.` | `internals` | stdlib | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -122,7 +134,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 | Letter | Rows appended | Running total |
 |---|---|---|
 | B | — | — |
-| C | 32 | 59 |
+| C | 44 | 71 |
 | D | — | — |
 | E | — | — |
 | F | — | — |

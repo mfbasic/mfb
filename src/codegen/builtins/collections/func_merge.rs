@@ -350,7 +350,8 @@ guarantee beyond that should be relied on; see `mfb man types map`. Note that
 overwriting an existing key when `preferB` is `TRUE` replaces its value and does
 not move the key to the end.
 
-`merge` invokes no user callback and raises no error.
+`merge` invokes no user callback and raises no error of its own. Building the
+result needs memory, so it can raise `ErrOutOfMemory`.
 
 `merge` is generic over `K` and `V`, the key and value types of the maps. Both
 `a` and `b` bind the same `K` and the same `V`, so the two maps must have

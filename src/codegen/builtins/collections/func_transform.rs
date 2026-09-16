@@ -21,18 +21,18 @@ The element type of the result is `f`'s success type `U`, so mapping a
 `List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
 `U` may differ from `T` or equal it.
 
-`f` must be a callable *value* — a reference to a declared `FUNC`, or a
-`LAMBDA`. An overloaded built-in such as `toString` is not a callable value and
+`f` must be a callable *value* — a declared `FUNC`, a `LAMBDA`, or a `FUNC` value
+such as a function parameter of a matching type. An overloaded built-in such as `toString` is not a callable value and
 cannot be passed here; wrap it in a one-line `FUNC` of your own instead. The
 single-argument `general` predicates (`isEven`, `isOdd`, and friends) *are*
 ordinary callables and can be passed directly where their type fits.
 
 `f` must produce a value: a callback whose success type is `Nothing` — such as a
-`SUB` — does not resolve, because there would be nothing to collect. Use
+`SUB` — is a compile-time error, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
 
-`value` is neither modified nor closed; the result is a new list with exactly
-one value per source element, in the same order.
+`value` is not modified; the result is a new list with exactly one value per
+source element, in the same order.
 
 An empty `value` calls `f` zero times and yields an empty `List OF U`.
 
@@ -40,8 +40,7 @@ An empty `value` calls `f` zero times and yields an empty `List OF U`.
 because a failing `f` propagates: when the callback fails,
 the loop stops immediately at that element, later elements are never visited, no
 result list is produced, and the callback's own error is passed through
-unchanged. The partially built output is discarded on that path before the error
-leaves.
+unchanged.
 
 An inline `TRAP` on a `transform` call captures that propagated callback error
 at the call site rather than letting it auto-propagate."#;

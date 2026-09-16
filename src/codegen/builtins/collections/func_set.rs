@@ -25,7 +25,8 @@ missing position is an error:
   Use `collections::append` or `collections::insert` to grow a list.
 
 - For a **map**, the key need not exist. When the key is present its value is
-  overwritten; when it is absent a new entry is inserted. The map overload has no
+  overwritten and that entry moves to the end of the map's order; when it is absent
+  a new entry is inserted at the end. The map overload has no
   failure path at all — it raises no domain error for any key.
 
 `set` does not change its argument in either overload. The collection named by `value` is
@@ -130,7 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "index",
-                        desc: "The list index to overwrite, zero-based. It must already exist; `set` does not extend a list.",
+                        desc: "The map key to assign. A missing key is inserted; no numeric range applies.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,

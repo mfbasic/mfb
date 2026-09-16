@@ -15,25 +15,21 @@ neither is optional and neither is variadic.
 Unlike `collections::append`, `prepend` has **only** the single-element form.
 There is no list-into-list overload: the second argument must have exactly the
 element type `T`, and passing another `List OF T` resolves no overload and is a
-compile-time error. A list-typed item is rejected explicitly as well.
+compile-time error. When the element type is itself a list, a list is a valid
+item and is added as one element.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 
 `prepend` is `insert` at index `0`.
 
 `prepend` does not change `value`. The list it names is unchanged; the modified
-list is the returned value. When the compiler can prove the target is a uniquely
-same local being reassigned — the `list = collections::prepend(list, x)` shape,
-on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
-it inserts into the existing list rather than copying it
-instead of a full copy. This is an optimization only; the observable semantics
-are identical either way. Note that prepending must shift every existing lookup
-entry right by one, so a repeated prepend stays O(n) per call even on the
-in-place path, unlike `append`.
+list is the returned value. Each prepend shifts every existing element one
+position later, so repeated prepends cost O(n) per call; use `append` when
+building a list in forward order.
 
-`prepend` is **infallible**: nothing it does raises a trappable error. It has no
-index to range-check and no lookup to miss, so an inline `TRAP` written on a
-`prepend` call has a handler that can never run, and the compiler reports it.
+`prepend` has no index to range-check and no lookup to miss, so it raises no
+error of its own. Building the result needs memory, so it can raise
+`ErrOutOfMemory`.
 
 Prepending to an empty list yields a one-element list."#;
 
@@ -88,7 +84,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The list to prepend to. Not modified — you get a new list back.",
+                    desc: "The list to prepend to. It may be empty, in which case the result has one element. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,

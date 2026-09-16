@@ -36,8 +36,7 @@ An empty `value` calls `predicate` zero times and yields an empty list.
 `filter` raises no domain error of its own. It fails when a failing `predicate`
 propagates: when the callback fails, the loop stops immediately at that element, later elements are never
 visited, no result list is produced, and the callback's own error is passed
-through unchanged. The partially built output is discarded on that path before the
-error leaves.
+through unchanged.
 
 An inline `TRAP` on a `filter` call captures that propagated callback error at
 the call site rather than letting it auto-propagate."#;
