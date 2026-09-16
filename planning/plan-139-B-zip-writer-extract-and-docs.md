@@ -24,7 +24,7 @@ See plan-139-A § Prerequisites (all rows must be MET), plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-A complete | every `- [ ]` in `planning/plan-139-A-*.md` ticked; `target/release/mfb test packages/zip` → pass | NOT MET (2026-09-15) |
+| plan-139-A complete | every `- [ ]` in `planning/plan-139-A-*.md` ticked; `target/release/mfb test packages/zip` → pass | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-A-*.md` → 13 unticked; `ls packages/zip` → `No such file or directory`. plan-139-A is itself blocked on its own two `fs` prerequisite rows.) |
 
 Everything below is written against the world where these hold.
 

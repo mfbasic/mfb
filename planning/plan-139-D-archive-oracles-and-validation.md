@@ -22,7 +22,7 @@ See plan-139-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-C complete | every `- [ ]` in `planning/plan-139-C-*.md` ticked | NOT MET (2026-09-15) |
+| plan-139-C complete | every `- [ ]` in `planning/plan-139-C-*.md` ticked | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-C-*.md` → 10 unticked; the whole A→B→C→D chain is blocked at plan-139-A's `fs` prerequisite gate.) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run before you
 > continue and before you stop; if you stop, report all prerequisites.
