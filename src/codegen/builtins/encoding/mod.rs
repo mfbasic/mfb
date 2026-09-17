@@ -98,6 +98,7 @@ mod helper_is_alpha_num;
 mod helper_is_unreserved;
 mod helper_label_has_non_ascii;
 mod helper_leb128_emit;
+mod helper_leb128_read;
 mod helper_low_bits;
 mod helper_parse_decimal;
 mod helper_parse_hex;
@@ -190,6 +191,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_parse_decimal::register(&mut pkg);
     helper_parse_hex::register(&mut pkg);
     helper_leb128_emit::register(&mut pkg);
+    helper_leb128_read::register(&mut pkg);
     helper_puny_adapt::register(&mut pkg);
     helper_puny_digit::register(&mut pkg);
     helper_puny_value::register(&mut pkg);

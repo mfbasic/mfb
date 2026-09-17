@@ -103,12 +103,38 @@ host label or by a round trip of ordinary text (bug-510).
 
 - **`uleb128Encode`/`Decode`** are unsigned LEB128 (7 data bits per byte, high bit
   = continuation). Encoding fails on a negative value; decoding fails on a
-  sequence wider than 64 bits or one that ends without a terminating byte.
+  sequence that ends without a terminating byte, or on a value that does not fit
+  an `Integer` as a non-negative number.
 - **`sleb128Encode`/`Decode`** are signed LEB128 with the standard sign-bit
-  termination test and sign extension on decode.
+  termination test and sign extension on decode. Decoding fails on a value
+  outside the `Integer` range.
 - **`varintEncode`/`Decode`** map the signed value through ZigZag
   (`(n << 1) XOR (n >> 63)`) and then unsigned LEB128, so small-magnitude negative
-  numbers stay short. Decoding reverses the ZigZag mapping.
+  numbers stay short. Decoding reverses the ZigZag mapping; the ZigZag pattern
+  uses all 64 bits, so `varintEncode` of the most negative `Integer` is ten bytes
+  ending in `0x01`.
+
+**The 64-bit bound is enforced on the tenth byte** (bug-619). Nine bytes carry
+bits 0..62, so a tenth byte starts at bit 63 and can hold exactly one more bit of
+a 64-bit value. The decoders read it and then check its whole value (payload and
+continuation bit) before folding it in, rather than checking the shift before
+the read — the earlier pre-read `shift > 63` test let a tenth byte through and
+`bits::sl(payload, 63)` dropped every payload bit above the lowest. The allowed
+tenth bytes are exactly those that terminate the sequence and name an in-range
+value, so an eleventh byte is never reached:
+
+| Member | Allowed tenth byte | Why |
+|---|---|---|
+| `uleb128Decode` | `0x00` | bit 63 set would make the `Integer` result negative |
+| `varintDecode` | `0x00`, `0x01` | the ZigZag pattern is an unsigned 64-bit value |
+| `sleb128Decode` | `0x00`, `0x7F` | the byte is bit 63 plus its own sign extension |
+
+The unsigned read is one shared helper, `__encoding_leb128Read(data, tenthMax)`,
+the inverse of `__encoding_leb128Emit`: `uleb128Decode` passes `0` and
+`varintDecode` passes `1`. [[src/codegen/builtins/encoding/helper_leb128_read.rs:BODY]]
+`sleb128Decode` keeps its own loop because its sign extension needs the
+terminating byte. [[src/codegen/builtins/encoding/func_sleb128_decode.rs:BODY]]
+Every rejection raises `ErrInvalidFormat` with the message `leb128 overflow`.
 
 ## Legacy single-byte codepages
 
