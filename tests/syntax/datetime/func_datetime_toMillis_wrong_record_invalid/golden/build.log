@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid
+   4 |   ' datetime::toMillis has one overload: (at AS datetime::Instant) AS Integer.
+   5 |   ' A DateTime is a different record, not an Instant.
+   6 |   LET a AS Integer = datetime::toMillis(datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::utc()))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `datetime.toMillis` has argument type(s) (datetime.DateTime), expected Instant.
+   4 |   ' datetime::toMillis has one overload: (at AS datetime::Instant) AS Integer.
+   5 |   ' A DateTime is a different record, not an Instant.
+   6 |   LET a AS Integer = datetime::toMillis(datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::utc()))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   6 |   LET a AS Integer = datetime::toMillis(datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::utc()))
+   7 |   ' A Date is a different record.
+   8 |   LET b AS Integer = datetime::toMillis(datetime::date(2026, 3, 7))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `datetime.toMillis` has argument type(s) (datetime.Date), expected Instant.
+   6 |   LET a AS Integer = datetime::toMillis(datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::utc()))
+   7 |   ' A Date is a different record.
+   8 |   LET b AS Integer = datetime::toMillis(datetime::date(2026, 3, 7))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   8 |   LET b AS Integer = datetime::toMillis(datetime::date(2026, 3, 7))
+   9 |   ' A Duration has an Instant's fields, but is still a different record.
+  10 |   LET c AS Integer = datetime::toMillis(datetime::duration(90))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `datetime.toMillis` has argument type(s) (datetime.Duration), expected Instant.
+   8 |   LET b AS Integer = datetime::toMillis(datetime::date(2026, 3, 7))
+   9 |   ' A Duration has an Instant's fields, but is still a different record.
+  10 |   LET c AS Integer = datetime::toMillis(datetime::duration(90))
+     | ^
+tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+[exit 1]
