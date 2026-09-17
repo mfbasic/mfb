@@ -1,12 +1,12 @@
 # bug-648: a trapped `tcp/udp/tls::poll` result tombstones the live list element it borrowed
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 Effort: medium (1h–2h)
 Severity: **HIGH** (a live, still-owned handle is flagged `moved|closed`)
 Class: Correctness (resource lifetime)
 
 Status: Open
-Regression Test: none yet — see Phase 1
+Regression Test: `tests/net/rt_inline_trap_borrowed_resource.rs` (5 cases, RED at 3b94f621e)
 
 `tcp::poll`/`udp::poll`/`tls::poll` over a `List OF RES …` returns a **borrowed** pointer to
 an element the list still owns (§15.6). Under an inline `TRAP`, that borrowed result is run
@@ -27,31 +27,51 @@ References:
 
 ## Failing Reproduction
 
-**Not yet written.** `tests/rt-behavior/tcp/tcp-udp-poll-list-trap-rt` has the right SHAPE but
-never reaches the defect: its polls always time out, so the success arm that makes the copy is
-never taken. A reproduction must make `poll` actually **return an element** — e.g. a loopback
-socket with data already pending — and then observe the element afterwards (poll it again,
-send on it, or let the list drop and count closes).
+Measured on the main thread at `3b94f621e` (macos-aarch64, debug `mfb`). Every case is a
+case in `tests/net/rt_inline_trap_borrowed_resource.rs`, run under `ulimit -n 64`:
 
-Phase 1's first job is to produce that reproduction and confirm the tombstone; until then the
-mechanism is read from the source, not measured.
+| case | shape | observed |
+|---|---|---|
+| tcp/udp poll | `FOR i = 1 TO 3 … RES ready = tcp::poll(socks, 5000) TRAP(e) … END TRAP; tcp::read(ready)` | `tcp 1 t`, then `Error: 7-703-0004` (already closed) |
+| tls poll | same loop, `openssl s_client` peer | `tls 1 TRUE`, then `tls poll trapped Resource handle is already closed.` |
+| get | `RES got = collections::get(socks, 0) TRAP(e)` in a loop, then an untrapped `poll` | `get 1 g`, then `7-703-0004` **and** `Cleanup failure: 7-703-0009` (moved) at the list's drop |
+| RECOVER alias | `RES c = udp::bind(badHost, 0) TRAP … RECOVER outer` in a loop | `7-703-0004` on iteration 2: `outer` was closed at the end of iteration 1 |
+| mixed | borrowed `poll` success + `RECOVER udp::bind(...)` | `7-703-0004` on the first poll after a borrowed success |
+
+The same `tcp::poll` loop **without** `TRAP` prints all three iterations and exits 0, so the
+defect is TRAP-specific. `tests/rt-behavior/tcp/tcp-udp-poll-list-trap-rt` never saw it for the
+reason this doc gave (its polls time out) and a second one: its list and its trap binding share
+one function scope, so a close at scope exit is indistinguishable from the list's own.
 
 ## Root Cause
 
-To confirm. `copy_resource_to_current_arena` flags the source record `moved|closed` after
-copying it into the destination arena. For a thread hand-over that is correct — the sender
-really has given the handle away. For a **borrowed** `poll` result it is not: the source is a
-live element the list still owns and will close at its own drop.
+**The doc's mechanism is right for `get` and wrong for `poll`.** `mfb build -ncode` of the
+tcp poll loop contains no `thread_copy_resource*` label at all: the list-`poll` result never
+reaches `copy_resource_to_current_arena`. The single root cause that covers every row is in
+ownership, not in the copy:
 
-bug-643 deliberately left this path on the copy rather than extending its pointer-carry to it:
-carrying the pointer would hand the `TRAP` binding a close obligation on an element the list
-also closes — a double free, strictly worse than the tombstone. So the fix is neither "carry
-the pointer" nor "keep copying": the borrowed case needs the copy **without** the source flag,
-or no copy and no obligation. Deciding which is the work.
+1. **The `$trap_valN` temp owns whatever it is assigned** (`builder_control.rs`, `NirOp::Bind`).
+   The inline-TRAP desugar (`ir/lower.rs`) binds `MUT $trap_valN : T` with **no initializer**,
+   assigns it `ResultValue($trap_resN)` on Ok and the `RECOVER` value on Err, then binds the
+   user's name to `Local($trap_valN)`. The user bind is an alias (`value_aliases_live_resource`
+   says `Local` → no cleanup). `$trap_valN` has no value to classify, so `owns_resource_slot`
+   is true and it registers `ActiveCleanup::Resource` — with `frees_record` set for the net
+   handles. At its scope exit it closes the list's element **and frees its 96-byte record**.
+   Every borrowed Ok value and every aliasing `RECOVER` value (`RECOVER outer`, a field, a
+   borrowed call) is wrongly owned.
+2. **The Ok-path `Result` wrap deep-copies a borrowed SENDABLE element** (`get` only).
+   `lower_inline_builtin_raw`/`lower_inline_infallible_raw` pass `RawSuccessBlock::OwnedElsewhere`,
+   so `materialize_current_result` runs the element through `copy_value_to_current_arena`, whose
+   sendable-resource arm is `copy_resource_to_current_arena`: a second record, and the element
+   tombstoned `moved|closed` on the spot — the doc's original mechanism. The list-`poll` result
+   is spelled with the bare type, so it takes the non-sendable pointer-carry arm instead and is
+   never copied (which is why `tls::poll`, non-sendable by type, fails identically to `tcp::poll`).
 
-Note `copy_resource_to_current_arena`'s source flag is already conditional on the SEND path
-(the success-gated `suppress_resource_source_flag`, `.ai/resources-packages.md`), so the
-machinery for suppressing it exists.
+Ownership of `$trap_valN` is a property of **each assignment**, not of the temp: a borrowed
+success can recover an owned value (`RECOVER udp::bind(…)`), and an owned success can recover an
+alias (`RECOVER outer`). A static "own" leaks nothing but closes live handles; a static "don't
+own" closes nothing but leaks every recovered/produced handle. The mixed shapes need a run-time
+answer.
 
 ## Goal
 
@@ -76,8 +96,11 @@ machinery for suppressing it exists.
 
 ### Phase 1 — failing test + audit
 
-- [ ] A reproduction where `poll` actually returns an element under a `TRAP`; confirm the
+- [x] A reproduction where `poll` actually returns an element under a `TRAP`; confirm the
       source is tombstoned; confirm whether `collections::get`/`getOr` has the same shape.
+      (Measured: `poll` is closed, not tombstoned; `get` is tombstoned AND closed; an aliasing
+      `RECOVER` value is closed too — see Root Cause.)
+- [x] RED tests: `tests/net/rt_inline_trap_borrowed_resource.rs`, 5/5 failing on the mechanism.
 
 Commit: —
 
