@@ -151,10 +151,13 @@ Prefer `datetime::monotonic` in ordinary code; reach
 for `monotonicNanos` only when you want the bare integer count without
 constructing a `datetime::Duration`.
 
+The count is an `Integer`, so it spans about 292 years either side of the
+clock's origin. A reading whose nanosecond count does not fit an `Integer` raises
+`ErrOverflow` rather than returning a wrapped count.
+
 `monotonicNanos` is **not pure**: two calls may return different values, and the
 values depend on host clock state. It takes no arguments, reads clock state only,
-and has no side effects. The reading always succeeds and never raises an
-error."#;
+and has no side effects."#;
 const EX: &str = r#"Measure the elapsed time around a block of work in nanoseconds:
 
 ```

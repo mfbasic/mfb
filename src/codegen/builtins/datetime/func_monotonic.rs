@@ -20,7 +20,8 @@ difference is a reliable interval where `datetime::now` would not be. Use
 
 `monotonic` is `datetime::monotonicNanos` split into the `seconds` and `nanos`
 fields of a `datetime::Duration`. The split never fails, and `nanos` always falls in
-`0 .. 999_999_999`.
+`0 .. 999_999_999`. The reading itself shares `monotonicNanos`'s limit: a
+nanosecond count that does not fit an `Integer` raises `ErrOverflow`.
 
 
 `monotonic` is **not pure**: two calls may return different spans, and the values

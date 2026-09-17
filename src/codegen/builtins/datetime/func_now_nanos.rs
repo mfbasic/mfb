@@ -112,12 +112,13 @@ wanted — to stamp a log line, derive a millisecond count, or difference two
 readings without building `datetime::Instant` values.
 
 `nowNanos` reports nanoseconds since the epoch and is bounded by the range of an
-`Integer`: a 64-bit signed nanosecond count overflows in the year 2262. This is
-a limit on the intrinsic, not on the `datetime::Instant` type, whose `seconds` field spans
-the full `Integer` range. On a correctly configured host the reading is
-non-negative until then. On macOS and Linux the count is not checked: after
-`2262-04-11T23:47:16.854775807Z` it wraps to a negative value instead of raising
-an error. `datetime::now` is built from this same reading, so it shares the limit.
+`Integer`: a 64-bit signed nanosecond count covers
+`1677-09-21T00:12:43.145224192Z` through `2262-04-11T23:47:16.854775807Z`. A
+host clock reading outside that range raises `ErrOverflow` rather than returning
+a wrapped count. This is a limit on `nowNanos`, not on the `datetime::Instant`
+type, whose `seconds` field spans the full `Integer` range. On a correctly
+configured host the reading is non-negative. `datetime::now` is built from this
+same reading, so it shares the limit and raises the same error.
 
 `nowNanos` is **not pure**: two calls may return different values, and a
 program's output depends on the host clock. For reproducible logic, capture one
