@@ -573,6 +573,10 @@ name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
 [[test]]
+name = "rt_encoding_leb128_overflow"
+path = "tests/runtime/rt_encoding_leb128_overflow.rs"
+
+[[test]]
 name = "rt_error_value_copies"
 path = "tests/runtime/rt_error_value_copies.rs"
 
