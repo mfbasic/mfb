@@ -75,6 +75,21 @@ shifted left by 63, silently discarding every bit above the lowest.
 to show the same defect; confirm in Phase 1. `varintDecode` decodes through the
 `uleb128` helper and inherits whatever `uleb128Decode` does.
 
+### Confirmed (Phase 1, 2026-09-17)
+
+Reproduced on macos-aarch64 at `798870ec2` (release build): the reproduction prints
+`0`, and `uleb128Decode`/`varintDecode` of the same bytes print `0`, `0`, and
+`uleb128Decode([0xFF x9, 0x01])` prints `-1`. The mechanism is exactly the pre-read
+`IF shift > 63` in `func_sleb128_decode.rs:BODY` and `func_uleb128_decode.rs:BODY`.
+
+One correction to the blast radius: **`varintDecode` cannot simply inherit a strict
+`uleb128Decode`.** Its ZigZag pattern uses all 64 bits, so `varintEncode` of the
+most negative `Integer` is nine `0xFF` bytes then `0x01` — a tenth byte that
+`uleb128Decode` must reject (2^64-1 is not a non-negative `Integer`) and
+`varintDecode` must accept. The allowed tenth bytes are therefore per member:
+`uleb128` `0x00`; `varint` `0x00`/`0x01`; `sleb128` `0x00`/`0x7F` (bit 63 plus its
+own sign extension).
+
 ## Non-goals
 
 - Changing results for any in-range sequence.
