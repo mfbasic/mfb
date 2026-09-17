@@ -79,6 +79,45 @@ Hypotheses, to confirm in Phase 1:
 Confirm by locating the `Fixed` overload's body (`grep -rn 'tan' src/codegen/builtins/math/`)
 and checking its division for an overflow check.
 
+### Confirmed (Phase 1, 2026-09-17) — hypothesis 1 is wrong, hypothesis 2 is half of it
+
+Reproduced on macos-aarch64 at `798870ec2`: `-1431655767.666667`. **The divide is
+not the defect**: `emit_fixed_tan` divides through `emit_fixed_divide`
+(`builder_numeric.rs`), which does range-check its quotient. The quotient is simply
+in range because the *cosine* is wrong: `sin ≈ 1.0` over `cos = -3` raw units
+gives `2^32 / -3 = -1431655765.33`.
+
+The cosine is wrong for two reasons, both in `money/gen_fixed_math.rs:emit_fixed_sincos`:
+
+1. **The quadrant reduction uses pi/2 rounded to Q32.32** (`fixed_pi_over_2()`),
+   so `r = theta - k*(pi/2)` is off by `k * 0.26` units. At `math::pi2Fixed` that
+   constant *is* the argument, `r` is exactly 0, and the true offset (0.26 units)
+   is gone. For large `k` the loss is ruinous: `sin(toFixed(2000000000.0))` is
+   0.943211 against a true 0.914710; `cos(-2147483000.5)` is -0.008714 against
+   -0.091668.
+2. **The 31-step Q32.32 CORDIC leaves a residue of several units** even at tiny
+   angles: `cos(0)` = 1.00000000163 (7 units), `sin(0)` = 3 units, `sin(1.0)` 3
+   units, `cos(0.5)` 5 units. Near pi/2 that residue decides the sign of the cosine.
+
+So the defect is in `sin` and `cos` as much as in `tan`: **new sub-issue 615-B —
+Fixed `sin`/`cos` are several units off at every angle and wildly wrong at large
+angles.** It is the Fixed twin of bug-618 (the doc there expected Fixed to be safe
+because its range "never reaches the broken region"; the Q32.32 reduction has its
+own, worse, broken region).
+
+**Precision decision.** The module's contract (`gen_fixed_math.rs` header) is that
+Fixed math is deterministic and rounds to the nearest `Fixed`. The fix therefore
+targets: `sin`, `cos`, `tan` within one Q32.32 unit (2^-32) of the true value at
+every representable argument, and `tan` raising `ErrOverflow` exactly when its
+true value is outside the Fixed range (up to a one-unit band at the boundary).
+The in-range precision loss in the filed table (0.6% at 1.5707963) is a defect, not
+inherent. RED test: `tests/runtime/rt_math_fixed_trig_accuracy.rs`, against an exact
+336-bit big-integer oracle — 1604 of 1686 results fail today.
+
+Blast radius audit: `asin`/`acos` go through `emit_fixed_atan2` (CORDIC vectoring,
+same iteration count) — check their accuracy too; `atan2`'s divide-free vectoring
+has no range issue but shares the residue.
+
 ## Non-goals
 
 - Changing the `Float` overload. It returns a large finite value near pi/2,
