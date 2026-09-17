@@ -156,7 +156,10 @@ fn read_clocks(sec: i64, nsec: i64) -> Vec<String> {
         envs.push(("LD_PRELOAD", interposer.display().to_string()));
     }
     let (status, stdout, stderr) = common::run_capture_with_env(&executable, &envs);
-    assert_eq!(status, 0, "clock program failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(
+        status, 0,
+        "clock program failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     let _ = fs::remove_dir_all(&project);
     stdout.lines().map(str::to_string).collect()
 }
@@ -186,21 +189,35 @@ fn expected(sec: i64, nsec: i64) -> Vec<String> {
 fn the_interposer_really_pins_the_clock() {
     // Without this, a program that ignored the interposer would read the real
     // clock and every "in range" expectation below would fail for the wrong reason.
-    assert_eq!(read_clocks(1_700_000_000, 123_456_789), expected(1_700_000_000, 123_456_789));
+    assert_eq!(
+        read_clocks(1_700_000_000, 123_456_789),
+        expected(1_700_000_000, 123_456_789)
+    );
 }
 
 #[test]
 fn the_largest_representable_reading_is_returned_exactly() {
-    assert_eq!(read_clocks(9_223_372_036, 854_775_807), expected(9_223_372_036, 854_775_807));
+    assert_eq!(
+        read_clocks(9_223_372_036, 854_775_807),
+        expected(9_223_372_036, 854_775_807)
+    );
 }
 
 #[test]
 fn a_reading_past_2262_raises_overflow() {
     // The first nanosecond past the limit overflows the add; the first second past
     // it overflows the multiply.
-    for (sec, nsec) in [(9_223_372_036, 854_775_808), (9_223_372_037, 0), (i64::MAX, 999_999_999)] {
+    for (sec, nsec) in [
+        (9_223_372_036, 854_775_808),
+        (9_223_372_037, 0),
+        (i64::MAX, 999_999_999),
+    ] {
         let actual = read_clocks(sec, nsec);
-        assert_eq!(actual, expected(sec, nsec), "clock pinned to ({sec}, {nsec})");
+        assert_eq!(
+            actual,
+            expected(sec, nsec),
+            "clock pinned to ({sec}, {nsec})"
+        );
     }
 }
 
@@ -208,7 +225,11 @@ fn a_reading_past_2262_raises_overflow() {
 fn a_reading_before_1678_raises_overflow() {
     for (sec, nsec) in [(-9_223_372_037, 0), (i64::MIN, 0)] {
         let actual = read_clocks(sec, nsec);
-        assert_eq!(actual, expected(sec, nsec), "clock pinned to ({sec}, {nsec})");
+        assert_eq!(
+            actual,
+            expected(sec, nsec),
+            "clock pinned to ({sec}, {nsec})"
+        );
     }
     // Just inside the negative limit still reads exactly.
     assert_eq!(read_clocks(-9_223_372_036, 0), expected(-9_223_372_036, 0));
