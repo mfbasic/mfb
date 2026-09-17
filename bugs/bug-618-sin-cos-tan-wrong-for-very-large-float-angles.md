@@ -64,6 +64,30 @@ still look plausible, so the practical break-point is somewhere above `1e9`. Pha
 1 bisects it, and checks the middle rows against a reference, since "plausible"
 is not "correct".
 
+### Confirmed (Phase 1, 2026-09-17)
+
+Reproduced on macos-aarch64 at `798870ec2`. RED test
+`tests/runtime/rt_math_float_trig_large_angles.rs` checks scalar and two-lane
+`List OF Float` sin/cos/tan against an exact 1400-bit big-integer oracle over 410
+angles in `[2^20, f64::MAX]` (plus ordinary angles): 2232 results are wrong.
+
+- Every ordinary angle, including the fdlibm medium-range edge `2^20 * pi/2` and
+  1e9, is within one ULP of the truth — the in-range kernel is fine.
+- The first failures appear near 2e11 (just past one ULP); `sin(2^52)`/`sin(2^53)`
+  are wrong in the eighth digit; 1e20 and 1e22 return impossible magnitudes
+  (`sin(1e22)` = 4.98e74).
+- **From about 1e100 upward every call raises `ErrFloatNaN` (77050013)** instead of
+  returning a value — `q = x * 2/pi` and `q * PIO2_1` stop cancelling. A whole
+  `List OF Float` call fails if any lane holds such an angle.
+
+Mechanism: `builder_simd_float_math.rs:emit_sincos_reduce` is the fdlibm three-part
+Cody-Waite step (`PIO2_1`/`PIO2_2`/`PIO2_2T`), exact only while `q` fits `PIO2_1`'s
+33 bits, followed by `fcvtzs(q) & 3` for the quadrant, which saturates for huge `q`.
+`tan` shares the reduction (`emit_tan_sincos_dd`).
+
+Fixed audit: the Fixed overloads use a different reduction and are broken in their
+own right — see bug-615 (sub-issue 615-B).
+
 ## Non-goals
 
 - Changing results for ordinary angles.

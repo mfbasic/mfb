@@ -77,6 +77,12 @@ libc = "0.2"
 # as a normal dependency through `image` → `png`, so it resolves offline and adds no
 # new compiled code.
 flate2 = "1"
+# bug-615/bug-618: the Fixed and Float trig accuracy tests
+# (`tests/runtime/rt_math_fixed_trig_accuracy.rs`, `rt_math_float_trig_large_angles.rs`)
+# check against an exact big-integer evaluation (Machin pi, Taylor sin/cos); near a
+# pole or past 2^53 no f64 oracle has the bits. Already in the lockfile through the
+# repository crate's jsonwebtoken, so it resolves offline and adds no new compiled code.
+num-bigint = "0.4"
 
 # ---------------------------------------------------------------------------
 # Test targets.
@@ -735,6 +741,10 @@ path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 [[test]]
 name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_math_float_trig_large_angles"
+path = "tests/runtime/rt_math_float_trig_large_angles.rs"
 
 [[test]]
 name = "rt_debug_soak"
