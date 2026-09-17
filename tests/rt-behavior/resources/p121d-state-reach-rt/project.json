@@ -8,7 +8,9 @@
     {
       "name": "state_reach_worker",
       "version": "=0.1.0",
-      "source": "file:packages/state_reach_worker"
+      "source": "file:packages/state_reach_worker",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

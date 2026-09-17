@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "trap_builtin_pkg", "version": "=0.1.0", "source": "file:packages/trap_builtin_pkg.mfp" }
+    { "name": "trap_builtin_pkg", "version": "=0.1.0", "source": "file:packages/trap_builtin_pkg.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]
