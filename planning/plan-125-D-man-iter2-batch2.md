@@ -139,15 +139,99 @@ whose examples need the most care, with pace known).
 
 ### Phase 1 — io (16 units)
 
-- [ ] 15 function pages + overview.
-- [ ] Verify the open/close contract wording against plan-125-B's terminology
+- [x] 15 function pages + overview.
+- [x] Verify the open/close contract wording against plan-125-B's terminology
       table and plan-108-A's rewrite table; the page must still state what
       happens to the handle.
-- [ ] Every example compiled and run; ledger recorded.
+      Read, not grepped. `io` has no `RES` handle of its own; its lifecycle
+      contract is the standard streams, and every page still states it:
+      - buffering: off by default, drained on `io::flush`, before a read, when an
+        append would exceed 4 KiB, and at exit (`/tmp/p125-ex/iobuf`); a failed
+        drain on `setBuffered(FALSE)` is now stated as lost (bug-656);
+      - standard input: the main thread reads without subscribing; a worker must
+        call `thread::openStdIn` or raises `ErrInvalidContext`; at most 128
+        subscribers;
+      - terminal state: single-key reads restore normal input when they finish,
+        and a failed restore raises `ErrInputFailed`.
+      `--memory-scope io` 0 and `--scope io` 0 after the edits.
+- [x] Every example compiled and run; ledger recorded.
+      `STDIN_FILE=/tmp/p125-ex/io-stdin.txt ./scripts/man-run-examples.sh io --run`
+      → 22/22 built and ran. Without real standard input the 10 input-reading
+      examples raise `ErrEndOfFile`, a harness condition, not a page defect. The two
+      rewritten `pollInput` examples were run with empty input, with data, and with
+      an open pipe (`iopollex1`, `iopollex2`).
+
+#### Phase 1 ledger — Codex iteration 2 (`planning/plan-125-findings/D-phase1/`)
+
+Probes, all in `/tmp/p125-ex/`: `iobuf`, `ioeof`, `ioinbad`, `ioreads`, `ioreadline`,
+`ioattr`, `iopipe`, `ioterm`, `iopollA`–`iopollG`, `iopollex1`, `iopollex2`,
+`iobufclosed`, `iowriteclosed`, `ioflushclosed`.
+Registry-data findings (a member raises an error its descriptor does not declare)
+go to **bug-655** rather than prose. Scope cuts have rows 72–79 in
+`planning/plan-125-belongs-in-spec.md`.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview | 1 | CONFIRMED | `ioeof`: `éZtail` → `readLine` returns `tail`, the next read raises `77020003` | end-of-input sentence |
+| overview | 2, 3 | CONFIRMED (scope cut) | runtime log and compiler-subscription wording | observable subscription rule (rows 72, 73) |
+| overview | 4 | CONFIRMED | `stdin_broadcast.rs`: `STDIN_LOG_MAX_SUBSCRIBERS` is 128 | cap sentence |
+| flush | 1 | CONFIRMED → **bug-655** | `lower_flush` raises `ErrWriteFailed`; `errors: vec![]` | — |
+| flush | 2, 3 | CONFIRMED (scope cut) | write loop, `fsync`, buffer slide-back | observable failure rule (rows 77, 78) |
+| flush | 4 | CONFIRMED | `app_io.rs`: in TUI mode `io::flush` drives a present | app-mode sentence |
+| input | 1 | CONFIRMED → **bug-655** | `ioinbad`: `0xFF` → `77020004`; `errors: vec![]` | — |
+| input | 2 | CONFIRMED | `gen_read_line_family.rs` calls `emit_console_raw_line_mode` in single-key mode | terminal-mode sentence |
+| input | 3, 4 | CONFIRMED (scope cut) | broadcast log; window input pipe | rows 74, 79 |
+| isBuffered | — | NO FINDINGS | `iobuf`: `FALSE`, `TRUE`, `FALSE` | — |
+| isErrorTerminal | — | NO FINDINGS | `ioterm`: `FALSE` redirected | app-mode sentence aligned with its siblings |
+| isInputTerminal | 1 | CONFIRMED | "no real standard streams" is inaccurate | app-mode sentence |
+| isInputTerminal | 2 | CONFIRMED | `ioterm`: `FALSE` with standard input redirected | example intro "standard input is a terminal" |
+| isOutputTerminal | 1 | CONFIRMED | `gen_is_terminal.rs` calls only `isatty(fd)`; `TERM` is never read | usage sentence |
+| isOutputTerminal | 2 | CONFIRMED (scope cut) | "without probing a descriptor" | app-mode sentence (row 79) |
+| pollInput | 1 | CONFIRMED → **bug-655** | `iopollE`: `pollInput(-1)` → `77050002`; `errors: vec![]` | — |
+| pollInput | 2 | CONFIRMED | `func_poll_input.rs`: `os_poll` reloads the full timeout on each EINTR retry | timeout and signal sentences |
+| pollInput | 3, 4 | CONFIRMED (example broken) | end of input counts as ready, so both examples raised `ErrEndOfFile` | rewritten; `iopollex1`/`iopollex2`: empty → `(end of input)`, data → `hello`/`h`, open pipe → nothing / `timeout` after 1.0 s |
+| print | 1 | CONFIRMED | the `AttributedString` overload was missing from the intro | intro |
+| print | 2 | CONFIRMED | `ioattr`: a bold `AttributedString` prints `48 69 0a` | parameter |
+| print | 3, 7 | CONFIRMED | `app_io.rs`: the app-mode `fd_path` and TUI routing | console guarantee; app-mode destinations |
+| print | 4 | CONFIRMED | `iopipe`: piped into `head -n 1`, producer status `141` (`SIGPIPE`) | `SIGPIPE` sentence |
+| print | 5 | CONFIRMED → **bug-655** | `lower_write_family` raises `ErrWriteFailed`; `errors: vec![]` | — |
+| print | 6 | CONFIRMED | `emit_append_to_buffer` keeps an exact 4096-byte fill | drain wording |
+| printError | 1, 3 | CONFIRMED | `app_io.rs`: `[stderr] ` prefix; GTK appends via `g_idle_add` | app-mode sentences |
+| printError | 2 | CONFIRMED | `gen_write_family.rs` keeps stderr out of the console grid; the macOS app writer routes TUI output without that exclusion | console and app TUI sentences |
+| printError | 4 | CONFIRMED (scope cut) | cursor mechanics | console guarantee (row 78) |
+| printError | 5 | CONFIRMED → **bug-655** | `ErrWriteFailed` undeclared | — |
+| readByte | 1 | CONFIRMED → **bug-655** | `ioreads`: end of input → `77020003` | — |
+| readByte | 2, 4 | CONFIRMED (scope cut) | termios flags; broadcast log | rows 75, 74 |
+| readByte | 3 | CONFIRMED | `io_terminal.rs:emit_restore_stdin_terminal` has a `restore_failed` branch | restore sentence |
+| readChar | 1, 2, 5 | CONFIRMED (scope cut) | lead-byte decoding; termios flags; broadcast log | rows 76, 75, 74 |
+| readChar | 3 | CONFIRMED | `pollInput(0)` only reports one ready byte | `pollInput` caveat |
+| readChar | 4 | CONFIRMED → **bug-655** | `ioreads`: `0xFF` and truncated `E2 82` → `77020004` | — |
+| readLine | 1 | CONFIRMED | `ioreadline`: `tail\r` at end of input → `tail` (length 4), then `77020003` | trailing-CR sentence |
+| readLine | 2 | CONFIRMED → **bug-655** | `ioreadline`: `0xFF` → `77020004` | — |
+| readLine | 3 | CONFIRMED (scope cut) | broadcast log | row 74; termios and "leaves the terminal untouched" aligned with `readChar` and `input` |
+| setBuffered | 1, 2 | CONFIRMED → **bug-656** | `iobufclosed`: stdout closed, exit `23`, nothing reported; controls `iowriteclosed` (`77020002`) and `ioflushclosed` (`77020002`) | drain-failure sentence |
+| write | 1, 2 | CONFIRMED | same writer as `print` (`ioattr`) | intro sentence, parameter |
+| write | 3 | CONFIRMED | `term_grid.rs`: TUI output positions text by `\n`/`\r` | TUI sentence |
+| write | 4 | CONFIRMED → **bug-655** | `ErrWriteFailed` undeclared | — |
+| writeError | 1–3 | CONFIRMED | as `printError` | console and app-mode sentences |
+| writeError | 4 | CONFIRMED → **bug-655**; app-mode unchecked writes added to **bug-656**'s audit | `app_io.rs` fallback writes ignore the result | console guarantee |
+
+Found while probing, not raised by a reviewer:
+- **bug-654**: a recovered `pollInput(-1)` failure followed by a successful `pollInput`
+  crashes the program with SIGBUS at exit (`iopollB`, `iopollE`; `iopollA`, `D`, `F`,
+  `G` controls exit 0).
 
 Acceptance: 16 units `exit 0`; `--memory-scope io` 0 unclassified; every `io`
 page states its handle contract in the permitted vocabulary (read, not
 grepped).
+
+Measured at the closing commit:
+- `--reconcile --letter D-phase1` → `units=16 unaccounted=0 orphans=0`;
+- `--memory-scope io` 0 unclassified; `--scope io` 0;
+- `io` examples 22/22 with real standard input;
+- all 16 units render with none of the retired phrasings.
+
+Bugs filed from this phase: bug-654, bug-655, bug-656. Belongs-in-spec rows: 72–79.
 Commit: —
 
 ### Phase 2 — astrings (17 units)

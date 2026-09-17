@@ -105,6 +105,14 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 69 | `collections::sum` | ``Fixed` shares the `Integer` path because it is a scaled 64-bit integer.` | `internals` | stdlib | OPEN | — |
 | 70 | `collections::sum` | `any other element type fails to resolve at compile time, and the call rejects it a second time.` | `internals` | diagnostics | OPEN | — |
 | 71 | `collections::symmetricDifference` | `It is computed as a two-pass fold: it keeps each element of `a` that `collections::contains` reports as absent from `b`, then adds each element of `b` that is absent from `a`.` | `internals` | stdlib | OPEN | — |
+| 72 | `io (overview)` | `The runtime reads standard input once, in chunks, into a single log all threads share; each subscribed thread reads at its own position in that log, so every subscriber sees the whole stdin stream from the point it subscribed, and a byte one thread reads is still there for the others.` | `internals` | architecture | OPEN | — |
+| 73 | `io (overview)` | `The compiler subscribes the main thread at program entry, so a single-threaded program is byte-identical to a direct per-byte reader.` | `internals` | architecture | OPEN | — |
+| 74 | `io::input`, `readLine`, `readChar`, `readByte` | `Standard input is a per-thread broadcast log;` | `internals` | architecture | OPEN | — |
+| 75 | `io::readChar`, `readByte`, `readLine` | `standard input is switched out of canonical mode and echo is suppressed (`~ICANON`, `~ECHO`, `VMIN = 1`, `VTIME = 0`), so one key satisfies the read with no Return and nothing is displayed; the previous line discipline is restored before the call returns.` | `internals` | tooling | OPEN | — |
+| 76 | `io::readChar` | `It reads the lead byte, derives the sequence length from it, and reads the one to three continuation bytes that complete the scalar.` | `internals` | unicode | OPEN | — |
+| 77 | `io::flush` | `It issues the pending bytes with a `write` loop and reports whether that write succeeded; it deliberately does *not* `fsync` or otherwise ask the host to sync standard output. The buffer drain's `write` is the one portable failure signal, identical on every platform and libc.` | `internals` | architecture | OPEN | — |
+| 78 | `io::flush`, `print`, `printError`, `write`, `writeError` | `a short write advances the cursor and re-issues, and an interruption is resumed ... the still-unflushed bytes are slid back to the base of the buffer and kept` | `internals` | architecture | OPEN | — |
+| 79 | `io::input`, `isOutputTerminal`, `isErrorTerminal` | `the line is read from the window input pipe. / this call returns `TRUE` without probing a descriptor.` | `internals` | app | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -135,7 +143,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 |---|---|---|
 | B | — | — |
 | C | 44 | 71 |
-| D | — | — |
+| D | 8 | 79 |
 | E | — | — |
 | F | — | — |
 | G | — | — |

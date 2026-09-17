@@ -74,10 +74,12 @@ after the buffer is drained, so ordering is never disturbed, and if the buffer
 cannot be set up the write falls back to going out directly — buffering is an
 optimization, never a correctness dependency.
 
-Passing `FALSE` **drains any pending bytes first** and then clears the flag, so
-switching buffering off never strands output. That drain is best-effort: this
-call returns `Nothing` and does not report a write failure, which instead surfaces
-from the next `io::flush` or buffered write.
+Passing `FALSE` **drains any pending bytes first** and then clears the flag. That
+drain is best-effort: this call returns `Nothing` and does not report a write
+failure. If the drain fails, buffering is still turned off, so the pending output
+is not written and a later `io::flush` does not report the failure either. To
+detect a write failure, call `io::flush` while buffering is still on, before
+turning it off.
 
 While buffering is on, held output is also drained when the buffer fills, on
 `io::flush`, before any standard-input read — so a buffered prompt always appears
