@@ -2162,6 +2162,17 @@ fn qualify_type_leaves_inner(
             owners,
             qualify_own,
         ))),
+        // A callback's signature names types too (`json::parse`'s reviver is
+        // `FUNC(String, Json) AS Json`). Left bare, its leaves denote no registry type,
+        // so strict matching could not hold a callback argument to them (bug-638).
+        ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+            params
+                .iter()
+                .map(|param| qualify_type_leaves_inner(param, package, owners, qualify_own))
+                .collect(),
+            Box::new(qualify_type_leaves_inner(ret, package, owners, qualify_own)),
+            *isolated,
+        ),
         other => other.clone(),
     }
 }
@@ -2492,8 +2503,9 @@ pub(crate) fn alias_call_return_type(qualified: &str) -> Option<Cow<'static, str
 
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
 /// type (the [`unify`] leaf case). Exact types match, and two *different known scalars*
-/// are the only definite incompatibility — a nominal vs anything else is accepted
-/// conservatively (the type checker never emits a false rejection). Container,
+/// never do. LENIENT mode accepts a nominal against anything else; STRICT mode holds a
+/// scalar-vs-nominal pair, a resource parameter and a registry value-type parameter to
+/// identity, and accepts any other nominal pair. Container,
 /// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
 /// reach here; [`unify`] handles them first.
 fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool) -> bool {
@@ -2551,14 +2563,49 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     // satisfies a `File` parameter, but an unrelated resource or a resource UNION does NOT
     // satisfy a concrete resource close-op parameter (`fs::close(<Stream union>)` must be
     // rejected — a use-after-free class error the legacy exact-name `DefaultResolver`
-    // caught). A NON-resource nominal parameter stays coarse: a value-UNION parameter like
-    // `Json` must still accept a variant that widens into it (`json::stringify(JsonNull)`),
-    // and lenient dispatch/inference stays coarse everywhere so overload selection and type
-    // propagation are unperturbed.
+    // caught). A NON-resource value type is the next rule's; lenient dispatch/inference
+    // stays coarse everywhere so overload selection and type propagation are unperturbed.
     if strict && is_resource_type_name(&pattern.name()) {
         return resource_base_eq(pattern, concrete);
     }
+    // STRICT (argument validation): a REGISTRY value type — a built-in record, enum or
+    // union — is a nominal identity too (bug-638). `datetime::toMillis(datetime::DateTime)`
+    // resolved against its `datetime.Instant` parameter and read the `DateTime`'s leading
+    // words as an `Instant`. The union arm keeps the widening this rule used to stay
+    // coarse for (`json::stringify(JsonNull)`). A nominal the registry does not declare
+    // (`Scalar`, `AttributedString`) stays coarse.
+    if strict {
+        if let Some(accepts) = value_type_accepts(&pattern.name(), concrete) {
+            return accepts;
+        }
+    }
     true
+}
+
+/// Whether the registry value type `declared` (package-qualified, `datetime.Instant`)
+/// accepts a `concrete` argument in strict matching, or `None` when `declared` names no
+/// registry record, enum or union. A record or enum accepts only itself; a union accepts
+/// itself or any of its variants, a variant spelled bare being local to the union's
+/// package (`JsonNull` is `json.JsonNull`) and one spelled `pkg::Name` naming that
+/// package's type (`http.Stream`'s `tcp::Socket`). A variant that is itself a union
+/// widens transitively. A resource variant's `STATE` clause is transparent (bug-427).
+fn value_type_accepts(declared: &str, concrete: &ParameterType) -> Option<bool> {
+    let package = declared.split_once('.')?.0;
+    let actual = concrete.without_state().name().into_owned();
+    match registry().resolve_type(declared)? {
+        ResolvedType::Record(_) | ResolvedType::Enum(_) => Some(actual == declared),
+        ResolvedType::Union(union) => Some(
+            actual == declared
+                || union.variants.iter().any(|variant| {
+                    let variant = match variant.name.split_once("::") {
+                        Some((owner, leaf)) => format!("{owner}.{leaf}"),
+                        None => format!("{package}.{}", variant.name),
+                    };
+                    variant == actual || value_type_accepts(&variant, concrete) == Some(true)
+                }),
+        ),
+        ResolvedType::Resource(_) => None,
+    }
 }
 
 /// Whether `name` (a parameter's type leaf, possibly carrying a `STATE` clause) names a
@@ -4700,8 +4747,10 @@ mod tests {
     ///   resource UNION does not satisfy a concrete resource close-op parameter.
     ///   `fs::close(<some union>)` must stay rejected — the legacy exact-name
     ///   resolver caught it, and it is a use-after-free class error;
-    /// * a value nominal stays coarse, so a variant still widens into its union
-    ///   (`json::stringify(JsonNull)` against a `Json` parameter);
+    /// * a value nominal the registry does not declare (the bare `Json` below)
+    ///   stays coarse; a registry value type is held to identity, its union still
+    ///   accepting its variants
+    ///   (`strict_matching_holds_builtin_value_types_to_their_identity`);
     /// * and STATE/ownership are transparent either way (bug-427): a
     ///   `File STATE Cursor` argument satisfies a bare `File` parameter, and a
     ///   `RES ` marker matches through on either side.
@@ -4767,6 +4816,75 @@ mod tests {
             &ParameterType::String,
             false
         ));
+    }
+
+    /// bug-638: a REGISTRY value type — a built-in record, enum or union — is a
+    /// nominal identity in strict mode, not a coarse "any nominal".
+    ///
+    /// `datetime::toMillis(at AS datetime::Instant)` resolved for a
+    /// `datetime::DateTime` argument, so the call compiled and read the
+    /// `DateTime`'s leading words as an `Instant`. A record or enum parameter
+    /// takes exactly its own type; a union parameter takes itself or one of its
+    /// variants; and a callback parameter's nominal leaves are held to the same
+    /// rule. Lenient dispatch is unchanged.
+    #[test]
+    fn strict_matching_holds_builtin_value_types_to_their_identity() {
+        let to_millis = |arg: &str, strict: bool| {
+            resolve_call("datetime.toMillis", &[arg.to_string()], strict)
+        };
+        assert_eq!(to_millis("datetime.Instant", true).as_deref(), Some("Integer"));
+        for wrong in ["datetime.DateTime", "datetime.Date", "datetime.Duration", "Instant"] {
+            assert_eq!(
+                to_millis(wrong, true),
+                None,
+                "a `{wrong}` must not satisfy a `datetime.Instant` parameter"
+            );
+        }
+        assert_eq!(
+            to_millis("datetime.DateTime", false).as_deref(),
+            Some("Integer"),
+            "lenient dispatch stays coarse"
+        );
+
+        // An enum parameter takes only its own enum.
+        let text = "String".to_string();
+        assert!(resolve_call("crypto.hash", &["crypto.Hash".into(), text.clone()], true).is_some());
+        assert_eq!(
+            resolve_call("crypto.hash", &["crypto.SymmetricCipher".into(), text], true),
+            None,
+            "a different enum must not satisfy a `crypto.Hash` parameter"
+        );
+
+        // A union parameter takes itself and its variants, and nothing else.
+        for accepted in ["json.Json", "json.JsonBool", "json.JsonObj"] {
+            assert!(
+                resolve_call("json.stringify", &[accepted.to_string()], true).is_some(),
+                "a `{accepted}` must satisfy a `json.Json` parameter"
+            );
+        }
+        assert_eq!(
+            resolve_call("json.stringify", &["datetime.Instant".to_string()], true),
+            None,
+            "a record that is not a variant must not satisfy a union parameter"
+        );
+        // A variant spelled with another package's qualifier (`http.Stream`'s
+        // `tcp::Socket`) widens too.
+        assert!(resolve_call("http.done", &["tcp.Socket".to_string()], true).is_some());
+
+        // A callback's nominal leaves are identities as well.
+        let parse = |callback: &str| {
+            resolve_call(
+                "json.parse",
+                &["String".to_string(), callback.to_string()],
+                true,
+            )
+        };
+        assert!(parse("FUNC(String, json.Json) AS json.Json").is_some());
+        assert_eq!(
+            parse("FUNC(String, datetime.Instant) AS datetime.Instant"),
+            None,
+            "a callback over a different record must not satisfy a `Json` reviver"
+        );
     }
 
     /// No registered descriptor may declare a [`ParameterType::Named`] whose name
