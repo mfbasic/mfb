@@ -187,3 +187,19 @@ test).
 - linux-aarch64 cross-builds; not run.
 - `.ncodesum` byte-identity goldens for datetime (and any fixture that calls a
   clock member) change by design and are regenerated at integration.
+
+## Fallout found during the fix (2026-09-17)
+
+- **`crypto::uuid7` and `crypto::ulid` now raise an error they did not declare.**
+  Both stamp `datetime::nowNanos() / 1000000`; with the clock pinned past 2262 they
+  raise 77050010 (before the fix they encoded a wrapped negative timestamp). Both
+  now declare `ErrOverflow` and say so on their man pages. RED unit test
+  `crypto::tests::clock_derived_identifiers_declare_the_clock_overflow`; runtime
+  case `clock_derived_identifiers_raise_overflow_past_2262`.
+- `http`'s request-read helpers call `datetime::monotonicNanos`; `handleRequest`
+  already traps any raise from them into a 500, so no declaration changes.
+- `src/codegen/debug/clock.rs:emit_debug_monotonic_nanos` (the `--debug` arena-series
+  timestamp) has the same unchecked fold on `CLOCK_MONOTONIC`/QPC. It has no error
+  path by design, and a monotonic origin is boot time, so the wrap needs ~292 years
+  of uptime; recorded here, not changed.
+

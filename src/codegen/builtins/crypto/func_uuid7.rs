@@ -37,7 +37,9 @@ bits are `10`, and its remaining 74 bits are drawn from the OS CSPRNG. This make
 values naturally time-ordered while retaining strong same-millisecond uniqueness.
 
 The function takes no arguments. Clock, entropy, or out-of-memory failures propagate
-from `datetime::nowNanos`, `crypto::randomBytes`, and string construction."#;
+from `datetime::nowNanos`, `crypto::randomBytes`, and string construction. A host
+clock reading outside the range `datetime::nowNanos` can represent (before 1678 or
+after 2262) raises `ErrOverflow`."#;
 const EX: &str = r#"Generate a time-ordered identifier:
 
 ```
@@ -60,7 +62,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrUnknown", "ErrOutOfMemory"],
+            errors: vec!["ErrOverflow", "ErrUnknown", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__crypto_uuid7"),
         }],
     });
