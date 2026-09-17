@@ -1,11 +1,11 @@
 # bug-653: a `PUBLIC FUNC` whose name collides with an `EXPORT FUNC` makes the EXPORT unusable from every consumer — and the package still builds green
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness / Footgun (silent at the package boundary)
 
-Status: Open
+Status: FIXED
 (Filed as bug-648, which collided with `bug-648-a-trapped-poll-result-tombstones-a-live-list-element.md`; renumbered.)
 Regression Test: none yet — see Phase 1 (proposed:
 `tests/runtime/rt_package_public_export_name_collision.rs`, alongside
@@ -423,3 +423,14 @@ call.
 
 Out of scope, noted for a separate plan: a required consumer-side doc-example gate per package
 (`packages/xml/check-doc-examples.sh` is the only instrument that is a real consumer).
+
+## STATUS: FIXED (115d9b8c7, 1d4638050)
+
+- Export naming: `src/monomorph/lower.rs:Monomorphizer::new` decides an `EXPORT`'s symbol from
+  its `EXPORT` siblings only. `tests/runtime/rt_package_public_export_name_collision.rs` 6/6.
+- Deviation: a second, pre-existing defect found while verifying — the arity detail under-counted
+  excess positional arguments (`src/ir/shape.rs`); fixed with one disproved golden line.
+- Validation: `cargo test --no-fail-fast -- --skip artifact_gate_all` → 192 binaries, 5805 passed,
+  0 failed; `scripts/artifact-gate.sh target/release/mfb all` → 2050 goldens, 0 diffs; all ten
+  `packages/*.mfp` byte-identical.
+
