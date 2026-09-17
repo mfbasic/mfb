@@ -241,6 +241,43 @@ Commit: 6f6c05547
       `astrings`/`strings` boundary stated the same way on both sides.
 - [ ] Every example compiled and run; ledger recorded.
 
+#### Phase 2 progress — paused on the Codex usage limit (boxes stay open)
+
+8 of 17 units reviewed (`exit 0`) and applied below. The run hit the Codex usage
+limit at `foreground`, `getAttributes`, `italic` and `fromString` (manifest rows
+`FAILED`, 3–4 s, usage-limit logs); `overline`, `removeAttribute` and `strike` were
+stopped mid-run with no row. Resume with the 9 units left:
+`./scripts/doc-review-fanout.sh --letter D-phase2 --units planning/plan-125-units/D-phase2-resume.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 4 --timeout 1800`
+(re-run rows append; `--reconcile` reads each unit's last row).
+
+Already done: the boundary paragraph is identical on both overviews (rendered
+and compared whitespace-normalized). After the rebuild, `astrings` examples ran
+17/17, and `--memory-scope`/`--scope` returned 0 for both `astrings` and `strings`.
+
+Probes, all in `/tmp/p125-ex/`: `astrbound`, `astrtie`, `astrov`.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview | 1 | CONFIRMED | `astrbound`: `replace(s, "l", "LL")` → `**he**LLLL**o** worLLd`; `padLeft` padding unstyled | boundary paragraph, identical on both overviews: added text carries no styling |
+| overview | 2 | CONFIRMED | no example rendered | example added; `astrov` printed `**hello** world`, `**hel**`, `**he**LL**o** worLd`, `hello world` |
+| types | 1 | CONFIRMED | `AttrTypeNumber` registers `FontSize`, `Foreground`, `Background` | `AttrNumber` description |
+| types | 2 | CONFIRMED | `astrtie`: `fontSize(-7)` → `::;-7::h` | `FontSize` description |
+| addAttribute | 1 | CONFIRMED → **bug-657** | `astrtie`: `-1, 2` and `3, 2` → `77050002`; `0, 5` and empty `0, 0` → `77050001`; `errors: vec![]` | — (prose already names both errors) |
+| addAttribute | 2 | CONFIRMED | `astrtie`: equal starts, size 10 then 20 → 20; 20 then 10 → 10 | tie-break sentence |
+| addAttribute | 3, 4 | CONFIRMED | `__astrings_validateRange` | `start`, `endIndex` parameters |
+| background | 1 | CONFIRMED | `astrtie`: `AttrNumber(n)` → `2014458966`; `toPacked(fromPacked(n.value)) = n.value` → `TRUE` | round-trip sentence |
+| background | 2 | CONFIRMED | `mfb man term drawText`: `drawText(row AS Integer, column AS Integer, …)` | `drawText(row, column, value)` |
+| bold | — | NO FINDINGS | — | — |
+| clearAttributes | 1 | CONFIRMED → **bug-657** | derived Errors rows; prose already names both errors | — |
+| font | 1 | CONFIRMED | `__astrings_font` stores `name` unchanged; reviewer probe `empty=font=` | `name` parameter |
+| font | 2 | CONFIRMED | `astrtie` tie-break (shared `__astrings_isWinner`) | tie-break sentence; same wording on `background`, `fontSize` |
+| fontSize | 1 | CONFIRMED | `astrtie`: `fontSize(-7)` kept | `size` parameter |
+| fontSize | 2 | CONFIRMED | `astrtie`: equal starts → later wins | tie-break sentence |
+
+Bugs filed so far: **bug-657** (`astrings` range and index members declare no errors).
+Still to do: `removeAttribute`, `foreground` and `toMarkdown` also say "higher-start-wins"
+without the equal-start rule. Apply the shared tie-break wording when their reviews land.
+
 Acceptance: 17 units `exit 0`; sweeps clean; the `astrings`↔`strings` boundary
 sentence is identical in wording on both packages' overviews.
 Commit: —

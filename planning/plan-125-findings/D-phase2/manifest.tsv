@@ -1,0 +1,13 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-page:astrings/addAttribute	0	116	30	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/background	0	124	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/types	0	137	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/overview	0	161	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/clearAttributes	0	92	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/bold	0	116	2	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/font	0	102	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/fontSize	0	91	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/foreground	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/getAttributes	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/italic	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:astrings/fromString	FAILED	4	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

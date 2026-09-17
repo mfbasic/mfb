@@ -175,12 +175,13 @@ one concatenates with nothing between the elements.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
-Many `strings` functions also accept an `astrings::AttributedString` at the text
-position; the overload is documented on each function's own page. A query returns
-exactly what the `String` overload returns, computed on the visible text; a
-text-transforming function returns an `AttributedString`, remapping the attribute
-spans by the same edit (`upper`, `lower`, `caseFold`, and `normalizeNfc` change
-scalar counts within a span, so they drop attributes)."#;
+Many `strings::` functions also accept an `astrings::AttributedString` at the text
+position; each function's own page documents that overload. A function that only
+reads the text answers exactly as it does for the visible `String`. A function
+that changes the text returns an `AttributedString` whose styling follows the text
+it keeps; text the call adds, such as `replace`'s replacement or padding, carries
+no styling. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
+text with no styling."#;
 
 /// Register the `strings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

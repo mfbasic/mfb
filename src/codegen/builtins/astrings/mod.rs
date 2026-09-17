@@ -126,17 +126,48 @@ explicit overload.
 `astrings::fromString(text)` constructs an `AttributedString` whose visible text
 is `text` and whose attribute overlay is empty.
 
-Many `strings::` functions also accept an `AttributedString`. The ones that only
-read the text — `byteLen`, `contains`, `count`, `displayWidth`, `startsWith`,
-`endsWith`, `find`, `graphemes`, `split`, and similar — answer exactly as they
-would for its visible `String`. The ones that change the text — `left`, `right`,
-`mid`, the `trim` family, `stripPrefix`/`stripSuffix`, `padLeft`/`padRight`,
-`repeat`, and `replace` — return an `AttributedString` whose styling follows the
-text it was attached to. `upper`, `lower`, `caseFold`, and `normalizeNfc` change the
-text but drop the styling. `a & b` joins two `AttributedString` values, text and
-styling together; there is no mixing with a plain `String`. See `mfb man strings`.
+Many `strings::` functions also accept an `astrings::AttributedString` at the text
+position; each function's own page documents that overload. A function that only
+reads the text answers exactly as it does for the visible `String`. A function
+that changes the text returns an `AttributedString` whose styling follows the text
+it keeps; text the call adds, such as `replace`'s replacement or padding, carries
+no styling. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
+text with no styling.
 
-Import the package with `IMPORT astrings`; it needs no manifest dependency."#;
+The readers include `byteLen`, `contains`, `count`, `displayWidth`, `startsWith`,
+`endsWith`, `find`, `graphemes`, and `split`; the text-changing functions include
+`left`, `right`, `mid`, the `trim` family, `stripPrefix`/`stripSuffix`, the four
+padding functions, `repeat`, and `replace`. `a & b` joins two `AttributedString`
+values, text and styling together; there is no mixing with a plain `String`. See
+`mfb man strings`.
+
+Import the package with `IMPORT astrings`; it needs no manifest dependency.
+
+Bold the first word, cut it out with `strings::left`, and replace a letter:
+
+```
+IMPORT astrings
+IMPORT strings
+IMPORT io
+
+SUB main()
+  LET plain AS AttributedString = astrings::fromString("hello world")
+  LET styled AS AttributedString = astrings::addAttribute(plain, 0, 4, astrings::bold())
+  io::print(astrings::toMarkdown(styled))
+  io::print(astrings::toMarkdown(strings::left(styled, 3)))
+  io::print(astrings::toMarkdown(strings::replace(styled, "l", "L")))
+  io::print(toString(styled))
+END SUB
+```
+
+prints:
+
+```
+**hello** world
+**hel**
+**he**LL**o** worLd
+hello world
+```"#;
 
 /// Register the `astrings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -322,7 +353,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             UnionVariant {
                 name: "AttrNumber",
-                description: "An Integer-valued attribute (font size).",
+                description: "An Integer-valued attribute (font size, or a packed foreground or background colour).",
             },
         ],
     });
@@ -377,7 +408,7 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "FontSize",
-                description: "The font size in points.",
+                description: "The font size in points. Any Integer is accepted and kept as given, including zero and negative values.",
                 advisory: None,
             },
             EnumVariant {
