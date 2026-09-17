@@ -593,6 +593,8 @@ bytes gets its own code, emitted by the build gate after the
 | `6-605-0010` | `PACKAGE_VENDOR_BLOB_MISSING` | error | registry has no blob for a vendored native library the package's section-10 table names |
 | `6-605-0011` | `PACKAGE_VENDOR_BLOB_HASH_MISMATCH` | error | downloaded vendor blob does not match the sha256 recorded in the signed section-10 table |
 | `6-605-0012` | `PACKAGE_PIN_MISMATCH` | error | installed package version differs from the pinned version |
+| `6-605-0013` | `PACKAGE_DEPENDENCIES_INCONSISTENT` | error | project.json packages do not match the dependency closure the packages import |
+| `6-605-0014` | `PACKAGE_VERSION_CONFLICT` | error | a declared package does not provide what another declared package was built against |
 
 ### `0-000` — Fallback (synthetic)
 

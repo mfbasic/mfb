@@ -1337,6 +1337,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "installed package version differs from the pinned version",
     },
     Rule {
+        code: "6-605-0013",
+        name: "PACKAGE_DEPENDENCIES_INCONSISTENT",
+        severity: Severity::Error,
+        message: "project.json packages do not match the dependency closure the packages import",
+    },
+    Rule {
+        code: "6-605-0014",
+        name: "PACKAGE_VERSION_CONFLICT",
+        severity: Severity::Error,
+        message: "a declared package does not provide what another declared package was built against",
+    },
+    Rule {
         code: "6-605-0011",
         name: "PACKAGE_VENDOR_BLOB_HASH_MISMATCH",
         severity: Severity::Error,
