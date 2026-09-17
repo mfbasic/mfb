@@ -160,7 +160,7 @@ fn build_importer(
         format!(
             "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
-             \"packages\":[{{\"name\":\"pk\",\"version\":\"=0.1.0\",\"source\":\"{source}\"}}],\
+             \"packages\":[{{\"name\":\"pk\",\"version\":\"=0.1.0\",\"source\":\"{source}\",\"direct\":true,\"requiredBy\":[]}}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n"
         ),
     )
