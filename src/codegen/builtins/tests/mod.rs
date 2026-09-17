@@ -30,6 +30,7 @@
 
 mod abi_inline;
 mod app_surface;
+mod builtin_record_arguments;
 mod canvas;
 mod collection_compare;
 mod collections;
