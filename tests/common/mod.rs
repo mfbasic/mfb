@@ -410,13 +410,20 @@ fn run_bounded_command(
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn executable");
+    // Drain stdout while the child runs. Reading it only after exit deadlocks a
+    // child that writes more than the pipe buffer (~64 KB on macOS/Linux): its
+    // write blocks, it never exits, and the timeout below reports a "hang" that
+    // is the harness's own (found by bug-615's 88 KB corpus).
+    let mut pipe = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut stdout = String::new();
+        pipe.read_to_string(&mut stdout).ok();
+        stdout
+    });
     let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait().expect("try_wait") {
-            let mut stdout = String::new();
-            if let Some(mut pipe) = child.stdout.take() {
-                pipe.read_to_string(&mut stdout).ok();
-            }
+            let stdout = reader.join().expect("stdout reader");
             return (status, stdout);
         }
         if start.elapsed() > timeout {
