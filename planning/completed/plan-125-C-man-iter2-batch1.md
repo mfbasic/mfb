@@ -967,7 +967,7 @@ Bugs filed from this phase: bug-641 (`ErrOutOfMemory` undeclared), bug-642 (gene
 builtin error location), bug-643 (`chunks`/`window` close resource handles),
 bug-644 (inline `TRAP` on a `Float` `sum`), bug-645 (per-overload declared errors).
 Belongs-in-spec rows appended: 46–71.
-Commit: —
+Commit: 1be49c8bf (Correction 1, box 2), ffb969f01 (4 of 50), 36671aebc (27 of 50), 8e212ddb7 (49 of 50), c420fec6c (closed)
 
 ## Validation Plan
 

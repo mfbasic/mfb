@@ -41,7 +41,7 @@ See plan-125-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-125-C complete | `grep -c '^- \[ \]' planning/plan-125-C-man-iter2-batch1.md` → `0` | — |
+| plan-125-C complete | `grep -c '^- \[ \]' planning/completed/plan-125-C-man-iter2-batch1.md` → `0` | MET 2026-09-16: `0` open; all four Commit lines filled (closed `c420fec6c`) |
 
 ## 1. Goal
 
