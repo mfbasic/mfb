@@ -172,7 +172,11 @@ fn pkg_update_declares_the_closure_and_the_app_runs() {
             .unwrap_or_else(|| panic!("no `{name}` entry:\n{manifest}"))
     };
     assert_eq!(entry("userpkg")["direct"], true, "{manifest}");
-    assert_eq!(entry("userpkg")["requiredBy"], serde_json::json!([]), "{manifest}");
+    assert_eq!(
+        entry("userpkg")["requiredBy"],
+        serde_json::json!([]),
+        "{manifest}"
+    );
     assert_eq!(entry("basepkg")["direct"], false, "{manifest}");
     assert_eq!(
         entry("basepkg")["requiredBy"],
@@ -182,7 +186,61 @@ fn pkg_update_declares_the_closure_and_the_app_runs() {
     assert_eq!(entry("basepkg")["source"], "file:../basepkg", "{manifest}");
 
     let (ok, output) = build(&root, "app");
-    assert!(ok, "the app must build once the closure is declared:\n{output}");
+    assert!(
+        ok,
+        "the app must build once the closure is declared:\n{output}"
+    );
+    assert_runs_and_prints_5(&output);
+}
+
+/// `mfb pkg add file://…/userpkg.mfp` declares and installs the `basepkg.mfp`
+/// sitting beside it — the add a user performs by hand, closed like any other.
+#[test]
+fn pkg_add_of_a_compiled_package_declares_its_sibling_dependency() {
+    let root = unique_root("add_file");
+    write_packages(&root);
+    let (ok, output) = build(&root, "userpkg");
+    assert!(ok, "userpkg must build:\n{output}");
+    let dist = root.join("dist");
+    fs::create_dir_all(&dist).expect("dist dir");
+    fs::copy(
+        root.join("userpkg/build/packages/basepkg.mfp"),
+        dist.join("basepkg.mfp"),
+    )
+    .expect("stage basepkg.mfp");
+    fs::copy(root.join("userpkg/userpkg.mfp"), dist.join("userpkg.mfp")).expect("stage userpkg");
+    write_project(&root, "app", "app", "executable", "", APP_SRC);
+
+    let url = format!("file://{}", dist.join("userpkg.mfp").display());
+    let (ok, output) = run(mfb()
+        .args(["pkg", "add", &url])
+        .current_dir(root.join("app")));
+    assert!(ok, "`mfb pkg add` failed:\n{output}");
+    assert!(
+        output.contains("Declared package basepkg (required by userpkg)"),
+        "the add must say what it declared:\n{output}"
+    );
+    assert!(
+        root.join("app/packages/basepkg.mfp").is_file(),
+        "basepkg.mfp must be installed"
+    );
+    let manifest = fs::read_to_string(root.join("app/project.json")).expect("read manifest");
+    let value: serde_json::Value = serde_json::from_str(&manifest).expect("manifest is JSON");
+    let base = value["packages"]
+        .as_array()
+        .expect("packages array")
+        .iter()
+        .find(|p| p["name"] == "basepkg")
+        .unwrap_or_else(|| panic!("no basepkg entry:\n{manifest}"));
+    assert_eq!(base["direct"], false, "{manifest}");
+    assert_eq!(
+        base["requiredBy"],
+        serde_json::json!(["userpkg"]),
+        "{manifest}"
+    );
+
+    let (ok, output) = build(&root, "app");
+    assert!(ok, "the app must build:\n{output}");
     assert_runs_and_prints_5(&output);
 }
 
@@ -213,7 +271,14 @@ fn a_declared_closure_builds_and_runs() {
 fn stale_dependency_fields_are_listed_and_refused() {
     let root = unique_root("stale");
     write_packages(&root);
-    write_project(&root, "orphan", "orphan", "package", "", BASE_SRC.replace("base", "o").as_str());
+    write_project(
+        &root,
+        "orphan",
+        "orphan",
+        "package",
+        "",
+        BASE_SRC.replace("base", "o").as_str(),
+    );
     write_project(
         &root,
         "app",
@@ -280,6 +345,9 @@ fn incompatible_dependency_version_is_refused_and_verify_explains_it() {
     let (ok, output) = run(mfb().args(["pkg", "verify"]).current_dir(root.join("app")));
     assert!(!ok, "`mfb pkg verify` must fail on a conflict:\n{output}");
     for needle in ["`userpkg`", "`basepkg`", "`base`"] {
-        assert!(output.contains(needle), "verify must name {needle}:\n{output}");
+        assert!(
+            output.contains(needle),
+            "verify must name {needle}:\n{output}"
+        );
     }
 }

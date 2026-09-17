@@ -33,8 +33,8 @@ use crate::manifest::json_edit::{
     project_json_with_closure_fields, project_json_with_package, project_json_without_packages,
 };
 use crate::manifest::package::{
-    project_package_dependency, resolved_package_file, source_dependency,
-    ProjectPackageDependency, SourceDependency,
+    project_package_dependency, resolved_package_file, source_dependency, ProjectPackageDependency,
+    SourceDependency,
 };
 use crate::manifest::parse_project_json;
 
@@ -61,12 +61,31 @@ pub(crate) struct Requirement {
 /// A way `packages[]` disagrees with the packages' import tables.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Issue {
-    Undeclared { requirer: String, name: String },
-    NameClash { requirer: String, name: String, ident: String, declared_ident: String },
-    MissingDirect { name: String },
-    MissingRequiredBy { name: String, expected: Vec<String> },
-    RequiredBy { name: String, declared: Vec<String>, expected: Vec<String> },
-    Orphan { name: String },
+    Undeclared {
+        requirer: String,
+        name: String,
+    },
+    NameClash {
+        requirer: String,
+        name: String,
+        ident: String,
+        declared_ident: String,
+    },
+    MissingDirect {
+        name: String,
+    },
+    MissingRequiredBy {
+        name: String,
+        expected: Vec<String>,
+    },
+    RequiredBy {
+        name: String,
+        declared: Vec<String>,
+        expected: Vec<String>,
+    },
+    Orphan {
+        name: String,
+    },
 }
 
 impl Issue {
@@ -75,7 +94,12 @@ impl Issue {
             Issue::Undeclared { requirer, name } => format!(
                 "package `{requirer}` requires `{name}`, which project.json does not declare"
             ),
-            Issue::NameClash { requirer, name, ident, declared_ident } => format!(
+            Issue::NameClash {
+                requirer,
+                name,
+                ident,
+                declared_ident,
+            } => format!(
                 "package `{requirer}` requires `{name}` as ident `{ident}`, but project.json \
                  declares `{name}` as ident `{declared_ident}`"
             ),
@@ -86,7 +110,11 @@ impl Issue {
                 "package `{name}` has no `requiredBy` array of idents; it is required by {}",
                 ident_list(expected)
             ),
-            Issue::RequiredBy { name, declared, expected } => format!(
+            Issue::RequiredBy {
+                name,
+                declared,
+                expected,
+            } => format!(
                 "package `{name}` lists requiredBy [{}], but it is required by {}",
                 declared
                     .iter()
@@ -95,9 +123,9 @@ impl Issue {
                     .join(", "),
                 ident_list(expected)
             ),
-            Issue::Orphan { name } => format!(
-                "package `{name}` is not `direct` and no declared package requires it"
-            ),
+            Issue::Orphan { name } => {
+                format!("package `{name}` is not `direct` and no declared package requires it")
+            }
         }
     }
 }
@@ -137,11 +165,13 @@ impl Conflict {
                 self.requirer, self.name, self.name, self.installed_version
             ),
             ConflictKind::Symbols(symbols) => {
-                let names: Vec<String> =
-                    symbols.iter().map(|(name, _, _)| format!("`{name}`")).collect();
+                let names: Vec<String> = symbols
+                    .iter()
+                    .map(|(name, _, _)| format!("`{name}`"))
+                    .collect();
                 format!(
-                    "package `{}` was built against a `{}` whose {} differs from the installed \
-                     `{}` {}",
+                    "package `{}` was built against a `{}` incompatible with the installed one: \
+                     its {} differs from `{}` {}",
                     self.requirer,
                     self.name,
                     names.join(", "),
@@ -215,12 +245,7 @@ impl Graph {
         let set: BTreeSet<String> = self
             .entries
             .iter()
-            .filter(|(_, needs)| {
-                needs
-                    .iter()
-                    .flatten()
-                    .any(|need| need.ident == ident)
-            })
+            .filter(|(_, needs)| needs.iter().flatten().any(|need| need.ident == ident))
             .map(|(dependency, _)| dependency.ident.clone())
             .collect();
         set.into_iter().collect()
@@ -263,8 +288,11 @@ fn requirements(
         .join("packages")
         .join(format!("{}.mfp", dependency.name));
     if installed.is_file() {
-        return import_table_requirements(project_dir, &installed, Some(&dependency.source))
-            .map(Some);
+        return Ok(import_table_requirements(
+            project_dir,
+            &installed,
+            Some(&dependency.source),
+        ));
     }
     if let SourceDependency::Directory(dir) =
         source_dependency(project_dir, &dependency.name, Some(&dependency.source))
@@ -273,58 +301,60 @@ fn requirements(
             return source_manifest_requirements(project_dir, &dir).map(Some);
         }
     }
-    match resolved_package_file(project_dir, &dependency.name) {
-        Some(path) => import_table_requirements(project_dir, &path, None).map(Some),
-        None => Ok(None),
-    }
+    Ok(resolved_package_file(project_dir, &dependency.name)
+        .and_then(|path| import_table_requirements(project_dir, &path, None)))
 }
 
 /// A compiled package's import table. The table records no source, so a
 /// dependency is located beside the requirer: a sibling `<name>.mfp` next to the
 /// `.mfp` the requirer was installed from (`source`), when there is one.
+///
+/// `None` when the payload cannot be decoded: what it needs is unknown, and the
+/// package's verification and merge report the broken file far more precisely.
 fn import_table_requirements(
     project_dir: &Path,
     path: &Path,
     source: Option<&str>,
-) -> Result<Vec<Requirement>, String> {
-    let info = binary_repr::read_package_info(path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+) -> Option<Vec<Requirement>> {
+    let info = binary_repr::read_package_info(path).ok()?;
     let origin_dir = source.and_then(|source| installed_from_dir(project_dir, source));
-    Ok(info
-        .imports
-        .into_iter()
-        .map(|import| {
-            let ident = if import.package_ident.is_empty() {
-                import.package_name.clone()
-            } else {
-                import.package_ident.clone()
-            };
-            let sibling = origin_dir
-                .as_ref()
-                .map(|(dir, _)| dir.join(format!("{}.mfp", import.package_name)))
-                .filter(|sibling| sibling.is_file());
-            let source = match (&origin_dir, &sibling) {
-                (Some((dir, relative)), Some(_)) => Some(if *relative {
-                    file_source(project_dir, &dir.join(format!("{}.mfp", import.package_name)))
+    Some(
+        info.imports
+            .into_iter()
+            .map(|import| {
+                let ident = if import.package_ident.is_empty() {
+                    import.package_name.clone()
                 } else {
-                    format!(
+                    import.package_ident.clone()
+                };
+                let sibling = origin_dir
+                    .as_ref()
+                    .map(|(dir, _)| dir.join(format!("{}.mfp", import.package_name)))
+                    .filter(|sibling| sibling.is_file());
+                // Installed as `packages/<name>.mfp`, recorded the way its requirer
+                // was: project-relative, or as the `file://` URL it was added from.
+                let source = match (&origin_dir, &sibling) {
+                    (Some((_, true)), Some(_)) => {
+                        Some(format!("file:packages/{}.mfp", import.package_name))
+                    }
+                    (Some((dir, false)), Some(_)) => Some(format!(
                         "file://{}",
                         slash_path(&dir.join(format!("{}.mfp", import.package_name)))
-                    )
-                }),
-                _ => None,
-            };
-            Requirement {
-                name: import.package_name,
-                ident,
-                version: import.version,
-                pin: import.pin,
-                source,
-                ident_key: String::new(),
-                install_from: sibling,
-            }
-        })
-        .collect())
+                    )),
+                    _ => None,
+                };
+                Requirement {
+                    name: import.package_name,
+                    ident,
+                    version: import.version,
+                    pin: import.pin,
+                    source,
+                    ident_key: String::new(),
+                    install_from: sibling,
+                }
+            })
+            .collect(),
+    )
 }
 
 /// The directory an installed `.mfp` was added from, and whether its `source`
@@ -372,41 +402,56 @@ fn source_manifest_requirements(
 }
 
 /// Re-express `dependency`'s `source`, written relative to the project at
-/// `requirer_dir`, for the project at `project_dir`. A compiled dependency the
-/// requirer has installed is returned as the file to install.
+/// `requirer_dir`, for the project at `project_dir`, and name the compiled file
+/// to install into `project_dir/packages/` when the requirer builds against one.
+///
+/// The requirer builds against what the build would resolve for it: its
+/// installed `packages/<name>.mfp` wins over any source directory beside it
+/// (`source_dependency_dirs`), so that file is what the importer installs too,
+/// recorded as `file:packages/<name>.mfp` — or, for a `file://` add, the URL the
+/// user added it from. A registry ident is the same wherever it is written, and
+/// is installed from the registry, never copied.
 fn rebase_source(
     project_dir: &Path,
     requirer_dir: &Path,
     dependency: &ProjectPackageDependency,
 ) -> (String, Option<PathBuf>) {
     let source = dependency.source.as_str();
-    let installed = requirer_dir
-        .join("packages")
-        .join(format!("{}.mfp", dependency.name));
-    let install_from = installed.is_file().then(|| installed.clone());
-    if source.starts_with("local://") || source.starts_with("file://") {
+    let name = &dependency.name;
+    let is_registry = !source.is_empty() && !source.contains(':');
+    if is_registry {
+        return (source.to_string(), None);
+    }
+    let installed = requirer_dir.join("packages").join(format!("{name}.mfp"));
+    if source.starts_with("file://") {
+        let origin = crate::manifest::package::package_file_url_path(source).ok();
+        let install_from = if installed.is_file() {
+            Some(installed)
+        } else {
+            origin.filter(|origin| origin.is_file())
+        };
         return (source.to_string(), install_from);
     }
-    if let Some(relative) = source.strip_prefix("file:") {
-        return (
-            file_source(project_dir, &requirer_dir.join(relative)),
-            install_from,
-        );
+    if installed.is_file() {
+        return (format!("file:packages/{name}.mfp"), Some(installed));
     }
-    if source.is_empty() {
-        return match install_from {
-            Some(installed) => (file_source(project_dir, &installed), Some(installed)),
-            None => (
-                file_source(
-                    project_dir,
-                    &requirer_dir.join("packages").join(&dependency.name),
-                ),
-                None,
-            ),
-        };
+    if source.starts_with("local://") {
+        return (source.to_string(), None);
     }
-    // A registry ident: the same wherever it is written.
-    (source.to_string(), install_from)
+    match source.strip_prefix("file:") {
+        Some(relative) if relative.ends_with(".mfp") => {
+            let compiled = requirer_dir.join(relative);
+            (
+                format!("file:packages/{name}.mfp"),
+                compiled.is_file().then_some(compiled),
+            )
+        }
+        Some(relative) => (file_source(project_dir, &requirer_dir.join(relative)), None),
+        None => (
+            file_source(project_dir, &requirer_dir.join("packages").join(name)),
+            None,
+        ),
+    }
 }
 
 /// `file:<path relative to project_dir>`, or an absolute spelling when no
@@ -450,7 +495,10 @@ fn normalize(path: &Path) -> PathBuf {
     let mut rest = Vec::new();
     loop {
         if let Ok(canonical) = std::fs::canonicalize(existing) {
-            return rest.iter().rev().fold(canonical, |path, part| path.join(part));
+            return rest
+                .iter()
+                .rev()
+                .fold(canonical, |path, part| path.join(part));
         }
         match (existing.parent(), existing.file_name()) {
             (Some(parent), Some(name)) => {
@@ -743,7 +791,10 @@ mod tests {
                  \"direct\": true, \"requiredBy\": []}",
             ),
         );
-        write(&root.path().join("app/project.json"), &manifest(app_packages));
+        write(
+            &root.path().join("app/project.json"),
+            &manifest(app_packages),
+        );
         root
     }
 
@@ -819,10 +870,7 @@ mod tests {
         let app = root.path().join("app");
         let contents = fs::read_to_string(app.join("project.json")).unwrap();
         let result = reconcile(&app, &contents).unwrap();
-        assert_eq!(
-            result.added,
-            vec![("base".to_string(), "user".to_string())]
-        );
+        assert_eq!(result.added, vec![("base".to_string(), "user".to_string())]);
         assert!(result.unresolved.is_empty());
         let manifest = parse_project_json(&result.contents, &app.join("project.json")).unwrap();
         let declared = declared_dependencies(&manifest);
@@ -873,6 +921,51 @@ mod tests {
                 "base:Some([\"user\"])".to_string(),
                 "user:Some([])".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn a_requirers_source_is_rebased_onto_the_importer() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app");
+        let user = root.path().join("libs/user");
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(user.join("packages")).unwrap();
+        let entry = |name: &str, source: &str| ProjectPackageDependency {
+            name: name.to_string(),
+            ident: name.to_string(),
+            version: "=0.1.0".to_string(),
+            pin: false,
+            source: source.to_string(),
+            ident_key: String::new(),
+            direct: Some(true),
+            required_by: Some(Vec::new()),
+        };
+        // A source directory, relative to the requirer.
+        assert_eq!(
+            rebase_source(&app, &user, &entry("base", "file:../base")),
+            ("file:../libs/base".to_string(), None)
+        );
+        // The conventional `packages/<name>/` directory.
+        assert_eq!(
+            rebase_source(&app, &user, &entry("base", "")),
+            ("file:../libs/user/packages/base".to_string(), None)
+        );
+        // Absolute and registry sources are the same everywhere.
+        assert_eq!(
+            rebase_source(&app, &user, &entry("base", "local:///opt/base")),
+            ("local:///opt/base".to_string(), None)
+        );
+        assert_eq!(
+            rebase_source(&app, &user, &entry("base", "ada#base")),
+            ("ada#base".to_string(), None)
+        );
+        // An installed .mfp wins over the source beside it, and is installed.
+        let installed = user.join("packages/base.mfp");
+        fs::write(&installed, b"mfp").unwrap();
+        assert_eq!(
+            rebase_source(&app, &user, &entry("base", "file:../base")),
+            ("file:packages/base.mfp".to_string(), Some(installed))
         );
     }
 
