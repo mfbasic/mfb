@@ -355,7 +355,10 @@ END FUNC\n";
     assert_eq!(
         exports_of(
             "exports_return_with_public",
-            &[("lib.mfb", ONLY_RETURN_EXPORT), ("helper.mfb", RETURN_HELPER)]
+            &[
+                ("lib.mfb", ONLY_RETURN_EXPORT),
+                ("helper.mfb", RETURN_HELPER)
+            ]
         ),
         plain,
         "a PUBLIC return-type overload changed the export table"
