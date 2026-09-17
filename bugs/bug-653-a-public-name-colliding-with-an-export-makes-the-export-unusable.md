@@ -354,7 +354,7 @@ a collision.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_package_public_export_name_collision.rs`, modelled on
+- [x] Add `tests/runtime/rt_package_public_export_name_collision.rs`, modelled on
       `tests/runtime/rt_package_private_type_collision.rs`: source and `.mfp` forms of the
       collision, the return-type sibling, a consumer calling the PUBLIC overload (located
       error), export-table identity with/without the PUBLIC sibling (`mfb pkg info`), and the
@@ -363,24 +363,36 @@ a collision.
       name. **Done: all ten packages clean** — see Blast Radius for the command.
 
 Acceptance: the new tests fail for the documented reason and the guard passes.
-Commit: —
+Commit: 978e30225 (RED: 5 of 6 failed — `TYPE_UNKNOWN_VALUE`, unlocated
+`NIR call target 'pk.f' does not resolve`, export table `f$String` vs `f`; guard passed)
 
 ### Phase 2 — the fix
 
-- [ ] Decide an `EXPORT` function's concrete name from its `EXPORT` siblings only
+- [x] Decide an `EXPORT` function's concrete name from its `EXPORT` siblings only
       (`src/monomorph/lower.rs:Monomorphizer::new`).
-- [ ] Re-run the Phase 1 tests and every contrast row.
+- [x] Re-run the Phase 1 tests and every contrast row.
+- [x] **Found while verifying:** the importer's rejection of `pk::f(1, 2)` read
+      "Call to `pk.f` has 1 argument(s), expected 1 to 1." — `src/ir/shape.rs` did not count
+      an excess positional argument. Pre-existing (main's compiler, same output against the
+      control package). Fixed; unit test
+      `ir::shape::tests::excess_positional_arguments_are_counted_in_the_arity_detail`; one
+      disproved golden line corrected
+      (`tests/syntax/functions/user-function-default-args-invalid`, `combine(1, 2, "!", 4)`
+      said "has 3").
 
 Acceptance: Phase 1's tests pass; the guard unchanged; nothing in Non-goals moved.
-Commit: —
+Commit: 115d9b8c7 (export naming), 1d4638050 (arity count)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Rebuild every package in `packages/` and confirm each `.mfp` is byte-identical; any
-      diff is a bug-hunt trigger, not a rebaseline.
-- [ ] Run the full suite plus the byte-identity and determinism gates.
-- [ ] Re-run the `/tmp/bug648-minimal` and `/tmp/bug648-callpublic` reproductions.
-- [ ] Update `src/docs/spec/architecture/12_monomorphization.md` (the parameter-overload
+- [x] Rebuild every package in `packages/` and confirm each `.mfp` is byte-identical: all ten
+      SAME (`shasum -a 256` of each `.mfp`, main's compiler vs. the fix).
+- [x] Run the full suite plus the byte-identity and determinism gates.
+- [x] Re-run the `/tmp/bug648-minimal` and `/tmp/bug648-callpublic` reproductions: both build;
+      `app.out` prints `export:x` / `8` / `export:a|public:3`. The real-world case (scratch
+      `packages/xml` with `sliceText` renamed back to `textOf`) exports `FUNC textOf` and the
+      `/tmp/xml-lenrepro` consumer runs all four call shapes.
+- [x] Update `src/docs/spec/architecture/12_monomorphization.md` (the parameter-overload
       producer row) and `src/docs/spec/language/06_functions.md` (Overloading) with the
       visibility rule.
 
