@@ -10,6 +10,30 @@ Regression Test: `src/codegen/builtins/tests/builtin_record_arguments.rs`;
 `codegen::registry::tests::strict_matching_holds_builtin_value_types_to_their_identity`;
 `tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid`
 
+## STATUS: FIXED (4e76e4051, 434e991ea, 1120b8ff4, 600329299)
+
+A package member's record or enum parameter now accepts only that type, and a union
+parameter accepts itself or its variants — in strict matching, which both `ir::shape`
+(source) and `ir::verify` (decoded package IR) use. The reproduction now reports
+`TYPE_CALL_ARGUMENT_MISMATCH` on every call; the well-typed form still prints
+`1772884800000` / `1772971200000`. Formatting `294422035`; `main` merged twice
+(bug-628/653, then bug-648).
+
+Deviations from the Fix design:
+
+- **Two siblings fixed in the same change** (Root cause B, C): `canvas` added to
+  `ARGUMENT_CHECKED_PACKAGES`, and `qualify_type_leaves_inner` descends into `FUNC`
+  types so a callback's record leaves are checked too.
+- **One test line corrected** (`audio::tests::open_and_timed_overloads_resolve`): it
+  passed a bare `AudioDevice` to strict resolution, which only resolved because
+  matching was coarse. Proof it was wrong is in `434e991ea`'s message.
+
+Verification: `cargo test --no-fail-fast` exit 0, 194 binaries `ok`, 0 failed, run on
+the tree after the last `main` merge; `test-accept.sh` 1485 passed; `artifact-gate.sh
+all` 2050 goldens, 0 diffs; `man-examples-gate.sh` 1077/1078 — the one failure,
+`http::server#2`, is a bind on port 8080 held by an unrelated local process
+(`learn-ser`); the same program exits 0 on port 18080.
+
 `datetime::toMillis` has one declaration, `toMillis(at AS datetime::Instant) AS
 Integer`. Passing it a `datetime::DateTime`, `datetime::Date` or
 `datetime::Duration` **compiles**, and the call then reads the argument as if it
@@ -133,8 +157,8 @@ the user-function diagnostic.
 ## Fix
 
 - [x] Phase 1 — RED tests: `datetime::toMillis(<DateTime>)`, `(<Date>)` and `(<Duration>)`
-each fail with `TYPE_CALL_ARGUMENT_MISMATCH`. Run the census above. Commit: COMMIT_P1
+each fail with `TYPE_CALL_ARGUMENT_MISMATCH`. Run the census above. Commit: 4e76e4051
 
 - [x] Phase 2 — make the built-in call check compare record identity, fully qualified,
 the same way the user-function path does (GREEN); full suite, and the acceptance
-goldens that exercise built-in record arguments. Commit: COMMIT_P2
+goldens that exercise built-in record arguments. Commit: 434e991ea (fix), 1120b8ff4 (syntax fixture), 600329299 (spec)
