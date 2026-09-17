@@ -4829,11 +4829,18 @@ mod tests {
     /// rule. Lenient dispatch is unchanged.
     #[test]
     fn strict_matching_holds_builtin_value_types_to_their_identity() {
-        let to_millis = |arg: &str, strict: bool| {
-            resolve_call("datetime.toMillis", &[arg.to_string()], strict)
-        };
-        assert_eq!(to_millis("datetime.Instant", true).as_deref(), Some("Integer"));
-        for wrong in ["datetime.DateTime", "datetime.Date", "datetime.Duration", "Instant"] {
+        let to_millis =
+            |arg: &str, strict: bool| resolve_call("datetime.toMillis", &[arg.to_string()], strict);
+        assert_eq!(
+            to_millis("datetime.Instant", true).as_deref(),
+            Some("Integer")
+        );
+        for wrong in [
+            "datetime.DateTime",
+            "datetime.Date",
+            "datetime.Duration",
+            "Instant",
+        ] {
             assert_eq!(
                 to_millis(wrong, true),
                 None,
@@ -4850,7 +4857,11 @@ mod tests {
         let text = "String".to_string();
         assert!(resolve_call("crypto.hash", &["crypto.Hash".into(), text.clone()], true).is_some());
         assert_eq!(
-            resolve_call("crypto.hash", &["crypto.SymmetricCipher".into(), text], true),
+            resolve_call(
+                "crypto.hash",
+                &["crypto.SymmetricCipher".into(), text],
+                true
+            ),
             None,
             "a different enum must not satisfy a `crypto.Hash` parameter"
         );

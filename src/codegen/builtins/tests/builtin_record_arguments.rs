@@ -27,7 +27,10 @@ fn assert_argument_mismatch(what: &str, source: &str) {
 /// Whether `source` is accepted with no diagnostic at all.
 fn assert_accepted(what: &str, source: &str) {
     let rules = check_src(source);
-    assert!(rules.is_empty(), "{what} must be accepted; it said {rules:?}");
+    assert!(
+        rules.is_empty(),
+        "{what} must be accepted; it said {rules:?}"
+    );
 }
 
 /// The bug's own reproduction: a `DateTime`, a `Date` and a `Duration` each
