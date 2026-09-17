@@ -132,7 +132,11 @@ fn parse_fixed(text: &str) -> i64 {
     let frac_value: BigInt = frac_part.parse().unwrap();
     let ten32 = BigInt::from(10u128.pow(32));
     let scaled_frac = &frac_value << 32u32;
-    assert_eq!(&scaled_frac % &ten32, big(0), "{text:?} is not an exact Q32.32 expansion");
+    assert_eq!(
+        &scaled_frac % &ten32,
+        big(0),
+        "{text:?} is not an exact Q32.32 expansion"
+    );
     let mut raw = (int_value << 32u32) + scaled_frac / ten32;
     if negative {
         raw = -raw;
@@ -209,9 +213,33 @@ fn near_pole_raws(pio2: &BigInt) -> Vec<i64> {
 
 fn corpus(pio2: &BigInt) -> Vec<i64> {
     let one = 1i64 << 32;
-    let mut raws = vec![0, 1, -1, one, -one, one / 2, 3 * one / 4, i64::MAX, i64::MIN, i64::MIN + 1];
+    let mut raws = vec![
+        0,
+        1,
+        -1,
+        one,
+        -one,
+        one / 2,
+        3 * one / 4,
+        i64::MAX,
+        i64::MIN,
+        i64::MIN + 1,
+    ];
     // The filed table, and the probe's large angles.
-    for f in [1.5, 1.57, 1.5707, 1.57079, 1.570796, 1.5707963, -1.5707963, 1000.0, 1.0e6, 1.0e8, 2.0e9, -2147483000.5] {
+    for f in [
+        1.5,
+        1.57,
+        1.5707,
+        1.57079,
+        1.570796,
+        1.5707963,
+        -1.5707963,
+        1000.0,
+        1.0e6,
+        1.0e8,
+        2.0e9,
+        -2147483000.5,
+    ] {
         raws.push((f * one as f64).round() as i64);
     }
     raws.extend(near_pole_raws(pio2));
@@ -249,7 +277,11 @@ END FUNC
 
 /// Run sin/cos/tan over `raws`; one `(raw, sin, cos, tan)` row per argument.
 fn run(raws: &[i64]) -> Vec<(i64, String, String, String)> {
-    let his = raws.iter().map(|r| (r >> 32).to_string()).collect::<Vec<_>>().join(", ");
+    let his = raws
+        .iter()
+        .map(|r| (r >> 32).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let los = raws
         .iter()
         .map(|r| format!("{}.0", r & 0xFFFF_FFFF))
@@ -308,7 +340,9 @@ fn fixed_text(raw: i64) -> String {
 
 fn units(error: &BigInt) -> f64 {
     let whole = error >> (W - 32);
-    let whole = i64::try_from(whole).map(|v| v as f64).unwrap_or(f64::INFINITY);
+    let whole = i64::try_from(whole)
+        .map(|v| v as f64)
+        .unwrap_or(f64::INFINITY);
     whole.max(0.0)
 }
 
@@ -336,7 +370,10 @@ fn fixed_sin_cos_tan_are_within_one_unit_and_tan_overflow_raises() {
                         ));
                     }
                 }
-                None => wrong.push(format!("{name}({}) must not raise: {line}", fixed_text(*raw))),
+                None => wrong.push(format!(
+                    "{name}({}) must not raise: {line}",
+                    fixed_text(*raw)
+                )),
             }
         }
 
