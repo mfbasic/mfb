@@ -58,6 +58,23 @@ run); the fixed result is the `ErrOverflow` fail path.
 Alternatively, an integration test can set the process clock with a test-only
 clock override, if one exists; otherwise use the unit test.
 
+## Phase 1 findings (2026-09-17)
+
+RED test `tests/runtime/rt_datetime_clock_overflow.rs` pins the clock with a
+`clock_gettime` interposer (`DYLD_INSERT_LIBRARIES` / `LD_PRELOAD`), so it runs the
+real emitted code rather than a unit test of the instruction list. On macos-aarch64
+at `798870ec2`: a reading of `(9223372036, 854775808)` returns
+`nowNanos ok -9223372036854775808` and `now ok -9223372037 145224192`;
+`(-9223372037, 0)` wraps the other way to `9223372036709551616`. The in-range
+maximum `(9223372036, 854775807)` is exact, and a control reading proves the
+interposer is loaded.
+
+Audit: `monotonicNanos` shares `emit_libc_clock_nanos` and wraps identically (same
+test). The Windows `nowNanos` path (`(FILETIME - epoch) * 100`, unchecked
+`multiply_registers`) has the same wrap past 2262 — a FILETIME reaches year ~60056 —
+so it is in scope too; the Windows `monotonicNanos` QPC fold is described as
+overflow-safe and must be confirmed.
+
 ## Root cause
 
 `emit_libc_clock_nanos` lowers the seconds-to-nanoseconds scaling with plain

@@ -737,6 +737,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_datetime_clock_overflow"
+path = "tests/runtime/rt_datetime_clock_overflow.rs"
+
+[[test]]
 name = "rt_debug_soak"
 path = "tests/runtime/rt_debug_soak.rs"
 
