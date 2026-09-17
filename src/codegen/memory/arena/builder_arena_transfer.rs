@@ -28,6 +28,11 @@ pub(crate) enum RawSuccessBlock {
     /// Someone else frees it, or it is not this arena's to free at all. Emit
     /// nothing.
     OwnedElsewhere,
+    /// bug-648: a resource (or resource union) ELEMENT another owner still holds
+    /// and closes — `tcp`/`udp`/`tls::poll` over a list, `collections::get`/`getOr`.
+    /// Carry the pointer into the `Result`: a copy would run the thread hand-over
+    /// lowering, which tombstones the live element `moved|closed`. Free nothing.
+    BorrowedResource,
 }
 
 /// How much to copy for a resource live slot that points into the sender's arena
@@ -260,9 +265,15 @@ impl CodeBuilder<'_> {
         // UNION spelling of the same bind, whose `$trap_val` temp is the concrete
         // variant — orphaned one record per bind. `RawSuccessBlock::OwnedByThisFrame`
         // is the audited answer to "is this record this frame's?"; a worker's record
-        // (`thread.*`) and a borrowed element keep the deep copy.
-        let carry_resource_pointer = raw_success == RawSuccessBlock::OwnedByThisFrame
-            && self.is_sendable_resource_nominal(success_type);
+        // (`thread.*`) keeps the deep copy. A borrowed element is carried as well
+        // (bug-648): the copy's source flag tombstoned the element its list still
+        // held, and the `TRAP` binding does not own the carried pointer
+        // (`trap_ownership`).
+        let carry_resource_pointer = match raw_success {
+            RawSuccessBlock::OwnedByThisFrame => self.is_sendable_resource_nominal(success_type),
+            RawSuccessBlock::BorrowedResource => true,
+            RawSuccessBlock::OwnedElsewhere => false,
+        };
         let copied_success = if carry_resource_pointer {
             let carried = self.allocate_register();
             self.emit(abi::move_register(&carried, &scratch9));

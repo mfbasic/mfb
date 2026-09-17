@@ -5,6 +5,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::resource::cleanup::trap_ownership::TrapStoreOwnership;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -649,9 +650,19 @@ impl CodeBuilder<'_> {
                         // bug-375: a bind that merely aliases an already-live
                         // resource registers no cleanup below, so it owns no
                         // slot to zero here either.
+                        // bug-648: an inline-`TRAP` temp has no initializer to ask, so
+                        // the question moves to its stores. Every store borrowed: it is
+                        // an alias like any other. Some borrowed: it owns only while
+                        // its flag says the value it holds was handed over.
+                        let trap_store_ownership = if value.is_none() {
+                            self.trap_ownership.temps.get(name).copied()
+                        } else {
+                            None
+                        };
                         let aliases_live_resource = value
                             .as_ref()
-                            .is_some_and(Self::value_aliases_live_resource);
+                            .is_some_and(Self::value_aliases_live_resource)
+                            || trap_store_ownership == Some(TrapStoreOwnership::Borrowed);
                         let owns_resource_slot = !Self::is_thread_type(&type_)
                             && !aliases_union_variant
                             && !by_ref_capture_slot
@@ -707,6 +718,19 @@ impl CodeBuilder<'_> {
                         if owns_resource_slot || owns_thread_slot {
                             self.owned_value_slots.push(stack_offset);
                         }
+                        // bug-648: a `Mixed` temp's ownership flag starts clear, here and
+                        // in the prologue, so a drop reached before any store owns nothing.
+                        let owner_flag_slot = if owns_resource_slot
+                            && trap_store_ownership == Some(TrapStoreOwnership::Mixed)
+                        {
+                            let flag = self.allocate_stack_object("trap_owner_flag", 8);
+                            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), flag));
+                            self.owned_value_slots.push(flag);
+                            self.trap_owner_flags.insert(name.clone(), flag);
+                            Some(flag)
+                        } else {
+                            None
+                        };
                         if let Some(value) = value {
                             // A promoted small-vector binding keeps its lanes in
                             // registers with no arena block: lower the (native)
@@ -897,6 +921,7 @@ impl CodeBuilder<'_> {
                                     frees_record: Self::resource_record_freed_at_drop(type_)
                                         && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
+                                    owner_flag_slot,
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -950,6 +975,7 @@ impl CodeBuilder<'_> {
                                         Vec::new()
                                     },
                                     closes_variant: !alias_wrap,
+                                    owner_flag_slot,
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -1267,8 +1293,15 @@ impl CodeBuilder<'_> {
                                         &result.type_,
                                     ) && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
+                                    owner_flag_slot: self.trap_owner_flags.get(name).copied(),
                                 };
-                                self.emit_resource_cleanup_call(&cleanup)?;
+                                // bug-648: a temp that is only ever lent its value never
+                                // held one to release.
+                                if self.trap_ownership.temps.get(name)
+                                    != Some(&TrapStoreOwnership::Borrowed)
+                                {
+                                    self.emit_resource_cleanup_call(&cleanup)?;
+                                }
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
@@ -1364,6 +1397,18 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 );
+                            }
+                            // bug-648: record whether this store handed a `Mixed` temp
+                            // an owned value — strictly after the old value's drop
+                            // above, which must read the flag of the value it releases.
+                            if let Some(&flag) = self.trap_owner_flags.get(name) {
+                                if self.trap_ownership.store_is_owned(value) {
+                                    let owned = self.temporary_vreg();
+                                    self.emit(abi::move_immediate(&owned, "Integer", "1"));
+                                    self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
+                                } else {
+                                    self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), flag));
+                                }
                             }
                             // A reference local never folds to a constant (see Bind).
                             let constant = if by_ref {
