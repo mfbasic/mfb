@@ -234,3 +234,48 @@ fn a_reading_before_1678_raises_overflow() {
     // Just inside the negative limit still reads exactly.
     assert_eq!(read_clocks(-9_223_372_036, 0), expected(-9_223_372_036, 0));
 }
+
+/// `crypto::uuid7` and `crypto::ulid` stamp the clock reading, so they raise the
+/// same `ErrOverflow` rather than encoding a wrapped timestamp.
+#[test]
+fn clock_derived_identifiers_raise_overflow_past_2262() {
+    const IDS: &str = r#"IMPORT io
+IMPORT crypto
+
+FUNC readUuid7 AS String
+  RETURN "ok " & crypto::uuid7()
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC readUlid AS String
+  RETURN "ok " & crypto::ulid()
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print("uuid7 " & readUuid7())
+  io::print("ulid " & readUlid())
+END SUB
+"#;
+    let project = common::temp_project("datetime_clock_overflow_ids", IDS);
+    let executable = common::build_project(&project);
+    let interposer = build_clock_interposer(&project);
+    let mut envs = vec![("MFB_FAKE_CLOCK", "9223372037 0".to_string())];
+    if cfg!(target_os = "macos") {
+        envs.push(("DYLD_INSERT_LIBRARIES", interposer.display().to_string()));
+        envs.push(("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()));
+    } else {
+        envs.push(("LD_PRELOAD", interposer.display().to_string()));
+    }
+    let (status, stdout, stderr) = common::run_capture_with_env(&executable, &envs);
+    assert_eq!(status, 0, "stdout:\n{stdout}\nstderr:\n{stderr}");
+    let _ = fs::remove_dir_all(&project);
+    assert_eq!(
+        stdout,
+        format!("uuid7 raised {ERR_OVERFLOW}\nulid raised {ERR_OVERFLOW}\n")
+    );
+}
