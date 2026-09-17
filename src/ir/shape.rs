@@ -3408,7 +3408,11 @@ impl<'a> Walker<'a> {
                                 next_positional += 1;
                             }
                             if next_positional >= ordered.len() {
+                                // An excess positional argument has no slot but is
+                                // still one the call supplied: `f(1, 2)` against
+                                // `f(x)` "has 2 argument(s)", not 1 (bug-653).
                                 arity_error = true;
+                                supplied += 1;
                                 continue;
                             }
                             ordered[next_positional] = Some(value);
@@ -4997,6 +5001,22 @@ mod tests {
                 "Call to `g` has 0 argument(s), expected 1 to 1.",
             ]
         );
+    }
+
+    #[test]
+    fn excess_positional_arguments_are_counted_in_the_arity_detail() {
+        // bug-653: the excess argument has no parameter slot, but the call still
+        // supplied it.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(1, 2)\nEND FUNC\n",
+            ),
+            &[], &[], &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(details, ["Call to `g` has 2 argument(s), expected 1 to 1."]);
     }
     // --- bug-466: field access on a record whose owning package is not imported ---
     //

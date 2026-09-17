@@ -56,6 +56,18 @@ and can never be a parameter type, this segment can never collide with a
 parameter-distinguished mangled name.
 [[src/monomorph/helpers.rs:overload_concrete_name]]
 
+**An `EXPORT` counts only its `EXPORT` siblings.** Both "shared by ≥2" and
+"differing only by return type" are measured, for an `EXPORT` function, over the
+`EXPORT` members of its name; a `PUBLIC`/`PRIVATE` member counts the whole set. An
+export's concrete symbol is its name in the `.mfp` export table and ABI index, and
+importers see only exports, so a hidden sibling must not rename it: `EXPORT f(String)`
+beside `PUBLIC f(Integer, Integer)` is emitted as `f` (the PUBLIC one as
+`f$Integer$Integer`), and adding or removing that helper leaves the package's exports
+byte-for-byte unchanged. A non-exported member is mangled whenever any sibling exists,
+so its symbol cannot equal an export's. Intra-package calls are unaffected: they
+resolve through `overload_names`, which maps each declaration to the symbol it was
+given (bug-653). [[src/monomorph/lower.rs:Monomorphizer::new]]
+
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
