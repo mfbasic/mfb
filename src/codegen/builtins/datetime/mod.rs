@@ -1013,6 +1013,12 @@ mod tests {
                 "datetime.toIso",
                 &[&[OVERFLOW], &[INVALID_ARGUMENT, OVERFLOW]],
             ),
+            // bug-640: a clock reading whose nanosecond count leaves the `Integer`
+            // range raises (`tests/runtime/rt_datetime_clock_overflow.rs`).
+            ("datetime.now", &[&[OVERFLOW]]),
+            ("datetime.nowNanos", &[&[OVERFLOW]]),
+            ("datetime.monotonic", &[&[OVERFLOW]]),
+            ("datetime.monotonicNanos", &[&[OVERFLOW]]),
             // Probed at their extremes and never raised.
             ("datetime.fromMillis", &[&[]]),
             ("datetime.toUtc", &[&[]]),
@@ -1022,10 +1028,6 @@ mod tests {
             ("datetime.isAfter", &[&[]]),
             ("datetime.isLeapYear", &[&[]]),
             ("datetime.daysInMonth", &[&[]]),
-            ("datetime.now", &[&[]]),
-            ("datetime.nowNanos", &[&[]]),
-            ("datetime.monotonic", &[&[]]),
-            ("datetime.monotonicNanos", &[&[]]),
             ("datetime.local", &[&[]]),
             ("datetime.utc", &[&[]]),
         ];
