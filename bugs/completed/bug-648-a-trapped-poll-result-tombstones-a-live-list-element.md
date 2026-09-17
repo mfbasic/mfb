@@ -5,7 +5,14 @@ Effort: medium (1h–2h)
 Severity: **HIGH** (a live, still-owned handle is flagged `moved|closed`)
 Class: Correctness (resource lifetime)
 
-Status: Open
+Status: FIXED
+
+STATUS: FIXED (c482a65fe)
+
+Deviations from the doc as filed: the filed mechanism (the copy tombstoning its source) holds only
+for `collections::get`; `poll` was never copied — every shape was an ownership defect in the
+inline-`TRAP` temp (see Root Cause). Scope widened to an aliasing `RECOVER` value (C), mixed
+borrowed/owned stores (D), and a pre-existing, independent union-wrap gap on `RECOVER` (E).
 Regression Test: `tests/net/rt_inline_trap_borrowed_resource.rs` (5 cases, RED at 3b94f621e)
 
 `tcp::poll`/`udp::poll`/`tls::poll` over a `List OF RES …` returns a **borrowed** pointer to
@@ -129,11 +136,24 @@ Commit: b3404a1cb
       `a_recovered_variant_in_a_union_returning_trap_matches_its_variant` and
       `a_recovered_variant_in_a_resource_union_returning_trap_is_matched_and_closed`.
 
-Commit: 5a044975e, 5239a6367, (E below)
+Commit: 5a044975e, 5239a6367, ff8802fdb, 2ae99b915 (unit-test compile fix)
 
 ### Phase 3 — full validation
 
-Commit: —
+- [x] `cargo test --no-fail-fast -- --skip artifact_gate_all` on the branch after merging `main`
+      twice (bug-653, bug-628): `EXIT=0`, 194 binaries, 5832 passed, 0 failed, 6 ignored. (One
+      intermediate run after the first merge red-flagged `rt_compress_bounds::decode_time_is_linear_in_output_size`
+      at 4.53× vs a 4.4× limit under full-suite load; it passed 4/4 in isolation and in the final
+      full run. Unrelated to this change — a load-sensitive timing ratio.)
+- [x] `scripts/artifact-gate.sh target/release/mfb all`: 2050 goldens, 0 diffs (no committed
+      fixture exercises these shapes, so no golden moved; coverage is the new runtime tests).
+- [x] `scripts/test-accept.sh target/release/mfb`: 1484 fixtures passed.
+- [x] Reproductions re-run on macos-aarch64: all five `rt_inline_trap_borrowed_resource` shapes,
+      the two union `RECOVER` shapes, and `--debug` soaks flat (`live_bytes` 240→240,
+      `double_free_skips 0`). Not execution-verified on Linux/Windows hosts; the change is shared
+      arch-neutral codegen and IR lowering.
+
+Commit: c482a65fe
 
 ## Summary
 
