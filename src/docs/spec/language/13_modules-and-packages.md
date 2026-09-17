@@ -138,8 +138,18 @@ compiler resolves the first identifier in the import using this order: [[src/res
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The
 compiler does not implicitly import undeclared packages from this directory.
-Each package is responsible for declaring its own dependencies; dependency
-declarations are not inherited from importers and imports are not transitive.
+
+Imports remain non-transitive for **names**: a package cannot export an
+imported package or create a re-export chain, and an importing project cannot
+write `basepkg::` merely because a package it declares imports `basepkg` —
+that still requires its own `IMPORT basepkg`. But a native build merges
+exactly the packages `project.json` declares, so the importing project's
+`packages[]` must declare a package's **whole dependency closure**: every
+package any declared package's own import table names, not only the packages
+the project's own source names in an `IMPORT`. This is a declaration/merging
+rule, not a visibility one — see `./mfb spec tooling project-manifest` for the
+`direct`/`requiredBy` fields that record why each entry is there and the
+diagnostics that refuse an inconsistent closure.
 
 ## 13.1 Package identity, versions, and manifests
 
