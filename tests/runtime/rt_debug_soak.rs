@@ -1075,6 +1075,45 @@ fn a_trap_bind_whose_producer_fails_keeps_live_bytes_constant() {
     );
 }
 
+/// bug-648: an inline `TRAP` over a BORROWED element (`collections::get` of a
+/// `List OF RES`) must neither own the element nor orphan its own closed default record.
+///
+/// The fix makes the `$trap_valN` temp's drop run only while a run-time flag says the slot
+/// holds an owned value. Its first measured cut left the temp's closed default record
+/// closed but never freed — 96 B per iteration (`live_bytes 29040` at N=300, `57840` at
+/// N=600) — because bug-623's record-ownership pass saw a borrowed store and stopped
+/// calling the temp the record's owner. `tests/net/rt_inline_trap_borrowed_resource.rs`
+/// pins that the element stays open; this pins the bytes.
+#[test]
+fn a_trapped_borrowed_get_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, u)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES g AS udp::Socket = collections::get(socks, 0) TRAP(e)\n      EXIT SUB\n    END TRAP\n    ok = ok + 1\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b648_get_trap",
+        SOURCE,
+        300,
+        600,
+        "ok=",
+        "a `TRAP` over a borrowed element orphans its temp's default record (bug-648)",
+    );
+}
+
+/// bug-648, both halves of a temp whose stores disagree: odd iterations `poll` a pending
+/// datagram out of the list (borrowed — the flag must stay clear, freeing nothing), even
+/// iterations time out and `RECOVER` a fresh socket (owned — its record must be freed at
+/// the drop). The first cut measured 192 B per iteration on the recovering path alone.
+#[test]
+fn a_trapped_borrowed_poll_with_an_owned_recover_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  RES r AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  LET at AS net::Address = udp::localAddress(r)\n  RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, r)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT wait AS Integer = 0\n    IF i MOD 2 = 1 THEN\n      udp::send(s, at, \"p\")\n      wait = 5000\n    END IF\n    MUT recovered AS Boolean = FALSE\n    RES p AS udp::Socket = udp::poll(socks, wait) TRAP(e)\n      recovered = TRUE\n      RECOVER udp::bind(\"127.0.0.1\", 0)\n    END TRAP\n    IF recovered = FALSE THEN\n      LET got = udp::receive(p, 16)\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b648_poll_recover_trap",
+        SOURCE,
+        300,
+        600,
+        "ok=",
+        "a `TRAP` whose stores are part borrowed, part owned leaks or double-frees (bug-648)",
+    );
+}
+
 /// bug-644: `RES c AS Chan STATE Cur = udp::bind(...)` with a String STATE field assigned
 /// after the bind left one 32 B block live per iteration. Measured at `1963472c6`: N=50
 /// `alloc_calls 252`, `free_calls 202`, `live_bytes 1600`; N=100 `502`/`402`,
