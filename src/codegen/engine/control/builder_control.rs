@@ -707,6 +707,27 @@ impl CodeBuilder<'_> {
                         if owns_resource_slot || owns_thread_slot {
                             self.owned_value_slots.push(stack_offset);
                         }
+                        // bug-648: an inline-`TRAP` temp has no initializer to classify,
+                        // and some of its stores are lent to it (a borrowed element, an
+                        // aliasing `RECOVER`), so whether it owns what it holds is a run-
+                        // time fact. The flag reads "the value in the slot is owned". It is
+                        // SET here because the closed default this bind materializes is the
+                        // temp's own; the prologue clears it, which is harmless because a
+                        // drop reached before this bind finds a null slot first.
+                        let owner_flag_slot = if owns_resource_slot
+                            && value.is_none()
+                            && self.trap_ownership.lent_temps.contains(name)
+                        {
+                            let flag = self.allocate_stack_object("trap_owner_flag", 8);
+                            let owned = self.temporary_vreg();
+                            self.emit(abi::move_immediate(&owned, "Integer", "1"));
+                            self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
+                            self.owned_value_slots.push(flag);
+                            self.trap_owner_flags.insert(name.clone(), flag);
+                            Some(flag)
+                        } else {
+                            None
+                        };
                         if let Some(value) = value {
                             // A promoted small-vector binding keeps its lanes in
                             // registers with no arena block: lower the (native)
@@ -897,6 +918,7 @@ impl CodeBuilder<'_> {
                                     frees_record: Self::resource_record_freed_at_drop(type_)
                                         && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
+                                    owner_flag_slot,
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -950,6 +972,7 @@ impl CodeBuilder<'_> {
                                         Vec::new()
                                     },
                                     closes_variant: !alias_wrap,
+                                    owner_flag_slot,
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -1267,6 +1290,7 @@ impl CodeBuilder<'_> {
                                         &result.type_,
                                     ) && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
+                                    owner_flag_slot: self.trap_owner_flags.get(name).copied(),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
@@ -1364,6 +1388,22 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 );
+                            }
+                            // bug-648: record whether this store handed a `Mixed` temp
+                            // an owned value — strictly after the old value's drop
+                            // above, which must read the flag of the value it releases.
+                            if let Some(&flag) = self.trap_owner_flags.get(name) {
+                                if self.trap_ownership.store_is_owned(value) {
+                                    let owned = self.temporary_vreg();
+                                    self.emit(abi::move_immediate(&owned, "Integer", "1"));
+                                    self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
+                                } else {
+                                    self.emit(abi::store_u64(
+                                        abi::ZERO,
+                                        abi::stack_pointer(),
+                                        flag,
+                                    ));
+                                }
                             }
                             // A reference local never folds to a constant (see Bind).
                             let constant = if by_ref {

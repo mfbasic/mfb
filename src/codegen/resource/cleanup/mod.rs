@@ -2,3 +2,4 @@
 
 pub(crate) mod builder_resource_cleanup;
 pub(crate) mod record_ownership;
+pub(crate) mod trap_ownership;

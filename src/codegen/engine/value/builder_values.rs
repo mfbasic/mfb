@@ -1142,8 +1142,7 @@ impl CodeBuilder<'_> {
     /// the WORKER's record (`runtime_call_result_is_foreign_arena`) and must keep
     /// its deep copy, and a **borrowed** element result (`collections::get`,
     /// `tcp::poll` over a list) is a pointer into a collection whose owner closes
-    /// it — carrying that pointer into the `Result` would hand the `TRAP` binding a
-    /// close obligation on a live element.
+    /// it, which [`Self::raw_result_is_borrowed_resource`] answers for.
     pub(crate) fn runtime_result_is_owned_resource_record(
         &self,
         target: &str,
@@ -1152,6 +1151,22 @@ impl CodeBuilder<'_> {
         !Self::runtime_call_result_is_foreign_arena(target)
             && !Self::target_returns_borrowed_resource(target)
             && self.is_sendable_resource_nominal(result_type)
+    }
+
+    /// bug-648: whether a trapped call's success value is a resource (or resource
+    /// union) ELEMENT that its collection still owns and closes — the
+    /// [`RawSuccessBlock::BorrowedResource`] answer. The `Result` wrap carries it by
+    /// pointer, because the deep copy tombstones its source `moved|closed`, and the
+    /// `TRAP` temp that receives it does not own it (`trap_ownership`). A
+    /// non-resource `get` (a `String`, a record) keeps its owned copy.
+    pub(crate) fn raw_result_is_borrowed_resource(
+        &self,
+        target: &str,
+        result_type: &ParameterType,
+    ) -> bool {
+        Self::target_returns_borrowed_resource(target)
+            && (self.resource_cleanup_symbol(result_type).is_some()
+                || self.resource_union_cleanup(result_type).is_some())
     }
 
     /// bug-576: whether a runtime helper must MARK its result fresh
@@ -3220,11 +3235,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
+        let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
+            RawSuccessBlock::BorrowedResource
+        } else {
+            RawSuccessBlock::OwnedElsewhere
+        };
         self.materialize_current_result(
             &success_type,
             format!("callResult {target}"),
             false,
-            RawSuccessBlock::OwnedElsewhere,
+            raw_success,
         )
     }
 
@@ -3253,11 +3273,16 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
+        let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
+            RawSuccessBlock::BorrowedResource
+        } else {
+            RawSuccessBlock::OwnedElsewhere
+        };
         self.materialize_current_result(
             &success_type,
             format!("callResult {target}"),
             false,
-            RawSuccessBlock::OwnedElsewhere,
+            raw_success,
         )
     }
 

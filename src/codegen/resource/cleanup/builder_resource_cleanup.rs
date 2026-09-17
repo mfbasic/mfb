@@ -409,6 +409,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
         self.emit(abi::compare_immediate(&ptr, "0"));
         self.emit(abi::branch_eq(&done));
+        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
         if let Some(escaping) = self.escaping_value_slot {
             let escaping_ptr = self.allocate_register();
             self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
@@ -440,6 +441,20 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-648: branch to `skip` when a binding's run-time ownership flag is clear —
+    /// the value it holds was lent to it (a borrowed element, an aliasing `RECOVER`),
+    /// so its drop must neither close nor reclaim anything. Emits nothing for a
+    /// binding that owns unconditionally.
+    fn emit_owner_flag_skip(&mut self, owner_flag_slot: Option<usize>, skip: &str) {
+        let Some(flag) = owner_flag_slot else {
+            return;
+        };
+        let owned = self.allocate_register();
+        self.emit(abi::load_u64(&owned, abi::stack_pointer(), flag));
+        self.emit(abi::compare_immediate(&owned, "0"));
+        self.emit(abi::branch_eq(skip));
+    }
+
     /// Tag-dispatched drop of a resource union: read the union tag and call the
     /// active variant's registered close op on its resource pointer (offset 8).
     pub(crate) fn emit_resource_union_cleanup_call(
@@ -463,6 +478,7 @@ impl CodeBuilder<'_> {
         // load at `union_ptr+0` would SIGSEGV on null (bug-246).
         self.emit(abi::compare_immediate(&union_ptr, "0"));
         self.emit(abi::branch_eq(&done));
+        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
 
         // plan-59-D Phase 3: the same identity skip as the plain-resource case.
         // A returned resource union escapes to the caller, so this scope must not
@@ -702,6 +718,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
             self.emit(abi::compare_immediate(&ptr, "0"));
             self.emit(abi::branch_eq(&done));
+            self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
 
             // plan-59-D: the identity skip. This resource's record pointer equals
             // the value escaping the scope, so it is being RETURNed — its close

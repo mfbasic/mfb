@@ -68,6 +68,11 @@ enum Source {
     WrapLocal(String),
     ResultOf(String),
     UserCall(String),
+    /// bug-648: a store an inline-`TRAP` temp is only LENT (a borrowed element, an
+    /// aliasing `RECOVER`). The temp's run-time owner flag keeps its drop off such a
+    /// value, so the temp's OWN drop ignores this store ([`Resolver::lent_temp_fresh`]);
+    /// read through anything else — an alias hop, a `RETURN` — it is not fresh.
+    Lent,
     Unknown,
 }
 
@@ -125,6 +130,7 @@ struct Stores {
 fn collect(f: &NirFunction, functions: &HashMap<String, &NirFunction>) -> Stores {
     struct Collector<'m, 'f> {
         functions: &'m HashMap<String, &'f NirFunction>,
+        lent: crate::codegen::resource::cleanup::trap_ownership::TrapOwnership,
         out: Stores,
     }
     impl NirVisitor for Collector<'_, '_> {
@@ -142,7 +148,13 @@ fn collect(f: &NirFunction, functions: &HashMap<String, &NirFunction>) -> Stores
                     self.out.types.insert(name.clone(), type_.clone());
                 }
                 NirOp::Assign { name, value } => {
-                    let source = classify(Some(value), self.functions);
+                    let source = if self.lent.lent_temps.contains(name)
+                        && !self.lent.store_is_owned(value)
+                    {
+                        Source::Lent
+                    } else {
+                        classify(Some(value), self.functions)
+                    };
                     self.out
                         .stores
                         .entry(name.clone())
@@ -160,6 +172,7 @@ fn collect(f: &NirFunction, functions: &HashMap<String, &NirFunction>) -> Stores
     }
     let mut collector = Collector {
         functions,
+        lent: crate::codegen::resource::cleanup::trap_ownership::collect_trap_ownership(&f.body),
         out: Stores::default(),
     };
     collector.visit_ops(&f.body);
@@ -238,6 +251,25 @@ impl Resolver<'_, '_, '_> {
         fresh
     }
 
+    /// bug-648: [`Self::local_fresh`] for an inline-`TRAP` temp that is lent some of
+    /// its stores, asked only for the temp's own drop. That drop runs only while the
+    /// owner flag says the slot holds an owned value, so the record it may free is one
+    /// of the OWNED stores — the closed default, a produced record — and only those
+    /// have to be fresh.
+    fn lent_temp_fresh(&mut self, name: &str, stores: &Stores, params: &HashSet<String>) -> bool {
+        let floated = self.floats.last().is_some_and(|f| f.contains(name));
+        if params.contains(name) || floated {
+            return false;
+        }
+        let mut visiting = HashSet::from([name.to_string()]);
+        stores.stores.get(name).is_some_and(|sources| {
+            sources
+                .iter()
+                .filter(|source| !matches!(source, Source::Lent))
+                .all(|source| self.source_fresh(source, stores, params, &mut visiting))
+        })
+    }
+
     fn source_fresh(
         &mut self,
         source: &Source,
@@ -251,7 +283,7 @@ impl Resolver<'_, '_, '_> {
                 self.local_fresh(name, stores, params, visiting)
             }
             Source::UserCall(target) => self.function_returns_fresh(target),
-            Source::Unknown => false,
+            Source::Lent | Source::Unknown => false,
         }
     }
 }
@@ -308,7 +340,19 @@ pub(crate) fn record_ownership(
         if wraps {
             continue;
         }
-        if record_type(type_) && resolver.local_fresh(name, &stores, &params, &mut HashSet::new()) {
+        if !record_type(type_) {
+            continue;
+        }
+        let lent = stores
+            .stores
+            .get(name)
+            .is_some_and(|s| s.iter().any(|s| matches!(s, Source::Lent)));
+        let fresh = if lent {
+            resolver.lent_temp_fresh(name, &stores, &params)
+        } else {
+            resolver.local_fresh(name, &stores, &params, &mut HashSet::new())
+        };
+        if fresh {
             owning_locals.insert(name.clone());
         }
     }

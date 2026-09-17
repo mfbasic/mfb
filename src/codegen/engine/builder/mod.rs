@@ -225,6 +225,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// close-only drain and leaks those blocks
     /// (`resource::cleanup::record_ownership::owning_collections`).
     pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// bug-648: the inline-`TRAP` temps that receive a borrowed store, and the rule
+    /// that classifies each store (`resource::cleanup::trap_ownership`).
+    pub(crate) trap_ownership: crate::codegen::resource::cleanup::trap_ownership::TrapOwnership,
+    /// bug-648: the flag slot of each bound `Mixed` resource temp, written at every
+    /// store with whether that store handed the temp an owned value. The temp's drop
+    /// closes only when it is set.
+    pub(crate) trap_owner_flags: HashMap<String, usize>,
     /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
     /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
     /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
@@ -594,6 +601,8 @@ impl<'a> CodeBuilder<'a> {
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
             owned_list_owning_collections: HashSet::new(),
+            trap_ownership: Default::default(),
+            trap_owner_flags: HashMap::new(),
             live_resource_aliases: HashMap::new(),
             live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
@@ -753,6 +762,11 @@ pub(crate) struct ResourceCleanup {
     /// `retire_moved_resource_cleanup` in place of removing the cleanup, and only
     /// for a cleanup that `frees_record`.
     pub(crate) moved_record_only: bool,
+    /// bug-648: for an inline-`TRAP` temp whose stores are sometimes borrowed, the
+    /// stack slot recording whether the value it holds now is owned. The drop closes
+    /// and reclaims nothing while it reads 0. `None` for every binding that owns
+    /// unconditionally.
+    pub(crate) owner_flag_slot: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -774,6 +788,8 @@ pub(crate) struct ResourceUnionCleanup {
     /// its STATE). False for a union wrapping an aliasing source (`RES c AS Union = u`),
     /// whose record another binding owns: that drop frees only the union's own box.
     pub(crate) closes_variant: bool,
+    /// bug-648: the same run-time ownership flag as `ResourceCleanup.owner_flag_slot`.
+    pub(crate) owner_flag_slot: Option<usize>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources

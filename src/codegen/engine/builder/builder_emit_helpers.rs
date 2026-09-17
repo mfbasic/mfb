@@ -447,7 +447,10 @@ impl CodeBuilder<'_> {
             // `runtime_result_is_owned_resource_record` answers for it, and
             // `materialize_current_result` reads the verdict as "carry the
             // producer's record into the `Result` instead of deep-copying it".
-            let raw_success = if self.runtime_result_is_caller_owned(target, result_type)
+            // bug-648: a borrowed element is carried, never copied or freed.
+            let raw_success = if self.raw_result_is_borrowed_resource(target, result_type) {
+                RawSuccessBlock::BorrowedResource
+            } else if self.runtime_result_is_caller_owned(target, result_type)
                 || self.runtime_result_is_owned_resource_record(target, result_type)
             {
                 RawSuccessBlock::OwnedByThisFrame

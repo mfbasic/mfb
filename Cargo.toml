@@ -504,6 +504,10 @@ name = "rt_http_server_dos"
 path = "tests/net/rt_http_server_dos.rs"
 
 [[test]]
+name = "rt_inline_trap_borrowed_resource"
+path = "tests/net/rt_inline_trap_borrowed_resource.rs"
+
+[[test]]
 name = "rt_macos_d4_union_state_tls"
 path = "tests/net/rt_macos_d4_union_state_tls.rs"
 
