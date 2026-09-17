@@ -42,6 +42,11 @@ See plan-125-A. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-C complete | `grep -c '^- \[ \]' planning/completed/plan-125-C-man-iter2-batch1.md` → `0` | MET 2026-09-16: `0` open; all four Commit lines filled (closed `c420fec6c`) |
+| plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-09-16: rebuilt after `c420fec6c` (the last source change); later commits touch only `planning/` |
+| plan-125-A gate: `codex` CLI | `~/local/bin/codex --version` | MET 2026-09-16: `codex-cli 0.153.0` |
+| plan-125-A gate: account can spend a request | the PONG probe | MET 2026-09-16: `PONG`; re-run before every batch |
+| plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight |
+| this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-09-16: 8 lines in `astrings/gen_astrings.rs` (lowering code, no page prose) |
 
 ## 1. Goal
 
