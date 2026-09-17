@@ -8,7 +8,7 @@
     { "root": "src", "role": "main", "include": ["**/*.mfb"] }
   ],
   "packages": [
-    { "name": "xml", "version": "=0.1.0", "source": "file:packages/xml.mfp" }
+    { "name": "xml", "version": "=0.1.0", "source": "file:packages/xml.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

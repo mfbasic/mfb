@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "xfer_bidi_worker", "version": "=0.1.0", "source": "file:packages/xfer_bidi_worker.mfp" }
+    { "name": "xfer_bidi_worker", "version": "=0.1.0", "source": "file:packages/xfer_bidi_worker.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

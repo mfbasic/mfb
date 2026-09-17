@@ -115,7 +115,7 @@ fn importer_project(name: &str, importer: &str) -> (PathBuf, PathBuf) {
         "{\"name\":\"noteapp\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
          \"description\":\"an importer\",\
          \"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\
-         \"packages\":[{\"name\":\"notes\",\"version\":\"=0.1.0\",\"source\":\"file:../pkg\"}],\
+         \"packages\":[{\"name\":\"notes\",\"version\":\"=0.1.0\",\"source\":\"file:../pkg\",\"direct\":true,\"requiredBy\":[]}],\
          \"entry\":\"main\",\"targets\":[\"native\"]}\n",
     )
     .expect("write app manifest");

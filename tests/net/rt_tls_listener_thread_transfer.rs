@@ -125,7 +125,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         "{\"name\":\"tlsxfer\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
          \"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\
          \"packages\":[{\"name\":\"xfer_tls_listener_worker\",\"version\":\"=0.1.0\",\
-         \"source\":\"file:packages/xfer_tls_listener_worker.mfp\"}],\
+         \"source\":\"file:packages/xfer_tls_listener_worker.mfp\",\"direct\":true,\"requiredBy\":[]}],\
          \"entry\":\"main\",\"targets\":[\"native\"]}\n",
     )
     .expect("write project.json");

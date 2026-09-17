@@ -56,8 +56,18 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
         if !packages.is_empty() {
             packages.push(',');
         }
+        // bug-628: `name<requirer,…` also records the declared packages that
+        // import `name` in its `requiredBy`.
+        let (dep, required_by) = dep.split_once('<').unwrap_or((dep, ""));
+        let required_by: Vec<String> = required_by
+            .split(',')
+            .filter(|requirer| !requirer.is_empty())
+            .map(|requirer| format!("\"{requirer}\""))
+            .collect();
         packages.push_str(&format!(
-            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\
+             \"direct\":true,\"requiredBy\":[{}]}}",
+            required_by.join(",")
         ));
     }
     let entry_field = if entry {
@@ -164,10 +174,18 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-    write_project(&root, "app435", "executable", &["mid435"], true, app_src);
+    write_project(
+        &root,
+        "app435",
+        "executable",
+        &["mid435", "leaf435<mid435"],
+        true,
+        app_src,
+    );
     install(&root, "mid435", "app435", "mid435");
-    // The owner `.mfp` is present as a sibling for the resolver to read, but the
-    // app never IMPORTs it — the pre-fix failure occurs regardless.
+    // The owner is declared (bug-628: packages[] lists the closure) and installed
+    // for the resolver to read, but the app never IMPORTs it — the pre-fix
+    // failure occurs regardless.
     install(&root, "leaf435", "app435", "leaf435");
 
     let (ok, combined) = build(&root, "app435");
@@ -241,7 +259,14 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-    write_project(&root, "app435", "executable", &["mid435"], true, app_src);
+    write_project(
+        &root,
+        "app435",
+        "executable",
+        &["mid435", "leaf435<mid435"],
+        true,
+        app_src,
+    );
     install(&root, "mid435", "app435", "mid435");
     install(&root, "leaf435", "app435", "leaf435");
 

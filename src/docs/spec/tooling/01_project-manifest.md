@@ -158,6 +158,8 @@ Each element of `packages[]` declares one dependency:
 | `pin` | bool | `false` | when true, the installed `.mfp` must match `version` exactly |
 | `source` | string | `""` | origin URL the dependency was added from |
 | `identKey` | string | `""` | the pinned owner ident public key — the trust anchor. Written by `pkg add` on first add of a signed package (trust-on-first-use); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. Snake_case `ident_key` is accepted on read. |
+| `direct` | bool | none | true when the user declared this dependency themselves; false when `mfb pkg` added it because another declared package's import table names it. Absent on an entry the closure rule below flags as inconsistent. |
+| `requiredBy` | array of strings | none | the idents of the declared packages whose import tables name this dependency; empty for a package nothing else requires. Order-insensitive; `mfb pkg` writes it sorted. Absent has the same inconsistency treatment as a missing `direct`. |
 
 `packages` must be an array when present (`validate_packages_array`); each
 element must be an object with a string `name`. An entry whose `name` is absent,
@@ -168,6 +170,57 @@ the declared `version`. [[src/manifest/package.rs:project_package_dependency]] [
 The registry/add workflow that writes these entries is
 `./mfb spec package-manager`; the on-disk `.mfp` header they resolve
 against is `./mfb spec package container-format`.
+
+### The declared dependency closure (bug-628)
+
+A native build merges exactly the packages `project.json` declares — nothing
+more is pulled in implicitly — so `packages[]` must list a project's **whole
+dependency closure**: every package that any declared package's own import
+table names must also be declared here, not only the packages the project's
+own source imports. This is a declaration/merging rule, not a visibility one:
+imports stay non-transitive for *names* — a project still cannot write
+`basepkg::` without its own `IMPORT basepkg` (`./mfb spec language
+modules-and-packages`) — but the merge set omitting a package that a declared
+dependency needs previously reached lowering as the unlocated internal `NIR
+call target … does not resolve`.
+[[src/manifest/package.rs:installed_package_files]] [[src/target/shared/nir/lower.rs:merge_packages]]
+
+What a declared package "imports" is read the same way the build reads it,
+in this order: an installed `packages/<name>.mfp`'s import table wins; else,
+for a source-directory dependency, that directory's own `project.json`
+`packages[]` (exactly what the package build writes into its import table);
+else the build cache `build/packages/<name>.mfp`. A payload that cannot be
+decoded contributes nothing to the requirement graph — verification and merge
+report the broken file far more precisely.
+[[src/manifest/closure.rs:requirements]] [[src/manifest/closure.rs:import_table_requirements]] [[src/manifest/closure.rs:source_manifest_requirements]]
+
+`mfb build` never repairs `project.json`; it only refuses an inconsistent one
+before compiling (see *Diagnostic Codes* below), located at the `packages`
+field. [[src/manifest/closure.rs:check]] [[src/manifest/closure.rs:conflicts]]
+`mfb pkg` is the single path that writes the closure — `add`/`update`/`remove`
+all route through `apply_manifest_change`, which closes the proposed manifest
+before it resolves or writes `project.json`. [[src/manifest/closure.rs:reconcile]]
+See `./mfb spec tooling cli-reference` for the `pkg` behavior.
+
+An entry is dropped only when its `direct` is `false` **and** its
+`requiredBy` is empty; a `direct: true` entry — one the user wrote — is never
+dropped just because nothing currently imports it.
+
+`projectHash` (the value `mfb.lock` is keyed against) covers only
+`name`/`ident`/`version`/`pin`/`source`, so `direct` and `requiredBy` changing
+never invalidates a lock. [[src/audit/collect/mod.rs:project_hash]]
+
+Example: an app that declares `userpkg` (which itself imports `basepkg`)
+declares both, the second as an indirect closure entry:
+
+```json
+"packages": [
+  { "name": "userpkg", "version": "1.0.0", "source": "file:../userpkg",
+    "direct": true, "requiredBy": [] },
+  { "name": "basepkg", "version": "1.0.0", "source": "file:../basepkg",
+    "direct": false, "requiredBy": ["userpkg"] }
+]
+```
 
 ## Library Locator Entries
 
@@ -341,6 +394,23 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
 | `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project (bug-503) [[src/manifest/mod.rs:validate_name]] |
+
+The two dependency-closure codes below live in the `6-605-####` package range
+(see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are
+raised by the build's package-verification stage rather than manifest-shape
+validation:
+
+| code | name | severity | trigger |
+| --- | --- | --- | --- |
+| `6-605-0013` | `PACKAGE_DEPENDENCIES_INCONSISTENT` | error | `packages[]` disagrees with the declared packages' import tables: a needed package is not declared; a needed package's name is declared under a different `ident`; an entry is missing a boolean `direct`; an entry is missing a `requiredBy` array of strings; a `requiredBy` differs from what the import tables require; or an entry has `direct: false` and nothing requires it [[src/manifest/closure.rs:check]] [[src/cli/build/packages.rs:refuse_inconsistent_closure]] |
+| `6-605-0014` | `PACKAGE_VERSION_CONFLICT` | error | reported only once `6-605-0013` finds nothing: a declared importer's import table records a used symbol whose ABI hash the declared dependency's compiled `.mfp` does not export with that hash, or the importer pins an exact version the installed dependency's manifest version is not [[src/manifest/closure.rs:conflicts]] [[src/cli/build/packages.rs:refuse_inconsistent_closure]] |
+
+Both are checked by `verify_and_report_packages` after per-package trust
+verification and only when no package was refused on trust grounds, and both
+stop the build before compiling the project; the message for each names the
+follow-up command (`mfb pkg update` to rewrite `project.json`, `mfb pkg
+verify` for per-symbol detail).
+[[src/cli/build/packages.rs:verify_and_report_packages]]
 
 `PROJECT_JSON_LIBRARY_INVALID` covers a dozen distinct mistakes, so its
 **message** — not just its code — names the specific cause: which field, which

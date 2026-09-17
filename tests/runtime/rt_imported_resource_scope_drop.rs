@@ -61,7 +61,7 @@ fn temp_project(name: &str, source: &str) -> PathBuf {
             "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
              \"kind\":\"executable\",\
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
-             \"packages\":[{{\"name\":\"sqlite3\",\"version\":\"=0.1.0\"}}],\
+             \"packages\":[{{\"name\":\"sqlite3\",\"version\":\"=0.1.0\",\"direct\":true,\"requiredBy\":[]}}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n"
         ),
     )

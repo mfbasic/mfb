@@ -81,8 +81,20 @@ fn browser_project(name: &str, source: &str, packages: &[&str]) -> PathBuf {
     let mut deps = Vec::new();
     for package in packages {
         install_browser_package(&project, package);
+        // bug-628: every other browser package imports `dom`.
+        let required_by: Vec<String> = if *package == "dom" {
+            packages
+                .iter()
+                .filter(|other| **other != "dom")
+                .map(|other| format!("\"{other}\""))
+                .collect()
+        } else {
+            Vec::new()
+        };
         deps.push(format!(
-            "{{\"name\":\"{package}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{package}\"}}"
+            "{{\"name\":\"{package}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{package}\",\
+             \"direct\":true,\"requiredBy\":[{}]}}",
+            required_by.join(",")
         ));
     }
     fs::write(

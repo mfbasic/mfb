@@ -18,15 +18,28 @@ the loading spinner keeps spinning while a page loads *and* parses:
 
 `fetch` and `display` both import `dom` (they name its `Node` type in their APIs);
 the app imports all three. All are referenced by **relative local paths**, not a
-package repository:
+package repository. Because `dom` is a dependency of both `fetch` and `display`,
+the app's `project.json` (`examples/browser/app/project.json`) declares it too —
+a native build merges exactly the packages `project.json` declares, so `dom`
+must be part of the app's declared closure even though the app also imports it
+directly:
 
 ```json
 "packages": [
-  { "name": "dom",     "version": "=0.1.0", "source": "file:packages/dom.mfp" },
-  { "name": "fetch",   "version": "=0.1.0", "source": "file:packages/fetch.mfp" },
-  { "name": "display", "version": "=0.1.0", "source": "file:packages/display.mfp" }
+  { "name": "dom", "version": "=0.1.0", "source": "file:packages/dom.mfp",
+    "direct": true, "requiredBy": ["display", "fetch"] },
+  { "name": "fetch", "version": "=0.1.0", "source": "file:packages/fetch.mfp",
+    "direct": true, "requiredBy": [] },
+  { "name": "display", "version": "=0.1.0", "source": "file:packages/display.mfp",
+    "direct": true, "requiredBy": [] }
 ]
 ```
+
+`requiredBy` records which declared packages' import tables name each
+dependency; here all three entries are `direct` (the user declared each one),
+so `dom`'s `requiredBy` is informational rather than the reason it is
+declared. Running `mfb pkg update` in `app/` computes `requiredBy` for you
+once the three `.mfp` files are installed under `app/packages/`.
 
 ## Why a worker thread — and why the DOM crosses it
 

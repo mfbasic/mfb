@@ -8,7 +8,9 @@
     {
       "name": "thread_runtime_workers",
       "version": "=0.1.0",
-      "source": "file:packages/thread_runtime_workers.mfp"
+      "source": "file:packages/thread_runtime_workers.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

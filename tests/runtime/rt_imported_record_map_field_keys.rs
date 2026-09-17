@@ -48,7 +48,7 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
             packages.push(',');
         }
         packages.push_str(&format!(
-            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\"direct\":true,\"requiredBy\":[]}}"
         ));
     }
     let entry_field = if entry {

@@ -8,7 +8,7 @@
     { "root": "src", "role": "main", "include": ["**/*.mfb"] }
   ],
   "packages": [
-    { "name": "jwt", "version": "=0.1.0", "source": "file:packages/jwt.mfp" }
+    { "name": "jwt", "version": "=0.1.0", "source": "file:packages/jwt.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]
