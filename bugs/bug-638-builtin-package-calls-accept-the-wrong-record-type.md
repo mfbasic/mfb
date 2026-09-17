@@ -1,12 +1,14 @@
 # bug-638: a built-in package member accepts an argument of the wrong record type (`datetime::toMillis(DateTime)` compiles and returns garbage)
 
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 Effort: medium
 Severity: HIGH
 Class: Correctness (type-checker soundness — silent wrong result)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed — see STATUS below
+Regression Test: `src/codegen/builtins/tests/builtin_record_arguments.rs`;
+`codegen::registry::tests::strict_matching_holds_builtin_value_types_to_their_identity`;
+`tests/syntax/datetime/func_datetime_toMillis_wrong_record_invalid`
 
 `datetime::toMillis` has one declaration, `toMillis(at AS datetime::Instant) AS
 Integer`. Passing it a `datetime::DateTime`, `datetime::Date` or
@@ -68,7 +70,36 @@ toMillis(datetime::duration(90))     = 90000     (a Duration read as an Instant)
 
 ## Root cause
 
-Hypotheses, to confirm in Phase 1:
+**Confirmed (2026-09-16, `main` at `3b94f621e`).** Neither hypothesis as worded.
+The parameter IS qualified — `Registry::qualify_value_type_references` rewrites
+`named("Instant")` to `datetime.Instant` at registration. The defect is in
+`src/codegen/registry/mod.rs:leaf_matches`: in STRICT mode (argument validation,
+reached from both `ir::shape::check_builtin_call` and
+`ir::verify::check_builtin_call_args` through
+`builtins::resolve_call_return_type_typed(.., true)`), a non-resource nominal
+parameter fell through to `true` for ANY nominal argument. The rule was kept
+coarse so a union parameter would accept its variants
+(`json::stringify(JsonNull)`), and in doing so it accepted every record, enum and
+union for every other. The user-function path (`ir::shape::compatible`) compares
+nominal identity, which is why `userMillis(dt)` was rejected.
+
+Census (a temporary registry walk over every parameter's nominal leaves): 14
+enums, 24 records, 4 unions (`astrings.Attribute`, `canvas.DrawItem`, `http.Stream`,
+`json.Json`) were all held to nothing. Non-registry nominals: `Scalar` and
+`AttributedString` (scalar nominals), and bare `Json` / `Request` / `Response`
+inside `json::parse`'s and `http::route`'s callback types — the qualification pass
+did not descend into `FUNC` types, so a callback argument's record leaves were
+unchecked too. No package has a `source_types` union (only `thread`'s
+`Thread`/`ThreadWorker`).
+
+Two further gaps found during the fix:
+
+- **B.** `canvas` was absent from `builtins::ARGUMENT_CHECKED_PACKAGES`, so no
+  `canvas::` call had its arguments checked at all — `canvas::fill(datetime::now())`
+  compiled even with the matcher fixed.
+- **C.** `qualify_type_leaves_inner` had no `Func` arm (above).
+
+Original hypotheses, kept for the record:
 
 1. `datetime::toMillis` is an MFBASIC-source member (`Body::mfb`,
    `src/codegen/builtins/datetime/func_to_millis.rs`). Its parameter type is declared
@@ -101,9 +132,9 @@ the user-function diagnostic.
 
 ## Fix
 
-Phase 1 — RED tests: `datetime::toMillis(<DateTime>)`, `(<Date>)` and `(<Duration>)`
-each fail with `TYPE_CALL_ARGUMENT_MISMATCH`. Run the census above. Commit:
+- [x] Phase 1 — RED tests: `datetime::toMillis(<DateTime>)`, `(<Date>)` and `(<Duration>)`
+each fail with `TYPE_CALL_ARGUMENT_MISMATCH`. Run the census above. Commit: COMMIT_P1
 
-Phase 2 — make the built-in call check compare record identity, fully qualified,
+- [x] Phase 2 — make the built-in call check compare record identity, fully qualified,
 the same way the user-function path does (GREEN); full suite, and the acceptance
-goldens that exercise built-in record arguments. Commit:
+goldens that exercise built-in record arguments. Commit: COMMIT_P2
