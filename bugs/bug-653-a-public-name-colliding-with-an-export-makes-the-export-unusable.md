@@ -1,4 +1,4 @@
-# bug-648: a `PUBLIC FUNC` whose name collides with an `EXPORT FUNC` makes the EXPORT unusable from every consumer — and the package still builds green
+# bug-653: a `PUBLIC FUNC` whose name collides with an `EXPORT FUNC` makes the EXPORT unusable from every consumer — and the package still builds green
 
 Last updated: 2026-09-15
 Effort: medium (1h–2h)
@@ -6,6 +6,7 @@ Severity: HIGH
 Class: Correctness / Footgun (silent at the package boundary)
 
 Status: Open
+(Filed as bug-648, which collided with `bug-648-a-trapped-poll-result-tombstones-a-live-list-element.md`; renumbered.)
 Regression Test: none yet — see Phase 1 (proposed:
 `tests/runtime/rt_package_public_export_name_collision.rs`, alongside
 `tests/runtime/rt_package_private_type_collision.rs` and
@@ -21,12 +22,11 @@ compiles, its own `TESTING` suite passes, and the `.mfp` is written — every in
 package author has says green. The defect only appears in a *consumer*, which the package's
 own tests are not. There is no diagnostic at package-build time naming the collision.
 
-**The single correct behavior a fix produces:** given a package with
-`EXPORT FUNC f(x AS String) AS String` and `PUBLIC FUNC f(a AS Integer, b AS Integer) AS String`,
-a consumer's `pkg::f("x")` compiles, links, and returns the `EXPORT` overload's result —
-*or* `mfb build <package>` refuses the collision with a located diagnostic naming both
-declarations. What must not remain possible is today's outcome: a successful package build
-whose `.mfp` advertises an export no consumer can reach.
+**The single correct behavior a fix produces** (settled by the spec, see Fix Design): given a
+package with `EXPORT FUNC f(x AS String) AS String` and
+`PUBLIC FUNC f(a AS Integer, b AS Integer) AS String`, the package builds, a consumer's
+`pkg::f("x")` compiles, links, and returns the `EXPORT` overload's result, and a consumer's
+`pkg::f(1, 2)` is a located compile error — the `PUBLIC` overload is hidden from importers.
 
 References:
 
@@ -253,38 +253,31 @@ collision hazard, but not this defect, since mangling keeps those keys distinct.
 
 ## Goal
 
-- With the failing tree unchanged, `mfb build /tmp/bug648-minimal/app` exits 0 and the
-  resulting `app.out` prints `export:x`, `8`, `export:a|public:3` — *or* `mfb build
-  /tmp/bug648-minimal/dup` exits non-zero with a located diagnostic naming both the
-  `EXPORT` and the `PUBLIC` declaration of `f`. Silence at the package boundary followed by
-  a consumer-side failure is not an acceptable outcome for either option.
-- `mfb build /tmp/bug648-callpublic/app` never emits an unlocated
-  `error: NIR call target 'dup.f' does not resolve`; whatever it reports carries a file, a
-  line and an error code.
-- Both contrast rows keep working, byte-for-byte where the artifact is unchanged.
+- With the failing tree unchanged, `mfb build /tmp/bug648-minimal/dup` exits 0,
+  `mfb build /tmp/bug648-minimal/app` exits 0, and `app.out` prints `export:x`, `8`,
+  `export:a|public:3`.
+- A consumer calling the `PUBLIC` overload (`dup::f(1, 2)`) is rejected with a located
+  diagnostic (file, line, error code). No call form emits the unlocated
+  `error: NIR call target 'dup.f' does not resolve`.
+- The same holds for a return-type sibling (`EXPORT g(String) AS String` +
+  `PUBLIC g(String) AS Integer`).
+- Adding or removing a `PUBLIC` sibling does not change the package's export table:
+  the exported symbol name and its ABI entry are identical with and without it.
+- Both contrast rows keep working.
 
 ### Non-goals (must NOT change)
 
-- **The `.mfp` wire format.** No new section, no new flag, no reordering.
-  `tests/cli/cli_build_determinism.rs` and the byte-identity gate
-  (`.ai/testing-gates.md`) must stay green; a package whose sources contain no such
-  collision must produce a byte-identical `.mfp`.
+- **The `.mfp` wire format.** No new section, no new flag, no reordering. A package
+  whose sources contain no such collision must produce a byte-identical `.mfp`.
 - **Intra-package resolution.** `EXPORT` and `PUBLIC` both being visible inside the package
   (`src/resolver/mod.rs:visible_from` — `Visibility::Export | Visibility::Public => true`)
-  is correct and stays. The package's own `TESTING` cases that call both overloads by arity
-  must keep passing.
-- **`PUBLIC` must not become part of the package's consumer-visible surface.** Option (c)
-  below is the one route that would change this; it is an open decision, not a licence.
-  Whatever ships, a consumer must not gain the ability to call a `PUBLIC` function.
-- **Existing overload behavior for two `EXPORT`s of one name.** Row 3 of the contrast table
-  works today; a fix must not route it through a new path that changes which overload is
-  selected, and must not start sending genuinely non-overloaded imports through overload
-  matching.
-- **The tempting wrong fix, forbidden:** "document that a `PUBLIC` name must not collide
-  with an `EXPORT` name" and leaving the compiler silent. Renaming is the *workaround*
-  already applied in `049528d98`; it is not the fix. Equally forbidden: changing
-  `packages/xml` further, or weakening/removing the consumer-side repro so the broken path
-  stops being exercised.
+  is correct and stays. The package's own calls to both overloads keep resolving.
+- **`PUBLIC` stays off the consumer-visible surface.** A consumer must not gain the ability
+  to call a `PUBLIC` function.
+- **Existing overload behavior for two `EXPORT`s of one name** (contrast row 3).
+- **Forbidden:** rejecting the collision, or documenting "don't reuse an EXPORT name" —
+  the spec makes the overload set legal. Renaming is the workaround applied in
+  `049528d98`, not the fix.
 
 ## Blast Radius
 
@@ -324,123 +317,97 @@ and `grep -rn "fn is_exported_function\|FUNCTION_FLAG_PRIVATE" src/binary_repr/`
   `comm -12` over `grep -rhoE` output across `packages/<p>/src`. Every intersection is
   empty, `packages/xml` included (`sliceText` since `049528d98`). **No package in the tree
   is currently broken by this bug** — but nothing prevents the next one, which is the point
-  of option (b).
+  of the fix.
 
 ## Fix Design
 
-Three candidate shapes, in ascending order of blast radius. The correctness risk in all
-three is the same: not perturbing row 3 of the contrast table, and not turning a
-genuinely-unmangled single export into an overload lookup.
+The spec decides this; there is no open choice.
 
-**(a) Consumer-side — drop the `exports.len() < 2` early-continue** in
-`collect_imported_overloads`, so a *mangled* single export still registers its
-`binding.base → binding.base$sig` rewrite. Smallest diff, `.mfp` format untouched, and it
-keeps `PUBLIC` out of the consumer's surface. The guard rail: register the rewrite only when
-the single row's name actually contains `$`; an unmangled single export must keep resolving
-by its bare name, or every non-overloaded import starts paying overload matching.
+- **The collision is legal.** `mfb spec language functions` (Overloading): several `FUNC`s may
+  share a name if their signatures differ, "Overloads may be declared across the files of one
+  package", and two declarations collide only when name, parameter types and return type all
+  match. Visibility is not part of a callable's identity. Rejecting the collision at package
+  build (the former option (b)) would reject a legal program.
+- **Importers see only EXPORTs.** `mfb spec language modules-and-packages`: `PUBLIC` is
+  "hidden from importers"; the PUBLIC/EXPORT distinction matters "only for what is written
+  into the compiled .mfp package (the exported-symbol flag)".
+- **So an export's symbol must not depend on PUBLIC siblings.** The ABI index names each
+  exported function by its concrete symbol (`src/binary_repr/sections.rs:from_project` —
+  `AbiExport { name: function.name, … }`), and `mfb repo check-abi` treats a changed or
+  dropped symbol as a breaking change. A consumer-side fix alone (the former option (a))
+  would leave `f` ↔ `f$String` flipping whenever a hidden helper is added or removed.
 
-**(b) Package-build-time rejection** — refuse a `PUBLIC` name that collides with an
-`EXPORT` name, with a located diagnostic naming both declarations. Turns a silent
-cross-boundary failure into a loud local one, which is the property the bug is really
-about. Costs an error code and could break packages that build today.
+**The fix:** in `src/monomorph/lower.rs:Monomorphizer::new`, an `EXPORT` function's concrete
+name is decided from its `EXPORT` siblings only — parameter-overload mangling when two or more
+EXPORTs share the name, return-type disambiguation when two or more EXPORTs share the
+parameter types (built-in-named overrides stay force-mangled). Non-exported functions keep
+the whole-set rule, so they are always mangled when any sibling exists and cannot collide
+with an export's name. Intra-package calls resolve through `overload_names`, which maps each
+declaration to whatever concrete name it was given, so they are unaffected.
 
-**(c) Writer-side — emit the base name when a mangled export is the only surviving row
-under its base.** Keeps the consumer untouched, but changes `.mfp` bytes for affected
-packages and needs care where several `PUBLIC` siblings leave exactly one `EXPORT`.
-
-(a) and (b) are not exclusive and combine well: (a) makes existing packages work, (b) stops
-the footgun being re-armed. Rejected outright: exporting `PUBLIC` functions so both rows
-land in the table — that would put package-internal helpers on the public surface, which
-the Non-goals forbid.
+Result: the single export is written bare (`f`), exactly as if the helper did not exist; the
+consumer's existing bare-name path resolves it; `pk::f(1, 2)` type-checks against the only
+visible `f` and is rejected at its call site. No `.mfp` byte changes for any package without
+a collision.
 
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
 - [ ] Add `tests/runtime/rt_package_public_export_name_collision.rs`, modelled on
-      `tests/runtime/rt_package_private_type_collision.rs`: build the package from source
-      *and* from its `.mfp`, then build and run a consumer. Cases: the failing collision
-      (both call forms — `LET`-bound and plain, so both diagnostics are pinned), plus the
-      two contrast rows as guards. Confirm the collision case fails with
-      `TYPE_UNKNOWN_VALUE` / `NIR call target … does not resolve` and the guards pass.
+      `tests/runtime/rt_package_private_type_collision.rs`: source and `.mfp` forms of the
+      collision, the return-type sibling, a consumer calling the PUBLIC overload (located
+      error), export-table identity with/without the PUBLIC sibling (`mfb pkg info`), and the
+      two-EXPORT guard. Confirm each fails for the documented reason.
 - [x] Audit every package in `packages/` for a `PUBLIC` name colliding with an `EXPORT`
-      name; record a verdict per package in the Blast Radius above. **Done: all ten
-      packages clean** — see Blast Radius for the command.
-- [ ] Decide the Open Decision below before Phase 2 — it changes which file Phase 2 touches.
+      name. **Done: all ten packages clean** — see Blast Radius for the command.
 
-Acceptance: the new test fails for the documented reason and the two guards pass; the
-per-package audit is written into this file.
+Acceptance: the new tests fail for the documented reason and the guard passes.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Implement the chosen option from the Open Decision.
-- [ ] If (a): in `src/monomorph/helpers.rs:collect_imported_overloads`, register the rewrite
-      for a single `$`-bearing export; leave unmangled single exports on the bare-name path.
-- [ ] If (b): emit a located diagnostic at package build; add the error code to
-      `src/docs/spec/diagnostics/02_error-codes.md` (it is build input — see
-      `.ai/specifications.md`) and run `cargo test errorcode`.
-- [ ] Re-run the Phase 1 test and every contrast row.
+- [ ] Decide an `EXPORT` function's concrete name from its `EXPORT` siblings only
+      (`src/monomorph/lower.rs:Monomorphizer::new`).
+- [ ] Re-run the Phase 1 tests and every contrast row.
 
-Acceptance: Phase 1's collision case passes (or fails loudly at package build per (b));
-both guards unchanged; nothing in Non-goals moved.
+Acceptance: Phase 1's tests pass; the guard unchanged; nothing in Non-goals moved.
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Rebuild every package in `packages/` and confirm each `.mfp` is byte-identical unless
-      the chosen option intends otherwise; any diff is a bug-hunt trigger, not a rebaseline.
-- [ ] Run the full suite plus the byte-identity and determinism gates
-      (`tests/cli/cli_build_determinism.rs`, `.ai/testing-gates.md`).
-- [ ] Re-run `/tmp/xml-lenrepro` against a `packages/xml` temporarily reverted to the
-      colliding `textOf` name, proving the original real-world case is fixed — then discard
-      that scratch revert without committing it.
-- [ ] Update `src/docs/spec/architecture/12_monomorphization.md` where it describes
-      `collect_imported_overloads`, and `.ai/resources-packages.md`, if the resolution rule
-      changes.
+- [ ] Rebuild every package in `packages/` and confirm each `.mfp` is byte-identical; any
+      diff is a bug-hunt trigger, not a rebaseline.
+- [ ] Run the full suite plus the byte-identity and determinism gates.
+- [ ] Re-run the `/tmp/bug648-minimal` and `/tmp/bug648-callpublic` reproductions.
+- [ ] Update `src/docs/spec/architecture/12_monomorphization.md` (the parameter-overload
+      producer row) and `src/docs/spec/language/06_functions.md` (Overloading) with the
+      visibility rule.
 
-Acceptance: full suite green; `.mfp` deltas are exactly the intended change; the
-reproduction passes everywhere it previously failed.
+Acceptance: full suite green; no `.mfp` deltas; the reproduction passes everywhere it failed.
 Commit: —
 
 ## Validation Plan
 
 - Regression test: `tests/runtime/rt_package_public_export_name_collision.rs`, built from
-  source and from `.mfp` (the `.mfp` is what the consumer actually decodes — the lesson
-  `rt_package_private_type_collision.rs` records in its own header).
-- Runtime proof: the consumer executable runs and prints `export:x` / `8` /
-  `export:a|public:3` — the same three lines both contrast rows produce today.
-- Loud-failure proof: no unlocated `NIR call target …` output remains for any call form.
-- Doc sync: `src/docs/spec/architecture/12_monomorphization.md` (it cites
-  `collect_imported_overloads` twice) and `.ai/resources-packages.md`; plus
-  `src/docs/spec/diagnostics/02_error-codes.md` only if option (b) adds a code.
-- Full suite: the project's acceptance/CI command set, including the byte-identity and
+  source and from `.mfp`.
+- Runtime proof: the consumer executable prints `export:x` / `8` / `export:y` /
+  `export:a|public:3`.
+- Loud-failure proof: a consumer call to the PUBLIC overload is a located error.
+- ABI proof: `mfb pkg info` Exports identical with and without the PUBLIC sibling.
+- Doc sync: `src/docs/spec/architecture/12_monomorphization.md`,
+  `src/docs/spec/language/06_functions.md`.
+- Full suite: `cargo test --no-fail-fast`, including the byte-identity and
   build-determinism gates.
-
-## Open Decisions
-
-- **Which fix shape ships** — recommended **(a) + (b)**: (a) so existing packages'
-  exports become reachable without touching the wire format, (b) so the footgun cannot be
-  re-armed silently. Alternatives: (a) alone (leaves the collision legal but silent — an
-  author still gets no signal that a `PUBLIC` name is perturbing their public surface);
-  (b) alone (loud, but breaks packages that build today and does nothing for an already-
-  published `.mfp`); (c) writer-side base-name emission (keeps the consumer untouched at
-  the cost of `.mfp` byte churn). Explicitly **not** on the table: exporting `PUBLIC`
-  functions so the consumer resolves by arity the way the package's own scope does —
-  that puts internals on the public surface, which the Non-goals forbid. **This is the
-  owner's call and gates Phase 2.**
-- **Should a package's doc-example harness become a required gate?**
-  `packages/xml/check-doc-examples.sh` compiles each `DOC EXAMPLE` as its own project
-  against the built `.mfp`, which makes it the only instrument in that package that is a
-  real *consumer* — and per `049528d98` it would have caught this. Every package having
-  one would close the whole class, independently of which fix ships.
 
 ## Summary
 
-The engineering risk is concentrated in one line —
-`collect_imported_overloads`'s `if exports.len() < 2 { continue; }` — and in the decision
-about whether the collision should be legal at all. The `.mfp` already carries the
-exported overload; nothing is missing from the artifact, and no wire-format change is
-required by the recommended option. The real cost of this bug is not the broken call: it
-is that a package author gets a green build, a green test suite and a written `.mfp` while
-shipping an export nobody can call, and only a consumer ever finds out.
+A hidden `PUBLIC` overload renamed its `EXPORT` sibling's symbol (`f` → `f$String`), and the
+`.mfp` writer then dropped the only other row that would have let an importer map the name
+back. The spec makes the overload set legal and PUBLIC invisible to importers, so the fix
+makes an export's symbol depend only on its exported siblings. A package author previously got
+a green build, a green test suite and a written `.mfp` while shipping an export nobody could
+call.
+
+Out of scope, noted for a separate plan: a required consumer-side doc-example gate per package
+(`packages/xml/check-doc-examples.sh` is the only instrument that is a real consumer).
