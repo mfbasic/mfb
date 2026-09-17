@@ -641,6 +641,10 @@ name = "rt_package_private_type_collision"
 path = "tests/runtime/rt_package_private_type_collision.rs"
 
 [[test]]
+name = "rt_package_public_export_name_collision"
+path = "tests/runtime/rt_package_public_export_name_collision.rs"
+
+[[test]]
 name = "rt_imported_union_enum_members"
 path = "tests/runtime/rt_imported_union_enum_members.rs"
 
