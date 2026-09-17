@@ -183,7 +183,9 @@ mod tests {
     #[test]
     fn an_owned_success_and_an_owned_recover_are_not_lent() {
         let ops = trap("udp.bind", Some(call_result("udp.bind")));
-        assert!(!collect_trap_ownership(&ops).lent_temps.contains("$trap_val1"));
+        assert!(!collect_trap_ownership(&ops)
+            .lent_temps
+            .contains("$trap_val1"));
     }
 
     #[test]
@@ -196,7 +198,9 @@ mod tests {
             ] {
                 let ops = trap(target, recover);
                 assert!(
-                    collect_trap_ownership(&ops).lent_temps.contains("$trap_val1"),
+                    collect_trap_ownership(&ops)
+                        .lent_temps
+                        .contains("$trap_val1"),
                     "{target} recovering {label}"
                 );
             }
@@ -206,7 +210,9 @@ mod tests {
     #[test]
     fn an_owned_success_recovering_an_alias_is_lent() {
         let ops = trap("udp.bind", Some(local("outer")));
-        assert!(collect_trap_ownership(&ops).lent_temps.contains("$trap_val1"));
+        assert!(collect_trap_ownership(&ops)
+            .lent_temps
+            .contains("$trap_val1"));
     }
 
     /// Only a value-less bind is a trap temp: a bound local assigned an alias later
@@ -220,7 +226,9 @@ mod tests {
             type_: ParameterType::parse("udp.Socket"),
             value: Some(call_result("udp.bind")),
         };
-        assert!(!collect_trap_ownership(&ops).lent_temps.contains("$trap_val1"));
+        assert!(!collect_trap_ownership(&ops)
+            .lent_temps
+            .contains("$trap_val1"));
     }
 
     #[test]

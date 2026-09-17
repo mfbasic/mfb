@@ -1398,7 +1398,11 @@ impl CodeBuilder<'_> {
                                     self.emit(abi::move_immediate(&owned, "Integer", "1"));
                                     self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
                                 } else {
-                                    self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), flag));
+                                    self.emit(abi::store_u64(
+                                        abi::ZERO,
+                                        abi::stack_pointer(),
+                                        flag,
+                                    ));
                                 }
                             }
                             // A reference local never folds to a constant (see Bind).
