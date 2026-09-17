@@ -19,17 +19,35 @@ const FIXED_ONE: u64 = 1u64 << 32;
 const FIXED_HALF: u64 = 1u64 << 31;
 /// Mask selecting the fractional 32 bits of a Q32.32 value.
 const FIXED_FRACTION_MASK: u64 = 0xFFFF_FFFF;
-/// Number of CORDIC iterations; ~2^-32 precision, far finer than display.
+/// Number of CORDIC iterations in the `atan2` vectoring loop.
 const CORDIC_ITERATIONS: usize = 31;
+/// `2^63`: the value `1.0` in the unsigned Q1.63 format of the trig series.
+const Q63_ONE: u64 = 1u64 << 63;
+/// Horner levels of the `sin`/`cos` Taylor series (terms through `r^18`); see
+/// [`CodeBuilder::emit_fixed_sin_cos_magnitudes`].
+const FIXED_TRIG_TERMS: u64 = 9;
+/// `floor(2/pi · 2^64)`, the Q0.64 multiplier that estimates the quadrant count
+/// (bug-615). Baked, not computed from host `f64`; pinned by
+/// `trig_constants_match_machin_pi`.
+const TWO_OVER_PI_Q64: u64 = 0xA2F9_836E_4E44_1529;
+/// `round(pi/2 · 2^159)` as big-endian 64-bit words (the top word holds 32 bits):
+/// the multi-word pi/2 the trig reduction subtracts `k` times (bug-615). Pinned by
+/// `trig_constants_match_machin_pi`.
+const PI_OVER_2_Q159: [u64; 3] = [0xC90F_DAA2, 0x2168_C234_C4C6_628B, 0x80DC_1CD1_2902_4E09];
 
-/// Which CORDIC micro-rotation the shared [`CodeBuilder::emit_cordic`] loop emits
-/// (bug-332 E1): `Vectoring` drives the `y` coordinate to zero accumulating the
-/// angle into `z` (used by `atan2`); `Rotation` drives the angle residual `z` to
-/// zero rotating the `(cos, sin)` vector (used by `sin`/`cos`).
-#[derive(Clone, Copy)]
-enum CordicMode {
-    Vectoring,
-    Rotation,
+/// A `Fixed` angle `x` reduced by [`CodeBuilder::emit_fixed_trig_reduce`] to
+/// `|x| = k·(pi/2) + r`, `|r| <= pi/4 + 2^-31`. Every field is a register.
+struct ReducedAngle {
+    /// 1 when `x < 0`, else 0.
+    negative_x: VirtualRegister,
+    /// `k mod 4`.
+    quadrant: VirtualRegister,
+    /// 1 when `r < 0`, else 0.
+    negative_r: VirtualRegister,
+    /// High word of the 128-bit `|r|·2^127`.
+    r_high: VirtualRegister,
+    /// Low word of the 128-bit `|r|·2^127`.
+    r_low: VirtualRegister,
 }
 
 impl CodeBuilder<'_> {
@@ -211,6 +229,11 @@ impl CodeBuilder<'_> {
         ));
     }
 
+    /// Move an unsigned 64-bit constant into `reg`.
+    fn emit_const_u64(&mut self, reg: impl Into<Operand>, value: u64) {
+        self.emit(abi::move_immediate(reg, "Integer", &value.to_string()));
+    }
+
     /// Round-to-nearest Q32.32 multiply `(a * b) / 2^32` into a fresh register.
     /// Intended for internal use where the result is known to stay in range, so
     /// no overflow trap is emitted. Nets a single new register (the result); the
@@ -263,16 +286,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(dst.clone(), dst.clone(), s0.clone()));
     }
 
-    /// One CORDIC micro-rotation loop, shared by the vectoring and rotation modes
-    /// (bug-332 E1). The two modes are mirror images: they differ only in the
-    /// label prefix, which register drives the sign decision, and the polarity of
-    /// the three per-iteration updates — vectoring's `driver < 0` arm is rotation's
-    /// `driver >= 0` arm and vice versa. `a`/`b` are the two coordinate registers
-    /// (`vx`/`vy` for vectoring, `cos`/`sin` for rotation) and `z` is the angle
-    /// accumulator/residual.
-    fn emit_cordic(
+    /// The CORDIC vectoring loop of `atan2`: drives the `vy` coordinate `b` to
+    /// zero, rotating `(a, b)` and accumulating the rotated angle into `z`.
+    /// (`sin`/`cos` once shared this loop in rotation mode; bug-615 replaced
+    /// them with a reduced-angle Taylor series.)
+    fn emit_cordic_vectoring(
         &mut self,
-        mode: CordicMode,
         a: impl Into<Operand>,
         b: impl Into<Operand>,
         z: impl Into<Operand>,
@@ -283,13 +302,9 @@ impl CodeBuilder<'_> {
         let sx = self.allocate_register();
         let sy = self.allocate_register();
         let konst = self.allocate_register();
-        let (prefix, driver): (&str, &Operand) = match mode {
-            CordicMode::Vectoring => ("cordic_vec", &b),
-            CordicMode::Rotation => ("cordic_rot", &z),
-        };
         for i in 0..CORDIC_ITERATIONS {
-            let negative = self.label(&format!("{prefix}_neg"));
-            let done = self.label(&format!("{prefix}_done"));
+            let negative = self.label("cordic_vec_neg");
+            let done = self.label("cordic_vec_done");
             if i == 0 {
                 self.emit(abi::move_register(&sx, a.clone()));
                 self.emit(abi::move_register(&sy, b.clone()));
@@ -306,36 +321,18 @@ impl CodeBuilder<'_> {
                 ));
             }
             self.emit_const_i64(&konst, cordic_atan_raw(i));
-            self.emit(abi::compare_immediate(driver.clone(), "0"));
+            self.emit(abi::compare_immediate(b.clone(), "0"));
             self.emit(abi::branch_lt(&negative));
-            // driver >= 0 arm.
-            match mode {
-                CordicMode::Vectoring => {
-                    self.emit(abi::add_registers(a.clone(), a.clone(), &sy));
-                    self.emit(abi::subtract_registers(b.clone(), b.clone(), &sx));
-                    self.emit(abi::add_registers(z.clone(), z.clone(), &konst));
-                }
-                CordicMode::Rotation => {
-                    self.emit(abi::subtract_registers(a.clone(), a.clone(), &sy));
-                    self.emit(abi::add_registers(b.clone(), b.clone(), &sx));
-                    self.emit(abi::subtract_registers(z.clone(), z.clone(), &konst));
-                }
-            }
+            // vy >= 0: rotate clockwise.
+            self.emit(abi::add_registers(a.clone(), a.clone(), &sy));
+            self.emit(abi::subtract_registers(b.clone(), b.clone(), &sx));
+            self.emit(abi::add_registers(z.clone(), z.clone(), &konst));
             self.emit(abi::branch(&done));
             self.emit(abi::label(&negative));
-            // driver < 0 arm (mirror of the arm above).
-            match mode {
-                CordicMode::Vectoring => {
-                    self.emit(abi::subtract_registers(a.clone(), a.clone(), &sy));
-                    self.emit(abi::add_registers(b.clone(), b.clone(), &sx));
-                    self.emit(abi::subtract_registers(z.clone(), z.clone(), &konst));
-                }
-                CordicMode::Rotation => {
-                    self.emit(abi::add_registers(a.clone(), a.clone(), &sy));
-                    self.emit(abi::subtract_registers(b.clone(), b.clone(), &sx));
-                    self.emit(abi::add_registers(z.clone(), z.clone(), &konst));
-                }
-            }
+            // vy < 0: rotate counter-clockwise.
+            self.emit(abi::subtract_registers(a.clone(), a.clone(), &sy));
+            self.emit(abi::add_registers(b.clone(), b.clone(), &sx));
+            self.emit(abi::subtract_registers(z.clone(), z.clone(), &konst));
             self.emit(abi::label(&done));
         }
         Ok(())
@@ -447,118 +444,488 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&setup_done));
 
         self.emit(abi::move_immediate(&z, "Integer", "0"));
-        self.emit_cordic(CordicMode::Vectoring, &vx, &vy, &z)?;
+        self.emit_cordic_vectoring(&vx, &vy, &z)?;
         self.emit(abi::add_registers(&result, &z, &offset));
         self.emit(abi::label(&finish));
         Ok(result)
     }
 
-    /// Deterministic Q32.32 `sin` and `cos` of `src`. Returns `(sin, cos)`
-    /// registers. Reduces the angle to `[-pi/4, pi/4]` and tracks the quadrant.
-    fn emit_fixed_sincos(
-        &mut self,
-        src: impl Into<Operand>,
-    ) -> Result<(VirtualRegister, VirtualRegister), String> {
-        let slot = self.allocate_stack_object("fixed_sincos_input", 8);
+    /// Reduce the `Fixed` angle in `src` for the trig kernels (bug-615):
+    /// `|x| = k·(pi/2) + r` with `k = round(|x|·2/pi)` and `|r| <= pi/4 + 2^-31`.
+    ///
+    /// `r` is formed exactly to about `2^-127`: `|x|·2^127` minus
+    /// `k·(pi/2)·2^127`, where pi/2 is the 160-bit constant [`PI_OVER_2_Q159`].
+    /// The whole subtraction runs modulo `2^128` — the wrapped high bits of
+    /// `|x|` and of `k·pi/2` cancel, because the true difference fits — so only
+    /// the low 33 bits of `|x|` and the low 160 bits of `k·pi/2` take part. `k`
+    /// is below `2^31`, so the product's truncation error is under `2^-128`.
+    /// Rounding pi/2 to Q32.32 instead (the old kernel) lost `k·0.26` units and
+    /// collapsed `r` to zero at `math::pi2Fixed`.
+    fn emit_fixed_trig_reduce(&mut self, src: impl Into<Operand>) -> ReducedAngle {
+        let slot = self.allocate_stack_object("fixed_trig_input", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), slot));
         self.reset_temporary_registers();
-        let theta = self.allocate_register();
-        self.emit(abi::load_u64(&theta, abi::stack_pointer(), slot));
-
-        // k = round(theta * 2/pi): the number of pi/2 quadrants.
-        let two_over_pi = self.allocate_register();
-        self.emit_const_i64(&two_over_pi, fixed_two_over_pi());
-        let scaled = self.emit_fixed_mul(&theta, &two_over_pi)?;
+        let magnitude = self.allocate_register();
+        self.emit(abi::load_u64(&magnitude, abi::stack_pointer(), slot));
+        // |x| as an unsigned word (raw i64::MIN becomes 2^63), and its sign bit.
+        let negative_x = self.allocate_register();
+        let scratch = self.allocate_register();
+        self.emit(abi::shift_right_immediate(&negative_x, &magnitude, 63));
+        self.emit(abi::arithmetic_shift_right_immediate(
+            &scratch, &magnitude, 63,
+        ));
+        self.emit(abi::exclusive_or_registers(
+            &magnitude, &magnitude, &scratch,
+        ));
+        self.emit(abi::subtract_registers(&magnitude, &magnitude, &scratch));
+        // k = round(|x|·2/pi): umulh by 2/pi in Q0.64 is |x|·2/pi in Q32.32,
+        // within one unit, so a wrong k only ever leaves |r| <= pi/4 + 2^-31.
         let k = self.allocate_register();
-        self.emit(abi::move_immediate(&k, "Integer", &FIXED_HALF.to_string()));
-        self.emit(abi::add_registers(&k, &scaled, &k));
-        self.emit(abi::arithmetic_shift_right_immediate(&k, &k, 32));
-        // r = theta - k * (pi/2), computed modulo 2^64 so a large k*pi/2 that
-        // overflows 64 bits still yields the correct small reduced angle.
-        let pi_over_2 = self.allocate_register();
-        self.emit_const_i64(&pi_over_2, fixed_pi_over_2());
-        let kq = self.allocate_register();
-        self.emit(abi::multiply_registers(&kq, &k, &pi_over_2));
-        let r = self.allocate_register();
-        self.emit(abi::subtract_registers(&r, &theta, &kq));
-
-        // CORDIC rotation on the reduced angle.
-        let cosr = self.allocate_register();
-        let sinr = self.allocate_register();
-        self.emit_const_i64(&cosr, cordic_gain_inverse());
-        self.emit(abi::move_immediate(&sinr, "Integer", "0"));
-        self.emit_cordic(CordicMode::Rotation, &cosr, &sinr, &r)?;
-
-        // Quadrant selection from k mod 4.
-        let kmod = self.allocate_register();
-        let three = self.allocate_register();
-        self.emit(abi::move_immediate(&three, "Integer", "3"));
-        self.emit(abi::and_registers(&kmod, &k, &three));
-        let sin_out = self.allocate_register();
-        let cos_out = self.allocate_register();
-        let q1 = self.label("fixed_sincos_q1");
-        let q2 = self.label("fixed_sincos_q2");
-        let q3 = self.label("fixed_sincos_q3");
-        let done = self.label("fixed_sincos_done");
-        self.emit(abi::compare_immediate(&kmod, "1"));
-        self.emit(abi::branch_eq(&q1));
-        self.emit(abi::compare_immediate(&kmod, "2"));
-        self.emit(abi::branch_eq(&q2));
-        self.emit(abi::compare_immediate(&kmod, "3"));
-        self.emit(abi::branch_eq(&q3));
-        // q0: sin = sinr, cos = cosr.
-        self.emit(abi::move_register(&sin_out, &sinr));
-        self.emit(abi::move_register(&cos_out, &cosr));
-        self.emit(abi::branch(&done));
-        // q1: sin = cosr, cos = -sinr.
-        self.emit(abi::label(&q1));
-        self.emit(abi::move_register(&sin_out, &cosr));
-        self.emit(abi::subtract_registers(&cos_out, abi::ZERO, &sinr));
-        self.emit(abi::branch(&done));
-        // q2: sin = -sinr, cos = -cosr.
-        self.emit(abi::label(&q2));
-        self.emit(abi::subtract_registers(&sin_out, abi::ZERO, &sinr));
-        self.emit(abi::subtract_registers(&cos_out, abi::ZERO, &cosr));
-        self.emit(abi::branch(&done));
-        // q3: sin = -cosr, cos = sinr.
-        self.emit(abi::label(&q3));
-        self.emit(abi::subtract_registers(&sin_out, abi::ZERO, &cosr));
-        self.emit(abi::move_register(&cos_out, &sinr));
-        self.emit(abi::label(&done));
-        Ok((sin_out, cos_out))
+        self.emit_const_u64(&scratch, TWO_OVER_PI_Q64);
+        self.emit(abi::unsigned_multiply_high_registers(
+            &k, &magnitude, &scratch,
+        ));
+        self.emit_const_u64(&scratch, FIXED_HALF);
+        self.emit(abi::add_registers(&k, &k, &scratch));
+        self.emit(abi::shift_right_immediate(&k, &k, 32));
+        // k·(pi/2)·2^159 modulo 2^160 in words (w2, w1, w0).
+        let w0 = self.allocate_register();
+        let w1 = self.allocate_register();
+        let w2 = self.allocate_register();
+        let product = self.allocate_register();
+        self.emit_const_u64(&scratch, PI_OVER_2_Q159[2]);
+        self.emit(abi::multiply_registers(&w0, &k, &scratch));
+        self.emit(abi::unsigned_multiply_high_registers(&w1, &k, &scratch));
+        self.emit_const_u64(&scratch, PI_OVER_2_Q159[1]);
+        self.emit(abi::multiply_registers(&product, &k, &scratch));
+        self.emit(abi::unsigned_multiply_high_registers(&w2, &k, &scratch));
+        self.emit(abi::add_registers(&w1, &w1, &product));
+        let no_carry = self.label("fixed_trig_reduce_no_carry");
+        self.emit(abi::compare_registers(&product, &w1));
+        self.emit(abi::branch_ls(&no_carry));
+        // umulh(k, P1) < k < 2^31, so this increment cannot wrap.
+        self.emit(abi::add_immediate(&w2, &w2, 1));
+        self.emit(abi::label(&no_carry));
+        self.emit_const_u64(&scratch, PI_OVER_2_Q159[0]);
+        self.emit(abi::multiply_registers(&product, &k, &scratch));
+        self.emit(abi::add_registers(&w2, &w2, &product));
+        // Shift right 32: k·(pi/2)·2^127 modulo 2^128 in (high, low).
+        let r_high = self.allocate_register();
+        let r_low = self.allocate_register();
+        self.emit(abi::shift_right_immediate(&r_low, &w0, 32));
+        self.emit(abi::shift_left_immediate(&scratch, &w1, 32));
+        self.emit(abi::or_registers(&r_low, &r_low, &scratch));
+        self.emit(abi::shift_right_immediate(&r_high, &w1, 32));
+        self.emit(abi::shift_left_immediate(&scratch, &w2, 32));
+        self.emit(abi::or_registers(&r_high, &r_high, &scratch));
+        // r·2^127 = (|x|·2^95 mod 2^128) − that; |x|·2^95 has a zero low word.
+        self.emit(abi::shift_left_immediate(&scratch, &magnitude, 31));
+        self.emit(abi::subtract_registers(&r_high, &scratch, &r_high));
+        let no_borrow = self.label("fixed_trig_reduce_no_borrow");
+        self.emit(abi::compare_immediate(&r_low, "0"));
+        self.emit(abi::branch_eq(&no_borrow));
+        self.emit(abi::subtract_immediate(&r_high, &r_high, 1));
+        self.emit(abi::subtract_registers(&r_low, abi::ZERO, &r_low));
+        self.emit(abi::label(&no_borrow));
+        // |r| < 0.79 < 1, so the 128-bit result is a signed value: take its sign
+        // and magnitude.
+        let negative_r = self.allocate_register();
+        self.emit(abi::shift_right_immediate(&negative_r, &r_high, 63));
+        let positive_r = self.label("fixed_trig_reduce_positive_r");
+        self.emit(abi::compare_immediate(&negative_r, "0"));
+        self.emit(abi::branch_eq(&positive_r));
+        // −(high, low) = (~high + (low == 0), −low).
+        self.emit(abi::bitwise_not(&r_high, &r_high));
+        let low_nonzero = self.label("fixed_trig_reduce_low_nonzero");
+        self.emit(abi::compare_immediate(&r_low, "0"));
+        self.emit(abi::branch_ne(&low_nonzero));
+        self.emit(abi::add_immediate(&r_high, &r_high, 1));
+        self.emit(abi::label(&low_nonzero));
+        self.emit(abi::subtract_registers(&r_low, abi::ZERO, &r_low));
+        self.emit(abi::label(&positive_r));
+        let quadrant = self.allocate_register();
+        self.emit(abi::move_immediate(&scratch, "Integer", "3"));
+        self.emit(abi::and_registers(&quadrant, &k, &scratch));
+        ReducedAngle {
+            negative_x,
+            quadrant,
+            negative_r,
+            r_high,
+            r_low,
+        }
     }
 
-    /// Lower `sin`/`cos` for a `Fixed` argument.
+    /// `(sin |r|, cos |r|)` in unsigned Q1.63 for the reduced angle
+    /// `|r|·2^127 = (r_high, r_low)` (bug-615).
+    ///
+    /// Horner-form Taylor series in Q1.63 on `|r|` truncated to Q0.64:
+    /// `S = 1 − r²/(2n(2n+1))·S` and `C = 1 − r²/((2n−1)2n)·C` for
+    /// `n = FIXED_TRIG_TERMS..1`, then `sin = r·S`. With `|r| <= pi/4 + 2^-31`
+    /// the first omitted terms (`r^20/21!`, `r^20/20!`) are below `2^-67`, and
+    /// the truncating `umulh`/`udiv` steps keep each result within a few units of
+    /// `2^-63` — far inside one Q32.32 unit.
+    fn emit_fixed_sin_cos_magnitudes(
+        &mut self,
+        r_high: impl Into<Operand>,
+        r_low: impl Into<Operand>,
+    ) -> (VirtualRegister, VirtualRegister) {
+        let r = self.allocate_register();
+        let r_squared = self.allocate_register();
+        let scratch = self.allocate_register();
+        // |r| in Q0.64 = (|r|·2^127) >> 63.
+        self.emit(abi::shift_left_immediate(&r, r_high, 1));
+        self.emit(abi::shift_right_immediate(&scratch, r_low, 63));
+        self.emit(abi::or_registers(&r, &r, &scratch));
+        self.emit(abi::unsigned_multiply_high_registers(&r_squared, &r, &r));
+        let one = self.allocate_register();
+        let sine = self.allocate_register();
+        let cosine = self.allocate_register();
+        let n = self.allocate_register();
+        let two_n = self.allocate_register();
+        let divisor = self.allocate_register();
+        self.emit_const_u64(&one, Q63_ONE);
+        self.emit(abi::move_register(&sine, &one));
+        self.emit(abi::move_register(&cosine, &one));
+        self.emit(abi::move_immediate(
+            &n,
+            "Integer",
+            &FIXED_TRIG_TERMS.to_string(),
+        ));
+        let series = self.label("fixed_trig_series");
+        let series_done = self.label("fixed_trig_series_done");
+        self.emit(abi::label(&series));
+        self.emit(abi::compare_immediate(&n, "0"));
+        self.emit(abi::branch_eq(&series_done));
+        self.emit(abi::add_registers(&two_n, &n, &n));
+        // S = 1 − r²·S / (2n·(2n+1)).
+        self.emit(abi::add_immediate(&divisor, &two_n, 1));
+        self.emit(abi::multiply_registers(&divisor, &divisor, &two_n));
+        self.emit(abi::unsigned_multiply_high_registers(
+            &scratch, &r_squared, &sine,
+        ));
+        self.emit(abi::unsigned_divide_registers(&scratch, &scratch, &divisor));
+        self.emit(abi::subtract_registers(&sine, &one, &scratch));
+        // C = 1 − r²·C / ((2n−1)·2n).
+        self.emit(abi::subtract_immediate(&divisor, &two_n, 1));
+        self.emit(abi::multiply_registers(&divisor, &divisor, &two_n));
+        self.emit(abi::unsigned_multiply_high_registers(
+            &scratch, &r_squared, &cosine,
+        ));
+        self.emit(abi::unsigned_divide_registers(&scratch, &scratch, &divisor));
+        self.emit(abi::subtract_registers(&cosine, &one, &scratch));
+        self.emit(abi::subtract_immediate(&n, &n, 1));
+        self.emit(abi::branch(&series));
+        self.emit(abi::label(&series_done));
+        // sin |r| = |r| · S: Q0.64 × Q1.63 → Q1.63.
+        self.emit(abi::unsigned_multiply_high_registers(&sine, &r, &sine));
+        (sine, cosine)
+    }
+
+    /// Round the unsigned Q1.63 magnitude `m` (at most `2^63`) to Q32.32 and
+    /// negate it when the 0/1 register `negative` is 1, writing `dst`.
+    fn emit_q63_to_signed_fixed(
+        &mut self,
+        dst: impl Into<Operand>,
+        m: impl Into<Operand>,
+        negative: impl Into<Operand>,
+    ) {
+        let dst = dst.into();
+        let mask = self.allocate_register();
+        self.emit_const_u64(&mask, 1u64 << 30);
+        self.emit(abi::add_registers(dst.clone(), m, &mask));
+        self.emit(abi::shift_right_immediate(dst.clone(), dst.clone(), 31));
+        self.emit_conditional_negate(dst, negative, &mask);
+    }
+
+    /// `dst = negative ? −dst : dst` for a 0/1 `negative`, branch-free:
+    /// `(dst ^ −negative) − (−negative)`. `mask` is scratch.
+    fn emit_conditional_negate(
+        &mut self,
+        dst: impl Into<Operand>,
+        negative: impl Into<Operand>,
+        mask: impl Into<Operand>,
+    ) {
+        let dst = dst.into();
+        let mask = mask.into();
+        self.emit(abi::subtract_registers(mask.clone(), abi::ZERO, negative));
+        self.emit(abi::exclusive_or_registers(
+            dst.clone(),
+            dst.clone(),
+            mask.clone(),
+        ));
+        self.emit(abi::subtract_registers(dst.clone(), dst, mask));
+    }
+
+    /// Lower `sin`/`cos` for a `Fixed` argument: the nearest `Fixed` to the true
+    /// value, within one Q32.32 unit at every argument (bug-615).
+    ///
+    /// With `|x| = k·(pi/2) + r` from [`Self::emit_fixed_trig_reduce`], `sin |x|`
+    /// is `sin r, cos r, −sin r, −cos r` and `cos |x|` is
+    /// `cos r, −sin r, −cos r, sin r` for quadrants `k mod 4 = 0..3`. `sin r`
+    /// carries the sign of `r`; `sin x` also carries the sign of `x`.
     pub(crate) fn emit_fixed_sin_cos(
         &mut self,
         src: impl Into<Operand>,
         want_cos: bool,
     ) -> Result<VirtualRegister, String> {
-        let (sin_out, cos_out) = self.emit_fixed_sincos(src)?;
-        Ok(if want_cos { cos_out } else { sin_out })
+        let angle = self.emit_fixed_trig_reduce(src);
+        let (sine, cosine) = self.emit_fixed_sin_cos_magnitudes(&angle.r_high, &angle.r_low);
+        let bit = self.allocate_register();
+        let uses_sine = self.allocate_register();
+        let negative = self.allocate_register();
+        let magnitude = self.allocate_register();
+        let half_turn = self.allocate_register();
+        self.emit(abi::move_immediate(&bit, "Integer", "1"));
+        // sin selects `sin r` in the even quadrants, cos in the odd ones.
+        self.emit(abi::and_registers(&uses_sine, &angle.quadrant, &bit));
+        if !want_cos {
+            self.emit(abi::exclusive_or_registers(&uses_sine, &uses_sine, &bit));
+        }
+        let pick_cosine = self.label("fixed_trig_pick_cosine");
+        let picked = self.label("fixed_trig_picked");
+        self.emit(abi::compare_immediate(&uses_sine, "0"));
+        self.emit(abi::branch_eq(&pick_cosine));
+        self.emit(abi::move_register(&magnitude, &sine));
+        self.emit(abi::move_register(&negative, &angle.negative_r));
+        self.emit(abi::branch(&picked));
+        self.emit(abi::label(&pick_cosine));
+        self.emit(abi::move_register(&magnitude, &cosine));
+        self.emit(abi::move_immediate(&negative, "Integer", "0"));
+        self.emit(abi::label(&picked));
+        // The half-turn sign: sin is negative in quadrants 2 and 3 (bit 1 of
+        // k mod 4), cos in quadrants 1 and 2 (bit 1 of k mod 4 + 1).
+        if want_cos {
+            self.emit(abi::add_immediate(&half_turn, &angle.quadrant, 1));
+            self.emit(abi::shift_right_immediate(&half_turn, &half_turn, 1));
+            self.emit(abi::and_registers(&half_turn, &half_turn, &bit));
+        } else {
+            self.emit(abi::shift_right_immediate(&half_turn, &angle.quadrant, 1));
+            self.emit(abi::exclusive_or_registers(
+                &negative,
+                &negative,
+                &angle.negative_x,
+            ));
+        }
+        self.emit(abi::exclusive_or_registers(
+            &negative, &negative, &half_turn,
+        ));
+        let result = self.allocate_register();
+        self.emit_q63_to_signed_fixed(&result, &magnitude, &negative);
+        Ok(result)
     }
 
-    /// Lower `tan` for a `Fixed` argument as `sin / cos`. Undefined points
-    /// (`cos == 0`) fail with `ErrInvalidArgument`.
+    /// Lower `tan` for a `Fixed` argument: the nearest `Fixed` to the true
+    /// tangent, or `ErrOverflow` when the true tangent is outside the `Fixed`
+    /// range (bug-615). No `Fixed` argument is a pole — pi/2 is irrational — so
+    /// there is no undefined point to reject.
+    ///
+    /// With `|x| = k·(pi/2) + r`, `tan |x|` is `tan r` for even `k` and
+    /// `−cot r` for odd `k`; `tan x` also carries the sign of `x`. Two paths:
+    ///
+    /// * **Even `k`, or odd `k` with `|r| >= 2^-8`**: the magnitude is
+    ///   `sin|r| / cos|r|` (even) or `cos|r| / sin|r|` (odd), at most `2^8`, from
+    ///   the Q1.63 series of [`Self::emit_fixed_sin_cos_magnitudes`] and a
+    ///   32-bit-fraction long division rounded by its remainder. The `2^-61`
+    ///   error of the operands is at most `2^-45` in a quotient of `2^8`.
+    /// * **Odd `k` with `|r| < 2^-8`** (near a pole): the Q1.63 operands no
+    ///   longer have the relative precision a quotient near `2^31` needs, so the
+    ///   magnitude is `cot|r| = 1/|r| − |r|/3 − |r|³/45` (next term below
+    ///   `2^-48`). `1/|r|` comes from the exact 128-bit `|r|` by a 73-step long
+    ///   division carrying 8 guard bits, so it is good to `2^-31` units even at
+    ///   `|r| = 2^-32`. `|r| < 2^-32` means `|tan| > 2^32`: `ErrOverflow`
+    ///   without dividing. The overflow decision is made on the rounded
+    ///   quotient, which is within half a unit of the truth.
     pub(crate) fn emit_fixed_tan(
         &mut self,
         src: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
-        let (sin_out, cos_out) = self.emit_fixed_sincos(src)?;
-        // Spill across the division helper, which resets the register file.
-        let sin_slot = self.allocate_stack_object("fixed_tan_sin", 8);
-        let cos_slot = self.allocate_stack_object("fixed_tan_cos", 8);
-        self.emit(abi::store_u64(&sin_out, abi::stack_pointer(), sin_slot));
-        self.emit(abi::store_u64(&cos_out, abi::stack_pointer(), cos_slot));
-        self.reset_temporary_registers();
-        let sin_reg = self.allocate_register();
-        let cos_reg = self.allocate_register();
-        self.emit(abi::load_u64(&sin_reg, abi::stack_pointer(), sin_slot));
-        self.emit(abi::load_u64(&cos_reg, abi::stack_pointer(), cos_slot));
-        // `emit_fixed_divide` already fails with ErrInvalidArgument when the
-        // divisor (cos) is zero, which matches the spec's undefined-point rule.
+        let angle = self.emit_fixed_trig_reduce(src);
         let result = self.allocate_register();
-        self.emit_fixed_divide(&result, &sin_reg, &cos_reg)?;
+        let negative = self.allocate_register();
+        let odd = self.allocate_register();
+        let scratch = self.allocate_register();
+        // tan x = sign(x) · sign(r) · (odd k ? −1 : 1) · |tan r or cot r|.
+        self.emit(abi::move_immediate(&odd, "Integer", "1"));
+        self.emit(abi::and_registers(&odd, &odd, &angle.quadrant));
+        self.emit(abi::exclusive_or_registers(
+            &negative,
+            &odd,
+            &angle.negative_r,
+        ));
+        self.emit(abi::exclusive_or_registers(
+            &negative,
+            &negative,
+            &angle.negative_x,
+        ));
+        let general = self.label("fixed_tan_general");
+        let apply_sign = self.label("fixed_tan_apply_sign");
+        let overflow = self.label("fixed_tan_overflow");
+        self.emit(abi::compare_immediate(&odd, "0"));
+        self.emit(abi::branch_eq(&general));
+        // |r| >= 2^-8  <=>  high word of |r|·2^127 >= 2^55.
+        self.emit_const_u64(&scratch, 1u64 << 55);
+        self.emit(abi::compare_registers(&scratch, &angle.r_high));
+        self.emit(abi::branch_ls(&general));
+
+        // Near a pole. |r| < 2^-32 (high word < 2^31): |cot r| > 2^32.
+        self.emit_const_u64(&scratch, 1u64 << 31);
+        self.emit(abi::compare_registers(&angle.r_high, &scratch));
+        self.emit(abi::branch_lo(&overflow));
+        // (qh, ql) = floor(2^167 / |r|·2^127) = floor(2^40 / |r|): the long
+        // division starts from the remainder 2^94 < |r|·2^127, so 73 quotient
+        // bits remain; the remainder stays below |r|·2^128 < 2^120.
+        let rem_high = self.allocate_register();
+        let rem_low = self.allocate_register();
+        let quot_high = self.allocate_register();
+        let quot_low = self.allocate_register();
+        let counter = self.allocate_register();
+        self.emit_const_u64(&rem_high, 1u64 << 30);
+        self.emit(abi::move_immediate(&rem_low, "Integer", "0"));
+        self.emit(abi::move_immediate(&quot_high, "Integer", "0"));
+        self.emit(abi::move_immediate(&quot_low, "Integer", "0"));
+        self.emit(abi::move_immediate(&counter, "Integer", "73"));
+        let divide = self.label("fixed_tan_pole_divide");
+        let subtract = self.label("fixed_tan_pole_subtract");
+        let no_borrow = self.label("fixed_tan_pole_no_borrow");
+        let next_bit = self.label("fixed_tan_pole_next_bit");
+        let divided = self.label("fixed_tan_pole_divided");
+        self.emit(abi::label(&divide));
+        self.emit(abi::compare_immediate(&counter, "0"));
+        self.emit(abi::branch_eq(&divided));
+        for (high, low) in [(&rem_high, &rem_low), (&quot_high, &quot_low)] {
+            self.emit(abi::shift_left_immediate(high, high, 1));
+            self.emit(abi::shift_right_immediate(&scratch, low, 63));
+            self.emit(abi::or_registers(high, high, &scratch));
+            self.emit(abi::shift_left_immediate(low, low, 1));
+        }
+        // remainder >= |r|·2^127 (128-bit unsigned compare)?
+        self.emit(abi::compare_registers(&rem_high, &angle.r_high));
+        self.emit(abi::branch_hi(&subtract));
+        self.emit(abi::branch_lo(&next_bit));
+        self.emit(abi::compare_registers(&rem_low, &angle.r_low));
+        self.emit(abi::branch_lo(&next_bit));
+        self.emit(abi::label(&subtract));
+        self.emit(abi::subtract_registers(&rem_high, &rem_high, &angle.r_high));
+        self.emit(abi::compare_registers(&angle.r_low, &rem_low));
+        self.emit(abi::branch_ls(&no_borrow));
+        self.emit(abi::subtract_immediate(&rem_high, &rem_high, 1));
+        self.emit(abi::label(&no_borrow));
+        self.emit(abi::subtract_registers(&rem_low, &rem_low, &angle.r_low));
+        self.emit(abi::add_immediate(&quot_low, &quot_low, 1));
+        self.emit(abi::label(&next_bit));
+        self.emit(abi::subtract_immediate(&counter, &counter, 1));
+        self.emit(abi::branch(&divide));
+        self.emit(abi::label(&divided));
+        // correction = (|r|/3 + |r|³/45)·2^40, each term truncated (< 2^-40 off).
+        let correction = self.allocate_register();
+        let r = self.allocate_register();
+        let power = self.allocate_register();
+        self.emit(abi::shift_right_immediate(&correction, &angle.r_high, 23));
+        self.emit(abi::move_immediate(&scratch, "Integer", "3"));
+        self.emit(abi::unsigned_divide_registers(
+            &correction,
+            &correction,
+            &scratch,
+        ));
+        self.emit(abi::shift_left_immediate(&r, &angle.r_high, 1));
+        self.emit(abi::shift_right_immediate(&scratch, &angle.r_low, 63));
+        self.emit(abi::or_registers(&r, &r, &scratch));
+        self.emit(abi::unsigned_multiply_high_registers(&power, &r, &r));
+        self.emit(abi::unsigned_multiply_high_registers(&power, &power, &r));
+        self.emit(abi::shift_right_immediate(&power, &power, 24));
+        self.emit(abi::move_immediate(&scratch, "Integer", "45"));
+        self.emit(abi::unsigned_divide_registers(&power, &power, &scratch));
+        self.emit(abi::add_registers(&correction, &correction, &power));
+        // (qh, ql) −= correction; then += 2^7 to round away the 8 guard bits.
+        let no_borrow = self.label("fixed_tan_pole_correction_no_borrow");
+        self.emit(abi::compare_registers(&correction, &quot_low));
+        self.emit(abi::branch_ls(&no_borrow));
+        self.emit(abi::subtract_immediate(&quot_high, &quot_high, 1));
+        self.emit(abi::label(&no_borrow));
+        self.emit(abi::subtract_registers(&quot_low, &quot_low, &correction));
+        self.emit(abi::add_immediate(&correction, &quot_low, 128));
+        let no_carry = self.label("fixed_tan_pole_round_no_carry");
+        self.emit(abi::compare_registers(&quot_low, &correction));
+        self.emit(abi::branch_ls(&no_carry));
+        self.emit(abi::add_immediate(&quot_high, &quot_high, 1));
+        self.emit(abi::label(&no_carry));
+        // |tan|·2^32 = (qh, ql) >> 8 must fit below 2^63.
+        self.emit(abi::shift_right_immediate(&scratch, &quot_high, 7));
+        self.emit(abi::compare_immediate(&scratch, "0"));
+        self.emit(abi::branch_ne(&overflow));
+        self.emit(abi::shift_left_immediate(&result, &quot_high, 56));
+        self.emit(abi::shift_right_immediate(&scratch, &correction, 8));
+        self.emit(abi::or_registers(&result, &result, &scratch));
+        self.emit(abi::branch(&apply_sign));
+
+        // Away from a pole: a rounded 32-bit-fraction quotient of the Q1.63
+        // magnitudes, numerator sin (even k) or cos (odd k).
+        self.emit(abi::label(&general));
+        let (sine, cosine) = self.emit_fixed_sin_cos_magnitudes(&angle.r_high, &angle.r_low);
+        let numerator = self.allocate_register();
+        let denominator = self.allocate_register();
+        let even_quadrant = self.label("fixed_tan_even_quadrant");
+        let operands = self.label("fixed_tan_operands");
+        self.emit(abi::compare_immediate(&odd, "0"));
+        self.emit(abi::branch_eq(&even_quadrant));
+        self.emit(abi::move_register(&numerator, &cosine));
+        self.emit(abi::move_register(&denominator, &sine));
+        self.emit(abi::branch(&operands));
+        self.emit(abi::label(&even_quadrant));
+        self.emit(abi::move_register(&numerator, &sine));
+        self.emit(abi::move_register(&denominator, &cosine));
+        self.emit(abi::label(&operands));
+        // integer part, then 32 fraction bits; the remainder stays below the
+        // denominator (<= 2^63), so doubling it never wraps.
+        let remainder = self.allocate_register();
+        let counter = self.allocate_register();
+        self.emit(abi::unsigned_divide_registers(
+            &result,
+            &numerator,
+            &denominator,
+        ));
+        self.emit(abi::multiply_subtract_registers(
+            &remainder,
+            &result,
+            &denominator,
+            &numerator,
+        ));
+        self.emit(abi::move_immediate(&counter, "Integer", "32"));
+        let fraction = self.label("fixed_tan_fraction");
+        let fraction_skip = self.label("fixed_tan_fraction_skip");
+        let fraction_done = self.label("fixed_tan_fraction_done");
+        self.emit(abi::label(&fraction));
+        self.emit(abi::compare_immediate(&counter, "0"));
+        self.emit(abi::branch_eq(&fraction_done));
+        self.emit(abi::shift_left_immediate(&remainder, &remainder, 1));
+        self.emit(abi::shift_left_immediate(&result, &result, 1));
+        self.emit(abi::compare_registers(&remainder, &denominator));
+        self.emit(abi::branch_lo(&fraction_skip));
+        self.emit(abi::subtract_registers(
+            &remainder,
+            &remainder,
+            &denominator,
+        ));
+        self.emit(abi::add_immediate(&result, &result, 1));
+        self.emit(abi::label(&fraction_skip));
+        self.emit(abi::subtract_immediate(&counter, &counter, 1));
+        self.emit(abi::branch(&fraction));
+        self.emit(abi::label(&fraction_done));
+        // Round to nearest: 2·remainder >= denominator.
+        let rounded = self.label("fixed_tan_rounded");
+        self.emit(abi::shift_left_immediate(&remainder, &remainder, 1));
+        self.emit(abi::compare_registers(&remainder, &denominator));
+        self.emit(abi::branch_lo(&rounded));
+        self.emit(abi::add_immediate(&result, &result, 1));
+        self.emit(abi::label(&rounded));
+
+        self.emit(abi::label(&apply_sign));
+        self.emit_conditional_negate(&result, &negative, &scratch);
+        let done = self.label("fixed_tan_done");
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&overflow));
+        self.raise_error_bare("ErrOverflow")?;
+        self.emit(abi::label(&done));
         Ok(result)
     }
 
@@ -1122,22 +1489,6 @@ fn fixed_pi_over_2() -> i64 {
     fixed_raw(std::f64::consts::FRAC_PI_2)
 }
 
-/// Raw Q32.32 value of `2 / pi`.
-fn fixed_two_over_pi() -> i64 {
-    fixed_raw(std::f64::consts::FRAC_2_PI)
-}
-
-/// Raw Q32.32 inverse CORDIC gain `prod 1/sqrt(1 + 2^-2i)` over the iteration
-/// count, i.e. the starting `x` for rotation mode so the result is unscaled.
-///
-/// Baked as a constant (bug-137.1): the former `.sqrt()`-based product ran on the
-/// build host's libm, so a ≤1-ulp difference could flip `fixed_raw`'s `.round()`
-/// and produce byte-different binaries per build host. This value reproduces the
-/// current host's f64 computation bit-for-bit (verified), so results are unchanged.
-fn cordic_gain_inverse() -> i64 {
-    2_608_131_496
-}
-
 /// Raw Q32.32 value of `ln(2)`.
 fn fixed_ln2() -> i64 {
     fixed_raw(std::f64::consts::LN_2)
@@ -1151,4 +1502,48 @@ fn fixed_inv_ln2() -> i64 {
 /// Raw Q32.32 value of `1 / ln(10)`.
 fn fixed_inv_ln10() -> i64 {
     fixed_raw(1.0 / std::f64::consts::LN_10)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PI_OVER_2_Q159, TWO_OVER_PI_Q64};
+    use num_bigint::BigInt;
+
+    /// `atan(1/n)` scaled by `2^bits`.
+    fn atan_inverse(n: i64, bits: u32) -> BigInt {
+        let n2 = BigInt::from(n * n);
+        let mut power = (BigInt::from(1) << bits) / n;
+        let mut sum = BigInt::from(0);
+        let mut k = 0i64;
+        while power != BigInt::from(0) {
+            let term = &power / (2 * k + 1);
+            if k % 2 == 0 {
+                sum += term;
+            } else {
+                sum -= term;
+            }
+            power /= &n2;
+            k += 1;
+        }
+        sum
+    }
+
+    /// The trig reduction's baked constants are pi from Machin's formula
+    /// (`pi = 16·atan(1/5) − 4·atan(1/239)`), never a host `f64` (bug-615).
+    #[test]
+    fn trig_constants_match_machin_pi() {
+        const GUARD: u32 = 320;
+        let pi =
+            BigInt::from(16) * atan_inverse(5, GUARD) - BigInt::from(4) * atan_inverse(239, GUARD);
+        // round(pi/2 · 2^159) = round(pi · 2^158).
+        let half = BigInt::from(1) << (GUARD - 158 - 1);
+        let pi_over_2 = (&pi + half) >> (GUARD - 158);
+        let words = (BigInt::from(PI_OVER_2_Q159[0]) << 128)
+            + (BigInt::from(PI_OVER_2_Q159[1]) << 64)
+            + BigInt::from(PI_OVER_2_Q159[2]);
+        assert_eq!(words, pi_over_2);
+        // floor(2/pi · 2^64).
+        let two_over_pi = (BigInt::from(2) << (GUARD + 64)) / &pi;
+        assert_eq!(two_over_pi, BigInt::from(TWO_OVER_PI_Q64));
+    }
 }
