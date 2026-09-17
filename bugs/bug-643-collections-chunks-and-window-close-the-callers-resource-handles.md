@@ -74,6 +74,21 @@ after window: <raised 77030004>         <- closed by the window call
 after get(wins, 0): <raised 77030004>
 ```
 
+Only handles copied into an emitted block are closed. With three file handles and
+`collections::window(handles, 1, 2)` (`/tmp/p125-ex/colwinpart`), the two handles
+placed into windows are closed (`77030004`), while the handle the stride skips still
+reads normally:
+
+```
+windows = 2
+h0 (in window 0): <raised 77030004>
+h1 (skipped by stride): one
+h2 (in window 1): <raised 77030004>
+```
+
+This fits the root-cause hypothesis below: the close runs per element copied into a
+block. `chunks` places every element into some block, so it closes them all.
+
 A program that closes the handle it pulled out of a window crashes instead
 (`/tmp/p125-ex/colwin2`): `fs::close` raises "Resource handle is already closed",
 uncaught, followed by `Cleanup failure: 7-703-0004` at scope exit.

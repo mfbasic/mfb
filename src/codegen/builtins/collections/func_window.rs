@@ -373,8 +373,9 @@ runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
 Each window is a new list. For ordinary values it holds copies of the elements,
 so overlapping windows hold independent copies and nothing you do with a window
 affects `value`, which is not modified. If `T` is a `RES` handle, the current build
-closes those resources during the call, so the handles in `value` are already
-closed afterwards; do not pass a list of open resources to `window`.
+closes every handle that lands in an emitted window during the call; handles the
+stride skips, or that no full window reaches, stay open. Do not pass a list of open
+resources you still need to `window`.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `window` copies contiguous ranges and never inspects an element, so
