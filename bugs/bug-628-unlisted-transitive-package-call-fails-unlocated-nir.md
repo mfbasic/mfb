@@ -75,7 +75,18 @@ mfb build app
 
 ## Root Cause
 
-Not yet localized. Hypotheses, ordered by likelihood:
+**Confirmed: hypothesis 1.** `cli::build::build_project` hands lowering
+`installed_package_files(&options.location, &manifest)` (the `packages_cache` in
+`src/cli/build/mod.rs`), which resolves only the entries the importing `project.json` declares, and
+`target::shared::nir::lower::merge_packages` merges exactly that list. Measured on the repro at
+`3b94f621e`: `app/build/packages/` held only `userpkg.mfp`, and `mfb pkg info` on it showed an import
+table entry `basepkg` (ident `basepkg`, used symbol `base`). Nothing merged `basepkg`, so
+`userpkg`'s `basepkg.base` reference reached NIR undefined. Hypothesis 2 is eliminated: `basepkg` is
+not in the merge list at all. The registry resolver has the same shape — `cli::resolve::resolve`
+seeds nodes only from declared dependencies and silently drops an import edge naming an undeclared
+ident.
+
+The original hypotheses, for the record:
 
 1. **The executable merge walks only the importer's declared packages.** `userpkg`'s build installs
    `basepkg.mfp` under `userpkg/build/packages/`, but the executable's package list — and so
@@ -106,38 +117,65 @@ reaches every merged project's references.
 
 ## Blast Radius
 
-To audit in Phase 1 (search, not memory):
+Audited in Phase 1. Every shape below reaches the merge the same way — through the requirer's
+import table, which the package build writes from ALL of its manifest's `packages[]`
+(`manifest::package::package_dependencies` → `ImportTable::from_metadata`) — so one check on the
+import tables covers all of them:
 
-- a package function body calling another package — reproduced;
-- a package parameter default calling another package (plan-136-B) — reproduced;
-- a package top-level initializer reading another package's global
-  (`rt_top_level_initializer_globals` avoids it by listing both);
-- a package re-exporting another package's type in its public API (bug-390 path) — unknown.
+- a package function body calling another package — reproduced; `rt_package_dependency_closure`;
+- a package parameter default calling another package (plan-136-B) — same edge;
+  `rt_package_parameter_defaults` now declares the closure with `requiredBy`;
+- a package top-level initializer reading another package's global — same edge;
+  `rt_top_level_initializer_globals` declares the closure;
+- a package re-exporting another package's type (bug-390) — the owner was only *read* as a sibling
+  `.mfp` for its type definitions, never merged; it must now be declared
+  (`rt_foreign_type_reexport`, `rt_reexport_union_transitive_field_types`).
+- a version mismatch between what an importer was compiled against and the declared dependency —
+  found while writing the tests: the conflict case reached compilation and failed with the internal
+  `TYPE_CALL_ARITY_MISMATCH: Call to '<id>.basepkg.base' has 0 argument(s)`. Now
+  `PACKAGE_VERSION_CONFLICT`.
 
 ## Fix Design
 
-Depends on the Open Decision. (A) Merge transitive dependencies: collect each merged package's own
-installed dependencies recursively, de-duplicated by identity, before the merge. (B) Refuse: after
-reading an imported package's import table, report any dependency the importer does not declare,
-located at the importer's `IMPORT` line.
+Decided with the user (see Decisions): **the manifest declares the whole closure; `mfb pkg` writes
+it; `mfb build` checks it and never repairs.**
+
+- Each `packages[]` entry carries `direct` (the user added it) and `requiredBy` (idents of the
+  declared packages whose import tables name it). An entry is dropped only when `direct` is false
+  and `requiredBy` is empty.
+- `manifest::closure` reads what each declared package needs where the build reads it (installed
+  `.mfp` import table, else the source directory's own `packages[]`, else the build cache):
+  `check` lists every disagreement, `conflicts` lists used symbols whose ABI hash (or pinned
+  version) the declared dependency does not provide, `reconcile` computes the manifest `pkg` writes.
+- `verify_and_report_packages` → `refuse_inconsistent_closure`: `PACKAGE_DEPENDENCIES_INCONSISTENT`
+  (6-605-0013, "run `mfb pkg update`") and `PACKAGE_VERSION_CONFLICT` (6-605-0014, "run
+  `mfb pkg verify`"), located at the `packages` field, before anything is compiled.
+- `apply_manifest_change` closes every `pkg add/remove/update`; `pkg update` does so for projects
+  without registry dependencies too; `pkg verify` prints both diagnostics with per-symbol detail.
+
+The originally forbidden wrong fix (rewording the NIR error) was not used: the undeclared dependency
+is refused before lowering.
 
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a runtime test with the repro (app lists `userpkg` only); confirm it fails with the NIR
+- [x] Add a runtime test with the repro (app lists `userpkg` only); confirm it fails with the NIR
       error.
-- [ ] Confirm or eliminate hypotheses 1 and 2; complete the blast-radius audit.
+- [x] Confirm or eliminate hypotheses 1 and 2; complete the blast-radius audit.
 
 Acceptance: the test fails for the documented reason; root cause cited to `file:symbol`.
-Commit: —
+Commit: 7621ed1f5
 
 ### Phase 2 — the fix
 
-- [ ] Implement the chosen option.
+- [x] Implement the chosen option.
+- [x] Migrate every committed `project.json` and every test harness that writes one.
+- [x] Spec: tooling project-manifest, language modules-and-packages, architecture
+      binary-representation / packages, tooling cli-reference.
 
-Acceptance: the Phase 1 test passes; every committed fixture still builds identically.
-Commit: —
+Acceptance: the Phase 1 tests pass; every committed fixture builds.
+Commit: 42d19e908, e182f3078, 4c86df537, e4e12e77e, 9e47748e8
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -154,12 +192,32 @@ Commit: —
   declared by its importer.
 - Full suite: `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`.
 
-## Open Decisions
+## Decisions
 
-1. Merge a package's own dependencies transitively (the importer never lists them) vs. require the
-   importer to declare them and refuse with a located diagnostic. Recommended: merge transitively —
-   a package's dependencies are its implementation, and the importer already trusts that package.
-   Decisions: do no work until we talk about this. the language as a whole does not merge dependencies transitively at the moment.
+1. ~~Merge a package's own dependencies transitively vs. require the importer to declare them.~~
+   Decided with the user (2026-09-16): this is a package-management rule, not a language one. If a
+   project needs A and A needs B, B is pulled in **at `mfb pkg add` time** and written to
+   `project.json`; every package used by the app is listed there. The build does nothing the
+   manifest does not say.
+2. Entries record why they are present: `"direct": bool` and `"requiredBy": [<idents>]` (idents, not
+   names). Removal only when `direct` is false and `requiredBy` is empty.
+3. `mfb build` validates `project.json`: incorrect `requiredBy`s (and missing dependencies) are listed
+   and the build stops, telling the user to run `mfb pkg update`.
+4. A dependency version conflict is an error, not an attempt to compile, telling the user to run
+   `mfb pkg verify` for details.
+5. All existing `project.json` files in the repo are updated to the new fields.
+
+## Corrections
+
+- **Effort** was estimated medium (1h–2h) against a fix that turned out to be a manifest rule, a
+  build gate, `pkg` add/remove/update/verify changes, and a migration of 119 committed manifests and
+  ~20 test harnesses.
+- **Non-goal "every committed fixture builds identically"** could not hold as written: under
+  decision 5 every fixture's `project.json` gained `direct`/`requiredBy`. No `.mfp`, IR, or native
+  output changes (the fields are not in the import table, and `projectHash` excludes them).
+- **The bug-390 spec sentence** "a consumer that installs the owning dependency (transitively — it
+  need not be declared directly)" described a types-only sibling read; the owner's functions were
+  never merged. Corrected in `architecture binary-representation`.
 
 ## Summary
 
