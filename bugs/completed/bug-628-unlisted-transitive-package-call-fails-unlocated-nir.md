@@ -1,12 +1,12 @@
 # bug-628: a call into a package's own dependency fails to build with an unlocated `NIR call target … does not resolve` when the importer does not list that dependency
 
-Last updated: 2026-09-13
+Last updated: 2026-09-16
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED
+Regression Test: tests/runtime/rt_package_dependency_closure.rs
 
 An executable that lists only package `userpkg` in its manifest, where `userpkg` itself imports
 package `basepkg` and calls `basepkg::base()`, does not build. The build of both packages succeeds
@@ -179,10 +179,10 @@ Commit: 42d19e908, e182f3078, 4c86df537, e4e12e77e, 9e47748e8
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/test-accept.sh` and `cargo test --release --no-fail-fast`.
+- [x] `scripts/test-accept.sh` and `cargo test --release --no-fail-fast`.
 
 Acceptance: full suite green; golden delta empty or justified.
-Commit: —
+Commit: — (no golden changed; results below)
 
 ## Validation Plan
 
@@ -223,3 +223,25 @@ Commit: —
 
 An unlocated internal error for a natural manifest, pre-existing on main. The risk is in choosing
 the rule and, if merging, de-duplicating a dependency reached through two paths.
+
+## STATUS: FIXED (42d19e908)
+
+Landed on `worktree-B-628` as 7621ed1f5 (RED tests), 42d19e908 (closure rule, build gate, `pkg`
+wiring), e182f3078 (119 committed manifests), 4c86df537 (install what the requirer builds against;
+undecodable payloads contribute nothing), e4e12e77e (test harnesses), 9e47748e8 (spec), 7494b93bc
+(bug-653's harness, after merging main).
+
+Validation on the tree merged with main `f0b889231`:
+
+- `cargo test --release --no-fail-fast`: 193 test binaries `test result: ok`, 0 failed
+  (`grep -c '^test result: ok'`, exit 0).
+- `scripts/test-accept.sh`: `acceptance tests passed (1484 test(s) ran)`; no golden, `.mfp`, IR or
+  native artifact changed (`git status` clean after the run).
+- The repro: refused with `PACKAGE_DEPENDENCIES_INCONSISTENT` located at the `packages` field; after
+  `mfb pkg update` it declares `basepkg` (`direct: false`, `requiredBy: ["userpkg"]`,
+  `source: file:../basepkg`), builds, and prints `5`. Measured on macOS aarch64 only.
+
+Deviation from the doc as drafted: neither option A nor B as first written — the manifest declares
+the closure, `mfb pkg` writes it, `mfb build` checks it (see Decisions and Corrections). Known limit,
+unchanged by this bug: `mfb pkg remove` accepts only registry idents, so a local dependency is removed
+by editing `project.json` and running `mfb pkg update`.
