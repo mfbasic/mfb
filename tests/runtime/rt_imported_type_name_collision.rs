@@ -36,8 +36,18 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
     let packages = deps
         .iter()
         .map(|dep| {
+            // bug-628: `name<requirer,…` also records the declared packages that
+            // import `name` in its `requiredBy`.
+            let (dep, required_by) = dep.split_once('<').unwrap_or((dep, ""));
+            let required_by: Vec<String> = required_by
+                .split(',')
+                .filter(|requirer| !requirer.is_empty())
+                .map(|requirer| format!("\"{requirer}\""))
+                .collect();
             format!(
-                "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+                "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\
+                 \"direct\":true,\"requiredBy\":[{}]}}",
+                required_by.join(",")
             )
         })
         .collect::<Vec<_>>()
@@ -118,7 +128,23 @@ fn run_app(case: &str, packages: &[Package<'_>], app_deps: &[&str], app_src: &st
         }
         build(&root, name);
     }
-    write_project(&root, "app", "executable", app_deps, true, app_src);
+    let declared: Vec<String> = app_deps
+        .iter()
+        .map(|dep| {
+            let requirers: Vec<&str> = app_deps
+                .iter()
+                .copied()
+                .filter(|other| {
+                    packages
+                        .iter()
+                        .any(|(name, deps, _)| name == other && deps.contains(dep))
+                })
+                .collect();
+            format!("{dep}<{}", requirers.join(","))
+        })
+        .collect();
+    let declared: Vec<&str> = declared.iter().map(String::as_str).collect();
+    write_project(&root, "app", "executable", &declared, true, app_src);
     for dep in app_deps {
         install(&root, dep, "app");
     }

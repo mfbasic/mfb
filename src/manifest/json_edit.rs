@@ -49,8 +49,22 @@ pub(super) fn package_dependency_json(
             json_string(&dependency.ident_key)
         )
     };
+    let direct = dependency
+        .direct
+        .map(|direct| format!(",\n{field_pad}\"direct\": {}", bool_literal(direct)))
+        .unwrap_or_default();
+    let required_by = dependency
+        .required_by
+        .as_deref()
+        .map(|required_by| {
+            format!(
+                ",\n{field_pad}\"requiredBy\": {}",
+                required_by_literal(required_by)
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"ident\": {},\n{field_pad}\"version\": {},\n{field_pad}\"pin\": {},\n{field_pad}\"source\": {}{ident_key}\n{pad}}}",
+        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"ident\": {},\n{field_pad}\"version\": {},\n{field_pad}\"pin\": {},\n{field_pad}\"source\": {}{ident_key}{direct}{required_by}\n{pad}}}",
         json_string(&dependency.name),
         json_string(&dependency.ident),
         json_string(&dependency.version),
@@ -326,34 +340,135 @@ pub(crate) fn project_json_with_updated_version(
     Err(format!("project.json does not declare package `{ident}`"))
 }
 
+/// Set the bug-628 closure fields — `direct` and `requiredBy` — of the declared
+/// dependency whose `ident` (falling back to `name`) is `ident`, by surgical
+/// string edit. A field already holding the wanted value is left byte for byte;
+/// an absent one is appended before the entry's closing brace.
+pub(crate) fn project_json_with_closure_fields(
+    contents: &str,
+    ident: &str,
+    direct: bool,
+    required_by: &[String],
+) -> Result<String, String> {
+    let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
+        return Err("could not locate project.json `packages` array".to_string());
+    };
+    let mut cursor = array_start + 1;
+    while cursor < array_end {
+        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at) else {
+            break;
+        };
+        let Some(object_end) = matching_json_delimiter(contents, object_start, b'{', b'}') else {
+            return Err("malformed project.json `packages` entry".to_string());
+        };
+        let object = &contents[object_start..=object_end];
+        // bug-398: bound the untrusted manifest slice so a deeply nested entry
+        // cannot recurse tinyjson off the stack.
+        let entry = crate::json::parse_json_bounded(object)
+            .ok()
+            .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned());
+        let entry_ident = entry.as_ref().and_then(|entry| {
+            entry
+                .get("ident")
+                .or_else(|| entry.get("name"))
+                .and_then(|value| value.get::<String>())
+                .cloned()
+        });
+        if entry_ident.as_deref() != Some(ident) {
+            cursor = object_end + 1;
+            continue;
+        }
+        let entry = entry.expect("an entry with an ident parsed");
+        let mut rewritten = object.to_string();
+        if entry.get("direct").and_then(|value| value.get::<bool>()) != Some(&direct) {
+            rewritten = rewrite_literal_field(&rewritten, "direct", bool_literal(direct))?;
+        }
+        let current: Option<Vec<String>> = entry
+            .get("requiredBy")
+            .and_then(|value| value.get::<Vec<JsonValue>>())
+            .and_then(|values| {
+                values
+                    .iter()
+                    .map(|value| value.get::<String>().cloned())
+                    .collect()
+            });
+        if current.as_deref() != Some(required_by) {
+            rewritten =
+                rewrite_literal_field(&rewritten, "requiredBy", &required_by_literal(required_by))?;
+        }
+        let mut updated = String::new();
+        updated.push_str(&contents[..object_start]);
+        updated.push_str(&rewritten);
+        updated.push_str(&contents[object_end + 1..]);
+        return Ok(updated);
+    }
+    Err(format!("project.json does not declare package `{ident}`"))
+}
+
+fn bool_literal(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+/// `requiredBy`'s JSON text: an inline array of strings.
+pub(super) fn required_by_literal(required_by: &[String]) -> String {
+    let items: Vec<String> = required_by.iter().map(|ident| json_string(ident)).collect();
+    format!("[{}]", items.join(", "))
+}
+
 /// Set a dependency object's `pin` to `pin`, adding the field if absent.
 pub(super) fn rewrite_pin_field(object: &str, pin: bool) -> Result<String, String> {
-    let literal = if pin { "true" } else { "false" };
-    if let Some(field_at) = json_field_name_position(object, "pin") {
-        let colon = find_json_punct(object, field_at + "\"pin\"".len(), b':')
-            .ok_or_else(|| "malformed pin field".to_string())?;
-        // The value is a bare `true`/`false` literal, not a string, so scan for
-        // its extent rather than reusing the string helpers.
+    rewrite_literal_field(object, "pin", bool_literal(pin))
+}
+
+/// Replace the value of `field` in a flat dependency object with the JSON text
+/// `literal`, or append `"field": literal` before the closing brace when absent.
+/// The existing value may be any JSON value; its extent is scanned, not parsed.
+fn rewrite_literal_field(object: &str, field: &str, literal: &str) -> Result<String, String> {
+    if let Some(field_at) = json_field_name_position(object, field) {
+        let colon = find_json_punct(object, field_at + field.len() + 2, b':')
+            .ok_or_else(|| format!("malformed {field} field"))?;
         let value_start = object[colon + 1..]
             .find(|c: char| !c.is_whitespace())
             .map(|at| colon + 1 + at)
-            .ok_or_else(|| "malformed pin value".to_string())?;
-        let value_end = object[value_start..]
-            .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
-            .map(|at| value_start + at)
-            .ok_or_else(|| "malformed pin value".to_string())?;
+            .ok_or_else(|| format!("malformed {field} value"))?;
+        let value_end = match object.as_bytes()[value_start] {
+            b'[' => matching_json_delimiter(object, value_start, b'[', b']').map(|end| end + 1),
+            b'{' => matching_json_delimiter(object, value_start, b'{', b'}').map(|end| end + 1),
+            b'"' => json_string_end(object, value_start),
+            // A bare literal (`true`, `false`, a number, `null`).
+            _ => object[value_start..]
+                .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+                .map(|at| value_start + at),
+        }
+        .ok_or_else(|| format!("malformed {field} value"))?;
         let mut out = String::new();
         out.push_str(&object[..value_start]);
         out.push_str(literal);
         out.push_str(&object[value_end..]);
         return Ok(out);
     }
-    // Absent: append before the closing brace, matching the sibling editor.
+    // Absent: append before the closing brace in the entry's own layout — on the
+    // same line for a one-line entry, else on a new line indented like the
+    // entry's last field.
     let before_close = object[..object.len() - 1].trim_end_matches([' ', '\t', '\r', '\n']);
     let closing = &object[before_close.len()..];
+    let separator = if before_close.ends_with('{') { "" } else { "," };
+    let lead = match before_close.rfind('\n') {
+        Some(newline) => {
+            let line = &before_close[newline + 1..];
+            let indent = &line[..line.len() - line.trim_start().len()];
+            format!("\n{indent}")
+        }
+        None => " ".to_string(),
+    };
     let mut out = String::new();
     out.push_str(before_close);
-    out.push_str(",\n      \"pin\": ");
+    out.push_str(separator);
+    out.push_str(&format!("{lead}\"{field}\": "));
     out.push_str(literal);
     out.push_str(closing);
     Ok(out)

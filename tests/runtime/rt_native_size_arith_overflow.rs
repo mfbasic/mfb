@@ -201,7 +201,7 @@ fn thread_project(name: &str, in_limit: &str, out_limit: &str) -> PathBuf {
     write_project(
         &root,
         name,
-        "\"packages\":[{\"name\":\"thread_runtime_workers\",\"version\":\"=0.1.0\",\"source\":\"file:packages/thread_runtime_workers.mfp\"}],",
+        "\"packages\":[{\"name\":\"thread_runtime_workers\",\"version\":\"=0.1.0\",\"source\":\"file:packages/thread_runtime_workers.mfp\",\"direct\":true,\"requiredBy\":[]}],",
         &format!(
             "IMPORT io\n\
              IMPORT thread\n\

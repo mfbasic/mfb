@@ -8,7 +8,7 @@
     { "root": "src", "role": "main", "include": ["**/*.mfb"] }
   ],
   "packages": [
-    { "name": "timezones", "version": "=0.1.0", "source": "file:packages/timezones.mfp" }
+    { "name": "timezones", "version": "=0.1.0", "source": "file:packages/timezones.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

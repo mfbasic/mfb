@@ -79,17 +79,29 @@ impl<'a> Monomorphizer<'a> {
                 // built-in dispatch name (plan-01-overload.md §C Phase 5.1).
                 let builtin_named =
                     crate::codegen::builtins::general::is_overridable(&function.name);
+                // bug-653: an EXPORT's symbol is its name in the `.mfp` export table
+                // and ABI index, and importers see only EXPORTs — so it is decided
+                // by its EXPORT siblings alone. Counting a hidden PUBLIC/PRIVATE
+                // sibling renamed a lone export `f` to `f$String`, which no importer
+                // could map back to `f`. A non-exported member still counts the whole
+                // set, so it is mangled whenever any sibling exists and its symbol
+                // can never equal an export's.
+                let exported = function.visibility == crate::ast::Visibility::Export;
+                let siblings = functions
+                    .iter()
+                    .filter(|other| !exported || other.visibility == function.visibility)
+                    .collect::<Vec<_>>();
                 // A return-type overload set: ≥2 declarations share this name *and*
                 // parameter types, differing only by return type (§F.1). Their
                 // concrete symbols must also encode the return type to stay distinct.
-                let return_disambiguated = functions
+                let return_disambiguated = siblings
                     .iter()
                     .filter(|other| param_types_eq(other, function))
                     .count()
                     > 1;
                 let concrete_name = overload_concrete_name(
                     function,
-                    functions.len() > 1 || builtin_named,
+                    siblings.len() > 1 || builtin_named,
                     return_disambiguated,
                 );
                 overload_names.insert(

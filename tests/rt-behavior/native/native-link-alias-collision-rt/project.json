@@ -4,8 +4,8 @@
   "mfb": "1.0",
   "kind": "executable",
   "packages": [
-    { "name": "collidera", "version": "=0.1.0", "source": "file:packages/collidera.mfp" },
-    { "name": "colliderb", "version": "=0.1.0", "source": "file:packages/colliderb.mfp" }
+    { "name": "collidera", "version": "=0.1.0", "source": "file:packages/collidera.mfp", "direct": true, "requiredBy": [] },
+    { "name": "colliderb", "version": "=0.1.0", "source": "file:packages/colliderb.mfp", "direct": true, "requiredBy": [] }
   ],
   "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],
   "entry": "main",

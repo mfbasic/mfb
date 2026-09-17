@@ -613,6 +613,10 @@ name = "rt_parameter_default_scope"
 path = "tests/runtime/rt_parameter_default_scope.rs"
 
 [[test]]
+name = "rt_package_dependency_closure"
+path = "tests/runtime/rt_package_dependency_closure.rs"
+
+[[test]]
 name = "rt_package_parameter_defaults"
 path = "tests/runtime/rt_package_parameter_defaults.rs"
 
@@ -639,6 +643,10 @@ path = "tests/runtime/rt_imported_type_qualified_name.rs"
 [[test]]
 name = "rt_package_private_type_collision"
 path = "tests/runtime/rt_package_private_type_collision.rs"
+
+[[test]]
+name = "rt_package_public_export_name_collision"
+path = "tests/runtime/rt_package_public_export_name_collision.rs"
 
 [[test]]
 name = "rt_imported_union_enum_members"

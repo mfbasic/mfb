@@ -8,7 +8,9 @@
     {
       "name": "package_comparable_types",
       "version": "=1.0.0",
-      "source": "file:packages/package_comparable_types.mfp"
+      "source": "file:packages/package_comparable_types.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

@@ -5,8 +5,8 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "thread_cancel_worker", "version": "=1.0.0", "source": "file:packages/thread_cancel_worker.mfp" },
-    { "name": "thread_recv_pkg", "version": "=1.0.0", "source": "file:packages/thread_recv_pkg.mfp" }
+    { "name": "thread_cancel_worker", "version": "=1.0.0", "source": "file:packages/thread_cancel_worker.mfp", "direct": true, "requiredBy": [] },
+    { "name": "thread_recv_pkg", "version": "=1.0.0", "source": "file:packages/thread_recv_pkg.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

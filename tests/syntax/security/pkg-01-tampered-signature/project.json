@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "sec_signed", "ident": "sec#signed", "version": "=0.1.0", "source": "file:packages/sec_signed.mfp", "identKey": "ed25519:ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ" }
+    { "name": "sec_signed", "ident": "sec#signed", "version": "=0.1.0", "source": "file:packages/sec_signed.mfp", "identKey": "ed25519:ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

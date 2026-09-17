@@ -74,6 +74,16 @@ The per-package identity that `read_package_ir_with_identity` produces is a hash
 over the MFPC container; its byte derivation is documented in
 `./mfb spec package ir-section`.
 
+The merge set is exactly the packages the project's `project.json` `packages[]`
+declares — never a package reached only transitively through another
+package's own imports. Because a declared package's own dependencies must
+therefore also be declared by the importing project (`./mfb spec tooling
+project-manifest`'s dependency-closure rule), the build checks that closure
+against the packages' import tables and **refuses before any lowering** when
+it disagrees — an undeclared closure member used to reach lowering as the
+unlocated internal `NIR call target … does not resolve` (bug-628).
+[[src/manifest/closure.rs:check]] [[src/cli/build/packages.rs:refuse_inconsistent_closure]]
+
 ## Re-exporting a Dependency's Type
 
 A package's own exported API may name a type it imported from a declared
@@ -92,12 +102,15 @@ A dependency type is written only when the package actually names it in an
 exported signature; a type reached only through an imported function's own
 signature is not re-exported.
 
-Because the executable decode-and-merge above collapses types by their bare name,
-a consumer that installs the owning dependency (transitively — it need not be
-declared directly) resolves every foreign reference to that one merged
-definition. Importing an intermediary therefore brings the re-exported type into
-scope under the owning package's original identity (true namespace re-export),
-idempotently when several intermediaries surface the same type.
+Because the executable decode-and-merge above collapses types by their bare
+name, a consumer that installs the owning dependency resolves every foreign
+reference to that one merged definition. The owner must be declared in the
+consumer's own `packages[]` like any other dependency (bug-628; the merge set
+is exactly the declared closure — see below) — it is not pulled in merely by
+declaring the intermediary. Importing an intermediary therefore brings the
+re-exported type into scope under the owning package's original identity
+(true namespace re-export), idempotently when several intermediaries surface
+the same type.
 `read_package_type_exports` fills a re-exported type's fields back in from the
 owner's sibling `.mfp`, so an importer sees it with its structure intact.
 

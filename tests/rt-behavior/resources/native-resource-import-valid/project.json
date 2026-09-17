@@ -4,7 +4,7 @@
   "mfb": "1.0",
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "packages": [{ "name": "native_resource_link_valid", "version": "=0.1.0", "source": "file:packages/native_resource_link_valid.mfp" }],
+  "packages": [{ "name": "native_resource_link_valid", "version": "=0.1.0", "source": "file:packages/native_resource_link_valid.mfp", "direct": true, "requiredBy": [] }],
   "entry": "main",
   "targets": ["native"]
 }

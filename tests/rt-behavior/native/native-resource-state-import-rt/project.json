@@ -16,7 +16,9 @@
     {
       "name": "native_resource_state_export_valid",
       "version": "=0.1.0",
-      "source": "file:packages/native_resource_state_export_valid.mfp"
+      "source": "file:packages/native_resource_state_export_valid.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

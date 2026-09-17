@@ -8,7 +8,9 @@
     {
       "name": "self_fanout_workers",
       "version": "=0.1.0",
-      "source": "file:packages/self_fanout_workers.mfp"
+      "source": "file:packages/self_fanout_workers.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

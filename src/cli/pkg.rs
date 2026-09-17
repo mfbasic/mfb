@@ -663,7 +663,7 @@ fn run_remove(project_dir: &Path, target: &str, assume_yes: bool) -> Result<(), 
 /// `mfb.lock` are already consistent at this point, so failing the command would
 /// misreport a completed removal as failed. Name the path so it can be cleaned
 /// up by hand.
-fn remove_installed_package_files(project_dir: &Path, name: &str) {
+pub(crate) fn remove_installed_package_files(project_dir: &Path, name: &str) {
     let mfp = project_dir.join("packages").join(format!("{name}.mfp"));
     if mfp.exists() {
         if let Err(err) = fs::remove_file(&mfp) {
@@ -1111,15 +1111,12 @@ fn add_package(project_dir: &Path, options: &AddOptions) -> Result<(), String> {
     }
 }
 
-fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
-    let source_path = package_file_url_path(url)?;
-    let package = read_mfp_header(&source_path)?;
-
-    // plan-48-B (Open Decisions): a `file://` add is a local copy with no
-    // registry to fetch vendor blobs from. A package that vendors native
-    // libraries would install but never build, so refuse it explicitly rather
-    // than leaving a silently unusable install.
-    let (_name, native_libraries) = binary_repr::read_package_native_libraries(&source_path)?;
+/// plan-48-B (Open Decisions): a local `.mfp` copy has no registry to fetch
+/// vendor blobs from. A package that vendors native libraries would install but
+/// never build, so refuse it explicitly rather than leaving a silently unusable
+/// install.
+fn refuse_vendored_local_package(path: &Path, name: &str, ident: &str) -> Result<(), String> {
+    let (_name, native_libraries) = binary_repr::read_package_native_libraries(path)?;
     if native_libraries
         .entries
         .iter()
@@ -1127,17 +1124,77 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
         .any(|locator| locator.lib_type == crate::manifest::libraries::LibType::Vendor)
     {
         return Err(format!(
-            "`{}` vendors native libraries, which a `file://` add cannot fetch (there is no \
-             registry). Publish it and `mfb pkg add {}#…` instead.",
-            package.name, package.ident
+            "`{name}` vendors native libraries, which a `file://` add cannot fetch (there is no \
+             registry). Publish it and `mfb pkg add {ident}#…` instead."
         ));
     }
+    Ok(())
+}
+
+/// Copy a compiled dependency another declared package needs into
+/// `packages/<name>.mfp` (bug-628), as a `file://` add would. A file already at
+/// the destination is left alone.
+pub(crate) fn install_local_package(
+    project_dir: &Path,
+    name: &str,
+    source_path: &Path,
+) -> Result<(), String> {
+    let packages_dir = project_dir.join("packages");
+    let destination = packages_dir.join(format!("{name}.mfp"));
+    if let (Ok(from), Ok(to)) = (
+        fs::canonicalize(source_path),
+        fs::canonicalize(&destination),
+    ) {
+        if from == to {
+            return Ok(());
+        }
+    }
+    let package = read_mfp_header(source_path)?;
+    if package.name != name {
+        return Err(format!(
+            "'{}' is package `{}`, not `{name}`",
+            source_path.display(),
+            package.name
+        ));
+    }
+    refuse_vendored_local_package(source_path, &package.name, &package.ident)?;
+    fs::create_dir_all(&packages_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
+    let blob = fs::read(source_path)
+        .map_err(|err| format!("failed to read '{}': {err}", source_path.display()))?;
+    let staged = super::stage_package_blob(&packages_dir, name, &blob)?;
+    super::commit_staged_package(&staged, &destination)
+}
+
+/// `contents` with the entry named `name` removed when it is an indirect one
+/// (bug-628): adding a package the closure already declared makes it direct, at
+/// the version and source the user now names.
+fn without_indirect_entry(
+    contents: &str,
+    manifest: &std::collections::HashMap<String, JsonValue>,
+    name: &str,
+) -> Result<String, String> {
+    let indirect = crate::manifest::closure::declared_dependencies(manifest)
+        .into_iter()
+        .find(|dependency| dependency.name == name && dependency.direct == Some(false));
+    match indirect {
+        Some(dependency) => project_json_without_packages(contents, &[dependency.ident.as_str()]),
+        None => Ok(contents.to_string()),
+    }
+}
+
+fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
+    let source_path = package_file_url_path(url)?;
+    let package = read_mfp_header(&source_path)?;
+    refuse_vendored_local_package(&source_path, &package.name, &package.ident)?;
 
     let project_path = project_dir.join("project.json");
     let contents = fs::read_to_string(&project_path)
         .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
     let manifest = parse_project_json(&contents, &project_path)?;
     validate_packages_array(&manifest)?;
+    let contents = without_indirect_entry(&contents, &manifest, &package.name)?;
+    let manifest = parse_project_json(&contents, &project_path)?;
 
     let package_filename = format!("{}.mfp", package.name);
     // Trust-on-first-use (plan-23 §3.5): adding a SIGNED package pins its
@@ -1150,6 +1207,8 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
         pin: true,
         source: url.to_string(),
         ident_key: package.ident_key.clone(),
+        direct: Some(true),
+        required_by: Some(Vec::new()),
     };
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
 
@@ -1250,7 +1309,11 @@ fn add_package_from_registry(
         pin,
         source: full_ident,
         ident_key: index.ident_key.clone(),
+        direct: Some(true),
+        required_by: Some(Vec::new()),
     };
+    let contents = without_indirect_entry(&contents, &manifest, &dependency.name)?;
+    let manifest = parse_project_json(&contents, &project_path)?;
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
 
     // plan-60-C Phase 3: resolve-first. The blob fetched above is deliberately
@@ -1678,14 +1741,45 @@ fn verify_packages(project_dir: &Path, demand_proof: bool) -> Result<(), String>
         println!("{}{state}", package_verify_line(&dependency, &result));
     }
 
-    if rotation_errors.is_empty() {
-        Ok(())
-    } else {
-        for (rule, detail) in &rotation_errors {
-            crate::rules::show_general_diagnostic(rule, detail);
-        }
-        Err("package identity verification failed".to_string())
+    for (rule, detail) in &rotation_errors {
+        crate::rules::show_general_diagnostic(rule, detail);
     }
+    let closure_ok = report_dependency_closure(project_dir, &manifest)?;
+    if !rotation_errors.is_empty() {
+        Err("package identity verification failed".to_string())
+    } else if !closure_ok {
+        Err("package dependency verification failed".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// bug-628: report, in full, every way `packages[]` disagrees with the packages'
+/// import tables and every declared package that does not provide what an
+/// importer was compiled against — the detail `mfb build` points here for.
+/// Returns whether there was nothing to report.
+fn report_dependency_closure(
+    project_dir: &Path,
+    manifest: &std::collections::HashMap<String, JsonValue>,
+) -> Result<bool, String> {
+    let issues = crate::manifest::closure::check(project_dir, manifest)?;
+    for issue in &issues {
+        crate::rules::show_general_diagnostic(
+            "PACKAGE_DEPENDENCIES_INCONSISTENT",
+            &format!(
+                "{}; run `mfb pkg update` to rewrite project.json",
+                issue.message()
+            ),
+        );
+    }
+    let conflicts = crate::manifest::closure::conflicts(project_dir, manifest);
+    for conflict in &conflicts {
+        crate::rules::show_general_diagnostic("PACKAGE_VERSION_CONFLICT", &conflict.message());
+        for detail in conflict.details() {
+            eprintln!("                 {detail}");
+        }
+    }
+    Ok(issues.is_empty() && conflicts.is_empty())
 }
 
 /// When the installed package's identKey differs from the pin, consult the
@@ -2380,6 +2474,8 @@ mod tests {
             pin,
             source: "ada#shape".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
         let status = |version: &str, pin: bool, actual: &str| {
             package_dependency_status(&dependency(version, pin), "shape", "ada#shape", actual)
@@ -2416,6 +2512,8 @@ mod tests {
             pin: false,
             source: "ada#shape".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
         assert_eq!(
             package_verify_line(
@@ -3179,6 +3277,8 @@ mod tests {
             pin: false,
             source: "ada#absent".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
         // Neither a .mfp nor a source manifest exists -> InvalidPackage.
         assert_eq!(
@@ -3204,6 +3304,8 @@ mod tests {
             pin: true,
             source: "registry:mfb".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
         assert_eq!(
             package_dependency_status(&dependency, "shape", "ada#shape", "1.2.3"),
@@ -3239,6 +3341,8 @@ mod tests {
             pin: false,
             source: "registry:mfb".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
 
         assert_eq!(
@@ -3290,6 +3394,8 @@ mod tests {
             pin: false,
             source: "registry:mfb".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
 
         assert_eq!(

@@ -46,6 +46,7 @@ pub(crate) struct MfpHeader {
     pub(crate) binary_repr_length: usize,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct ProjectPackageDependency {
     pub(crate) name: String,
     pub(crate) ident: String,
@@ -56,6 +57,13 @@ pub(crate) struct ProjectPackageDependency {
     /// first `pkg add` of a signed package (trust-on-first-use). Empty for
     /// unsigned dependencies.
     pub(crate) ident_key: String,
+    /// bug-628: whether the user added this dependency themselves, as opposed
+    /// to `mfb pkg` adding it because another declared package imports it.
+    /// `None` when the field is absent or not a boolean.
+    pub(crate) direct: Option<bool>,
+    /// bug-628: the idents of the declared packages whose import tables name
+    /// this one. `None` when the field is absent or not an array of strings.
+    pub(crate) required_by: Option<Vec<String>>,
 }
 
 /// Rejects a package name that cannot be used as a single path component.
@@ -978,6 +986,19 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();
+    let direct = package
+        .get("direct")
+        .and_then(|value| value.get::<bool>())
+        .copied();
+    let required_by = package
+        .get("requiredBy")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .and_then(|values| {
+            values
+                .iter()
+                .map(|value| value.get::<String>().cloned())
+                .collect::<Option<Vec<String>>>()
+        });
 
     Some(ProjectPackageDependency {
         name: common.name,
@@ -986,6 +1007,8 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         pin: common.pin,
         source,
         ident_key,
+        direct,
+        required_by,
     })
 }
 
@@ -1811,6 +1834,8 @@ mod tests {
             pin: true,
             source: "file:///p.mfp".to_string(),
             ident_key: ident_key.to_string(),
+            direct: None,
+            required_by: None,
         }
     }
 

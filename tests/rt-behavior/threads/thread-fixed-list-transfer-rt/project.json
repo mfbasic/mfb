@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "fixed_list_xfer_worker", "version": "=0.1.0", "source": "file:packages/fixed_list_xfer_worker.mfp" }
+    { "name": "fixed_list_xfer_worker", "version": "=0.1.0", "source": "file:packages/fixed_list_xfer_worker.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]
