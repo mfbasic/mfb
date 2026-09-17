@@ -231,7 +231,7 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 
 | Token | Meaning | Run-length behavior |
 | --- | --- | --- |
-| `y` | year | `yy` = last 2 digits; otherwise zero-pad to run length |
+| `y` | year | `yy` = last 2 digits (floor-mod 100, so year -1 is `99`); otherwise the digits zero-pad to run length and a negative year's `-` precedes them (`yyyy` of -1 is `-0001`) |
 | `M` | month | `M`=numeric, `MM`=2-digit, `MMM`=short name, `MMMM`=full name |
 | `d` | day | `d`=numeric, `dd`=2-digit |
 | `H` | hour 0–23 | `H`=numeric, `HH`=2-digit |
@@ -253,6 +253,17 @@ nanoseconds, **only `digits = 9` round-trips through `parseIso` losslessly**
 narrower width truncates toward zero. `formatDuration(d)`
 renders a signed span as `[Nd ]HH:MM:SS.mmm` (millisecond resolution, leading
 day part only when non-zero). [[src/codegen/builtins/datetime/func_to_iso.rs:__datetime_toIso]]
+
+The year in both `format` and `toIso` goes through `__datetime_padN`, whose width
+counts **digits, not the sign**: a negative value renders as `-` followed by its
+magnitude's digits padded to the width, so year -1 is `-0001` and `toIso` of year
+-1 is `-0001-01-01T00:00:00.000Z` — the ISO 8601 expanded-year shape. Before
+bug-639 the helper padded the signed text, burying the sign among the zeros
+(`00-1`) and leaving a year whose digits plus sign already filled the width
+unpadded (`-999`). The digits are taken from `toString(value)` rather than from
+`0 - value`, which would overflow for the most negative `Integer`.
+[[src/codegen/builtins/datetime/helper_pad_n.rs:__datetime_padN]] `parseIso` still
+accepts only four-digit non-negative years, so a negative stamp does not read back.
 
 ## Parse grammar
 

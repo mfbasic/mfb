@@ -62,6 +62,27 @@ Also check `yy`: year -1 renders `99` today (a floor-mod of 100). Decide whether
 is the intended two-digit form for negative years; it is out of scope for the
 sign-placement fix.
 
+### Confirmed (Phase 1, 2026-09-17)
+
+Reproduced on macos-aarch64 at `798870ec2`: `00-1` and `00-1-01-01T00:00:00Z`. The
+hypothesis holds exactly: `helper_pad_n.rs:__datetime_padN` is
+`strings::padLeft(toString(value), width, "0")`, and both `helper_format_token.rs`
+(`y` runs other than `yy`) and `func_to_iso.rs:__datetime_toIso` (`padN(year, 4)`)
+call it with the year.
+
+A second symptom of the same mechanism: because the sign counts toward the width, a
+negative year whose digits plus sign already fill the width is **not padded at all**
+— year -999 renders `-999` for `yyyy` (expected `-0999`), and -2026 renders `-2026`
+for `yyyyy` (expected `-02026`).
+
+Pad-helper audit: `__datetime_padN`'s only other caller is the `f` token /
+`toIso` fraction (`dt.time.nanos`, never negative). `__datetime_pad2` is called with
+month/day/hour/minute/second (never negative), `formatDuration`'s `hh`/`mm`/`ss`
+(the sign is stripped first) and the offset label's `hh`/`mm`/`ss` (the sign is
+written separately), so no other caller can pass a negative value. `yy` of year -1
+is `99` (floor-mod 100); that is left as is, per the scope above, and now stated in
+the spec.
+
 ## Non-goals
 
 - Changing the rendering of years 0 .. 9999 or of years with at least as many digits
