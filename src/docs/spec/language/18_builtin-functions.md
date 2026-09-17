@@ -63,6 +63,21 @@ snapshots**: each package's authoritative surface is its own call matcher
 (and the rendered `mfb man <package>` pages). Where a package's full set is
 large, only a representative subset is shown.
 
+**Argument types.** Every package member's call is checked against its registry
+overloads by strict matching; `TYPE_CALL_ARGUMENT_MISMATCH` when no overload
+accepts the arguments. A parameter naming a built-in value type is a nominal
+identity, exactly as for a user function: a **record** or **enum** parameter
+accepts only that type (`datetime::toMillis` takes a `datetime::Instant`, so a
+`datetime::DateTime`, a `datetime::Duration` or a user `TYPE Instant` is
+rejected), and a **union** parameter accepts the union or any of its variants,
+transitively (`json::stringify(json::JsonStr["hi"])`). A resource parameter
+accepts its own base resource, `STATE` ignored. The same rule holds for the
+nominal leaves of a callback parameter's `FUNC` type, which the registry
+package-qualifies like any other signature type. A nominal the registry does not
+declare (`Scalar`, `AttributedString`) is not held to identity.
+[[src/codegen/registry/mod.rs:leaf_matches]] [[src/codegen/registry/mod.rs:value_type_accepts]]
+[[src/codegen/registry/mod.rs:qualify_type_leaves_inner]] [[src/codegen/builtins/mod.rs:checks_call_arguments]]
+
 Terminal and standard-stream I/O (`IMPORT io`): `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, `io::isBuffered`, `io::setBuffered`, `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, `io::pollInput`, `io::isInputTerminal`, `io::isOutputTerminal`, `io::isErrorTerminal`. [[src/codegen/builtins/io/mod.rs:register]]
 Structured terminal / TUI control (`IMPORT term`): `term::on`, `term::off`, `term::isOn`, `term::setForeground`, `term::setBackground`, `term::setBold`, `term::setUnderline`, `term::showCursor`, `term::hideCursor`, `term::clear`, `term::sync`, `term::moveTo`, `term::drawHLine`, `term::drawVLine`, `term::drawBox`, `term::fillRect`, `term::drawText`, `term::drawGlyph`, `term::getForeground`, `term::getBackground`, `term::getBold`, `term::getUnderline`, `term::terminalSize`, `term::didResize`. [[src/codegen/builtins/term/mod.rs:register]] `term::sync` is the only operation that presents a frame. Every positioned member takes its coordinates **row before column** (`term::moveTo(row, column)`, `term::drawText(row, column, text)`, `term::drawBox(line, rowA, columnA, rowB, columnB)`, …); the surface is measured in character cells, never pixels (see `mfb spec app term-backend`).
 Filesystem and file I/O (`IMPORT fs`): `fs::fileExists`, `fs::directoryExists`, `fs::exists`, `fs::readBytes`, `fs::readText`, `fs::writeBytes`, `fs::writeText`, `fs::writeBytesAtomic`, `fs::writeTextAtomic`, `fs::appendBytes`, `fs::appendText`, `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, `fs::createTempFile`, `fs::tempDirectory`, `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`, `fs::writeAllBytes`, `fs::setBuffered`, `fs::isBuffered`, `fs::flush`, `fs::close`, `fs::eof`, `fs::canonicalPath`, `fs::isWithin`, `fs::pathJoin`, `fs::pathDirName`, `fs::pathBaseName`, `fs::pathExtension`, `fs::pathNormalize`, `fs::deleteFile`, `fs::createDirectory`, `fs::createDirectories`, `fs::deleteDirectory`, `fs::listDirectory`, `fs::currentDirectory`, `fs::setCurrentDirectory`.
