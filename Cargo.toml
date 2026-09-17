@@ -613,6 +613,10 @@ name = "rt_parameter_default_scope"
 path = "tests/runtime/rt_parameter_default_scope.rs"
 
 [[test]]
+name = "rt_package_dependency_closure"
+path = "tests/runtime/rt_package_dependency_closure.rs"
+
+[[test]]
 name = "rt_package_parameter_defaults"
 path = "tests/runtime/rt_package_parameter_defaults.rs"
 
