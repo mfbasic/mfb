@@ -189,11 +189,15 @@ mod tests {
     #[test]
     fn a_borrowed_success_is_lent_whatever_it_recovers() {
         for target in ["udp.poll", "tcp.poll", "tls.poll", "collections.get"] {
-            for recover in [None, Some(local("outer")), Some(call_result("udp.bind"))] {
-                let ops = trap(target, recover.clone());
+            for (label, recover) in [
+                ("nothing", None),
+                ("an alias", Some(local("outer"))),
+                ("a fresh socket", Some(call_result("udp.bind"))),
+            ] {
+                let ops = trap(target, recover);
                 assert!(
                     collect_trap_ownership(&ops).lent_temps.contains("$trap_val1"),
-                    "{target} recovering {recover:?}"
+                    "{target} recovering {label}"
                 );
             }
         }
