@@ -232,7 +232,7 @@ Measured at the closing commit:
 - all 16 units render with none of the retired phrasings.
 
 Bugs filed from this phase: bug-654, bug-655, bug-656. Belongs-in-spec rows: 72–79.
-Commit: —
+Commit: 6f6c05547
 
 ### Phase 2 — astrings (17 units)
 
