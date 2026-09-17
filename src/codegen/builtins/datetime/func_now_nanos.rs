@@ -3,8 +3,8 @@
 //! (crypto/io's clean-room shape).
 
 use super::gen_shared::{
-    emit_clock_overflow_tail, emit_libc_clock_nanos, void_int_result, CLOCK_REALTIME,
-    LOCALS_SIZE, WIN_FILETIME_OFFSET, WIN_FILETIME_UNIX_EPOCH_100NS,
+    emit_clock_overflow_tail, emit_libc_clock_nanos, void_int_result, CLOCK_REALTIME, LOCALS_SIZE,
+    WIN_FILETIME_OFFSET, WIN_FILETIME_UNIX_EPOCH_100NS,
 };
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
