@@ -1809,7 +1809,7 @@ mod tests {
             concat!(
                 "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
                 "\"sources\":[{\"root\":\"src\"}],",
-                "\"packages\":[{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.0.0\",\"pin\":true,\"source\":\"ada#shape\"}]}"
+                "\"packages\":[{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.0.0\",\"pin\":true,\"source\":\"ada#shape\",\"direct\":true,\"requiredBy\":[]}]}"
             ),
             Path::new("project.json"),
         )
@@ -1826,7 +1826,7 @@ mod tests {
             concat!(
                 "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
                 "\"sources\":[{\"root\":\"src\"}],",
-                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"tests#trap\"}]}"
+                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"tests#trap\",\"direct\":true,\"requiredBy\":[]}]}"
             ),
             Path::new("project.json"),
         )
@@ -1866,7 +1866,7 @@ mod tests {
                     "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
                      \"sources\":[{{\"root\":\"src\"}}],\
                      \"packages\":[{{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\
-                     \"version\":\"{version}\",\"pin\":{pin},\"source\":\"tests#trap\"}}]}}"
+                     \"version\":\"{version}\",\"pin\":{pin},\"source\":\"tests#trap\",\"direct\":true,\"requiredBy\":[]}}]}}"
                 ),
                 Path::new("project.json"),
             )
@@ -1914,7 +1914,7 @@ mod tests {
             concat!(
                 "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
                 "\"sources\":[{\"root\":\"src\"}],",
-                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"file:packages/trap_builtin_pkg.mfp\"}]}"
+                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"file:packages/trap_builtin_pkg.mfp\",\"direct\":true,\"requiredBy\":[]}]}"
             ),
             Path::new("project.json"),
         )
@@ -3393,7 +3393,7 @@ mod tests {
         std::fs::write(packages.join("signed.mfp"), &fx.bytes).unwrap();
         let manifest = crate::manifest::parse_project_json(
             &format!(
-                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\"}}]}}",
+                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\",\"direct\":true,\"requiredBy\":[]}}]}}",
                 fx.ident_key
             ),
             Path::new("project.json"),
@@ -3919,7 +3919,7 @@ mod tests {
         std::fs::write(packages.join("signed.mfp"), &fx.bytes).unwrap();
         let manifest = crate::manifest::parse_project_json(
             &format!(
-                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\"}}]}}",
+                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\",\"direct\":true,\"requiredBy\":[]}}]}}",
                 fx.ident_key
             ),
             Path::new("project.json"),
@@ -4162,7 +4162,7 @@ mod tests {
                 "  \"kind\": \"executable\",\n",
                 "  \"entry\": \"main\",\n",
                 "  \"targets\": [\"native\"],\n",
-                "  \"packages\": [{ \"name\": \"trap_builtin_pkg\", \"ident\": \"tests#trap\", \"version\": \"0.1.0\", \"pin\": false, \"source\": \"file:packages/trap_builtin_pkg.mfp\" }],\n",
+                "  \"packages\": [{ \"name\": \"trap_builtin_pkg\", \"ident\": \"tests#trap\", \"version\": \"0.1.0\", \"pin\": false, \"source\": \"file:packages/trap_builtin_pkg.mfp\", \"direct\": true, \"requiredBy\": [] }],\n",
                 "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
                 "}\n"
             ),
@@ -4231,7 +4231,7 @@ mod tests {
                 "  \"kind\": \"executable\",\n",
                 "  \"entry\": \"main\",\n",
                 "  \"targets\": [\"native\"],\n",
-                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\" }],\n",
+                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\", \"direct\": true, \"requiredBy\": [] }],\n",
                 "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
                 "}\n"
             ),
@@ -4313,7 +4313,7 @@ mod tests {
                 "  \"kind\": \"executable\",\n",
                 "  \"entry\": \"main\",\n",
                 "  \"targets\": [\"native\"],\n",
-                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\" }],\n",
+                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\", \"direct\": true, \"requiredBy\": [] }],\n",
                 "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
                 "}\n"
             ),

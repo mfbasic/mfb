@@ -42,8 +42,18 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
         if !packages.is_empty() {
             packages.push(',');
         }
+        // bug-628: `name<requirer,…` also records the declared packages that
+        // import `name` in its `requiredBy`.
+        let (dep, required_by) = dep.split_once('<').unwrap_or((dep, ""));
+        let required_by: Vec<String> = required_by
+            .split(',')
+            .filter(|requirer| !requirer.is_empty())
+            .map(|requirer| format!("\"{requirer}\""))
+            .collect();
         packages.push_str(&format!(
-            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\
+             \"direct\":true,\"requiredBy\":[{}]}}",
+            required_by.join(",")
         ));
     }
     let entry_field = if entry {
@@ -141,7 +151,7 @@ fn recursive_node_survives_a_thread_transfer_bare_and_in_a_record() {
         &root,
         "app391",
         "executable",
-        &["dom391", "worker391"],
+        &["dom391<worker391", "worker391"],
         true,
         APP_SRC,
     );

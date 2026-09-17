@@ -76,7 +76,7 @@ fn thread_project(name: &str) -> PathBuf {
             "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
              \"packages\":[{{\"name\":\"thread_runtime_workers\",\"version\":\"=0.1.0\",\
-             \"source\":\"file:packages/thread_runtime_workers.mfp\"}}],\
+             \"source\":\"file:packages/thread_runtime_workers.mfp\",\"direct\":true,\"requiredBy\":[]}}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n"
         ),
     )
