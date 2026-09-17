@@ -232,3 +232,95 @@ fn a_trap_bound_resource_union_matches_its_variant() {
          variant; it fell through every case instead (bug-642 widened scope). Got:\n{stdout}"
     );
 }
+
+/// bug-648 E: the SAME wrap gap one statement over — the `RECOVER` value. When the
+/// trapped producer returns the UNION itself, `$trap_valN` is union-typed, and a
+/// `RECOVER` of a variant was assigned into it bare: `lower_statement`'s `Recover` arm
+/// lowered the value against the slot's type but never ran `wrap_union_value`. The
+/// delivery bind is `Local`-to-union and adds no wrap either, so the binding held an
+/// untagged variant and `MATCH` fell through every case with a clean exit. The
+/// `RECOVER` value is a CALL on purpose: a bare identifier is already wrapped by its own
+/// lowering (§3, "plain identifier uses"), so `RECOVER spare` never showed the gap.
+#[test]
+fn a_recovered_variant_in_a_union_returning_trap_matches_its_variant() {
+    let root = unique_root("data_recover");
+    let source = format!(
+        "{DATA_PRELUDE}\
+         FUNC makeVal(n AS Integer) AS Val\n\
+        \x20 IF n < 0 THEN FAIL error(77050004, \"bad \" & toString(n))\n\
+        \x20 RETURN Txt[\"t\"]\n\
+         END FUNC\n\n\
+         SUB main()\n\
+        \x20 LET v AS Val = makeVal(0 - 1) TRAP(e)\n\
+        \x20   RECOVER makeNum(3)\n\
+        \x20 END TRAP\n\
+        \x20 MATCH v\n\
+        \x20   CASE Num(m)\n\
+        \x20     io::print(\"matched-num \" & toString(m.v))\n\
+        \x20   CASE Txt(t)\n\
+        \x20     io::print(\"matched-txt\")\n\
+        \x20 END MATCH\n\
+        \x20 io::print(\"after\")\n\
+         END SUB\n"
+    );
+    let stdout = run(&build(&root, &source));
+    assert!(
+        stdout.contains("matched-num 3"),
+        "a RECOVERed variant delivered into a union must carry the union tag, so MATCH \
+         selects it; it fell through every case instead (bug-648 E). Got:\n{stdout}"
+    );
+}
+
+/// bug-648 E, resource half. Unwrapped, the recovered socket's RECORD sat where the
+/// union's `{tag, record}` box belongs: `MATCH` found no variant, and the drop read the
+/// record's own type tag as a union tag, dispatched no close and freed 16 of its 96
+/// bytes — so a loop leaked one descriptor per iteration (measured on a pre-fix build:
+/// `7-707-0003` from `udp::bind` once the descriptors ran out, then
+/// `Cleanup failure: 7-703-0004`). Run under a low descriptor limit so the leak fails
+/// loudly rather than exhausting the host's table.
+#[cfg(unix)]
+#[test]
+fn a_recovered_variant_in_a_resource_union_returning_trap_is_matched_and_closed() {
+    let root = unique_root("res_recover");
+    let source = "IMPORT io\n\
+                  IMPORT udp\n\
+                  IMPORT fs\n\n\
+                  UNION Chan\n\
+                 \x20 udp::Socket\n\
+                 \x20 fs::File\n\
+                  END UNION\n\n\
+                  FUNC open(host AS String) AS RES Chan\n\
+                 \x20 RES u AS Chan = udp::bind(host, 0)\n\
+                 \x20 RETURN u\n\
+                  END FUNC\n\n\
+                  SUB main()\n\
+                 \x20 MUT udp AS Integer = 0\n\
+                 \x20 FOR i = 1 TO 200\n\
+                 \x20   RES c AS Chan = open(\"999.999.1.1\") TRAP(e)\n\
+                 \x20     RECOVER udp::bind(\"127.0.0.1\", 0)\n\
+                 \x20   END TRAP\n\
+                 \x20   MATCH c\n\
+                 \x20     CASE udp::Socket(s)\n\
+                 \x20       udp = udp + 1\n\
+                 \x20     CASE fs::File(f)\n\
+                 \x20       io::print(\"matched-file\")\n\
+                 \x20   END MATCH\n\
+                 \x20 NEXT\n\
+                 \x20 io::print(\"udp=\" & toString(udp))\n\
+                  END SUB\n";
+    let exe = build(&root, source);
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("ulimit -n 64 && exec \"$0\"")
+        .arg(&exe)
+        .output()
+        .expect("run the program under sh");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && stdout == "udp=200\n" && stderr.is_empty(),
+        "every RECOVERed socket must be matched as udp::Socket and closed at its scope \
+         exit (bug-648 E); got exit {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+}

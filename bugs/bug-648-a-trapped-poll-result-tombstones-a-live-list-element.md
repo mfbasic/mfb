@@ -73,6 +73,17 @@ alias (`RECOVER outer`). A static "own" leaks nothing but closes live handles; a
 own" closes nothing but leaks every recovered/produced handle. The mixed shapes need a run-time
 answer.
 
+**E — found during the fix, pre-existing and independent: a `RECOVER`ed variant into a
+union-typed slot is never wrapped.** When the trapped producer returns the union itself
+(`RES c AS Chan = open(bad) TRAP … RECOVER udp::bind(…)`), `$trap_valN` is `Chan`-typed, and
+`lower_statement`'s `Recover` arm (`ir/lower.rs`) lowered the value against that type without
+`wrap_union_value`; the delivery bind is union-to-union and adds no wrap either. Measured on a
+Sep-15 release `mfb` with no borrowed call in sight: the loop exhausted descriptors (`7-707-0003`,
+then `Cleanup failure: 7-703-0004`) — the drop read the socket record's type tag as a union
+tag and closed nothing. The data-union form silently fell through every `MATCH` case. (A variant
+`RECOVER` into a VARIANT-typed slot is rejected by `TYPE_RECOVER_TYPE_MISMATCH`, and a bare
+identifier is already wrapped by its own lowering, so a call is the reachable shape.)
+
 ## Goal
 
 - Polling a list under an inline `TRAP` leaves every element open, owned by the list, and
@@ -102,11 +113,23 @@ answer.
       `RECOVER` value is closed too — see Root Cause.)
 - [x] RED tests: `tests/net/rt_inline_trap_borrowed_resource.rs`, 5/5 failing on the mechanism.
 
-Commit: —
+Commit: b3404a1cb
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] A–D: per-store ownership of `$trap_valN` (`resource/cleanup/trap_ownership.rs`, owner
+      flag in `ResourceCleanup`/`ResourceUnionCleanup`, `emit_owner_flag_skip`) and pointer-carry
+      of a borrowed success (`RawSuccessBlock::BorrowedResource`). 5/5 GREEN.
+- [x] Correction found by `--debug` soak: the temp owns its closed default record, so the flag
+      starts SET and `record_ownership` judges the temp over its owned stores (`Source::Lent`).
+      Soak guards added to `tests/runtime/rt_debug_soak.rs` (RED at +28 800 B / +43 200 B with
+      the correction disabled).
+- [x] E: `wrap_union_value` on a `RECOVER` into a union-typed slot. RED→GREEN:
+      `tests/runtime/rt_inline_trap_union_bind.rs`
+      `a_recovered_variant_in_a_union_returning_trap_matches_its_variant` and
+      `a_recovered_variant_in_a_resource_union_returning_trap_is_matched_and_closed`.
+
+Commit: 5a044975e, 5239a6367, (E below)
 
 ### Phase 3 — full validation
 

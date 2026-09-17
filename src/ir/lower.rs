@@ -1203,8 +1203,15 @@ fn lower_statement_inner(
             };
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
-                    let lowered =
+                    let base =
                         lower_expression_with_expected(value, Some(&target.type_), locals, context);
+                    // bug-648 E: a union-typed slot (the trapped producer returns the
+                    // union) receiving a VARIANT needs the same explicit wrap a
+                    // `LET`/`RETURN` delivery gets — the trailing `Bind name = $trap_val`
+                    // is union-to-union and adds none, so an unwrapped variant reached
+                    // the binding with no tag.
+                    let lowered =
+                        wrap_union_value(base, value, Some(&target.type_), locals, context);
                     vec![IrOp::Assign {
                         name: slot,
                         value: lowered,
