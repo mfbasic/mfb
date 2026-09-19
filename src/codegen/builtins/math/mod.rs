@@ -246,6 +246,32 @@ pub(crate) fn preserving_unary(
     lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
+    preserving_unary_typed_errors(
+        name, intro, desc, example, expected, value_desc, scalars, lists, errors, None, lower, pkg,
+    );
+}
+
+/// [`preserving_unary`], with `extra` errors declared only on the scalar overload
+/// whose type is `extra.0`. One overload of a member can raise what its siblings
+/// cannot: `math::tan` on a `Fixed` raises `ErrOverflow` when the true tangent
+/// leaves the `Fixed` range (bug-615), while the `Float` forms return a large
+/// finite value there and never overflow. Declaring it on every overload would put
+/// an error in the `Float` rows of the page's Errors table that cannot occur.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn preserving_unary_typed_errors(
+    name: &'static str,
+    intro: &'static str,
+    desc: &'static str,
+    example: &'static str,
+    expected: &'static str,
+    value_desc: &'static str,
+    scalars: &[ParameterType],
+    lists: &[ParameterType],
+    errors: &[&'static str],
+    extra: Option<(ParameterType, &[&'static str])>,
+    lower: AbiInline,
+    pkg: &mut RegistryPackage,
+) {
     // List overloads are registered BEFORE the scalar overloads: lenient overload
     // resolution (return-type inference) coarsely accepts a scalar pattern against a
     // `List OF` concrete, so a scalar-first order would echo the wrong shape for a
@@ -267,10 +293,16 @@ pub(crate) fn preserving_unary(
         ));
     }
     for ty in scalars {
+        let mut declared = errors.to_vec();
+        if let Some((extra_ty, extra_errors)) = &extra {
+            if extra_ty == ty {
+                declared.extend_from_slice(extra_errors);
+            }
+        }
         impls.push(overload(
             vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Arg(0),
-            errors.to_vec(),
+            declared,
             lower,
         ));
     }
