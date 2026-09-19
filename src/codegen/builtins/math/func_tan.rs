@@ -7,12 +7,13 @@ use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Tangent of an angle in radians."#;
 const DESC: &str = r#"`tan` returns the tangent of `value` (an angle in radians), echoing the operand type
 (`Float` or `Fixed`), plus the `List OF Float` vectorized form. Near an odd multiple of
-pi/2 a `Float` result is very large but finite (`math::tan(math::pi2)` is about
-1.6e16), because no `Float` lands exactly on pi/2. A `Fixed` result loses accuracy
-as the angle approaches pi/2, and once the true tangent is beyond the `Fixed` range
-the current result is wrong rather than an error: `math::tan(math::pi2Fixed)`
-returns a large negative number. Use `Float` when the angle can come close to
-pi/2."#;
+pi/2 the tangent grows without bound, and the two operand types answer differently
+there. A `Float` result is very large but finite (`math::tan(math::pi2)` is about
+1.6e16), because no `Float` lands exactly on pi/2. A `Fixed` result covers only
+about ±2.1e9, so an angle close enough to pi/2 has no representable tangent at
+all: that raises `ErrOverflow` rather than returning a wrong number, and
+`math::tan(math::pi2Fixed)` is such an angle. Use `Float` when the angle can come
+close to pi/2 and you want a value instead of an error."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -22,7 +23,7 @@ END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    super::preserving_unary(
+    super::preserving_unary_typed_errors(
         "tan",
         INTRO,
         DESC,
@@ -32,6 +33,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         &[Float, Fixed],
         &[Float],
         &["ErrFloatInf", "ErrFloatNaN", "ErrInvalidArgument"],
+        // bug-615: only the `Fixed` overload can overflow — its result type has a
+        // ±2.1e9 range the true tangent leaves near an odd multiple of pi/2.
+        Some((Fixed, &["ErrOverflow"])),
         lower_math_tan,
         pkg,
     );

@@ -56,7 +56,31 @@ vectors in `tools/math-kernels/ref/<fn>.ref`. The kernels meet it as follows:
 | `pow` | **≤1 ULP** of macOS libm | fdlibm `__ieee754_pow` in log2 space; negative base with an integer exponent matches libm (`(-2)^3 = -8`) |
 | `tan` | **faithfully rounded — ≤1 ULP of the TRUE value** | more accurate than macOS libm; see below |
 | `fmod` | **0 ULP — bit-identical** to libm | the IEEE remainder is exactly representable |
-| `Fixed` transcendentals, `Fixed MOD` | deterministic Q32.32 | platform-independent by construction; not an `f64` bound |
+| `Fixed` `sin`/`cos`/`tan` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, at every representable argument | exact 160-bit `pi/2` reduction + Q1.63 Taylor series; `tan` raises `ErrOverflow` when the true tangent leaves the `Fixed` range (bug-615) |
+| other `Fixed` transcendentals, `Fixed MOD` | deterministic Q32.32 | platform-independent by construction; not an `f64` bound |
+
+### `Fixed` trigonometry
+
+`Fixed` is Q32.32, so its unit is `2^-32` and its range ends near ±2.1e9. The
+`sin`/`cos`/`tan` kernels are integer-only (no host `f64` anywhere, including the
+baked constants, so every target agrees bit for bit) and reduce the angle against a
+**160-bit `pi/2`**, which keeps the reduction error below `2^-127` for every `k`
+below `2^31`. Before bug-615 the reduction used a `pi/2` rounded to Q32.32 and lost
+`k * 0.26` units — `sin(toFixed(2000000000.0))` was 0.9432 against a true 0.9147 —
+and a 31-step Q32.32 CORDIC left several units of residue even at tiny angles
+(`cos(0)` read 1.00000000163). The reduced angle now feeds a Q1.63 Taylor series,
+rounded once to Q32.32.
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_trig_reduce]]
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_sin_cos_magnitudes]]
+
+`tan` is the quotient of those Q1.63 magnitudes (`cot` in an odd quadrant), and
+close to a pole — an odd quadrant with `|r| < 2^-8` — it is evaluated as
+`cot r = 1/r − r/3 − r^3/45` from a 128-bit long division, because one-unit accuracy
+at a tangent near `2^31` needs about 95 bits of the reduced angle. A true tangent
+outside the `Fixed` range raises `ErrOverflow` (`77050010`), declared on the `Fixed`
+overload only — the `Float` overloads return a large finite value there and cannot
+overflow. [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_tan]]
+[[src/codegen/builtins/math/func_tan.rs:register]]
 
 `acos` deliberately uses the half-angle identity rather than `π/2 − asin(x)`: the
 latter cancels catastrophically as `x → +1` (where `acos → 0`), while `1±x` is

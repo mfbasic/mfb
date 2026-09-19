@@ -5,7 +5,7 @@ Effort: small–medium
 Severity: MED
 Class: Correctness (silent wrong result from checked arithmetic)
 
-Status: Open
+Status: Fixed (see Phase 2)
 Regression Test: none yet — see Phase 1
 
 `Fixed` is Q32.32 fixed point, and its range ends at about ±2.1e9. The tangent of
@@ -135,7 +135,37 @@ has no range issue but shares the residue.
 ## Fix
 
 Phase 1 — RED test: `tan(math::pi2Fixed)` raises `ErrOverflow`; locate the
-unchecked step; decide the precision question. Commit:
+unchecked step; decide the precision question. Commit: 78ec84d2c (RED,
+`tests/runtime/rt_math_fixed_trig_accuracy.rs`, 1604 of 1686 results wrong), plus
+fe77fba2a (the harness bug the corpus exposed: `run_bounded` deadlocked on any
+program printing more than the pipe buffer).
 
-Phase 2 — add the range check (or route through checked `Fixed` division)
-(GREEN); goldens that pin `Fixed` trig; full suite. Commit:
+Phase 2 — rebuild the Q32.32 trig kernel (GREEN); goldens; full suite.
+Commit: adc6e874e (kernel), e8df6f608 (fmt), and the docs commit below.
+
+The fix replaces the reduction and the sin/cos evaluation rather than adding a
+range check, because the range check was never the defect:
+
+- `emit_fixed_trig_reduce`: `k = round(|x|*2/pi)` from a Q0.64 `umulh`, then
+  `|r|*2^127 = |x|*2^127 - k*(pi/2)*2^127` modulo 2^128 against a baked 160-bit
+  `pi/2` — reduction error below `2^-127` for every `k < 2^31`.
+- `emit_fixed_sin_cos_magnitudes`: a 9-level Horner Taylor series for `sin|r|`
+  and `cos|r|` in unsigned Q1.63, rounded once to Q32.32 with the quadrant's sign.
+  CORDIC rotation mode is gone; `emit_cordic` becomes vectoring-only for `atan2`,
+  whose emitted instructions are unchanged.
+- `emit_fixed_tan`: the quotient of those magnitudes, or near a pole (odd
+  quadrant, `|r| < 2^-8`) `cot r = 1/r - r/3 - r^3/45` with `1/r` from a 73-step
+  128-bit long division — one-unit accuracy at a tangent near `2^31` needs ~95 bits
+  of `r`. `ErrOverflow` when the rounded quotient leaves the `Fixed` range.
+- Constants are baked integers pinned to Machin's pi by
+  `trig_constants_match_machin_pi`; no host `f64` is read at build time, so every
+  target agrees bit for bit (verified byte-identical output over a 6162-argument
+  corpus on macos-aarch64 at -O0/-O1/-O3, linux-aarch64, linux-x86_64,
+  linux-riscv64 and windows-x86_64).
+- `ErrOverflow` is declared on the **`Fixed` overload only**, via the new
+  `preserving_unary_typed_errors`: the `Float` forms return a large finite value
+  near pi/2 and cannot overflow, so declaring it on every overload would put an
+  impossible error in the Float rows of the page's Errors table.
+
+Gate: `cargo test --test rt_math_fixed_trig_accuracy` — 2 passed, every result
+within 0.5007 units of the 336-bit oracle, no in-range tangent raising.
