@@ -373,7 +373,14 @@ pub(crate) fn record_ownership(
             _ => None,
         })
         .collect();
-    let owning_collections = owning_collections(function, functions, record_type, &stores, &params);
+    let owning_collections = owning_collections(
+        function,
+        functions,
+        record_type,
+        &CodeBuilder::is_res_marked_resource_collection,
+        &stores,
+        &params,
+    );
     RecordOwnership {
         owning_locals,
         alias_sources,
@@ -419,6 +426,7 @@ fn owning_collections(
     function: &NirFunction,
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
+    res_collection_type: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
 ) -> HashSet<String> {
@@ -431,12 +439,35 @@ fn owning_collections(
                 .push(name.clone());
         }
     }
-    if floats.is_empty() {
-        return HashSet::new();
-    }
     let uses = CollectionUses::of(function);
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
+    // bug-651: a `RES`-marked collection that no element ever floats into still owns its
+    // own block, and nothing freed it — 48 B per binding for a `MUT xs AS List OF RES X
+    // = []` in a loop, with no resource involved at all. bug-645 registered that free
+    // only alongside an owned-list drain, which requires a float, so the empty case fell
+    // through every branch.
+    //
+    // The three conditions are the SAME ones the floated loop below applies to a
+    // container; only the per-element check is absent, and vacuously so — there are no
+    // elements to own. Asking them here rather than trusting the empty literal is what
+    // keeps a container that is returned, aliased, or read through `collections::get`
+    // out of the set.
+    for (name, type_) in &stores.types {
+        if !res_collection_type(type_) || floats.contains_key(name) {
+            continue;
+        }
+        if uses.escaping.contains(name) || uses.element_readers.contains(name) {
+            continue;
+        }
+        if !uses.block_is_fresh(name) {
+            continue;
+        }
+        owning.insert(name.clone());
+    }
+    if floats.is_empty() {
+        return owning;
+    }
     for (collection, elements) in &floats {
         if uses.escaping.contains(collection) || uses.element_readers.contains(collection) {
             continue;

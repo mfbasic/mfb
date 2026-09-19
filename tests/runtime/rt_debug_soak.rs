@@ -1370,3 +1370,22 @@ fn an_fs_file_bound_through_an_inline_trap_frees_both_records() {
          default record (bug-647)",
     );
 }
+
+/// bug-651: a `RES`-marked collection that nothing is ever appended to leaks its own
+/// collection block — 48 B per binding, with no resource involved at all. bug-645
+/// registered that block's free only alongside an owned-list drain, and a drain exists
+/// only when an element FLOATS into the container, so the empty case reached no branch
+/// that owned it. Measured at `20f55f995`: N=100 `live_bytes 4800`, N=200 `9600`, with
+/// `free_calls 2` against `alloc_calls 102`/`202` — one block per iteration, never freed.
+#[test]
+fn an_unfloated_list_of_res_frees_its_collection_block() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT xs AS List OF RES udp::Socket = []\n    total = total + len(xs)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b651_unfloated",
+        SOURCE,
+        100,
+        200,
+        "total=",
+        "a List OF RES with no floated element never frees its collection block (bug-651)",
+    );
+}

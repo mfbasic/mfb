@@ -41,16 +41,7 @@ impl CodeBuilder<'_> {
         // adding a second here would be the double free this whole file guards against.
         if owns_elements && typed_is_collection_type(type_) && !self.is_freeable_flat_value(type_) {
             if let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) {
-                self.active_cleanups
-                    .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
-                        type_: type_.clone(),
-                        stack_offset,
-                        closure_captures: None,
-                        capacity_slot: None,
-                        loop_alias_slot: None,
-                        result_wrapper: None,
-                    }));
-                self.owned_value_slots.push(stack_offset);
+                self.register_res_collection_block_free(name, type_, stack_offset);
             }
         }
         let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
@@ -66,6 +57,41 @@ impl CodeBuilder<'_> {
                 owns_elements,
             }));
         Ok(())
+    }
+
+    /// bug-645/bug-651: register the free of a `RES` collection's own block as an
+    /// ordinary [`ActiveCleanup::OwnedValue`]. Shared by the floated container (where it
+    /// is pushed BEFORE the drain so it runs after it) and the unfloated one (which has
+    /// no drain at all).
+    ///
+    /// Every rule that governs it is already written for `OwnedValue` and keyed on the
+    /// slot: `plan_returned_move` retires it when the collection is RETURNed,
+    /// `trap_route_cleanups` keeps a function-level one live for the handler to read, and
+    /// `_mfb_rt_drop_owned_collection` null-guards and nulls the slot, so a re-reached
+    /// drop frees nothing. It frees the container block only — the elements are resources
+    /// with their own close obligations.
+    ///
+    /// Sole ownership is NOT assumed here: both callers gate on
+    /// `owned_list_owning_collections`, which is `record_ownership`'s verdict that the
+    /// block is fresh, non-escaping and never read through a borrowed-element call.
+    /// Copy-insertion does not deep-copy such a list (it is not flat), so an aliasing
+    /// store really can leave two holders and only that pass rules it out.
+    pub(crate) fn register_res_collection_block_free(
+        &mut self,
+        _name: &str,
+        type_: &ParameterType,
+        stack_offset: usize,
+    ) {
+        self.active_cleanups
+            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                type_: type_.clone(),
+                stack_offset,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            }));
+        self.owned_value_slots.push(stack_offset);
     }
 
     /// Transfer a returned resource collection's owned-list to the caller: drop

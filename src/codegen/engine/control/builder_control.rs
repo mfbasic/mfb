@@ -852,6 +852,18 @@ impl CodeBuilder<'_> {
                                     &element_type,
                                 )?;
                             }
+                        } else if Self::is_res_marked_resource_collection(&type_)
+                            && self.owned_list_owning_collections.contains(name)
+                        {
+                            // bug-651: a `RES`-marked collection neither floated into nor
+                            // bound from a call — `MUT xs AS List OF RES X = []` — reaches
+                            // neither branch above, so nothing owned its collection BLOCK
+                            // and it leaked 48 B per binding even when no resource was ever
+                            // put in it. There is no owned-list to hang the free on (that
+                            // needs a float), so register the block free on its own; the
+                            // sole-ownership proof is the same `owning_collections` gate the
+                            // floated case uses, extended to the unfloated container.
+                            self.register_res_collection_block_free(name, type_, stack_offset);
                         }
                         // Where this binding's close obligation lives (§15.6).
                         let resource_owner = self
