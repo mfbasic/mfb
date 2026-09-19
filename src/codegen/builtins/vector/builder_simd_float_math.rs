@@ -1595,7 +1595,11 @@ impl CodeBuilder<'_> {
     /// reduction overwrites `v0`.
     fn emit_save_trig_argument(&mut self, k: &KernelRegs) {
         let arg = k.trig().arg.clone();
-        self.emit(abi::vector_orr(&arg, abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_orr(
+            &arg,
+            abi::VEC_SCRATCH[0],
+            abi::VEC_SCRATCH[0],
+        ));
     }
 
     fn emit_sin_cos_body(&mut self, want_cos: bool, k: &KernelRegs) {

@@ -411,7 +411,11 @@ END SUB
     let _ = std::fs::remove_dir_all(&project);
     let rows: Vec<Vec<f64>> = stdout
         .lines()
-        .map(|line| line.split('|').map(|p| p.parse::<f64>().expect("a Float")).collect())
+        .map(|line| {
+            line.split('|')
+                .map(|p| p.parse::<f64>().expect("a Float"))
+                .collect()
+        })
         .collect();
     assert_eq!(rows.len(), 4, "four rows:\n{stdout}");
     // Rows 0 and 2 are -0.0 (scalar, then List); rows 1 and 3 are +0.0.
@@ -425,7 +429,11 @@ END SUB
             if negative { "-" } else { "+" },
             row[0]
         );
-        assert_eq!(row[1].to_bits(), 1.0f64.to_bits(), "cos of a zero must be +1.0");
+        assert_eq!(
+            row[1].to_bits(),
+            1.0f64.to_bits(),
+            "cos of a zero must be +1.0"
+        );
         assert_eq!(
             row[2].to_bits(),
             expected_zero.to_bits(),
@@ -436,4 +444,3 @@ END SUB
         );
     }
 }
-
