@@ -1,12 +1,47 @@
 # bug-647: an `fs::File` bound through an inline TRAP leaks 192 B per bind
 
-Last updated: 2026-09-15
+Last updated: 2026-09-19
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`an_fs_file_binding_frees_its_resource_record`,
+`an_fs_file_bound_through_an_inline_trap_frees_both_records`)
+
+## STATUS: FIXED (20f55f995)
+
+Both 96 B halves go, and the doc's split of them was right: the producer's record and
+the closed default record the inline `TRAP` materializes. What the doc did not have is
+that **one predicate was not enough** — the fix needed two changes, and either alone is
+completely inert:
+
+1. `resource_record_freed_at_drop`: add `fs.File`. Its exclusion said "`fs::File`
+   shares the record with the drop's buffer reclaim", and that reason was stale.
+   `emit_resource_block_reclaim` already frees in dependency order — the two `File`
+   buffers (reached THROUGH the record's `FILE_OFFSET_BUF_PTR` / `FILE_OFFSET_READ_PTR`
+   words), then the STATE block, then the record itself — so nothing reads the record
+   after it goes back to the arena. Sharing it with the buffer reclaim is exactly what
+   that ordering handles.
+
+2. `is_record_producer_target` (`record_ownership.rs`): add `fs`. **This is why change 1
+   alone measured zero difference.** The predicate is necessary but not sufficient
+   (bug-623 B): a binding frees its record only when it also OWNS it, and with `fs`
+   missing from the producer list no `fs::File` binding was ever an owning local, so
+   every registration site ANDed `frees_record` to false. Confirmed by instrumenting the
+   registration: `freed_at_drop=true owning=false`.
+
+   Sound because every `fs` member that returns a resource is an opener that allocates a
+   fresh record — `open`, `openFile`, `openFileNoFollow`, `openWithin`, `createTempFile`,
+   and no other `fs` member returns `fs::File` (checked against the rendered
+   `mfb man fs --all` declarations, not by grep). That is the same property that admits
+   `tcp`/`udp`/`tls`/`thread`.
+
+Measured after: the plain bind 9,600 → 19,200 B at N=100/200 and the `TRAP` bind
+19,200 → 38,400 B both become **0 growth**, with `free_calls == alloc_calls` exactly
+(202/202 and 802/802) and `double_free_skips 0`. The `TRAP` shape's second record is
+covered by the same `frees_record` flag, so no separate change was needed for it.
 
 `RES f AS fs::File = fs::openFile(...) TRAP(e) ... END TRAP` leaves 192 B live per bind. The
 non-`TRAP` spelling of the same program leaks 96 B per bind. Both are residuals left standing
@@ -86,20 +121,27 @@ different answers, and only the second is `TRAP`-specific.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak test for the `TRAP` and non-`TRAP` `fs::File` shapes; confirm RED on the main
-      thread and localize each 96 B half.
+- [x] Soak cases for both shapes, confirmed RED on the main thread at the doc's counts
+      (192 B and 96 B per bind, exactly as recorded). The `TRAP` shape measuring exactly
+      twice the plain one is what identifies the second block as another whole record
+      rather than something smaller.
 
-Commit: —
+Commit: b17ab3ae3
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] `resource_record_freed_at_drop` + `is_record_producer_target`, both needed.
+
+Commit: 20f55f995
 
 ### Phase 3 — full validation
 
-Commit: —
+- [x] Full suite; artifact gate.
+
+Commit: (see the merge commit)
 
 ## Summary
 
 A resource whose record is excluded from drop-time reclaim leaks it, and the inline-`TRAP`
-shape leaks a second copy on top.
+shape leaks a second copy on top. Both exclusions were stale, and they were in two
+different files — the kind list, and the producer list the ownership pre-pass consults.

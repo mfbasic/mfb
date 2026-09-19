@@ -1,12 +1,48 @@
 # bug-651: a `List OF RES` with no floated element leaks its collection block (48 B per binding)
 
-Last updated: 2026-09-15
+Last updated: 2026-09-19
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`an_unfloated_list_of_res_frees_its_collection_block`)
+
+## STATUS: FIXED (927d19bac)
+
+The doc's reading was right, including where the registration had to move. Two parts:
+
+1. **An ownership verdict for the unfloated container.**
+   `record_ownership::owning_collections` returned an empty set outright when the
+   function had no floats (`if floats.is_empty() { return HashSet::new(); }`), so a
+   never-appended-to container had no verdict at all — which is the real reason the
+   block had no owner, upstream of where bug-645 could reach. It now also judges a
+   `RES`-marked collection with no floats, applying the **same three conditions** the
+   floated loop applies to a container: not escaping, not read through a
+   borrowed-element call (`collections::get`/`getOr`, `*::poll`), and every store into
+   it is a fresh block. The per-element check is absent only because there are no
+   elements. Asking those three rather than trusting the empty literal is what keeps a
+   container that is returned, aliased or element-read out of the set.
+
+2. **The registration**, in `builder_control.rs`'s `NirOp::Bind` arm exactly as this doc
+   predicted, gated on that verdict. The registration body is factored out of
+   `setup_owned_list` as `register_res_collection_block_free` so the floated and
+   unfloated paths cannot drift.
+
+Measured: 4,800 → 9,600 B at N=100/200 becomes **0 growth**, `free_calls == alloc_calls`
+(102/102, 202/202), `double_free_skips 0`. Verified RED against a pre-fix compiler
+(`MFB_TEST_EXE` pointed at the previous build), not by inspection alone.
+
+**The non-goals all hold:** `a_res_collection_does_not_diverge` still passes untouched —
+the flatness walk is not changed, only who owns the block — and bug-645's floated cases
+(`an_owned_list_of_resource_unions_…`, `an_owned_list_of_concrete_resources_…`) stay
+green with no double free.
+
+**Not done:** the doc's closing note about `flatness_walk`'s `ParameterType::Res(_)` arm
+carrying a comment that reads as if it applied to collections. It is a comment-accuracy
+fix in a file this change does not otherwise touch, and correcting it here would put an
+unrelated edit in the middle of an ownership change — left as is, deliberately.
 
 `MUT xs AS List OF RES udp::Socket = []` in a loop leaks 48 B per iteration even when nothing
 is ever appended to it. No resource is involved — it is the empty collection block itself,
@@ -81,19 +117,25 @@ record fields. Worth correcting while here.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak test for the unfloated shape; confirm RED on the main thread; confirm the
-      `flatness_walk` path above.
-
-Commit: —
+- [x] Soak case for the unfloated shape; confirmed RED (4,800 → 9,600 B, one 48 B block
+      per iteration never freed: `free_calls 2` against `alloc_calls 102`/`202`). The
+      `flatness_walk` path is confirmed as described — but it is not where the fix went;
+      the missing piece is one level up, in `owning_collections`.
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] `owning_collections` for the unfloated container, and the `Bind`-arm registration.
+
+Commit: 927d19bac
 
 ### Phase 3 — full validation
 
-Commit: —
+- [x] Full suite; artifact gate.
+
+Commit: (see the merge commit)
 
 ## Summary
 
-The container block of a `RES` collection has no owner when no element ever floats into it.
+The container block of a `RES` collection has no owner when no element ever floats into
+it — because the pass that decides container ownership answered "nothing is owned" for
+any function without a float, before bug-645's registration could ever be reached.
