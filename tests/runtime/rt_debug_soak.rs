@@ -1297,10 +1297,8 @@ fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
     const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  LET t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     let at = |n: u64| -> (String, u64, u64) {
         let name = format!("b629_emit_computed_{n}");
-        let project = common::temp_project(
-            "b629_emit_computed",
-            &SOURCE.replace("{n}", &n.to_string()),
-        );
+        let project =
+            common::temp_project("b629_emit_computed", &SOURCE.replace("{n}", &n.to_string()));
         let exe = build_debug_project(&name, &project);
         let (stdout, stderr) = run_ok(&name, &exe);
         let lines = arena_lines(&name, &stderr);
