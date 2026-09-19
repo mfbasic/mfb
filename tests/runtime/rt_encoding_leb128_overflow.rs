@@ -136,7 +136,11 @@ SUB main()
     );
     let _ = std::fs::remove_dir_all(&project);
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), cases.len(), "{name}: one line per case:\n{stdout}");
+    assert_eq!(
+        lines.len(),
+        cases.len(),
+        "{name}: one line per case:\n{stdout}"
+    );
     cases
         .iter()
         .zip(lines)
@@ -148,7 +152,11 @@ SUB main()
             let label = format!(
                 "{}([{}])",
                 member.name(),
-                bytes.iter().map(|b| format!("{b:#04x}")).collect::<Vec<_>>().join(", ")
+                bytes
+                    .iter()
+                    .map(|b| format!("{b:#04x}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
             assert!(
                 actual == expected || actual.starts_with("ok ") || actual.starts_with("raised "),
@@ -199,7 +207,12 @@ fn a_tenth_byte_whose_bits_do_not_fit_an_integer_raises() {
     cases.push((Member::Sleb, ten(0x00, 0x40)));
 
     for (member, bytes) in &cases {
-        assert_eq!(member.oracle(bytes), None, "{} case must be out of range", member.name());
+        assert_eq!(
+            member.oracle(bytes),
+            None,
+            "{} case must be out of range",
+            member.name()
+        );
     }
     assert_all(&run_cases("leb128_overflow_raises", &cases));
 }
@@ -208,25 +221,43 @@ fn a_tenth_byte_whose_bits_do_not_fit_an_integer_raises() {
 fn every_in_range_ten_byte_sequence_still_decodes() {
     let cases = vec![
         // The extremes of `Integer` in their canonical and padded forms.
-        (Member::Sleb, ten(0x7F, 0x00)),  // not canonical, but 2^63-1 fits: bits 0..62 set
-        (Member::Sleb, ten(0x00, 0x7F)),  // -2^63
-        (Member::Sleb, ten(0x7F, 0x7F)),  // -1, padded to ten bytes
-        (Member::Sleb, ten(0x00, 0x00)),  // 0, padded to ten bytes
-        (Member::Uleb, ten(0x7F, 0x00)),  // 2^63-1
-        (Member::Uleb, ten(0x00, 0x00)),  // 0, padded
-        (Member::Uleb, vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]), // 2^63-1, nine bytes
+        (Member::Sleb, ten(0x7F, 0x00)), // not canonical, but 2^63-1 fits: bits 0..62 set
+        (Member::Sleb, ten(0x00, 0x7F)), // -2^63
+        (Member::Sleb, ten(0x7F, 0x7F)), // -1, padded to ten bytes
+        (Member::Sleb, ten(0x00, 0x00)), // 0, padded to ten bytes
+        (Member::Uleb, ten(0x7F, 0x00)), // 2^63-1
+        (Member::Uleb, ten(0x00, 0x00)), // 0, padded
+        (
+            Member::Uleb,
+            vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F],
+        ), // 2^63-1, nine bytes
         (Member::Varint, ten(0x7F, 0x01)), // ZigZag 2^64-1 = most negative Integer
         (Member::Varint, ten(0x7E & 0x7F, 0x01)),
-        (Member::Varint, vec![0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]), // ZigZag 2^64-2 = Integer max
+        (
+            Member::Varint,
+            vec![0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01],
+        ), // ZigZag 2^64-2 = Integer max
         (Member::Varint, ten(0x00, 0x00)),
         // Short sequences are unchanged.
         (Member::Sleb, vec![0x7E]),
         (Member::Uleb, vec![0xAC, 0x02]),
         (Member::Varint, vec![0x95, 0x01]),
         // An eleventh byte and a truncated sequence still raise.
-        (Member::Sleb, { let mut b = vec![0x80; 10]; b.push(0x00); b }),
-        (Member::Uleb, { let mut b = vec![0x80; 10]; b.push(0x00); b }),
-        (Member::Varint, { let mut b = vec![0x80; 10]; b.push(0x00); b }),
+        (Member::Sleb, {
+            let mut b = vec![0x80; 10];
+            b.push(0x00);
+            b
+        }),
+        (Member::Uleb, {
+            let mut b = vec![0x80; 10];
+            b.push(0x00);
+            b
+        }),
+        (Member::Varint, {
+            let mut b = vec![0x80; 10];
+            b.push(0x00);
+            b
+        }),
         (Member::Uleb, vec![0x80]),
     ];
     assert_all(&run_cases("leb128_in_range_decodes", &cases));
