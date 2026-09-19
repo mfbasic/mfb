@@ -24,8 +24,9 @@ other value raises `ErrInvalidArgument`; the four allowed widths are exactly the
 `fff` / `ffffff` / `fffffffff` tokens `datetime::format` and `datetime::parseIso`
 already handle, so for a four-digit year every form this member emits can be
 read back. A year outside `0 .. 9999` still renders, but `datetime::parseIso`
-rejects the text. A negative year shorter than four digits renders with the minus
-sign inside the zero padding: year -1 is `00-1-01-01T00:00:00Z`.
+rejects the text. A negative year is a minus sign followed by at least four
+digits: year -1 is `-0001-01-01T00:00:00Z`, and year -12345 is
+`-12345-01-01T00:00:00Z`.
 
 **Precision, and what round-trips.** A `datetime::DateTime` carries nanoseconds,
 so only `datetime::toIso(dt, 9)` keeps every digit. It is the one form for which

@@ -741,6 +741,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_datetime_negative_year_render"
+path = "tests/runtime/rt_datetime_negative_year_render.rs"
+
+[[test]]
 name = "rt_debug_soak"
 path = "tests/runtime/rt_debug_soak.rs"
 
