@@ -1,12 +1,79 @@
 # bug-657: a `UNION` with a scalar member passes the verifier and dies in codegen
 
 Last updated: 2026-09-19
-Effort: small
+Effort: small → **re-estimated: medium–large.** Three approaches were tried and all
+three fail; see "Attempts that do not work" below. The remaining route is an IR
+format change.
 Severity: MEDIUM
 Class: Correctness (missing diagnostic)
 
-Status: Open
+Status: Open — root cause confirmed, three fixes ruled out by measurement
 Regression Test: none yet — see Phase 1
+
+## Attempts that do not work (2026-09-19)
+
+All three were built and run, not reasoned about. Recording them because each looks
+correct until it is measured, and the next person will reach for them in this order.
+
+**1. Re-parse the member's spelling — ARCHITECTURALLY FORBIDDEN.**
+
+```rust
+let builtin = !matches!(ParameterType::parse(&variant.name), ParameterType::Named(_));
+```
+
+This is the obvious one-liner and it works. It is also exactly what plan-111's ratchet
+gate bans: `tests/guards/no_type_strings.rs` holds `parse_sites / ir` at **0**, a
+documented hard floor, and "a spelling flowing into a decision" is the class it exists
+to stop. The gate fails the build with *"a type spelling reached a decision below the
+AST"*. Budgets are asserted tight in BOTH directions, so raising it is not an option
+either — that is the "silent allowance" the gate's own docs call out.
+
+**2. Allowlist over `self.records` — SILENTLY INERT.**
+
+`records` looks like "the declared record types". It is not: the `"union"` arm of
+`TypeEnv::build` (`src/ir/verify/mod.rs`, *"Each variant is a record type in its own
+right; register its payload fields so `variant.field` accesses resolve"*) registers
+EVERY variant name as a record entry. For the reproduction below, dumping the table's
+keys gives exactly:
+
+    records_keys=["String", "Integer"]
+
+— the two bogus members of the union under test. So the check stops firing altogether
+and BOTH union fixtures build clean. Any allowlist over `records` is dead on arrival.
+
+**3. Allowlist over `self.type_decl_info` — 12 FALSE POSITIVES.**
+
+`type_decl_info` IS unpolluted (it is built from `project.types` alone), and this
+version passes the ratchet, rejects the reproduction correctly, keeps
+`types-union-member-invalid` reporting exactly as before, and passes the **whole
+1,486-test acceptance suite**. It still fails: 12 `ir::verify` unit tests go red with
+*"expected clean, got [TYPE_UNION_MEMBER_REQUIRES_TYPE, …]"* —
+
+    accepts_union_variant_return, accepts_union_with_included_union,
+    accepts_union_wrap_of_real_variant, accepts_exhaustive_union_match,
+    accepts_union_match_with_else, accepts_mut_list_of_union_defaultable_empty,
+    accepts_mut_map_value_union_defaultable_empty,
+    accepts_mut_record_with_list_of_union_field,
+    accepts_function_with_union_and_result_value_shapes,
+    func_returns_via_exhaustive_union_match, func_returns_via_match_else,
+    match_guard_reads_union_extract_bind
+
+because they build minimal IR in which the variant records are never declared —
+`project(vec![f], vec![u])`, with only the union in `project.types`. Those tests assert
+the verifier ACCEPTS such a union, so the four-question rule applies and the tests win:
+nothing here proves them wrong, and a real program's IR is not the only IR the verifier
+must accept.
+
+**What that leaves.** The decision needs the member's *elaborated type*, which already
+exists one layer up: `HirUnionVariant` carries `type_: ParameterType`, parsed at the
+sanctioned boundary (`src/hir/mod.rs`, `ParameterType::parse(&variant.name)`).
+`lower_variant` (`src/ir/lower.rs:592`) then throws it away, keeping only
+`name: String`. Carry it into `IrVariant` and the verifier can ask
+`matches!(variant.type_, ParameterType::Named(_))` — a pure type-domain decision, no
+spelling, no table lookup, and correct for hand-built IR too. That is an IR **format**
+change: `IrVariant` plus `ir/json.rs`, `ir/binary.rs` and every constructor
+(`variant_corpus_tests.rs`, `verify/tests.rs`, `binary_repr/tests/writer_tests.rs`),
+with the `.ir` goldens and the binary round-trip gates behind it.
 
 `UNION Shape` with `Integer` and `String` as members is accepted by the semantic verifier
 and then fails in code generation with an internal error:
@@ -66,11 +133,16 @@ specific to the scalar member.
 
 ## Root Cause
 
-Localized (above): the verifier's member check is written as a blocklist of the two
-*declared* kinds it knew about rather than an allowlist of "is a record". Anything the
-model does not have in `self.records` — every built-in scalar, `String`, a collection
-spelling — passes. Codegen then reaches `union wrap member … is not a record` and has no
-diagnostic vocabulary left.
+Localized: the verifier's member check is written as a blocklist of the two *declared*
+kinds it knew about (union, enum) rather than as a test of "is a concrete TYPE".
+Anything else — every built-in scalar, `String`, a collection spelling — passes. Codegen
+then reaches `union wrap member … is not a record` and has no diagnostic vocabulary
+left.
+
+The *fix* is harder than the root cause, because the verifier has no sound way to ask
+the question at that point: the spelling is off limits (attempt 1), `records` is
+polluted with the variants themselves (attempt 2), and the declaration table is not
+populated for the hand-built IR the verifier's own tests use (attempt 3).
 
 ## Goal
 
@@ -95,15 +167,20 @@ diagnostic vocabulary left.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Syntax fixture asserting the located diagnostic; confirm RED (today it builds past
-      the verifier and dies in codegen).
-- [ ] Confirm no existing union in the tree is newly rejected.
+- [x] Syntax fixture asserting the located diagnostic; confirmed RED. **Written and then
+      removed again** along with the reverted fix — a committed fixture whose golden
+      shows a diagnostic the compiler does not emit would be a false record. Recreate it
+      from the reproduction above; it is four lines.
+- [x] Confirm no existing union in the tree is newly rejected — acceptance 1,486 tests
+      passed under attempt 3, and `examples/`, `tools/` and `src/docs/` carry no union
+      with a scalar member either. That part of the audit stands whatever the fix is.
 
-Commit: —
+Commit: — (nothing landed)
 
 ### Phase 2 — the fix
 
-- [ ] Make the member check an allowlist ("is a record"), sharing codegen's predicate.
+- [ ] Carry `HirUnionVariant::type_` into `IrVariant` and decide on the type. The three
+      cheaper routes are ruled out above — do not re-try them.
 
 Commit: —
 
@@ -114,4 +191,6 @@ Commit: —
 ## Summary
 
 The diagnostic for this exact mistake already exists; its enforcement tests the wrong
-predicate, so the error surfaces as an internal codegen failure instead.
+predicate, so the error surfaces as an internal codegen failure instead. Fixing it
+needs the variant's elaborated type carried into the IR — the verifier cannot answer
+the question soundly from what it currently holds.
