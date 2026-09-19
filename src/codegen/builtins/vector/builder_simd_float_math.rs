@@ -1231,6 +1231,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_fsub(v[2], v[6], v[7])); // r_hi = y0 - (..)
         self.emit(abi::vector_fcvtzs(v[5], v[1])); // q (int)
         self.emit(abi::vector_and(v[5], v[5], &k.v21)); // quad = q & 3
+
         // r_lo = (y0 - r_hi) - (q*PIO2_2T - t): exactly what that last subtraction
         // rounded away (bug-618 — dropping it cost the medium range its last ULP).
         self.emit(abi::vector_fsub(&t.sin_corr, v[6], v[2]));

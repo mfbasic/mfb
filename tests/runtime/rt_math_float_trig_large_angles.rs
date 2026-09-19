@@ -157,9 +157,26 @@ fn literal(v: f64) -> String {
 
 fn corpus() -> Vec<f64> {
     let mut xs = vec![
-        0.5, 1.0, 3.0, 100.0, 1.0e6, 1.6e6, 1.65e6, 2f64.powi(21), 1.0e7, 1.0e9, 1.0e12,
-        2f64.powi(52), 2f64.powi(53), 1.0e20, 1.0e22, 1.0e100, 1.0e300, f64::MAX,
-        2f64.powi(1023), 1125899906842624.8,
+        0.5,
+        1.0,
+        3.0,
+        100.0,
+        1.0e6,
+        1.6e6,
+        1.65e6,
+        2f64.powi(21),
+        1.0e7,
+        1.0e9,
+        1.0e12,
+        2f64.powi(52),
+        2f64.powi(53),
+        1.0e20,
+        1.0e22,
+        1.0e100,
+        1.0e300,
+        f64::MAX,
+        2f64.powi(1023),
+        1125899906842624.8,
         // The double closest to a multiple of pi/2 (cos ~ -4.7e-19).
         6381956970095103.0 * 2f64.powi(797),
     ];
@@ -193,7 +210,11 @@ struct Row {
 const NAMES: [&str; 6] = ["sin", "cos", "tan", "sin(List)", "cos(List)", "tan(List)"];
 
 fn run(xs: &[f64]) -> Vec<Row> {
-    let list = xs.iter().map(|v| literal(*v)).collect::<Vec<_>>().join(", ");
+    let list = xs
+        .iter()
+        .map(|v| literal(*v))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut funcs = String::new();
     for f in ["sin", "cos", "tan"] {
         funcs.push_str(&format!(
@@ -249,7 +270,9 @@ END SUB
         .map(|line| {
             let parts: Vec<&str> = line.split('|').collect();
             assert_eq!(parts.len(), 7, "row {line:?}");
-            let x = parts[0].parse::<f64>().unwrap_or_else(|_| panic!("argument {:?}", parts[0]));
+            let x = parts[0]
+                .parse::<f64>()
+                .unwrap_or_else(|_| panic!("argument {:?}", parts[0]));
             let parse = |p: &str| p.parse::<f64>().map_err(|_| p.to_string());
             Row {
                 x,
@@ -266,7 +289,11 @@ END SUB
         .collect();
     assert_eq!(rows.len(), xs.len(), "one row per argument");
     for (row, x) in rows.iter().zip(xs) {
-        assert_eq!(row.x.to_bits(), x.to_bits(), "the program's literal is the argument");
+        assert_eq!(
+            row.x.to_bits(),
+            x.to_bits(),
+            "the program's literal is the argument"
+        );
     }
     rows
 }
