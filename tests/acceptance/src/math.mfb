@@ -216,7 +216,7 @@ TESTING
         expectFloat(math::cos(0.7), 0.76484218728448850)
         expectFloat(math::cos(2.0), -0.41614683654714241)
         expectFloat(math::cos(4.0), -0.65364362086361194)
-        expectFloat(math::cos(5.0), 0.28366218546322630)
+        expectFloat(math::cos(5.0), 0.28366218546322625)
         expectFloat(math::cos(-2.0), -0.41614683654714241)
       END TCASE
       TCASE "float array"
@@ -556,7 +556,7 @@ TESTING
         expectFloat(collections::get(r, 0), 0.00000000000000000)
         expectFloat(collections::get(r, 1), 0.47942553860420301)
         expectFloat(collections::get(r, 2), 0.84147098480789650)
-        expectFloat(collections::get(r, 3), 0.70710678118654746)
+        expectFloat(collections::get(r, 3), 0.7071067811865476)
         expectFloat(collections::get(r, 4), 0.90929742682568171)
       END TCASE
     END TGROUP
@@ -596,12 +596,12 @@ TESTING
       TCASE "scalar"
         LET fixedPiQuarter AS Fixed = 0.7853981634F
         expectFloat(math::tan(0.0), 0.00000000000000000)
-        expectFloat(math::tan(0.7853981634), 1.00000000000510325)
+        expectFloat(math::tan(0.7853981634), 1.0000000000051035)
         expectFixed(math::tan(fixedPiQuarter), 1.000000001629814505F)
         expectFloat(math::tan(0.7), 0.84228838046307941)
         expectFloat(math::tan(2.0), -2.18503986326151889)
         expectFloat(math::tan(4.0), 1.15782128234957749)
-        expectFloat(math::tan(5.0), -3.38051500624658541)
+        expectFloat(math::tan(5.0), -3.380515006246586)
         expectFloat(math::tan(-2.0), 2.18503986326151889)
       END TCASE
       TCASE "float array"
@@ -609,8 +609,8 @@ TESTING
         LET r AS List OF Float = math::tan(xs)
         expectFloat(collections::get(r, 0), 0.00000000000000000)
         expectFloat(collections::get(r, 1), 0.54630248984379048)
-        expectFloat(collections::get(r, 2), 1.55740772465490207)
-        expectFloat(collections::get(r, 3), 0.99999999999999989)
+        expectFloat(collections::get(r, 2), 1.5574077246549023)
+        expectFloat(collections::get(r, 3), 1.00000000000000000)
         expectFloat(collections::get(r, 4), -2.18503986326151889)
       END TCASE
     END TGROUP

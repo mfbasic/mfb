@@ -759,6 +759,10 @@ name = "rt_math_fixed_trig_accuracy"
 path = "tests/runtime/rt_math_fixed_trig_accuracy.rs"
 
 [[test]]
+name = "rt_math_float_trig_large_angles"
+path = "tests/runtime/rt_math_float_trig_large_angles.rs"
+
+[[test]]
 name = "rt_debug_soak"
 path = "tests/runtime/rt_debug_soak.rs"
 

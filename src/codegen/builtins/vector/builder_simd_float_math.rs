@@ -56,12 +56,76 @@ const SQRT_HALF: f64 = 0.707_106_781_186_547_524_4;
 const LN2_DD_LO: f64 = 2.319_046_813_846_299_6e-17;
 const LOG10_E: f64 = 0.434_294_481_903_251_827_6;
 const LOG10_E_DD_LO: f64 = 1.098_319_650_216_765_0e-17;
-/// `2/pi` and the fdlibm three-part `pi/2` for the sin/cos Cody-Waite reduction
-/// (accurate for `|x| < 2^20 * pi/2`; large arguments would need Payne-Hanek).
+/// `2/pi` and the fdlibm three-part `pi/2` for the sin/cos Cody-Waite reduction.
+/// It is exact while `q*PIO2_1` and `q*PIO2_2` are (`|x| < 2^20 * pi/2`), and its
+/// truncated `pi/2` leaves an absolute error of about `3e-37 * |x|`, so it is
+/// used only below [`TRIG_MEDIUM_LIMIT`] and only when the reduced angle has not
+/// cancelled below [`TRIG_CANCEL_RATIO`]` * |x|`. Every other finite lane takes
+/// the exact table reduction `emit_rem_pio2_large_lane` (bug-618).
 const INV_PIO2: f64 = 0.636_619_772_367_581_343_1;
 const PIO2_1: f64 = 1.570_796_326_734_125_614_17;
 const PIO2_2: f64 = 6.077_100_506_303_965_976_60e-11;
 const PIO2_2T: f64 = 2.022_266_248_795_950_631_54e-21;
+/// `2^20 * pi/2` (bits `0x413921FB54442D18`): the medium reduction's upper bound.
+const TRIG_MEDIUM_LIMIT: f64 = 1_647_099.329_165_285_5;
+/// `2^-50`: a medium-reduced angle smaller than this fraction of `|x|` has lost
+/// enough leading bits to the cancellation that the Cody-Waite constants'
+/// `3e-37 * |x|` error could reach its last ULP, so that lane is re-reduced
+/// exactly. Kept lanes have a relative reduction error below `3e-37 * 2^50`
+/// (about `3.4e-22`).
+const TRIG_CANCEL_RATIO: f64 = 8.881_784_197_001_252_3e-16;
+/// `pi/2` as a double-double: [`std::f64::consts::FRAC_PI_2`] is the hi half.
+const PIO2_DD_LO: f64 = 6.123_233_995_736_766_035_87e-17;
+/// Scales of the three 53-bit pieces the exact reduction splits its fraction into.
+const TWO_POW_M54: f64 = 5.551_115_123_125_782_702_1e-17;
+const TWO_POW_M107: f64 = 6.162_975_822_039_154_7e-33;
+const TWO_POW_M160: f64 = 6.842_277_657_836_020_854_4e-49;
+/// Leading zero bits in front of `2/pi` in [`TWO_OVER_PI_WORDS`].
+const TWO_OVER_PI_PAD: usize = 55;
+/// `floor(2/pi * 2^1225)` as 20 big-endian 64-bit words: bit `t` (0 = the MSB of
+/// word 0) is bit `t - 54` after the binary point of `2/pi`, so the first word
+/// holds 55 zero bits and then the leading 9 bits of `2/pi` (`0x145` =
+/// `0b1_0100_0101`, from `2/pi = 0x0.A2F9836E4E44...`). The table reaches bit 1225
+/// of `2/pi`; the widest window (`f64::MAX`, words 16-19) ends at its last word.
+///
+/// Generated offline in pure integer arithmetic (no host floating point):
+///
+/// ```text
+/// def atan_inv(n, W):                  # atan(1/n) * 2^W, Taylor series
+///     n2, power, s, k = n*n, (1 << W) // n, 0, 0
+///     while power:
+///         t = power // (2*k + 1); s = s + t if k % 2 == 0 else s - t
+///         power //= n2; k += 1
+///     return s
+/// pi = 16*atan_inv(5, W) - 4*atan_inv(239, W)          # Machin, pi * 2^W
+/// v = (1 << (64*20 - 55 + 1 + W)) // pi                # 2/pi * 2^1225
+/// words = [(v >> (64*(19 - i))) & (2**64 - 1) for i in range(20)]
+/// ```
+///
+/// `W = 1400` and `W = 2400` give identical words, and the leading bits match
+/// fdlibm's `two_over_pi` table (`0xA2F983, 0x6E4E44, 0x1529FC, ...`).
+const TWO_OVER_PI_WORDS: [u64; 20] = [
+    0x0000_0000_0000_0145,
+    0xF306_DC9C_882A_53F8,
+    0x4EAF_A3EA_69BB_81B6,
+    0xC52B_3278_8720_83FC,
+    0xA2C7_57BD_778A_C36E,
+    0x48DC_7484_9BA5_C00C,
+    0x925D_D413_A324_39FC,
+    0x3BD6_3962_534E_7DD1,
+    0x046B_EA5D_7689_09D3,
+    0x38E0_4D68_BEFC_8273,
+    0x23AC_7306_A673_E939,
+    0x08BF_177B_F250_763F,
+    0xF12F_FFBC_0B30_1FDE,
+    0x5E23_16B4_14DA_3EDA,
+    0x6CFD_9E4F_9613_6E9E,
+    0x8C7E_CD3C_BFD4_5AEA,
+    0x4F75_8FD7_CBE2_F67A,
+    0x0E73_EF14_A525_D4D7,
+    0xF6BF_623F_1ABA_10AC,
+    0x0660_8DF8_F6D7_57E1,
+];
 
 /// fdlibm `atan` reduction: the four segment thresholds and their breakpoint
 /// `atan(c)` values as hi/lo double-doubles (four thresholds partition `|x|`
@@ -190,14 +254,39 @@ pub(crate) fn math_const_pool_words() -> Vec<u64> {
         ] {
             add(&mut w, v as u64);
         }
+        // bug-618: the trig reduction's routing and exact-reduction constants.
+        // Appended after every earlier constant, so no existing offset moves.
+        for v in [
+            TRIG_MEDIUM_LIMIT,
+            TRIG_CANCEL_RATIO,
+            f64::INFINITY,
+            PIO2_DD_LO,
+            TWO_POW_M54,
+            TWO_POW_M107,
+            TWO_POW_M160,
+        ] {
+            add(&mut w, v.to_bits());
+        }
+        // The `2/pi` table last, verbatim (NOT deduplicated): the exact reduction
+        // indexes it as `pool + TABLE + 16*j`, so its words must stay contiguous
+        // and in order even if one equals a constant above.
+        w.extend_from_slice(&TWO_OVER_PI_WORDS);
         w
     })
     .clone()
 }
 
+/// Byte offset of [`TWO_OVER_PI_WORDS`]`[0]`'s 16-byte slot in the pool.
+fn two_over_pi_table_offset() -> usize {
+    (math_const_pool_words().len() - TWO_OVER_PI_WORDS.len()) * 16
+}
+
 /// The 16-byte-slot byte offset of `bits` in the pool, or `None` if not pooled.
+/// Only the deduplicated constant section is searched — the `2/pi` table is
+/// addressed by index, never by value.
 fn math_const_pool_offset(bits: u64) -> Option<usize> {
-    math_const_pool_words()
+    let words = math_const_pool_words();
+    words[..words.len() - TWO_OVER_PI_WORDS.len()]
         .iter()
         .position(|word| *word == bits)
         .map(|index| index * 16)
@@ -227,7 +316,7 @@ pub(crate) enum FloatKernel {
     /// `ln(x)` / `log10(x)`; `ErrInvalidArgument` on a non-positive lane.
     Log,
     Log10,
-    /// `sin(x)` / `cos(x)` / `tan(x)`; no error (medium-range reduction).
+    /// `sin(x)` / `cos(x)` / `tan(x)`; `ErrFloatNan` only for a NaN/inf input.
     Sin,
     Cos,
     Tan,
@@ -301,11 +390,55 @@ struct KernelRegs {
     v29: String,
     v30: String,
     v31: String,
+    /// The sin/cos/tan reduction's extra registers; `None` for every other kernel.
+    trig: Option<TrigRegs>,
+}
+
+/// Registers only the trig kernels use (bug-618), minted with their
+/// [`KernelRegs`]. `limit`/`cancel`/`inf`/`one` are persistent constants
+/// broadcast by `emit_float_kernel_setup`; the other three are written by
+/// `emit_sincos_reduce` on every body and read by the polynomial evaluators.
+struct TrigRegs {
+    /// [`TRIG_MEDIUM_LIMIT`].
+    limit: String,
+    /// [`TRIG_CANCEL_RATIO`].
+    cancel: String,
+    /// `+inf`.
+    inf: String,
+    /// `1.0`.
+    one: String,
+    /// Per-lane all-ones where the lane takes the exact reduction.
+    route: String,
+    /// The low half's first-order effect on `sin(r)`: `r_lo * (1 - r^2/2)`.
+    sin_corr: String,
+    /// The low half's first-order effect on `cos(r)`: `-r * r_lo`.
+    cos_corr: String,
+    /// The untouched argument, saved by `sin`/`tan` before the reduction
+    /// overwrites it, so a zero lane can keep its sign (see
+    /// [`CodeBuilder::emit_zero_argument_passthrough`]). `cos` never reads it.
+    arg: String,
+}
+
+impl KernelRegs {
+    /// The trig registers. Only the sin/cos/tan emitters call this, and their
+    /// `KernelRegs` is always minted with `float_kernel_regs(true)`.
+    fn trig(&self) -> &TrigRegs {
+        self.trig
+            .as_ref()
+            .expect("sin/cos/tan kernel regs are minted with their TrigRegs")
+    }
+}
+
+impl FloatKernel {
+    fn is_trig(self) -> bool {
+        matches!(self, FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan)
+    }
 }
 
 impl CodeBuilder<'_> {
-    /// Mint the float kernels' working register file (see [`KernelRegs`]).
-    fn float_kernel_regs(&mut self) -> KernelRegs {
+    /// Mint the float kernels' working register file (see [`KernelRegs`]); `trig`
+    /// adds the sin/cos/tan reduction registers.
+    fn float_kernel_regs(&mut self, trig: bool) -> KernelRegs {
         KernelRegs {
             v16: self.temporary_fp_vreg().render(),
             v17: self.temporary_fp_vreg().render(),
@@ -323,6 +456,16 @@ impl CodeBuilder<'_> {
             v29: self.temporary_fp_vreg().render(),
             v30: self.temporary_fp_vreg().render(),
             v31: self.temporary_fp_vreg().render(),
+            trig: trig.then(|| TrigRegs {
+                limit: self.temporary_fp_vreg().render(),
+                cancel: self.temporary_fp_vreg().render(),
+                inf: self.temporary_fp_vreg().render(),
+                one: self.temporary_fp_vreg().render(),
+                route: self.temporary_fp_vreg().render(),
+                sin_corr: self.temporary_fp_vreg().render(),
+                cos_corr: self.temporary_fp_vreg().render(),
+                arg: self.temporary_fp_vreg().render(),
+            }),
         }
     }
 
@@ -361,7 +504,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
         // v22 = accumulated error mask (valid even when the loop never runs).
-        let k = &self.float_kernel_regs();
+        let k = &self.float_kernel_regs(kernel.is_trig());
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit_float_kernel_setup(kernel, k);
 
@@ -478,7 +621,7 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], value_loc));
-        let k = &self.float_kernel_regs();
+        let k = &self.float_kernel_regs(kernel.is_trig());
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit_float_kernel_setup(kernel, k);
         // A single scalar lane can branch on the quadrant and run just one of the
@@ -555,6 +698,11 @@ impl CodeBuilder<'_> {
                 self.broadcast_f64(&k.v19, PIO2_2);
                 self.broadcast_f64(&k.v20, PIO2_2T);
                 self.broadcast_i64(&k.v21, 3); // quadrant mask
+                let t = k.trig();
+                self.broadcast_f64(&t.limit, TRIG_MEDIUM_LIMIT);
+                self.broadcast_f64(&t.cancel, TRIG_CANCEL_RATIO);
+                self.broadcast_f64(&t.inf, f64::INFINITY);
+                self.broadcast_f64(&t.one, 1.0);
             }
             FloatKernel::Atan | FloatKernel::Asin | FloatKernel::Acos => {
                 self.broadcast_f64(&k.v16, 1.0);
@@ -1051,68 +1199,371 @@ impl CodeBuilder<'_> {
         self.emit_atan_poly_recombine(k);
     }
 
-    /// Cody-Waite reduce `x` to `r in [-pi/4, pi/4]` and quadrant `q & 3`. Leaves
-    /// the reduced angle in `v2` and the quadrant (int) in `v5`. Working: v1,v3,
-    /// v6,v7. Assumes the persistent trig constants in v16-v21.
-    fn emit_sincos_reduce(&mut self, k: &KernelRegs) {
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[0],
-            &k.v16,
-        )); // x*invpio2
-        self.emit(abi::vector_fadd(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[1],
-            &k.v17,
-        )); // +0.5
-        self.emit(abi::vector_frintm(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1])); // q = floor(..)
-        self.emit(abi::vector_orr(
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[0],
-            abi::VEC_SCRATCH[0],
-        )); // r = x
-        self.emit(abi::vector_fmls(
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[1],
-            &k.v18,
-        )); // r -= q*PIO2_1
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[1],
-            &k.v19,
-        )); // w = q*PIO2_2
-        self.emit(abi::vector_fsub(
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[3],
-        )); // y0 = r - w
-        self.emit(abi::vector_fsub(
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[6],
-        )); // r - y0
-        self.emit(abi::vector_fsub(
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[3],
-        )); // t = (r-y0) - w
-        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7])); // -t
-        self.emit(abi::vector_fmla(
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[1],
-            &k.v20,
-        )); // -t + q*PIO2_2T
-        self.emit(abi::vector_fsub(
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[7],
-        )); // reduced = y0 - (..)
-        self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1])); // q (int)
-        self.emit(abi::vector_and(
-            abi::VEC_SCRATCH[5],
-            abi::VEC_SCRATCH[5],
-            &k.v21,
-        )); // quad = q & 3
+    /// Reduce `x` to `r = r_hi + r_lo` in `[-pi/4, pi/4]` and the quadrant, per lane.
+    ///
+    /// Every lane first runs the fdlibm medium Cody-Waite step, which also keeps
+    /// the low half its last subtraction drops. A lane then takes the exact table
+    /// reduction ([`Self::emit_rem_pio2_large_lane`]) instead when that step
+    /// cannot be trusted to the last ULP: `|x| >= 2^20 * pi/2` (the step is exact
+    /// only below it, and past about `1e100` it produces NaN), or the reduced
+    /// angle cancelled below `2^-50 * |x|` (the truncated `pi/2` constants' error
+    /// is about `3e-37 * |x|`). A NaN or infinite lane is never re-reduced; its
+    /// medium result is NaN and raises `ErrFloatNan` as before. The branch to the
+    /// exact path is taken only when some lane needs it, so an ordinary call pays
+    /// the routing compare and nothing else.
+    ///
+    /// Leaves `r_hi` in `v2`, `r*r` in `v1`, the quadrant (an integer whose low two
+    /// bits matter) in `v5`, and the low half's first-order corrections in
+    /// `trig.sin_corr` (`r_lo * (1 - r^2/2)`, added to `sin(r_hi)`) and
+    /// `trig.cos_corr` (`-r_hi * r_lo`, added to `cos(r_hi)`). `v0` (the input) is
+    /// consumed; `v3`, `v4`, `v6`, `v7` are scratch. Assumes the persistent trig
+    /// constants in v16-v21 and `trig`. `scalar` (both lanes hold the same value)
+    /// tests and re-reduces lane 0 only.
+    fn emit_sincos_reduce(&mut self, k: &KernelRegs, scalar: bool) {
+        let t = k.trig();
+        let v = abi::VEC_SCRATCH;
+        self.emit(abi::vector_fmul(v[1], v[0], &k.v16)); // x*invpio2
+        self.emit(abi::vector_fadd(v[1], v[1], &k.v17)); // +0.5
+        self.emit(abi::vector_frintm(v[1], v[1])); // q = floor(..)
+        self.emit(abi::vector_orr(v[2], v[0], v[0])); // r = x
+        self.emit(abi::vector_fmls(v[2], v[1], &k.v18)); // r -= q*PIO2_1
+        self.emit(abi::vector_fmul(v[3], v[1], &k.v19)); // w = q*PIO2_2
+        self.emit(abi::vector_fsub(v[6], v[2], v[3])); // y0 = r - w
+        self.emit(abi::vector_fsub(v[7], v[2], v[6])); // r - y0
+        self.emit(abi::vector_fsub(v[7], v[7], v[3])); // t = (r-y0) - w
+        self.emit(abi::vector_fneg(v[7], v[7])); // -t
+        self.emit(abi::vector_fmla(v[7], v[1], &k.v20)); // -t + q*PIO2_2T
+        self.emit(abi::vector_fsub(v[2], v[6], v[7])); // r_hi = y0 - (..)
+        self.emit(abi::vector_fcvtzs(v[5], v[1])); // q (int)
+        self.emit(abi::vector_and(v[5], v[5], &k.v21)); // quad = q & 3
+
+        // r_lo = (y0 - r_hi) - (q*PIO2_2T - t): exactly what that last subtraction
+        // rounded away (bug-618 — dropping it cost the medium range its last ULP).
+        self.emit(abi::vector_fsub(&t.sin_corr, v[6], v[2]));
+        self.emit(abi::vector_fsub(&t.sin_corr, &t.sin_corr, v[7]));
+        // Route mask: (limit <= |x| < inf) | (|r_hi| < |x| * 2^-50). Every compare
+        // is false on a NaN lane, and the ratio compare is false on an infinite one
+        // (|r_hi| is NaN there).
+        self.emit(abi::vector_fabs(v[3], v[0]));
+        self.emit(abi::vector_fcmge(&t.route, v[3], &t.limit));
+        self.emit(abi::vector_fcmgt(v[4], &t.inf, v[3]));
+        self.emit(abi::vector_and(&t.route, &t.route, v[4]));
+        self.emit(abi::vector_fmul(v[4], v[3], &t.cancel));
+        self.emit(abi::vector_fabs(v[7], v[2]));
+        self.emit(abi::vector_fcmgt(v[4], v[4], v[7]));
+        self.emit(abi::vector_orr(&t.route, &t.route, v[4]));
+        let any = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&any, &t.route, 0));
+        if !scalar {
+            let lane1 = self.temporary_vreg();
+            self.emit(abi::vector_extract_to_x(&lane1, &t.route, 1));
+            self.emit(abi::or_registers(&any, &any, &lane1));
+        }
+        let reduced = self.label("simd_trig_reduced");
+        self.emit(abi::compare_immediate(&any, "0"));
+        self.emit(abi::branch_eq(&reduced));
+        if scalar {
+            let bits = self.temporary_vreg();
+            self.emit(abi::vector_extract_to_x(&bits, v[0], 0));
+            let (hi, lo, quad) = self.emit_rem_pio2_large_lane(&bits);
+            self.emit(abi::vector_dup_from_x(v[2], &hi));
+            self.emit(abi::vector_dup_from_x(&t.sin_corr, &lo));
+            self.emit(abi::vector_dup_from_x(v[5], &quad));
+        } else {
+            self.emit_rem_pio2_large_lanes(k);
+        }
+        self.emit(abi::label(&reduced));
+        // First-order effect of r_lo: sin(r_hi + r_lo) = sin(r_hi) + r_lo*cos(r_hi)
+        // and cos(r_hi + r_lo) = cos(r_hi) - r_lo*sin(r_hi), with cos(r_hi) taken as
+        // 1 - r^2/2 and sin(r_hi) as r_hi. The dropped terms are below 2^-60 of the
+        // result, and r_lo is itself at most half an ULP of r_hi.
+        self.emit(abi::vector_fmul(v[1], v[2], v[2])); // r2 (the Horner variable)
+        self.emit(abi::vector_orr(v[3], &t.one, &t.one));
+        self.emit(abi::vector_fmls(v[3], v[1], &k.v17)); // 1 - r2*0.5
+        self.emit(abi::vector_fmul(&t.cos_corr, v[2], &t.sin_corr));
+        self.emit(abi::vector_fneg(&t.cos_corr, &t.cos_corr)); // -r_hi*r_lo
+        self.emit(abi::vector_fmul(&t.sin_corr, &t.sin_corr, v[3])); // r_lo*(1 - r2/2)
+    }
+
+    /// The exact reduction for both lanes of an array body: each routed lane runs
+    /// [`Self::emit_rem_pio2_large_lane`] (one copy of the code, looped over the two
+    /// lanes through a stack block), and the results replace `r_hi` (`v2`), `r_lo`
+    /// (`trig.sin_corr`) and the quadrant (`v5`) in the routed lanes only. An
+    /// unrouted lane's result words are never written and never selected.
+    fn emit_rem_pio2_large_lanes(&mut self, k: &KernelRegs) {
+        let t = k.trig();
+        let v = abi::VEC_SCRATCH;
+        // Block layout, 16 bytes a field, lane 0 then lane 1:
+        // [x, route, r_hi, r_lo, quadrant].
+        if !self.stack_size.is_multiple_of(16) {
+            self.allocate_stack_object("simd_trig_pad", 16 - self.stack_size % 16);
+        }
+        let block = self.allocate_stack_object("simd_trig_lanes", 80);
+        self.emit(abi::vector_store(v[0], abi::stack_pointer(), block));
+        self.emit(abi::vector_store(
+            &t.route,
+            abi::stack_pointer(),
+            block + 16,
+        ));
+        let lane = self.temporary_vreg();
+        self.emit(abi::add_immediate(&lane, abi::stack_pointer(), block));
+        let remaining = self.temporary_vreg();
+        self.emit(abi::move_immediate(&remaining, "Integer", "2"));
+        let top = self.label("simd_trig_lane");
+        let next = self.label("simd_trig_lane_next");
+        self.emit(abi::label(&top));
+        let routed = self.temporary_vreg();
+        self.emit(abi::load_u64(&routed, &lane, 16));
+        self.emit(abi::compare_immediate(&routed, "0"));
+        self.emit(abi::branch_eq(&next));
+        let bits = self.temporary_vreg();
+        self.emit(abi::load_u64(&bits, &lane, 0));
+        let (hi, lo, quad) = self.emit_rem_pio2_large_lane(&bits);
+        self.emit(abi::store_u64(&hi, &lane, 32));
+        self.emit(abi::store_u64(&lo, &lane, 48));
+        self.emit(abi::store_u64(&quad, &lane, 64));
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&lane, &lane, 8));
+        self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+        self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_ne(&top));
+        self.emit(abi::vector_load(v[3], abi::stack_pointer(), block + 32));
+        self.emit(abi::vector_bit(v[2], v[3], &t.route));
+        self.emit(abi::vector_load(v[3], abi::stack_pointer(), block + 48));
+        self.emit(abi::vector_bit(&t.sin_corr, v[3], &t.route));
+        self.emit(abi::vector_load(v[3], abi::stack_pointer(), block + 64));
+        self.emit(abi::vector_bit(v[5], v[3], &t.route));
+    }
+
+    /// Exact reduction of one finite lane (Payne-Hanek with a fixed-width window).
+    /// `bits` holds the lane's `f64` bit pattern; returns GPRs holding the bit
+    /// patterns of `r_hi` and `r_lo` and the quadrant (low two bits significant).
+    ///
+    /// Write `|x| = m * 2^e` with `m` the 53-bit integer mantissa. Bits of `2/pi`
+    /// worth `2^-i` with `i <= e - 2` add multiples of 4 to `x * 2/pi`, so they
+    /// cannot move the quadrant or the fraction; the window starts at `2/pi`'s bit
+    /// `e - 1`. With the table's 55-bit pad that bit is table bit
+    /// `s = biased_exponent - 1022`, which lies in word `j = s >> 6` at offset
+    /// `s & 63`. `P = m * T[j..j+4] mod 2^256` (three 128-bit products and a carry
+    /// chain), shifted left by `s & 63`, puts the integer part mod 4 in the top two
+    /// bits and at least 190 fraction bits below them. The bits of `2/pi` past the
+    /// window contribute less than `m * 2^((s & 63) + 2 - 256) < 2^-138`.
+    ///
+    /// No finite double lies within `2^-61` of a multiple of `pi/2` in these
+    /// units (the closest, `6381956970095103 * 2^797`, has a fraction of about
+    /// `2^-61.5`), so rounding the fraction to the nearest integer — the top
+    /// fraction bit picks the quadrant and the sign, and a one's complement gives
+    /// the magnitude to within `2^-190` — leaves at least 76 significant bits.
+    /// Three 53-bit pieces of that magnitude convert to doubles exactly and sum to
+    /// a double-double, which the double-double `pi/2` scales to radians; the
+    /// result is within about `2^-100` relative of the true reduced angle.
+    ///
+    /// Only reached for a lane `emit_sincos_reduce` routed, which is finite and
+    /// at least `pi/4` in magnitude (a smaller one has quotient 0 and cannot
+    /// cancel), so `s` is in `[0, 1024]` and the four words `j..j+3` are in the
+    /// table.
+    fn emit_rem_pio2_large_lane(
+        &mut self,
+        bits: &VirtualRegister,
+    ) -> (VirtualRegister, VirtualRegister, VirtualRegister) {
+        let pool = self.math_pool_base_reg();
+        // s = biased exponent - (1077 - pad); window words T[j..j+4].
+        let shift = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&shift, bits, 1));
+        self.emit(abi::shift_right_immediate(&shift, &shift, 53));
+        self.emit(abi::subtract_immediate(
+            &shift,
+            &shift,
+            1077 - TWO_OVER_PI_PAD,
+        ));
+        let window = self.temporary_vreg();
+        self.emit(abi::shift_right_immediate(&window, &shift, 6));
+        self.emit(abi::shift_left_immediate(&window, &window, 4)); // j * 16
+        self.emit(abi::add_registers(&window, &window, &pool));
+        let base = two_over_pi_table_offset();
+        let mut words = Vec::new();
+        for i in 0..4 {
+            let word = self.temporary_vreg();
+            self.emit(abi::load_u64(&word, &window, base + 16 * i));
+            words.push(word);
+        }
+        let (w3, w2, w1, w0) = (&words[0], &words[1], &words[2], &words[3]);
+        // m = mantissa | 2^52.
+        let mant = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&mant, bits, 12));
+        self.emit(abi::shift_right_immediate(&mant, &mant, 12));
+        let unit = self.temporary_vreg();
+        self.emit(abi::move_immediate(
+            &unit,
+            "Integer",
+            &(1u64 << 52).to_string(),
+        ));
+        self.emit(abi::or_registers(&mant, &mant, &unit));
+        // P = m * (w3:w2:w1:w0) mod 2^256 = p3:p2:p1:p0.
+        let p0 = self.temporary_vreg();
+        let h0 = self.temporary_vreg();
+        let p1 = self.temporary_vreg();
+        let h1 = self.temporary_vreg();
+        let p2 = self.temporary_vreg();
+        let h2 = self.temporary_vreg();
+        let p3 = self.temporary_vreg();
+        self.emit(abi::multiply_registers(&p0, &mant, w0));
+        self.emit(abi::unsigned_multiply_high_registers(&h0, &mant, w0));
+        self.emit(abi::multiply_registers(&p1, &mant, w1));
+        self.emit(abi::unsigned_multiply_high_registers(&h1, &mant, w1));
+        self.emit(abi::multiply_registers(&p2, &mant, w2));
+        self.emit(abi::unsigned_multiply_high_registers(&h2, &mant, w2));
+        self.emit(abi::multiply_registers(&p3, &mant, w3));
+        let carry1 = self.temporary_vreg();
+        let carry2 = self.temporary_vreg();
+        self.emit(abi::add_carry(&p1, &carry1, &h0, &p1, abi::ZERO));
+        self.emit(abi::add_carry(&p2, &carry2, &h1, &p2, &carry1));
+        self.emit(abi::add_carry(&p3, abi::ZERO, &h2, &p3, &carry2));
+        // y3:y2:y1 = P << (s & 63). Variable shifts use the amount's low six bits
+        // on every backend; `(w >> 1) >> (63 - b)` is `w >> (64 - b)` without the
+        // undefined shift by 64 at b = 0 (`!s & 63 == 63 - (s & 63)`).
+        let back = self.temporary_vreg();
+        self.emit(abi::bitwise_not(&back, &shift));
+        let y3 = self.emit_shl_pair(&p3, &p2, &shift, &back);
+        let y2 = self.emit_shl_pair(&p2, &p1, &shift, &back);
+        let y1 = self.emit_shl_pair(&p1, &p0, &shift, &back);
+        // Quadrant = round(integer.fraction) mod 4 = (y3 + 2^61) >> 62.
+        let quad = self.temporary_vreg();
+        self.emit(abi::move_immediate(
+            &quad,
+            "Integer",
+            &(1u64 << 61).to_string(),
+        ));
+        self.emit(abi::add_registers(&quad, &quad, &y3));
+        self.emit(abi::shift_right_immediate(&quad, &quad, 62));
+        // Rounded up (fraction >= 1/2): the reduced angle is negative and its
+        // magnitude is the one's complement of the fraction.
+        let negative = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&negative, &y3, 2));
+        self.emit(abi::arithmetic_shift_right_immediate(
+            &negative, &negative, 63,
+        ));
+        self.emit(abi::exclusive_or_registers(&y3, &y3, &negative));
+        self.emit(abi::exclusive_or_registers(&y2, &y2, &negative));
+        self.emit(abi::exclusive_or_registers(&y1, &y1, &negative));
+        // Three 53-bit pieces of the magnitude (y3 bit 61 is 2^-1, and is 0 here):
+        // y3[60..8] * 2^-54, y3[7..0]:y2[63..19] * 2^-107, y2[18..0]:y1[63..30] * 2^-160.
+        let piece_a = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&piece_a, &y3, 3));
+        self.emit(abi::shift_right_immediate(&piece_a, &piece_a, 11));
+        let piece_b = self.emit_join_piece(&y3, 56, &y2, 19);
+        let piece_c = self.emit_join_piece(&y2, 45, &y1, 30);
+        // Double-double u = a + b + c (units of pi/2), then r = u * pi/2.
+        let fa = self.emit_scaled_piece(&piece_a, TWO_POW_M54);
+        let fb = self.emit_scaled_piece(&piece_b, TWO_POW_M107);
+        let fc = self.emit_scaled_piece(&piece_c, TWO_POW_M160);
+        let sum = self.temporary_fp_vreg();
+        let err = self.temporary_fp_vreg();
+        let tmp1 = self.temporary_fp_vreg();
+        let tmp2 = self.temporary_fp_vreg();
+        self.emit(abi::float_add_d(&sum, &fa, &fb)); // two-sum(a, b)
+        self.emit(abi::float_subtract_d(&tmp1, &sum, &fa));
+        self.emit(abi::float_subtract_d(&tmp2, &sum, &tmp1));
+        self.emit(abi::float_subtract_d(&tmp2, &fa, &tmp2));
+        self.emit(abi::float_subtract_d(&tmp1, &fb, &tmp1));
+        self.emit(abi::float_add_d(&err, &tmp2, &tmp1));
+        self.emit(abi::float_add_d(&err, &err, &fc));
+        let u_hi = self.temporary_fp_vreg();
+        let u_lo = self.temporary_fp_vreg();
+        self.emit(abi::float_add_d(&u_hi, &sum, &err)); // fast two-sum renormalize
+        self.emit(abi::float_subtract_d(&u_lo, &u_hi, &sum));
+        self.emit(abi::float_subtract_d(&u_lo, &err, &u_lo));
+        let pio2_hi = self.temporary_fp_vreg().render();
+        let pio2_lo = self.temporary_fp_vreg().render();
+        self.emit_load_pool_double(&pio2_hi, std::f64::consts::FRAC_PI_2);
+        self.emit_load_pool_double(&pio2_lo, PIO2_DD_LO);
+        let prod = self.temporary_fp_vreg();
+        let prod_err = self.temporary_fp_vreg();
+        self.emit(abi::float_multiply_d(&prod, &u_hi, &pio2_hi));
+        self.emit(abi::float_negate_d(&prod_err, &prod));
+        self.emit(abi::float_multiply_add_d(
+            &prod_err, &prod_err, &u_hi, &pio2_hi,
+        ));
+        self.emit(abi::float_multiply_add_d(
+            &prod_err, &prod_err, &u_hi, &pio2_lo,
+        ));
+        self.emit(abi::float_multiply_add_d(
+            &prod_err, &prod_err, &u_lo, &pio2_hi,
+        ));
+        let r_hi = self.temporary_fp_vreg();
+        let r_lo = self.temporary_fp_vreg();
+        self.emit(abi::float_add_d(&r_hi, &prod, &prod_err));
+        self.emit(abi::float_subtract_d(&r_lo, &r_hi, &prod));
+        self.emit(abi::float_subtract_d(&r_lo, &prod_err, &r_lo));
+        // Sign: negative reduced angle XOR negative x. For a negative x the
+        // quadrant negates too: (q ^ sx) - sx.
+        let sign_x = self.temporary_vreg();
+        self.emit(abi::arithmetic_shift_right_immediate(&sign_x, bits, 63));
+        self.emit(abi::exclusive_or_registers(&negative, &negative, &sign_x));
+        self.emit(abi::shift_left_immediate(&negative, &negative, 63)); // sign bit
+        let hi = self.temporary_vreg();
+        let lo = self.temporary_vreg();
+        self.emit(abi::float_move_x_from_d(&hi, &r_hi));
+        self.emit(abi::float_move_x_from_d(&lo, &r_lo));
+        self.emit(abi::exclusive_or_registers(&hi, &hi, &negative));
+        self.emit(abi::exclusive_or_registers(&lo, &lo, &negative));
+        self.emit(abi::exclusive_or_registers(&quad, &quad, &sign_x));
+        self.emit(abi::subtract_registers(&quad, &quad, &sign_x));
+        (hi, lo, quad)
+    }
+
+    /// `(high << b) | (low >> (64 - b))` into a fresh register, with `back = !b`.
+    fn emit_shl_pair(
+        &mut self,
+        high: &VirtualRegister,
+        low: &VirtualRegister,
+        amount: &VirtualRegister,
+        back: &VirtualRegister,
+    ) -> VirtualRegister {
+        let out = self.temporary_vreg();
+        let spill = self.temporary_vreg();
+        self.emit(abi::shift_left_variable(&out, high, amount));
+        self.emit(abi::shift_right_immediate(&spill, low, 1));
+        self.emit(abi::shift_right_variable(&spill, &spill, back));
+        self.emit(abi::or_registers(&out, &out, &spill));
+        out
+    }
+
+    /// A 53-bit piece: the low `64 - left` bits of `high` followed by the top
+    /// `64 - right` bits of `low` (`(64 - left) + (64 - right) == 53`).
+    fn emit_join_piece(
+        &mut self,
+        high: &VirtualRegister,
+        left: u8,
+        low: &VirtualRegister,
+        right: u8,
+    ) -> VirtualRegister {
+        let out = self.temporary_vreg();
+        let tail = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&out, high, left));
+        self.emit(abi::shift_right_immediate(&out, &out, 11));
+        self.emit(abi::shift_right_immediate(&tail, low, right));
+        self.emit(abi::or_registers(&out, &out, &tail));
+        out
+    }
+
+    /// `piece * scale` as a double: the piece has at most 53 bits, so the
+    /// conversion is exact, and `scale` is a power of two.
+    fn emit_scaled_piece(&mut self, piece: &VirtualRegister, scale: f64) -> String {
+        let out = self.temporary_fp_vreg().render();
+        let factor = self.temporary_fp_vreg().render();
+        self.emit(abi::signed_convert_to_float_d(&out, piece));
+        self.emit_load_pool_double(&factor, scale);
+        self.emit(abi::float_multiply_d(&out, &out, &factor));
+        out
+    }
+
+    /// Load a pooled `f64` constant into a scalar FP register.
+    fn emit_load_pool_double(&mut self, dst: &str, value: f64) {
+        let offset = math_const_pool_offset(value.to_bits())
+            .expect("the exact trig reduction's constants are pooled");
+        let pool = self.math_pool_base_reg();
+        self.emit(abi::load_double(dst, &pool, offset));
     }
 
     /// `sin`/`cos` kernel. After reduction, evaluate the polynomials in
@@ -1120,14 +1571,39 @@ impl CodeBuilder<'_> {
     /// into `v24`) and `cos_r = P_cos(r^2)` (collapsed into `v23`), then apply the
     /// quadrant selection/sign. The compensated polynomials make sin/cos strict
     /// <=1 ULP of macOS libm.
+    /// `sin(±0)` is `±0` and `tan(±0)` is `±0` — IEEE 754 §6.3 keeps the sign of a
+    /// zero argument, and every libm does. The kernel lost it: the reduced angle
+    /// of `-0.0` is `-0.0`, `-0.0 * P(r^2)` is `-0.0`, but the compensated sum
+    /// that collapses the double-double adds the `+0.0` low half, and
+    /// `(-0.0) + (+0.0)` is `+0.0`. Rather than re-plumb the sign through the
+    /// compensation, select the argument itself on any lane whose input is zero:
+    /// `fcmeq_zero` is true for both zeros and false for everything else
+    /// (including NaN), so no other lane can be touched. Costs three instructions
+    /// on `sin` and `tan`; `cos(±0)` is `1.0` and needs nothing.
+    ///
+    /// Pre-existing, found while fixing bug-618 (the RED case is in
+    /// `tests/runtime/rt_math_float_trig_large_angles.rs`).
+    fn emit_zero_argument_passthrough(&mut self, k: &KernelRegs) {
+        let arg = k.trig().arg.clone();
+        let mask = self.temporary_fp_vreg().render();
+        self.emit(abi::vector_fcmeq_zero(&mask, &arg));
+        self.emit(abi::vector_bsl(&mask, &arg, abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], &mask, &mask));
+    }
+
+    /// Save the argument for [`Self::emit_zero_argument_passthrough`] before the
+    /// reduction overwrites `v0`.
+    fn emit_save_trig_argument(&mut self, k: &KernelRegs) {
+        let arg = k.trig().arg.clone();
+        self.emit(abi::vector_orr(&arg, abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+    }
+
     fn emit_sin_cos_body(&mut self, want_cos: bool, k: &KernelRegs) {
-        self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[2],
-        )); // r2 (Horner var)
-            // cos_r = collapse(P_cos(r2)) → v23.
+        if !want_cos {
+            self.emit_save_trig_argument(k);
+        }
+        self.emit_sincos_reduce(k, false); // reduced=v2, r2=v1, quad=v5
+                                           // cos_r = collapse(P_cos(r2)) → v23.
         self.emit_cos_r_into(&k.v23, k);
         // sin_r = r * collapse(P_sin(r2)) → v24 (carry the lo through the multiply).
         self.emit_sin_r_into(&k.v24, k);
@@ -1161,6 +1637,7 @@ impl CodeBuilder<'_> {
                 abi::VEC_SCRATCH[3],
                 abi::VEC_SCRATCH[1],
             ));
+            self.emit_zero_argument_passthrough(k);
         } else {
             // cos: val = bit0 ? sin_r : cos_r; negate if bit0 XOR bit1.
             self.emit(abi::vector_eor(
@@ -1191,14 +1668,12 @@ impl CodeBuilder<'_> {
     /// reduction, same compensated polynomial, same sign select — for ~half the
     /// polynomial work. (`tan` still needs both halves and keeps the array body.)
     fn emit_sin_cos_body_scalar(&mut self, want_cos: bool, k: &KernelRegs) {
-        self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[2],
-        )); // r2 (Horner var)
-            // Negate mask → v25 (the Horner never touches v25/v26): sin negates on
-            // bit1, cos on bit0^bit1. Matches emit_sin_cos_body's branchless masks.
+        if !want_cos {
+            self.emit_save_trig_argument(k);
+        }
+        self.emit_sincos_reduce(k, true); // reduced=v2, r2=v1, quad=v5
+                                          // Negate mask → v25 (the Horner never touches v25/v26): sin negates on
+                                          // bit1, cos on bit0^bit1. Matches emit_sin_cos_body's branchless masks.
         self.emit(abi::vector_shl(&k.v26, abi::VEC_SCRATCH[5], 63));
         self.emit(abi::vector_sshr(&k.v26, &k.v26, 63)); // bit0 all-ones
         self.emit(abi::vector_shl(&k.v25, abi::VEC_SCRATCH[5], 62));
@@ -1238,6 +1713,9 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[3],
             &k.v25,
         ));
+        if !want_cos {
+            self.emit_zero_argument_passthrough(k);
+        }
         self.emit_result_nan_into_mask(k);
     }
 
@@ -1251,6 +1729,12 @@ impl CodeBuilder<'_> {
             &COS_COEFFS,
             k,
         );
+        let cos_corr = &k.trig().cos_corr;
+        self.emit(abi::vector_fadd(
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+            cos_corr,
+        )); // lo += -r*r_lo
         self.emit(abi::vector_fadd(
             dst,
             abi::VEC_SCRATCH[3],
@@ -1280,6 +1764,12 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[2],
             abi::VEC_SCRATCH[4],
         )); // pe += r*lo
+        let sin_corr = &k.trig().sin_corr;
+        self.emit(abi::vector_fadd(
+            abi::VEC_SCRATCH[7],
+            abi::VEC_SCRATCH[7],
+            sin_corr,
+        )); // pe += r_lo*(1 - r2/2)
         self.emit(abi::vector_fadd(
             dst,
             abi::VEC_SCRATCH[6],
@@ -1293,22 +1783,18 @@ impl CodeBuilder<'_> {
     /// quotient is evaluated with a one-step double-double-accurate division
     /// (`q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`). Carrying the lo
     /// halves through the divide closes the near-pole 2-ULP residual the plain
-    /// `fdiv` left. (Medium-range Cody-Waite reduction, like sin/cos; huge
-    /// arguments would need Payne-Hanek, out of scope.)
+    /// `fdiv` left. (It shares `emit_sincos_reduce` with sin/cos, so a huge or a
+    /// cancelling angle takes the same exact reduction, bug-618.)
     /// tan's shared double-double `sin_r`/`cos_r` computation (bug-332 B2): reduce
     /// the angle, evaluate P_cos(r2) and reduced*P_sin(r2) as compensated
     /// double-doubles, and stash `cos_r` in (v25,v26) and `sin_r` in (v23,v24).
     /// Identical for the branchless (`emit_tan_body`) and scalar-branching
     /// (`emit_tan_body_scalar`) quadrant selects that follow, so extracting it
     /// keeps the two paths bit-identical through the reduction.
-    fn emit_tan_sincos_dd(&mut self, k: &KernelRegs) {
-        self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[2],
-        )); // r2 (Horner var, survives)
-            // cos_r as a double-double (hi,lo) → stash in v25/v26.
+    fn emit_tan_sincos_dd(&mut self, k: &KernelRegs, scalar: bool) {
+        self.emit_save_trig_argument(k);
+        self.emit_sincos_reduce(k, scalar); // reduced=v2, r2=v1 (survives), quad=v5
+                                            // cos_r as a double-double (hi,lo) → stash in v25/v26.
         self.emit_compensated_horner(
             abi::VEC_SCRATCH[3],
             abi::VEC_SCRATCH[4],
@@ -1316,6 +1802,12 @@ impl CodeBuilder<'_> {
             &COS_COEFFS,
             k,
         );
+        let t = k.trig();
+        self.emit(abi::vector_fadd(
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+            &t.cos_corr,
+        )); // lo += -r*r_lo
         self.emit(abi::vector_orr(
             &k.v25,
             abi::VEC_SCRATCH[3],
@@ -1345,6 +1837,11 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[2],
             abi::VEC_SCRATCH[4],
         )); // lo += reduced*sin_lo
+        self.emit(abi::vector_fadd(
+            abi::VEC_SCRATCH[7],
+            abi::VEC_SCRATCH[7],
+            &t.sin_corr,
+        )); // lo += r_lo*(1 - r2/2)
         self.emit(abi::vector_orr(
             &k.v23,
             abi::VEC_SCRATCH[6],
@@ -1358,7 +1855,7 @@ impl CodeBuilder<'_> {
     }
 
     fn emit_tan_body(&mut self, k: &KernelRegs) {
-        self.emit_tan_sincos_dd(k);
+        self.emit_tan_sincos_dd(k, false);
         // Quadrant masks: b0 → v27, b1 → v2.
         self.emit(abi::vector_shl(&k.v27, abi::VEC_SCRATCH[5], 63));
         self.emit(abi::vector_sshr(&k.v27, &k.v27, 63));
@@ -1432,13 +1929,13 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[4],
         )); // cos_full_lo
             // Double-double-accurate divide: sh=v28 sl=v29 ch=v30 cl=v31.
-        self.emit_tan_divide(&k.v28, &k.v29, &k.v30, &k.v31);
+        self.emit_tan_divide(&k.v28, &k.v29, &k.v30, &k.v31, k);
     }
 
     /// One-step double-double-accurate quotient `tan = sh:sl / ch:cl` into `v0`:
     /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
     /// four operand registers; scratch is v0/v3/v4/v6.
-    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str) {
+    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str, k: &KernelRegs) {
         self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], sh, ch)); // q = sh/ch
         self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0])); // -q
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], sh, sh));
@@ -1468,6 +1965,7 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[0],
             abi::VEC_SCRATCH[4],
         )); // tan = q + num/ch
+        self.emit_zero_argument_passthrough(k);
     }
 
     /// Scalar-only `tan`: `tan` has period π, so the quadrant reduces to bit0 —
@@ -1478,7 +1976,7 @@ impl CodeBuilder<'_> {
     /// the 2-lane array body needs. The two compensated Horners still run (the
     /// ratio needs both halves); only the selection is removed.
     fn emit_tan_body_scalar(&mut self, k: &KernelRegs) {
-        self.emit_tan_sincos_dd(k);
+        self.emit_tan_sincos_dd(k, true);
         // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
         let bit0 = self.temporary_vreg();
         let one = self.temporary_vreg();
@@ -1492,11 +1990,11 @@ impl CodeBuilder<'_> {
         // bit0 set: num = cos_r, den = -sin_r.
         self.emit(abi::vector_fneg(&k.v30, &k.v23)); // -sin_hi
         self.emit(abi::vector_fneg(&k.v31, &k.v24)); // -sin_lo
-        self.emit_tan_divide(&k.v25, &k.v26, &k.v30, &k.v31);
+        self.emit_tan_divide(&k.v25, &k.v26, &k.v30, &k.v31, k);
         self.emit(abi::branch(&tan_done));
         self.emit(abi::label(&bit0_clear));
         // bit0 clear: num = sin_r, den = cos_r.
-        self.emit_tan_divide(&k.v23, &k.v24, &k.v25, &k.v26);
+        self.emit_tan_divide(&k.v23, &k.v24, &k.v25, &k.v26, k);
         self.emit(abi::label(&tan_done));
         // tan fails only on a NaN result (NaN/inf input) — same as the array body.
         self.emit_result_nan_into_mask(k);
@@ -2041,7 +2539,7 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&out_data, &result_base, &ParameterType::Float);
         let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
-        let k = &self.float_kernel_regs();
+        let k = &self.float_kernel_regs(false);
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit_float_binary_setup(kernel, k);
 
@@ -2126,7 +2624,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], left_loc));
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[1], right_loc));
-        let k = &self.float_kernel_regs();
+        let k = &self.float_kernel_regs(false);
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit(abi::vector_eor(&k.v24, &k.v24, &k.v24)); // inf/overflow mask
         self.emit_float_binary_setup(kernel, k);
@@ -2241,24 +2739,55 @@ mod pool_layout_tests {
     /// enforces that those derivations agree, so memoizing `math_const_pool_words`
     /// (G2) — or any future coefficient edit — cannot silently make the emitted
     /// offsets and the emitted data blob disagree.
+    ///
+    /// bug-618 split the pool in two: the value-addressed constant section this
+    /// test always pinned, and the `2/pi` table appended after it, which the exact
+    /// trig reduction addresses BY INDEX (`pool + table + 16*j`) and which is
+    /// therefore deliberately neither deduplicated nor reachable through
+    /// `math_const_pool_offset`. The constant section keeps every assertion it had;
+    /// the table gets the stronger positional one (word `i` sits at
+    /// `table_offset + 16*i`, verbatim and in order), since that is what its
+    /// indexed load depends on.
     #[test]
     fn math_const_pool_layout_is_pinned() {
         let words = math_const_pool_words();
         assert!(!words.is_empty(), "the constant pool must not be empty");
+        let constants = words.len() - TWO_OVER_PI_WORDS.len();
+        assert_eq!(
+            two_over_pi_table_offset(),
+            constants * 16,
+            "the 2/pi table must start right after the constant section"
+        );
 
-        // The pool dedups on insertion; a repeat would mean that invariant broke.
+        // The constant section dedups on insertion; a repeat would mean that
+        // invariant broke.
         let mut seen = std::collections::HashSet::new();
-        for &w in &words {
+        for &w in &words[..constants] {
             assert!(seen.insert(w), "duplicate word {w:#x} in the constant pool");
         }
 
-        // Every word's byte offset is exactly its index * 16, and the reverse
+        // Every constant's byte offset is exactly its index * 16, and the reverse
         // lookup agrees — this is what the broadcast immediates depend on.
-        for (i, &w) in words.iter().enumerate() {
+        for (i, &w) in words[..constants].iter().enumerate() {
             assert_eq!(
                 math_const_pool_offset(w),
                 Some(i * 16),
                 "offset for word[{i}] = {w:#x} disagrees with its position"
+            );
+        }
+
+        // The 2/pi table is stored verbatim, in order, immediately after them, and
+        // no value lookup ever resolves into it (a table word that happens to equal
+        // a constant must still resolve to the constant).
+        for (i, &w) in TWO_OVER_PI_WORDS.iter().enumerate() {
+            assert_eq!(
+                words[constants + i],
+                w,
+                "2/pi table word {i} is not at its slot"
+            );
+            assert!(
+                math_const_pool_offset(w).is_none_or(|offset| offset < constants * 16),
+                "value lookup of {w:#x} resolved into the 2/pi table"
             );
         }
 

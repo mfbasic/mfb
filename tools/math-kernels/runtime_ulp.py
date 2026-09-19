@@ -54,8 +54,10 @@ try:
 except ImportError:
     _TRUTH = None
 
-# fdlibm medium-range trig reduction limit (matches gen_coeffs.py); beyond it the
-# kernel would need Payne-Hanek, which is out of scope here exactly as for sin/cos.
+# The fdlibm medium-range reduction limit. It is NO LONGER a scope boundary: since
+# bug-618 the codegen reduces a large argument exactly (a 2/pi table), so those
+# vectors must meet the same bar as any other and are gated below. The split is
+# kept only because it is worth SEEING the two regimes reported separately.
 _TRIG_PRIMARY = 2.0 ** 20 * (math.pi / 2.0)
 
 
@@ -288,7 +290,10 @@ def run(fn, ref_dir, mfb, decimals, limit, target=None, runner=None, dump=None):
     if e[0]:
         epct = 100.0 * e[1] / e[0]
         print(f"  extended: {e[0]:5d} vectors  {epct:6.2f}% <=1ULP vs macOS  maxULP={e[2]} "
-              f"(large-arg / Payne-Hanek, out of scope)")
+              f"(large arguments, reduced exactly since bug-618 — gated)")
+        if truth_fn is not None:
+            etpct = (100.0 * e[4] / e[0]) if e[0] else 0.0
+            print(f"            {e[0]:5d} vectors  {etpct:6.2f}% <=1ULP vs TRUTH  maxULP={e[5]}")
     if skipped_unrecoverable:
         print(f"  skipped : {skipped_unrecoverable} vectors (|result| too small for "
               f"{decimals}-decimal recovery)")
@@ -298,7 +303,16 @@ def run(fn, ref_dir, mfb, decimals, limit, target=None, runner=None, dump=None):
         print(f"    MISS {fn}{tuple(args)}: got {got!r} exp {expected!r}{extra}  {u} ULP")
     # Gate on ULP-vs-truth when available (the real correctness bar); otherwise on
     # ULP-vs-macOS.
-    ok = (p[4] == p[0]) if truth_fn is not None else (p[1] == p[0])
+    # bug-618: the extended bucket counts too — a large argument is reduced
+    # exactly now, so a miss there is a defect, not an accepted limitation.
+    if truth_fn is not None:
+        ok = p[4] == p[0] and e[4] == e[0]
+    else:
+        ok = p[1] == p[0] and e[1] == e[0]
+    for row in e[3][:12]:
+        args, got, expected, t, u = row
+        extra = f" truth {t!r}" if t is not None else ""
+        print(f"    MISS (large) {fn}{tuple(args)}: got {got!r} exp {expected!r}{extra}  {u} ULP")
     return 0 if ok else 3
 
 
