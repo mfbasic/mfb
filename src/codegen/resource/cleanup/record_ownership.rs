@@ -76,13 +76,22 @@ enum Source {
     Unknown,
 }
 
-/// `tcp`/`udp`/`tls`/`thread` members that return a resource all return a NEW record
-/// (connect/listen/accept/bind, and `thread::accept`'s copy into this arena). The
-/// borrowed-element forms are filtered by `value_aliases_live_resource` before this.
+/// `fs`/`tcp`/`udp`/`tls`/`thread` members that return a resource all return a NEW
+/// record (open/connect/listen/accept/bind, and `thread::accept`'s copy into this
+/// arena). The borrowed-element forms are filtered by `value_aliases_live_resource`
+/// before this.
+///
+/// bug-647: `fs` was missing, so no `fs::File` binding was ever an owning local and its
+/// 96 B record leaked on every bind — 192 B under an inline `TRAP`, which materializes a
+/// second record for the error-path binding. Every `fs` member that returns a resource is
+/// an opener that allocates a fresh record — `open`, `openFile`, `openFileNoFollow`,
+/// `openWithin`, `createTempFile`, and no other `fs` member returns `fs::File` (checked
+/// against the rendered `mfb man fs --all` declarations) — so the same reasoning that
+/// admits the other four packages admits this one.
 fn is_record_producer_target(target: &str) -> bool {
     matches!(
         target.split('.').next(),
-        Some("tcp" | "udp" | "tls" | "thread")
+        Some("fs" | "tcp" | "udp" | "tls" | "thread")
     )
 }
 

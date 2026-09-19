@@ -45,8 +45,18 @@ impl CodeBuilder<'_> {
     /// `TRAP` handler after a scope exit) skips on the existing null guard.
     ///
     /// Other kinds keep the tombstone: their producers include records this
-    /// analysis has not audited (native `LINK` thunks, `audio`, `process`), and
-    /// `fs::File` shares the record with the drop's buffer reclaim.
+    /// analysis has not audited (native `LINK` thunks, `audio`, `process`).
+    ///
+    /// bug-647: `fs.File` used to be excluded too, "shares the record with the
+    /// drop's buffer reclaim". That reason was stale — and it cost two whole
+    /// records per bind. [`Self::emit_resource_block_reclaim`] frees in dependency
+    /// order already: the two `File` buffers (reached THROUGH the record's
+    /// `FILE_OFFSET_BUF_PTR` / `FILE_OFFSET_READ_PTR` words), then the STATE block,
+    /// and only then the record itself. Nothing reads the record after it is freed,
+    /// so sharing it with the buffer reclaim is exactly what the ordering handles.
+    /// Including it here frees the producer's record AND, through the
+    /// `frees_record` flag this predicate feeds, the closed default record an
+    /// inline `TRAP`'s `$trap_valN` binding materializes.
     ///
     /// bug-623 B: the kind is necessary, not sufficient. A binding frees the record
     /// only when it also OWNS it (`record_owning_locals`, computed by
@@ -60,6 +70,7 @@ impl CodeBuilder<'_> {
             "udp.Socket",
             "tls.Socket",
             "tls.Listener",
+            "fs.File",
         ]
         .iter()
         .any(|name| base.is_named(name))
