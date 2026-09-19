@@ -92,21 +92,30 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&skip));
     }
 
-    /// A thread `start`/`send`/`emit`/`transferResource`/`emitResource` moves its
-    /// data argument (`args[1]`) across the arena boundary. If that argument was a
-    /// fresh heap temporary, claim it so the statement-scope free never reclaims a
-    /// block the worker/queue may still reference — conservatively preserving the
+    /// A thread `start`/`transferResource`/`emitResource` moves its data argument
+    /// (`args[1]`) across the arena boundary. If that argument was a fresh heap
+    /// temporary, claim it so the statement-scope free never reclaims a block the
+    /// worker/queue may still reference — conservatively preserving the
     /// pre-plan-25 behaviour (these cross-arena values were never freed by the
     /// sender). A `Local` data argument is an aliasing source that was never
     /// registered, so this is a no-op for it (plan-25).
+    ///
+    /// bug-629 Part A / bug-649: `thread.send` and `thread.emit` are NOT in that
+    /// list. They are the two targets whose helper deep-copies the message into
+    /// the sender's own arena and hands the COPY across
+    /// (`emit_thread_send_runtime_helper_call`, bug-498), so the original never
+    /// crosses anything and claiming it only removed its one owner — 32 B per
+    /// parent send, 16 B per worker send, leaked forever. The copy has its own
+    /// owner on both outcomes: a delivered one is reclaimed through the queue's
+    /// pending-free list by the sender (bug-646), a failed send's orphan by the
+    /// same list (bug-147.5b). `thread.start` stays claimed because it does NOT
+    /// copy — it stores the caller's pointer in `THREAD_OFFSET_DATA` and the
+    /// worker body reads it as its argument for the thread's whole life, so the
+    /// statement-scope free would be a use-after-free.
     pub(crate) fn claim_moved_thread_arg_temp(&mut self, target: &str, arg_values: &[ValueResult]) {
         if matches!(
             target,
-            "thread.start"
-                | "thread.send"
-                | "thread.emit"
-                | "thread.transferResource"
-                | "thread.emitResource"
+            "thread.start" | "thread.transferResource" | "thread.emitResource"
         ) {
             if let Some(arg) = arg_values.get(1) {
                 self.claim_pending_temp(arg);
@@ -166,7 +175,9 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
         }
         // The message argument is copied below (into THIS thread's arena) and the
-        // copy handed across; keep the statement-scope temp cleanup off it (plan-25).
+        // copy handed across, so the original is dead after this call and the
+        // statement-scope temp cleanup frees it (bug-629 Part A / bug-649). The
+        // resource targets keep the claim — see `claim_moved_thread_arg_temp`.
         self.claim_moved_thread_arg_temp(target, &arg_values);
 
         self.reset_temporary_registers();
