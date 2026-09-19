@@ -306,8 +306,7 @@ impl CodeBuilder<'_> {
         ));
         if let (true, Some(state_type)) = (resource_reclaimable, msg_type.state()) {
             let state_done = self.label("runtime_thread_send_state_size_done");
-            let state_ptr_slot =
-                self.allocate_stack_object("runtime_thread_send_state_ptr", 8);
+            let state_ptr_slot = self.allocate_stack_object("runtime_thread_send_state_ptr", 8);
             let record = self.temporary_vreg();
             let state_ptr = self.temporary_vreg();
             self.emit(abi::load_u64(
@@ -343,7 +342,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
         self.emit(abi::move_register(&abi::argument_register(3)?, &scratch9));
         // Arg 4: the STATE block's size (0 when the message has none) — bug-650 case 2.
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), state_size_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            state_size_slot,
+        ));
         self.emit(abi::move_register(&abi::argument_register(4)?, &scratch9));
         self.emit_symbol_call(symbol);
 
