@@ -371,9 +371,10 @@ def _build_recon(coeff_table):
 
     def _sincos_reduce(x):
         # fdlibm medium-range Cody-Waite: accurate to ~|x| < 2**20 * pi/2. Beyond
-        # that a Payne-Hanek reduction (multi-word 2/pi table) is required; the
-        # large-argument trig vectors are the codegen's job — see README
-        # "verify scope".
+        # that an exact (multi-word 2/pi table) reduction is required. The codegen
+        # HAS one since bug-618 and `runtime_ulp.py` gates it; this reference model
+        # deliberately does not, so its large-argument vectors stay bucketed
+        # separately — see README "verify scope".
         PIO2_1 = 1.57079632673412561417e+00      # pi/2, high 33 bits
         PIO2_1T = 6.07710050650619224932e-11     # pi/2 - PIO2_1
         PIO2_2 = 6.07710050630396597660e-11
@@ -754,8 +755,8 @@ def verify(ref_dir, only=None):
     print("     against these same .ref files; this report scopes the work.")
     print("Derived-function and extended-domain misses are the codegen's job "
           "(production")
-    print("identities / double-double pow / Payne-Hanek) — see README "
-          "'verify scope'.")
+    print("identities / double-double pow; the large-argument reduction landed in")
+    print("bug-618 and is gated by runtime_ulp.py) — see README 'verify scope'.")
     # Operational success = ran and every requested .ref was present. The ULP
     # numbers above are the report; the kernel ACCURACY gate lives in the Rust
     # tests, so a missing reference (capture not run) is the only hard failure.

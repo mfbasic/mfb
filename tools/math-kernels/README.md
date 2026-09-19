@@ -122,14 +122,19 @@ cos         1059  100.00%       1          20    0.00%   8.6e14
   rate and `maxULP` here measure **coefficient + identity** quality. `exp` and
   `cos` reach 100% / 1 ULP, demonstrating the pipeline reaches the bar
   end-to-end.
-- **extended** — large-argument trig vectors (|x| ≳ 2²⁰·π/2) that require a
-  **Payne-Hanek** reduction the reference model deliberately omits. Misses here
+- **extended** — large-argument trig vectors (|x| ≳ 2²⁰·π/2). The reference model
+  here deliberately omits the exact reduction, so misses in `gen_coeffs.py verify`
   measure the *codegen's* large-argument reduction, **not** a coefficient defect.
+  In `runtime_ulp.py`, which drives the real emitted kernel, they are **gated like
+  any other vector** since bug-618 gave the codegen an exact (2/pi table)
+  reduction — a miss there is a defect.
 
 Two classes of residual gap are, by design, the codegen implementer's Phase-5
 work rather than this tool's:
 
-- **Payne-Hanek** large-argument trig reduction (the `extended` bucket).
+- ~~**Payne-Hanek** large-argument trig reduction (the `extended` bucket).~~ Done
+  in bug-618: `emit_sincos_reduce` reduces exactly against a committed 2/pi table,
+  and `runtime_ulp.py` gates those vectors.
 - **Production identities / extra precision** for the derived functions — most
   notably `pow`, which needs `y·log(x)` evaluated in double-double, and the
   last-ULP argument-segmenting in `atan`/`asin`/`acos`/`log10`. The naive
@@ -137,9 +142,10 @@ work rather than this tool's:
   not the limiting factor.
 
 In short: **this tool proves the coefficients and supplies the oracle**; closing
-the last ULP on the full kernels (Payne-Hanek, double-double `pow`, segmented
-reductions) happens in codegen, measured by re-running `verify` and by the
-in-tree Rust kernel tests against the same `.ref` files.
+the last ULP on the full kernels (double-double `pow`, segmented reductions;
+the large-argument trig reduction landed in bug-618) happens in codegen, measured
+by re-running `verify`, by `runtime_ulp.py`, and by the in-tree Rust kernel tests
+against the same `.ref` files.
 
 ## Regeneration checklist
 
