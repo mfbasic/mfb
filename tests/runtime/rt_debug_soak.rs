@@ -1331,14 +1331,21 @@ fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
 /// bug-650 case 1: a message still sitting in a queue's ring when the thread is released is
 /// never freed. bug-646's reclaim protocol only reaches a block the reader actually dequeued
 /// (it parks the PREVIOUS read's block on each read); nothing walks the ring itself at
-/// release, so a program that sends more than its worker receives leaks every undelivered
-/// message. Bounded by the queue's capacity per thread — and unbounded across a loop of
-/// threads, which is what this measures. Four sends to a worker that receives one, measured
-/// at `3d49a969e`: N=50 `live_bytes 4800`, N=100 `9600` (96 B per iteration — three 32 B
-/// messages).
+/// release, so every message a worker never receives leaks. Bounded by the queue's capacity
+/// per thread — and unbounded across a loop of threads, which is what this measures.
+/// Measured at `3d49a969e`: N=50 `live_bytes 6400`, N=100 `12800` (128 B per iteration —
+/// four undelivered 32 B messages).
+///
+/// The worker must stay RUNNING for the whole of the parent's sends, which is why it parks
+/// on a full outbound queue instead of simply returning. A worker that exits first makes
+/// every later `thread::send` raise `ErrInterrupted` (`7-705-0009`) — the send helper's
+/// documented answer for a COMPLETED destination — and the first version of this case did
+/// exactly that: it passed standalone and failed under full-suite load, where the parent
+/// loses the race. The park is the same trick `thread_runtime_workers::blockOnOutbound`
+/// uses.
 #[test]
 fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  LET m AS String = thread::receive(w, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 8)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  MUT n AS Integer = 0\n  WHILE n < 100\n    thread::send(w, \"ack\")\n    n = n + 1\n  END WHILE\n  RETURN n\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC drain(t AS Thread OF String TO Integer) AS Integer\n  LET v AS Integer = thread::waitFor(t)\n  RETURN v\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 1)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    thread::cancel(t)\n    total = total + drain(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b650_unread",
         SOURCE,
