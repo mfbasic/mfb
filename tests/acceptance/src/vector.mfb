@@ -565,10 +565,10 @@ TESTING
         expectFloat(f3.y, 1.54348726628257937)
         expectFloat(f3.z, 2.05798302171010583)
         LET f4 AS vector::Float4 = vector::slerp(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], 0.5)
-        expectFloat(f4.x, 1.64984793625939830)
-        expectFloat(f4.y, 1.64984793625939830)
-        expectFloat(f4.z, 1.09989862417293227)
-        expectFloat(f4.w, 2.74974656043233079)
+        expectFloat(f4.x, 1.649847936259398)
+        expectFloat(f4.y, 1.649847936259398)
+        expectFloat(f4.z, 1.099898624172932)
+        expectFloat(f4.w, 2.74974656043233)
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::slerp(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)], 0.5)
