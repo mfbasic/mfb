@@ -18,9 +18,10 @@ across every intervening call until `term::didResize` observes it, so a program
 that only polls occasionally never misses a resize. Reading it clears it, so the
 very next call reports `FALSE` unless another resize has happened in between.
 
-A resize is noticed in both places a surface can live. In a terminal,
-`term::sync` re-reads the size on each frame, so a change is picked up the next
-time you present. In a macOS or Linux `--app` build, the window reports its own
+A resize is noticed in both places a surface can live. In a terminal it is
+`term::sync` that re-reads the size, so a resize is reported on the frame after
+the one that presents it — a program that never calls `term::sync` never sees a
+terminal resize at all. In a macOS or Linux `--app` build, the window reports its own
 size changes, so live window resizes are reported the same way. **A Windows
 `--app` build is the exception**: its surface is a fixed 80 by 25 cells that does
 not follow the window, so this call always reads `FALSE` there.
@@ -30,22 +31,9 @@ neither the terminal nor the surface. Before any `term::on` — or on a
 fixed-size app window that never resizes — it simply reads `FALSE`. A companion `term::terminalSize` call returns the new extent after
 `term::didResize` reports a change."#;
 
-const EX: &str = r#"Reflow a layout only when the terminal changes size:
-
-```
-IMPORT term
-
-SUB main()
-  term::on()
-  IF term::didResize() THEN
-    term::clear()
-    term::sync()
-  END IF
-  term::off()
-END SUB
-```
-
-Re-read the new extent after a resize:
+const EX: &str = r#"Reflow a layout only when the terminal changes size. The check
+belongs in a frame loop, after the frame is presented: `term::sync` is what
+re-reads the terminal's size.
 
 ```
 IMPORT term
@@ -53,11 +41,45 @@ IMPORT io
 
 SUB main()
   term::on()
-  IF term::didResize() THEN
-    LET size = term::terminalSize()
-    io::print("resized to " & toString(size.columns) & "x" & toString(size.rows))
-  END IF
+  MUT frames AS Integer = 0
+  WHILE frames < 20
+    term::clear()
+    term::drawText(0, 0, "frame " & toString(frames))
+    term::sync()
+    LET ready AS Boolean = io::pollInput(100)
+    IF term::didResize() THEN
+      term::clear()
+      term::drawText(0, 0, "reflowed")
+      term::sync()
+    END IF
+    frames = frames + 1
+  END WHILE
   term::off()
+END SUB
+```
+
+Read the new extent on the frame that reports the resize:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  MUT size AS term::TermSize = term::terminalSize()
+  MUT frames AS Integer = 0
+  WHILE frames < 20
+    term::clear()
+    term::drawText(0, 0, toString(size.columns) & "x" & toString(size.rows))
+    term::sync()
+    LET ready AS Boolean = io::pollInput(100)
+    IF term::didResize() THEN
+      size = term::terminalSize()
+    END IF
+    frames = frames + 1
+  END WHILE
+  term::off()
+  io::print("last seen " & toString(size.columns) & "x" & toString(size.rows))
 END SUB
 ```"#;
 /// `abi_function` body for `term::did_resize` — delegates to the shared family-generic

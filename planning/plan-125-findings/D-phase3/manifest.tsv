@@ -1,0 +1,27 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-page:term/overview	0	111	12	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/clear	0	125	5	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/didResize	0	126	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/types	0	141	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/drawHLine	0	95	2	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/drawGlyph	0	136	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/drawText	0	140	12	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/drawBox	0	170	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/drawVLine	0	64	2	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/getForeground	0	101	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/getBold	0	110	2	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/fillRect	0	141	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/getBackground	0	152	26	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/hideCursor	0	126	19	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/isOn	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/getUnderline	FAILED	2	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/off	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setBackground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/on	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setBold	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setUnderline	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setForeground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/moveTo	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/showCursor	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/sync	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/terminalSize	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra

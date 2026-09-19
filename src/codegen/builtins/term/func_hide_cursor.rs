@@ -13,11 +13,10 @@ const INTRO: &str = r#"Hide the terminal cursor in presented frames"#;
 
 const DESC: &str = r#"`term::hideCursor` marks the cursor as hidden. It takes no arguments.
 
-Like everything else on this retained surface, the call **emits no escape
-sequence**. It clears a single visibility flag in the module's state; the terminal
-is only told about it when `term::sync` presents a frame, whose trailing sequence
-shows or hides the cursor according to this flag. Until the next present the
-cursor stays as the previous frame left it.
+The change is not shown straight away. In a terminal program, and in a macOS
+`--app` build, the cursor's visibility changes when `term::sync` presents the next
+frame; until then the cursor stays as the last frame left it. A Linux `--app`
+build repaints from this call itself.
 
 Hiding the cursor is the usual choice for a full-screen program that repaints
 every frame: the terminal cursor would otherwise be parked at whatever cell the

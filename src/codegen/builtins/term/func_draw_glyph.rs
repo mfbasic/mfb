@@ -13,8 +13,10 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Stamp a single glyph at a position by code point"#;
 
-const DESC: &str = r#"`term::drawGlyph` stamps a single Unicode scalar — given by its `codepoint` — into
-the cell at `row`/`column`, using the colours and attributes currently in effect.
+const DESC: &str = r#"`term::drawGlyph` stamps the scalar named by `codepoint` into the cell at
+`row`/`column`, using the colours and attributes currently in effect. A scalar the
+terminal draws **double-width** also occupies the following column; at the right
+edge only its first cell is on the surface.
 Coordinates are **zero-based** from the top-left and, like every other `term::`
 position, are written **row first, then column**. It does not move the cursor.
 This is the low-level counterpart to `term::drawText`: use it to place one
@@ -23,9 +25,11 @@ arbitrary character (a marker, a cursor, a sprite cell) at a known position.
 The cell is **bounds-checked, not clamped**: if `(row, column)` is off the surface
 the call draws nothing and raises no error. It does not fall back to the nearest
 edge cell, so an off-by-one in your coordinates loses the glyph silently rather
-than putting it somewhere visible. Control code points (below U+0020) are **skipped**
-— they would corrupt the presented frame — so `codepoint` should be a printable
-scalar (for example `9731` for `☃`, or `65` for `A`). The glyph is shown on the
+than putting it somewhere visible. Code points below U+0020, including negative ones, are **skipped**
+— they would corrupt the presented frame. Anything else is encoded exactly as
+given and is never checked, so pass a real Unicode scalar (for example `9731` for
+`☃`, or `65` for `A`): a value above `U+10FFFF` or inside the surrogate range puts
+malformed text on the terminal. The glyph is shown on the
 next `term::sync`.
 
 The call is gated: while TUI mode is off it does nothing and reports no
@@ -99,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "codepoint",
-                    desc: "The Unicode scalar to stamp. Control code points (< 0x20) are skipped.",
+                    desc: "The code point to stamp, as an Integer. Values below U+0020, including negative ones, are skipped; anything else is stamped as given, so pass a valid Unicode scalar.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

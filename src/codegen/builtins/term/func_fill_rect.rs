@@ -16,7 +16,7 @@ const INTRO: &str = r#"Fill a rectangular region with a block or shade glyph"#;
 const DESC: &str = r#"`term::fillRect` fills every cell of a rectangular region with a block or shade
 glyph chosen by the `term::FillStyle` enum, using the colours and attributes currently
 in effect. The two points `(rowA, columnA)` and `(rowB, columnB)` are **opposite
-corners**. Like every `term::` position they are written **row first, then
+corners**, and both corner cells are filled. Like every `term::` position they are written **row first, then
 column**, both **zero-based** from the top-left, and the two corners may be given
 in any order. It is the region-filling counterpart to `term::clear`
 (which blanks the whole surface): use it to paint a panel background, highlight a
@@ -124,14 +124,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "rowB",
-                    desc: "Row of the opposite corner; may be less or greater than `rowA`.",
+                    desc: "Row of the opposite corner, zero-based from the top; it may be less than, equal to, or greater than `rowA`, and an off-surface value, including a negative one, is clamped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "columnB",
-                    desc: "Column of the opposite corner; may be less or greater than `columnA`.",
+                    desc: "Column of the opposite corner, zero-based from the left; it may be less than, equal to, or greater than `columnA`, and an off-surface value, including a negative one, is clamped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

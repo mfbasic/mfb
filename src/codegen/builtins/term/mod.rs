@@ -199,7 +199,8 @@ corners). `term::fillRect` fills a rectangular region with a block or shade glyp
 chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
 `CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
 a string at an absolute position (without moving the cursor), and
-`term::drawGlyph` stamps a single scalar by code point.
+`term::drawGlyph` stamps one glyph from an Integer code point; a value below
+`U+0020` is skipped.
 
 The package defines one built-in record type and two enums; its colour surface uses
 `color::Color`. `term::getForeground` and `term::getBackground` return a
@@ -215,7 +216,25 @@ the surface size can change between calls (for example when the terminal window 
 resized), so a program that depends on it should query it again rather than caching
 the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLine`,
 `term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
-glyph for `term::fillRect`."#;
+glyph for `term::fillRect`.
+
+A whole frame: enter TUI mode, draw, present once, and leave.
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::clear()
+  LET size AS term::TermSize = term::terminalSize()
+  term::drawBox(term::LineStyle.Light, 0, 0, size.rows - 1, size.columns - 1)
+  term::drawText(1, 2, "hello")
+  term::sync()
+  term::off()
+  io::print("drew on " & toString(size.columns) & "x" & toString(size.rows))
+END SUB
+```"#;
 
 /// Register the `term` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -232,21 +251,24 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
-        description: "The size of the drawing surface in whole character cells, as \
-                      returned by `term::terminalSize`. Ask again after a resize \
-                      rather than caching the first answer.",
+        description: "The size of the drawing surface in whole character cells, \
+                      returned by `term::terminalSize`. A program cannot build one \
+                      or `WITH`-update it; ask `term::terminalSize` again after a \
+                      resize rather than caching the first answer.",
         props: vec![
             RecordProp {
                 name: "columns",
                 ty: ParameterType::Integer,
-                description: "The width in character cells, never pixels. Valid \
-                              columns are 0 through columns-1.",
+                description: "The surface width in character cells, never pixels. \
+                              Valid column positions run from 0 through \
+                              `columns - 1`, inclusive.",
             },
             RecordProp {
                 name: "rows",
                 ty: ParameterType::Integer,
-                description: "The height in character cells, never pixels. Valid \
-                              rows are 0 through rows-1.",
+                description: "The surface height in character cells, never pixels. \
+                              Valid row positions run from 0 through \
+                              `rows - 1`, inclusive.",
             },
         ],
     });

@@ -113,6 +113,9 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 77 | `io::flush` | `It issues the pending bytes with a `write` loop and reports whether that write succeeded; it deliberately does *not* `fsync` or otherwise ask the host to sync standard output. The buffer drain's `write` is the one portable failure signal, identical on every platform and libc.` | `internals` | architecture | OPEN | — |
 | 78 | `io::flush`, `print`, `printError`, `write`, `writeError` | `a short write advances the cursor and re-issues, and an interruption is resumed ... the still-unflushed bytes are slid back to the base of the buffer and kept` | `internals` | architecture | OPEN | — |
 | 79 | `io::input`, `isOutputTerminal`, `isErrorTerminal` | `the line is read from the window input pipe. / this call returns `TRUE` without probing a descriptor.` | `internals` | app | OPEN | — |
+| 80 | `term::getForeground`, `getBackground` | `The value is the module's current foreground attribute, unpacked from the 24-bit value that `term::setForeground` stored.` | `internals` | term-backend | OPEN | — |
+| 81 | `term::hideCursor`, `showCursor` | `Like everything else on this retained surface, the call emits no escape sequence. ... Every present ends with a trailing sequence that parks the terminal cursor at its current position.` | `internals` | term-backend | OPEN | — |
+| 82 | `term::drawGlyph` | `for width 2 it stamps a WIDE_TRAIL sentinel at column + 1` | `internals` | term-backend | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -143,7 +146,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 |---|---|---|
 | B | — | — |
 | C | 44 | 71 |
-| D | 8 | 79 |
+| D | 11 | 82 |
 | E | — | — |
 | F | — | — |
 | G | — | — |

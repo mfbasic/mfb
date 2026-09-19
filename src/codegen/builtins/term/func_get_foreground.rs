@@ -15,17 +15,17 @@ const DESC: &str = r#"`term::getForeground` returns the colour that subsequently
 written in, as a `color::Color`. It takes no arguments.
 
 **A program that names the result must `IMPORT color`** as well as `term` —
-imports are not transitive and a package cannot re-export another's types. Reading
-the channels off the result without naming the type needs no extra import.
+imports are not transitive and a package cannot re-export another's types. Reading a
+channel off the result needs it as well: the fields belong to `color::Color`.
 
 **`alpha` is always `255`.** A terminal cell has no alpha channel, so there is
 nothing here to report; the field exists because a `color::Color` has four
 channels, and it is fixed fully opaque rather than left meaningless.
 
-The value is the module's current foreground attribute, unpacked from the 24-bit
-value that `term::setForeground` stored. Immediately after `term::on` — which resets
-the foreground to white — it is (255, 255, 255); after a `term::setForeground` call it
-is exactly the colour that was set, until the next `term::setForeground` or the next
+The value is the module's current foreground colour. Immediately after
+`term::on` — which resets the foreground to white — it is (255, 255, 255); after a
+`term::setForeground` call its red, green and blue match the colour that was set (its
+`alpha` does not: that is always `255`), until the next `term::setForeground` or the next
 `term::on`.
 
 Unlike most of the module, this call does not simply do nothing while TUI mode is
