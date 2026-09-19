@@ -1265,3 +1265,67 @@ fn a_thread_string_send_loop_keeps_live_bytes_constant() {
         "thread::send leaks the queued copy of the message (bug-646)",
     );
 }
+
+/// bug-629 Part A / bug-649: `thread::send` of a COMPUTED message leaks the caller's own
+/// argument temp — the block the `&` built to pass in — in the sender's arena. The send
+/// helper deep-copies the message for the queue (bug-498) and then claims the original out
+/// of the statement's temp cleanup (`claim_moved_thread_arg_temp`), a rule written when the
+/// original itself crossed the boundary; since bug-498 it never does, so the claim only
+/// removes the block's one owner. Measured at `ac0f61964`: N=100 `live_bytes 3200`, N=200
+/// `6400` (32 B per send); the same loop with a literal message is flat, which is what
+/// isolates this from bug-646's queued copy.
+#[test]
+fn a_thread_send_of_a_computed_message_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"message-\" & toString(i MOD 10))\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b629_send_computed",
+        SOURCE,
+        200,
+        400,
+        "total=",
+        "thread::send leaks the caller's computed argument temp (bug-629 Part A, bug-649)",
+    );
+}
+
+/// bug-629's other direction: a worker's `thread::send(w, …)` lowers to `thread.emit` and
+/// rides the same claim, so a computed message leaks in the WORKER's arena — which is
+/// `arena.1` here (the one worker), not the main arena the other cases read. Measured at
+/// `ac0f61964`: N=100 `arena.1.live_bytes 1664`, N=200 `3264` (16 B per send). Run at
+/// 400/800 so the 6400 B growth clears [`BLOCK_BOUND`].
+#[test]
+fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  LET t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    let at = |n: u64| -> (String, u64, u64) {
+        let name = format!("b629_emit_computed_{n}");
+        let project = common::temp_project(
+            "b629_emit_computed",
+            &SOURCE.replace("{n}", &n.to_string()),
+        );
+        let exe = build_debug_project(&name, &project);
+        let (stdout, stderr) = run_ok(&name, &exe);
+        let lines = arena_lines(&name, &stderr);
+        (
+            stdout,
+            counter(&name, &lines, 1, "live_bytes"),
+            counter(&name, &lines, 1, "double_free_skips"),
+        )
+    };
+    let (out_small, at_small, skips_small) = at(400);
+    let (out_large, at_large, skips_large) = at(800);
+    assert!(
+        out_small.contains("total=") && out_large.contains("total="),
+        "b629_emit_computed: expected \"total=\" at both counts, got {out_small:?} / {out_large:?}"
+    );
+    assert!(
+        skips_small == 0 && skips_large == 0,
+        "b629_emit_computed: double_free_skips {skips_small}/{skips_large} — the worker's \
+         argument temp is now freed twice"
+    );
+    let grew = at_large.saturating_sub(at_small);
+    assert!(
+        grew < BLOCK_BOUND,
+        "b629_emit_computed: worker-arena live_bytes grew {grew} B between 400 and 800 sends \
+         ({at_small} -> {at_large}); thread::send from a worker (thread.emit) leaks the \
+         caller's computed argument temp (bug-629)"
+    );
+}
