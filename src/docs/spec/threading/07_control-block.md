@@ -96,7 +96,7 @@ that contract.
 
 ## Queue record layout
 
-Each queue record is 264 bytes (`THREAD_QUEUE_BLOCK_SIZE`):
+Each queue record is 272 bytes (`THREAD_QUEUE_BLOCK_SIZE`):
 
 ```text
 offset  field
@@ -108,20 +108,28 @@ offset  field
 208     head index
 216     tail index
 224     closed flag
-232     values pointer                (ring buffer of capacity * 16-byte entries)
+232     values pointer                (ring buffer of capacity * 32-byte entries)
 240     pending-free list head        (blocks the SENDER still has to reclaim)
 248     last-read block pointer       (retired on this queue's next read)
 256     last-read block size          (0 = not reclaimable)
+264     last-read STATE block size    (0 = the message has no STATE block)
 ```
 [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_BLOCK_SIZE]]
 
 The mutex and both condition variables are `pthread_*_init`-ed when the queue is
 allocated in `thread::start`. The values pointer is a separately arena-allocated
-ring of `capacity` sixteen-byte entries, each `{value, size}`: the enqueued value
-(a pointer for a block-shaped message, the scalar itself otherwise) and the byte
-size the sender computed for it, so the reader can hand the block back for
-reclamation without knowing its type. `size` is `0` when the message has no
-reclaimable block of a size the sender computes.
+ring of `capacity` thirty-two-byte entries, each
+`{value, size, state_size, _}`: the enqueued value (a pointer for a block-shaped
+message, the scalar itself otherwise), the byte size the sender computed for it, and
+the byte size of the STATE block hanging off it — so the reader can hand every block
+back for reclamation without knowing its type. `size` is `0` when the message has no
+reclaimable block of a size the sender computes; `state_size` is `0` for every
+data-plane message and for a bare `RES`. The fourth word is padding: the entry is 32
+rather than 24 bytes so an index-to-offset conversion stays a single shift.
+
+The only message types whose `size` the sender declines to compute are the scalars
+(`Boolean`, `Byte`, `Fixed`, `Float`, `Integer`, `Money`), and a scalar message
+carves no block at all — so the `0` sentinel never strands a reclaimable block.
 
 ### Reclaiming a queued message copy
 
@@ -133,9 +141,14 @@ thread's arena:
 
 * the reader stores each block it is handed in the **last-read** fields, and the
   NEXT read on that queue pushes it onto the **pending-free list** (under the queue
-  mutex, reusing the dead block's own first two words as `{next, size}`). One read
+  mutex, reusing the dead block's own words as `{next, size, state_size}`). One read
   behind is the earliest safe point: the caller's copy of block *N* is complete
   before that thread asks for block *N+1*, and each queue has exactly one reader.
+  The `state_size` word is written and read on the two **resource** queues only,
+  where every block is one `RESOURCE_RECORD_SIZE` record and the third word is
+  therefore in range; a data-plane block can be shorter than 24 bytes (a `String`
+  block is `len + 9`). The STATE **pointer** is never stored — it is read back from
+  the record's own `RESOURCE_OFFSET_STATE`, which those three words do not reach.
 * the **sender** drains the pending-free list — at the top of its next write, and,
   for the queues the spawning thread sends into, when the handle's plumbing is
   released. The sender is the thread whose arena carved every block on the list, and
@@ -144,6 +157,17 @@ thread's arena:
 
 A failed send's orphaned copy joins the same list from the write helper's failure
 path.
+
+A message that is still in the ring when the handle's plumbing is released — sent but
+never received — is not reachable through either field, because no read ever handed it
+out. The release walks the ring's live window (`count` entries from `head`, the same
+window a read dequeues from) and frees each entry directly, on the inbound queues
+only, by the same ownership rule that governs the drain.
+
+A transferred **stateful** resource has two blocks, the record and its STATE, and the
+receiver gets a deep copy of both — so both of the sender's are reclaimed: the queued
+pair through `state_size` above, and the sender's own tombstone STATE block at the
+binding's drop, alongside the tombstone record.
 [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_PENDING_FREE_OFFSET]]
 [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_QUEUE_LAST_READ_PTR_OFFSET]]
 
