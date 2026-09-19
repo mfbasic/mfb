@@ -1327,3 +1327,46 @@ fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
          caller's computed argument temp (bug-629)"
     );
 }
+
+/// bug-647: an `fs::File` binding leaks its 96 B resource record, because
+/// `resource_record_freed_at_drop` excluded `fs.File` — "shares the record with the
+/// drop's buffer reclaim". That reason is stale: `emit_resource_block_reclaim` frees the
+/// two `File` buffers, then the STATE block, and only THEN the record, so the record's
+/// pointer words are read before it goes back to the arena. Measured at `3d49a969e`:
+/// N=100 `live_bytes 9600`, N=200 `19200` (96 B per bind, one block).
+///
+/// `/etc/hosts` rather than a written fixture file: this suite is already `#![cfg(unix)]`
+/// and the path exists on every unix, which keeps the case a single `assert_block_flat`
+/// source string.
+#[test]
+fn an_fs_file_binding_frees_its_resource_record() {
+    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b647_plain",
+        SOURCE,
+        100,
+        200,
+        "ok=",
+        "an fs::File binding never frees its resource record (bug-647)",
+    );
+}
+
+/// bug-647 under an inline `TRAP`, which leaks a SECOND record on top of the one above:
+/// the closed default that the `$trap_valN` error-path binding materializes
+/// (`emit_closed_resource_record`), whose assign-time reclaim passed `frees_record: false`
+/// for the same stale exclusion. Measured at `3d49a969e`: N=100 `live_bytes 19200`,
+/// N=200 `38400` (192 B per bind, two blocks) — exactly twice the non-`TRAP` shape above,
+/// which is what identifies the second block as another whole record.
+#[test]
+fn an_fs_file_bound_through_an_inline_trap_frees_both_records() {
+    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    assert_block_flat(
+        "b647_trap",
+        SOURCE,
+        100,
+        200,
+        "ok=",
+        "an fs::File bound through an inline TRAP leaks its record and the TRAP's closed \
+         default record (bug-647)",
+    );
+}
