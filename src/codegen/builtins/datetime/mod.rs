@@ -62,7 +62,8 @@ The zone constructors produce three kinds. `datetime::utc()` is fixed at offset 
 the moment it projects. Named IANA zones are not supported in this version.
 `datetime::Instant.seconds` spans the full 64-bit `Integer`, so civil dates reach far beyond
 any practical need; `datetime::now()` is additionally bounded by the nanosecond
-count it reads, valid through year 2262. There are no leap seconds:
+count it reads, valid from 1677 through 2262; a clock reading outside that range
+raises `ErrOverflow`. There are no leap seconds:
 every day is 86400 seconds, the POSIX convention.
 
 Projection is the primary "to civil" operation: `inZone` maps an instant into a
@@ -1013,6 +1014,12 @@ mod tests {
                 "datetime.toIso",
                 &[&[OVERFLOW], &[INVALID_ARGUMENT, OVERFLOW]],
             ),
+            // bug-640: a clock reading whose nanosecond count leaves the `Integer`
+            // range raises (`tests/runtime/rt_datetime_clock_overflow.rs`).
+            ("datetime.now", &[&[OVERFLOW]]),
+            ("datetime.nowNanos", &[&[OVERFLOW]]),
+            ("datetime.monotonic", &[&[OVERFLOW]]),
+            ("datetime.monotonicNanos", &[&[OVERFLOW]]),
             // Probed at their extremes and never raised.
             ("datetime.fromMillis", &[&[]]),
             ("datetime.toUtc", &[&[]]),
@@ -1022,10 +1029,6 @@ mod tests {
             ("datetime.isAfter", &[&[]]),
             ("datetime.isLeapYear", &[&[]]),
             ("datetime.daysInMonth", &[&[]]),
-            ("datetime.now", &[&[]]),
-            ("datetime.nowNanos", &[&[]]),
-            ("datetime.monotonic", &[&[]]),
-            ("datetime.monotonicNanos", &[&[]]),
             ("datetime.local", &[&[]]),
             ("datetime.utc", &[&[]]),
         ];

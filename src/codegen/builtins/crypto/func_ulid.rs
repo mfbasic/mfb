@@ -44,7 +44,9 @@ alphabet is `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, excluding ambiguous letters.
 The function takes no arguments. Values sort by generation millisecond under
 ordinary ASCII lexical ordering; calls within one millisecond use independent
 randomness and are not guaranteed to sort in call order. Clock, entropy, or
-out-of-memory failures propagate from the underlying built-ins."#;
+out-of-memory failures propagate from the underlying built-ins; a host clock
+reading outside the range `datetime::nowNanos` can represent (before 1678 or after
+2262) raises `ErrOverflow`."#;
 const EX: &str = r#"Generate a compact, time-sortable identifier:
 
 ```
@@ -67,7 +69,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrUnknown", "ErrOutOfMemory"],
+            errors: vec!["ErrOverflow", "ErrUnknown", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__crypto_ulid"),
         }],
     });

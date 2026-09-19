@@ -137,16 +137,42 @@ portable.
 
 | Intrinsic | Signature | Lowering |
 | --- | --- | --- |
-| `datetime::nowNanos()` | `() → Integer` | `clock_gettime(CLOCK_REALTIME)` → `sec*1e9 + nsec` |
-| `datetime::monotonicNanos()` | `() → Integer` | `clock_gettime(CLOCK_MONOTONIC)` → nanoseconds |
+| `datetime::nowNanos()` | `() → Integer` | `clock_gettime(CLOCK_REALTIME)` → checked `sec*1e9 + nsec` |
+| `datetime::monotonicNanos()` | `() → Integer` | `clock_gettime(CLOCK_MONOTONIC)` → checked `sec*1e9 + nsec` |
 | `datetime::localOffset(epochSeconds)` | `(Integer) → Integer` | `localtime_r(&t, &tm)` → `tm.tm_gmtoff` |
 
 These three are excluded from the public-call rewrite; they lower to runtime
 helpers
 (`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code.
-`nowNanos` and `monotonicNanos` take no failure path — each returns an `Integer`
-with the OK tag set. `localOffset` uses the same result form but can fail (see
-below). [[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]] [[src/codegen/builtins/datetime/func_local_offset.rs:lower_local_offset]]
+All three use the fallible result form. `nowNanos` and `monotonicNanos` return
+an `Integer` with the OK tag set, or raise `ErrOverflow` (`77050010`) when the
+reading's nanosecond count does not fit an `Integer` — for the wall clock, a
+reading before `1677-09-21T00:12:43.145224192Z` or after
+`2262-04-11T23:47:16.854775807Z`. `localOffset` can fail with
+`ErrInvalidArgument` (see below). The error propagates through the MFBASIC
+wrappers `now` and `monotonic`, which call these helpers without a `TRAP`, so all
+four members declare `ErrOverflow`. [[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]] [[src/codegen/builtins/datetime/func_local_offset.rs:lower_local_offset]] [[src/codegen/builtins/datetime/func_now.rs:__datetime_now]] [[src/codegen/builtins/datetime/func_monotonic.rs:__datetime_monotonic]]
+
+The overflow check is exact, not a bound on the multiply alone. The libc fold
+computes `tv_sec*1e9 + tv_nsec` as a 128-bit value — the signed-high multiply
+gives the product's high word, and `tv_nsec` is added sign-extended through two
+explicit-carry limbs — and the result fits exactly when the high word equals the
+sign extension of the low word. A separate multiply check would wrongly reject a
+reading such as `(-9223372037, 145224192)`, whose product leaves the range but
+whose sum is exactly `Integer` min. Every failure branches to one fail tail
+placed after the OK return. [[src/codegen/builtins/datetime/gen_shared.rs:emit_libc_clock_nanos]] [[src/codegen/builtins/datetime/gen_shared.rs:emit_clock_overflow_tail]]
+
+The Windows lowerings are checked to the same contract. `nowNanos` rebases
+`GetSystemTimePreciseAsFileTime` as `(FILETIME - 116444736000000000) * 100`: a
+FILETIME at or above `2^63` overflows outright, below it the rebase cannot wrap,
+and the `* 100` is checked with the same signed-high comparison.
+`monotonicNanos` folds `QueryPerformanceCounter`/`QueryPerformanceFrequency` as
+`(counter/freq)*1e9 + ((counter%freq)*1e9)/freq`; the whole-second product is
+checked through its unsigned high word and its low word's sign, and the final add
+of two non-negative values overflows exactly when the sum reads negative. The
+fraction's intermediate `(counter%freq)*1e9` is unchecked `u64` arithmetic and
+is exact only while `freq` is below `2^64 / 1e9` (about 18.4 GHz).
+[[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]]
 
 Platform notes from the native lowering: `CLOCK_REALTIME` is `0` on both Linux
 and macOS; `CLOCK_MONOTONIC` is `1` on Linux but `6` on Darwin. `localOffset`

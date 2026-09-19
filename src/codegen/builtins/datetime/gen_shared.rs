@@ -8,11 +8,13 @@
 //! - `datetime.monotonicNanos` — `clock_gettime(CLOCK_MONOTONIC)` → nanoseconds.
 //! - `datetime.localOffset` — `localtime_r(&epochSeconds, &tm)` → `tm_gmtoff`.
 //!
-//! `nowNanos` / `monotonicNanos` always succeed and return an `Integer` in the
-//! standard result-value register with the OK tag set. Their libc path — the
-//! `clock_gettime` call plus the `sec*1e9 + nsec` fold — is the one genuinely
-//! shared emitter and lives here as [`emit_libc_clock_nanos`]; the two members
-//! differ only in the clock id they resolve and pass in. `localOffset` takes an
+//! `nowNanos` / `monotonicNanos` return an `Integer` in the standard result-value
+//! register with the OK tag set, or raise `ErrOverflow` when the reading's
+//! nanosecond count does not fit an `Integer` (bug-640: the fold used to wrap).
+//! Their libc path — the `clock_gettime` call plus the checked `sec*1e9 + nsec`
+//! fold — is the one genuinely shared emitter and lives here as
+//! [`emit_libc_clock_nanos`], with the fail tail as [`emit_clock_overflow_tail`];
+//! the two members differ only in the clock id they resolve and pass in. `localOffset` takes an
 //! unvalidated user-supplied instant: `localtime_r` returns `NULL` (setting
 //! `EOVERFLOW`) when the year does not fit `tm_year`'s `int`, leaving `tm`
 //! untouched, so that member branches on the return and raises `ErrInvalidArgument`
@@ -25,6 +27,7 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::raise_error_into;
 
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -54,10 +57,11 @@ pub(crate) const TM_GMTOFF_OFFSET: usize = 40;
 // `LOCALS_SIZE` frame the libc path reserves; the two paths never both execute.
 //
 //  - `monotonicNanos`: QueryPerformanceCounter/QueryPerformanceFrequency, then
-//    an overflow-safe tick→nanosecond conversion (a naive `ticks * 1e9` overflows
-//    u64 within ~21 s at the usual 10 MHz frequency).
+//    a quotient/remainder tick→nanosecond conversion (a naive `ticks * 1e9`
+//    overflows u64 within ~21 s at the usual 10 MHz frequency), with the
+//    `quotient * 1e9` scale and the final add checked (bug-640).
 //  - `nowNanos`: GetSystemTimePreciseAsFileTime → 100 ns intervals since 1601;
-//    rebased to Unix nanoseconds.
+//    rebased to Unix nanoseconds with a checked `* 100` (bug-640).
 //  - `localOffset`: FileTimeToSystemTime → SystemTimeToTzSpecificLocalTime →
 //    SystemTimeToFileTime; the local/UTC FILETIME delta IS the offset. A NULL
 //    return (year out of FILETIME/SYSTEMTIME range) raises `ErrInvalidArgument`
@@ -83,12 +87,25 @@ pub(crate) const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085";
 
 /// The shared libc clock reading for `nowNanos` / `monotonicNanos`:
 /// `clock_gettime(clock_id, &timespec)` then `nanos = tv_sec*1e9 + tv_nsec` into
-/// the result-value register. The two members differ only in the `clock_id` they
-/// resolve and pass in; the vreg allocation order (`sec`, `nsec`, `scale`) and the
-/// timespec frame slot are identical, so both bodies stay byte-identical.
+/// the result-value register, branching to `overflow` when that count does not
+/// fit an `Integer` (bug-640). The two members differ only in the `clock_id` they
+/// resolve and pass in; the vreg allocation order (`sec`, `nsec`, `scale`, `high`,
+/// `sign`, `carry`) and the timespec frame slot are identical, so both bodies
+/// stay byte-identical.
+///
+/// The count is folded as a 128-bit value and range-checked once at the end,
+/// rather than checking the multiply and the add separately: a separate multiply
+/// check would reject `(-9223372037, 145224192)`, whose product leaves the
+/// `Integer` range but whose sum is exactly `Integer` min. The high word of
+/// `tv_sec * 1e9` is the signed-high multiply; `tv_nsec` is added with its sign
+/// extension as its high word; the sum fits exactly when its high word equals
+/// the sign extension of its low word. The caller owns the `overflow` label and
+/// places [`emit_clock_overflow_tail`] at it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_libc_clock_nanos(
     clock_id: &str,
     symbol: &str,
+    overflow: &str,
     platform: &dyn CodegenPlatform,
     platform_imports: &std::collections::HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
@@ -109,22 +126,52 @@ pub(crate) fn emit_libc_clock_nanos(
         instructions,
         relocations,
     )?;
-    // nanos = tv_sec * 1_000_000_000 + tv_nsec.
+    // nanos = tv_sec * 1_000_000_000 + tv_nsec, in 128 bits (`high:sec`). Every
+    // value lives in a vreg allocated after the call, so nothing is held across it.
     let sec = vregs.next();
     let nsec = vregs.next();
     let scale = vregs.next();
+    let high = vregs.next();
+    let sign = vregs.next();
+    let carry = vregs.next();
     instructions.extend([
         abi::load_u64(&sec, abi::stack_pointer(), TIMESPEC_OFFSET),
         abi::load_u64(&nsec, abi::stack_pointer(), TIMESPEC_OFFSET + 8),
-        abi::move_immediate(&scale, "Integer", "1000000000"),
+        abi::move_immediate(&scale, "Integer", NANOS_PER_SEC),
+        // The signed high word reads `sec` before the low multiply overwrites it.
+        abi::signed_multiply_high_registers(&high, &sec, &scale),
         abi::multiply_registers(&sec, &sec, &scale),
-        abi::add_registers(RESULT_VALUE_REGISTER, &sec, &nsec),
+        // Add `tv_nsec` sign-extended: low words with carry-out, then high words.
+        abi::arithmetic_shift_right_immediate(&sign, &nsec, 63),
+        abi::add_carry(&sec, &carry, &sec, &nsec, abi::ZERO),
+        abi::add_carry(&high, abi::ZERO, &high, &sign, &carry),
+        // Fits an `Integer` exactly when the high word is the low word's sign.
+        abi::arithmetic_shift_right_immediate(&sign, &sec, 63),
+        abi::compare_registers(&high, &sign),
+        abi::branch_ne(overflow),
+        abi::move_register(RESULT_VALUE_REGISTER, &sec),
     ]);
     Ok(())
 }
 
+/// The fail tail of `nowNanos` / `monotonicNanos` (bug-640): at `overflow`, raise
+/// `ErrOverflow` and return. The runtime-helper call site checks the tag, stamps
+/// the call-site origin, and propagates, as it does for `localOffset`'s
+/// `ErrInvalidArgument`. Emit it after the OK return so success never falls into it.
+pub(crate) fn emit_clock_overflow_tail(
+    symbol: &str,
+    overflow: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::label(overflow));
+    raise_error_into(symbol, "ErrOverflow", instructions, relocations);
+    instructions.push(abi::return_());
+}
+
 /// The `void` result every datetime OS-seam member returns: the body emitted its
-/// own fallible ABI (the OK tail, and for `localOffset` the range-fail tail), so
+/// own fallible ABI (the OK tail, plus the overflow tail for `nowNanos` /
+/// `monotonicNanos` and the range-fail tail for `localOffset`), so
 /// the `abi_function` wrapper appends no epilogue. `type_` is `Integer`.
 pub(crate) fn void_int_result(call: &str) -> ValueResult {
     ValueResult {
