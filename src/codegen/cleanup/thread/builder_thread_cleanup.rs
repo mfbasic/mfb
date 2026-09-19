@@ -268,17 +268,21 @@ impl CodeBuilder<'_> {
                 || self.union_is_data(&msg_type)
                 || matches!(msg_type, ParameterType::ResultOf(_))
                 || typed_is_collection_type(&msg_type));
-        // bug-425: a bare thread-sendable resource (no STATE) copies to exactly one
+        // bug-425: a thread-sendable resource copies to exactly one
         // RESOURCE_RECORD_SIZE block, so its size IS known. Hand it to the failed-send
         // pending-free path so a failed transfer's orphaned destination copy is
         // reclaimed on the destination's next read rather than stranded until worker
-        // teardown. A *stateful* resource additionally deep-copies a separate STATE
-        // block that this single size cannot describe, so it keeps the pre-existing
-        // bounded leak rather than reclaim the record and strand the STATE.
-        let bare_resource_reclaimable = defer_resource_flag && msg_type.state().is_none();
+        // teardown.
+        //
+        // bug-650 case 2: this used to decline a *stateful* resource — the record's
+        // separate STATE block could not be described by one size, so BOTH were left to
+        // leak (128 B per transfer measured: a 96 B record plus a 32 B `Cursor`). The
+        // ring entry now carries a second size, so the record's size goes in arg 3 and
+        // the STATE block's in arg 4, and the reclaimer frees both.
+        let resource_reclaimable = defer_resource_flag;
         if size_computable {
             self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
-        } else if bare_resource_reclaimable {
+        } else if resource_reclaimable {
             let size = self.temporary_vreg();
             self.emit(abi::move_immediate(&size, "Integer", RESOURCE_RECORD_SIZE));
             self.emit(abi::store_u64(&size, abi::stack_pointer(), size_slot));
@@ -286,6 +290,46 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), size_slot));
         }
         self.reset_temporary_registers();
+
+        // Arg 4 (bug-650 case 2): the byte size of the copied record's STATE block, 0
+        // when the message has none. Read the copy's own `RESOURCE_OFFSET_STATE` word
+        // and size the block it points at with the same `emit_inlined_block_size_…` the
+        // data plane uses, so a variable-length STATE (a record with an inlined
+        // `String`) is sized exactly rather than assumed constant. A null pointer means
+        // the sender never initialized the STATE, so there is nothing to free: the size
+        // must stay 0, and the guard below is what keeps the sizer off a null.
+        let state_size_slot = self.allocate_stack_object("runtime_thread_send_state_size", 8);
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            state_size_slot,
+        ));
+        if let (true, Some(state_type)) = (resource_reclaimable, msg_type.state()) {
+            let state_done = self.label("runtime_thread_send_state_size_done");
+            let state_ptr_slot = self.allocate_stack_object("runtime_thread_send_state_ptr", 8);
+            let record = self.temporary_vreg();
+            let state_ptr = self.temporary_vreg();
+            self.emit(abi::load_u64(
+                &record,
+                abi::stack_pointer(),
+                copied_message_slot,
+            ));
+            self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+            self.emit(abi::store_u64(
+                &state_ptr,
+                abi::stack_pointer(),
+                state_ptr_slot,
+            ));
+            self.emit(abi::compare_immediate(&state_ptr, "0"));
+            self.emit(abi::branch_eq(&state_done));
+            self.emit_inlined_block_size_from_ptr_slot(
+                &state_type,
+                state_ptr_slot,
+                state_size_slot,
+            )?;
+            self.emit(abi::label(&state_done));
+            self.reset_temporary_registers();
+        }
 
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
@@ -297,6 +341,13 @@ impl CodeBuilder<'_> {
         // Arg 3: the message-copy size (0 when not reclaimable).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
         self.emit(abi::move_register(&abi::argument_register(3)?, &scratch9));
+        // Arg 4: the STATE block's size (0 when the message has none) — bug-650 case 2.
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            state_size_slot,
+        ));
+        self.emit(abi::move_register(&abi::argument_register(4)?, &scratch9));
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value
