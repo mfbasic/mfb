@@ -307,7 +307,7 @@ Bugs filed from this phase: bug-657. Belongs-in-spec rows: none.
 
 Acceptance: 17 units `exit 0`; sweeps clean; the `astrings`↔`strings` boundary
 sentence is identical in wording on both packages' overviews.
-Commit: —
+Commit: 48f8f2c4e (8 of 17), 1f0edf0f5 (closed)
 
 ### Phase 3 — term (26 units)
 
