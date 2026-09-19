@@ -1,12 +1,46 @@
 # bug-629: every `thread::send` leaks the message in the sender's arena (the argument temp and the queued copy)
 
-Last updated: 2026-09-14
-Effort: large (3h–1d)
+Last updated: 2026-09-19
+Effort: large (3h–1d) — **actual: small**, once Part B turned out to be already fixed
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`a_thread_send_of_a_computed_message_keeps_live_bytes_constant`,
+`a_worker_send_of_a_computed_message_keeps_live_bytes_constant`) — placed beside
+bug-646's `a_thread_string_send_loop_…`, the literal-message sibling that isolates
+Part A from Part B, not in `rt_scope_drop_leaks.rs` as Phase 1 planned.
+
+## STATUS: FIXED (cb6b8101f)
+
+**Part B was already fixed before this work started** — by bug-646 (`e124b7eee`),
+which implemented exactly this doc's Open-Decisions recommendation (sender-side
+return through the queue's pending-free list). Re-measuring the reproduction table
+below at `ac0f61964` showed the literal-message row already flat
+(`live_bytes 0`, not 3,200/6,400), which is the row that isolates Part B. Only Part A
+remained, and it is the same defect as bug-649, filed later from the other side of
+bug-646's fix; both are closed by the one commit.
+
+**Part A, fixed:** `claim_moved_thread_arg_temp` no longer claims the data argument
+of `thread.send` / `thread.emit`. Those two targets deep-copy the message into the
+sender's own arena and hand the COPY across (bug-498), so the original never crosses
+a boundary and the claim — written when it did — was removing the block's only
+owner. The statement-scope temp cleanup now frees it.
+
+The doc's own reproduction table goes to zero: `tw_send_received` reports
+`live_bytes 0`, `alloc_calls 1302 / free_calls 1302` at N=100 and `2602/2602` at
+N=200, `double_free_skips 0` (was 3,200 / 6,400 B live). bug-649's own shape is flat
+too (`1702/1702` at N=50, `3402/3402` at N=100).
+
+**Deviation from the Fix Design:** none for Part A. Phase 3 and Phase 4's golden
+regeneration were not needed — see the audit below for why the artifact gate cannot
+see this change.
+
+**Found by this bug's Blast-Radius audit, NOT fixed here:** `thread::start`'s data
+argument leaks one block per start (16 B for a `String` seed), for a different
+reason than Part A — start does not copy, so its claim is load-bearing, and the
+handed-over block simply has no owner. Filed as bug-655.
 
 A program that sends messages across a thread boundary in a loop grows the **sender's**
 arena without bound, even when every message is received. Two blocks are left live per
@@ -115,18 +149,35 @@ design changes (see Open Decisions).
 
 ## Blast Radius
 
-To be verified by search and measurement in Phase 1; current reading:
+Audited 2026-09-19 at `ac0f61964`, one verdict per site:
 
-- `thread.send`, `thread.emit` data argument claim — Part A, fixed here.
-- `thread.transferResource`, `thread.emitResource` — the claim covers them too; a resource
-  argument is not a freeable temp, so likely unaffected — verify.
-- `thread.start` data argument — the same claim; whether `thread::start` copies its data
-  argument or hands the block to the worker decides whether this is the same leak — audit.
+- `thread.send`, `thread.emit` data argument claim — **Part A, fixed here.** Both ride
+  `emit_thread_send_runtime_helper_call`, which copies; `thread::send` inside a worker IS
+  `thread.emit` (`func_send.rs:77`, `Body::abi_function_aliased(lower_send, &["emit"])`),
+  so one predicate covers both directions. Measured before: 32 B per parent send
+  (`arena.0` 6,400 → 12,800 at 200/400), 16 B per worker send (`arena.1` 7,088 → 13,024
+  at 400/800). After: flat, `free_calls == alloc_calls`.
+- `thread.transferResource`, `thread.emitResource` — **claim kept, correct as-is.** They
+  ride the same copying emitter, but their argument travels the resource plane
+  (`copy_resource_to_current_arena` + the moved/closed flag), not the data-plane temp
+  cleanup, and a `RES` binding is a `Local` that was never registered as a pending temp,
+  so the claim is already a no-op for every spelling reachable today. Narrowing it here
+  would risk the statement cleanup racing the resource-record ownership for an inline
+  resource argument, for no measured gain.
+- `thread.start` data argument — **NOT the same leak; separate bug, filed as bug-655.**
+  `lower_thread_start_helper` stores the caller's pointer straight into
+  `THREAD_OFFSET_DATA` (`runtime_helpers.rs:754`) and the worker trampoline loads it as
+  the entry's `c_arg(1)` (`runtime_helpers.rs:1216`) — no copy anywhere. So the claim is
+  load-bearing (dropping it is a use-after-free), and the leak is that the handed-over
+  block has no owner at all. Measured 16 B per start with a computed `String` seed
+  (`arena.0` 1,600 → 3,200 at 100/200).
 - `thread.read`, `thread.receive`, `thread.acceptResource`, `thread.readResource` dequeue
-  paths — Part B; the resource plane copies a resource record + STATE — audit.
-- Unread messages left in a queue at `thread.drop` / `thread::waitFor` — the queue counts
-  are zeroed and the pointers lost (`tw_unread_inbound2`: +64 B per unread send on the
-  bug-622 build) — same ownership question, in scope for the design.
+  paths — **Part B, already fixed by bug-646** (`e124b7eee`), which parks each queued copy
+  on the queue's pending-free list for the SENDER to reclaim. The literal-message row of
+  the table below is the isolating measurement: `live_bytes 0` at both N.
+- Unread messages left in a queue at `thread.drop` / `thread::waitFor` — **still open**,
+  tracked as bug-650 case 1 (bug-646's reclaim cannot reach a message the reader never
+  dequeues). Out of scope here.
 
 ## Fix Design
 
@@ -143,36 +194,54 @@ the sender-arena accounting consequence.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `rt_scope_drop_leaks.rs`: literal and concatenated sends, both directions, N vs 2N on
-      the sender arena's `live_bytes`; confirm they fail.
-- [ ] Audit every site in Blast Radius with a verdict and a measurement.
+- [x] Cases for both directions of a computed message, N vs 2N on the sending arena's
+      `live_bytes`; confirmed RED. Landed in `rt_debug_soak.rs`, not
+      `rt_scope_drop_leaks.rs`: `assert_block_flat` there already asserts exactly this
+      bug's three signals (`live_bytes` growth, `double_free_skips`,
+      `free_calls <= alloc_calls`) and bug-646's literal-message case — the control that
+      isolates Part A from Part B — is its immediate neighbour.
+      **Both counts had to be doubled from the plan:** at 100/200 the parent-send case
+      grows 3,200 B, *under* `BLOCK_BOUND` (4,096), so a case written to the
+      reproduction table's counts passes while leaking. 200/400 grows 6,400 B. Same trap
+      bug-646's case documents; the worker case runs at 400/800 for the same reason.
+- [x] Audit every site in Blast Radius with a verdict and a measurement — see above. It
+      turned up one leak this doc did not own (`thread::start`'s data block, bug-655) and
+      confirmed Part B was already closed by bug-646.
 
-Acceptance: the cases fail for the documented reason; every site has a verdict.
-Commit: —
+Acceptance: met — the cases fail for the documented reason; every site has a verdict.
+Commit: 0887d0353
 
 ### Phase 2 — Part A, the argument temp
 
-- [ ] Narrow `claim_moved_thread_arg_temp` for copying sends
+- [x] Narrow `claim_moved_thread_arg_temp` for copying sends
       (`builder_thread_cleanup.rs`).
 
-Acceptance: the concatenated case drops to the literal case's growth; no double free.
-Commit: —
+Acceptance: met, and better than stated — the computed case does not drop *to* the
+literal case's growth, it goes to zero, because the literal case is itself flat since
+bug-646. No double free (`double_free_skips 0`, `free_calls == alloc_calls`).
+Commit: cb6b8101f
 
 ### Phase 3 — Part B, the queued copy
 
-- [ ] Owner for the dequeued block (read helper and/or receive call site); unread-queue
-      disposal at drop/close.
+- [x] Owner for the dequeued block — **done by bug-646 (`e124b7eee`), not here.** It took
+      this doc's recommended option (sender-side return via the queue's pending-free
+      list). Unread-queue disposal is bug-650 case 1 and is still open.
 
-Acceptance: Phase 1 cases flat; threading suites green.
-Commit: —
+Acceptance: met for the dequeued block; Phase 1 cases flat, threading suites green
+(66 thread tests, `rt_debug_soak` 40/40).
+Commit: — (bug-646's `e124b7eee`)
 
 ### Phase 4 — expected outputs + full validation
 
-- [ ] Regenerate shifted goldens (thread helpers' native code sums); full suite;
-      `scripts/test-accept.sh`.
+- [x] Full suite; artifact gate. **No goldens shifted, and that is correct, not a miss:**
+      `artifact-gate.sh target/release/mfb thread` reports 7 goldens checked, 0 diffs
+      because `tests/byte-identity/thread/src/main.mfb` sends only string *literals*
+      (lines 36–37), which are not pending temps — the claim was already a no-op there,
+      so no covered instruction moved. The owning gate for this change is the runtime
+      `live_bytes` measurement in `rt_debug_soak.rs`, per `.ai/testing-gates.md` §18.
 
-Acceptance: full suite green; golden deltas limited to the thread send/read helpers.
-Commit: —
+Acceptance: met; full suite green, zero golden delta with a reason.
+Commit: (see the merge commit)
 
 ## Validation Plan
 

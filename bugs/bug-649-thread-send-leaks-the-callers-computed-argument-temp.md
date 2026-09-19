@@ -1,12 +1,30 @@
 # bug-649: `thread::send` of a computed value leaks the caller's argument temp (16 B per send)
 
-Last updated: 2026-09-15
+Last updated: 2026-09-19
 Effort: small (< 1h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`a_thread_send_of_a_computed_message_keeps_live_bytes_constant`,
+`a_worker_send_of_a_computed_message_keeps_live_bytes_constant`)
+
+## STATUS: FIXED (cb6b8101f)
+
+Fixed together with bug-629, whose Part A is the same defect seen from the other side
+of bug-646's fix — one predicate closes both, so the two docs share a commit. See
+bug-629 for the full audit; the short version is that `thread.send` and `thread.emit`
+deep-copy the message into the sender's own arena and hand the COPY across (bug-498),
+so `claim_moved_thread_arg_temp` was removing the original's only owner. They no
+longer claim it; `thread.start` still does, because it hands the block over without
+copying (that residual is bug-655).
+
+This doc's own reproduction is flat: N=50 `alloc_calls 1702 / free_calls 1702`,
+`live_bytes 0`; N=100 `3402/3402`, `live_bytes 0`, `double_free_skips 0` (was 16 B per
+send). The guarding cases run at 200/400 and 400/800, not this doc's counts — at
+100/200 the growth is 3,200 B, under `rt_debug_soak.rs`'s `BLOCK_BOUND` of 4,096, so a
+case written to those counts passes while leaking.
 
 `thread::send(a, "msg-" & toString(k))` leaves the caller's own argument temp live, 16 B per
 send. Distinct from bug-646: that was the QUEUE's copy of the message (now reclaimed by the
@@ -90,18 +108,28 @@ a different ownership story.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak test for the computed-argument shape; confirm RED; confirm the `matches!` arm is
-      the cause and that the resource arms are unaffected.
+- [x] Soak cases for the computed-argument shape, both send directions; confirmed RED; the
+      `matches!` arm in `claim_moved_thread_arg_temp` confirmed as the cause. The resource
+      arms (`thread.transferResource`, `thread.emitResource`) are unaffected and keep the
+      claim: their argument travels the resource plane, and a `RES` binding is a `Local`
+      that was never registered as a pending temp, so the claim is already a no-op for
+      every spelling reachable today.
 
-Commit: —
+Commit: 0887d0353
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] `thread.send` / `thread.emit` dropped from the claim's `matches!` arm.
+
+Commit: cb6b8101f
 
 ### Phase 3 — full validation
 
-Commit: —
+- [x] Full suite; `rt_debug_soak` 40/40; 66 thread tests; `artifact-gate.sh thread`
+      7 goldens, 0 diffs (correctly — that fixture sends only literals, which were never
+      pending temps).
+
+Commit: (see the merge commit)
 
 ## Summary
 
