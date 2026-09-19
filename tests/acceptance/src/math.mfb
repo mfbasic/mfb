@@ -212,7 +212,7 @@ TESTING
         LET fixedPi AS Fixed = 3.1415926536F
         expectFloat(math::cos(0.0), 1.00000000000000000)
         expectFloat(math::cos(3.1415926536), -1.00000000000000000)
-        expectFixed(math::cos(fixedPi), -1.000000001629814505F)
+        expectFixed(math::cos(fixedPi), -1.000000000000000000F)
         expectFloat(math::cos(0.7), 0.76484218728448850)
         expectFloat(math::cos(2.0), -0.41614683654714241)
         expectFloat(math::cos(4.0), -0.65364362086361194)
@@ -259,13 +259,13 @@ TESTING
         expectFixed(math::pow(1.5F, 2.0F), 2.250000000000000000F)
         expectFixed(math::pow(2.0F, 0.5F), 1.414213562849909067F)
         expectFixed(math::pow(3.0F, -2.0F), 0.111111111007630825F)
-        expectFixed(math::sin(0.5F), 0.479425538796931505F)
-        expectFixed(math::cos(0.5F), 0.877582563087344169F)
-        expectFixed(math::tan(1.0F), 1.557407720247283577F)
-        expectFixed(math::asin(0.8F), 0.927295218454673886F)
-        expectFixed(math::acos(-0.3F), 1.875488980673253536F)
-        expectFixed(math::atan(2.0F), 1.107148718787357211F)
-        expectFixed(math::atan2(3.0F, -4.0F), 2.498091545421630144F)
+        expectFixed(math::sin(0.5F), 0.479425538564100862F)
+        expectFixed(math::cos(0.5F), 0.877582561923190951F)
+        expectFixed(math::tan(1.0F), 1.557407724671065807F)
+        expectFixed(math::asin(0.8F), 0.927295217989012599F)
+        expectFixed(math::acos(-0.3F), 1.875488980906084180F)
+        expectFixed(math::atan(2.0F), 1.107148717856034636F)
+        expectFixed(math::atan2(3.0F, -4.0F), 2.498091544723138213F)
       END TCASE
     END TGROUP
 
@@ -543,7 +543,7 @@ TESTING
         LET fixedHalfPi AS Fixed = 1.5707963268F
         expectFloat(math::sin(0.0), 0.00000000000000000)
         expectFloat(math::sin(1.5707963268), 1.00000000000000000)
-        expectFixed(math::sin(fixedHalfPi), 1.000000001629814505F)
+        expectFixed(math::sin(fixedHalfPi), 1.000000000000000000F)
         expectFloat(math::sin(0.7), 0.64421768723769102)
         expectFloat(math::sin(2.0), 0.90929742682568171)
         expectFloat(math::sin(4.0), -0.75680249530792820)
@@ -597,7 +597,7 @@ TESTING
         LET fixedPiQuarter AS Fixed = 0.7853981634F
         expectFloat(math::tan(0.0), 0.00000000000000000)
         expectFloat(math::tan(0.7853981634), 1.0000000000051035)
-        expectFixed(math::tan(fixedPiQuarter), 1.000000001629814505F)
+        expectFixed(math::tan(fixedPiQuarter), 1.000000000000000000F)
         expectFloat(math::tan(0.7), 0.84228838046307941)
         expectFloat(math::tan(2.0), -2.18503986326151889)
         expectFloat(math::tan(4.0), 1.15782128234957749)
