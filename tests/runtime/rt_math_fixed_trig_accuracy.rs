@@ -97,6 +97,78 @@ fn sin_cos_small(r: &BigInt) -> (BigInt, BigInt) {
     (sin, cos)
 }
 
+/// `sqrt(v)` for a scaled-by-2^W non-negative `v`, scaled by 2^W.
+fn sqrt_scaled(v: &BigInt) -> BigInt {
+    (v << W).sqrt()
+}
+
+/// `atan(x)` for a scaled `x`, scaled by 2^W. Halves the argument with
+/// `atan(x) = 2 atan(x / (1 + sqrt(1 + x^2)))` until it is small enough for the
+/// Taylor series to converge quickly, then sums it.
+fn atan_scaled(x: &BigInt) -> BigInt {
+    let one = pow2(W);
+    let mut v = x.clone();
+    let mut doublings = 0u32;
+    // Shrink |v| below 2^-8 so the series converges in a few dozen terms.
+    while v.magnitude() > &(&one >> 8u32).magnitude().clone() {
+        let x2 = (&v * &v) >> W;
+        let denominator = &one + sqrt_scaled(&(&one + x2));
+        v = (&v << W) / denominator;
+        doublings += 1;
+    }
+    let v2 = (&v * &v) >> W;
+    let mut term = v.clone();
+    let mut sum = BigInt::from(0);
+    let mut k = 0i64;
+    loop {
+        let piece = &term / big(2 * k + 1);
+        if piece == big(0) {
+            break;
+        }
+        if k % 2 == 0 {
+            sum += piece;
+        } else {
+            sum -= piece;
+        }
+        term = (&term * &v2) >> W;
+        k += 1;
+    }
+    sum << doublings
+}
+
+/// `asin(x)` for a scaled `x` with `|x| <= 1`, scaled by 2^W.
+fn asin_scaled(x: &BigInt, pio2: &BigInt) -> BigInt {
+    let one = pow2(W);
+    if x.magnitude() == one.magnitude() {
+        return if x < &big(0) { -pio2.clone() } else { pio2.clone() };
+    }
+    let x2 = (x * x) >> W;
+    let denominator = sqrt_scaled(&(&one - x2));
+    atan_scaled(&((x << W) / denominator))
+}
+
+/// `atan2(y, x)` for scaled arguments, scaled by 2^W.
+fn atan2_scaled(y: &BigInt, x: &BigInt, pio2: &BigInt) -> BigInt {
+    let zero = big(0);
+    let pi = pio2 * 2;
+    if x > &zero {
+        atan_scaled(&((y << W) / x))
+    } else if x < &zero {
+        let base = atan_scaled(&((y << W) / x));
+        if y >= &zero {
+            base + &pi
+        } else {
+            base - &pi
+        }
+    } else if y > &zero {
+        pio2.clone()
+    } else if y < &zero {
+        -pio2.clone()
+    } else {
+        zero
+    }
+}
+
 struct Truth {
     sin: BigInt,
     cos: BigInt,
@@ -440,3 +512,161 @@ fn the_oracle_agrees_with_host_floating_point_where_both_are_exact_enough() {
         }
     }
 }
+
+/// The inverse family on a `Fixed`: `asin`, `acos`, `atan` and `atan2` are within
+/// one Q32.32 unit of the true value too (bug-615 sub-issue C).
+///
+/// They share the CORDIC *vectoring* loop that `sin`/`cos` used to share, and it
+/// keeps the same few-unit residue: measured against this oracle at a47fa3534,
+/// `atan(2.0F)` is 4.27 units out, `atan2(3.0F, -4.0F)` 2.69, `asin(0.8F)` 1.61.
+/// That is not merely cosmetic — `vector::slerp` on a `Fixed2` composes `acos`
+/// with `sin`, and once `sin` became correct the acos residue stopped cancelling,
+/// moving the composite from 2.9 units off the true result to 10.9.
+#[test]
+fn fixed_inverse_trig_is_within_one_unit() {
+    let pio2 = pi_over_2();
+    let one = 1i64 << 32;
+    let mut unary: Vec<(&str, i64)> = Vec::new();
+    for raw in [0i64, 1, -1, one, -one, one / 2, -one / 2, (0.8 * one as f64) as i64,
+                (-0.3 * one as f64) as i64, (0.999 * one as f64) as i64, one - 1, 1 - one] {
+        unary.push(("asin", raw));
+        unary.push(("acos", raw));
+    }
+    for raw in [0i64, 1, -1, one, -one, 2 * one, -2 * one, one / 3, i64::MAX, i64::MIN,
+                (0.7 * one as f64) as i64, 1000 * one] {
+        unary.push(("atan", raw));
+    }
+    unary.extend(random_raws(0x615c, 90, 33).into_iter().map(|r| ("atan", r)));
+    unary.extend(random_raws(0x615d, 60, 32).into_iter().map(|r| ("asin", r)));
+    unary.extend(random_raws(0x615e, 60, 32).into_iter().map(|r| ("acos", r)));
+    let pairs: Vec<(i64, i64)> = [
+        (3 * one, -4 * one),
+        (-3 * one, -4 * one),
+        (3 * one, 4 * one),
+        (-3 * one, 4 * one),
+        (0, one),
+        (0, -one),
+        (one, 0),
+        (-one, 0),
+        (i64::MAX, 1),
+        (1, i64::MAX),
+    ]
+    .into_iter()
+    .chain(
+        random_raws(0x615f, 40, 40)
+            .into_iter()
+            .zip(random_raws(0x6160, 40, 40)),
+    )
+    .collect();
+
+    let mut body = String::new();
+    for (index, (name, raw)) in unary.iter().enumerate() {
+        body.push_str(&format!(
+            "  io::print(\"{name} {raw}|\" & one{name}(fx({hi}, {lo}.0)))\n",
+            hi = raw >> 32,
+            lo = raw & 0xFFFF_FFFF,
+        ));
+        let _ = index;
+    }
+    for (y, x) in &pairs {
+        body.push_str(&format!(
+            "  io::print(\"atan2 {y} {x}|\" & oneatan2(fx({yh}, {yl}.0), fx({xh}, {xl}.0)))\n",
+            yh = y >> 32,
+            yl = y & 0xFFFF_FFFF,
+            xh = x >> 32,
+            xl = x & 0xFFFF_FFFF,
+        ));
+    }
+    let source = format!(
+        r#"IMPORT io
+IMPORT math
+
+FUNC fx(hi AS Integer, lo AS Float) AS Fixed
+  RETURN toFixed(hi) + toFixed(lo / 4294967296.0)
+END FUNC
+
+FUNC oneasin(x AS Fixed) AS String
+  RETURN "ok " & toString(math::asin(x), toByte(32))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC oneacos(x AS Fixed) AS String
+  RETURN "ok " & toString(math::acos(x), toByte(32))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC oneatan(x AS Fixed) AS String
+  RETURN "ok " & toString(math::atan(x), toByte(32))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC oneatan2(y AS Fixed, x AS Fixed) AS String
+  RETURN "ok " & toString(math::atan2(y, x), toByte(32))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+{body}END SUB
+"#
+    );
+    let project = common::temp_project("math_fixed_inverse_trig", &source);
+    let binary = common::build_project(&project);
+    let (status, stdout) = common::run_bounded(
+        &binary,
+        Duration::from_secs(120),
+        "Fixed inverse trig over the corpus must finish",
+    );
+    assert!(
+        status.success(),
+        "program {}:\n{stdout}",
+        common::exit_description(&status)
+    );
+    let _ = std::fs::remove_dir_all(&project);
+
+    let one_unit = pow2(W - 32);
+    let in_domain = |raw: i64| raw.abs() <= (1i64 << 32);
+    let mut wrong = Vec::new();
+    for line in stdout.lines() {
+        let (head, result) = line.split_once('|').unwrap_or_else(|| panic!("row {line:?}"));
+        let fields: Vec<&str> = head.split_whitespace().collect();
+        let name = fields[0];
+        let args: Vec<i64> = fields[1..].iter().map(|f| f.parse().unwrap()).collect();
+        let scaled = |raw: i64| big(raw) << (W - 32);
+        let exact = match name {
+            "asin" => in_domain(args[0]).then(|| asin_scaled(&scaled(args[0]), &pio2)),
+            "acos" => in_domain(args[0]).then(|| &pio2 - asin_scaled(&scaled(args[0]), &pio2)),
+            "atan" => Some(atan_scaled(&scaled(args[0]))),
+            _ => Some(atan2_scaled(&scaled(args[0]), &scaled(args[1]), &pio2)),
+        };
+        match (exact, result.strip_prefix("ok ")) {
+            // Outside [-1, 1], asin/acos raise ErrInvalidArgument — unchanged.
+            (None, None) => {}
+            (None, Some(text)) => wrong.push(format!("{head}: must raise, returned {text}")),
+            (Some(_), None) => wrong.push(format!("{head}: must not raise, {result}")),
+            (Some(exact), Some(text)) => {
+                let error = error_units(parse_fixed(text), &exact);
+                if error > one_unit {
+                    wrong.push(format!(
+                        "{head} = {text}: {} units from the true value",
+                        units(&error)
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong inverse-trig results:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
+

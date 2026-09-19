@@ -118,6 +118,25 @@ Blast radius audit: `asin`/`acos` go through `emit_fixed_atan2` (CORDIC vectorin
 same iteration count) — check their accuracy too; `atan2`'s divide-free vectoring
 has no range issue but shares the residue.
 
+### Sub-issue 615-C — the inverse family has the same residue (found 2026-09-19)
+
+Predicted by the blast-radius audit and now measured. `asin`, `acos`, `atan` and
+`atan2` on a `Fixed` share the CORDIC **vectoring** loop, which keeps the residue
+`sin`/`cos` shed: against the same 336-bit oracle, `atan(2.0F)` is 4.27 units out,
+`atan2(3.0F, -4.0F)` 2.69, `asin(0.8F)` 1.61 — outside the one-unit contract this
+bug establishes for the family.
+
+It is not cosmetic. `vector::slerp` on a `Fixed2` composes `acos` with `sin`, and
+the two errors used to partly cancel: with `sin` correct and `acos` unchanged,
+`slerp(Fixed2[3,4], Fixed2[1,2], 0.5).x` moved from 2.9 units off the true value
+to 10.9. Leaving 615-C unfixed would land a change that makes a composite worse,
+so it is in scope here rather than deferred.
+
+RED test: `fixed_inverse_trig_is_within_one_unit` in
+`tests/runtime/rt_math_fixed_trig_accuracy.rs` — 202 wrong results, with an
+`atan`/`asin`/`acos`/`atan2` oracle built on argument-halving plus the Taylor
+series in 336-bit fixed point.
+
 ## Non-goals
 
 - Changing the `Float` overload. It returns a large finite value near pi/2,
