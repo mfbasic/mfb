@@ -449,7 +449,11 @@ impl CodeBuilder<'_> {
             &one,
             &remainder,
         ));
-        self.emit(abi::subtract_registers(&accumulator, &accumulator, &scratch));
+        self.emit(abi::subtract_registers(
+            &accumulator,
+            &accumulator,
+            &scratch,
+        ));
         self.emit(abi::compare_immediate(&counter, "0"));
         self.emit(abi::branch_eq(&series_done));
         self.emit(abi::subtract_immediate(&counter, &counter, 1));
@@ -1615,9 +1619,9 @@ fn fixed_inv_ln10() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-    pi_over_2_scaled, FIXED_ATAN_TERMS, PI_FIXED, PI_OVER_2_FIXED, PI_OVER_2_Q159, PI_OVER_2_Q61,
-    PI_OVER_4_Q61, PI_Q61, TWO_OVER_PI_Q64,
-};
+        pi_over_2_scaled, FIXED_ATAN_TERMS, PI_FIXED, PI_OVER_2_FIXED, PI_OVER_2_Q159,
+        PI_OVER_2_Q61, PI_OVER_4_Q61, PI_Q61, TWO_OVER_PI_Q64,
+    };
     use num_bigint::BigInt;
 
     /// `atan(1/n)` scaled by `2^bits`.

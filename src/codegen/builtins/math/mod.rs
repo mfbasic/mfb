@@ -247,8 +247,7 @@ pub(crate) fn preserving_unary(
     pkg: &mut RegistryPackage,
 ) {
     preserving_unary_typed_errors(
-        name, intro, desc, example, expected, value_desc, scalars, lists, errors, None, lower,
-        pkg,
+        name, intro, desc, example, expected, value_desc, scalars, lists, errors, None, lower, pkg,
     );
 }
 

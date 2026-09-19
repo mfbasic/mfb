@@ -140,7 +140,11 @@ fn atan_scaled(x: &BigInt) -> BigInt {
 fn asin_scaled(x: &BigInt, pio2: &BigInt) -> BigInt {
     let one = pow2(W);
     if x.magnitude() == one.magnitude() {
-        return if x < &big(0) { -pio2.clone() } else { pio2.clone() };
+        return if x < &big(0) {
+            -pio2.clone()
+        } else {
+            pio2.clone()
+        };
     }
     let x2 = (x * x) >> W;
     let denominator = sqrt_scaled(&(&one - x2));
@@ -527,13 +531,37 @@ fn fixed_inverse_trig_is_within_one_unit() {
     let pio2 = pi_over_2();
     let one = 1i64 << 32;
     let mut unary: Vec<(&str, i64)> = Vec::new();
-    for raw in [0i64, 1, -1, one, -one, one / 2, -one / 2, (0.8 * one as f64) as i64,
-                (-0.3 * one as f64) as i64, (0.999 * one as f64) as i64, one - 1, 1 - one] {
+    for raw in [
+        0i64,
+        1,
+        -1,
+        one,
+        -one,
+        one / 2,
+        -one / 2,
+        (0.8 * one as f64) as i64,
+        (-0.3 * one as f64) as i64,
+        (0.999 * one as f64) as i64,
+        one - 1,
+        1 - one,
+    ] {
         unary.push(("asin", raw));
         unary.push(("acos", raw));
     }
-    for raw in [0i64, 1, -1, one, -one, 2 * one, -2 * one, one / 3, i64::MAX, i64::MIN,
-                (0.7 * one as f64) as i64, 1000 * one] {
+    for raw in [
+        0i64,
+        1,
+        -1,
+        one,
+        -one,
+        2 * one,
+        -2 * one,
+        one / 3,
+        i64::MAX,
+        i64::MIN,
+        (0.7 * one as f64) as i64,
+        1000 * one,
+    ] {
         unary.push(("atan", raw));
     }
     unary.extend(random_raws(0x615c, 90, 33).into_iter().map(|r| ("atan", r)));
@@ -635,7 +663,9 @@ SUB main()
     let in_domain = |raw: i64| raw.abs() <= (1i64 << 32);
     let mut wrong = Vec::new();
     for line in stdout.lines() {
-        let (head, result) = line.split_once('|').unwrap_or_else(|| panic!("row {line:?}"));
+        let (head, result) = line
+            .split_once('|')
+            .unwrap_or_else(|| panic!("row {line:?}"));
         let fields: Vec<&str> = head.split_whitespace().collect();
         let name = fields[0];
         let args: Vec<i64> = fields[1..].iter().map(|f| f.parse().unwrap()).collect();
@@ -669,4 +699,3 @@ SUB main()
         wrong.join("\n")
     );
 }
-
