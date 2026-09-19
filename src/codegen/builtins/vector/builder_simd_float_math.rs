@@ -1740,8 +1740,8 @@ impl CodeBuilder<'_> {
     /// quotient is evaluated with a one-step double-double-accurate division
     /// (`q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`). Carrying the lo
     /// halves through the divide closes the near-pole 2-ULP residual the plain
-    /// `fdiv` left. (Medium-range Cody-Waite reduction, like sin/cos; huge
-    /// arguments would need Payne-Hanek, out of scope.)
+    /// `fdiv` left. (It shares `emit_sincos_reduce` with sin/cos, so a huge or a
+    /// cancelling angle takes the same exact reduction, bug-618.)
     /// tan's shared double-double `sin_r`/`cos_r` computation (bug-332 B2): reduce
     /// the angle, evaluate P_cos(r2) and reduced*P_sin(r2) as compensated
     /// double-doubles, and stash `cos_r` in (v25,v26) and `sin_r` in (v23,v24).
