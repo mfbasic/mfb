@@ -8,7 +8,12 @@ const INTRO: &str = r#"Cosine of an angle in radians."#;
 const DESC: &str = r#"`cos` returns the cosine of `value` (an angle in radians), echoing the operand type
 (`Float` or `Fixed`), plus a `List OF Float` form that returns a new list of each
 angle's cosine in the same order, leaving the input unchanged; an empty list gives
-an empty list."#;
+an empty list.
+
+A `Float` angle of any size is measured against pi/2 exactly, so a huge angle is as
+accurate as a small one and the answer always lies in `[-1.0, 1.0]`:
+`math::cos(100000000000000000000.0)` is about `0.764`, even though `Float` values
+that large are more than a full turn apart."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

@@ -12,7 +12,10 @@ pi/2 a `Float` result is very large but finite (`math::tan(math::pi2)` is about
 as the angle approaches pi/2, and once the true tangent is beyond the `Fixed` range
 the current result is wrong rather than an error: `math::tan(math::pi2Fixed)`
 returns a large negative number. Use `Float` when the angle can come close to
-pi/2."#;
+pi/2.
+
+A `Float` angle of any size is measured against pi/2 exactly, so a huge angle is as
+accurate as a small one: `math::tan(100000000000000000000.0)` is about `-0.845`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
