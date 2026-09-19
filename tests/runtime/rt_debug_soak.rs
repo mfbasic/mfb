@@ -1327,3 +1327,45 @@ fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
          caller's computed argument temp (bug-629)"
     );
 }
+
+/// bug-650 case 1: a message still sitting in a queue's ring when the thread is released is
+/// never freed. bug-646's reclaim protocol only reaches a block the reader actually dequeued
+/// (it parks the PREVIOUS read's block on each read); nothing walks the ring itself at
+/// release, so a program that sends more than its worker receives leaks every undelivered
+/// message. Bounded by the queue's capacity per thread — and unbounded across a loop of
+/// threads, which is what this measures. Four sends to a worker that receives one, measured
+/// at `3d49a969e`: N=50 `live_bytes 4800`, N=100 `9600` (96 B per iteration — three 32 B
+/// messages).
+#[test]
+fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  LET m AS String = thread::receive(w, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 8)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b650_unread",
+        SOURCE,
+        50,
+        100,
+        "total=",
+        "a message left undelivered in the ring is never freed (bug-650 case 1)",
+    );
+}
+
+/// bug-650 case 2: a `thread::transfer` of a stateful resource reclaims neither the queued
+/// resource record nor its separate STATE block. The send helper's pending-free entry
+/// carries ONE size (arg 3), which cannot describe record + STATE, so
+/// `bare_resource_reclaimable` declines for a stateful resource and passes 0 — the
+/// fail-safe that skips the reclaim entirely. Measured at `3d49a969e`: N=50
+/// `live_bytes 6400`, N=100 `12800` (128 B per transfer — a 96 B record plus a 32 B
+/// `Cursor`).
+#[test]
+fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nTYPE Cursor\n  pos AS Integer\nEND TYPE\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket STATE Cursor TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket STATE Cursor = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cursor = udp::bind(\"127.0.0.1\", 0)\n    c.state.pos = i\n    LET a AS Thread OF RES udp::Socket STATE Cursor TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b650_state_transfer",
+        SOURCE,
+        50,
+        100,
+        "total=",
+        "a transferred stateful resource leaks its queued record and STATE block \
+         (bug-650 case 2)",
+    );
+}
