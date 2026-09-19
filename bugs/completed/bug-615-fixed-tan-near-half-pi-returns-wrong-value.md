@@ -5,8 +5,37 @@ Effort: small–medium
 Severity: MED
 Class: Correctness (silent wrong result from checked arithmetic)
 
-Status: Fixed (see Phase 2)
+Status: Fixed — see STATUS below
 Regression Test: none yet — see Phase 1
+
+## STATUS: FIXED (78ec84d2c, adc6e874e, a47fa3534, aa65d431a, 703f18303, 3086dcf5d, ed4c94022, 18025898f)
+
+`Fixed` `sin`, `cos`, `tan` and — after sub-issue C — `asin`, `acos`, `atan`,
+`atan2` are within one Q32.32 unit (2^-32) of the true value, measured against an
+exact 336-bit oracle: the sin/cos/tan corpus within 0.5007 units, the 855-argument
+inverse corpus within 0.4990, i.e. rounding-limited. `tan` raises `ErrOverflow`
+when the true tangent leaves the `Fixed` range, declared on the `Fixed` overload
+only.
+
+Deviations from the Fix design — hypothesis 1 was wrong, and the scope grew twice:
+
+- **The divide was already range-checked.** `emit_fixed_tan` goes through
+  `emit_fixed_divide`, which checks. The wrong value came from a *cosine* that was a
+  few units off and wrongly signed, so the quotient was in range.
+- **615-B**: the same reduction made `sin`/`cos` wrong at large angles
+  (`sin(toFixed(2000000000.0))` was 0.9432 against a true 0.9147) and several units
+  off at small ones (`cos(0)` read 1.00000000163).
+- **615-C**: `asin`/`acos`/`atan`/`atan2` kept the CORDIC residue (`atan(2.0F)` 4.27
+  units). Not optional: once `sin` was correct the errors stopped cancelling and
+  `vector::slerp` on a `Fixed2` went from 2.9 units off to 10.9. One exact-ratio
+  `atan` kernel now serves all four; the vectoring CORDIC has no callers left and is
+  deleted, with the host-`f64` `fixed_pi()`/`fixed_pi_over_2()`.
+- **Golden and acceptance values re-derived, each proven**: `sin(math::piFixed)`
+  rounds to raw 0, not raw -1 (703f18303), and ~20 pinned `Fixed` expectations moved
+  to the correctly rounded value (31d40c93a). The residual spread in the `vector::`
+  composites is their own chain — filed as bug-654.
+
+Goldens: 10 `.ncodesum` (math, vector) plus the integration regeneration.
 
 `Fixed` is Q32.32 fixed point, and its range ends at about ±2.1e9. The tangent of
 a `Fixed` argument just below pi/2 lies far beyond that. MFBASIC's checked
@@ -213,13 +242,13 @@ Commits: 615-C kernel + spec, below.
 
 ## Fix
 
-Phase 1 — RED test: `tan(math::pi2Fixed)` raises `ErrOverflow`; locate the
+- [x] Phase 1 — RED test: `tan(math::pi2Fixed)` raises `ErrOverflow`; locate the
 unchecked step; decide the precision question. Commit: 78ec84d2c (RED,
 `tests/runtime/rt_math_fixed_trig_accuracy.rs`, 1604 of 1686 results wrong), plus
 fe77fba2a (the harness bug the corpus exposed: `run_bounded` deadlocked on any
 program printing more than the pipe buffer).
 
-Phase 2 — rebuild the Q32.32 trig kernel (GREEN); goldens; full suite.
+- [x] Phase 2 — rebuild the Q32.32 trig kernel (GREEN); goldens; full suite.
 Commit: adc6e874e (kernel), e8df6f608 (fmt), and the docs commit below.
 
 The fix replaces the reduction and the sin/cos evaluation rather than adding a

@@ -5,8 +5,30 @@ Effort: small
 Severity: LOW
 Class: Correctness (silent integer wraparound)
 
-Status: Fix landed on `worktree-B-640` (gate test GREEN); full suite and golden regeneration pending integration
+Status: Fixed — see STATUS below
 Regression Test: `tests/runtime/rt_datetime_clock_overflow.rs`
+
+## STATUS: FIXED (66ee644b0, 94305cfdc, b1be9ca5a, 7932c1601, 7d473df65, 3ba088f58, 5e56c8f4e)
+
+The clock fold is computed in 128 bits and range-checked once; out of range raises
+`ErrOverflow`, now declared on `nowNanos`, `now`, `monotonicNanos` and `monotonic`.
+The interposer test pins all four on both sides of the range, with the in-range
+extremes exact.
+
+Deviations from the Fix design:
+
+- **The Windows paths were in scope too** — `nowNanos`'s `* 100` and
+  `monotonicNanos`'s QPC fold were equally unchecked. Both are checked now; the one
+  edge left is a QPC frequency above ~18.4 GHz, which no Windows 10+ host reports,
+  documented rather than fixed. Those branches are unexercised at runtime (kernel32
+  has no injectable clock), so they rest on the instruction sequence.
+- **Fallout fixed in the same change**: `crypto::uuid7` and `crypto::ulid` stamp
+  `nowNanos` and so raise the new error without declaring it — both now declare
+  `ErrOverflow` (RED unit test + an interposer runtime case). `http` already traps
+  its helpers' raises into a 500. `src/codegen/debug/clock.rs` shares the unchecked
+  fold but has no error path and is ~292 years of uptime from wrapping; recorded.
+
+Goldens: 19 `.ncodesum` (datetime, crypto, crypto-ec-valid, http).
 
 On macOS and Linux, `datetime::nowNanos` computes the wall-clock reading as
 `tv_sec * 1_000_000_000 + tv_nsec` with an **unchecked** multiply and add. The
@@ -123,11 +145,11 @@ own fallible ABI (the OK tail, and for `localOffset` the range-fail tail)").
 
 ## Fix
 
-Phase 1 — RED test on the emitted scaling sequence (or a clock-override test),
+- [x] Phase 1 — RED test on the emitted scaling sequence (or a clock-override test),
 expecting `ErrOverflow` for `tv_sec` past the limit. Audit the monotonic and Windows
 paths and record the result here. Commit: `66ee644b0`
 
-Phase 2 — lower the scaling with checked multiply/add and a fail tail, declare
+- [x] Phase 2 — lower the scaling with checked multiply/add and a fail tail, declare
 `ErrOverflow` on `nowNanos` and `now` (and on monotonic if shared), update the two
 man pages from "wraps" to "raises `ErrOverflow`" (GREEN); full suite. Commits:
 `94305cfdc` (fix), `b1be9ca5a` (man pages), `7932c1601` (spec).

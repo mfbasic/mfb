@@ -5,8 +5,41 @@ Effort: small–medium
 Severity: MED
 Class: Correctness (silent wrong result)
 
-Status: Fixed (Phase 2) — pending the integration full suite / golden refresh
+Status: Fixed — see STATUS below
 Regression Test: `tests/runtime/rt_math_float_trig_large_angles.rs`
+
+## STATUS: FIXED (ebc00a219, 94be9af2c, 314e033ff, 62a459532, 4239a66e7, 04f8bcab6, 808303b44)
+
+`math::sin`, `cos` and `tan` are within one ULP of the true value at **every finite
+`Float` angle**, scalar and `List OF Float` alike and bit-identical between them,
+measured against an exact 1400-bit oracle over 410 angles — including `1e20`,
+`f64::MAX` and the double closest to a multiple of pi/2. A lane takes an exact
+reduction (a committed 1225-bit `2/pi` table, indexed by exponent) when the
+medium-range Cody-Waite step cannot be trusted to the last ULP.
+
+Deviations from the Fix design:
+
+- **The medium range was wrong too.** Keeping it byte-identical was the plan; it
+  discarded the low half of its own reduction, costing more than a ULP well inside
+  the supposedly-good range (`tan(413441.44719405076)` 2.17 ULP out, against a spec
+  claiming `tan` is faithfully rounded). The low half is now carried into both
+  polynomials. Over 410 medium angles: correctly rounded on 399/410 sin (was 358),
+  397/410 cos (was 351), 397/410 tan (was 299); worst case 1.29/1.39/2.17 ULP →
+  0.65/0.61/0.61, none above one ULP.
+- **A separate pre-existing defect fixed with it**: `sin(-0.0)` and `tan(-0.0)`
+  returned `+0.0`, against IEEE 754 §6.3 — the double-double collapse added a `+0.0`
+  low half. Both now pass the argument through on a zero lane (4239a66e7).
+- **Nine acceptance expectations re-derived** (e9e861e4d), seven toward the true
+  value; two — `sin` and `tan` at `0.7853981633974483` — moved from correctly rounded
+  to 0.63 / 0.28 ULP. They demanded correct rounding, which the kernel has never
+  promised, so the assertions were updated and the kernel was not.
+- **One unit test updated with proof**: `math_const_pool_layout_is_pinned` assumed
+  the whole pool is deduplicated and value-addressed; the `2/pi` table is
+  deliberately neither, and gains a stronger positional assertion instead.
+- **Tooling corrected** (04f8bcab6): `runtime_ulp.py` no longer calls large-argument
+  vectors "out of scope" — it gates them.
+
+Goldens: 15 `.ncodesum` (math, vector, audio) plus the integration regeneration.
 
 A sine or cosine is always within `[-1, 1]`. For a very large finite `Float`
 angle, `math::sin` and `math::cos` return numbers many orders of magnitude outside
@@ -103,10 +136,10 @@ own right — see bug-615 (sub-issue 615-B).
 
 ## Fix
 
-Phase 1 — RED tests against a reference at `1e20`, `2^53`, and a bisected
+- [x] Phase 1 — RED tests against a reference at `1e20`, `2^53`, and a bisected
 threshold; locate the reduction step. Commit:
 
-Phase 2 — exact reduction for large arguments (GREEN); goldens for the trig
+- [x] Phase 2 — exact reduction for large arguments (GREEN); goldens for the trig
 kernel; full suite. Commits: `94be9af2c` (kernel), `314e033ff` (spec),
 `62a459532` (man pages).
 

@@ -5,8 +5,24 @@ Effort: small
 Severity: LOW
 Class: Correctness (malformed output)
 
-Status: Open
+Status: Fixed — see STATUS below
 Regression Test: none yet — see Phase 1
+
+## STATUS: FIXED (6e22472b5, 7b8e66fc6, 764406b0f)
+
+`__datetime_padN` now pads the digits and writes the sign in front of them, so year
+-1 renders `-0001` for `yyyy` and `datetime::toIso` gives `-0001-01-01T00:00:00Z`.
+The digits come from `toString(value)` rather than `0 - value`, which would overflow
+for the most negative `Integer`.
+
+Deviation from the Fix design: the filing described one symptom; there were **two**.
+A negative year whose sign plus digits already filled the width was not padded at all
+(`-999` for `yyyy`, expected `-0999`) — the same mechanism, fixed by the same change
+and covered by the RED test.
+
+Goldens: 27 regenerated (22 `.ir`, 5 `.ncodesum`). `format`/`toIso` man pages and
+`mfb spec stdlib datetime` updated; `yy` of a negative year stays the floor-mod form
+and is now stated in the spec.
 
 `datetime::date` accepts negative years (proleptic Gregorian), and `datetime::civil`
 builds a `DateTime` from them. But the year renderer zero-pads the **text of the
@@ -101,10 +117,10 @@ the spec.
 
 ## Fix
 
-Phase 1 — RED tests: `format(dt(-1), "yyyy") = "-0001"`, `format(dt(-44), "yyyy") =
+- [x] Phase 1 — RED tests: `format(dt(-1), "yyyy") = "-0001"`, `format(dt(-44), "yyyy") =
 "-0044"`, `toIso(dt(-1), 0) = "-0001-01-01T00:00:00Z"`; audit the pad-helper callers.
-Commit:
+Commit: 6e22472b5 (`tests/runtime/rt_datetime_negative_year_render.rs`, 18 wrong)
 
-Phase 2 — pad the magnitude and prefix the sign (GREEN); full suite, and the datetime
+- [x] Phase 2 — pad the magnitude and prefix the sign (GREEN); full suite, and the datetime
 example goldens. Update the `format` and `toIso` man pages, which document the
-as-is rendering. Commit:
+as-is rendering. Commit: 7b8e66fc6 (fix + man + spec), 764406b0f (goldens)

@@ -5,8 +5,25 @@ Effort: small
 Severity: MED
 Class: Correctness (silent wrong result)
 
-Status: Open
+Status: Fixed — see STATUS below
 Regression Test: none yet — see Phase 1
+
+## STATUS: FIXED (cabd93303, f3d61c8d9, 16122d49f, c4e06c29b)
+
+A tenth LEB128 byte is now read first and then checked against the bytes that both
+terminate the sequence and name an in-range value — `0x00` for `uleb128Decode`,
+`0x00`/`0x01` for `varintDecode`, `0x00`/`0x7F` for `sleb128Decode`. The filed
+reproduction raises `77050003`; `uleb128Decode([0xFF x9, 0x01])` raises instead of
+returning `-1`; every in-range sequence still decodes.
+
+Deviation from the Fix design: **`varintDecode` could not inherit a strict
+`uleb128Decode`.** Its ZigZag pattern uses all 64 bits, so `varintEncode` of the most
+negative `Integer` ends in a tenth `0x01` that `uleb128Decode` must reject. The
+unsigned read moved into a shared `__encoding_leb128Read(data, tenthMax)` helper
+(the inverse of `__encoding_leb128Emit`) which the two call with different limits.
+
+Goldens: 130 regenerated (86 `.ir` carrying the helper and its line shift, 44
+`.ncodesum`). `mfb man` pages and `mfb spec stdlib encoding` updated.
 
 `mfb man encoding sleb128Decode` promises: "The accumulated shift may not exceed
 `63` bits; a sequence encoding more than 64 significant bits overflows." It does
@@ -104,9 +121,9 @@ own sign extension).
 
 ## Fix
 
-Phase 1 — RED tests: `sleb128Decode` and `uleb128Decode` of nine `0x80` plus
+- [x] Phase 1 — RED tests: `sleb128Decode` and `uleb128Decode` of nine `0x80` plus
 `0x02` raise `77050003`; the maximum and minimum valid 64-bit values still decode.
-Commit:
+Commit: cabd93303 (`tests/runtime/rt_encoding_leb128_overflow.rs`, 46 wrong)
 
-Phase 2 — at `shift = 63`, validate the tenth byte's payload (and require it to
-terminate) (GREEN); full suite. Commit:
+- [x] Phase 2 — at `shift = 63`, validate the tenth byte's payload (and require it to
+terminate) (GREEN); full suite. Commit: f3d61c8d9 (fix + man + spec), c4e06c29b (goldens)
