@@ -11,16 +11,16 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Render an `AttributedString`'s flags, font, and size into a bespoke markdown-flavored format; colors are left out."#;
 
-const DESC: &str = r#"`toMarkdown` flattens the resolved (higher-start-wins per member) attribute state
-across the scalars into maximal runs and renders each run into a bespoke marker
+const DESC: &str = r#"`toMarkdown` flattens the resolved attribute state — per member, the covering span with the
+higher start, or the later-added one where starts are equal — across the scalars into maximal runs and renders each run into a bespoke marker
 vocabulary. It is a read-only projection — `value` is not modified.
 
 **This is not CommonMark.** The format is read by the `astrings` toolchain, not a
 standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
 
-- **Flags** wrap each run as nested pairs in canonical (enum-declaration) order —
-  `**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `^^overline^^` — opened in
-  order and closed in reverse, so overlapping spans always produce valid nesting.
+- **Flags** wrap each run as nested pairs in this order — `**bold**`, `*italic*`,
+  `__underline__`, `~~strike~~`, `^^overline^^` — and close in the reverse order, so
+  overlapping spans always produce valid nesting.
 - **Font/size** switch forward via a minimal-delta `::font;size::` marker emitted
   at run boundaries where the state changes: a value sets, `-` resets to default,
   and an omitted slot leaves it unchanged (`::font::` font-only, `::;size::`
@@ -134,7 +134,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The attributed string to render.",
+                desc: "The attributed string to render; empty text renders as an empty String.",
                 aliases: &[],
                 ty: ParameterType::named("AttributedString"),
                 default: DefaultValue::None,

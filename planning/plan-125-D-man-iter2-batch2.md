@@ -236,25 +236,33 @@ Commit: 6f6c05547
 
 ### Phase 2 — astrings (17 units)
 
-- [ ] 15 pages + overview + the 17-description types page.
-- [ ] Every byte-vs-scalar-vs-grapheme claim probe-verified; the
+- [x] 15 pages + overview + the 17-description types page.
+- [x] Every byte-vs-scalar-vs-grapheme claim probe-verified; the
       `astrings`/`strings` boundary stated the same way on both sides.
-- [ ] Every example compiled and run; ledger recorded.
+      Ranges and indices are scalar throughout, and the probes hold them to it:
+      `astrtie` (inclusive `[start, endIndex]`, equal-start tie-break, the two
+      range errors), `astrget` (empty result, winners in insertion order),
+      `astrrem` (structural match compares colour and size values), `astrbound`
+      (`strings::` overloads on an `AttributedString`) and `astrmd` (flag nesting
+      order, empty input). `strings::byteLen` stays the only byte measure and
+      `graphemes` the only grapheme one; neither page claims otherwise.
+      The boundary paragraph is now word-for-word identical on both overviews
+      (rendered both, compared whitespace-normalized → identical).
+- [x] Every example compiled and run; ledger recorded.
+      `./scripts/man-run-examples.sh astrings --run` → 17/17 built and ran. The
+      new overview example was run separately (`/tmp/p125-ex/astrov`) and its
+      printed output is what the page shows.
 
-#### Phase 2 progress — paused on the Codex usage limit (boxes stay open)
+#### Phase 2 ledger — Codex iteration 2 (`planning/plan-125-findings/D-phase2/`)
 
-8 of 17 units reviewed (`exit 0`) and applied below. The run hit the Codex usage
-limit at `foreground`, `getAttributes`, `italic` and `fromString` (manifest rows
-`FAILED`, 3–4 s, usage-limit logs); `overline`, `removeAttribute` and `strike` were
-stopped mid-run with no row. Resume with the 9 units left:
-`./scripts/doc-review-fanout.sh --letter D-phase2 --units planning/plan-125-units/D-phase2-resume.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 4 --timeout 1800`
-(re-run rows append; `--reconcile` reads each unit's last row).
+Probes, all in `/tmp/p125-ex/`: `astrbound`, `astrtie`, `astrov`, `astrget`,
+`astrrem`, `astrmd`. Registry-data findings (a member raises an error its
+descriptor does not declare) go to **bug-657** rather than prose; every affected
+page already names both errors in its text.
 
-Already done: the boundary paragraph is identical on both overviews (rendered
-and compared whitespace-normalized). After the rebuild, `astrings` examples ran
-17/17, and `--memory-scope`/`--scope` returned 0 for both `astrings` and `strings`.
-
-Probes, all in `/tmp/p125-ex/`: `astrbound`, `astrtie`, `astrov`.
+The run was split by the Codex usage limit: 8 units first, then the 9 left in
+`planning/plan-125-units/D-phase2-resume.txt`. Re-run rows append, so
+`--reconcile` reads each unit's last row; all 17 come back `exit 0`.
 
 | Page | # | Verdict | Evidence | Applied |
 |---|---|---|---|---|
@@ -273,10 +281,29 @@ Probes, all in `/tmp/p125-ex/`: `astrbound`, `astrtie`, `astrov`.
 | font | 2 | CONFIRMED | `astrtie` tie-break (shared `__astrings_isWinner`) | tie-break sentence; same wording on `background`, `fontSize` |
 | fontSize | 1 | CONFIRMED | `astrtie`: `fontSize(-7)` kept | `size` parameter |
 | fontSize | 2 | CONFIRMED | `astrtie`: equal starts → later wins | tie-break sentence |
+| fromString | 1 | CONFIRMED | `astrtie` reuses `a` after three `addAttribute` calls and it keeps no spans | attribute sentence: the call returns a new value |
+| italic | 1 | CONFIRMED | `astrtie`: empty text `0, 0` → `77050001` | shared range sentence pointing at `addAttribute`; applied to every flag constructor |
+| overline | — | NO FINDINGS | — | — |
+| foreground | 1 | CONFIRMED | `grep -rn AttributedString src/codegen/builtins/canvas/` → nothing; canvas `Text.text` is a `String` | canvas claim removed |
+| foreground | 2 | CONFIRMED | shared `__astrings_isWinner` (`astrtie`) | tie-break sentence; `drawText(row, column, …)` and the round-trip sentence aligned with `background` |
+| getAttributes | 1 | CONFIRMED | `astrget`: empty text raises `77050001` | `index` parameter |
+| getAttributes | 2 | CONFIRMED | `astrget`: `empty=[]` | empty-result sentence |
+| getAttributes | 3 | CONFIRMED | `astrget`: spans font/bold/font/fontSize → `flag text:Winner num:12`, the winners in insertion order | ordering sentence |
+| getAttributes | 4 | CONFIRMED → **bug-657** | `errors: vec![]` with `FAIL error(77050001, …)` in the body | — |
+| removeAttribute | 1 | CONFIRMED | `astrrem`: removing a different foreground keeps `num:4294901760`; the same one removes it; same for `fontSize(11)` vs `fontSize(10)` | structural-match sentence names foreground and background |
+| removeAttribute | 2, 3 | CONFIRMED | `__astrings_validateRange` | `start`, `endIndex` parameters |
+| underline, strike | 1 | CONFIRMED | `astrtie`: empty text `0, 0` → `77050001` | shared range sentence |
+| toMarkdown | 1 | CONFIRMED | `astrmd`: `toMarkdown(fromString(""))` → `[]` | `value` parameter |
+| toMarkdown | 2 | CONFIRMED (scope cut) | "canonical (enum-declaration) order" | rendered order kept, rationale dropped; `astrmd`: `**a*****b******__~~^^cd^^~~__******e*****f**` |
 
-Bugs filed so far: **bug-657** (`astrings` range and index members declare no errors).
-Still to do: `removeAttribute`, `foreground` and `toMarkdown` also say "higher-start-wins"
-without the equal-start rule. Apply the shared tie-break wording when their reviews land.
+Measured at the closing commit:
+- `--reconcile --letter D-phase2` → `units=17 unaccounted=0 orphans=0`;
+- `--memory-scope astrings` 0 unclassified; `--scope astrings` 0; same for `strings`;
+- `astrings` examples 17/17;
+- all 17 units render with none of the retired phrasings (`higher-start-wins`,
+  `x, y, value`, `canvas surface`, `enum-declaration`, `mutation members`).
+
+Bugs filed from this phase: bug-657. Belongs-in-spec rows: none.
 
 Acceptance: 17 units `exit 0`; sweeps clean; the `astrings`↔`strings` boundary
 sentence is identical in wording on both packages' overviews.
