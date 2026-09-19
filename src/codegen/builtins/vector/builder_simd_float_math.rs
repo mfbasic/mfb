@@ -413,6 +413,10 @@ struct TrigRegs {
     sin_corr: String,
     /// The low half's first-order effect on `cos(r)`: `-r * r_lo`.
     cos_corr: String,
+    /// The untouched argument, saved by `sin`/`tan` before the reduction
+    /// overwrites it, so a zero lane can keep its sign (see
+    /// [`CodeBuilder::emit_zero_argument_passthrough`]). `cos` never reads it.
+    arg: String,
 }
 
 impl KernelRegs {
@@ -460,6 +464,7 @@ impl CodeBuilder<'_> {
                 route: self.temporary_fp_vreg().render(),
                 sin_corr: self.temporary_fp_vreg().render(),
                 cos_corr: self.temporary_fp_vreg().render(),
+                arg: self.temporary_fp_vreg().render(),
             }),
         }
     }
@@ -1566,7 +1571,37 @@ impl CodeBuilder<'_> {
     /// into `v24`) and `cos_r = P_cos(r^2)` (collapsed into `v23`), then apply the
     /// quadrant selection/sign. The compensated polynomials make sin/cos strict
     /// <=1 ULP of macOS libm.
+    /// `sin(±0)` is `±0` and `tan(±0)` is `±0` — IEEE 754 §6.3 keeps the sign of a
+    /// zero argument, and every libm does. The kernel lost it: the reduced angle
+    /// of `-0.0` is `-0.0`, `-0.0 * P(r^2)` is `-0.0`, but the compensated sum
+    /// that collapses the double-double adds the `+0.0` low half, and
+    /// `(-0.0) + (+0.0)` is `+0.0`. Rather than re-plumb the sign through the
+    /// compensation, select the argument itself on any lane whose input is zero:
+    /// `fcmeq_zero` is true for both zeros and false for everything else
+    /// (including NaN), so no other lane can be touched. Costs three instructions
+    /// on `sin` and `tan`; `cos(±0)` is `1.0` and needs nothing.
+    ///
+    /// Pre-existing, found while fixing bug-618 (the RED case is in
+    /// `tests/runtime/rt_math_float_trig_large_angles.rs`).
+    fn emit_zero_argument_passthrough(&mut self, k: &KernelRegs) {
+        let arg = k.trig().arg.clone();
+        let mask = self.temporary_fp_vreg().render();
+        self.emit(abi::vector_fcmeq_zero(&mask, &arg));
+        self.emit(abi::vector_bsl(&mask, &arg, abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], &mask, &mask));
+    }
+
+    /// Save the argument for [`Self::emit_zero_argument_passthrough`] before the
+    /// reduction overwrites `v0`.
+    fn emit_save_trig_argument(&mut self, k: &KernelRegs) {
+        let arg = k.trig().arg.clone();
+        self.emit(abi::vector_orr(&arg, abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+    }
+
     fn emit_sin_cos_body(&mut self, want_cos: bool, k: &KernelRegs) {
+        if !want_cos {
+            self.emit_save_trig_argument(k);
+        }
         self.emit_sincos_reduce(k, false); // reduced=v2, r2=v1, quad=v5
                                            // cos_r = collapse(P_cos(r2)) → v23.
         self.emit_cos_r_into(&k.v23, k);
@@ -1602,6 +1637,7 @@ impl CodeBuilder<'_> {
                 abi::VEC_SCRATCH[3],
                 abi::VEC_SCRATCH[1],
             ));
+            self.emit_zero_argument_passthrough(k);
         } else {
             // cos: val = bit0 ? sin_r : cos_r; negate if bit0 XOR bit1.
             self.emit(abi::vector_eor(
@@ -1632,6 +1668,9 @@ impl CodeBuilder<'_> {
     /// reduction, same compensated polynomial, same sign select — for ~half the
     /// polynomial work. (`tan` still needs both halves and keeps the array body.)
     fn emit_sin_cos_body_scalar(&mut self, want_cos: bool, k: &KernelRegs) {
+        if !want_cos {
+            self.emit_save_trig_argument(k);
+        }
         self.emit_sincos_reduce(k, true); // reduced=v2, r2=v1, quad=v5
                                           // Negate mask → v25 (the Horner never touches v25/v26): sin negates on
                                           // bit1, cos on bit0^bit1. Matches emit_sin_cos_body's branchless masks.
@@ -1674,6 +1713,9 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[3],
             &k.v25,
         ));
+        if !want_cos {
+            self.emit_zero_argument_passthrough(k);
+        }
         self.emit_result_nan_into_mask(k);
     }
 
@@ -1750,6 +1792,7 @@ impl CodeBuilder<'_> {
     /// (`emit_tan_body_scalar`) quadrant selects that follow, so extracting it
     /// keeps the two paths bit-identical through the reduction.
     fn emit_tan_sincos_dd(&mut self, k: &KernelRegs, scalar: bool) {
+        self.emit_save_trig_argument(k);
         self.emit_sincos_reduce(k, scalar); // reduced=v2, r2=v1 (survives), quad=v5
                                             // cos_r as a double-double (hi,lo) → stash in v25/v26.
         self.emit_compensated_horner(
@@ -1886,13 +1929,13 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[4],
         )); // cos_full_lo
             // Double-double-accurate divide: sh=v28 sl=v29 ch=v30 cl=v31.
-        self.emit_tan_divide(&k.v28, &k.v29, &k.v30, &k.v31);
+        self.emit_tan_divide(&k.v28, &k.v29, &k.v30, &k.v31, k);
     }
 
     /// One-step double-double-accurate quotient `tan = sh:sl / ch:cl` into `v0`:
     /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
     /// four operand registers; scratch is v0/v3/v4/v6.
-    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str) {
+    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str, k: &KernelRegs) {
         self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], sh, ch)); // q = sh/ch
         self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0])); // -q
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], sh, sh));
@@ -1922,6 +1965,7 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[0],
             abi::VEC_SCRATCH[4],
         )); // tan = q + num/ch
+        self.emit_zero_argument_passthrough(k);
     }
 
     /// Scalar-only `tan`: `tan` has period π, so the quadrant reduces to bit0 —
@@ -1946,11 +1990,11 @@ impl CodeBuilder<'_> {
         // bit0 set: num = cos_r, den = -sin_r.
         self.emit(abi::vector_fneg(&k.v30, &k.v23)); // -sin_hi
         self.emit(abi::vector_fneg(&k.v31, &k.v24)); // -sin_lo
-        self.emit_tan_divide(&k.v25, &k.v26, &k.v30, &k.v31);
+        self.emit_tan_divide(&k.v25, &k.v26, &k.v30, &k.v31, k);
         self.emit(abi::branch(&tan_done));
         self.emit(abi::label(&bit0_clear));
         // bit0 clear: num = sin_r, den = cos_r.
-        self.emit_tan_divide(&k.v23, &k.v24, &k.v25, &k.v26);
+        self.emit_tan_divide(&k.v23, &k.v24, &k.v25, &k.v26, k);
         self.emit(abi::label(&tan_done));
         // tan fails only on a NaN result (NaN/inf input) — same as the array body.
         self.emit_result_nan_into_mask(k);

@@ -180,6 +180,15 @@ fn corpus() -> Vec<f64> {
         // The double closest to a multiple of pi/2 (cos ~ -4.7e-19).
         6381956970095103.0 * 2f64.powi(797),
     ];
+    // Angles where the medium path itself was more than one ULP out, because it
+    // discarded the low half of its own reduction (measured at 798870ec2: 1.29,
+    // 1.39, 1.52 and 2.17 ULP) — well inside the range the spec claims at <=1 ULP.
+    xs.extend([
+        16.223429914714487,
+        842522.8010648803,
+        417085.1813766881,
+        413441.44719405076,
+    ]);
     // 2^20 * pi/2 and its neighbourhood, where the medium reduction stops being exact.
     let edge = 2f64.powi(20) * std::f64::consts::FRAC_PI_2;
     xs.extend([edge, edge * 1.001, edge * 2.0, edge * 64.0]);
@@ -364,3 +373,67 @@ fn the_oracle_agrees_with_host_libm_at_ordinary_angles() {
         }
     }
 }
+
+/// IEEE 754 §6.3: a zero argument keeps its sign through `sin` and `tan`
+/// (`sin(-0.0)` is `-0.0`), and `cos(±0.0)` is `+1.0`. The kernel used to return
+/// `+0.0` for `sin(-0.0)` — the reduced angle is `-0.0` and `-0.0 * P` is `-0.0`,
+/// but collapsing the double-double adds the `+0.0` low half and `(-0.0) + (+0.0)`
+/// is `+0.0`. Pre-existing; found while fixing bug-618.
+#[test]
+fn a_zero_argument_keeps_its_sign() {
+    let source = r#"IMPORT io
+IMPORT math
+IMPORT collections
+
+SUB main()
+  LET negz AS Float = (0.0 - 1.0) * 0.0
+  LET posz AS Float = 0.0
+  LET pair AS List OF Float = [negz, posz]
+  LET p AS Byte = toByte(255)
+  io::print(toString(math::sin(negz), p) & "|" & toString(math::cos(negz), p) & "|" & toString(math::tan(negz), p))
+  io::print(toString(math::sin(posz), p) & "|" & toString(math::cos(posz), p) & "|" & toString(math::tan(posz), p))
+  io::print(toString(collections::get(math::sin(pair), 0), p) & "|" & toString(collections::get(math::cos(pair), 0), p) & "|" & toString(collections::get(math::tan(pair), 0), p))
+  io::print(toString(collections::get(math::sin(pair), 1), p) & "|" & toString(collections::get(math::cos(pair), 1), p) & "|" & toString(collections::get(math::tan(pair), 1), p))
+END SUB
+"#;
+    let project = common::temp_project("math_float_trig_signed_zero", source);
+    let binary = common::build_project(&project);
+    let (status, stdout) = common::run_bounded(
+        &binary,
+        Duration::from_secs(60),
+        "six trig calls on zero must finish",
+    );
+    assert!(
+        status.success(),
+        "program {}:\n{stdout}",
+        common::exit_description(&status)
+    );
+    let _ = std::fs::remove_dir_all(&project);
+    let rows: Vec<Vec<f64>> = stdout
+        .lines()
+        .map(|line| line.split('|').map(|p| p.parse::<f64>().expect("a Float")).collect())
+        .collect();
+    assert_eq!(rows.len(), 4, "four rows:\n{stdout}");
+    // Rows 0 and 2 are -0.0 (scalar, then List); rows 1 and 3 are +0.0.
+    for (row, negative) in rows.iter().zip([true, false, true, false]) {
+        let expected_zero = if negative { -0.0f64 } else { 0.0f64 };
+        assert_eq!(
+            row[0].to_bits(),
+            expected_zero.to_bits(),
+            "sin of {}0.0 must be {}0.0, got {}",
+            if negative { "-" } else { "+" },
+            if negative { "-" } else { "+" },
+            row[0]
+        );
+        assert_eq!(row[1].to_bits(), 1.0f64.to_bits(), "cos of a zero must be +1.0");
+        assert_eq!(
+            row[2].to_bits(),
+            expected_zero.to_bits(),
+            "tan of {}0.0 must be {}0.0, got {}",
+            if negative { "-" } else { "+" },
+            if negative { "-" } else { "+" },
+            row[2]
+        );
+    }
+}
+
