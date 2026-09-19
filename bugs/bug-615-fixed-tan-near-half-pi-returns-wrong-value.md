@@ -137,6 +137,66 @@ RED test: `fixed_inverse_trig_is_within_one_unit` in
 `atan`/`asin`/`acos`/`atan2` oracle built on argument-halving plus the Taylor
 series in 336-bit fixed point.
 
+#### Fixed (2026-09-19)
+
+All four now share **one** kernel, `emit_fixed_atan_ratio(num, den)`: `atan` of a
+ratio of two unsigned 64-bit words, returning an unsigned Q3.61 angle in
+`[0, pi/2]`. Taking a *ratio* rather than a `Fixed` is the whole fix — the
+quotient is never rounded to Q32.32 first, so a huge or a tiny argument keeps its
+full relative precision, and both range folds are exact integer rewrites of the
+ratio:
+
+- `num > den` → swap the words (`atan t = pi/2 − atan(1/t)`);
+- `2·num > den` → `(num, den) := (den − num, den + num)`
+  (`atan t = pi/4 − atan((1−t)/(1+t))`).
+
+Both leave `u = num/den <= 1/2`, taken as an exact unsigned Q0.63 quotient by a
+63-step long division and fed to a 28-level Horner Taylor series
+`atan u = u·Σ(−u²)ⁿ/(2n+1)` in Q1.63 (`FIXED_ATAN_TERMS = 27`; the first omitted
+term is `u^55/55 < 2^-60`). The angle carries about 60 bits and the family rounds
+**once**, at the Q3.61 → Q32.32 step, so the residual error is rounding-limited.
+
+- `atan2`: axes are exact baked constants (`atan2(0, x<0)` is `+pi`); otherwise
+  the quadrant is added in Q3.61 — `x < 0` takes `pi` minus the first-quadrant
+  angle, the sign of `y` applied last. `atan(x)` stays `atan2(x, 1.0)`.
+- `asin x = atan(x / sqrt(1 − x²))` as an integer ratio. With `x = r/2^32`,
+  `1 − x² = d/2^64` for `d = 2^64 − r²`, which is *exactly* the low word of
+  `−r·r` because `|r| <= 2^32`; the ratio is `|r|·2^16 / round(sqrt(d)·2^16)`,
+  the root being `emit_fixed_sqrt` applied to `d` read as an unsigned word (its
+  radicand is `d·2^32`, so its Q32.32 answer *is* `sqrt(d)` with 16 fraction
+  bits). **That is how `|x| → 1` is handled**: a Q32.32 `sqrt(1−x²)` keeps one
+  or two bits at `x = 1 − 2^-32`, while here the numerator is exact and a
+  half-unit root error moves the angle by at most `2^-48` radians
+  (`d(atan(r/s))/ds = −r/2^96` at this scale). `|x| = 1` gives `d = 0`, and the
+  kernel answers `pi/2` for a zero denominator with no divide.
+- `acos x = pi/2 − asin x`, formed in Q3.61 *before* the single rounding step, so
+  the two roundings never compound.
+
+Every added constant (`pi`, `pi/2`, `pi/4` in Q3.61; `pi` and `pi/2` in Q32.32)
+is `pi_over_2_scaled(shift)`, a `const fn` that rounds the existing baked 160-bit
+`PI_OVER_2_Q159` — no second, disagreeing pi, and no host `f64` (bug-137.1).
+`trig_constants_match_machin_pi` pins all five against Machin's pi and pins the
+series term count.
+
+The 31-step Q32.32 CORDIC vectoring loop lost its last caller and is **deleted**,
+with it `CORDIC_ITERATIONS`, `CORDIC_ATAN_TABLE`, `cordic_atan_raw`, and the
+host-`f64` `fixed_pi()`/`fixed_pi_over_2()`. (`fixed_raw` survives for the
+`exp`/`log` constants.) A stale `money`'s-CORDIC-table citation in
+`src/codegen/string/format/float_parse_table.rs` was repointed.
+
+**Measured** (macos-aarch64, `-O0` debug build of an 855-argument corpus — domain
+edges, `±1`, `1 − 2^-32`, `i64::MIN`/`i64::MAX` raws, all four `atan2` quadrants
+and the axes, and randoms — against the same 336-bit oracle): **0 results over
+one unit, maximum error 0.4990 Q32.32 units**, i.e. bounded by the final rounding
+alone. Was: `atan(2.0F)` 4.27, `atan2(3.0F, -4.0F)` 2.69, `asin(0.8F)` 1.61.
+`vector::slerp(Fixed2[3,4], Fixed2[1,2], 0.5).x` is back to 2.95 units off (it was
+2.9 before the `sin` fix and 10.9 after it); the remaining 2.9 is the `Fixed2`
+slerp's own intermediate rounding chain, not `acos`.
+
+Gate: `cargo test --test rt_math_fixed_trig_accuracy` — **3 passed**, including
+the unchanged `fixed_sin_cos_tan_are_within_one_unit_and_tan_overflow_raises`.
+Commits: 615-C kernel + spec, below.
+
 ## Non-goals
 
 - Changing the `Float` overload. It returns a large finite value near pi/2,
