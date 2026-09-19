@@ -110,6 +110,10 @@ fn emit_release_thread_plumbing(
     ctx: &mut EmitCtx,
     handle_offset: usize,
     queue_offset: usize,
+    ring_index_offset: usize,
+    ring_left_offset: usize,
+    ring_entry_offset: usize,
+    ring_state_offset: usize,
     release: ThreadRelease,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
@@ -126,6 +130,13 @@ fn emit_release_thread_plumbing(
         let drain = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drain");
         let drained = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drained");
         let retire = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_retire");
+        let ring_loop = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_ring");
+        let ring_wrap = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_ring_wrap");
+        let ring_done = format!("{symbol}_release_{site}_queue_{cb_queue_offset}_ring_done");
+        let ring_state_done =
+            format!("{symbol}_release_{site}_queue_{cb_queue_offset}_ring_state_done");
+        let drain_state_done =
+            format!("{symbol}_release_{site}_queue_{cb_queue_offset}_drain_state_done");
         // bug-646: THIS thread is the queue's sender only on the two INBOUND queues (it
         // spawned the worker, so it is the one that `send`s / `transfer`s into them), and
         // every block on a pending-free list was carved by that queue's sender (bug-498).
@@ -139,6 +150,12 @@ fn emit_release_thread_plumbing(
         let reclaims_pending_free = matches!(
             cb_queue_offset,
             THREAD_OFFSET_INBOUND_QUEUE | THREAD_OFFSET_RESOURCE_INBOUND_QUEUE
+        );
+        // bug-650 case 2: only a resource-plane block carries a STATE block, and only
+        // there is a node's / entry's third word guaranteed to be in range.
+        let resource_plane = matches!(
+            cb_queue_offset,
+            THREAD_OFFSET_RESOURCE_INBOUND_QUEUE | THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE
         );
         ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
@@ -164,10 +181,108 @@ fn emit_release_thread_plumbing(
                 abi::load_u64("%v12", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
                 abi::store_u64("%v12", "%v10", 0),
                 abi::store_u64("%v11", "%v10", 8),
+            ]);
+            if resource_plane {
+                // bug-650 case 2: and its STATE size, in the node's third word — on the
+                // resource planes ONLY. A data-plane block can be smaller than 24 bytes
+                // (a short String is `len + 9`), so writing +16 there would run past the
+                // allocation.
+                ctx.instructions.extend([
+                    abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
+                    abi::store_u64("%v11", "%v10", PENDING_FREE_STATE_SIZE),
+                ]);
+            }
+            ctx.instructions.extend([
                 abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
                 abi::label(&retire),
                 abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
                 abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
+                // bug-650 case 1: every message still IN the ring — sent but never
+                // received — with its `{value, size}` entry. bug-646's protocol reaches
+                // only a block a read handed out, because that is the only point it
+                // learns of one; an undelivered block is reachable solely by walking the
+                // ring, which nothing did, so a program that sends more than its worker
+                // reads leaked all of it. Walk `count` entries from `head`, the same
+                // window `thread_queue_read_helper` dequeues from, and free each.
+                //
+                // Same ownership rule as the pending-free drain this sits inside: only an
+                // INBOUND queue, whose blocks THIS thread carved (bug-498), so the free
+                // returns them to the arena that allocated them. Size 0 keeps the
+                // established fail-safe — skip rather than guess a size.
+                //
+                // The loop counter and index live in the frame, not registers:
+                // `arena_free` clobbers every caller-saved register, and both are
+                // advanced BEFORE the call so the next iteration reloads a consistent
+                // pair whatever the free did.
+                abi::load_u64("%v10", "%v9", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64("%v10", abi::stack_pointer(), ring_index_offset),
+                abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64("%v10", abi::stack_pointer(), ring_left_offset),
+                abi::label(&ring_loop),
+                abi::load_u64("%v10", abi::stack_pointer(), ring_left_offset),
+                abi::compare_immediate("%v10", "0"),
+                abi::branch_eq(&ring_done),
+                abi::subtract_immediate("%v10", "%v10", 1),
+                abi::store_u64("%v10", abi::stack_pointer(), ring_left_offset),
+                abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+                abi::load_u64("%v10", abi::stack_pointer(), ring_index_offset),
+                abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
+                abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
+                abi::add_registers("%v11", "%v11", "%v12"),
+                abi::store_u64("%v11", abi::stack_pointer(), ring_entry_offset),
+                // Advance the index (wrapping at capacity) before the free below.
+                abi::add_immediate("%v10", "%v10", 1),
+                abi::load_u64("%v12", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
+                abi::compare_registers("%v10", "%v12"),
+                abi::branch_lt(&ring_wrap),
+                abi::move_immediate("%v10", "Integer", "0"),
+                abi::label(&ring_wrap),
+                abi::store_u64("%v10", abi::stack_pointer(), ring_index_offset),
+                abi::load_u64(abi::c_arg(0), "%v11", 0),
+                abi::compare_immediate(abi::c_arg(0), "0"),
+                abi::branch_eq(&ring_loop),
+            ]);
+            if resource_plane {
+                // bug-650 case 2: an undelivered resource record's STATE block, freed
+                // before the record that points at it. The record pointer is re-derived
+                // from the frame after the call.
+                ctx.instructions.extend([
+                    abi::store_u64(abi::c_arg(0), abi::stack_pointer(), ring_state_offset),
+                    abi::load_u64(abi::c_arg(1), "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
+                    abi::compare_immediate(abi::c_arg(1), "0"),
+                    abi::branch_eq(&ring_state_done),
+                    abi::load_u64(abi::c_arg(0), abi::c_arg(0), RESOURCE_OFFSET_STATE),
+                    abi::compare_immediate(abi::c_arg(0), "0"),
+                    abi::branch_eq(&ring_state_done),
+                    abi::branch_link(ARENA_FREE_SYMBOL),
+                ]);
+                ctx.relocations
+                    .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+                ctx.instructions.extend([
+                    abi::label(&ring_state_done),
+                    abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ring_state_offset),
+                    abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+                    abi::load_u64("%v11", abi::stack_pointer(), ring_entry_offset),
+                ]);
+            }
+            ctx.instructions.extend([
+                abi::load_u64(abi::c_arg(1), "%v11", 8),
+                abi::compare_immediate(abi::c_arg(1), "0"),
+                abi::branch_eq(&ring_loop),
+                abi::branch_link(ARENA_FREE_SYMBOL),
+            ]);
+            ctx.relocations
+                .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+            ctx.instructions.extend([
+                abi::branch(&ring_loop),
+                abi::label(&ring_done),
+                // The ring is about to be freed; leave the counters consistent so nothing
+                // that reads the queue between here and the free sees a phantom message.
+                abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_TAIL_OFFSET),
                 abi::label(&drain),
                 abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
                 abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
@@ -175,6 +290,31 @@ fn emit_release_thread_plumbing(
                 abi::branch_eq(&drained),
                 abi::load_u64("%v11", "%v10", 0),
                 abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+            ]);
+            if resource_plane {
+                // bug-650 case 2: the record's STATE block first, while the record is
+                // still readable — its pointer lives at RESOURCE_OFFSET_STATE, which the
+                // node's `{next, size, state_size}` words do not reach. The node pointer
+                // is parked in the frame across the call, since `arena_free` clobbers
+                // every caller-saved register.
+                ctx.instructions.extend([
+                    abi::store_u64("%v10", abi::stack_pointer(), ring_index_offset),
+                    abi::load_u64(abi::c_arg(1), "%v10", PENDING_FREE_STATE_SIZE),
+                    abi::compare_immediate(abi::c_arg(1), "0"),
+                    abi::branch_eq(&drain_state_done),
+                    abi::load_u64(abi::c_arg(0), "%v10", RESOURCE_OFFSET_STATE),
+                    abi::compare_immediate(abi::c_arg(0), "0"),
+                    abi::branch_eq(&drain_state_done),
+                    abi::branch_link(ARENA_FREE_SYMBOL),
+                ]);
+                ctx.relocations
+                    .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+                ctx.instructions.extend([
+                    abi::label(&drain_state_done),
+                    abi::load_u64("%v10", abi::stack_pointer(), ring_index_offset),
+                ]);
+            }
+            ctx.instructions.extend([
                 abi::load_u64(abi::c_arg(1), "%v10", 8),
                 abi::move_register(abi::c_arg(0), "%v10"),
                 abi::branch_link(ARENA_FREE_SYMBOL),
@@ -254,7 +394,10 @@ pub(crate) fn simple_thread_handle_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
-    const FRAME_SIZE: usize = 64;
+    // bug-650: 64 -> 96 for the four words `emit_release_thread_plumbing`'s ring walk and
+    // STATE-block frees keep in the frame (an `arena_free` clobbers every caller-saved
+    // register, so none of them can live in one).
+    const FRAME_SIZE: usize = 96;
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
     const TAG_OFFSET: usize = 24;
@@ -266,6 +409,13 @@ pub(crate) fn simple_thread_handle_helper(
     // Drop only: the drop mode (`THREAD_DROP_CLOSE` | `THREAD_DROP_RELEASE`), rewritten
     // to `DROP_MODE_FREE` when this drop's release takes the owner count to 0.
     const MODE_OFFSET: usize = 56;
+    // Drop only: the ring-walk cursor and remaining count (bug-650 case 1).
+    const RING_INDEX_OFFSET: usize = 64;
+    const RING_LEFT_OFFSET: usize = 72;
+    // Drop only: the ring entry being drained, and the record whose STATE block is being
+    // freed ahead of it (bug-650 case 2). Both survive an `arena_free`'s register clobber.
+    const RING_ENTRY_OFFSET: usize = 80;
+    const RING_STATE_OFFSET: usize = 88;
     const DROP_MODE_FREE: &str = "7";
 
     let mut instructions = Vec::new();
@@ -950,6 +1100,10 @@ pub(crate) fn simple_thread_handle_helper(
                 },
                 HANDLE_OFFSET,
                 RELEASE_QUEUE_OFFSET,
+                RING_INDEX_OFFSET,
+                RING_LEFT_OFFSET,
+                RING_ENTRY_OFFSET,
+                RING_STATE_OFFSET,
                 release,
             )?;
             instructions.extend([
@@ -1147,6 +1301,10 @@ pub(crate) fn simple_thread_handle_helper(
                 },
                 HANDLE_OFFSET,
                 RELEASE_QUEUE_OFFSET,
+                RING_INDEX_OFFSET,
+                RING_LEFT_OFFSET,
+                RING_ENTRY_OFFSET,
+                RING_STATE_OFFSET,
                 release,
             )?;
             instructions.extend([
@@ -1449,6 +1607,17 @@ pub(crate) fn thread_queue_write_helper(
     // field at 48 would be clobbered by the deadline before the failed-send path
     // reloads it (bug-163).
     const DATA_SIZE_OFFSET: usize = 56;
+    // bug-650 case 2: byte size of the message's STATE block (arg 4), 0 when it has
+    // none. Travels with the copy into the ring entry's third word so a reclaimer can
+    // free the STATE block as well as the record.
+    const DATA_STATE_SIZE_OFFSET: usize = 64;
+    // Only the resource planes carry a record with a STATE block; a data-plane block can
+    // be smaller than a pending-free node's third word, so the STATE word is written and
+    // read on these two queues alone.
+    let resource_plane = matches!(
+        queue_offset,
+        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE | THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE
+    );
 
     let invalid = format!("{symbol}_invalid");
     let timeout_ok = format!("{symbol}_timeout_ok");
@@ -1469,6 +1638,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
         // plan-73-A: a non-negative `timeoutMs` is a real timeout (0 = one immediate
         // attempt, N = wait N ms). The unbounded sentinel (i64::MIN) is the omit=block
         // form and is accepted; any OTHER negative value is rejected with
@@ -1626,6 +1796,10 @@ pub(crate) fn thread_queue_write_helper(
         // without knowing the message type.
         abi::load_u64("%v12", abi::stack_pointer(), DATA_SIZE_OFFSET),
         abi::store_u64("%v12", "%v11", 8),
+        // bug-650 case 2: the entry's third word is the STATE block's byte size (arg 4;
+        // 0 = none), so a reclaimer can free it alongside the record.
+        abi::load_u64("%v12", abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
+        abi::store_u64("%v12", "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),
@@ -1701,6 +1875,18 @@ pub(crate) fn thread_queue_write_helper(
         abi::store_u64("%v11", "%v9", 0),
         abi::store_u64("%v10", "%v9", 8),
         abi::store_u64("%v9", "%v8", THREAD_QUEUE_PENDING_FREE_OFFSET),
+    ]);
+    if resource_plane {
+        // bug-650 case 2: the orphan's STATE block goes with it. Third word of the node,
+        // in range because a resource-plane block is always one RESOURCE_RECORD_SIZE
+        // record; its STATE POINTER is still readable at RESOURCE_OFFSET_STATE, which
+        // the node's first two words do not reach.
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
+            abi::store_u64("%v10", "%v9", PENDING_FREE_STATE_SIZE),
+        ]);
+    }
+    instructions.extend([
         abi::label(&skip_orphan_push),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TIMEOUT_OFFSET),
@@ -1770,6 +1956,12 @@ pub(crate) fn thread_queue_read_helper(
     // `WorkerSelf` callers pass their own control block, so the helper restores
     // `x20` and reads the worker cancel flag; parent callers do neither.
     let worker_self = mode == ThreadReadMode::WorkerSelf;
+    // bug-650 case 2: only the resource planes carry a record with a STATE block, and
+    // only there is a pending-free node's third word guaranteed in range.
+    let resource_plane = matches!(
+        queue_offset,
+        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE | THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE
+    );
     const FRAME_SIZE: usize = 80;
     const HANDLE_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
@@ -1879,9 +2071,20 @@ pub(crate) fn thread_queue_read_helper(
         abi::store_u64("%v12", "%v10", 0),
         abi::store_u64("%v11", "%v10", 8),
         abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+    ]);
+    if resource_plane {
+        // bug-650 case 2: carry the parked block's STATE size into the node's third
+        // word, so the sender's drain frees the STATE block as well as the record.
+        instructions.extend([
+            abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
+            abi::store_u64("%v11", "%v10", PENDING_FREE_STATE_SIZE),
+        ]);
+    }
+    instructions.extend([
         abi::label(&retire_clear),
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
         abi::label(&retire_done),
     ]);
     instructions.extend([
@@ -1975,6 +2178,10 @@ pub(crate) fn thread_queue_read_helper(
             THREAD_QUEUE_LAST_READ_PTR_OFFSET,
         ),
         abi::store_u64("%v12", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+        // bug-650 case 2: and the STATE size the sender recorded in the entry's third
+        // word, so the retire above can free that block too.
+        abi::load_u64("%v12", "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
+        abi::store_u64("%v12", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),

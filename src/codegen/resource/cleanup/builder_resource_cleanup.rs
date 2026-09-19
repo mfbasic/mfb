@@ -395,6 +395,15 @@ impl CodeBuilder<'_> {
     /// (plan-59-D's identity skip), or a record whose transfer did not complete
     /// frees nothing.
     ///
+    /// bug-650: the tombstone's STATE block goes with it. `thread::transfer` does not
+    /// hand the receiver this block — `copy_resource_to_current_arena` deep-copies the
+    /// STATE into the RECEIVER's arena (bug-257, "never an alias into the sender's
+    /// arena"), so once the move completes the sender's own STATE block has no owner at
+    /// all. It was the last 16 B per transfer still leaking after the queued copy and
+    /// its STATE were reclaimed. The same reasoning that licenses freeing the record
+    /// here licenses freeing what it points at, and it is freed BEFORE the record so
+    /// the pointer is still readable.
+    ///
     /// [`retire_moved_resource_cleanup`]: Self::retire_moved_resource_cleanup
     fn emit_moved_resource_record_free(&mut self, cleanup: &ResourceCleanup) -> Result<(), String> {
         let Some(offset) = self
@@ -427,6 +436,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
         self.emit(abi::compare_immediate(&moved_mask, "0"));
         self.emit(abi::branch_eq(&done));
+        // bug-650: the STATE block first, while the record still points at it.
+        if let Some(state_type) = self
+            .locals
+            .get(&cleanup.name)
+            .and_then(|local| local.type_.state())
+        {
+            self.emit_free_resource_state_block(offset, &state_type)?;
+        }
         let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), offset));
         self.emit(abi::move_register(abi::c_arg(0), &record));

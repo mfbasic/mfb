@@ -98,15 +98,42 @@ pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
 /// one). Whatever is still parked here when the plumbing is released is freed there.
 pub(crate) const THREAD_QUEUE_LAST_READ_PTR_OFFSET: usize = 248;
 pub(crate) const THREAD_QUEUE_LAST_READ_SIZE_OFFSET: usize = 256;
-pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 264;
-/// bug-646: one ring entry is `{value, size}` — the enqueued value (a pointer for
-/// every block-shaped message, the scalar itself otherwise) and the byte size the
-/// sender computed for it, so the reader can hand the block back for reclamation
-/// without knowing its type. The ring was a bare `capacity * 8` value array before.
-pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 16;
+/// bug-650 case 2: the STATE-block byte size that travelled with the block the last
+/// read handed out — the third word of its ring entry — or 0 when the message has no
+/// STATE (every data-plane message, and a bare `RES`).
+///
+/// The companion of [`THREAD_QUEUE_LAST_READ_SIZE_OFFSET`], parked and retired by
+/// exactly the same one-read-behind protocol. It is what lets a reclaimer free BOTH
+/// blocks of a transferred stateful resource. Only the SIZE needs carrying: the STATE
+/// POINTER is read back from the record itself at `RESOURCE_OFFSET_STATE` (+24), which
+/// the pending-free node's `{next, size}` words (+0 and +8) do not overwrite.
+///
+/// Before this, `bare_resource_reclaimable` declined a stateful resource outright —
+/// one size could not describe record + STATE — so the record leaked along with it.
+pub(crate) const THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET: usize = 264;
+pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 272;
+/// bug-646: one ring entry is `{value, size, state_size, _}` — the enqueued value (a
+/// pointer for every block-shaped message, the scalar itself otherwise), the byte size
+/// the sender computed for it, and (bug-650 case 2) the byte size of the STATE block
+/// hanging off it, so the reader can hand BOTH blocks back for reclamation without
+/// knowing the message type. The ring was a bare `capacity * 8` value array before
+/// bug-646 and a 16-byte `{value, size}` pair before bug-650.
+///
+/// 32 rather than 24 so the shift below stays a shift: a power-of-two stride keeps
+/// every index-to-offset conversion one instruction, which is what the read, write and
+/// release paths all do. The fourth word is unused padding.
+pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 32;
+/// Byte offset of the STATE size within a pending-free node (bug-650 case 2). A node
+/// reuses the dead block's own words: `{next@0, size@8, state_size@16}`. Written and
+/// read on the resource planes only, where every block is one RESOURCE_RECORD_SIZE
+/// record and +16 is therefore always in range; the STATE POINTER is not stored, it is
+/// read back from the record's own RESOURCE_OFFSET_STATE (+24).
+pub(crate) const PENDING_FREE_STATE_SIZE: usize = 16;
+/// Byte offset of the STATE size within a ring entry (bug-650 case 2).
+pub(crate) const THREAD_QUEUE_ENTRY_STATE_SIZE: usize = 16;
 /// `log2(THREAD_QUEUE_ENTRY_SIZE)` — the shift that turns a ring index into a byte
 /// offset.
-pub(crate) const THREAD_QUEUE_ENTRY_SHIFT: u8 = 4;
+pub(crate) const THREAD_QUEUE_ENTRY_SHIFT: u8 = 5;
 
 pub(crate) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
     match platform.family() {
@@ -495,6 +522,10 @@ pub(crate) fn emit_thread_queue_alloc(
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
+        // bug-650 case 2: no STATE block parked yet. The arena is PRNG-poisoned rather
+        // than zeroed, so this must be an explicit store — a missing one would hand the
+        // release-time reclaim a garbage STATE size to free with.
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
         abi::move_register(abi::c_arg(0), "%v9"),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
