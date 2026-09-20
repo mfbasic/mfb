@@ -282,41 +282,12 @@ fn errors_for(
 }
 
 /// The argument-type-preserving unary shape: a member accepting a single numeric
-/// scalar (each of `scalars`) or its `List OF` form (each of `lists`) and echoing
-/// the operand type (`Arg(0)`). `errors` is declared on every overload — correct only
-/// for a member whose every form really can raise every listed error. A member whose
-/// forms differ (most of the fallible ones) uses
-/// [`preserving_unary_typed_errors`] instead.
-pub(crate) fn preserving_unary(
-    name: &'static str,
-    intro: &'static str,
-    desc: &'static str,
-    example: &'static str,
-    expected: &'static str,
-    value_desc: &'static str,
-    scalars: &[ParameterType],
-    lists: &[ParameterType],
-    errors: &[&'static str],
-    lower: AbiInline,
-    pkg: &mut RegistryPackage,
-) {
-    preserving_unary_typed_errors(
-        name,
-        intro,
-        desc,
-        example,
-        expected,
-        value_desc,
-        scalars,
-        lists,
-        errors,
-        &[],
-        lower,
-        pkg,
-    );
-}
-
-/// [`preserving_unary`], with the errors partitioned by operand type ([`ErrorsByType`]).
+/// scalar (each of `scalars`) or its `List OF` form (each of `lists`) and echoing the
+/// operand type (`Arg(0)`), with its errors partitioned by operand type
+/// ([`ErrorsByType`]).
+///
+/// bug-617 removed the all-shared `preserving_unary` wrapper that used to sit here:
+/// once every fallible member declared its errors per overload, nothing called it.
 ///
 /// This replaces bug-615's `extra: Option<(ParameterType, &[&str])>` hook, which was
 /// additive and scalar-only: it could ADD `ErrOverflow` to `math::tan`'s `Fixed`
