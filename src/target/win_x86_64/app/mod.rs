@@ -4421,6 +4421,7 @@ mod tests {
             uses_term: false,
             initial_mode: PresentationMode::Console,
             uses_canvas: true,
+            uses_mouse: false,
             debug_hooks: false,
         }
     }
@@ -4827,6 +4828,7 @@ mod canvas_reconcile_tests {
             uses_term: false,
             initial_mode,
             uses_canvas: true,
+            uses_mouse: false,
             debug_hooks: false,
         }
     }

@@ -1,0 +1,58 @@
+IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT term
+
+' plan-94-C/D/E: the mouse surface in app mode, so every backend's native mouse
+' handlers land in this fixture's `.app.ncodesum` goldens.
+'
+' Those handlers cannot be runtime-tested: they are driven by a real window, and
+' no CI has one. The golden is what makes them covered at all — a sha256 over the
+' whole emitted code plan, per target, so a change to any handler on any backend
+' shows up here even though nothing can click a mouse.
+'
+' Both surfaces are exercised because they are separate code: the macOS IMPs, the
+' GTK controllers and the Win32 `WndProc` arms each emit a cells variant and a
+' pixels variant, differing in the mouse-mode value they gate on and in how a
+' native point becomes a coordinate.
+
+' The canvas (pixel) surface.
+FUNC pixels() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  canvas::enableMouse(TRUE)
+  LET e AS canvas::MouseEvent = canvas::pollMouse()
+  IF e.kind <> canvas::MouseKind.None THEN
+    io::print("canvas " & toString(e.position.x) & "," & toString(e.position.y))
+  END IF
+  IF e.button = canvas::MouseButton.Left THEN
+    io::print("left")
+  END IF
+  canvas::enableMouse(FALSE)
+  RETURN NOTHING
+  TRAP(err)
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+' The term (cell) surface.
+FUNC cells() AS Nothing
+  app::setMode(app::Mode.Console)
+  term::enableMouse(TRUE)
+  LET e AS term::MouseEvent = term::pollMouse()
+  IF e.kind <> term::MouseKind.None THEN
+    io::print("term " & toString(e.row) & "," & toString(e.column))
+  END IF
+  IF e.shift THEN
+    io::print("shift")
+  END IF
+  term::enableMouse(FALSE)
+  RETURN NOTHING
+  TRAP(err)
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+SUB main()
+  cells()
+  pixels()
+END SUB

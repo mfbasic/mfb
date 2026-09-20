@@ -766,7 +766,12 @@ fn emit_enable_mouse(
     }
     mouse_ring::emit_ring_alloc(mouse_state_offset, ctx, &mut vregs)?;
     emit_store_mouse_mode(ctx, MOUSE_MODE_CELLS, &mut vregs);
-    emit_mouse_inject(ctx, mouse_state_offset, &mut vregs)?;
+    emit_mouse_inject(
+        ctx,
+        mouse_state_offset,
+        MOUSE_CLOCK_SCRATCH_OFFSET,
+        &mut vregs,
+    )?;
     ctx.instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
@@ -900,7 +905,7 @@ pub(crate) fn emit_mouse_tracking_window(
 /// console backend nothing reads it yet — but writing it here is what lets
 /// plan-94-C/D/E's handlers be driven by the same `enableMouse` call the program
 /// already makes.
-fn emit_store_mouse_mode(ctx: &mut EmitCtx, value: u64, vregs: &mut Vregs) {
+pub(crate) fn emit_store_mouse_mode(ctx: &mut EmitCtx, value: u64, vregs: &mut Vregs) {
     let symbol = ctx.symbol;
     let addr = vregs.next();
     let word = vregs.next();
@@ -926,9 +931,13 @@ fn emit_store_mouse_mode(ctx: &mut EmitCtx, value: u64, vregs: &mut Vregs) {
 ///
 /// Pass-through bytes are dropped rather than delivered: injected input is test
 /// input, and there is no read in progress to hand a keystroke to.
-fn emit_mouse_inject(
+pub(crate) fn emit_mouse_inject(
     ctx: &mut EmitCtx,
     mouse_state_offset: usize,
+    // The caller's 16-byte clock scratch. Passed rather than fixed, because the
+    // `term::` and `canvas::` bodies have different frames — and because the
+    // injection affordance has to serve both surfaces, not only the terminal one.
+    clock_scratch: usize,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
@@ -979,7 +988,7 @@ fn emit_mouse_inject(
         &action,
         &out_byte,
         mouse_state_offset,
-        MOUSE_CLOCK_SCRATCH_OFFSET,
+        clock_scratch,
         ctx,
         vregs,
     )?;

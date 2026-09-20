@@ -441,6 +441,7 @@ fn optional_hook_answers(platform: &dyn CodegenPlatform) -> Vec<(&'static str, A
                 uses_term: false,
                 initial_mode: PresentationMode::Console,
                 uses_canvas: false,
+                uses_mouse: false,
                 debug_hooks: false,
             },
             &sink.imports,

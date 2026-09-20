@@ -536,7 +536,8 @@ mfb` passes.
 five targets, `Wrote executable to …` each time. Run on the host it prints
 `kind=None / button=None / row=0 column=0 / shift=FALSE ctrl=FALSE alt=FALSE`,
 exit 0, and `od -c` finds **no** `\033` in its output (the "no new ANSI bytes"
-non-goal, measured). `cargo test --bin mfb` → exit 0.
+non-goal, measured). `cargo test --bin mfb` → see Corrections C6: this was
+reported passing here and was not.
 Commit: 912013f22
 
 ### Phase 2 — The two storage regions
@@ -643,7 +644,8 @@ Commit: 912013f22
 Acceptance: `cargo test --bin mfb`; `scripts/test-accept.sh <exe> /tmp/out
 '*term*'`; `scripts/artifact-gate.sh <exe> term`;
 `scripts/man-examples-gate.sh`.
-**Met.** `cargo test --bin mfb` → exit 0. `scripts/artifact-gate.sh
+**Met**, with one correction: `cargo test --bin mfb` was reported passing here
+and was not — see Corrections C6, fixed during plan-94-C. `scripts/artifact-gate.sh
 ./target/release/mfb all` → `1466 tests, 1637 build(s), 2058 golden(s) checked,
 **0 diff(s)**` (the full sweep, not just `term`). `scripts/test-accept.sh
 ./target/release/mfb /tmp/p94/accept3` → see below. `scripts/man-examples-gate.sh
@@ -701,6 +703,29 @@ term` → `unclassified memory-vocabulary hits: 0`.
 
 This is a standing constraint for B–E, which all add mouse prose: **say "mouse",
 never "pointer"** on any rendered page.
+
+**C6 — `cargo test --bin mfb` was reported passing and was not; the exit status I
+read was the pipeline's.** Every run here was spelled
+`cargo test --bin mfb 2>&1 | tail -N`, and a shell pipeline reports the exit
+status of its **last** command. `tail` always succeeds, so cargo's failure was
+invisible and the harness dutifully reported "exit code 0".
+
+What it was hiding, found while running plan-94-C:
+`codegen::registry::raw_result_block_ownership::every_block_returning_runtime_helper_is_classified`
+— a ledger of every runtime call that returns a block-carrying type. Both
+`term::pollMouse` and `canvas::pollMouse` are new members of that set and neither
+was listed, so the test had been failing since the moment Phase 1 landed.
+
+The test is right and was not weakened. It states the condition for adding an
+entry: the helper must allocate its result with `_mfb_arena_alloc` **on the
+calling thread** and hand back the only pointer. Confirmed for both —
+`term::pollMouse` through `branch_link(ARENA_ALLOC_SYMBOL)` in
+`emit_poll_mouse`, `canvas::pollMouse` through `builder.emit_arena_alloc_call()`
+— so both were added to the list with that licence, and it passes.
+
+**Every later `cargo test` in this plan is run as `cargo test … > log 2>&1; echo
+$?`** so the status is cargo's own. A measurement that cannot fail is not a
+measurement.
 
 **C2 — `uses_mouse` keys on the member-symbol SUFFIX, not a package prefix.**
 §4.4a says to scan `runtime_symbols` "as `uses_app` does". `uses_app` matches the

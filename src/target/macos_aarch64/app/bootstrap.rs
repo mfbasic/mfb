@@ -78,6 +78,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm, label: &str) {
 pub(super) fn emit_main_bootstrap(
     initial_mode: PresentationMode,
     uses_canvas: bool,
+    uses_mouse: bool,
 ) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
@@ -397,6 +398,16 @@ pub(super) fn emit_main_bootstrap(
         asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // plan-94-C: the eleven cell-coordinate mouse IMPs. Added before the class
+        // pair is registered, because `class_addMethod` on a registered class is
+        // not the supported way to add a method.
+        if uses_mouse {
+            mouse_view::emit_install_mouse_imps(
+                &mut asm,
+                abi::LOCAL[6],
+                mouse_view::MouseSurface::Cells,
+            );
+        }
         // objc_registerClassPair(cls)
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -413,7 +424,12 @@ pub(super) fn emit_main_bootstrap(
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // TermView instance
-                                                                    // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
+                                                                    // plan-94-C: without a tracking area the `mouseMoved:` IMP is installed and
+                                                                    // never called — drags would report and plain motion would not, silently.
+        if uses_mouse {
+            mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[7]);
+        }
+        // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
         asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
         asm.push(abi::move_immediate(
             "x2",
@@ -1261,7 +1277,7 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
 /// while in canvas mode — a canvas surface has no transcript to append to. That is
 /// the write half of the mode's I/O contract; the read half (window key events) is
 /// Phase 4.
-pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
+pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_CANVAS_SYMBOL);
     let frame = 48;
     let have_window = format!("{RECONCILE_CANVAS_SYMBOL}_have_window");
@@ -1343,6 +1359,15 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
+    // plan-94-C: the eleven pixel-coordinate mouse IMPs, before registration for
+    // the same reason `TermView`'s are.
+    if uses_mouse {
+        mouse_view::emit_install_mouse_imps(
+            &mut asm,
+            abi::LOCAL[2],
+            mouse_view::MouseSurface::Pixels,
+        );
+    }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -1360,6 +1385,11 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // view
+                                                                // plan-94-C: the canvas view needs the same tracking area the term view does,
+                                                                // and for the same reason — `mouseMoved:` is delivered only on request.
+    if uses_mouse {
+        mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[2]);
+    }
 
     // [view setWantsLayer:YES] — the whole point of the canvas surface. Without it
     // `[view layer]` is nil and plan-98-E has nothing to attach a CAMetalLayer to.

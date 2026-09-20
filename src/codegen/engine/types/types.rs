@@ -1076,8 +1076,17 @@ pub(crate) trait CodegenPlatform {
     ///
     /// `debug_hooks` is a `--debug` build (plan-130-E): a reporting hook's data is
     /// emitted only then.
-    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
-        let _ = (project_name, debug_hooks);
+    /// `uses_mouse` (plan-94-C/D/E) adds the data a backend's native mouse
+    /// handlers reference. Gated because a data object nothing references still
+    /// lands in the binary — bug-326-A21's lesson, and what the app fixtures'
+    /// goldens caught when the mouse selectors were first added unconditionally.
+    fn app_mode_data_objects(
+        &self,
+        project_name: &str,
+        debug_hooks: bool,
+        uses_mouse: bool,
+    ) -> Vec<CodeDataObject> {
+        let _ = (project_name, debug_hooks, uses_mouse);
         Vec::new()
     }
 
@@ -1343,6 +1352,15 @@ pub(crate) struct AppEntrySpec {
     /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
     /// defined").
     pub(crate) uses_canvas: bool,
+    /// plan-94-C/D/E: whether the program uses `enableMouse`/`pollMouse`, so the
+    /// backend emits its native mouse handlers.
+    ///
+    /// Gated for the same reason `uses_canvas` is, and with the same failure mode
+    /// if it were not: every handler loads the process-global `_mfb_rt_mouse_mode`
+    /// word, which is itself emitted only for a mouse program — so installing the
+    /// handlers unconditionally would leave every other app binary naming an
+    /// undefined symbol.
+    pub(crate) uses_mouse: bool,
     /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
     /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
     pub(crate) debug_hooks: bool,

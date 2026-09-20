@@ -94,7 +94,7 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, _uses_mouse: bool) -> Vec<PlatformImport> {
         // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
         // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
         // worker is a CreateThread routine; console output rides GetStdHandle +

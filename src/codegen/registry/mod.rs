@@ -6649,6 +6649,7 @@ mod raw_result_block_ownership {
         "canvas.installedItems",    // List OF canvas.DrawItem
         "canvas.installedLayers",   // List OF canvas.DrawLayer
         "canvas.newSurface",        // List OF Byte
+        "canvas.pollMouse",         // canvas.MouseEvent (plan-94-A)
         "canvas.retiredItems",      // List OF canvas.DrawItem
         "crypto.generate",          // crypto.KeyPair
         "crypto.hash",              // List OF Byte
@@ -6694,6 +6695,7 @@ mod raw_result_block_ownership {
         "tcp.remoteAddress",        // net.Address
         "term.getBackground",       // color.Color
         "term.getForeground",       // color.Color
+        "term.pollMouse",           // term.MouseEvent (plan-94-A)
         "term.terminalSize",        // term.TermSize
         "tls.localAddress",         // net.Address
         "tls.localAddressListener", // net.Address

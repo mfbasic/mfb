@@ -209,7 +209,12 @@ pub(crate) trait NativePlanPlatform {
     /// Imports the macOS app-mode `_main` bootstrap needs: the Obj-C runtime,
     /// AppKit/Foundation classes, and pthread/env primitives
     /// (plan-04-macos-app.md §6.5). Empty for targets without app mode.
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    /// `uses_mouse` gates the imports only a mouse program's handlers reference
+    /// (plan-94-C/D/E). Declaring them unconditionally is golden-visible: an
+    /// unused import still lands in the plan, so every app fixture that never
+    /// touches the mouse would diff.
+    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
+        let _ = uses_mouse;
         Vec::new()
     }
 }

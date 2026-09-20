@@ -15,6 +15,7 @@
 mod app_io;
 mod bootstrap;
 mod metal;
+mod mouse_view;
 // plan-98-E: the plan declares these as canvas-gated imports, so they have to
 // leave this module.
 pub(crate) use metal::{
@@ -314,6 +315,43 @@ const SEL_DISPLAY: (&str, &str) = ("_mfb_macapp_sel_display", "display");
 /// (plan-35-D Phase 2).
 const SEL_SET_FRAME_SIZE: (&str, &str) = ("_mfb_macapp_sel_setFrameSize", "setFrameSize:");
 const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
+
+// --- plan-94-C: mouse input ------------------------------------------------
+//
+// `locationInWindow` and `convertPoint:fromView:` both traffic in `NSPoint`,
+// which AArch64 passes and returns in the float registers (d0/d1) rather than
+// through memory — a two-double homogeneous aggregate. `modifierFlags` and
+// `deltaY` are ordinary integer and double returns.
+const SEL_LOCATION_IN_WINDOW: (&str, &str) =
+    ("_mfb_macapp_sel_locationInWindow", "locationInWindow");
+const SEL_CONVERT_POINT_FROM_VIEW: (&str, &str) = (
+    "_mfb_macapp_sel_convertPointFromView",
+    "convertPoint:fromView:",
+);
+const SEL_MODIFIER_FLAGS: (&str, &str) = ("_mfb_macapp_sel_modifierFlags", "modifierFlags");
+const SEL_DELTA_Y: (&str, &str) = ("_mfb_macapp_sel_deltaY", "deltaY");
+const SEL_MOUSE_DOWN: (&str, &str) = ("_mfb_macapp_sel_mouseDown", "mouseDown:");
+const SEL_MOUSE_UP: (&str, &str) = ("_mfb_macapp_sel_mouseUp", "mouseUp:");
+const SEL_MOUSE_DRAGGED: (&str, &str) = ("_mfb_macapp_sel_mouseDragged", "mouseDragged:");
+const SEL_RIGHT_MOUSE_DOWN: (&str, &str) = ("_mfb_macapp_sel_rightMouseDown", "rightMouseDown:");
+const SEL_RIGHT_MOUSE_UP: (&str, &str) = ("_mfb_macapp_sel_rightMouseUp", "rightMouseUp:");
+const SEL_RIGHT_MOUSE_DRAGGED: (&str, &str) =
+    ("_mfb_macapp_sel_rightMouseDragged", "rightMouseDragged:");
+const SEL_OTHER_MOUSE_DOWN: (&str, &str) = ("_mfb_macapp_sel_otherMouseDown", "otherMouseDown:");
+const SEL_OTHER_MOUSE_UP: (&str, &str) = ("_mfb_macapp_sel_otherMouseUp", "otherMouseUp:");
+const SEL_OTHER_MOUSE_DRAGGED: (&str, &str) =
+    ("_mfb_macapp_sel_otherMouseDragged", "otherMouseDragged:");
+const SEL_MOUSE_MOVED: (&str, &str) = ("_mfb_macapp_sel_mouseMoved", "mouseMoved:");
+const SEL_SCROLL_WHEEL: (&str, &str) = ("_mfb_macapp_sel_scrollWheel", "scrollWheel:");
+/// `mouseEntered:`/`mouseExited:` are not overridden — the mouse surface reports
+/// where the pointer IS, and a program that wants enter/leave can compare
+/// successive positions against its own regions. Adding them would mean two more
+/// `MouseKind`s the plan froze without.
+const SEL_INIT_TRACKING: (&str, &str) = (
+    "_mfb_macapp_sel_initTrackingArea",
+    "initWithRect:options:owner:userInfo:",
+);
+const SEL_ADD_TRACKING_AREA: (&str, &str) = ("_mfb_macapp_sel_addTrackingArea", "addTrackingArea:");
 /// `mfbClear:` — the main-thread grid-clear entry point. `term::clear` mutates
 /// the cell buffer, which the main thread's `setFrameSize:` can realloc/free
 /// concurrently, so the clear must be marshaled onto the main thread like
@@ -477,6 +515,36 @@ const STR_WRITE_STRING_TYPES: (&str, &str) = ("_mfb_macapp_str_writeStringTypes"
 /// Class names for the synthesized surface and the AppKit drawing primitives it
 /// uses.
 const CLASS_NS_VIEW: &str = "_OBJC_CLASS_$_NSView";
+/// plan-94-C: the class whose instances make a view receive `mouseMoved:` at all.
+const CLASS_NS_TRACKING_AREA: &str = "_OBJC_CLASS_$_NSTrackingArea";
+
+// The 22 mouse IMP symbols — eleven per synthesized view. Named per view rather
+// than shared because `class_addMethod` installs an IMP address, and the two
+// views' bodies differ in the mode value they gate on and in how a point becomes
+// a coordinate (cells divide by the cached metrics and are rejected off-grid;
+// pixels flip Y and clamp to the published extent).
+const TERM_MOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_term_mouseDown";
+const TERM_MOUSE_UP_SYMBOL: &str = "_mfb_macapp_term_mouseUp";
+const TERM_MOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_term_mouseDragged";
+const TERM_RMOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_term_rightMouseDown";
+const TERM_RMOUSE_UP_SYMBOL: &str = "_mfb_macapp_term_rightMouseUp";
+const TERM_RMOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_term_rightMouseDragged";
+const TERM_OMOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_term_otherMouseDown";
+const TERM_OMOUSE_UP_SYMBOL: &str = "_mfb_macapp_term_otherMouseUp";
+const TERM_OMOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_term_otherMouseDragged";
+const TERM_MOUSE_MOVED_SYMBOL: &str = "_mfb_macapp_term_mouseMoved";
+const TERM_SCROLL_WHEEL_SYMBOL: &str = "_mfb_macapp_term_scrollWheel";
+const CANVAS_MOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_canvas_mouseDown";
+const CANVAS_MOUSE_UP_SYMBOL: &str = "_mfb_macapp_canvas_mouseUp";
+const CANVAS_MOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_canvas_mouseDragged";
+const CANVAS_RMOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_canvas_rightMouseDown";
+const CANVAS_RMOUSE_UP_SYMBOL: &str = "_mfb_macapp_canvas_rightMouseUp";
+const CANVAS_RMOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_canvas_rightMouseDragged";
+const CANVAS_OMOUSE_DOWN_SYMBOL: &str = "_mfb_macapp_canvas_otherMouseDown";
+const CANVAS_OMOUSE_UP_SYMBOL: &str = "_mfb_macapp_canvas_otherMouseUp";
+const CANVAS_OMOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_canvas_otherMouseDragged";
+const CANVAS_MOUSE_MOVED_SYMBOL: &str = "_mfb_macapp_canvas_mouseMoved";
+const CANVAS_SCROLL_SYMBOL: &str = "_mfb_macapp_canvas_scrollWheel";
 const CLASS_NS_COLOR: &str = "_OBJC_CLASS_$_NSColor";
 const CLASS_NS_MUTABLE_DICTIONARY: &str = "_OBJC_CLASS_$_NSMutableDictionary";
 const CLASS_NS_NUMBER: &str = "_OBJC_CLASS_$_NSNumber";
@@ -771,7 +839,7 @@ impl Asm {
 /// [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(spec.initial_mode, spec.uses_canvas),
+        emit_main_bootstrap(spec.initial_mode, spec.uses_canvas, spec.uses_mouse),
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term),
@@ -794,6 +862,13 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
     ];
+    // plan-94-C: the 22 mouse IMPs (eleven per synthesized view). Emitted only for
+    // a program that uses the mouse members — each body loads `_mfb_rt_mouse_mode`,
+    // which is itself emitted only then, so installing them unconditionally would
+    // leave every other app binary naming an undefined symbol.
+    if spec.uses_mouse {
+        functions.extend(mouse_view::emit_mouse_imps());
+    }
     // plan-62-C Phase 2: the runtime `setMode` reconcile helpers are emitted only
     // for a program that can change mode (its static default is `None`, i.e. it
     // references `app::setMode`). A `Console`-default program never reconciles, so
@@ -805,7 +880,10 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // the other reconcile helpers rather than behind a "does this program use
         // canvas mode?" test — the mode is a runtime value, so there is no static
         // answer to that question.
-        functions.push(emit_reconcile_canvas_helper(spec.uses_canvas));
+        functions.push(emit_reconcile_canvas_helper(
+            spec.uses_canvas,
+            spec.uses_mouse,
+        ));
         // plan-98-A Phase 4: the canvas view's two method IMPs. Referenced by
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
@@ -961,7 +1039,15 @@ fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
 
 /// Read-only C-string data objects (selectors, window title, env-var name) the
 /// bootstrap references. NUL-terminated raw bytes, mirroring the TLS helpers.
-pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
+/// The always-emitted app-mode C strings (selectors, class names, type
+/// encodings).
+///
+/// `uses_mouse` adds the nineteen plan-94-C mouse selectors. They are gated
+/// rather than folded in for the reason the escape table was trimmed to two
+/// entries (bug-326-A21): a data object nothing references still lands in the
+/// binary, and nineteen dead strings in every app program that never touches the
+/// mouse is exactly that bug again — which the app fixtures' goldens caught.
+pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
     let mut objects: Vec<CodeDataObject> = [
         SEL_SHARED_APPLICATION,
         SEL_SET_ACTIVATION_POLICY,
@@ -1112,6 +1198,41 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         size: 8,
         value: "0000000000000000".to_string(),
     });
+    // plan-94-C: the mouse selectors, only for a program that installs the IMPs.
+    if uses_mouse {
+        for (symbol, text) in [
+            SEL_LOCATION_IN_WINDOW,
+            SEL_CONVERT_POINT_FROM_VIEW,
+            SEL_MODIFIER_FLAGS,
+            SEL_DELTA_Y,
+            SEL_MOUSE_DOWN,
+            SEL_MOUSE_UP,
+            SEL_MOUSE_DRAGGED,
+            SEL_RIGHT_MOUSE_DOWN,
+            SEL_RIGHT_MOUSE_UP,
+            SEL_RIGHT_MOUSE_DRAGGED,
+            SEL_OTHER_MOUSE_DOWN,
+            SEL_OTHER_MOUSE_UP,
+            SEL_OTHER_MOUSE_DRAGGED,
+            SEL_MOUSE_MOVED,
+            SEL_SCROLL_WHEEL,
+            SEL_INIT_TRACKING,
+            SEL_ADD_TRACKING_AREA,
+        ] {
+            objects.push(CodeDataObject {
+                symbol: symbol.to_string(),
+                kind: "raw".to_string(),
+                layout: "C string (NUL-terminated)".to_string(),
+                align: 1,
+                size: text.len() + 1,
+                value: text
+                    .bytes()
+                    .chain(std::iter::once(0))
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            });
+        }
+    }
     objects
 }
 
@@ -1201,7 +1322,7 @@ mod release_tests {
     fn the_canvas_reconcile_helper_saves_every_callee_saved_register_it_writes() {
         use crate::arch::ops::CodeOp;
         use std::collections::BTreeSet;
-        let func = bootstrap::emit_reconcile_canvas_helper(true);
+        let func = bootstrap::emit_reconcile_canvas_helper(true, false);
         let local = |name: Option<String>| -> Option<&'static str> {
             let name = name?;
             abi::LOCAL.iter().find(|l| **l == name.as_str()).copied()
@@ -1442,7 +1563,7 @@ mod canvas_reconcile_tests {
     /// exception on the first present rather than drawing anything.
     #[test]
     fn delegate_gets_the_blit_selector() {
-        let func = emit_main_bootstrap(PresentationMode::None, true);
+        let func = emit_main_bootstrap(PresentationMode::None, true, false);
         let names: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(
             names.contains(&SEL_MFB_BLIT.0),
@@ -1497,7 +1618,7 @@ mod canvas_reconcile_tests {
     /// eagerly, so the handle is retrievable the moment `setMode` returns.
     #[test]
     fn canvas_helper_makes_the_view_layer_backed() {
-        let func = emit_reconcile_canvas_helper(true);
+        let func = emit_reconcile_canvas_helper(true, false);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_SET_WANTS_LAYER.0),
             1,
@@ -1523,7 +1644,7 @@ mod canvas_reconcile_tests {
     /// the stash dangle on the first exit.
     #[test]
     fn canvas_view_is_not_released_so_the_assign_stash_cannot_dangle() {
-        let func = emit_reconcile_canvas_helper(true);
+        let func = emit_reconcile_canvas_helper(true, false);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_RELEASE.0),
             0,
@@ -1536,7 +1657,7 @@ mod canvas_reconcile_tests {
     /// yet — the canvas arm must be able to build one rather than messaging nil.
     #[test]
     fn canvas_helper_builds_a_window_when_none_exists() {
-        let func = emit_reconcile_canvas_helper(true);
+        let func = emit_reconcile_canvas_helper(true, false);
         assert_eq!(
             calls(&func.relocations, RECONCILE_BUILD_SYMBOL),
             1,
@@ -1626,7 +1747,7 @@ mod canvas_reconcile_tests {
     /// every time a fourth one is added.
     #[test]
     fn canvas_view_overrides_the_two_methods_that_deliver_keys() {
-        let func = emit_reconcile_canvas_helper(true);
+        let func = emit_reconcile_canvas_helper(true, false);
         assert_eq!(
             calls_external(&func, "_objc_allocateClassPair"),
             1,
@@ -1674,7 +1795,7 @@ mod canvas_reconcile_tests {
     /// — so the send sits after the have-view join, outside the build-once branch.
     #[test]
     fn canvas_entry_makes_the_view_first_responder() {
-        let func = emit_reconcile_canvas_helper(true);
+        let func = emit_reconcile_canvas_helper(true, false);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_MAKE_FIRST_RESPONDER.0),
             1,
@@ -1743,6 +1864,7 @@ mod canvas_reconcile_tests {
             uses_term: false,
             initial_mode: PresentationMode::None,
             uses_canvas: true,
+            uses_mouse: false,
             debug_hooks: false,
         };
         let symbols: Vec<String> = emit_app_program_entry(&spec)
@@ -1766,7 +1888,7 @@ mod canvas_reconcile_tests {
     /// (nil reads as 0), i.e. back into stdin.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = emit_main_bootstrap(PresentationMode::None, false);
+        let none = emit_main_bootstrap(PresentationMode::None, false, false);
         assert!(
             none.relocations
                 .iter()
@@ -1780,7 +1902,7 @@ mod canvas_reconcile_tests {
         );
         // Console-default keeps exactly one too — the extraction must not have
         // duplicated it into the branch it came from.
-        let console = emit_main_bootstrap(PresentationMode::Console, false);
+        let console = emit_main_bootstrap(PresentationMode::Console, false, false);
         assert_eq!(calls_external(&console, "_pipe"), 1);
     }
 }

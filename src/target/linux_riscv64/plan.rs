@@ -70,7 +70,7 @@ impl plan::NativePlanPlatform for Platform {
         self.common().peak_rss_imports(required_by)
     }
 
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, _uses_mouse: bool) -> Vec<PlatformImport> {
         // bug-117.1: app mode was never ported to rv64, and plan-51-A §3.3
         // records why it is now permanently out — AppImage/type2-runtime
         // publishes no riscv64 runtime, so an AppDir could never be sealed.

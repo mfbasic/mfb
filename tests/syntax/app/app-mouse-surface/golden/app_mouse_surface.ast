@@ -1,0 +1,118 @@
+{
+  "project": "app_mouse_surface",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "app", "line": 1 },
+    { "module": "canvas", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "term", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pixels",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "app.Mode" }, "member": "Canvas" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "canvas.enableMouse", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "canvas.MouseEvent", "value": { "kind": "call", "callee": "canvas.pollMouse", "arguments": [] }, "line": 23 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "kind" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "canvas.MouseKind" }, "member": "None" } },
+        "line": 24,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "canvas " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "position" }, "member": "x" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "position" }, "member": "y" }] } }] }, "line": 25 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "button" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "canvas.MouseButton" }, "member": "Left" } },
+        "line": 27,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "left" }] }, "line": 28 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "canvas.enableMouse", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 31 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 32,
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 33 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "cells",
+      "line": 38,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "app.Mode" }, "member": "Console" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.enableMouse", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "term.MouseEvent", "value": { "kind": "call", "callee": "term.pollMouse", "arguments": [] }, "line": 41 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "kind" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.MouseKind" }, "member": "None" } },
+        "line": 42,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "term " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "row" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "column" }] } }] }, "line": 43 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "shift" },
+        "line": 45,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "shift" }] }, "line": 46 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.enableMouse", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 49 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 50,
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 51 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 55,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "cells", "arguments": [] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pixels", "arguments": [] }, "line": 57 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -10,3 +10,4 @@
 pub(crate) mod clock;
 pub(crate) mod decode;
 pub(crate) mod ring;
+pub(crate) mod sgr;
