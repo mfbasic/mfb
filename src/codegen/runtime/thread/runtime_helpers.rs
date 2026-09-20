@@ -39,7 +39,24 @@ pub(crate) const THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize = 112;
 // reaches 0 may free the thread's plumbing. Parent-thread only — a worker never reads it
 // — so it needs no lock.
 pub(crate) const THREAD_OFFSET_OWNERS: usize = 120;
-pub(crate) const THREAD_BLOCK_SIZE: usize = 128;
+/// bug-655: the byte size of the seed block at [`THREAD_OFFSET_DATA`], or 0 when the
+/// seed carves no block (a scalar) or is one this compiler does not size.
+///
+/// `thread::start` does NOT copy its data argument — it stores the caller's pointer at
+/// `THREAD_OFFSET_DATA` and the worker trampoline passes that same pointer to the entry
+/// as its `seed` — so the block genuinely crosses, the caller's statement-scope free
+/// would be a use-after-free (which is why `claim_moved_thread_arg_temp` still claims
+/// for `thread.start`), and nothing on the other side ever owned it. One block leaked
+/// per started thread.
+///
+/// The size is computed at the CALL SITE, where the seed's type is known, and passed as
+/// arg 4; `emit_release_thread_plumbing` frees the block with it. That point is the
+/// right one and the only one: it runs after the worker is JOINED (so nothing can still
+/// be reading the seed) and only for the drop that took the owner count to 0, and it
+/// runs on the PARENT, whose arena carved the block — a free from the worker would land
+/// on bins that die with it, which is the same reasoning bug-646 records for the queues.
+pub(crate) const THREAD_OFFSET_DATA_SIZE: usize = 128;
+pub(crate) const THREAD_BLOCK_SIZE: usize = 136;
 // bug-622: the `thread.drop` mode (its second argument). CLOSE marks the handle CLOSED,
 // cancels, and joins a completed worker or detaches a running one — the drop's original
 // meaning. RELEASE gives up the dropping binding's owner count and frees the plumbing
@@ -699,6 +716,10 @@ pub(crate) fn lower_thread_start_helper(
     const QUEUE_OFFSET: usize = 48;
     // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
     const ATTR_OFFSET: usize = 56;
+    // bug-655: arg 4, the seed block's byte size, parked before the allocations below
+    // clobber the argument registers. Stored into the control block at
+    // THREAD_OFFSET_DATA_SIZE beside the seed pointer itself.
+    const DATA_SIZE_OFFSET: usize = 120;
     // Largest queue limit whose `capacity * 8` byte size still fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
 
@@ -727,6 +748,7 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), IN_LIMIT_OFFSET),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), OUT_LIMIT_OFFSET),
+        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), DATA_SIZE_OFFSET),
         abi::compare_immediate(abi::c_arg(2), "1"),
         abi::branch_lt(&invalid_limit),
         abi::compare_immediate(abi::c_arg(3), "1"),
@@ -783,6 +805,10 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64("%v10", "%v9", THREAD_OFFSET_ENTRY),
         abi::load_u64("%v10", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("%v10", "%v9", THREAD_OFFSET_DATA),
+        // bug-655: the seed's size travels with the seed pointer, so the release can
+        // free the block the worker has been reading.
+        abi::load_u64("%v10", abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::store_u64("%v10", "%v9", THREAD_OFFSET_DATA_SIZE),
         abi::store_u64(
             ARENA_STATE_REGISTER,
             "%v9",

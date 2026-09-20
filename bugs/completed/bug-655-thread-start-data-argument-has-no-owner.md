@@ -5,8 +5,80 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed — with one Blast-Radius shape deliberately not covered (see below)
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`a_thread_start_seed_is_freed_when_the_thread_is_released`,
+`a_thread_start_with_a_literal_seed_frees_nothing`,
+`a_thread_start_with_a_local_seed_leaves_it_to_its_binding`)
+
+## STATUS: FIXED (cac235512)
+
+**Fix Design option 1**, as sketched — the size is computed at the call site, parked
+in the control block, and the block is freed where bug-622 frees the rest of the
+plumbing. `THREAD_OFFSET_DATA_SIZE` is new (control block 128 → 136 B); the size
+rides as arg 4 of the start helper.
+
+The release is the right place and the only one: it runs after the worker is JOINED
+(so nothing can still be reading the seed), only for the drop that took the owner
+count to 0, and on the PARENT — whose arena carved the block, so the memory returns
+to bins that are still live rather than to a worker's, which die with it (bug-646's
+rule).
+
+Sizing had to happen while the arguments are still only in their frame slots, since
+it clobbers caller-saved registers. Hence the hook in `emit_prepared_call_args`,
+placed to respect that function's existing "keeps `x0`–`x7` set last, immediately
+before the call, so nothing clobbers them" invariant rather than work around it.
+
+### The gate that makes it sound
+
+Option 1's sketch did not mention ownership, and an unconditional seed free **crashes
+two ordinary programs**:
+
+| seed shape | unconditional free | why |
+|---|---|---|
+| a string LITERAL (`thread::start(w, "abc")`) | **SIGBUS** | a literal is a static symbol, not arena memory |
+| a `Local` (`LET s = … : thread::start(w, s)`) | **SIGSEGV** | the binding still owns it and frees it at scope exit — double free |
+
+**And this doc did not predict either of them.** The Blast Radius above asks about seed
+TYPES — scalar, record, collection — and never about seed PROVENANCE, which is the axis
+that decides whether the caller has anything to give away at all. A literal and a
+computed `String` are the same TYPE and opposite answers. The shapes were found by
+running them after the happy path measured clean, not by working down the list; had the
+list been the test, this would have shipped a wild free. The axis is written down here
+because the doc's absence of it is the reason the first implementation was unsound.
+
+The seed is freed only when `pending_temp_would_be_claimed` — exactly
+`claim_moved_thread_arg_temp`'s own condition — so the thread starts freeing the seed
+precisely when the caller stops. Both crash shapes now have their own regression case;
+they pass on a pre-fix compiler too, which is the point: they exist to catch this fix
+going wrong, not the original bug.
+
+### Measured
+
+The reproduction's table goes to zero: `live_bytes 0` with
+`free_calls == alloc_calls` exactly (1,202/1,202 at N=100, 2,402/2,402 at N=200),
+`double_free_skips 0`. Literal and `Local` seeds run clean and flat.
+
+### NOT covered: a FAILED start still strands its seed
+
+The Blast-Radius line *"An inline `TRAP` on `thread::start` … the data block for a
+start that never spawned"* is **not** fixed here. Measured at 16 B per failed start
+(`live_bytes` 800 → 1,600 at N=50/100), **byte-identical before and after this fix** —
+so this fix neither causes nor worsens it.
+
+It needs a different mechanism, which is why it is not folded in. The claim is a
+COMPILE-TIME decision (the temp is removed from the pending list before the call), but
+whether the start succeeded is a RUN-TIME fact. On the trapped failure path the
+handle is the zeroed CLOSED record with `DATA` = 0, so there is no pointer to hang a
+free on, and the caller has already given up its own. Covering it means either
+claiming only on the success path — which the non-raw path could do by moving the
+claim past `ok_label`, but the trapped path cannot, since it has no error exit to
+free into — or a runtime-conditional free. Filed as **bug-658**.
+
+The other Blast-Radius shape, a thread dropped while its worker is still RUNNING,
+leaks its whole plumbing (~5.5 KB per thread, not a seed). That is bug-622's
+documented detached-worker boundary — *"a running worker that was detached … is never
+freed from here"* — and is likewise byte-identical before and after this fix.
 
 `thread::start(worker, "seed-" & toString(i))` leaks the seed block — 16 B per start for a
 `String` — in the **parent's** arena, for the life of the process. Unlike bug-629's
@@ -136,25 +208,32 @@ generalizes past a flat seed. Phase 1 decides with the measured type inventory.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak case for the computed-seed shape at 400/800; confirm RED for the documented
-      reason.
-- [ ] Type inventory + a verdict per Blast-Radius site; pick between the two fix designs.
+- [x] Soak case for the computed-seed shape at 400/800; confirmed RED against a main-tip
+      compiler (6,400 → 12,800 B), not by inspection.
+- [x] A verdict per Blast-Radius site, all by measurement: a scalar seed carves no block
+      (size 0, nothing to free); a literal seed is static (must NOT be freed — SIGBUS);
+      a `Local` seed stays its binding's (must NOT be freed — SIGSEGV); a failed start
+      under `TRAP` strands its seed and is left to bug-658; a thread dropped while its
+      worker runs leaks its plumbing, which is bug-622's boundary, not this.
+      Design option 1 chosen, and the sketch amended with the ownership gate it lacked.
 
-Commit: —
+Commit: (with the fix)
 
 ### Phase 2 — the fix
 
-Commit: —
+Commit: cac235512
 
 ### Phase 3 — full validation
 
-- [ ] Full suite, artifact gate, and the thread runtime fixtures. A start-helper change DOES
-      move `tests/byte-identity/thread` goldens (unlike bug-629's, which moved none).
+- [x] Full suite, artifact gate, thread runtime fixtures. As predicted, a start-helper
+      change DOES move `tests/byte-identity/thread` goldens.
 
-Commit: —
+Commit: (see the merge commit)
 
 ## Summary
 
-A thread's seed is the one block of its lifetime that bug-622's owner-counted release does
-not cover, and bug-629's claim fix cannot reach it because `thread::start` hands the block
-over instead of copying it.
+A thread's seed was the one block of its lifetime that bug-622's owner-counted release did
+not cover, and bug-629's claim fix could not reach it because `thread::start` hands the
+block over instead of copying it. It is covered now — but only for a seed the caller
+actually relinquishes, because a literal seed is not arena memory and a `Local` seed is
+not the caller's to give away.

@@ -1437,3 +1437,58 @@ fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
          (bug-650 case 2)",
     );
 }
+
+/// bug-655: `thread::start` hands the worker its seed block UNCOPIED — it stores the
+/// caller's pointer at `THREAD_OFFSET_DATA` and the trampoline passes that same pointer
+/// to the entry — so the caller's statement-scope free would be a use-after-free (which
+/// is why `claim_moved_thread_arg_temp` claims it), and nothing on the other side ever
+/// owned it. One block leaked per started thread. Measured at `f204b84e2`: N=100
+/// `live_bytes 1600`, N=200 `3200` (16 B per start), with `free_calls` 100 short of
+/// `alloc_calls` at N=100. Runs at 400/800 so the growth clears [`BLOCK_BOUND`].
+#[test]
+fn a_thread_start_seed_is_freed_when_the_thread_is_released() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b655_seed",
+        SOURCE,
+        400,
+        800,
+        "total=",
+        "thread::start's seed block has no owner (bug-655)",
+    );
+}
+
+/// bug-655's soundness gate, from the crash side. A string LITERAL seed is a static
+/// symbol, not arena memory: an unconditional seed free aborts with SIGBUS on the first
+/// iteration. The first version of the fix did exactly that, so this pins it — the case
+/// asserts the program RUNS as much as that it stays flat.
+#[test]
+fn a_thread_start_with_a_literal_seed_frees_nothing() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b655_literal_seed",
+        SOURCE,
+        100,
+        200,
+        "total=",
+        "a literal seed is a static symbol and must never be freed (bug-655)",
+    );
+}
+
+/// bug-655's other soundness gate. A `Local` seed is still owned by its binding, whose
+/// own scope-drop frees it; handing it to the thread as well is a double free, and the
+/// first version of the fix segfaulted here. The seed must be freed by the thread
+/// exactly when `claim_moved_thread_arg_temp` stops the caller from freeing it — this
+/// case is the half where the caller keeps it.
+#[test]
+fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET s AS String = \"seed-\" & toString(i MOD 10)\n    LET t AS Thread OF String TO Integer = thread::start(work, s, 4, 4)\n    total = total + thread::waitFor(t)\n    total = total + len(s)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b655_local_seed",
+        SOURCE,
+        100,
+        200,
+        "total=",
+        "a Local seed is freed by its own binding, never twice (bug-655)",
+    );
+}

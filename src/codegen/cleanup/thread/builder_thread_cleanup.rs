@@ -143,6 +143,60 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-655: the byte size of a `thread.start` seed block into `out_slot`, or 0 when
+    /// there is nothing to free.
+    ///
+    /// The predicate is deliberately the SAME one the send site uses for its message
+    /// copy — arena-transferable AND one of the shapes
+    /// `emit_inlined_block_size_from_ptr_slot` sizes exactly. A scalar seed carves no
+    /// block and answers 0, which is not a leak; anything else unsized keeps the
+    /// established fail-safe of skipping the free rather than guessing a size.
+    ///
+    /// Unlike the send site this sizes the CALLER'S OWN value, not a copy of it, because
+    /// `thread.start` hands that block over rather than copying. For the shapes this
+    /// predicate admits the two are the same tight single block, which is what makes the
+    /// size correct for the original as well.
+    pub(crate) fn emit_thread_seed_size(
+        &mut self,
+        arg_values: &[ValueResult],
+        arg_slots: &[usize],
+        out_slot: usize,
+    ) -> Result<(), String> {
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_slot));
+        let (Some(seed), Some(slot)) = (arg_values.get(1), arg_slots.get(1)) else {
+            return Ok(());
+        };
+        // The gate that makes this sound at all: only a block THIS statement freshly
+        // allocated and still owns may be handed to the thread to free. A string
+        // LITERAL seed is a static symbol, not arena memory — freeing it is a bus error
+        // — and a `Local` seed is still owned by its binding, whose scope-drop frees it
+        // — freeing it again is a double free. Both were measured as crashes before this
+        // gate; `claim_moved_thread_arg_temp` claims on exactly the same condition, so
+        // the seed is freed by the thread precisely when the caller stops freeing it.
+        if !self.pending_temp_would_be_claimed(seed) {
+            return Ok(());
+        }
+        let seed_type = seed.type_.clone();
+        let sizable = self.type_is_arena_transferable(&seed_type)
+            && (seed_type == ParameterType::String
+                || self.type_model.record_fields.contains_key(&seed_type)
+                || self.union_is_data(&seed_type)
+                || matches!(seed_type, ParameterType::ResultOf(_))
+                || typed_is_collection_type(&seed_type));
+        if !sizable {
+            return Ok(());
+        }
+        let skip = self.label("runtime_thread_start_seed_size_skip");
+        let ptr = self.temporary_vreg();
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), *slot));
+        self.emit(abi::compare_immediate(&ptr, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit_inlined_block_size_from_ptr_slot(&seed_type, *slot, out_slot)?;
+        self.emit(abi::label(&skip));
+        self.reset_temporary_registers();
+        Ok(())
+    }
+
     pub(crate) fn emit_thread_send_runtime_helper_call(
         &mut self,
         target: &str,

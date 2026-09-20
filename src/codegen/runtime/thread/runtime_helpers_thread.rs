@@ -376,8 +376,30 @@ fn emit_release_thread_plumbing(
     ]);
     ctx.relocations
         .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    // bug-655: the SEED block, before the control block that points at it. Freed here
+    // and nowhere else: `thread::start` stores the caller's pointer rather than copying
+    // it, so the worker reads this block for its whole life and the caller's own
+    // statement-scope free would be a use-after-free. By this point the worker is
+    // JOINED, this is the drop that took the owner count to 0, and this is the PARENT —
+    // the thread whose arena carved the block, so the free returns it to bins that are
+    // still live (bug-646's rule). A size of 0 means the seed carved no block (a scalar)
+    // or is one the call site does not size: skip, the same fail-safe the queues use.
+    let seed_done = format!("{symbol}_release_{site}_seed_done");
     ctx.instructions.extend([
         abi::label(&no_worker_arena),
+        abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+        abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_DATA),
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_eq(&seed_done),
+        abi::load_u64(abi::c_arg(1), "%v8", THREAD_OFFSET_DATA_SIZE),
+        abi::compare_immediate(abi::c_arg(1), "0"),
+        abi::branch_eq(&seed_done),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    ctx.instructions.extend([
+        abi::label(&seed_done),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), handle_offset),
         abi::move_immediate(abi::c_arg(1), "Integer", &THREAD_BLOCK_SIZE.to_string()),
         abi::branch_link(ARENA_FREE_SYMBOL),

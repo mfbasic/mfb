@@ -87,6 +87,24 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         slot_name: &str,
     ) -> Result<Vec<ValueResult>, String> {
+        self.emit_prepared_call_args_hooked(args, slot_name, |_, _, _| Ok(()))
+    }
+
+    /// [`Self::emit_prepared_call_args`] with a hook that runs after every argument is
+    /// spilled to its slot and BEFORE the argument registers are loaded.
+    ///
+    /// bug-655: that ordering is the whole point. `thread.start` needs the byte size of
+    /// its seed as a fifth argument, and computing it clobbers the caller-saved
+    /// registers — so it has to happen while the arguments are still only in their
+    /// frame slots, which is exactly the window this hook opens. The comment below
+    /// ("keeps `x0`–`x7` set last, immediately before the call, so nothing clobbers
+    /// them") is the invariant the hook is placed to respect.
+    fn emit_prepared_call_args_hooked(
+        &mut self,
+        args: &[NirValue],
+        slot_name: &str,
+        hook: impl FnOnce(&mut Self, &[ValueResult], &[usize]) -> Result<(), String>,
+    ) -> Result<Vec<ValueResult>, String> {
         let scratch9 = self.temporary_vreg();
         let mut arg_values = Vec::new();
         let mut arg_slots = Vec::new();
@@ -107,6 +125,8 @@ impl CodeBuilder<'_> {
             arg_slots.push(slot);
             self.reset_temporary_registers();
         }
+        self.reset_temporary_registers();
+        hook(self, &arg_values, &arg_slots)?;
         self.reset_temporary_registers();
         // Arguments beyond the 8 register slots are marshalled first into the
         // caller's reserved outgoing stack tail (bug-08); doing the stack stores
@@ -425,7 +445,27 @@ impl CodeBuilder<'_> {
             );
         }
 
-        let arg_values = self.emit_raw_call(symbol, args, "runtime_call_arg")?;
+        let arg_values = if target == "thread.start" {
+            // bug-655: `thread::start` hands the worker the caller's seed block
+            // uncopied, and nothing owned it afterwards. Size it here — the only place
+            // its type is known — and pass that as arg 4, so the release that frees the
+            // rest of the thread's plumbing can free the seed too. Computed inside the
+            // hook, i.e. after every argument is spilled but before the argument
+            // registers are loaded, because sizing clobbers caller-saved registers.
+            let size_slot = self.allocate_stack_object("runtime_thread_start_seed_size", 8);
+            let values = self.emit_prepared_call_args_hooked(
+                args,
+                "runtime_call_arg",
+                |builder, values, slots| builder.emit_thread_seed_size(values, slots, size_slot),
+            )?;
+            let scratch = self.temporary_vreg();
+            self.emit(abi::load_u64(&scratch, abi::stack_pointer(), size_slot));
+            self.emit(abi::move_register(&abi::argument_register(4)?, &scratch));
+            self.emit_symbol_call(symbol);
+            values
+        } else {
+            self.emit_raw_call(symbol, args, "runtime_call_arg")?
+        };
         // A moved cross-arena data argument (e.g. `thread.start`) must not be freed
         // by this statement's temp cleanup (plan-25).
         self.claim_moved_thread_arg_temp(target, &arg_values);
