@@ -184,7 +184,7 @@ Commit: fdb2768c6
 Acceptance: safe extraction; README examples run. **Met.**
   Check: `target/release/mfb test packages/tar` → `Tests: 44  Pass: 44  Fail: 0`; the README probe
   prints the documented output and exits 0.
-Commit: PENDINGC3
+Commit: f72611cab
 
 ## Validation Plan
 
