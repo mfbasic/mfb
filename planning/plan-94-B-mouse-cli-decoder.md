@@ -223,7 +223,7 @@ FIRST:8 LAST:71` — the **newest** 64, which is what distinguishes overwrite fr
 "refuse the overflow" (that would have given `FIRST:0 LAST:63` and looked just as
 plausible). TTL across `os::sleep`: 0 ms → 2 events, 20 ms → 2, 150 ms → 0,
 400 ms → 0.
-Commit: —
+Commit: 7eed59fb2
 
 ### Phase 2 — The pump in the read path
 
@@ -297,7 +297,7 @@ likeliest decoder bug and the hardest to spot). `CHARS:abcdef` survives
 interleaved reports; `ESC [ Z` and a bare `ESC` pass through byte for byte;
 `pollInput`+`readChar` retrieves every character with no block; a `readLine`
 brackets its cooked window with the reset/set pair.
-Commit: —
+Commit: 7eed59fb2
 
 ### Phase 3 — Goldens + docs
 
@@ -324,7 +324,7 @@ reports 0 unclassified hits.
 no-controlling-terminal entries already in `man-examples-not-run.txt`; both mouse
 members' examples run. `man-census.sh --memory-scope term` → **0** unclassified
 (one reword needed: "consumed" is on the banned list too).
-Commit: —
+Commit: 7eed59fb2
 
 ## Validation Plan
 
