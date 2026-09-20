@@ -6,8 +6,33 @@ Severity: LOW-MEDIUM (per failed start, not per start — a program whose starts
 succeed never reaches it)
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: tests/runtime/rt_debug_soak.rs
+(`a_failed_thread_start_frees_its_seed`)
+
+## STATUS: FIXED (37986ecaa)
+
+Fix Design option 2 — the runtime-conditional free — on BOTH failure paths: the
+trapped one and the propagating one. Option 1 alone was never enough, exactly as this
+doc predicted (the trapped path has no error exit to free into).
+
+`live_bytes` 800 → 1,600 B at 50/100 failed starts becomes **0 growth**, with
+`free_calls == alloc_calls` (352/352, 702/702). bug-655's three shapes are unchanged.
+
+**Two crashes on the way, both found by running it, not by reading it:**
+
+1. Freeing on BOTH outcomes double-frees a SUCCESSFUL start's seed — the thread still
+   owns that one — **SIGSEGV**. Hence the tag check, and only on the trapped path: the
+   propagating path is already on its error branch, where the check would be dead code.
+2. `arena_free` is a CALL and clobbers the four result registers
+   `materialize_current_result` reads immediately after it, so the trapped binding was
+   built from whatever the free left behind — **SIGSEGV** again. Hence parking them
+   across the free. The same hazard bug-425 already records for the enqueue tag; this
+   is the second time that register-clobber has cost a bug in this file.
+
+bug-655's ownership gate carries over for free: the size slot is non-zero only for a
+fresh temp the statement owned, so a literal seed (a static symbol) and a `Local` seed
+(its binding's) are skipped here for the same reason they are skipped at release.
 
 `thread::start(work, "seed-" & toString(i), 0, 4) TRAP(e) … END TRAP` — a start that
 FAILS — leaves the caller's computed seed block live, 16 B per failed start, for the
@@ -123,14 +148,16 @@ To confirm in Phase 1. Two candidates, neither free:
 
 ### Phase 1 — failing test + audit
 
-- [ ] Soak case at 400/800; confirm RED.
-- [ ] A verdict per Blast-Radius site; choose between the two designs.
-
-Commit: —
+- [x] Soak case at 400/800; confirmed RED (800 → 1,600 B at 50/100).
+- [x] Verdicts: the NON-raw path needed the same free (option 1's move-the-claim idea
+      would have covered it, but option 2 covers both with one mechanism); the resource
+      targets are untouched, since only `thread.start` hands its argument over uncopied.
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] Option 2, both failure paths.
+
+Commit: 37986ecaa
 
 ### Phase 3 — full validation
 

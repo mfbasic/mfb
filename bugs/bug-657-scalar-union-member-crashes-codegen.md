@@ -7,8 +7,35 @@ format change.
 Severity: MEDIUM
 Class: Correctness (missing diagnostic)
 
-Status: Open — root cause confirmed, three fixes ruled out by measurement
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: tests/syntax/types/types-union-member-scalar
+
+## STATUS: FIXED (6cc2d7597)
+
+The route named at the end of "Attempts that do not work", and it clears all three
+obstacles those hit. `IrVariant` now carries the member's elaborated type —
+`HirUnionVariant` already held it, parsed at a sanctioned boundary, and
+`lower_variant` kept only `.name()` from it — so the test is
+`!matches!(variant.type_, ParameterType::Named(_))`: every built-in is its own
+`ParameterType` variant, every declared name is `Named`.
+
+- **No `ParameterType::parse` below the AST.** plan-111's ratchet stays at 0
+  (`no_type_strings` green), because nothing re-parses a spelling.
+- **No reliance on `records`**, which the union arm of `TypeEnv::build` pollutes with
+  the variants themselves.
+- **Correct for hand-built IR.** The 12 `ir::verify` cases that the `type_decl_info`
+  allowlist turned red pass untouched: they assert the verifier accepts a union whose
+  variant records are never declared, and asking the member's own type never consults a
+  declaration table at all.
+
+**No wire format change and no golden churn.** `decode_variant` rebuilds the type from
+the name it already encodes — `src/ir/binary.rs` is boundary #2, "IR wire/JSON decode
+reads types as text" — and `lower_variant` derives that name from the same type, so the
+round trip is exact. The JSON dump is untouched.
+
+Effort: the re-estimate to medium–large was right about the shape (it IS the IR change)
+and wrong about the cost: deriving the field at the decode boundary avoided the format
+bump, the reader/writer work and the `.ir` goldens that estimate was priced on.
 
 ## Attempts that do not work (2026-09-19)
 
@@ -179,10 +206,9 @@ Commit: — (nothing landed)
 
 ### Phase 2 — the fix
 
-- [ ] Carry `HirUnionVariant::type_` into `IrVariant` and decide on the type. The three
-      cheaper routes are ruled out above — do not re-try them.
+- [x] Carry `HirUnionVariant::type_` into `IrVariant` and decide on the type.
 
-Commit: —
+Commit: 6cc2d7597
 
 ### Phase 3 — full validation
 
