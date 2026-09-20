@@ -270,7 +270,7 @@ end before the harder allocation-carrying one is written.
 Acceptance: `fs::size` reports the right length and does not move the read position.
   Check: `cargo test --bin mfb` → pass; the fixture's `build.log` shows the file's true length and
   the post-size `readLine` still returns the FIRST line (est. 4 min).
-Commit: —
+Commit: f177b5ff7 (Phases 1 and 2 landed together — see Corrections)
 
 ### Phase 2 — `fs::readBytesAt`
 
@@ -308,28 +308,27 @@ read-ahead untouched.
   Check: `cargo test --bin mfb` → pass; the fixture's `build.log` shows the interleaved
   `readLine`/`readBytesAt`/`readLine` sequence returning line 1, the offset bytes, then line 2
   (est. 5 min).
-Commit: —
+Commit: f177b5ff7 (same commit as Phase 1 — see Corrections)
 
 ### Phase 3 — gate, and release the plan-139-A prerequisite
 
 - [x] `cargo build --bin mfb --tests` → `Finished \`dev\` profile [unoptimized + debuginfo]
       target(s)`, no error or warning.
-- [ ] Full `scripts/artifact-gate.sh target/release/mfb all` (~15–20 min — start it in the
-      background and do the next task while it runs). Expected `diffs=0` per §1 Non-goals.
-      **If it is not 0:** objdump/diff ONE flagged fixture to localize before concluding anything.
-      A diff here means either a bug in the new helpers (most likely: a clobbered register or a
-      changed shared emitter) or a wrong neutrality prediction. Fix the bug, or correct the
-      prediction in Corrections with the fixture-level evidence, and regenerate what the gate
-      flags. It is not a stop.
+- [x] Full `scripts/artifact-gate.sh target/release/mfb all` →
+      `artifact-gate [all]: 1464 tests, 1635 build(s), 2056 golden(s) checked, 0 diff(s)`,
+      exit 0. **The §1 Non-goals neutrality prediction held**: adding two registry functions that
+      existing programs do not call left every covered fixture byte-identical across all five
+      targets, so no root-cause pass was needed.
 - [ ] `scripts/test-accept.sh target/release/mfb "$(mktemp -d)"` → only the 4 known-baseline
       mismatches (`rt-behavior/native/libsnd-load-sound-rt`, `…/libsnd-playback-rt`,
       `…/native-link-inline-trap-rt`, `rt-behavior/tls/tls-connect-google-rt`). Any fifth is
       proven against a clean base checkout before it is treated as this letter's regression.
-- [ ] Update plan-139-A § Prerequisites: both `fs` rows re-measured and, if green, flipped to MET
-      with the `mfb man` output as evidence, and their note rewritten to point at letter E.
-- [ ] Update plan-139-D Phase 4's "No `src/` change across plan-139" criterion, which this letter
-      falsifies (see Corrections) — it becomes "no `src/` change in letters A–D", checked from
-      letter A's first commit.
+- [x] plan-139-A § Prerequisites: both `fs` rows re-measured and flipped to **MET**, each citing
+      the `mfb man` Declaration that matches the row's signature verbatim. The note that sent this
+      work to "their own plan" was rewritten to point at letter E when E was authored.
+- [x] plan-139-D Phase 4's "No `src/` change across plan-139" criterion corrected to "no `src/`
+      change in letters A–D", measured from letter A's first commit, with the reason recorded in
+      plan-139-D's Corrections (landed in `a1b7139be`).
 
 Acceptance: the tree is green and plan-139-A's gate is open.
   Check: `target/release/mfb man fs size` and `… man fs readBytesAt` both print a page with the
