@@ -62,40 +62,74 @@ Memory proof: `/usr/bin/time -l` reports "maximum resident set size" on macOS.
 
 ### Phase 1 — probes and corpus diff
 
-- [ ] `packages/zip/oracle/{README.md,diff.py,divergences.json,probe/}` and the same for `tar`;
-      probe emits `sourcesAgree: false` if the two opens differ (a hard failure, never declarable).
-- [ ] Corpus: fixture generators' output + `zip -r`/`bsdtar -cf` of `packages/jwt/src` + damaged
-      variants (truncated at 5 offsets, EOCD comment length off by one, ZIP64 locator pointing past
-      EOF, tar checksum flipped).
-- [ ] Duplicate-name divergence (plan-139-A Open Decisions) recorded in `divergences.json` if kept.
+- [x] `packages/zip/oracle/{README.md,diff.py,divergences.json,probe/}` and the same for `tar`.
+      The probe describes each archive from BOTH sources and emits `sourcesAgree`; `diff.py`
+      treats a false there as a hard failure no declaration can cover.
+- [x] Corpus: the fixture archives, an archive made by `zip -r`/`bsdtar -cf` of
+      `packages/jwt/src`, and damaged variants of every one — truncated at 5 offsets, plus (zip)
+      an EOCD comment length that does not reach EOF, a central-directory offset past the end, an
+      entry count larger than the directory holds, and a ZIP64 locator pointing past EOF; (tar) a
+      flipped checksum digit, a non-octal size, a size claiming more data than the archive holds,
+      and an unterminated name field. **70 zip archives and 60 tar archives, 0 disagreements.**
+- [x] ~~Duplicate-name divergence recorded in `divergences.json`~~ — moot: no divergence arose.
+      plan-139-A's Open Decision was whether `find` returns the first or the last of a repeated
+      name; it returns the first, and Python's `zipfile.getinfo` returns the last. The oracle
+      never sees it, because `diff.py` compares the full entry LIST in order rather than looking
+      names up — both implementations list both entries, in the same order. The difference is
+      real but confined to `find`, and it is documented on the package page instead.
 
-Acceptance: corpus agrees.
-  Check: `python3 packages/zip/oracle/diff.py corpus` → exit 0; same for tar (est. 2 min).
-Commit: —
+Acceptance: corpus agrees. **Met.**
+  Check: `python3 packages/zip/oracle/diff.py corpus` → `corpus: 70 archive(s), 0
+  disagreement(s)`, exit 0; `… tar …` → `corpus: 60 archive(s), 0 disagreement(s)`, exit 0.
+Commit: 1100e63d7
 
 ### Phase 2 — fuzz and round-trip
 
-- [ ] `diff.py fuzz --count 2000 --seed 139` and `diff.py roundtrip` for both packages. Each finding:
-      fix in the package + a `TCASE` reproducing it, in the same commit.
+- [x] `diff.py fuzz --count 2000 --seed 139` and `diff.py roundtrip` for both packages. **The
+      fuzzer found seven real bugs**, each fixed with a `TCASE`: six in zip (the two copies of an
+      entry's name never compared; the directory's declared size never checked against its entry
+      count; general-purpose flag bits 5/6/13 ignored; flags read only from the local header;
+      overlapping entry data regions accepted; a NUL inside a name kept) and one in tar (a GNU
+      long-name record is NUL-terminated, but NULs were being stripped from anywhere and the rest
+      kept, so `a\0bbb` became the name `abbb`). Zip disagreements went 230 → 0 over the course of
+      the fixes; tar 21 → 0.
 
-Acceptance: no undeclared disagreement, no crash, `sourcesAgree` always true.
-  Check: `python3 packages/zip/oracle/diff.py fuzz --count 2000 --seed 139` → exit 0; same for tar;
-  `roundtrip` → exit 0 (est. 8 min — fuzzing is the only check that reaches malformed-offset paths
-  the hand corpus does not).
-Commit: —
+Acceptance: no undeclared disagreement, no crash, `sourcesAgree` always true. **Met** —
+`sourcesAgree` was true on every one of the 4000 fuzzed archives, and no run crashed.
+  Check: `python3 packages/zip/oracle/diff.py fuzz --count 2000 --seed 139` → `fuzz: 2000
+  archive(s), 0 disagreement(s)`, exit 0; same for tar; `roundtrip` → `6 archive(s), 0
+  disagreement(s)` for each, exit 0.
+Commit: 1100e63d7
 
 ### Phase 3 — memory proof
 
-- [ ] `/tmp` generator: a 2 GiB stored zip (one 2 GiB entry + one 10-byte entry `small.txt`) via
-      Python `zipfile` with `ZIP_STORED`; the same content as a tar.
-- [ ] `/tmp` probe: `RES f = fs::open(path, "read")`, `open(f)`, `find(a, "small.txt")`,
-      `readText`, print it.
-- [ ] Run `/usr/bin/time -l <probe> big.zip` and `… big.tar`; record max RSS in this plan.
+- [x] `/tmp/bigarch`: `big.zip` (2,147,483,994 bytes — one 2 GiB stored entry plus a 10-byte
+      `small.txt`) and `big.tar` (2,147,491,840 bytes, the same content). Both written
+      incrementally so the generator itself never holds 2 GiB.
+- [x] `/tmp/bigprobe`: opens the archive through an `fs::File`, lists it, finds `small.txt`,
+      reads it and prints it. Both packages in one probe, selected by argument.
+- [x] Measured with `/usr/bin/time -l`, **plus a control on a tiny archive** — which is what
+      turns the number into a proof, since a low RSS on one file says nothing on its own:
 
-Acceptance: file-backed open + one small read does not scale with archive size.
-  Check: `/usr/bin/time -l` "maximum resident set size" < 67108864 for both (est. 3 min incl. writing
-  4 GiB of test data; smaller files cannot distinguish a 64 MiB cap from a whole-file load).
-Commit: —
+      | archive | size | maximum resident set size |
+      |---|---|---|
+      | `tiny.zip` | 228 B | 3,358,720 |
+      | `big.zip` | 2,147,483,994 B | **3,440,640** |
+      | `tiny.tar` | 10,240 B | 3,244,032 |
+      | `big.tar` | 2,147,491,840 B | **3,244,032** |
+
+      The zip grew by a factor of **9,419,666** and its resident set by 82 KB (+2.4%). The tar
+      grew by a factor of **209,716** and its resident set by **zero bytes**. Both are ~3 MiB
+      against a 64 MiB budget, and neither scales with the archive. Every run printed
+      `entries=2`, `size=10`, `text=ten bytes!`.
+
+Acceptance: file-backed open + one small read does not scale with archive size. **Met, and
+demonstrated rather than merely satisfied**: the budget is 67,108,864 and both came in at ~3.3 MiB,
+5% of it — and the tiny-archive control shows the figure is independent of archive size, which the
+threshold alone would not establish.
+  Check: `/usr/bin/time -l /tmp/bigprobe/build/bigprobe.out zip /tmp/bigarch/big.zip` → 3,440,640;
+  `… tar /tmp/bigarch/big.tar` → 3,244,032. Both < 67,108,864.
+Commit: PENDINGD3
 
 ### Phase 4 — final gate and archive
 
