@@ -18,23 +18,35 @@ use super::*;
 pub(crate) const PERF_INIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Perf,
     call: "perf.init",
-    abi: RuntimeHelperAbi { returns: "Nothing" },
+    abi: RuntimeHelperAbi {
+        returns: "Nothing",
+        returns_generic: false,
+    },
 };
 
 pub(crate) const PERF_START_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Perf,
     call: "perf.start",
-    abi: RuntimeHelperAbi { returns: "Nothing" },
+    abi: RuntimeHelperAbi {
+        returns: "Nothing",
+        returns_generic: false,
+    },
 };
 
 pub(crate) const PERF_END_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Perf,
     call: "perf.end",
-    abi: RuntimeHelperAbi { returns: "Nothing" },
+    abi: RuntimeHelperAbi {
+        returns: "Nothing",
+        returns_generic: false,
+    },
 };
 
 pub(crate) const PERF_DONE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Perf,
     call: "perf.done",
-    abi: RuntimeHelperAbi { returns: "Nothing" },
+    abi: RuntimeHelperAbi {
+        returns: "Nothing",
+        returns_generic: false,
+    },
 };

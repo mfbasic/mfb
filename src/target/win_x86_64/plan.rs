@@ -415,7 +415,7 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
-            "fs.readLine" | "fs.eof" => vec![
+            "fs.readLine" | "fs.eof" | "fs.size" | "fs.readBytesAt" => vec![
                 import("ReadFile", KERNEL32, required_by),
                 import("SetFilePointerEx", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),

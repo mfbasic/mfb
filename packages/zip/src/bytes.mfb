@@ -1,0 +1,100 @@
+' ---------------------------------------------------------------------------
+' zip/bytes.mfb — little-endian integer readers over a `List OF Byte`.
+'
+' Every multi-byte number in a zip file is little-endian (APPNOTE.TXT §4.4), so
+' these three functions are how every header field is read. They take the list
+' and an index rather than a slice, so a caller that has already read a whole
+' header block reads its fields out of that one block instead of cutting a new
+' list per field.
+'
+' `u64le` is the one that can overflow: MFBASIC's Integer is signed 64-bit, so a
+' ZIP64 field with the top bit set has no representable value. That only happens
+' in an archive claiming a size of 8 exabytes or more, which is not a real
+' archive, so it is refused here rather than silently returned as a negative
+' number that would then pass a `<= size` bounds check.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT errorCode
+
+' The unsigned 16-bit value at `index`.
+FUNC u16le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 2)
+  RETURN toInt(collections::get(bytes, index)) _
+    + toInt(collections::get(bytes, index + 1)) * 256
+END FUNC
+
+' The unsigned 32-bit value at `index`.
+FUNC u32le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 4)
+  RETURN toInt(collections::get(bytes, index)) _
+    + toInt(collections::get(bytes, index + 1)) * 256 _
+    + toInt(collections::get(bytes, index + 2)) * 65536 _
+    + toInt(collections::get(bytes, index + 3)) * 16777216
+END FUNC
+
+' The unsigned 64-bit value at `index`.
+'
+' Raises `errorCode::ErrTooLarge` when the value does not fit a signed 64-bit
+' Integer — an archive that big is not one this package can address.
+FUNC u64le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 8)
+  LET low AS Integer = u32le(bytes, index)
+  LET high AS Integer = u32le(bytes, index + 4)
+  IF high > 2147483647 THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: 64-bit field at " & toString(index) & " exceeds the largest addressable size")
+  END IF
+  RETURN low + high * 4294967296
+END FUNC
+
+PRIVATE SUB requireRoom(bytes AS List OF Byte, index AS Integer, width AS Integer)
+  IF index < 0 OR index + width > len(bytes) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(width) & "-byte field at " & toString(index) & " runs past a " & toString(len(bytes)) & "-byte block")
+  END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' The write side. Each appends one little-endian field to a growing list, which
+' is how every header this package emits is assembled.
+' ---------------------------------------------------------------------------
+
+' Append `value` as an unsigned 16-bit little-endian field.
+FUNC putU16(out AS List OF Byte, value AS Integer) AS List OF Byte
+  requireFits(value, 65535, 16)
+  MUT acc AS List OF Byte = collections::append(out, toByte(value MOD 256))
+  RETURN collections::append(acc, toByte((value / 256) MOD 256))
+END FUNC
+
+' Append `value` as an unsigned 32-bit little-endian field.
+FUNC putU32(out AS List OF Byte, value AS Integer) AS List OF Byte
+  requireFits(value, 4294967295, 32)
+  MUT acc AS List OF Byte = putU16(out, value MOD 65536)
+  RETURN putU16(acc, (value / 65536) MOD 65536)
+END FUNC
+
+' Append `value` as an unsigned 64-bit little-endian field.
+'
+' Only non-negative values are representable here: the archive fields this
+' writes are all sizes, counts and offsets.
+FUNC putU64(out AS List OF Byte, value AS Integer) AS List OF Byte
+  IF value < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: cannot write a negative 64-bit field")
+  END IF
+  MUT acc AS List OF Byte = putU32(out, value MOD 4294967296)
+  RETURN putU32(acc, value / 4294967296)
+END FUNC
+
+' Append every byte of `extra`.
+FUNC putBytes(out AS List OF Byte, extra AS List OF Byte) AS List OF Byte
+  MUT acc AS List OF Byte = out
+  FOR EACH b IN extra
+    acc = collections::append(acc, b)
+  NEXT
+  RETURN acc
+END FUNC
+
+PRIVATE SUB requireFits(value AS Integer, limit AS Integer, width AS Integer)
+  IF value < 0 OR value > limit THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(value) & " does not fit an unsigned " & toString(width) & "-bit field")
+  END IF
+END SUB

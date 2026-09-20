@@ -187,6 +187,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.readAllBytes",
     "fs.readLine",
     "fs.eof",
+    "fs.size",
+    "fs.readBytesAt",
     "fs.writeAll",
     "fs.writeAllBytes",
     "fs.flush",

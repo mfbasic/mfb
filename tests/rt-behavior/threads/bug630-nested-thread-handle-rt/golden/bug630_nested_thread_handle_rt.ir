@@ -1,0 +1,101 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug630_nested_thread_handle_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "sizer",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "w", "line": 12, "type": "ThreadWorker OF String TO Integer", "default": null },
+    { "name": "seed", "line": 12, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    ]
+  },
+  {
+    "name": "talker",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "w", "line": 16, "type": "ThreadWorker OF String TO Integer", "default": null },
+    { "name": "seed", "line": 16, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "w" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hi-" }, "right": { "kind": "local", "name": "seed" } }] } },
+    { "op": "return", "line": 18, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    ]
+  },
+  {
+    "name": "opener",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "w", "line": 21, "type": "ThreadWorker OF RES fs.File TO Integer", "default": null },
+    { "name": "seed", "line": 21, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 22, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.open", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "String", "value": "r" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "w" }, { "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 27,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 31, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 32,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      { "op": "assign", "line": 33, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "sizer", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "abc" }] }] } } },
+      { "op": "assign", "line": 34, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested waitFor total=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "bind", "line": 39, "mutable": true, "name": "bound", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 40, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 41,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      { "op": "bind", "line": 42, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "sizer", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "abc" }] } },
+      { "op": "assign", "line": 43, "name": "bound", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "bound" }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } } },
+      { "op": "assign", "line": 44, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "bound waitFor total=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "bound" }] } }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "msg", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "talker", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "abc" }] }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested receive msg=" }, "right": { "kind": "local", "name": "msg" } }] } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "got", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "thread.acceptResource", "args": [{ "kind": "call", "type": "Thread OF RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "opener", "type": "ISOLATED FUNC(ThreadWorker OF RES fs.File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/bug630-nested-thread-handle-rt/data/input.txt" }] }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested accept text=" }, "right": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "got" }] } }] } }
+    ]
+  }
+  ]
+}

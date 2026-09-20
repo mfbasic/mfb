@@ -94,6 +94,11 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
                     call: call.name,
                     abi: RuntimeHelperAbi {
                         returns: abi_return_name(&call.return_type),
+                        // bug-630: flag, don't drop. `returns` still types the
+                        // helper's `CodeFunction` and satisfies the capability
+                        // check; the flag is what stops the resolver turning a
+                        // type variable into a value type.
+                        returns_generic: crate::codegen::registry::contains_var(&call.return_type),
                     },
                 });
             }

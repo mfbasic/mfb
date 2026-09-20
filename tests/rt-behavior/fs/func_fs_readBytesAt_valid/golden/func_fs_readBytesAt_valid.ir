@@ -1,0 +1,172 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_readBytesAt_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "closeHandle",
+    "line": 12,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "f", "line": 12, "type": "fs.File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+    ]
+  },
+  {
+    "name": "readAfterClose",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 16, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "closeHandle", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 19, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "4" }] }] } }
+    ]
+  },
+  {
+    "name": "readNegative",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 22, "type": "fs.File", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 23, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] } }
+    ]
+  },
+  {
+    "name": "readNegativeOffset",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 26, "type": "fs.File", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "4" }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 31, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_readBytesAt_valid.txt" } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "first line\nsecond line\n" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "at0=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "at11=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "Integer", "value": "6" }] }] } }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "tail", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "18" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tailLen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tail" }] }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tail=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "tail" }] } }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "atEnd=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "23" }, { "kind": "const", "type": "Integer", "value": "10" }] }] }] } }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pastEnd=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "Integer", "value": "10" }] }] }] } }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "zero=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "line1=" }, "right": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] } }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "between=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "line2=" }, "right": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] } }] } },
+    { "op": "bind", "line": 59, "mutable": true, "name": "negCount", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 60, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "readNegative", "args": [{ "kind": "local", "name": "f" }] } },
+    {
+      "op": "if",
+      "line": 60,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 60, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 61, "name": "negCount", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 64,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "negCount" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+      "then": [
+      { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "negCount=ErrInvalidArgument" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "negCount=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "negCount" }] } }] } }
+      ]
+    },
+    { "op": "bind", "line": 70, "mutable": true, "name": "negOffset", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "readNegativeOffset", "args": [{ "kind": "local", "name": "f" }] } },
+    {
+      "op": "if",
+      "line": 71,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 71, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "assign", "line": 72, "name": "negOffset", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 73, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 75,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "negOffset" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+      "then": [
+      { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "negOffset=ErrInvalidArgument" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "negOffset=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "negOffset" }] } }] } }
+      ]
+    },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "afterErrors=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytesAt", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "bind", "line": 86, "mutable": true, "name": "closedCode", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 87, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "readAfterClose", "args": [{ "kind": "local", "name": "path" }] } },
+    {
+      "op": "if",
+      "line": 87,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 87, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 88, "name": "closedCode", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 89, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 91,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "closedCode" }, "right": { "kind": "const", "type": "Integer", "value": "77030004" } },
+      "then": [
+      { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "closed=ErrResourceClosed" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "closed=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "closedCode" }] } }] } }
+      ]
+    },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 98, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -234,6 +234,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "fs.readAll",
     "fs.readAllBytes",
     "fs.eof",
+    "fs.size",
+    "fs.readBytesAt",
     "fs.canonicalPath",
     "fs.isWithin",
     "net.lookup",

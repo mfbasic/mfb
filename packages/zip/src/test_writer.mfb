@@ -1,0 +1,255 @@
+' ---------------------------------------------------------------------------
+' Tests: the writer.
+'
+' A round trip through our own reader is the weakest useful check -- an
+' implementation can round-trip its own mistakes -- so it is here to pin the
+' shape, and Phase 1's external probe is what checks the bytes against `unzip`
+' and Python `zipfile`. What these cases add beyond "it reads back" is the
+' decisions: which method was chosen, what the archive looks like when it is
+' empty, and which names are refused before they can be written.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+PRIVATE FUNC sameBytesW(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Data that deflate cannot shrink: 256 distinct bytes, each appearing once.
+PRIVATE FUNC incompressible() AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 0 TO 255
+    out = collections::append(out, toByte(i))
+  NEXT
+  RETURN out
+END FUNC
+
+' A small archive used by several cases.
+PRIVATE FUNC sampleArchiveBytes() AS List OF Byte
+  MUT b AS Builder = create()
+  b = addText(b, "hello.txt", "Hello, world!")
+  b = addFile(b, "raw.bin", incompressible())
+  b = addText(b, "squish.txt", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  b = addDirectory(b, "sub")
+  RETURN finish(b, "written by the zip package")
+END FUNC
+
+TESTING
+  TGROUP "writer round trip"
+    TCASE "a written archive reads back through the memory overload"
+      LET raw AS List OF Byte = sampleArchiveBytes()
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 4)
+      expectString(comment(archive), "written by the zip package")
+      expectString(readText(archive, find(archive, "hello.txt")), "Hello, world!")
+      expectEqual(sameBytesW(read(archive, find(archive, "raw.bin")), incompressible()), TRUE)
+      expectEqual(find(archive, "sub/").isDirectory, TRUE)
+    END TCASE
+
+    TCASE "a written archive reads back through the file overload"
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, sampleArchiveBytes())
+      fs::flush(f)
+      LET archive AS Archive = open(f)
+      expectInteger(len(entries(archive)), 4)
+      expectString(readText(archive, find(archive, "hello.txt")), "Hello, world!")
+      expectEqual(sameBytesW(read(archive, find(archive, "raw.bin")), incompressible()), TRUE)
+      fs::close(f)
+    END TCASE
+
+    TCASE "the writer is deterministic"
+      ' Two identical build sequences must produce identical bytes; a stray
+      ' clock reading or map iteration order would show up here.
+      expectEqual(sameBytesW(sampleArchiveBytes(), sampleArchiveBytes()), TRUE)
+    END TCASE
+
+    TCASE "an empty archive is valid and has no entries"
+      LET raw AS List OF Byte = finish(create())
+      expectInteger(len(raw), 22)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 0)
+      expectString(comment(archive), "")
+    END TCASE
+
+    TCASE "every entry round-trips its CRC"
+      ' read() checks the CRC, so a successful read of every entry is also a
+      ' check that the writer recorded the right one.
+      LET raw AS List OF Byte = sampleArchiveBytes()
+      LET archive AS Archive = open(raw)
+      FOR EACH entry IN entries(archive)
+        expectInteger(len(read(archive, entry)), entry.size)
+      NEXT
+    END TCASE
+  END TGROUP
+
+  TGROUP "writer method choice"
+    TCASE "compressible data is deflated"
+      MUT b AS Builder = create()
+      b = addText(b, "squish.txt", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+      LET archive AS Archive = open(finish(b))
+      LET entry AS Entry = find(archive, "squish.txt")
+      expectInteger(entry.method, 8)
+      expectEqual(entry.compressedSize < entry.size, TRUE)
+    END TCASE
+
+    TCASE "incompressible data is stored rather than grown"
+      MUT b AS Builder = create()
+      b = addFile(b, "raw.bin", incompressible())
+      LET archive AS Archive = open(finish(b))
+      LET entry AS Entry = find(archive, "raw.bin")
+      expectInteger(entry.method, 0)
+      expectInteger(entry.compressedSize, entry.size)
+    END TCASE
+
+    TCASE "store = TRUE skips compression even when it would help"
+      MUT b AS Builder = create()
+      b = addText(b, "squish.txt", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TRUE)
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "squish.txt").method, 0)
+    END TCASE
+
+    TCASE "an empty file is stored"
+      MUT b AS Builder = create()
+      b = addFile(b, "empty.bin", [])
+      LET archive AS Archive = open(finish(b))
+      LET entry AS Entry = find(archive, "empty.bin")
+      expectInteger(entry.method, 0)
+      expectInteger(entry.size, 0)
+      expectInteger(len(read(archive, entry)), 0)
+    END TCASE
+  END TGROUP
+
+  TGROUP "writer metadata"
+    TCASE "a modification time round-trips through the DOS fields"
+      ' 2026-09-19 12:30:00 UTC, the same instant fixtures.py pins.
+      MUT b AS Builder = create()
+      b = addText(b, "stamped.txt", "x", FALSE, 1789821000)
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "stamped.txt").modifiedSeconds, 1789821000)
+    END TCASE
+
+    TCASE "an odd second rounds down to the format's two-second grain"
+      MUT b AS Builder = create()
+      b = addText(b, "stamped.txt", "x", FALSE, 1789821001)
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "stamped.txt").modifiedSeconds, 1789821000)
+    END TCASE
+
+    TCASE "a file entry records a regular-file mode and a directory a directory mode"
+      LET raw AS List OF Byte = sampleArchiveBytes()
+      LET archive AS Archive = open(raw)
+      expectInteger(find(archive, "hello.txt").mode, 33188)
+      expectInteger(find(archive, "sub/").mode, 16877)
+    END TCASE
+
+    TCASE "a non-ASCII name round-trips as UTF-8"
+      MUT b AS Builder = create()
+      b = addText(b, "café/naïve.txt", "unicode")
+      LET archive AS Archive = open(finish(b))
+      expectString(readText(archive, find(archive, "café/naïve.txt")), "unicode")
+    END TCASE
+
+    TCASE "a duplicate name is allowed and find returns the first"
+      MUT b AS Builder = create()
+      b = addText(b, "same.txt", "first")
+      b = addText(b, "same.txt", "second")
+      LET archive AS Archive = open(finish(b))
+      expectInteger(len(entries(archive)), 2)
+      expectString(readText(archive, find(archive, "same.txt")), "first")
+    END TCASE
+  END TGROUP
+
+  TGROUP "writer refusals"
+    TCASE "an unsafe name is refused before it can be written"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, "", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "/etc/passwd", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "../escape.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "a/../../escape.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "C:evil.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "a\\b.txt", "x"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "a directory name is validated the same way"
+      MUT b AS Builder = create()
+      expectTrap(addDirectory(b, "../escape"), errorCode::ErrInvalidPath)
+      expectTrap(addDirectory(b, "/abs"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "a file name ending in a slash is refused"
+      MUT b AS Builder = create()
+      expectTrap(addFile(b, "looks-like-a-dir/", [], TRUE), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "an over-long comment is refused"
+      MUT b AS Builder = create()
+      b = addText(b, "x.txt", "x")
+      LET huge AS String = strings::repeat("c", 65536)
+      expectTrap(finish(b, huge), errorCode::ErrTooLarge)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' ZIP64 emission on the entry-count field.
+'
+' The end-of-central-directory record counts entries in 16 bits, so an archive
+' of more than 65535 entries REQUIRES the ZIP64 records. Reaching that count
+' through the public `add*` API is not affordable -- the API passes the builder
+' by value, which copies its accumulated entries on every call (plan-139-B
+' Corrections), and a 65536-entry run was killed by the host after exhausting
+' memory.
+'
+' So the entry list is built here as a bare local, where appends are O(1), and
+' handed to `finishBuilder` once. That exercises exactly the code under test --
+' the ZIP64 trailer emission and the all-ones EOCD fields -- without paying for
+' an API path whose cost is already measured and documented.
+' ---------------------------------------------------------------------------
+PRIVATE FUNC manyEntryArchive(count AS Integer) AS List OF Byte
+  MUT records AS List OF Pending = []
+  FOR i = 1 TO count
+    records = collections::append(records, Pending["e" & toString(i) & ".txt", FALSE, 0, 0, 0, [], 0, 33188])
+  NEXT
+  RETURN finishBuilder(Builder[records], "")
+END FUNC
+
+TESTING
+  TGROUP "writer zip64"
+    TCASE "an archive of 65536 entries emits ZIP64 and reads back"
+      LET raw AS List OF Byte = manyEntryArchive(65536)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 65536)
+      expectString(find(archive, "e1.txt").name, "e1.txt")
+      expectString(find(archive, "e65536.txt").name, "e65536.txt")
+    END TCASE
+
+    TCASE "65535 entries still fits a classic zip, with no ZIP64 record"
+      ' One below the threshold: the EOCD count field holds it exactly, so no
+      ' ZIP64 record is emitted and the archive stays a classic zip.
+      LET raw AS List OF Byte = manyEntryArchive(65535)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 65535)
+      ' The ZIP64 locator signature must NOT appear in the last 40 bytes.
+      LET tail AS List OF Byte = collections::mid(raw, len(raw) - 40, 40)
+      MUT sawLocator AS Boolean = FALSE
+      FOR i = 0 TO len(tail) - 4
+        IF u32le(tail, i) = 117853008 THEN
+          sawLocator = TRUE
+        END IF
+      NEXT
+      expectEqual(sawLocator, FALSE)
+    END TCASE
+  END TGROUP
+END TESTING

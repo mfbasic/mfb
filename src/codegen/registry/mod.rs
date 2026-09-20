@@ -2877,7 +2877,7 @@ fn substitute(
 
 /// Whether a type mentions any [`ParameterType::Var`] — i.e. it is generic and has no
 /// single static nominal type independent of a call's arguments.
-fn contains_var(ty: &ParameterType) -> bool {
+pub(crate) fn contains_var(ty: &ParameterType) -> bool {
     match ty {
         // `Var` is arg-dependent; `Arg(_)` echoes an argument verbatim — neither has a
         // single static nominal type independent of the call.
@@ -6657,6 +6657,7 @@ mod raw_result_block_ownership {
         "fs.readAll",               // String
         "fs.readAllBytes",          // List OF Byte
         "fs.readBytes",             // List OF Byte
+        "fs.readBytesAt",           // List OF Byte
         "fs.readLine",              // String
         "fs.readText",              // String
         "fs.tempDirectory",         // String

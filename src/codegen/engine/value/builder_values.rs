@@ -3631,8 +3631,18 @@ impl CodeBuilder<'_> {
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type
             // is the catalogued runtime spec's (derived by `registry::runtime_specs`).
+            // bug-630: a GENERIC descriptor return never resolves here. The
+            // catalog freezes `thread.waitFor`'s `Var("Out")` into the ABI string
+            // `"Out"`, and `declared("Out")` is not a type — it used to flow into
+            // the assignment's marshalling and fail there ("native inlined field
+            // size not available for type 'Out'"), which named the symptom and
+            // hid the cause. The seven generic rows are all `thread.*` and every
+            // one is typed from its handle argument above, so declining costs
+            // nothing and turns a mis-lowering into the resolver's own error.
             .or_else(|| {
-                runtime::spec_for_call(target).map(|spec| ParameterType::declared(spec.abi.returns))
+                runtime::spec_for_call(target)
+                    .filter(|spec| !spec.abi.returns_generic)
+                    .map(|spec| ParameterType::declared(spec.abi.returns))
             })
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {

@@ -1,0 +1,317 @@
+' ---------------------------------------------------------------------------
+' Tests: opening an archive and reading its central directory.
+'
+' Every positive case runs TWICE over the same archive -- once from a
+' `List OF Byte` and once from an `fs::File` holding the same bytes -- and
+' asserts the same values both ways. That is the whole feature's headline
+' property, so it is checked per fixture and per field rather than once.
+'
+' The expected values come from `packages/zip/oracle/fixtures.py`, which reads
+' them back out of Python's `zipfile`. A disagreement here is a disagreement
+' with an independent implementation, not with our own earlier output.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+
+' The `simple` fixture has no archive comment, so its end-of-central-directory
+' record is exactly the last 22 bytes. The damage cases below index from there.
+PRIVATE FUNC simpleBytes() AS List OF Byte
+  RETURN fixtureNamed("simple").bytes
+END FUNC
+
+PRIVATE FUNC fixtureNamed(label AS String) AS Fixture
+  FOR EACH f IN allFixtures()
+    IF f.label = label THEN
+      RETURN f
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "test: no fixture named " & label)
+END FUNC
+
+' Write `data` into a fresh temp file and hand back the open handle.
+PRIVATE FUNC tempFileOf(RES handle AS fs::File, data AS List OF Byte) AS Integer
+  fs::writeAllBytes(handle, data)
+  fs::flush(handle)
+  RETURN len(data)
+END FUNC
+
+PRIVATE FUNC pokeU16(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = collections::set(data, index, toByte(value MOD 256))
+  RETURN collections::set(out, index + 1, toByte((value / 256) MOD 256))
+END FUNC
+
+PRIVATE FUNC pokeU32(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = pokeU16(data, index, value MOD 65536)
+  RETURN pokeU16(out, index + 2, (value / 65536) MOD 65536)
+END FUNC
+
+' Describe the first way `archive` disagrees with what the oracle reported, or
+' the empty string when it agrees everywhere.
+'
+' A comparison helper rather than a sequence of assertions because the `expect*`
+' builtins are only valid directly inside a TCASE body. Returning the
+' disagreement as text keeps the per-field detail in the failure message.
+PRIVATE FUNC oracleMismatch(archive AS Archive, fixture AS Fixture) AS String
+  IF comment(archive) <> fixture.comment THEN
+    RETURN fixture.label & ": comment " & comment(archive) & " <> " & fixture.comment
+  END IF
+  IF len(entries(archive)) <> len(fixture.entries) THEN
+    RETURN fixture.label & ": " & toString(len(entries(archive))) & " entries, oracle says " & toString(len(fixture.entries))
+  END IF
+  FOR i = 0 TO len(fixture.entries) - 1
+    LET actual AS Entry = collections::get(entries(archive), i)
+    LET want AS ExpectedEntry = collections::get(fixture.entries, i)
+    LET where AS String = fixture.label & " entry " & toString(i) & ": "
+    IF actual.name <> want.name THEN
+      RETURN where & "name " & actual.name & " <> " & want.name
+    END IF
+    IF actual.size <> want.size THEN
+      RETURN where & "size " & toString(actual.size) & " <> " & toString(want.size)
+    END IF
+    IF actual.crc <> want.crc THEN
+      RETURN where & "crc " & toString(actual.crc) & " <> " & toString(want.crc)
+    END IF
+    IF actual.method <> want.method THEN
+      RETURN where & "method " & toString(actual.method) & " <> " & toString(want.method)
+    END IF
+    IF actual.isDirectory <> want.isDirectory THEN
+      RETURN where & "isDirectory disagrees"
+    END IF
+    ' Every entry's local header must be inside the archive; `read` depends on
+    ' it and a bad value here would only surface later.
+    IF actual.headerOffset < 0 THEN
+      RETURN where & "negative headerOffset"
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+' Describe the first field on which the two sources disagree, or "".
+PRIVATE FUNC sourceMismatch(fromMemory AS Archive, fromFile AS Archive, label AS String) AS String
+  IF comment(fromFile) <> comment(fromMemory) THEN
+    RETURN label & ": comments differ between sources"
+  END IF
+  IF len(entries(fromFile)) <> len(entries(fromMemory)) THEN
+    RETURN label & ": entry counts differ between sources"
+  END IF
+  FOR i = 0 TO len(entries(fromMemory)) - 1
+    LET a AS Entry = collections::get(entries(fromMemory), i)
+    LET b AS Entry = collections::get(entries(fromFile), i)
+    LET where AS String = label & " entry " & toString(i) & ": "
+    IF a.name <> b.name THEN
+      RETURN where & "name"
+    END IF
+    IF a.size <> b.size OR a.compressedSize <> b.compressedSize THEN
+      RETURN where & "size"
+    END IF
+    IF a.crc <> b.crc OR a.method <> b.method THEN
+      RETURN where & "crc or method"
+    END IF
+    IF a.modifiedSeconds <> b.modifiedSeconds OR a.mode <> b.mode THEN
+      RETURN where & "modifiedSeconds or mode"
+    END IF
+    IF a.headerOffset <> b.headerOffset THEN
+      RETURN where & "headerOffset"
+    END IF
+    IF a.isDirectory <> b.isDirectory THEN
+      RETURN where & "isDirectory"
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+TESTING
+  TGROUP "open"
+    TCASE "every fixture's entry list matches the oracle, from memory"
+      FOR EACH fixture IN allFixtures()
+        LET raw AS List OF Byte = fixture.bytes
+        expectString(oracleMismatch(open(raw), fixture), "")
+      NEXT
+    END TCASE
+
+    TCASE "every fixture's entry list matches the oracle, from a file"
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        LET written AS Integer = tempFileOf(f, fixture.bytes)
+        expectInteger(written, len(fixture.bytes))
+        expectString(oracleMismatch(open(f), fixture), "")
+        fs::close(f)
+      NEXT
+    END TCASE
+
+    TCASE "the two sources agree field for field"
+      ' The headline property, stated directly rather than inferred from the
+      ' two cases above both passing.
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        LET written AS Integer = tempFileOf(f, fixture.bytes)
+        expectInteger(written, len(fixture.bytes))
+        LET raw AS List OF Byte = fixture.bytes
+        expectString(sourceMismatch(open(raw), open(f), fixture.label), "")
+        fs::close(f)
+      NEXT
+    END TCASE
+
+    TCASE "a CP437 name is decoded through the table, not as UTF-8"
+      LET raw AS List OF Byte = fixtureNamed("cp437").bytes
+      expectString(collections::get(entries(open(raw)), 0).name, "café.txt")
+    END TCASE
+
+    TCASE "a ZIP64 archive reports the sizes from its ZIP64 records"
+      LET raw AS List OF Byte = fixtureNamed("zip64").bytes
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 1)
+      expectInteger(collections::get(entries(archive), 0).size, 25)
+    END TCASE
+
+    TCASE "an archive comment is read back"
+      LET raw AS List OF Byte = fixtureNamed("comment").bytes
+      expectString(comment(open(raw)), "an archive comment")
+    END TCASE
+
+    TCASE "a directory entry is flagged as one"
+      LET raw AS List OF Byte = fixtureNamed("dirs").bytes
+      LET archive AS Archive = open(raw)
+      expectEqual(has(archive, "sub/"), TRUE)
+      expectEqual(find(archive, "sub/").isDirectory, TRUE)
+      expectEqual(find(archive, "sub/inner.txt").isDirectory, FALSE)
+    END TCASE
+
+    TCASE "a Unix-written archive reports a mode"
+      LET raw AS List OF Byte = fixtureNamed("simple").bytes
+      expectInteger(find(open(raw), "hello.txt").mode, 33188)
+    END TCASE
+
+    TCASE "modification times are read as epoch seconds"
+      ' fixtures.py pins every entry to 2026-09-19 12:30:00.
+      LET raw AS List OF Byte = fixtureNamed("simple").bytes
+      LET stamp AS Integer = find(open(raw), "hello.txt").modifiedSeconds
+      expectInteger(stamp, 1789821000)
+    END TCASE
+  END TGROUP
+
+  TGROUP "lookup"
+    TCASE "has and find agree, and a missing name raises ErrNotFound"
+      LET raw AS List OF Byte = simpleBytes()
+      LET archive AS Archive = open(raw)
+      expectEqual(has(archive, "hello.txt"), TRUE)
+      expectEqual(has(archive, "absent.txt"), FALSE)
+      expectString(find(archive, "hello.txt").name, "hello.txt")
+      expectTrap(find(archive, "absent.txt"), errorCode::ErrNotFound)
+    END TCASE
+  END TGROUP
+
+  TGROUP "malformed"
+    TCASE "an archive shorter than an EOCD record is refused"
+      LET tiny AS List OF Byte = [toByte(80), toByte(75), toByte(5), toByte(6)]
+      expectTrap(open(tiny), errorCode::ErrInvalidFormat)
+      LET empty AS List OF Byte = []
+      expectTrap(open(empty), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an archive with no EOCD signature is refused"
+      ' Break the signature's last byte; nothing else changes.
+      LET raw AS List OF Byte = simpleBytes()
+      LET broken AS List OF Byte = collections::set(raw, len(raw) - 22 + 3, toByte(0))
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a truncated archive is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET cut AS List OF Byte = collections::mid(raw, 0, len(raw) - 10)
+      expectTrap(open(cut), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a central directory starting past the end is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 16, 1000000)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a central directory longer than the archive is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, 1000000)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an entry count larger than the directory holds is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET broken AS List OF Byte = pokeU16(raw, len(raw) - 22 + 10, 99)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a multi-disk archive is refused as unsupported"
+      LET raw AS List OF Byte = simpleBytes()
+      LET broken AS List OF Byte = pokeU16(raw, len(raw) - 22 + 4, 1)
+      expectTrap(open(broken), errorCode::ErrUnsupported)
+      LET other AS List OF Byte = pokeU16(raw, len(raw) - 22 + 6, 1)
+      expectTrap(open(other), errorCode::ErrUnsupported)
+    END TCASE
+
+    TCASE "a corrupt central directory signature is refused"
+      ' The central directory starts at offset 0 in the `simple` fixture's
+      ' recorded layout; break the first entry's signature instead.
+      LET raw AS List OF Byte = simpleBytes()
+      LET cdAt AS Integer = u32le(raw, len(raw) - 22 + 16)
+      LET broken AS List OF Byte = collections::set(raw, cdAt + 3, toByte(0))
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer (plan-139-D Phase 2), seed 139 cases 1522 and
+' 1682.
+'
+' The end-of-central-directory record states both how many entries there are
+' and how many bytes the directory occupies. When those two disagree, a reader
+' walking by COUNT and a reader walking by SIZE see different sets of entries --
+' Python's zipfile walks by size and refuses; this reader walked by count and
+' silently ignored the leftover bytes.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "central directory size agreement"
+    TCASE "a directory size larger than its entries occupy is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      ' Add 8 bytes to the declared central directory size.
+      LET was AS Integer = u32le(raw, len(raw) - 22 + 12)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, was + 8)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a directory size smaller than its entries occupy is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET was AS Integer = u32le(raw, len(raw) - 22 + 12)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, was - 8)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an untouched archive still opens"
+      ' So the two cases above are testing the mismatch, not the fixture.
+      LET raw AS List OF Byte = simpleBytes()
+      expectInteger(len(entries(open(raw))), 2)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer, seed 139 case 603.
+'
+' A zip name is a COUNTED field, so a NUL inside it is not a terminator. Python
+' truncates there and reports a shorter name; this reader used to keep the whole
+' field. Either way two tools disagree about what the entry is called, so it is
+' refused.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "names with a NUL"
+    TCASE "an entry name containing a NUL is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET cdAt AS Integer = u32le(raw, len(raw) - 22 + 16)
+      ' Byte 3 of the first central header's name: "hello.txt" -> "hel\0o.txt".
+      LET broken AS List OF Byte = collections::set(raw, cdAt + 46 + 3, toByte(0))
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING
