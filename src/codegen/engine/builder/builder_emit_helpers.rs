@@ -456,9 +456,7 @@ impl CodeBuilder<'_> {
             let values = self.emit_prepared_call_args_hooked(
                 args,
                 "runtime_call_arg",
-                |builder, values, slots| {
-                    builder.emit_thread_seed_size(values, slots, size_slot)
-                },
+                |builder, values, slots| builder.emit_thread_seed_size(values, slots, size_slot),
             )?;
             let scratch = self.temporary_vreg();
             self.emit(abi::load_u64(&scratch, abi::stack_pointer(), size_slot));
