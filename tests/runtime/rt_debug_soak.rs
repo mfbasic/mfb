@@ -1492,3 +1492,29 @@ fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
         "a Local seed is freed by its own binding, never twice (bug-655)",
     );
 }
+
+/// bug-658: a FAILED `thread::start` strands its seed. bug-655 gave the seed an owner on
+/// the path where the start SUCCEEDS — the thread frees it at its release — but a failed
+/// start has no thread to do that: the inline `TRAP` binds the zeroed CLOSED handle,
+/// whose `THREAD_OFFSET_DATA` is 0, and the caller gave up its own claim before the call,
+/// because at the point the claim is emitted nobody knows yet whether the start will
+/// succeed. Measured at `41a7e2063`: N=50 `live_bytes 800`, N=100 `1600` (16 B per failed
+/// start). `inboundLimit` 0 is what makes every start fail.
+///
+/// Runs at 400/800 so the growth clears [`BLOCK_BOUND`]. The case also pins the two
+/// crashes the fix had to avoid: freeing on BOTH outcomes double-frees a successful
+/// start's seed, and freeing without parking the result registers across the
+/// `arena_free` call hands the trapped binding whatever the free left behind — both
+/// measured as SIGSEGV.
+#[test]
+fn a_failed_thread_start_frees_its_seed() {
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC once(i AS Integer) AS Integer\n  LET t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 0, 4) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN thread::waitFor(t)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    total = total + once(i)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    assert_block_flat(
+        "b658_failed_start",
+        SOURCE,
+        400,
+        800,
+        "total=",
+        "a failed thread::start strands its seed block (bug-658)",
+    );
+}

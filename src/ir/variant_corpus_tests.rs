@@ -466,6 +466,7 @@ pub(crate) fn variant_corpus() -> IrProject {
                 includes: vec!["Base".to_string()],
                 variants: vec![IrVariant {
                     name: "Point".to_string(),
+                    type_: crate::types::ParameterType::parse("Point"),
                     fields: vec![IrField {
                         visibility: None,
                         name: "x".to_string(),
