@@ -727,6 +727,43 @@ calling thread** and hand back the only pointer. Confirmed for both —
 $?`** so the status is cargo's own. A measurement that cannot fail is not a
 measurement.
 
+**C7 — the man-example gate was red before this plan and the cause was in the
+gate's own script, not in any man page.** §5's finish step runs
+`scripts/man-examples-gate.sh`, and the first run here exited 1 with 35 build
+failures: all 22 `os::` examples and all 13 `thread::` examples, every one of
+them the same diagnostic —
+`error[6-605-0013 PACKAGE_DEPENDENCIES_INCONSISTENT]: package `workers` has no
+boolean `direct` field` / `has no `requiredBy` array of idents`.
+
+Not plan-94's doing, measured:
+`git diff --name-only 70b6c9dc9 HEAD -- scripts/` is empty, and the same command
+filtered for `pkg|manifest|workers|packages` over all 118 changed files is empty
+too. `git log -1 -- scripts/man-run-examples.sh` dates the file to 425093122
+(2026-09-12, plan-125-B), before this plan branched.
+
+The defect: `install_workers_package()` synthesizes the companion package's
+`project.json` entry by hand as `{name, version, source}` — the three fields that
+were sufficient before bug-628 added the closure fields. `workers` is imported
+directly by the example program and required by no other declared package, so
+the correct entry is the one `src/manifest/closure.rs:791` spells:
+`"direct": true, "requiredBy": []`. Added exactly those two keys.
+
+Re-measured after the fix, per package:
+`./scripts/man-run-examples.sh os --run` → `examples: 22 built: 22 ran: 22
+not run: 0 failed: 0`; `./scripts/man-run-examples.sh thread --run` →
+`examples: 13 built: 13 ran: 13 not run: 0 failed: 0`.
+
+The one remaining failure, `http::server#2(run)`, is environmental and stays:
+the example binds port 8080 and
+`lsof -nP -iTCP:8080 -sTCP:LISTEN` → `learn-ser 34477 justinzaun ... (LISTEN)`,
+an unrelated process of the user's holding that port. Not a code defect, not
+mine to kill, and not a not-run entry either — the example is correct and would
+bind on a free host.
+
+This is a fix to a shared instrument rather than to plan-94's own surface, and it
+is recorded here because §5's acceptance is what surfaced it: a gate that cannot
+build 35 examples cannot testify about the 47 `term::` ones this plan added.
+
 **C2 — `uses_mouse` keys on the member-symbol SUFFIX, not a package prefix.**
 §4.4a says to scan `runtime_symbols` "as `uses_app` does". `uses_app` matches the
 prefix `_mfb_rt_app_`, and copying that shape literally would have been wrong

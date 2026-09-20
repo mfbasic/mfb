@@ -237,7 +237,8 @@ install_workers_package() {
 	d = json.load(open(p))
 	pkgs = [x for x in d.get("packages", []) if x.get("name") != "workers"]
 	pkgs.append({"name": "workers", "version": "=0.1.0",
-	             "source": "file:packages/workers.mfp"})
+	             "source": "file:packages/workers.mfp",
+	             "direct": True, "requiredBy": []})
 	d["packages"] = pkgs
 	json.dump(d, open(p, "w"), indent=2)
 	PY
