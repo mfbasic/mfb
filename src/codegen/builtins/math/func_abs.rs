@@ -20,7 +20,7 @@ END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    super::preserving_unary(
+    super::preserving_unary_typed_errors(
         "abs",
         INTRO,
         DESC,
@@ -29,7 +29,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The number to take the magnitude of, or a list of them. The most negative `Integer`, `Fixed`, or `Money` has no positive counterpart and raises `ErrOverflow`.",
         &[Integer, Float, Fixed, Money],
         &[Integer, Float, Fixed],
-        &["ErrOverflow"],
+        // bug-617: the `Float` forms clear the sign bit with a single `fabs` and
+        // have no error path at all (`lower_math_abs`'s float arm; the SIMD
+        // `AbsFloat` kernel declares no error). Only the two's-complement types can
+        // meet a most-negative value with no positive counterpart.
+        &[],
+        &[
+            (Integer, &["ErrOverflow"]),
+            (Fixed, &["ErrOverflow"]),
+            (Money, &["ErrOverflow"]),
+        ],
         lower_math_abs,
         pkg,
     );

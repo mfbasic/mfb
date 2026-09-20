@@ -34,7 +34,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ),
         &[Integer, Float, Fixed, Money],
         &[Integer, Float, Fixed],
+        // bug-617: `lower_math_min_max` (the scalar arm) contains no raise site at
+        // all — it is compare-and-select. The only raise is `lower_simd_binary`'s
+        // length check, which the scalar forms have no length to fail.
+        &[],
         &["ErrInvalidArgument"],
+        &[],
         lower_math_max,
         pkg,
     );

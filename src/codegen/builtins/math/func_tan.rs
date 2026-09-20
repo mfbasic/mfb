@@ -35,10 +35,18 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The angle in radians, or a `List OF Float` of them. Near an odd multiple of pi/2 the result becomes very large; see the description for how Float and Fixed differ there.",
         &[Float, Fixed],
         &[Float],
-        &["ErrFloatInf", "ErrFloatNaN", "ErrInvalidArgument"],
-        // bug-615: only the `Fixed` overload can overflow — its result type has a
-        // ±2.1e9 range the true tangent leaves near an odd multiple of pi/2.
-        Some((Fixed, &["ErrOverflow"])),
+        // bug-617: `ErrFloatInf` and `ErrInvalidArgument` came off ENTIRELY — no
+        // overload could raise either. `FloatKernel::Tan::errors()` is `[Nan]` alone,
+        // and `emit_fixed_tan`'s single raise site is `ErrOverflow`. `tan(math::pi2)`
+        // returns a finite 1.63e16 rather than an infinity, measured on both the
+        // scalar and list forms.
+        &[],
+        &[
+            (Float, &["ErrFloatNaN"]),
+            // bug-615: only the `Fixed` overload can overflow — its result type has a
+            // ±2.1e9 range the true tangent leaves near an odd multiple of pi/2.
+            (Fixed, &["ErrOverflow"]),
+        ],
         lower_math_tan,
         pkg,
     );

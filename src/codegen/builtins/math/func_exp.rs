@@ -20,7 +20,7 @@ END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    super::preserving_unary(
+    super::preserving_unary_typed_errors(
         "exp",
         INTRO,
         DESC,
@@ -29,7 +29,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The exponent to raise e to, or a `List OF Float` of them. A large value overflows the result range.",
         &[Float, Fixed],
         &[Float],
-        &["ErrFloatInf", "ErrFloatNaN", "ErrOverflow"],
+        // bug-617: `ErrOverflow` is FIXED-only — `emit_fixed_exp`'s recombination
+        // raises it (measured: exp(toFixed(30.0)) -> 77050010), while the `Float`
+        // kernel has no overflow path and signals an unrepresentable result as
+        // `ErrFloatInf` instead (measured: exp(710.0) -> 77050014). `ErrFloatNaN` is
+        // the Float kernel's own guard and stays with it.
+        &[],
+        &[
+            (Float, &["ErrFloatInf", "ErrFloatNaN"]),
+            (Fixed, &["ErrOverflow"]),
+        ],
         lower_math_exp,
         pkg,
     );

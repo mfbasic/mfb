@@ -41,7 +41,8 @@ pub(crate) enum SimdUnaryKernel {
     AbsInteger,
     /// `Float[]→Float[]` absolute value (clear the sign bit); never errors.
     AbsFloat,
-    /// `Float[]→Float[]` square root; `ErrInvalidArgument` on a negative lane.
+    /// `Float[]→Float[]` square root; `ErrFloatDomain` on a negative lane (bug-617:
+    /// this said `ErrInvalidArgument`, which is what the FIXED kernel raises).
     SqrtFloat,
     /// `Float[]→Integer[]` floor/ceil/round (round = ties away). `ErrOverflow`
     /// when a rounded lane falls outside the signed 64-bit range.
@@ -822,7 +823,8 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     /// Lower `math::clamp(values AS T[], low AS T, high AS T)` — clamp each lane to
     /// `[low, high]` via `max(min(x, high), low)`. `low`/`high` are broadcast into
-    /// both `.2d` lanes. Never errors.
+    /// both `.2d` lanes. Raises `ErrInvalidArgument` when `low > high` (bug-617:
+    /// this said "Never errors", ~33 lines above the raise that does).
     pub(crate) fn lower_simd_clamp(
         &mut self,
         kernel: SimdClampKernel,

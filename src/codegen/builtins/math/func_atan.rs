@@ -17,7 +17,7 @@ END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    super::preserving_unary(
+    super::preserving_unary_typed_errors(
         "atan",
         INTRO,
         DESC,
@@ -26,7 +26,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The tangent to invert, or a `List OF Float` of them. Every value is accepted — the result approaches ±pi/2.",
         &[Float, Fixed],
         &[Float],
-        &["ErrFloatNaN"],
+        // bug-617: `ErrFloatNaN` is the `Float` kernel's own guard. The `Fixed`
+        // path has NO raise site at all (the five raise sites in
+        // `money/gen_fixed_math.rs` are tan-overflow, asin/acos-domain,
+        // scale-by-power-of-two, log-domain and pow — none in sin/cos/atan2), so
+        // the `Fixed` form declares nothing.
+        &[],
+        &[(Float, &["ErrFloatNaN"])],
         lower_math_atan,
         pkg,
     );

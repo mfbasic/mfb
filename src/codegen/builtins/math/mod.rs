@@ -230,9 +230,63 @@ const CONSTANTS: &[(&str, &str, &str)] = &[
     ("ln10Fixed", "Fixed", "2.302585092994046"),
 ];
 
+/// Errors declared per OPERAND type rather than smeared across every overload.
+///
+/// bug-617: one shared `errors` vector per member put errors in the Errors table of
+/// overloads whose lowering cannot raise them — `math::asin` promised both
+/// `ErrFloatDomain` and `ErrInvalidArgument` on all three forms, when the `Float`
+/// forms raise only the first (`77050012`) and the `Fixed` form only the second
+/// (`77050002`). That is compiler data, not prose: `mfb spec language error-model`
+/// §8.6 rule 11 has the compiler read it.
+///
+/// Each entry is `(scalar operand type, the errors overloads over that type can
+/// raise)`. It applies to BOTH that type's scalar overload and its `List OF` form,
+/// because a member's list form runs the same kernel per lane — measured for every
+/// member corrected here, including the SIMD scalar tail.
+///
+/// An absent type declares NOTHING, and that is load-bearing, not an oversight:
+/// `math::atan2` on a `Fixed` has no raise path at all (`emit_fixed_atan2` contains
+/// zero raise sites), so it must be expressible as the empty set rather than
+/// inheriting a shared list.
+///
+/// The declaration rule is **what the lowering can EMIT**, not what a program can
+/// currently trigger. `ErrFloatNaN` stays on the `Float` forms of `atan`/`tan`/`sin`/
+/// `cos` even though a NaN operand is unconstructible today (every NaN/Inf-producing
+/// expression traps at its own observation boundary first), because the kernel really
+/// does emit that check — and because a member whose every overload declared nothing
+/// would flip `native_member_declares_error` to `Some(false)` and let
+/// `inline_builtin_is_infallible` DELETE a live `TRAP` handler, which is the
+/// bug-486 / bug-533 hazard.
+pub(crate) type ErrorsByType<'a> = &'a [(ParameterType, &'static [&'static str])];
+
+/// The errors an overload over `ty` declares: the member-wide `shared` set plus
+/// whatever `by_type` names for that operand type, deduped (a member can legitimately
+/// list an error in both, e.g. an error intrinsic to one element type that is also the
+/// list forms' length-mismatch error).
+fn errors_for(
+    ty: &ParameterType,
+    shared: &[&'static str],
+    by_type: ErrorsByType,
+) -> Vec<&'static str> {
+    let mut declared: Vec<&'static str> = shared.to_vec();
+    for (key, errors) in by_type {
+        if key == ty {
+            for error in *errors {
+                if !declared.contains(error) {
+                    declared.push(error);
+                }
+            }
+        }
+    }
+    declared
+}
+
 /// The argument-type-preserving unary shape: a member accepting a single numeric
 /// scalar (each of `scalars`) or its `List OF` form (each of `lists`) and echoing
-/// the operand type (`Arg(0)`). `errors` is declared on every overload.
+/// the operand type (`Arg(0)`). `errors` is declared on every overload — correct only
+/// for a member whose every form really can raise every listed error. A member whose
+/// forms differ (most of the fallible ones) uses
+/// [`preserving_unary_typed_errors`] instead.
 pub(crate) fn preserving_unary(
     name: &'static str,
     intro: &'static str,
@@ -247,16 +301,29 @@ pub(crate) fn preserving_unary(
     pkg: &mut RegistryPackage,
 ) {
     preserving_unary_typed_errors(
-        name, intro, desc, example, expected, value_desc, scalars, lists, errors, None, lower, pkg,
+        name,
+        intro,
+        desc,
+        example,
+        expected,
+        value_desc,
+        scalars,
+        lists,
+        errors,
+        &[],
+        lower,
+        pkg,
     );
 }
 
-/// [`preserving_unary`], with `extra` errors declared only on the scalar overload
-/// whose type is `extra.0`. One overload of a member can raise what its siblings
-/// cannot: `math::tan` on a `Fixed` raises `ErrOverflow` when the true tangent
-/// leaves the `Fixed` range (bug-615), while the `Float` forms return a large
-/// finite value there and never overflow. Declaring it on every overload would put
-/// an error in the `Float` rows of the page's Errors table that cannot occur.
+/// [`preserving_unary`], with the errors partitioned by operand type ([`ErrorsByType`]).
+///
+/// This replaces bug-615's `extra: Option<(ParameterType, &[&str])>` hook, which was
+/// additive and scalar-only: it could ADD `ErrOverflow` to `math::tan`'s `Fixed`
+/// scalar form, but it could not SUBTRACT `ErrInvalidArgument` from the `Float` forms,
+/// and it never reached the `List OF` overloads at all. bug-617 needs both directions
+/// on both arms, so the partition is now the primary mechanism and `shared` is the
+/// residue.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn preserving_unary_typed_errors(
     name: &'static str,
@@ -267,8 +334,8 @@ pub(crate) fn preserving_unary_typed_errors(
     value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
-    errors: &[&'static str],
-    extra: Option<(ParameterType, &[&'static str])>,
+    shared: &[&'static str],
+    by_type: ErrorsByType,
     lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
@@ -288,21 +355,17 @@ pub(crate) fn preserving_unary_typed_errors(
                 value_desc,
             )],
             ParameterType::Arg(0),
-            errors.to_vec(),
+            // Keyed on the ELEMENT type: `List OF Float` runs the same kernel per
+            // lane as the `Float` scalar form, so it raises the same errors.
+            errors_for(ty, shared, by_type),
             lower,
         ));
     }
     for ty in scalars {
-        let mut declared = errors.to_vec();
-        if let Some((extra_ty, extra_errors)) = &extra {
-            if extra_ty == ty {
-                declared.extend_from_slice(extra_errors);
-            }
-        }
         impls.push(overload(
             vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Arg(0),
-            declared,
+            errors_for(ty, shared, by_type),
             lower,
         ));
     }
@@ -320,6 +383,12 @@ pub(crate) fn preserving_unary_typed_errors(
 /// The rounding shape (`floor`/`ceil`/`round`): a single numeric scalar (each of
 /// `scalars`) returns `Integer`, a `List OF` (each of `lists`) returns `List OF
 /// Integer` — a deliberate dimension exit, so this is not `Arg(0)`.
+///
+/// Errors are partitioned by operand type ([`ErrorsByType`]) for the same reason the
+/// unary shape's are (bug-617): only the `Float` forms range-check the rounded result
+/// against `Integer` (`emit_float_rounding_integer_range_check`), while the `Fixed`
+/// and `Money` paths always fit and contain no raise at all.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn rounding(
     name: &'static str,
     intro: &'static str,
@@ -329,7 +398,8 @@ pub(crate) fn rounding(
     value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
-    errors: &[&'static str],
+    shared: &[&'static str],
+    by_type: ErrorsByType,
     lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
@@ -346,7 +416,7 @@ pub(crate) fn rounding(
                 value_desc,
             )],
             ParameterType::list_of(ParameterType::Integer),
-            errors.to_vec(),
+            errors_for(ty, shared, by_type),
             lower,
         ));
     }
@@ -354,7 +424,7 @@ pub(crate) fn rounding(
         impls.push(overload(
             vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Integer,
-            errors.to_vec(),
+            errors_for(ty, shared, by_type),
             lower,
         ));
     }
@@ -384,7 +454,15 @@ pub(crate) fn preserving_binary(
     p1: (&'static str, &'static [&'static str], &'static str),
     scalars: &[ParameterType],
     lists: &[ParameterType],
-    errors: &[&'static str],
+    shared: &[&'static str],
+    // bug-617: the LIST forms of a binary member take two lists and raise
+    // `ErrInvalidArgument` when their lengths differ (`lower_simd_binary`'s length
+    // check). The scalar forms have no length to mismatch, so declaring it on them
+    // told a reader of `math::max(3, 5)` to handle an error it cannot get. This
+    // channel is separate from `by_type` because it is a property of the ARITY
+    // shape, not of the operand type.
+    list_only: &[&'static str],
+    by_type: ErrorsByType,
     lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
@@ -392,13 +470,19 @@ pub(crate) fn preserving_binary(
     let mut impls = Vec::new();
     for ty in lists {
         let list = ParameterType::list_of(ty.clone());
+        let mut declared = errors_for(ty, shared, by_type);
+        for error in list_only {
+            if !declared.contains(error) {
+                declared.push(error);
+            }
+        }
         impls.push(overload(
             vec![
                 req(p0.0, p0.1, list.clone(), p0.2),
                 req(p1.0, p1.1, list, p1.2),
             ],
             ParameterType::Arg(0),
-            errors.to_vec(),
+            declared,
             lower,
         ));
     }
@@ -409,7 +493,7 @@ pub(crate) fn preserving_binary(
                 req(p1.0, p1.1, ty.clone(), p1.2),
             ],
             ParameterType::Arg(0),
-            errors.to_vec(),
+            errors_for(ty, shared, by_type),
             lower,
         ));
     }
@@ -535,6 +619,127 @@ mod tests {
             registry::native_member_declares_error("math.sqrt"),
             Some(true)
         );
+        assert_eq!(
+            registry::native_member_declares_error("math.seed"),
+            Some(false)
+        );
+    }
+
+    /// The per-overload declarations bug-617 established, pinned as a table.
+    ///
+    /// Each row is `(member, error, the overload NUMBERS that declare it)` — the
+    /// numbers being the ones `mfb man` renders, i.e. list overloads first (in the
+    /// caller's slice order) then scalars. Every row was measured against the real
+    /// lowering by probe, not read off the descriptor: a probe that raised gives the
+    /// error code, and one that returned a value proves the overload has no path to
+    /// it.
+    ///
+    /// The rule these encode is **what the lowering can EMIT**, which is not always
+    /// what a program can currently trigger. `ErrFloatNaN` stays on the `Float` forms
+    /// because the kernel emits that check, even though no NaN operand is
+    /// constructible today (every NaN/Inf-producing expression traps at its own
+    /// observation boundary first).
+    #[test]
+    fn each_overload_declares_only_the_errors_its_own_lowering_can_raise() {
+        // (member, error, overload numbers — 1-based, as `mfb man` renders them)
+        let expected: &[(&str, &str, &[usize])] = &[
+            // 1 List OF Integer, 2 List OF Float, 3 List OF Fixed,
+            // 4 Integer, 5 Float, 6 Fixed, 7 Money. The Float forms (2, 5) clear the
+            // sign bit and cannot fail.
+            ("abs", "ErrOverflow", &[1, 3, 4, 6, 7]),
+            // 1 List OF Float, 2 Float, 3 Fixed — a disjoint split.
+            ("acos", "ErrFloatDomain", &[1, 2]),
+            ("acos", "ErrInvalidArgument", &[3]),
+            ("asin", "ErrFloatDomain", &[1, 2]),
+            ("asin", "ErrInvalidArgument", &[3]),
+            // 1 List OF Float, 2 List OF Fixed, 3 Float, 4 Fixed.
+            ("sqrt", "ErrFloatDomain", &[1, 3]),
+            ("sqrt", "ErrInvalidArgument", &[2, 4]),
+            ("log", "ErrFloatDomain", &[1, 3]),
+            ("log", "ErrInvalidArgument", &[2, 4]),
+            ("log10", "ErrFloatDomain", &[1, 3]),
+            ("log10", "ErrInvalidArgument", &[2, 4]),
+            // 1 List OF Float, 2 List OF Fixed, 3 Float, 4 Fixed, 5 Money — only the
+            // Float family range-checks the rounded result against `Integer`.
+            ("floor", "ErrOverflow", &[1, 3]),
+            ("ceil", "ErrOverflow", &[1, 3]),
+            ("round", "ErrOverflow", &[1, 3]),
+            // ErrOverflow is Fixed-only; the Float kernel signals an unrepresentable
+            // result as ErrFloatInf instead and has no overflow path.
+            ("exp", "ErrFloatInf", &[1, 2]),
+            ("exp", "ErrOverflow", &[3]),
+            // tan lost ErrFloatInf and ErrInvalidArgument entirely — no overload
+            // could raise either.
+            ("tan", "ErrFloatNaN", &[1, 2]),
+            ("tan", "ErrOverflow", &[3]),
+            ("atan", "ErrFloatNaN", &[1, 2]),
+            ("sin", "ErrFloatNaN", &[1, 2]),
+            ("cos", "ErrFloatNaN", &[1, 2]),
+            // Binary members: the length-mismatch check belongs to the LIST forms.
+            // max/min: 1..3 are the lists, 4..7 the scalars.
+            ("max", "ErrInvalidArgument", &[1, 2, 3]),
+            ("min", "ErrInvalidArgument", &[1, 2, 3]),
+            // pow/atan2: 1 is the only list form, 2 Float, 3 Fixed.
+            ("pow", "ErrInvalidArgument", &[1, 3]),
+            ("pow", "ErrOverflow", &[3]),
+            ("pow", "ErrFloatInf", &[1, 2]),
+            ("pow", "ErrFloatNaN", &[1, 2]),
+            ("atan2", "ErrInvalidArgument", &[1]),
+            ("atan2", "ErrFloatNaN", &[1, 2]),
+            // clamp's uniform declaration was already correct: every form guards
+            // `low > high` with the same bare check.
+            ("clamp", "ErrInvalidArgument", &[1, 2, 3, 4, 5, 6, 7]),
+        ];
+
+        let package = registry().resolve_package("math").expect("math package");
+        for (member, error, want) in expected {
+            let function = package.function(member).expect(member);
+            let got: Vec<usize> = function
+                .implementations
+                .iter()
+                .enumerate()
+                .filter(|(_, implementation)| implementation.errors.contains(error))
+                .map(|(index, _)| index + 1)
+                .collect();
+            assert_eq!(
+                got, *want,
+                "math::{member} declares {error} on overloads {got:?}, expected {want:?}"
+            );
+        }
+    }
+
+    /// bug-617 REMOVED declarations, so the hazard to check is the opposite of the
+    /// one it fixes: `native_member_declares_error` is a member-level `any` over the
+    /// overloads, and it feeds `inline_builtin_is_infallible`. A member whose every
+    /// overload ended up declaring nothing would be judged infallible and would have
+    /// its live `TRAP` handlers DELETED — the bug-486 / bug-533 failure.
+    ///
+    /// Every member below keeps at least one declaring overload, so no fallibility
+    /// verdict moved. `atan2` is the closest call: its `Fixed` overload now declares
+    /// nothing at all, and only the two `Float` forms hold the member fallible.
+    #[test]
+    fn no_member_lost_its_fallibility_when_the_declarations_were_narrowed() {
+        for member in [
+            "abs", "acos", "asin", "atan", "atan2", "ceil", "clamp", "cos", "exp", "floor", "log",
+            "log10", "max", "min", "pow", "round", "sin", "sqrt", "tan",
+        ] {
+            let qualified = format!("math.{member}");
+            assert_eq!(
+                registry::native_member_declares_error(&qualified),
+                Some(true),
+                "math::{member} became infallible — narrowing its per-overload error \
+                 lists must never empty the member, or `inline_builtin_is_infallible` \
+                 will delete a live TRAP handler"
+            );
+        }
+        // `rand` is fallible too, and untouched by bug-617: both its overloads
+        // guard `min <= max` with the same `ErrInvalidArgument`, which is already a
+        // uniform and correct declaration.
+        assert_eq!(
+            registry::native_member_declares_error("math.rand"),
+            Some(true)
+        );
+        // `seed` is the one genuinely total member.
         assert_eq!(
             registry::native_member_declares_error("math.seed"),
             Some(false)

@@ -20,7 +20,7 @@ END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    super::preserving_unary(
+    super::preserving_unary_typed_errors(
         "sqrt",
         INTRO,
         DESC,
@@ -29,7 +29,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The number to take the square root of, or a list of them. Must not be negative.",
         &[Float, Fixed],
         &[Float, Fixed],
-        &["ErrFloatDomain", "ErrInvalidArgument"],
+        // bug-617: disjoint per-type split, measured. The `Float` family raises
+        // `ErrFloatDomain` (77050012) from its kernel's domain trap; the `Fixed`
+        // family raises `ErrInvalidArgument` (77050002) from its own bare check.
+        // Neither can raise the other's, on either the scalar or the `List OF` form.
+        &[],
+        &[
+            (Float, &["ErrFloatDomain"]),
+            (Fixed, &["ErrInvalidArgument"]),
+        ],
         lower_math_sqrt,
         pkg,
     );

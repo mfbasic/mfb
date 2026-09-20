@@ -29,7 +29,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "The number to round up, or a list of them. Rounds toward positive infinity, so -1.5 becomes -1.",
         &[Float, Fixed, Money],
         &[Float, Fixed],
-        &["ErrOverflow"],
+        // bug-617: only the `Float` family range-checks the rounded result against
+        // `Integer` (`emit_float_rounding_integer_range_check`). The `Fixed` and
+        // `Money` rounding paths contain no raise at all — their rounded value always
+        // fits, measured to within two whole units of the Money maximum.
+        &[],
+        &[(Float, &["ErrOverflow"])],
         lower_math_ceil,
         pkg,
     );

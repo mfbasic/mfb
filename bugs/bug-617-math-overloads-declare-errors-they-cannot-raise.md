@@ -81,17 +81,101 @@ overload from that overload's lowering.
 
 ## Blast-radius audit
 
-- Every `math` member built through the shared overload helpers: audit each
-  overload's lowering against its declared list (`sqrt`, `log`, `log10`, `pow`,
-  `exp` and the trig functions, as well as the four above).
-- Other packages with type-split error behavior; bug-606 and bug-608 cover
-  `encoding` and `udp`.
+**Completed 2026-09-19.** Every `math` member built through a shared overload helper was
+probed per overload against the release compiler at `be60f76eb`, and every verdict was
+cross-checked against the lowering's raise sites and against the 34 in-tree
+`tests/rt-error/math/` fixtures (each of which proves one `(member, type, error)` pairing
+reachable). The document's ten-row table is **confirmed correct in every row**. Five
+findings extend it:
+
+1. **`pow` and `atan2` have the same defect and were NOT in the table** — though `pow` is
+   named in this section. `pow` declared all four of `ErrFloatInf`/`ErrFloatNaN`/
+   `ErrInvalidArgument`/`ErrOverflow` on all three overloads; each form raises a strict
+   subset (the `Float` path has no `ErrOverflow` at all; the `Fixed` path never leaves
+   Q32.32 so it raises no float-class error). `atan2` declared `ErrFloatNaN` and
+   `ErrInvalidArgument` on all three, while `emit_fixed_atan2` contains **zero** raise
+   sites and the scalar forms have no length to mismatch.
+2. **`tan` was over-declared in a way the table understates.** `ErrFloatInf` and
+   `ErrInvalidArgument` are raisable by *no* overload — they are absent from
+   `FloatKernel::Tan::errors()` (which is `[Nan]` alone) and from `emit_fixed_tan` (whose
+   single raise is `ErrOverflow`). Both came off entirely rather than being re-scoped.
+3. **`sin` and `cos` needed the same `Float`/`Fixed` split** (not in the table).
+   `money/gen_fixed_math.rs` has exactly five raise sites in the whole file — tan-overflow,
+   asin/acos-domain, scale-by-power-of-two, log-domain, pow — so the `Fixed` forms of
+   `sin`, `cos`, `atan` and `atan2` are **total**.
+4. **`clamp`'s uniform declaration was already correct** and is unchanged: every form
+   guards `low > high` with the same bare `ErrInvalidArgument`.
+5. **`rand` is fallible and untouched** — both overloads guard `min <= max`.
+
+Other packages with type-split error behavior (bug-606 `encoding`, bug-608 `udp`) were
+**not** in scope and are not touched.
+
+## Correction to this document's premise
+
+The introduction says a wrong list "can also mislead that analysis", citing
+`mfb spec language error-model` §8.6 rule 11. That is true of the *member-level* list but
+**not of the per-overload split this bug corrects**: `registry::native_member_declares_error`
+is an `any` over a member's implementations, so narrowing which overloads declare an error
+cannot change a member's fallibility as long as one overload still declares it. Verified:
+every affected member keeps at least one declaring overload, so no fallibility verdict
+moved and no `TRAP` handler changed status. `atan2` is the closest call — its `Fixed`
+overload now declares nothing, and only the two `Float` forms hold the member fallible.
+
+That distinction is load-bearing in the opposite direction, and is now pinned by
+`no_member_lost_its_fallibility_when_the_declarations_were_narrowed`: because this bug
+*removes* declarations, the live hazard is emptying a member entirely, which would let
+`inline_builtin_is_infallible` DELETE a live `TRAP` handler — the bug-486 / bug-533 failure.
+
+## Declaration rule adopted
+
+**Declare what the lowering can EMIT, not what a program can currently trigger.**
+
+This matters for `ErrFloatNaN`. NaN and ±Inf `Float` values are unconstructible in the
+language today — every producing expression (`0.0/0.0`, `1.0e308*1.0e308`, `toFloat("nan")`)
+traps at its own observation boundary before any `math` kernel sees it — so `ErrFloatNaN` is
+unreachable everywhere. It is nevertheless kept on the `Float` forms whose kernel emits the
+check, because (a) the goal statement is about what the lowering can raise, and (b) removing
+a kernel-emitted error is what risks the `TRAP`-deletion hazard above if reachability ever
+changes.
 
 ## Fix
 
-Phase 1 — audit table per overload; RED test that `asin`'s `Fixed` overload
-declares only `ErrInvalidArgument` and its `Float` overloads only
-`ErrFloatDomain`. Commit:
+Phase 1 — [x] audit table per overload (above); RED tests that each overload declares only
+what its own lowering raises, and that no member lost its fallibility. Confirmed RED on the
+pre-fix tree: `asin` declared `ErrInvalidArgument` and `ErrFloatDomain` on overloads 1, 2
+and 3 alike, against a measured split of `Fixed`→`77050002`, `Float`/`List OF Float`→`77050012`.
+Commit: see below
 
-Phase 2 — per-overload error lists (GREEN); goldens carrying error lists; full
-suite. Commit:
+Phase 2 — [x] per-overload error lists (GREEN). The registration helpers were generalized
+rather than the `&[...]` slices edited, because bug-615's `extra:
+Option<(ParameterType, &[&str])>` hook is **additive and scalar-only** — it could add
+`ErrOverflow` to `tan`'s `Fixed` form but could not subtract `ErrInvalidArgument` from the
+`Float` forms, and never reached the `List OF` overloads. Replaced with:
+
+* `ErrorsByType` — errors keyed on the operand type, applied to both that type's scalar
+  overload and its `List OF` form (the list form runs the same kernel per lane; verified
+  including the SIMD scalar tail). **An absent type declares nothing**, which is what makes
+  `atan2`'s `Fixed` form expressible.
+* a `list_only` channel on `preserving_binary`, for the length-mismatch
+  `ErrInvalidArgument` that is a property of the arity shape rather than the operand type.
+* `rounding` gained the same partition (only the `Float` family range-checks).
+
+No golden outside `math`'s own man pages moved, and no runtime behavior changed.
+Commit: see below
+
+Phase 3 — [x] full suite; man-manual diff inspected. Commit: see below
+
+## Corrected source comments
+
+Three comments contradicted the lowering they describe and were corrected alongside the
+declarations (same class of defect — documentation disagreeing with the code):
+
+- `vector/builder_simd_math.rs` — `lower_simd_clamp`'s doc said *"Never errors."* ~33 lines
+  above its `raise_error_bare("ErrInvalidArgument")`.
+- `vector/builder_simd_math.rs` — `SqrtFloat` said `ErrInvalidArgument` on a negative lane;
+  it raises `ErrFloatDomain` (that is the *Fixed* kernel's error).
+- `math/gen_math.rs` — `lower_math_sqrt_array` carried the same wrong error name.
+
+And one DESC: `func_round.rs` claimed "A magnitude too large for `Integer` raises
+`ErrOverflow`" with no carve-out, while its `floor`/`ceil` siblings correctly say "a `Fixed`
+or `Money` result always fits". Aligned to the siblings.
