@@ -8,6 +8,12 @@
 ' assembled once, inside `finish`, in a single bare local. The `add*` functions
 ' only accumulate small per-entry records, appended through a `WITH` update.
 '
+' This is the value model, not a quirk to route around: `mfb spec language
+' memory-semantics` §14.2 makes a function argument an OWNED value, so handing a
+' collection to a call hands over a copy. Only a resource pointer (§15) is ever
+' aliased, which is why a `RES fs::File` can be passed freely and a
+' `List OF Byte` cannot.
+'
 ' Output is ustar by default and PAX only when it has to be: a name that does
 ' not fit the 155-byte prefix plus 100-byte name split, a link target over 100
 ' bytes, a size over 8 GiB, or a non-ASCII name. That keeps ordinary archives
