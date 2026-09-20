@@ -34,6 +34,7 @@ EXPORT TYPE Entry
   mode AS Integer
   comment AS String
   headerOffset AS Integer
+  flags AS Integer
 END TYPE
 
 ' An open archive: where its bytes are, what it contains, and its comment.

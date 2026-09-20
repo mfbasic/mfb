@@ -260,3 +260,58 @@ TESTING
     END TCASE
   END TGROUP
 END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer (plan-139-D Phase 2), seed 139 cases 1522 and
+' 1682.
+'
+' The end-of-central-directory record states both how many entries there are
+' and how many bytes the directory occupies. When those two disagree, a reader
+' walking by COUNT and a reader walking by SIZE see different sets of entries --
+' Python's zipfile walks by size and refuses; this reader walked by count and
+' silently ignored the leftover bytes.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "central directory size agreement"
+    TCASE "a directory size larger than its entries occupy is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      ' Add 8 bytes to the declared central directory size.
+      LET was AS Integer = u32le(raw, len(raw) - 22 + 12)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, was + 8)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a directory size smaller than its entries occupy is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET was AS Integer = u32le(raw, len(raw) - 22 + 12)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, was - 8)
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an untouched archive still opens"
+      ' So the two cases above are testing the mismatch, not the fixture.
+      LET raw AS List OF Byte = simpleBytes()
+      expectInteger(len(entries(open(raw))), 2)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer, seed 139 case 603.
+'
+' A zip name is a COUNTED field, so a NUL inside it is not a terminator. Python
+' truncates there and reports a shorter name; this reader used to keep the whole
+' field. Either way two tools disagree about what the entry is called, so it is
+' refused.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "names with a NUL"
+    TCASE "an entry name containing a NUL is refused"
+      LET raw AS List OF Byte = simpleBytes()
+      LET cdAt AS Integer = u32le(raw, len(raw) - 22 + 16)
+      ' Byte 3 of the first central header's name: "hello.txt" -> "hel\0o.txt".
+      LET broken AS List OF Byte = collections::set(raw, cdAt + 46 + 3, toByte(0))
+      expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING

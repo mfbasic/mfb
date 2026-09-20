@@ -170,7 +170,58 @@ PRIVATE FUNC parseEntries(source AS Source, directory AS Directory, total AS Int
     at = headerEnd
     seen = seen + 1
   END WHILE
+  ' The declared directory size must be exactly what the declared number of
+  ' entries occupies. When it is not, the archive contradicts itself: the bytes
+  ' left over are either a header this reader would skip or a header that is
+  ' not there at all, and another reader walking the directory by SIZE rather
+  ' than by COUNT would see a different set of entries. There is no safe way to
+  ' pick a winner, so the archive is refused.
+  IF at <> len(cd) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: central directory declares " & toString(len(cd)) & " bytes but its " & toString(directory.count) & " entries occupy " & toString(at))
+  END IF
+  requireNoOverlap(entries)
   RETURN entries
+END FUNC
+
+' Refuse an archive whose entries' data regions overlap.
+'
+' Two entries sharing bytes is a zip bomb's favourite shape: one compressed blob
+' referenced by thousands of central-directory records expands to an enormous
+' total from a tiny file. It is also a confusion vector, since which entry
+' "owns" a byte depends on which record a reader happens to follow.
+'
+' The check uses only what the central directory already provides, because
+' `open` must not read a local header per entry -- that is the whole reason a
+' file-backed archive is cheap to open. An entry's data therefore lies
+' somewhere in `[headerOffset, headerOffset + 30 + compressedSize)` at minimum;
+' the real region is larger by the name and extra-field lengths this does not
+' know. Using the minimum means every overlap reported here is a real one.
+PRIVATE SUB requireNoOverlap(entries AS List OF Entry)
+  IF len(entries) < 2 THEN
+    EXIT SUB
+  END IF
+  ' Sort the (offset, end) intervals by packing each into one Integer: an
+  ' archive is far smaller than 2^31, so the offset can carry the high half.
+  MUT packed AS List OF Integer = []
+  FOR EACH entry IN entries
+    packed = collections::append(packed, entry.headerOffset * 2147483648 + minimumSpan(entry))
+  NEXT
+  LET ordered AS List OF Integer = collections::sort(packed)
+  MUT previousEnd AS Integer = -1
+  FOR EACH item IN ordered
+    LET start AS Integer = item / 2147483648
+    LET span AS Integer = item MOD 2147483648
+    IF start < previousEnd THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: two entries' data regions overlap at " & toString(start))
+    END IF
+    previousEnd = start + span
+  NEXT
+END SUB
+
+' The fewest bytes an entry can occupy: its 30-byte local header and its
+' compressed data, with the name and extra fields unaccounted for.
+PRIVATE FUNC minimumSpan(entry AS Entry) AS Integer
+  RETURN 30 + entry.compressedSize
 END FUNC
 
 PRIVATE FUNC parseOne(cd AS List OF Byte, at AS Integer, nameLength AS Integer, extraLength AS Integer, commentLength AS Integer, total AS Integer) AS Entry
@@ -229,7 +280,7 @@ PRIVATE FUNC parseOne(cd AS List OF Byte, at AS Integer, nameLength AS Integer, 
   RETURN Entry[ _
     name, isDirectory, method, size, compressedSize, crc, _
     modifiedSecondsOf(dosTime, dosDate, extra), mode, _
-    decodeComment(commentBytes), headerOffset _
+    decodeComment(commentBytes), headerOffset, flags _
   ]
 END FUNC
 
@@ -237,10 +288,21 @@ END FUNC
 '
 ' General-purpose flag bit 11 declares UTF-8 (APPNOTE §4.4.4). Without it the
 ' name is CP437, which is why this package carries that table.
-PRIVATE FUNC decodeName(nameBytes AS List OF Byte, flags AS Integer) AS String
+FUNC decodeName(nameBytes AS List OF Byte, flags AS Integer) AS String
   IF len(nameBytes) = 0 THEN
     RETURN ""
   END IF
+  ' A zip name is a counted field, not a NUL-terminated string, so a NUL inside
+  ' one is not a terminator -- it is a byte no filesystem will accept. Readers
+  ' disagree about what to do with it: Python truncates there, inventing a
+  ' shorter name, while keeping it produces a name nothing can create. Both
+  ' answers let two tools disagree about what the entry is called, so the entry
+  ' is refused instead.
+  FOR EACH b IN nameBytes
+    IF toInt(b) = 0 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry name contains a NUL byte")
+    END IF
+  NEXT
   IF (flags / 2048) MOD 2 = 1 THEN
     LET decoded AS String = encoding::utf8Decode(nameBytes) TRAP(e)
       FAIL error(errorCode::ErrInvalidFormat, "zip: entry name is declared UTF-8 but is not valid UTF-8")

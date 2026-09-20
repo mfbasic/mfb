@@ -260,12 +260,20 @@ PRIVATE FUNC overrideNumber(pax AS Map OF String TO String, globals AS Map OF St
   RETURN parsed
 END FUNC
 
+' The text of a GNU long-name record: everything before its first NUL.
+'
+' The record's `size` counts the terminator, and the name is NUL-TERMINATED --
+' so the name stops at the first NUL rather than being the record with its NULs
+' removed. Deleting them instead silently joins a name to whatever followed it,
+' which is how `a\0b` becomes the single name `ab` and two readers end up
+' disagreeing about what the entry is called (found by the letter-D fuzzer).
 PRIVATE FUNC trimNul(bytes AS List OF Byte) AS String
   MUT kept AS List OF Byte = []
   FOR EACH b IN bytes
-    IF toInt(b) <> 0 THEN
-      kept = collections::append(kept, b)
+    IF toInt(b) = 0 THEN
+      RETURN readText(kept, 0, len(kept))
     END IF
+    kept = collections::append(kept, b)
   NEXT
   RETURN readText(kept, 0, len(kept))
 END FUNC

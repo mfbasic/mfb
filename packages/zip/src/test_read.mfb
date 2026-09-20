@@ -210,3 +210,65 @@ TESTING
     END TCASE
   END TGROUP
 END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer (plan-139-D Phase 2), seed 139 case 1993.
+'
+' A zip stores every entry's name TWICE -- once in the central directory and
+' once in the entry's own local header. An archive where the two disagree is
+' not merely damaged, it is ambiguous: a tool that lists the central directory
+' reports one name while a tool that extracts by walking local headers writes
+' another. That is how a scanner and an extractor come to disagree about what
+' an archive contains.
+'
+' The reader used to consult the local header only for its name LENGTH, so it
+' read such an entry happily. Python's zipfile refuses it, and so does this now.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "read name agreement"
+    TCASE "an entry named differently in its two headers is refused"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      ' Byte 6 of the local name field: "hello.txt" -> "hello.Xxt".
+      LET broken AS List OF Byte = collections::set(raw, 30 + 6, toByte(88))
+      LET archive AS Archive = open(broken)
+      ' The central directory still says hello.txt, so find() still locates it.
+      LET entry AS Entry = find(archive, "hello.txt")
+      expectTrap(read(archive, entry), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an entry whose two headers agree still reads"
+      ' The same fixture untouched, so the case above is testing the mismatch
+      ' and not merely that the entry is reachable.
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET archive AS Archive = open(raw)
+      expectInteger(len(read(archive, find(archive, "hello.txt"))), 14)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer, seed 139 cases 1059 and 1291.
+'
+' Bit 0 of the general-purpose flags is not the only one that changes what an
+' entry's bytes ARE. Bit 5 marks compressed patched data, bit 6 strong
+' encryption, and bit 13 a masked local header. The reader checked only bit 0,
+' so it inflated the bytes of such an entry and returned something that was not
+' its contents.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "read unsupported flags"
+    TCASE "compressed patched data, strong encryption and masked headers are refused"
+      ' Bit 5 = 32, bit 6 = 64, bit 13 = 8192; the flags field is at offset 6
+      ' of the local header, little-endian.
+      FOR EACH bit IN [32, 64, 8192]
+        LET raw AS List OF Byte = fixtureFor("simple").bytes
+        LET was AS Integer = u16le(raw, 6)
+        LET flagged AS Integer = was + bit
+        MUT broken AS List OF Byte = collections::set(raw, 6, toByte(flagged MOD 256))
+        broken = collections::set(broken, 7, toByte((flagged / 256) MOD 256))
+        LET archive AS Archive = open(broken)
+        expectTrap(read(archive, find(archive, "hello.txt")), errorCode::ErrUnsupported)
+      NEXT
+    END TCASE
+  END TGROUP
+END TESTING

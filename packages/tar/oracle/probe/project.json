@@ -1,0 +1,29 @@
+{
+  "name": "tarprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Describes archives with packages/tar from both source kinds, so diff.py can compare against Python.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "tar",
+      "version": "=0.1.0",
+      "source": "file:packages/tar.mfp",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

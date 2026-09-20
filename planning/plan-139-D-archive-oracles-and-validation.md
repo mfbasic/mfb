@@ -23,7 +23,7 @@ the whole chain `E -> A -> B -> C -> D`. Plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-C complete | every `- [ ]` in `planning/plan-139-C-*.md` ticked | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-C-*.md` → 10 unticked; the whole A→B→C→D chain is blocked at plan-139-A's `fs` prerequisite gate.) |
+| plan-139-C complete | every `- [ ]` in `planning/plan-139-C-*.md` ticked | **MET** (2026-09-19: plan-139-C has 0 unticked boxes and is archived; `target/release/mfb test packages/zip` -> 76 pass, `... packages/tar` -> 44 pass) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run before you
 > continue and before you stop; if you stop, report all prerequisites.

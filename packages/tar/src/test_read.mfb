@@ -255,3 +255,33 @@ PRIVATE FUNC openAndCount(raw AS List OF Byte) AS Integer
   END TRAP
   RETURN count
 END FUNC
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer (plan-139-D Phase 2).
+'
+' A GNU long-name record is NUL-TERMINATED: the name is everything before the
+' first NUL, and the record's size counts the terminator. The reader used to
+' strip NULs from anywhere in the record and keep the rest, which silently
+' joins a name to whatever followed it -- `a\0bbb` became the single name
+' `abbb` rather than `a`, and this reader and Python then disagreed about what
+' the entry was called.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "GNU long name termination"
+    TCASE "a long name stops at its first NUL"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      ' The `L` pseudo-entry's header is block 2 and its data -- the 200-byte
+      ' name -- is block 3, at offset 1536. Plant a NUL after `long/`.
+      LET broken AS List OF Byte = collections::set(raw, 1536 + 5, toByte(0))
+      LET archive AS Archive = open(broken)
+      ' "long/" -- the five bytes before the NUL, and nothing after it.
+      expectEqual(has(archive, "long/"), TRUE)
+      expectEqual(has(archive, longName()), FALSE)
+    END TCASE
+
+    TCASE "an untouched long name is still read whole"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      expectEqual(has(open(raw), longName()), TRUE)
+    END TCASE
+  END TGROUP
+END TESTING
