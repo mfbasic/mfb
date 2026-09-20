@@ -32,15 +32,22 @@ before the call, so nothing clobbers them" invariant rather than work around it.
 ### The gate that makes it sound
 
 Option 1's sketch did not mention ownership, and an unconditional seed free **crashes
-two ordinary programs** — measured, not theorised, because both are on this doc's own
-Blast-Radius list:
+two ordinary programs**:
 
 | seed shape | unconditional free | why |
 |---|---|---|
 | a string LITERAL (`thread::start(w, "abc")`) | **SIGBUS** | a literal is a static symbol, not arena memory |
 | a `Local` (`LET s = … : thread::start(w, s)`) | **SIGSEGV** | the binding still owns it and frees it at scope exit — double free |
 
-So the seed is freed only when `pending_temp_would_be_claimed` — exactly
+**And this doc did not predict either of them.** The Blast Radius above asks about seed
+TYPES — scalar, record, collection — and never about seed PROVENANCE, which is the axis
+that decides whether the caller has anything to give away at all. A literal and a
+computed `String` are the same TYPE and opposite answers. The shapes were found by
+running them after the happy path measured clean, not by working down the list; had the
+list been the test, this would have shipped a wild free. The axis is written down here
+because the doc's absence of it is the reason the first implementation was unsound.
+
+The seed is freed only when `pending_temp_would_be_claimed` — exactly
 `claim_moved_thread_arg_temp`'s own condition — so the thread starts freeing the seed
 precisely when the caller stops. Both crash shapes now have their own regression case;
 they pass on a pre-fix compiler too, which is the point: they exist to catch this fix
