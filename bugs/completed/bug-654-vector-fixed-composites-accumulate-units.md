@@ -103,9 +103,35 @@ Only the ten disproved literals changed; no other line of the file moved. Accept
 
 ### Goldens
 
-12 `.ir` goldens moved (the IR dump embeds the injected bodies). **No `.run` and no
-`build.log` moved**, i.e. no program's observable output changed. One diff was inspected
-in full to localize: it contains only the rewritten `angle`/`slerp` bodies.
+18 goldens moved in total, in two passes — the second pass is worth recording, because the
+first filter was wrong in a way the acceptance harness alone did not catch:
+
+* **Pass 1 (12 `.ir`)**, found by `test-accept.sh 'vector*' '*vector*'`: the IR dump embeds
+  the injected bodies. One diff was inspected in full to localize — it contains only the
+  rewritten `angle`/`slerp` bodies.
+* **Pass 2 (6 more)**, found by the full `artifact_gate_all` on the first suite run. The
+  `vector*` filter missed the five cross-target
+  `byte-identity/vector/vector_codegen_cover_rt.<target>.ncodesum` hashes (the injected
+  bodies changed, so the generated MACHINE CODE changed — and those are written by
+  `regen-native-goldens.sh`, the gate's write half, not by `sync-goldens.sh`), plus
+  `rt-behavior/arithmetic/float-call-boundary-finite-rt`, which embeds the vector bodies
+  but whose path does not contain "vector".
+
+**No `.run` and no `build.log` moved in either pass**, i.e. no program's observable output
+changed anywhere in the tree.
+
+## STATUS: FIXED
+
+**Validation.** `cargo test --no-fail-fast` on the merged tree: **exit 0**, 199 result
+blocks, 0 failures (4272 tests in the main binary). `artifact-gate.sh vector`: 7 goldens
+checked, 0 diffs. `mfb test tests/acceptance`: 782 pass / 0 fail. Main was merged in before
+the final run (it had advanced with bug-616 and another session's plan-139 work).
+
+**Left undone, deliberately:** `project`/`reject` sit at 1.111 units with exact inputs —
+over the one-unit bar, but from a different mechanism than this bug's (`(dot/bb) * b`
+rounds the quotient before multiplying, where `(dot * b.c) / bb` would divide last and land
+≤0.5). It is outside this document's title, table and Fix phases, so it is recorded in the
+Blast-radius audit above rather than folded in here.
 
 `Fixed` `sin`, `cos`, `tan` (bug-615), the inverse family (bug-615-C) and the
 `Float` trig kernels (bug-618) are now within **one** Q32.32 unit (2^-32) of the
