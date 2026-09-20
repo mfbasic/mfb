@@ -445,6 +445,9 @@ impl CodeBuilder<'_> {
             );
         }
 
+        // bug-658: the seed slots a FAILED `thread::start` has to release (None for
+        // every other target). Set by the branch below.
+        let mut failed_start_seed: Option<(usize, usize)> = None;
         let arg_values = if target == "thread.start" {
             // bug-655: `thread::start` hands the worker the caller's seed block
             // uncopied, and nothing owned it afterwards. Size it here — the only place
@@ -453,11 +456,20 @@ impl CodeBuilder<'_> {
             // hook, i.e. after every argument is spilled but before the argument
             // registers are loaded, because sizing clobbers caller-saved registers.
             let size_slot = self.allocate_stack_object("runtime_thread_start_seed_size", 8);
+            let seed_slot_cell = std::cell::Cell::new(usize::MAX);
             let values = self.emit_prepared_call_args_hooked(
                 args,
                 "runtime_call_arg",
-                |builder, values, slots| builder.emit_thread_seed_size(values, slots, size_slot),
+                |builder, values, slots| {
+                    if let Some(slot) = slots.get(1) {
+                        seed_slot_cell.set(*slot);
+                    }
+                    builder.emit_thread_seed_size(values, slots, size_slot)
+                },
             )?;
+            if seed_slot_cell.get() != usize::MAX {
+                failed_start_seed = Some((seed_slot_cell.get(), size_slot));
+            }
             let scratch = self.temporary_vreg();
             self.emit(abi::load_u64(&scratch, abi::stack_pointer(), size_slot));
             self.emit(abi::move_register(&abi::argument_register(4)?, &scratch));
@@ -475,6 +487,15 @@ impl CodeBuilder<'_> {
         // current arena) for the trap to inspect. Owned handles/resources passed
         // to a consuming helper are consumed regardless of success or failure.
         if raw {
+            // bug-658: a FAILED `thread::start` under an inline `TRAP` never reaches the
+            // release that frees the seed — the handler binds the zeroed CLOSED handle,
+            // whose THREAD_OFFSET_DATA is 0 — and the caller has already given up its
+            // own claim on the block. Release it here, on the Err tag, while the seed
+            // pointer is still in its frame slot. Emitted BEFORE
+            // `materialize_current_result`, which consumes the result registers.
+            if let Some((seed_slot, size_slot)) = failed_start_seed {
+                self.emit_failed_thread_start_seed_free(seed_slot, size_slot, true)?;
+            }
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
@@ -517,6 +538,12 @@ impl CodeBuilder<'_> {
             self.emit_finalize_worker_error_source()?;
         } else {
             self.emit_stamp_current_error_source()?;
+        }
+        // bug-658: same release on the propagating half. This path leaves the statement
+        // for good, and the seed was claimed out of the temp cleanup before the call, so
+        // without this the block is stranded exactly as in the trapped case.
+        if let Some((seed_slot, size_slot)) = failed_start_seed {
+            self.emit_failed_thread_start_seed_free(seed_slot, size_slot, false)?;
         }
         self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));

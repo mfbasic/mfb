@@ -197,6 +197,103 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-658: release a FAILED `thread::start`'s seed block.
+    ///
+    /// On the success path the thread owns the seed and frees it at its release
+    /// (bug-655). A failed start has no thread to do that: the inline `TRAP` binds the
+    /// zeroed CLOSED handle, whose `THREAD_OFFSET_DATA` is 0, and the propagating path
+    /// leaves the statement entirely — while `claim_moved_thread_arg_temp` has already
+    /// taken the block out of the caller's temp cleanup, because at the point the claim
+    /// is emitted nobody knows yet whether the start will succeed. The claim is a
+    /// compile-time decision; the outcome is a run-time fact. This is the run-time half.
+    ///
+    /// Called only on the Err branch, so the success path is untouched. The size slot
+    /// carries bug-655's ownership gate with it: it is non-zero only when the seed was a
+    /// fresh temp this statement owned, so a literal seed (a static symbol) and a
+    /// `Local` seed (its binding's) are both skipped here for the same reason they are
+    /// skipped at release — freeing either is a bus error or a double free.
+    pub(crate) fn emit_failed_thread_start_seed_free(
+        &mut self,
+        seed_slot: usize,
+        size_slot: usize,
+        check_tag: bool,
+    ) -> Result<(), String> {
+        let done = self.label("runtime_thread_start_failed_seed_done");
+        // `check_tag` on the inline-`TRAP` path, where BOTH outcomes flow through here
+        // and the tag is still live in the result register: a successful start owns the
+        // seed and frees it at its release, so freeing it here too is a double free
+        // (measured as a SIGSEGV before this guard). The propagating path is already on
+        // its error branch, so the tag is known and the check would be dead code.
+        // `arena_free` is a CALL, so it clobbers every caller-saved register — including
+        // the four the raw path's `materialize_current_result` reads immediately after
+        // this. Park them across the free and reload. Missing this did not leak, it
+        // CRASHED: the trapped binding was built from whatever the free left behind
+        // (measured as a SIGSEGV). Same hazard bug-425 records for the enqueue tag.
+        let parked = if check_tag {
+            let tag = self.allocate_stack_object("thread_start_failed_seed_tag", 8);
+            let value = self.allocate_stack_object("thread_start_failed_seed_value", 8);
+            let message = self.allocate_stack_object("thread_start_failed_seed_message", 8);
+            let source = self.allocate_stack_object("thread_start_failed_seed_source", 8);
+            self.emit(abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), tag));
+            self.emit(abi::store_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                value,
+            ));
+            self.emit(abi::store_u64(
+                RESULT_ERROR_MESSAGE_REGISTER,
+                abi::stack_pointer(),
+                message,
+            ));
+            self.emit(abi::store_u64(
+                RESULT_ERROR_SOURCE_REGISTER,
+                abi::stack_pointer(),
+                source,
+            ));
+            Some((tag, value, message, source))
+        } else {
+            None
+        };
+        if check_tag {
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&done));
+        }
+        let size = self.temporary_vreg();
+        self.emit(abi::load_u64(&size, abi::stack_pointer(), size_slot));
+        self.emit(abi::compare_immediate(&size, "0"));
+        self.emit(abi::branch_eq(&done));
+        let ptr = self.temporary_vreg();
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), seed_slot));
+        self.emit(abi::compare_immediate(&ptr, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::move_register(abi::c_arg(0), &ptr));
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit_arena_free_call();
+        // Null the slot so no later edge can reach the block again.
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), seed_slot));
+        self.emit(abi::label(&done));
+        if let Some((tag, value, message, source)) = parked {
+            self.emit(abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), tag));
+            self.emit(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                value,
+            ));
+            self.emit(abi::load_u64(
+                RESULT_ERROR_MESSAGE_REGISTER,
+                abi::stack_pointer(),
+                message,
+            ));
+            self.emit(abi::load_u64(
+                RESULT_ERROR_SOURCE_REGISTER,
+                abi::stack_pointer(),
+                source,
+            ));
+        }
+        self.reset_temporary_registers();
+        Ok(())
+    }
+
     pub(crate) fn emit_thread_send_runtime_helper_call(
         &mut self,
         target: &str,
