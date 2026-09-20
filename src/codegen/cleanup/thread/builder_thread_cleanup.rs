@@ -234,7 +234,11 @@ impl CodeBuilder<'_> {
             let value = self.allocate_stack_object("thread_start_failed_seed_value", 8);
             let message = self.allocate_stack_object("thread_start_failed_seed_message", 8);
             let source = self.allocate_stack_object("thread_start_failed_seed_source", 8);
-            self.emit(abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), tag));
+            self.emit(abi::store_u64(
+                RESULT_TAG_REGISTER,
+                abi::stack_pointer(),
+                tag,
+            ));
             self.emit(abi::store_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
@@ -267,13 +271,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&ptr, "0"));
         self.emit(abi::branch_eq(&done));
         self.emit(abi::move_register(abi::c_arg(0), &ptr));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         // Null the slot so no later edge can reach the block again.
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), seed_slot));
         self.emit(abi::label(&done));
         if let Some((tag, value, message, source)) = parked {
-            self.emit(abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), tag));
+            self.emit(abi::load_u64(
+                RESULT_TAG_REGISTER,
+                abi::stack_pointer(),
+                tag,
+            ));
             self.emit(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
