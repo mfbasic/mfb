@@ -64,11 +64,17 @@ pub(crate) fn void_result(call: &str) -> ValueResult {
 /// plus clear/sync/moveTo/color/attr/cursor/size — into the caller's stream. It falls
 /// through to the shared console backend when the platform returns `None` (a call the
 /// app surface keeps on the console backend, or a non-app build).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_term_helper(
     call: &str,
     symbol: &str,
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
+    // plan-94-B: `Some` only for a program that uses `enableMouse`/`pollMouse`.
+    // The two mouse members demand it; every other member ignores it, which is why
+    // it is threaded rather than folded into `term_state_offset` — a `term::`
+    // program that never touches the mouse reserves no mouse region at all.
+    mouse_state_offset: Option<usize>,
     build_mode: crate::target::NativeBuildMode,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -121,5 +127,39 @@ pub(crate) fn lower_term_helper(
         }
     }
 
-    console_lower_term_helper(call, symbol, term_state_offset, platform_imports, platform)
+    let parts = console_lower_term_helper(
+        call,
+        symbol,
+        term_state_offset,
+        mouse_state_offset,
+        build_mode.is_app(),
+        platform_imports,
+        platform,
+    );
+    // plan-94-B, closing the §4.5 Open Decision for `term::`: the two mouse
+    // members are `Console`-gated in an app build, like every other `term::`
+    // member.
+    //
+    // They reach this fall-through because no backend's `emit_app_term_helper`
+    // claims them (plan-94-C/D/E add those arms), so the gate `lower_term_helper`
+    // normally prepends when a backend returns `Some` never runs for them. Left
+    // ungated, `term::pollMouse` in `Mode.Canvas` would answer "where is the mouse,
+    // in cells" about a surface that has no cells — and would do it silently, which
+    // is worse than the trap its siblings raise. A canvas program asks
+    // `canvas::pollMouse`, which is `Canvas`-gated for the mirror-image reason.
+    //
+    // A no-op outside app builds (`presentation_mode_offset` is `None`), so a
+    // console program is untouched.
+    if build_mode.is_app() && matches!(call, "term.enableMouse" | "term.pollMouse") {
+        let (mut instructions, mut relocations, locals) = parts?;
+        prepend_wrong_mode_gate(
+            &mut instructions,
+            &mut relocations,
+            symbol,
+            presentation_mode_offset,
+            ModeRequirement::Console,
+        );
+        return Ok((instructions, relocations, locals));
+    }
+    parts
 }

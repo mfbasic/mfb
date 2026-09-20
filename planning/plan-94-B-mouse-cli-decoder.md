@@ -43,8 +43,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-94-A complete | `mfb build` of a `pollMouse` program runs and prints `None`; the `MOUSE_STATE_*` region and `_mfb_rt_mouse_mode` exist | NOT MET |
-| A monotonic-nanos primitive is reusable outside its home package | read the three call sites above; confirm no per-package coupling | UNVERIFIED (first task of Phase 1) |
+| plan-94-A complete | `mfb build` of a `pollMouse` program runs and prints `None`; the `MOUSE_STATE_*` region and `_mfb_rt_mouse_mode` exist | MET (measured 2026-09-20: every A box ticked, phases at `912013f22`/`0072f0723`; the fixture prints `kind=None …`; `MOUSE_STATE_SLOTS`/`MOUSE_MODE_SYMBOL` exist and `_mfb_rt_mouse_mode` appears in a mouse program's `dataObjects`) |
+| A monotonic-nanos primitive is reusable outside its home package | read the three call sites above; confirm no per-package coupling | MET, **but none of the three is reusable as-is** — see Corrections B1. `datetime`'s is the only correct-on-every-target one and it is a whole member body, so Phase 1 factors a shared emitter out of it rather than calling one of the three. |
 
 > If plan-94-A is not complete, this sub-plan cannot start, full stop.
 
@@ -188,69 +188,142 @@ bug in the gating; root-cause (objdump one fixture) and fix — not a design sto
 Deliver the queue and poll semantics with a test hook that enqueues synthetic
 events, so the ring/TTL is proven before touching the read path.
 
-- [ ] Pick the monotonic-nanos emitter from the three candidates; confirm it is
+- [x] Pick the monotonic-nanos emitter from the three candidates; confirm it is
       callable outside its home package and note the finding in Corrections.
       Record whether a Windows path exists (irrelevant to B, which is
       linux/macOS, but E needs the answer).
-- [ ] Implement the ring over the `MOUSE_STATE_*` slots plan-94-A Phase 2
+      — **None of the three is usable as-is**; see Corrections B1 for the
+      evidence on each. Factored a correct-on-every-family emitter into
+      `src/codegen/io/mouse/clock.rs` instead. **Windows answer for plan-94-E:
+      yes** — `QueryPerformanceCounter`/`Frequency`, with the quotient/remainder
+      split that keeps the nanos inside `u64`.
+- [x] Implement the ring over the `MOUSE_STATE_*` slots plan-94-A Phase 2
       reserved: allocate the block on `enableMouse(TRUE)`, free on
-      `enableMouse(FALSE)`/`off`.
-- [ ] `term::pollMouse` (replacing the A stub): prefix-skip stale + return oldest
+      `enableMouse(FALSE)`/`off`. — `src/codegen/io/mouse/ring.rs`. 64 slots ×
+      48 bytes, head/tail as absolute counts (so "full" is a subtraction with no
+      ambiguous empty/full state), overwrite-on-full, monotonic stamp per slot.
+      Both alloc and free are idempotent — `enableMouse(TRUE)` twice must not leak
+      a block and `term::off` after `enableMouse(FALSE)` must not double-free.
+- [x] `term::pollMouse` (replacing the A stub): prefix-skip stale + return oldest
       ≤100 ms; a small internal `enqueue` helper used by Phase 2 and by a
-      test-only hook.
-- [ ] Tests: an rt case proving overwrite-on-full keeps the newest; an event
+      test-only hook. — done; the stale prefix is *skipped past* (tail advances)
+      rather than re-walked, so a program that stopped polling does not pay for
+      the same expired events on every later poll. The "test-only hook" became
+      `MFB_MOUSE_INJECT`, for the reason in Corrections B2.
+- [x] Tests: an rt case proving overwrite-on-full keeps the newest; an event
       polled within 100 ms is returned; one polled after >100 ms is dropped; drain
       returns `None` at the end.
+      — `native_term_mouse_ring_overwrites_oldest_and_expires_stale`.
 
 Acceptance: rt test shows FIFO drain, overwrite-keeps-newest, and the 100 ms skip,
 using a monotonic clock (sleep between enqueue and poll to cross 100 ms).
+**Met**, measured: a 10-report burst drains as `COUNT:10 FIRST:0 LAST:9` (FIFO,
+whole); 64 (exactly capacity) as `COUNT:64 FIRST:0 LAST:63`; 72 as `COUNT:64
+FIRST:8 LAST:71` — the **newest** 64, which is what distinguishes overwrite from
+"refuse the overflow" (that would have given `FIRST:0 LAST:63` and looked just as
+plausible). TTL across `os::sleep`: 0 ms → 2 events, 20 ms → 2, 150 ms → 0,
+400 ms → 0.
 Commit: —
 
 ### Phase 2 — The pump in the read path
 
-- [ ] `src/codegen/builtins/io/gen_read_family.rs`: insert the gated decode stage
+- [x] `src/codegen/builtins/io/gen_read_family.rs`: insert the gated decode stage
       into `emit_stdin_byte_read`, above the `app_mode` branch so both sources
       feed it. Off ⇒ identity; on ⇒ SGR state machine → enqueue;
       unrecognized/partial ⇒ flush through unchanged. Partial-sequence state in
       the `MOUSE_STATE_PARSE_*` slots.
-- [ ] `src/codegen/term/core/term.rs`: `enableMouse`/`off` emit the ANSI
-      set/reset and write `_mfb_rt_mouse_mode`.
-- [ ] `src/codegen/builtins/io/func_poll_input.rs`: drain-and-recheck through the
-      pump (§3d).
-- [ ] `io::input`/`io::readLine`: withdraw and restore mouse tracking around the
-      cooked-mode window (§3e).
-- [ ] Decide and implement the presentation-mode gate for `term::pollMouse`
+      — done, as a prologue/epilogue pair wrapping the read in a loop (a swallowed
+      byte reads another, so the caller still gets exactly one byte or EOF). The
+      gate is **compile-time**, not the runtime mode test the phase text implies —
+      see Corrections B4, which is what makes the byte-identity claim exact.
+      The decoder lives in `src/codegen/io/mouse/decode.rs`; the flush needed a
+      drain cursor the plan did not anticipate (Corrections B5).
+- [x] `src/codegen/term/core/term.rs`: `enableMouse`/`off` emit the ANSI
+      set/reset and write `_mfb_rt_mouse_mode`. — done. `term::off` withdraws
+      tracking **after** its `inactive` label, so it runs whether or not TUI mode
+      was ever entered: mouse mode is independent of `term::on`, and a program
+      that enabled the mouse without `term::on` must still leave the terminal
+      clean. The escapes are suppressed in `--app` builds, where stdout is the
+      transcript and they would be *displayed* (Corrections B6).
+- [x] `src/codegen/builtins/io/func_poll_input.rs`: drain-and-recheck through the
+      pump (§3d). — done, closing that Open Decision in favour of honesty. The
+      re-check is forced non-blocking, which the plan does not say but has to be
+      true: looping with the caller's timeout would let `pollInput(100)` wait
+      100 ms *per report* while the user drags.
+- [x] `io::input`/`io::readLine`: withdraw and restore mouse tracking around the
+      cooked-mode window (§3e). — done; the resume side has to park the `Result`
+      bank, which it did not at first and which segfaulted every line read
+      (Corrections B3).
+- [x] Decide and implement the presentation-mode gate for `term::pollMouse`
       (plan-94-A §4.5): it should trap `ErrWrongMode` outside `Console` like its
-      siblings.
-- [ ] Document broadcast (per-subscriber) semantics in the term-backend spec:
+      siblings. — **Decided: yes.** Applied in `gen_shared::lower_term_helper` on
+      the console fall-through, since no backend's app dispatch claims these two
+      members yet. An ungated `term::pollMouse` in `Mode.Canvas` would silently
+      answer "where is the mouse, in cells" about a surface with no cells, which
+      is worse than the trap its siblings raise. (`canvas::`'s were already
+      `Canvas`-gated in A — plan-94-A Corrections C4.)
+- [x] Document broadcast (per-subscriber) semantics in the term-backend spec:
       each subscribed+mouse-enabled thread decodes independently.
-- [ ] Tests, `tests/runtime/rt_native_term_runtime.rs`, feeding SGR sequences to a
+      — `src/docs/spec/app/04_term-backend.md`, "Broadcast (per-subscriber)
+      semantics", including the corollary that a thread which never called
+      `thread::openStdIn` decodes nothing.
+- [x] Tests, `tests/runtime/rt_native_term_runtime.rs`, feeding SGR sequences to a
       pty: a click at a cell returns `Down` then `Up` with correct coords; a drag
       returns `Drag`; wheel returns `ScrollUp`/`ScrollDown`; ctrl-click sets
       `.ctrl`; interleaved keyboard bytes still reach `io::readChar`; an
       unrecognized `\x1b[Z` passes through untouched; **`io::pollInput` returning
       TRUE is always followed by a non-blocking `readChar`**; **a `readLine`
       during mouse mode echoes no escape bytes**.
-- [ ] Thread test: a worker without `openStdIn` polling mouse gets only `None`
+      — six cases, all passing. Fed through **stdin and the injection variable**
+      rather than a pty: the properties under test are about the byte stream, and
+      a pipe drives them deterministically where a pty adds timing. The pty is
+      still used where it is the only thing that can prove the claim — the
+      opt-in case checks silence on a real tty, because tracking escapes would
+      only ever be written to one.
+- [x] Thread test: a worker without `openStdIn` polling mouse gets only `None`
       (and a raw stdin read still traps `ErrInvalidContext`).
+      — `native_term_mouse_is_per_thread_and_needs_stdin`. It also asserts the
+      main thread *does* receive the events, or the worker's silence would prove
+      nothing.
 
 Acceptance: the pty-driven rt test decodes all six event kinds with correct
 coords/modifiers; keyboard-passthrough, unrecognized-escape-passthrough,
 pollInput-honesty and no-echo all hold; the mouse-off read path is byte-identical.
+**Met.** `cargo test --test rt_native_term_runtime` → `13 passed; 0 failed`
+before the thread case, `15` after. All six kinds decode with the exact
+row/column each report encodes (the wire's `x` is the COLUMN, so the pair
+transposes — every case pins both numbers, because that transposition is the
+likeliest decoder bug and the hardest to spot). `CHARS:abcdef` survives
+interleaved reports; `ESC [ Z` and a bare `ESC` pass through byte for byte;
+`pollInput`+`readChar` retrieves every character with no block; a `readLine`
+brackets its cooked window with the reset/set pair.
 Commit: —
 
 ### Phase 3 — Goldens + docs
 
-- [ ] Regenerate `scripts/artifact-gate.sh <exe> term` ×5 and confirm fixtures
+- [x] Regenerate `scripts/artifact-gate.sh <exe> term` ×5 and confirm fixtures
       that never enable mouse do **not** diff. Update the rendered man prose in
       `func_enable_mouse.rs`/`func_poll_mouse.rs` from stub wording to real
       behavior (verify with `mfb man term enableMouse`, `mfb man term pollMouse`);
       add the term-backend spec section for the input decoder, the 100 ms TTL,
       broadcast semantics, and the `pollInput`/`readLine` interactions.
+      — **Nothing needed regenerating.** The sweep reports `0 diff(s)` across all
+      2058 goldens, which is the stronger result the phase was checking for: not
+      "the term fixtures were re-blessed" but "no fixture moved at all". Getting
+      there took one real fix (Corrections B7). Man prose updated on both members
+      — `enableMouse` now documents the `readLine` suspension and `pollInput`'s
+      continued honesty; `pollMouse` documents overwrite-on-full alongside the
+      TTL, and that events are per-thread. Spec section added.
 
 Acceptance: `scripts/artifact-gate.sh <exe> term` passes;
 `scripts/man-examples-gate.sh` passes; `scripts/man-census.sh --memory-scope`
 reports 0 unclassified hits.
+**Met.** `./scripts/artifact-gate.sh ./target/release/mfb all` → `1466 tests,
+1637 build(s), 2058 golden(s) checked, 0 diff(s)`. `man-run-examples.sh term
+--run` → `47 built, 37 ran, 0 failed` apart from the 10 pre-existing
+no-controlling-terminal entries already in `man-examples-not-run.txt`; both mouse
+members' examples run. `man-census.sh --memory-scope term` → **0** unclassified
+(one reword needed: "consumed" is on the banned list too).
 Commit: —
 
 ## Validation Plan
@@ -279,8 +352,147 @@ app byte sources.)*
 
 ## Corrections
 
-<Filled in during execution — esp. the monotonic-nanos choice and anything the
-read path turns out to do that §2 does not describe.>
+**B1 — none of the three monotonic-nanos emitters is reusable as-is, and the
+reason matters.** §2's "Verified properties" reads the existence of three
+emitters as "strong evidence the primitive travels". Reading them, it is closer
+to evidence that it has been re-implemented three times because none of them is
+general:
+
+| Candidate | Reusable? | Why not |
+|---|---|---|
+| `perf::emit_read_monotonic_nanos` (`perf.rs:448`) | **No** | Hard-codes `CLOCK_MONOTONIC_DARWIN = "6"` (`perf.rs:50`) with no platform branch. Linux's `CLOCK_MONOTONIC` is `1`, so calling it from Linux codegen would read the wrong clock. Private to `perf`. |
+| `net::emit_monotonic_nanos` (`gen_ping.rs:1220`) | **Partly** | Correctly uses `platform.clock_monotonic()`, but that accessor is `unreachable!("Windows ICMP reports its own RoundTripTime; no clock_gettime")` on Win64 (`win_x86_64/code.rs:3246`) — so a Windows build would panic the **compiler**. Private to `gen_ping.rs`. |
+| `datetime::lower_monotonic_nanos` | **Correct, wrong shape** | The only one right on all three families: `QueryPerformanceCounter`/`Frequency` on Windows, `clock_gettime` elsewhere. But it is a whole `abi_function` member body — it writes `RESULT_VALUE_REGISTER`, branches to a caller-supplied `ErrOverflow` label, and addresses datetime-local frame constants (`TIMESPEC_OFFSET`, `WIN_QPC_FREQ_OFFSET`, `LOCALS_SIZE = 88`). |
+
+**Windows answer, for plan-94-E:** yes, there is one — `QueryPerformanceCounter`
++ `QueryPerformanceFrequency`, with the nanos computed as
+`(counter/freq)*1e9 + ((counter%freq)*1e9)/freq` so the fraction stays inside
+`u64` (`counter*1e9` alone overflows in ~21 s at 10 MHz). E does not need to
+invent one.
+
+**What B does instead:** factors a `dst`-and-scratch-parameterised emitter out of
+the datetime shape into the mouse module, so one implementation serves both the
+ring stamp and every backend. It deliberately **drops the `ErrOverflow` trap**:
+the stamp is only ever consumed as `now − stamp ≤ 100 ms`, and unsigned wrapping
+subtraction is *correct* for any interval under 584 years, so trapping would add
+a failure mode to the stdin read path in exchange for nothing. That is a
+narrower contract than `datetime::monotonicNanos`, not a weaker one — it is why
+the emitter is separate rather than a call into datetime's member.
+
+**B2 — the planned "test-only hook" cannot be a registry member.** Phase 1 called
+for "a small internal `enqueue` helper used by Phase 2 and by a test-only hook",
+with the hook enqueuing synthetic events so the ring is proven before the read
+path is touched. Measured: a `RegistryFunction` with `internal_only: true`
+resolves **only** from toolchain-provided source — `builtins::is_internal_only_call`
+gates it in `resolver::resolution` to non-`internal` files
+(`src/codegen/registry/mod.rs:505-512`). An rt test's MFB source is user source,
+so it could not call such a hook at all. Making it non-internal would put a
+synthetic-event injector in the public `term::` surface permanently, which is
+worse than the problem.
+
+Replaced with the affordance the tree already uses for exactly this: an
+**environment variable**, mirroring `MFB_WINAPP_INPUT`
+(`src/target/win_x86_64/app/mod.rs:654`, "a test affordance … so the subclass →
+pipe → readLine round-trip is box-provable over ssh without a keyboard").
+`MFB_MOUSE_INJECT` carries **raw SGR bytes** — the same bytes a terminal would
+send — which `enableMouse(TRUE)` feeds through the decoder.
+
+This is strictly better than the planned hook, for a reason worth stating: the
+env var feeds the *real* SGR parser rather than bypassing it, so Phase 1 proves
+the decode logic **and** the ring before either goes near the read path, which is
+more than the synthetic hook would have proven. It also gives C, D and E a way to
+exercise mouse on a box with no mouse.
+
+**B3 — the §3e cooked-mode bracket must preserve the `Result` registers, and the
+first version did not.** Wiring the mouse suspend/resume around `io::readLine`'s
+cooked-mode window segfaulted every program that read a line with mouse enabled
+(`EXIT=139`, measured on `printf 'hello\n' | fixture`).
+
+Root cause, found by reading the neighbouring call rather than guessing: the
+**resume** side runs *after* the read's result is already staged in the result
+bank — which is exactly why `emit_console_raw_line_mode` carries a
+`preserve_result` flag at that same position. The escape write clobbers the bank,
+so `io::readLine` returned a wild pointer and the program faulted on first use of
+the string. The suspend side has no such problem: nothing is staged before the
+read.
+
+Fixed by giving `emit_mouse_tracking_window` the same `preserve_result` flag and
+setting it on the resume call only. Verified: `LINE:hello`, exit 0, with the
+suspend/resume pair visible in the byte stream either side of the read.
+
+Worth recording because the failure mode is quiet — the escapes are emitted, the
+brackets look right in the output, and the corruption only shows when the
+returned value is touched. **C/D/E: any emitter inserted after a staged result
+must park the bank.**
+
+**B4 — the pump's gate is compile-time, which is what makes the byte-identity
+claim exact.** The plan says the pump is "gated on `_mfb_rt_mouse_mode`: zero ⇒
+pass-through (identity, byte-identical to today)" (§3a), and separately that
+"mouse-mode-**off** codegen for the read path MUST stay byte-identical to pre-B"
+(§Byte-identity note). Those two cannot both be literally true: a runtime gate is
+a load, a compare and a branch that were not there before, on every
+`io::readChar` in every program.
+
+Resolved by gating at **compile time** as well. The pump is emitted only when
+`mouse_state_offset` is `Some` — i.e. only for a program that uses
+`enableMouse`/`pollMouse` — so a program that never mentions the mouse gets
+*exactly* its pre-B instruction stream, not that stream plus a mode test. The
+runtime check remains inside a mouse program, for the window before
+`enableMouse(TRUE)`.
+
+This is the same key that reserves the arena region and emits the mouse data
+objects, so all three appear and disappear together. It also means the read
+helpers' frames grow by the decoder's 16-byte clock scratch **only** in a mouse
+program: the scratch is appended past the base frame rather than carved out of
+it, so no existing slot offset moves either.
+
+**B5 — the flush needs a drain cursor; the first design lost bytes.** §3a says an
+un-completable prefix is "flush[ed] back to the caller unchanged, one byte at a
+time". Written literally — deliver `buf[0]`, shift the rest down — that is wrong
+in a way the plan does not hint at: the leftover bytes are still in the parse
+buffer, so the *next* call sees a non-empty buffer and treats the replayed bytes
+as a live prefix being continued. An `ESC [ Z` is then re-parsed as the start of
+a new sequence instead of delivered, and its bytes are eaten.
+
+Fixed with an explicit one-based drain cursor
+(`MOUSE_STATE_DRAIN_POS_OFFSET`) and a two-entry-point contract: the reader
+drains owed bytes *before* it reads anything new, and only calls the decoder when
+nothing is owed. No shifting, and the replay is in order by construction.
+
+One-based rather than a plain index because `io::pollInput` needs to express
+"owe the program `buf[0]`" — having read a byte to classify it, it must push that
+byte back undelivered. A zero-based cursor spells that `0`, which is also how it
+spells "nothing owed".
+
+**B6 — `enableMouse` writes no terminal escapes in an `--app` build.** Not
+something the plan raises, and it is a visible defect rather than a nicety: in
+app mode stdout is the window's transcript, so `\x1b[?1000h` would be *displayed*
+— the user would see `[?1000h` printed into their app — and no terminal is
+listening to turn reporting on anyway. The mode word is still written in both
+builds, because that is what plan-94-C/D/E's UI-thread handlers actually read.
+
+Found by reasoning about where `term::enableMouse` lands in app mode: it is not
+in any backend's `emit_app_term_helper`, so unlike `term::on` it falls through to
+the console body and would have written to the transcript.
+
+**B7 — a label is an instruction, and two of them broke byte-identity.** The
+byte-identity gate caught this, which is what it is for: after the `pollInput`
+work, `artifact-gate.sh … all` reported **7 diffs** — all five `io`
+`.ncode` targets plus two app-mode `io` fixtures. None of them uses the mouse.
+
+Root-caused by dumping one fixture rather than theorising
+(`tests/byte-identity/io`, `_mfb_rt_io_io_pollInput`): its label list had gained
+`ready_recheck` and `report_ready`. Both were pushed unconditionally while the
+*code* between them was correctly gated on `mouse_state_offset` — so a non-mouse
+program emitted no mouse logic but did emit two extra label instructions, which
+the `.ncode` stream records.
+
+Fixed by gating the two labels on the same condition as the code they serve;
+re-measured `0 diff(s)` across all 2058 goldens. The lesson generalises past this
+sub-plan: **in this emitter vocabulary a label is an instruction like any other**,
+so "gate the logic" is not the same as "gate the emission", and `plan-94-C/D/E`
+will each be adding handlers into existing procs where the same mistake is
+available.
 
 ## Summary
 

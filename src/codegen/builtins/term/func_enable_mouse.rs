@@ -4,9 +4,9 @@
 //! `abi_function` wrapper finalizes it. The heavy terminal emission stays in the
 //! shared code layer (`code::lower_term_helper` / `emit_app_term_helper`).
 //!
-//! plan-94-A lands this as an inert stub: the argument is accepted and ignored, no
-//! tracking bytes are written, and `term::pollMouse` keeps reporting
-//! `MouseKind.None`. plan-94-B replaces the body with the real mode set/reset.
+//! plan-94-B gives it its real body: the 1000/1002/1006 mode set/reset, the
+//! event ring's allocation and release, and the process-global mouse-mode word
+//! every app backend's UI-thread handler reads.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
@@ -32,6 +32,15 @@ The call is **best effort** and reports no error. Not every terminal supports
 mouse reporting, and in that case `term::pollMouse` simply keeps reporting
 `term::MouseKind.None` — which is the same thing it reports when the user is
 not using the mouse, so a program that polls needs no separate check.
+
+Two interactions are worth knowing. `io::readLine` and `io::input` **suspend**
+mouse reporting while they read a line, because the terminal echoes during a line
+read and a mouse report arriving then would be printed onto the screen in the
+middle of what the user is typing; events are lost for the duration, which is the
+right trade for a program that is asking someone to type. And `io::pollInput`
+stays truthful: it still answers whether a following read will return without
+waiting, even though some of what the terminal now sends is taken off the stream
+as mouse input and never becomes a character at all.
 
 Turn reporting off before the program finishes so the mouse goes back to the
 user. `term::off` does that for you when it leaves TUI mode, so a program that
@@ -81,6 +90,7 @@ pub(crate) fn lower_enable_mouse(
         &symbol,
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
+        ctx.mouse_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,

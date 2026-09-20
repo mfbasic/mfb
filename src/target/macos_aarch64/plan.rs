@@ -477,6 +477,24 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_ioctl".to_string(),
                 required_by: required_by.clone(),
             }],
+            // plan-94-B. `_write` for the 1000/1002/1006 mode set/reset;
+            // `_clock_gettime` for the ring's event stamp; `_getenv` for the
+            // `MFB_MOUSE_INJECT` test affordance. `term.pollMouse` reads the clock
+            // too — it measures every candidate against one "now" — but emits no
+            // ANSI and reads no environment.
+            "term.enableMouse" => ["_write", "_clock_gettime", "_getenv"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            "term.pollMouse" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_clock_gettime".to_string(),
+                required_by: required_by.clone(),
+            }],
             // `term.isOn`, `term.get*` only read the term-state global and
             // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {

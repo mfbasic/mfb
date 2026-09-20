@@ -447,6 +447,24 @@ impl NativePlanPlatform for Platform {
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
             ],
+            // plan-94-B. The console write path for the 1000/1002/1006 mode
+            // set/reset, plus the monotonic clock the ring stamps each event with
+            // — `QueryPerformanceCounter`/`Frequency`, because Windows has no
+            // `clock_gettime` (the same pair `datetime::monotonicNanos` uses).
+            // `getenv` serves the `MFB_MOUSE_INJECT` test affordance; it is the
+            // CRT spelling and resolves through the same import table the rest of
+            // the console path uses.
+            "term.enableMouse" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+                import("getenv", KERNEL32, required_by),
+            ],
+            "term.pollMouse" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the

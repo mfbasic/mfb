@@ -4,11 +4,11 @@
 //! `abi_function` wrapper finalizes it. The heavy terminal emission stays in the
 //! shared code layer (`code::lower_term_helper` / `emit_app_term_helper`).
 //!
-//! plan-94-A lands this as an inert stub: it always builds the all-zero
-//! `MouseEvent`, whose `kind` is `MouseKind.None` because `None` is declared first
-//! and so takes ordinal 0. That zero record is the permanent "no event" sentinel —
-//! plan-94-B replaces the body with the ring reader, and the sentinel keeps its
-//! meaning.
+//! plan-94-B gives it its real body: it drains the per-thread event ring, oldest
+//! first, skipping anything past its TTL. An empty or all-stale ring still yields
+//! the all-zero record, whose `kind` is `MouseKind.None` because `None` is
+//! declared first and so takes ordinal 0 — the same "no event" sentinel plan-94-A
+//! established, now with a real answer behind it.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
@@ -30,9 +30,15 @@ happen.
 Each call takes **one** event, so a loop that calls it until it reports
 `MouseKind.None` has drained everything pending and can then present a frame.
 Events are delivered **freshest-first-wins**: an event the program does not
-collect within a tenth of a second is dropped rather than queued up, so a
-program that stops polling for a moment resumes with what the user is doing now
-rather than replaying what they did while it was busy.
+collect within a tenth of a second is dropped rather than queued up, and a burst
+longer than the queue keeps its newest events rather than its oldest. Both rules
+say the same thing — a program that stops polling for a moment resumes with what
+the user is doing now, not a replay of what they did while it was busy.
+
+Events are **per-thread**. Each thread that reads standard input decodes what it
+reads, so a thread that has not called `thread::openStdIn` receives none; and two
+threads that have both subscribed each get their own copy of the same events
+rather than taking them from one another.
 
 `row` and `column` are zero-based cells measured from the top-left corner of the
 surface, the same coordinates `term::moveTo` and `term::drawText` take, so an
@@ -97,6 +103,7 @@ pub(crate) fn lower_poll_mouse(
         &symbol,
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
+        ctx.mouse_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,

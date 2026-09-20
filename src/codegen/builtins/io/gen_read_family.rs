@@ -10,7 +10,10 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::MOUSE_MODE_SYMBOL;
+use crate::codegen::io::mouse::decode as mouse_decode;
 use crate::codegen::io::stdin::*;
+use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -40,6 +43,47 @@ pub(crate) struct Utf8SeqLabels<'a> {
 /// pipe, not fd 0, so the log is not built — keep the direct per-byte
 /// `read(0,…,1)` + EINTR guard. Both paths push `retry_label` (the loop/retry head)
 /// and leave the `x0 vs 0` flags live for the caller's follow-on `branch_eq`.
+///
+/// # The mouse pump (plan-94-B §3a)
+///
+/// This one function is where the decoder belongs, and the reason is structural:
+/// it is the **single choke point over both byte sources**. Every `io::` read
+/// helper reaches its bytes through here, and the app-vs-console split happens
+/// *inside* it — so a decoder placed here serves the console broadcast log and the
+/// window input pipe with one implementation. Wrapping `_mfb_rt_stdin_next_byte`
+/// instead (the pre-migration draft's plan) would have decoded console reads only
+/// and left all three app backends undecoded, which is precisely what plan-94-C/D/E
+/// depend on not being true: they inject SGR bytes into that pipe and expect this
+/// decoder to eat them.
+///
+/// `mouse` is `Some` only for a program that uses `enableMouse`/`pollMouse`, and
+/// the pump is emitted **only then**. That compile-time gate is what makes the
+/// plan's byte-identity claim literally true rather than approximately: a program
+/// that never mentions the mouse gets exactly the instruction stream it got before
+/// plan-94-B — not that stream plus a mode-word test. The *runtime* mode check
+/// still exists, for a mouse program that has not called `enableMouse(TRUE)` yet.
+///
+/// The pump wraps the read in a loop, because a byte it swallows must not be
+/// returned as the caller's byte: on a consumed byte it goes back and reads
+/// another, so the caller's contract ("one byte, or EOF") is unchanged.
+/// [`crate::codegen::io::mouse::decode`] states the ordering rule the two halves
+/// implement.
+
+/// What the mouse pump needs from its caller: where the mouse-state region is, and
+/// a 16-byte scratch slot the caller owns for the monotonic clock read.
+///
+/// Passed as a struct so a caller cannot get the two offsets the wrong way round —
+/// both are plain `usize` and one indexes the arena while the other indexes the
+/// stack.
+#[derive(Clone, Copy)]
+pub(crate) struct MousePump {
+    /// Arena byte offset of the mouse-state region.
+    pub(crate) state_offset: usize,
+    /// sp-relative byte offset of the caller's clock scratch.
+    pub(crate) clock_scratch: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_stdin_byte_read(
     ctx: &mut EmitCtx,
     app_mode: bool,
@@ -48,10 +92,19 @@ pub(crate) fn emit_stdin_byte_read(
     resume_label: &str,
     input_error: &str,
     invalid_context: &str,
+    mouse: Option<MousePump>,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
+
+    // The pump's outer loop head: a byte the decoder swallowed sends control back
+    // here to read another, so the caller still receives exactly one byte.
+    let pump_head = format!("{symbol}_mouse_pump_head");
+    let pump_done = format!("{symbol}_mouse_pump_done");
+    if let Some(pump) = mouse {
+        emit_pump_prologue(ctx, &pump, byte_offset, &pump_head, &pump_done)?;
+    }
 
     if app_mode {
         ctx.instructions.extend([
@@ -91,6 +144,132 @@ pub(crate) fn emit_stdin_byte_read(
             ctx.relocations,
         );
     }
+    if let Some(pump) = mouse {
+        emit_pump_epilogue(ctx, &pump, byte_offset, &pump_head, &pump_done)?;
+    }
+    Ok(())
+}
+
+/// The pump's vreg bank.
+///
+/// Deliberately far above the `%v0…` the callers' own `Vregs` hand out and above
+/// the `%v50` the broadcast reader names: these values are live across the read
+/// and across the decoder, so a name collision with a caller's temporary would be
+/// a silent wrong-byte bug rather than a compile error.
+const PUMP_SAVED_COUNT: &str = "%v900";
+const PUMP_BYTE: &str = "%v901";
+const PUMP_ACTION: &str = "%v902";
+const PUMP_OUT_BYTE: &str = "%v903";
+const PUMP_MODE: &str = "%v904";
+const PUMP_MODE_ADDR: &str = "%v905";
+const PUMP_HAVE: &str = "%v906";
+
+/// Load the process-global mouse-mode word into [`PUMP_MODE`].
+fn emit_load_mouse_mode(ctx: &mut EmitCtx) {
+    let symbol = ctx.symbol;
+    push_symbol_address(
+        symbol,
+        MOUSE_MODE_SYMBOL,
+        PUMP_MODE_ADDR,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions
+        .push(abi::load_u64(PUMP_MODE, PUMP_MODE_ADDR, 0));
+}
+
+/// Before the read: hand back any byte still owed from a flushed escape prefix,
+/// rather than reading a new one.
+///
+/// This ordering is the decoder's contract (see `io::mouse::decode`): owed bytes
+/// come first, and only when none are owed is the OS read issued. Getting it the
+/// other way round would interleave a replayed `ESC [ Z` with freshly typed input.
+fn emit_pump_prologue(
+    ctx: &mut EmitCtx,
+    pump: &MousePump,
+    byte_offset: usize,
+    pump_head: &str,
+    pump_done: &str,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let no_drain = format!("{symbol}_mouse_pump_no_drain");
+    let mut vregs = Vregs::new();
+
+    ctx.instructions.push(abi::label(pump_head));
+    emit_load_mouse_mode(ctx);
+    ctx.instructions
+        .push(abi::compare_immediate(PUMP_MODE, "0"));
+    ctx.instructions.push(abi::branch_eq(&no_drain));
+    mouse_decode::emit_drain_pending(PUMP_HAVE, PUMP_OUT_BYTE, pump.state_offset, ctx, &mut vregs);
+    ctx.instructions
+        .push(abi::compare_immediate(PUMP_HAVE, "0"));
+    ctx.instructions.push(abi::branch_eq(&no_drain));
+    // A replayed byte looks exactly like a freshly read one to the caller: it lands
+    // in the same slot, and the synthesized count of 1 reproduces the read's own
+    // "got a byte" answer so the caller's EOF test is unchanged.
+    ctx.instructions.extend([
+        abi::store_u8(PUMP_OUT_BYTE, abi::stack_pointer(), byte_offset),
+        abi::move_immediate(PUMP_SAVED_COUNT, "Integer", "1"),
+        abi::branch(pump_done),
+        abi::label(&no_drain),
+    ]);
+    Ok(())
+}
+
+/// After the read: decode the byte, and loop for another if the decoder consumed
+/// it.
+fn emit_pump_epilogue(
+    ctx: &mut EmitCtx,
+    pump: &MousePump,
+    byte_offset: usize,
+    pump_head: &str,
+    pump_done: &str,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let deliver = format!("{symbol}_mouse_pump_deliver");
+    let mut vregs = Vregs::new();
+
+    // The read's count must survive the decoder, which calls out to the clock and
+    // clobbers the result bank.
+    ctx.instructions
+        .push(abi::move_register(PUMP_SAVED_COUNT, abi::return_register()));
+    emit_load_mouse_mode(ctx);
+    ctx.instructions
+        .push(abi::compare_immediate(PUMP_MODE, "0"));
+    ctx.instructions.push(abi::branch_eq(&deliver));
+    // EOF and errors are the caller's to interpret, not the decoder's: a 0 or
+    // negative count means no byte was read, so there is nothing to decode.
+    ctx.instructions
+        .push(abi::compare_immediate(PUMP_SAVED_COUNT, "0"));
+    ctx.instructions.push(abi::branch_le(&deliver));
+
+    ctx.instructions
+        .push(abi::load_u8(PUMP_BYTE, abi::stack_pointer(), byte_offset));
+    mouse_decode::emit_decode_byte(
+        PUMP_BYTE,
+        PUMP_ACTION,
+        PUMP_OUT_BYTE,
+        pump.state_offset,
+        pump.clock_scratch,
+        ctx,
+        &mut vregs,
+    )?;
+    ctx.instructions.extend([
+        abi::compare_immediate(PUMP_ACTION, &mouse_decode::DECODE_PASS.to_string()),
+        // Buffered or consumed as an event: the program gets nothing for this
+        // byte, so go around and read another. This is what makes a mouse report
+        // invisible to `io::readChar` instead of arriving as escape garbage.
+        abi::branch_ne(pump_head),
+        // Pass: the byte to deliver may not be the byte just read — a flush hands
+        // back the head of the buffered prefix instead.
+        abi::store_u8(PUMP_OUT_BYTE, abi::stack_pointer(), byte_offset),
+        abi::label(&deliver),
+        abi::label(pump_done),
+        // Re-establish the `count vs 0` flags the caller's follow-on branch reads.
+        abi::compare_immediate(PUMP_SAVED_COUNT, "0"),
+        abi::move_register(abi::return_register(), PUMP_SAVED_COUNT),
+        abi::compare_immediate(abi::return_register(), "0"),
+    ]);
     Ok(())
 }
 
@@ -134,6 +313,14 @@ fn emit_continuation_read(
         resume_label,
         input_error,
         &format!("{symbol}_invalid_context"),
+        // **No pump on a continuation byte**, deliberately. A continuation byte is
+        // by definition the tail of a character the lead byte already committed to,
+        // and a mouse report cannot begin there: the decoder only starts on `ESC`,
+        // which is not a valid continuation byte. Running the pump here would
+        // instead create a way to lose the tail of a real character — the decoder
+        // would buffer it, and the caller is not structured to replay it mid-
+        // sequence. The lead-byte read is the one that decides.
+        None,
     )
 }
 

@@ -6,12 +6,15 @@
 //! shared UTF-8 sequence reader lives in [`super::gen_read_family`]. No adapter, no
 //! pre-finalized hatch.
 
-use super::gen_read_family::{emit_stdin_byte_read, emit_utf8_sequence_read, Utf8SeqLabels};
+use super::gen_read_family::{
+    emit_stdin_byte_read, emit_utf8_sequence_read, MousePump, Utf8SeqLabels,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
@@ -87,10 +90,26 @@ pub(crate) fn lower_read_char(
     let platform_imports = ctx.platform_imports;
     let platform = ctx.platform;
     let app_mode = ctx.build_mode.is_app();
-    const FRAME_SIZE: usize = 224;
+    const BASE_FRAME_SIZE: usize = 224;
     const BYTES_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
     const RESULT_OFFSET: usize = 24;
+    // plan-94-B: the mouse pump rides the lead-byte read. Emitted only when the
+    // program uses `enableMouse`/`pollMouse` — a program that never mentions the
+    // mouse keeps this helper's exact instruction stream and frame size.
+    //
+    // The clock scratch is appended PAST the base frame rather than carved out of
+    // it, so no existing slot offset moves: the 16 bytes exist only in a mouse
+    // program, which is also the only one that reads the clock.
+    let mouse_pump = ctx.mouse_state_offset.map(|state_offset| MousePump {
+        state_offset,
+        clock_scratch: BASE_FRAME_SIZE,
+    });
+    let frame_size = if mouse_pump.is_some() {
+        BASE_FRAME_SIZE + MOUSE_CLOCK_SCRATCH_BYTES
+    } else {
+        BASE_FRAME_SIZE
+    };
     let terminal_slots = TerminalModeSlots {
         active: 32,
         saved_tag: 40,
@@ -164,6 +183,7 @@ pub(crate) fn lower_read_char(
         &read_resume,
         &input_error,
         &invalid_context,
+        mouse_pump,
     )?;
     let three_not_e0 = format!("{symbol}_three_not_e0");
     let three_general = format!("{symbol}_three_general");
@@ -274,7 +294,7 @@ pub(crate) fn lower_read_char(
     instructions.push(abi::return_());
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
-    builder.stack_size = FRAME_SIZE;
+    builder.stack_size = frame_size;
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

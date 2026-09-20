@@ -1336,6 +1336,18 @@ pub(crate) fn lower_module_for_platform(
     {
         data_objects.extend(term::console_data_objects());
     }
+    // plan-94-B: the mouse-tracking escapes and the injection variable's name.
+    // Gated on the mouse members rather than on `term::` at all, so a program that
+    // only draws a box carries neither — the same reason the escape table above was
+    // trimmed to two entries (bug-326-A21), and the same key that reserves the
+    // mouse arena region.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
+    {
+        data_objects.extend(term::mouse_data_objects());
+    }
     // TLS helpers reference read-only C strings (library names + symbol names)
     // for their load-time dlopen/dlsym.
     if native_plan

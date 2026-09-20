@@ -75,6 +75,7 @@ pub(crate) fn lower_did_resize(
         &symbol,
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
+        ctx.mouse_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,

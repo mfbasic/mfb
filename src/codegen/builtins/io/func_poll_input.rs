@@ -5,11 +5,14 @@
 //! directly into the builder — the wrapper finalizes it (crypto's shape). No
 //! adapter, no pre-finalized hatch.
 
+use super::gen_read_family::emit_stdin_byte_read;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
+use crate::codegen::io::mouse::decode as mouse_decode;
 use crate::codegen::io::stdin::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
@@ -28,9 +31,16 @@ pub(crate) fn lower_poll_input(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     const POLLIN_PACKED_FD0: &str = "4294967296";
-    const FRAME_SIZE: usize = 48;
+    const BASE_FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 32;
+    // plan-94-B §3d. The verification reads one byte to find out whether the ready
+    // bytes are a character or a mouse report, so it needs somewhere to put that
+    // byte and somewhere for the decoder's clock read. Appended past the base
+    // frame, and only for a mouse program, so no existing slot moves and a
+    // non-mouse `pollInput` keeps its exact frame.
+    const MOUSE_BYTE_OFFSET: usize = BASE_FRAME_SIZE;
+    const MOUSE_CLOCK_OFFSET: usize = BASE_FRAME_SIZE + 8;
 
     let symbol_owned = builder.current_symbol.clone();
     let symbol: &str = &symbol_owned;
@@ -45,6 +55,10 @@ pub(crate) fn lower_poll_input(
     let poll_infinite = format!("{symbol}_poll_infinite");
     let timeout_ok = format!("{symbol}_timeout_ok");
     let os_poll = format!("{symbol}_os_poll");
+    // Where the mouse verification goes back to when the ready bytes turned out to
+    // be a report: re-ask readiness, with the timeout already forced to zero.
+    let ready_recheck = format!("{symbol}_ready_recheck");
+    let report_ready = format!("{symbol}_report_ready");
     let done = format!("{symbol}_done");
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
@@ -84,6 +98,14 @@ pub(crate) fn lower_poll_input(
         abi::label(&timeout_ok),
         abi::store_u64(&v10, abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
+    // The re-check entry point exists only for the mouse verification below. A
+    // label is an instruction in the emitted stream, so pushing it unconditionally
+    // would put it in every program's `io::pollInput` — which is exactly the
+    // byte-identity claim this sub-plan makes about programs that never mention
+    // the mouse, and exactly how it was first broken (five `io` fixtures diffed).
+    if ctx.mouse_state_offset.is_some() {
+        instructions.push(abi::label(&ready_recheck));
+    }
     // plan-15 §4.4: a byte already staged for this thread in the broadcast log is
     // invisible to `poll(fd 0)`, so check the log first (ready => report TRUE) and
     // only `poll(fd 0)` when the log has nothing for us. App mode reads the window
@@ -132,6 +154,40 @@ pub(crate) fn lower_poll_input(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&poll_ready),
+    ]);
+    // plan-94-B §3d: with mouse reporting on, "bytes are ready" no longer implies
+    // "a character is ready" — the pending bytes may be a report the pump will
+    // swallow whole, leaving the `readChar` this TRUE invited to block on a
+    // terminal that has gone quiet.
+    //
+    // The alternative was to document that TRUE means "bytes", not "a character".
+    // That is cheaper and it is a lie: every existing caller reads TRUE as a
+    // promise that the next read returns. A readiness predicate that no longer
+    // predicts readiness is a worse defect than the one it replaces, so this runs
+    // the bytes through the same decoder the read path uses and answers the
+    // question it claims to answer.
+    if let Some(mouse_state_offset) = ctx.mouse_state_offset {
+        emit_mouse_ready_verify(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            app_mode,
+            mouse_state_offset,
+            MOUSE_BYTE_OFFSET,
+            MOUSE_CLOCK_OFFSET,
+            TIMEOUT_OFFSET,
+            &report_ready,
+            &ready_recheck,
+        )?;
+    }
+    if ctx.mouse_state_offset.is_some() {
+        instructions.push(abi::label(&report_ready));
+    }
+    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -179,7 +235,11 @@ pub(crate) fn lower_poll_input(
     instructions.push(abi::return_());
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
-    builder.stack_size = FRAME_SIZE;
+    builder.stack_size = if ctx.mouse_state_offset.is_some() {
+        MOUSE_CLOCK_OFFSET + MOUSE_CLOCK_SCRATCH_BYTES
+    } else {
+        BASE_FRAME_SIZE
+    };
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Boolean,
@@ -266,4 +326,116 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_poll_input),
         }],
     });
+}
+
+/// Decide whether the ready bytes really are a character (plan-94-B §3d).
+///
+/// Branches to `report_ready` when the next `readChar` will return without
+/// blocking, and to `ready_recheck` — with the timeout forced to zero — when what
+/// was ready turned out to be a mouse report and the question has to be asked
+/// again.
+///
+/// **The re-check is non-blocking on purpose.** Looping with the caller's original
+/// timeout would let `pollInput(100)` wait 100 ms per report, unbounded, while a
+/// user drags the mouse. Zero is also the honest answer to what has actually been
+/// established: the caller's wait already happened, what arrived was mouse, and
+/// nothing else is ready *now*.
+#[allow(clippy::too_many_arguments)]
+fn emit_mouse_ready_verify(
+    ctx: &mut EmitCtx,
+    app_mode: bool,
+    mouse_state_offset: usize,
+    byte_offset: usize,
+    clock_offset: usize,
+    timeout_offset: usize,
+    report_ready: &str,
+    ready_recheck: &str,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let mut vregs = Vregs::new();
+    let mode_addr = vregs.next();
+    let mode = vregs.next();
+    let have = vregs.next();
+    let out_byte = vregs.next();
+    let count = vregs.next();
+    let byte = vregs.next();
+    let action = vregs.next();
+    let zero = vregs.next();
+    let consumed = format!("{symbol}_mouse_verify_consumed");
+    let read_retry = format!("{symbol}_mouse_verify_retry");
+    let read_resume = format!("{symbol}_mouse_verify_resume");
+    let read_gave_up = format!("{symbol}_mouse_verify_gave_up");
+
+    // Mouse reporting off: nothing can swallow the ready bytes, so the original
+    // answer stands.
+    push_symbol_address(
+        symbol,
+        MOUSE_MODE_SYMBOL,
+        &mode_addr,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.push(abi::load_u64(&mode, &mode_addr, 0));
+    ctx.instructions.push(abi::compare_immediate(&mode, "0"));
+    ctx.instructions.push(abi::branch_eq(report_ready));
+
+    // A byte already owed to the program is a character ready by definition, and
+    // checking first is also what makes the read below safe to issue.
+    mouse_decode::emit_drain_pending(&have, &out_byte, mouse_state_offset, ctx, &mut vregs);
+    ctx.instructions.push(abi::compare_immediate(&have, "0"));
+    ctx.instructions.push(abi::branch_ne(report_ready));
+
+    // Take one byte. Readiness has already said one is there, so this does not
+    // block; `mouse: None` keeps the pump out of it — running the pump here would
+    // consume a whole report and lose the byte this function exists to inspect.
+    emit_stdin_byte_read(
+        ctx,
+        app_mode,
+        byte_offset,
+        &read_retry,
+        &read_resume,
+        // An input error or an unsubscribed thread is not this function's to
+        // report: `pollInput` has never raised for either, and the follow-up read
+        // raises the same thing without blocking — which is what TRUE promises.
+        &read_gave_up,
+        &read_gave_up,
+        None,
+    )?;
+    ctx.instructions
+        .push(abi::move_register(&count, abi::return_register()));
+    ctx.instructions.push(abi::compare_immediate(&count, "0"));
+    // EOF: a read returns immediately at EOF, so TRUE is still true.
+    ctx.instructions.push(abi::branch_le(report_ready));
+
+    ctx.instructions
+        .push(abi::load_u8(&byte, abi::stack_pointer(), byte_offset));
+    mouse_decode::emit_decode_byte(
+        &byte,
+        &action,
+        &out_byte,
+        mouse_state_offset,
+        clock_offset,
+        ctx,
+        &mut vregs,
+    )?;
+    ctx.instructions.push(abi::compare_immediate(
+        &action,
+        &mouse_decode::DECODE_PASS.to_string(),
+    ));
+    ctx.instructions.push(abi::branch_ne(&consumed));
+    // The byte is the program's. Put it back undelivered so the `readChar` this
+    // TRUE invites hands it over — `pollInput` consumes nothing, and that contract
+    // survives the inspection.
+    mouse_decode::emit_pushback_byte(&out_byte, mouse_state_offset, ctx, &mut vregs);
+    ctx.instructions.push(abi::branch(report_ready));
+
+    ctx.instructions.extend([
+        abi::label(&consumed),
+        abi::move_immediate(&zero, "Integer", "0"),
+        abi::store_u64(&zero, abi::stack_pointer(), timeout_offset),
+        abi::branch(ready_recheck),
+        abi::label(&read_gave_up),
+        abi::branch(report_ready),
+    ]);
+    Ok(())
 }

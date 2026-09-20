@@ -372,18 +372,112 @@ pub(crate) const MOUSE_STATE_HEAD_OFFSET: usize = 8;
 pub(crate) const MOUSE_STATE_TAIL_OFFSET: usize = 16;
 /// Byte offset of the count of bytes currently held in the partial-sequence buffer.
 /// Zero means the decoder is not mid-sequence, which is its resting state.
-#[allow(dead_code)]
 pub(crate) const MOUSE_STATE_PARSE_LEN_OFFSET: usize = 24;
+/// Byte offset of the **drain cursor**, ONE-BASED: `0` means nothing is owed, and
+/// any other value `n` means the next byte owed to the program is `buf[n - 1]`.
+///
+/// This is what makes "an escape sequence that turned out not to be a mouse
+/// report" correct rather than merely nearly-correct. When a buffered prefix
+/// cannot continue into a report, every byte of it still belongs to the program,
+/// in order — but the reader can only hand back one byte per call. So the prefix
+/// stays in the buffer and this cursor walks it, and the reader drains it before
+/// reading anything new from the OS.
+///
+/// Without a cursor the replayed bytes would re-enter the decoder as if they were
+/// freshly read, and an `ESC [ Z` would be re-parsed as the start of a new
+/// sequence instead of delivered.
+///
+/// **One-based rather than a plain index**, so that "owe the program `buf[0]`" is
+/// expressible. A zero-based cursor would spell that as `0`, which is also how it
+/// spells "nothing owed" — the two states are genuinely different and
+/// `io::pollInput` needs the first one: having read a byte to find out whether a
+/// character is ready, it must push that byte back undelivered.
+pub(crate) const MOUSE_STATE_DRAIN_POS_OFFSET: usize = 32;
 /// Byte offset of the partial-sequence buffer itself: the bytes of an escape
 /// sequence seen so far but not yet known to be (or not to be) a complete mouse
 /// report. A 1006 SGR report is at most `\x1b[<255;99999;99999M` — 21 bytes — so 32
 /// leaves room without a second block to manage.
-pub(crate) const MOUSE_STATE_PARSE_BUF_OFFSET: usize = 32;
+pub(crate) const MOUSE_STATE_PARSE_BUF_OFFSET: usize = 40;
 /// Bytes of partial-sequence buffer reserved at [`MOUSE_STATE_PARSE_BUF_OFFSET`].
 pub(crate) const MOUSE_STATE_PARSE_BUF_BYTES: usize = 32;
 /// Total reserved slots: through the end of the partial-sequence buffer.
 pub(crate) const MOUSE_STATE_SLOTS: usize =
     (MOUSE_STATE_PARSE_BUF_OFFSET + MOUSE_STATE_PARSE_BUF_BYTES) / 8;
+
+// plan-94-B: the ring block itself — allocated on `enableMouse(TRUE)`, pointed at
+// by `MOUSE_STATE_RING_PTR_OFFSET`, freed on `enableMouse(FALSE)` / `term::off`.
+//
+// Fixed-size and overwrite-on-full. A growable queue was rejected because the
+// backpressure a mouse needs is "newest wins": a program that stalls for a second
+// wants where the mouse is NOW, not a second of replay. Overwriting also bounds
+// the memory with no policy to tune.
+/// Slots in the ring. 64 events at 48 bytes is ~3 KiB — more than a frame's worth
+/// of motion at any realistic report rate, and small enough to allocate once.
+pub(crate) const MOUSE_RING_CAPACITY: usize = 64;
+/// Byte offset, within a ring slot, of the `MouseKind` ordinal.
+pub(crate) const MOUSE_SLOT_KIND_OFFSET: usize = 0;
+/// Byte offset of the `MouseButton` ordinal.
+pub(crate) const MOUSE_SLOT_BUTTON_OFFSET: usize = 8;
+/// Byte offset of the first coordinate — `row` in cells, `x` in pixels. The slot
+/// stores whatever the producer put there; the UNIT is a property of the mouse
+/// mode (`MOUSE_MODE_SYMBOL`), not of the slot, which is what lets one ring serve
+/// both `term::pollMouse` and `canvas::pollMouse`.
+pub(crate) const MOUSE_SLOT_COORD_A_OFFSET: usize = 16;
+/// Byte offset of the second coordinate — `column` in cells, `y` in pixels.
+pub(crate) const MOUSE_SLOT_COORD_B_OFFSET: usize = 24;
+/// Byte offset of the packed modifier bits: `1 = shift`, `2 = ctrl`, `4 = alt`.
+pub(crate) const MOUSE_SLOT_MODS_OFFSET: usize = 32;
+/// Byte offset of the monotonic nanosecond stamp taken at enqueue. Compared only
+/// by subtraction, so it wraps harmlessly.
+pub(crate) const MOUSE_SLOT_STAMP_OFFSET: usize = 40;
+/// Bytes per ring slot.
+pub(crate) const MOUSE_SLOT_BYTES: usize = 48;
+/// Bytes in the whole ring block.
+pub(crate) const MOUSE_RING_BYTES: usize = MOUSE_RING_CAPACITY * MOUSE_SLOT_BYTES;
+
+/// The packed modifier bit for Shift in `MOUSE_SLOT_MODS_OFFSET`.
+pub(crate) const MOUSE_MOD_SHIFT: u64 = 1;
+/// The packed modifier bit for Control.
+pub(crate) const MOUSE_MOD_CTRL: u64 = 2;
+/// The packed modifier bit for Alt / Option.
+pub(crate) const MOUSE_MOD_ALT: u64 = 4;
+
+/// How long a decoded event stays pollable, in nanoseconds (100 ms).
+///
+/// A poll skips anything older and reports "nothing pending" rather than handing
+/// back a stale event. This is the other half of "newest wins": a program that
+/// stops polling for a moment resumes with what the user is doing now. 100 ms is
+/// about six frames at 60 Hz — long enough that an ordinary frame never drops an
+/// event, short enough that a resumed program never acts on a click the user has
+/// forgotten making.
+pub(crate) const MOUSE_EVENT_TTL_NANOS: u64 = 100_000_000;
+
+/// `MouseKind` ordinals — declaration order in both packages' `add_enum`
+/// (`None` first, so the zero record reads as "nothing pending").
+pub(crate) const MOUSE_KIND_NONE: u64 = 0;
+pub(crate) const MOUSE_KIND_DOWN: u64 = 1;
+pub(crate) const MOUSE_KIND_UP: u64 = 2;
+pub(crate) const MOUSE_KIND_MOVE: u64 = 3;
+pub(crate) const MOUSE_KIND_DRAG: u64 = 4;
+pub(crate) const MOUSE_KIND_SCROLL_UP: u64 = 5;
+pub(crate) const MOUSE_KIND_SCROLL_DOWN: u64 = 6;
+
+/// `MouseButton` ordinals — declaration order (`None` first).
+pub(crate) const MOUSE_BUTTON_NONE: u64 = 0;
+pub(crate) const MOUSE_BUTTON_LEFT: u64 = 1;
+pub(crate) const MOUSE_BUTTON_MIDDLE: u64 = 2;
+pub(crate) const MOUSE_BUTTON_RIGHT: u64 = 3;
+
+/// The environment variable that injects raw SGR mouse bytes at
+/// `enableMouse(TRUE)` (plan-94-B Corrections B2).
+///
+/// A test affordance, not a language surface, and the same shape as
+/// `MFB_WINAPP_INPUT`: it makes the decoder and the ring provable on a box with
+/// no mouse — which is the only way plan-94-C/D/E can be exercised at all, and
+/// the only way plan-94-B can prove the ring before the read path changes. It
+/// carries the bytes a terminal would really send, so it feeds the REAL decoder
+/// rather than bypassing it.
+pub(crate) const MOUSE_INJECT_ENV: &str = "MFB_MOUSE_INJECT";
 
 /// plan-94-A §4.4b: the process-global **mouse-mode word**, and the one piece of
 /// mouse state that is NOT per-arena.

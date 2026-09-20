@@ -10,16 +10,20 @@
 //! fd 0 (the window input pipe in app mode). Either way the body is emitted directly
 //! into the member's builder and the `abi_function` wrapper finalizes.
 
-use super::gen_read_family::{emit_stdin_byte_read, emit_utf8_sequence_read, Utf8SeqLabels};
+use super::gen_read_family::{
+    emit_stdin_byte_read, emit_utf8_sequence_read, MousePump, Utf8SeqLabels,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::registry::AbiCtx;
+use crate::codegen::term::core::emit_mouse_tracking_window;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
@@ -57,13 +61,29 @@ pub(crate) fn lower_read_line_family(
     let platform = ctx.platform;
     let app_mode = app;
     let console_term_state = if app { None } else { ctx.term_state_offset };
-    const FRAME_SIZE: usize = 256;
+    const BASE_FRAME_SIZE: usize = 256;
     const BUFFER_OFFSET: usize = 8;
     const CAPACITY_OFFSET: usize = 16;
     const LENGTH_OFFSET: usize = 24;
     const SEQ_LEN_OFFSET: usize = 32;
     const RESULT_OFFSET: usize = 40;
     const BYTES_OFFSET: usize = 48;
+    // plan-94-B: the mouse pump rides the lead-byte read. Emitted only when the
+    // program uses `enableMouse`/`pollMouse` — a program that never mentions the
+    // mouse keeps this helper's exact instruction stream and frame size.
+    //
+    // The clock scratch is appended PAST the base frame rather than carved out of
+    // it, so no existing slot offset moves: the 16 bytes exist only in a mouse
+    // program, which is also the only one that reads the clock.
+    let mouse_pump = ctx.mouse_state_offset.map(|state_offset| MousePump {
+        state_offset,
+        clock_scratch: BASE_FRAME_SIZE,
+    });
+    let frame_size = if mouse_pump.is_some() {
+        BASE_FRAME_SIZE + MOUSE_CLOCK_SCRATCH_BYTES
+    } else {
+        BASE_FRAME_SIZE
+    };
     // Old line-buffer pointer/size stashed across a grow so the dead buffer can be
     // returned to the arena free-list (plan-01 §8.3 runtime-internal reuse). The
     // termios scratch ends at 240 (macOS) / 228 (Linux), so 240/248 are free.
@@ -171,6 +191,23 @@ pub(crate) fn lower_read_line_family(
     // helper's own `emit_configure_stdin_terminal` so its `tcgetattr` snapshots
     // the cooked flags.
     if let Some(term_state_offset) = console_term_state {
+        // plan-94-B §3e: withdraw mouse tracking BEFORE the cooked restore, not
+        // after. The restore re-enables echo, so a report that arrives between the
+        // two would be printed onto the user's screen mid-line.
+        if mouse_pump.is_some() {
+            emit_mouse_tracking_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                false,
+                // Nothing is staged before the read, so nothing to park.
+                false,
+            )?;
+        }
         emit_console_raw_line_mode(
             &mut EmitCtx {
                 symbol,
@@ -235,6 +272,7 @@ pub(crate) fn lower_read_line_family(
         &read_resume,
         &input_error,
         &invalid_context,
+        mouse_pump,
     )?;
     let read_eof = format!("{symbol}_read_eof");
     let multi_start = format!("{symbol}_multi_start");
@@ -484,11 +522,28 @@ pub(crate) fn lower_read_line_family(
             false,
             true,
         )?;
+        // …and re-establish it only once the raw termios is back, so the window in
+        // which a report could be echoed is closed at both ends.
+        if mouse_pump.is_some() {
+            emit_mouse_tracking_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                true,
+                // The read's result is already in the result bank here, and the
+                // escape write clobbers it.
+                true,
+            )?;
+        }
     }
     instructions.push(abi::return_());
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
-    builder.stack_size = FRAME_SIZE;
+    builder.stack_size = frame_size;
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

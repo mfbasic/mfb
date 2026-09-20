@@ -366,6 +366,17 @@ impl LinuxPlan<'_> {
                 imports
             }
             "term.terminalSize" => vec![self.libc_import("ioctl", required_by)],
+            // plan-94-B. `write` for the 1000/1002/1006 mode set/reset,
+            // `clock_gettime` for the ring's event stamp, `getenv` for the
+            // `MFB_MOUSE_INJECT` test affordance. `pollMouse` reads the clock too
+            // (it measures every candidate against one "now") but emits no ANSI
+            // and reads no environment.
+            "term.enableMouse" => vec![
+                self.libc_import("write", required_by),
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("getenv", required_by),
+            ],
+            "term.pollMouse" => vec![self.libc_import("clock_gettime", required_by)],
             "fs.exists" => vec![self.libc_import("access", required_by)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", required_by)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", required_by)],

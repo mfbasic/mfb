@@ -596,6 +596,34 @@ pub fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
     String::from_utf8(output.stdout).expect("utf8 stdout")
 }
 
+/// Run `executable` with extra environment variables and empty stdin.
+///
+/// The env-driven test affordances (`MFB_WINAPP_INPUT`, `MFB_MOUSE_INJECT`) exist
+/// so a path that needs hardware — a keyboard, a mouse — can be exercised on a box
+/// that has neither, and over ssh. Driving them needs the child's environment, not
+/// its stdin, which is what separates this from [`run_with_stdin`].
+pub fn run_with_env(executable: &Path, env: &[(&str, &str)]) -> String {
+    let mut command = Command::new(executable);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        // Piped for the same reason `run_with_stdin` pipes it: an inherited fd 2
+        // is a tty under an interactive `cargo test`.
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run executable");
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
 /// bug-452 codegen oracle. A raw indirect `blr` is an unstaged external C call:
 /// its result lives in the platform C-return bank (`rax`/`c_return(0)`), NOT the
 /// aligned MFB-return bank (`aligned_reg` — `rdi` on SysV, `rcx` on Win64) that a

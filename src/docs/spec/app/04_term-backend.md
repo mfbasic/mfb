@@ -197,14 +197,90 @@ no sub-word addressing; no atomics, because there is one writer and the readers
 tolerate a one-event-stale answer.
 [[src/codegen/error/constants/error_constants.rs:MOUSE_MODE_SYMBOL]]
 
-As of plan-94-A both members are **inert stubs** on every backend: `enableMouse`
-writes nothing (not even the mode word — turning it on before plan-94-B's decoder
-exists would fill the input pipe with reports nothing consumes), and `pollMouse`
-always returns the all-zero `MouseEvent`, which reads as `MouseKind.None` because
-`None` is the first-declared variant of both enums. `term::on`/`term::off` emit no
-new ANSI bytes. The two `term::` members are not added to any app dispatch, so
-they delegate to the shared console backend and behave identically in every mode.
-[[src/codegen/term/core/term.rs:emit_poll_mouse]]
+## The mouse decoder and the read path
+
+plan-94-B decodes mouse input in **console mode**. `term::enableMouse(TRUE)`
+writes `\x1b[?1000h\x1b[?1002h\x1b[?1006h`, allocates the ring and sets the mode
+word to *cells*; `enableMouse(FALSE)` and `term::off` write the matching reset,
+clear the word and free the ring. All three modes are set because they answer
+three different questions: 1000 turns reporting on, 1002 adds motion while a
+button is held (without it a drag reports only its press and release), and
+**1006 is required** — the default encoding biases each coordinate by 32 into one
+byte and so cannot express a column past 223, let alone a pixel.
+[[src/codegen/term/core/term.rs:emit_enable_mouse]]
+
+The decoder sits at `emit_stdin_byte_read`, the single function every `io::` read
+helper takes its bytes through, and *above* the app-vs-console split — so one
+implementation serves the console broadcast log and the window input pipe alike,
+which is what lets the app backends inject bytes rather than carry their own
+event queues. It is emitted only for a program that uses the mouse members, so a
+program that does not keeps its exact prior instruction stream.
+[[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
+
+**Bytes that are not a recognised report reach the program unchanged**, in order
+— including a bare `ESC` and sequences like `ESC [ Z`. Deciding that an escape is
+*not* a mouse report takes several bytes, and by then the decoder holds bytes the
+program is owed but can only return one at a time, so the buffer doubles as a
+replay queue with its own cursor.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_DRAIN_POS_OFFSET]]
+
+Decoded events go into a 64-slot per-thread ring, each stamped with a monotonic
+reading. It **overwrites oldest-first when full**, and `pollMouse` **skips
+anything older than 100 ms**. Both rules say the same thing from opposite ends: a
+program that stalls gets what the user is doing now, not a replay of what they
+did while it was busy.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_EVENT_TTL_NANOS]]
+
+### Broadcast (per-subscriber) semantics
+
+Console stdin is a broadcast log: every subscribed thread sees the same bytes
+(`thread::openStdIn`; main subscribes at entry). Mouse decoding rides that per
+thread, so **each subscribed, mouse-enabled thread decodes the same reports
+independently and gets its own copy of the events** — polling on one thread does
+not consume them from another.
+
+The ring lives in the thread's own arena, which is what makes this true by
+construction rather than by policy, and it has a corollary worth stating plainly:
+a thread that never called `thread::openStdIn` reads no stdin bytes, so it
+decodes nothing and its `pollMouse` reports `MouseKind.None` forever. The
+existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
+
+### Two read-path interactions
+
+- **`io::pollInput` stays honest.** Its TRUE promises that the next read will not
+  block, and with mouse on "bytes are ready" no longer implies "a character is
+  ready" — the pending bytes may be a report the decoder swallows whole. So when
+  readiness says ready, `pollInput` runs the bytes through the same decoder, puts
+  back the first byte that turns out to be the program's, and re-asks
+  (non-blocking) if what it found was mouse. It still consumes nothing.
+  [[src/codegen/builtins/io/func_poll_input.rs:lower_poll_input]]
+- **`io::input`/`io::readLine` suspend tracking.** They restore the saved cooked
+  line discipline for their read, which re-enables echo; a report arriving in that
+  window would be echoed onto the screen as visible garbage. Tracking is therefore
+  withdrawn before the restore and re-established after the raw termios returns.
+  Mouse events are lost for the duration, which is correct: a program asking for a
+  typed line is not tracking the mouse.
+  [[src/codegen/term/core/term.rs:emit_mouse_tracking_window]]
+
+### App mode
+
+In an `--app` build `term::enableMouse` writes **no** terminal escapes — stdout is
+the window's transcript, where they would be displayed rather than interpreted —
+but still sets the mode word, which is what each backend's UI-thread handler
+reads. Both `term::` mouse members carry the `Console` presentation-mode gate, so
+`term::pollMouse` in `Mode.Canvas` raises the trappable `ErrWrongMode` rather than
+reporting cell coordinates for a surface that has no cells; `canvas::pollMouse` is
+`Canvas`-gated for the mirror-image reason. The per-backend handlers that feed the
+decoder are plan-94-C (macOS), D (GTK) and E (Windows).
+[[src/codegen/builtins/term/gen_shared.rs:lower_term_helper]]
+
+### Testing without a mouse
+
+`MFB_MOUSE_INJECT` carries raw SGR bytes that `enableMouse(TRUE)` feeds through
+the decoder. It is a test affordance, in the same spirit as `MFB_WINAPP_INPUT`:
+it exercises the real parser rather than bypassing it, which is what makes the
+decoder and the ring provable on a machine with no mouse and over ssh.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_INJECT_ENV]]
 
 ## Retained double-buffered surface + mandatory present
 
