@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/types/types-union-member-scalar
+   3 | 
+   4 | UNION Shape
+   5 |   Integer
+     | ^
+tests/syntax/types/types-union-member-scalar/src/main.mfb:5 error[2-203-0064 TYPE_UNION_MEMBER_REQUIRES_TYPE]: union members must name concrete TYPE declarations
+               UNION `Shape` member `Integer` must be a concrete TYPE.
+   4 | UNION Shape
+   5 |   Integer
+   6 |   String
+     | ^
+tests/syntax/types/types-union-member-scalar/src/main.mfb:6 error[2-203-0064 TYPE_UNION_MEMBER_REQUIRES_TYPE]: union members must name concrete TYPE declarations
+               UNION `Shape` member `String` must be a concrete TYPE.
+[exit 1]

@@ -73,6 +73,7 @@ fn concrete_union_variants_flattens_included_unions() {
         includes: vec![],
         variants: vec![IrVariant {
             name: "A".to_string(),
+            type_: crate::types::ParameterType::parse("A"),
             fields: vec![],
             loc: loc(),
         }],
@@ -88,6 +89,7 @@ fn concrete_union_variants_flattens_included_unions() {
         includes: vec!["Base".to_string()],
         variants: vec![IrVariant {
             name: "B".to_string(),
+            type_: crate::types::ParameterType::parse("B"),
             fields: vec![IrField {
                 visibility: None,
                 name: "v".to_string(),
@@ -122,6 +124,7 @@ fn union_with_includes_round_trips_variants_through_encode() {
             includes: vec![],
             variants: vec![IrVariant {
                 name: "A".to_string(),
+                type_: crate::types::ParameterType::parse("A"),
                 fields: vec![],
                 loc: loc(),
             }],
@@ -137,6 +140,7 @@ fn union_with_includes_round_trips_variants_through_encode() {
             includes: vec!["Base".to_string()],
             variants: vec![IrVariant {
                 name: "B".to_string(),
+                type_: crate::types::ParameterType::parse("B"),
                 fields: vec![],
                 loc: loc(),
             }],

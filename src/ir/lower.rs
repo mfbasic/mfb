@@ -592,6 +592,8 @@ fn lower_field(field: &HirTypeField) -> IrField {
 fn lower_variant(variant: &crate::hir::HirUnionVariant, type_index: &TypeIndex) -> IrVariant {
     IrVariant {
         name: variant.type_.name().into_owned(),
+        // bug-657: keep the elaborated type, not just its rendering.
+        type_: variant.type_.clone(),
         fields: type_index
             .records
             .get(&variant.type_)

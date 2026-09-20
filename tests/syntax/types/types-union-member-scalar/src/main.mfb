@@ -1,0 +1,12 @@
+' bug-657: a built-in is not a TYPE declaration, so it cannot be a union member.
+' This used to pass the verifier and die in codegen with an internal error.
+
+UNION Shape
+  Integer
+  String
+END UNION
+
+FUNC main AS Integer
+  LET sh AS Shape = 5
+  RETURN 0
+END FUNC

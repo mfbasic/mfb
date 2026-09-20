@@ -46,6 +46,16 @@ pub(crate) struct IrField {
 #[derive(Clone)]
 pub(crate) struct IrVariant {
     pub(crate) name: String,
+    /// bug-657: the member's ELABORATED type, carried from `HirUnionVariant::type_`.
+    ///
+    /// `name` is a rendering and cannot be asked whether the member is a concrete TYPE:
+    /// deciding that from the spelling means re-parsing it, which plan-111's ratchet
+    /// bans below the AST (`parse_sites / ir` is a hard floor of 0). The HIR already
+    /// holds the parsed type — `lower_variant` used to keep only `.name()` from it — so
+    /// carrying it costs nothing and makes `Named(_)` vs a built-in a pure type-domain
+    /// test. Not on the wire: `decode_variant` rebuilds it from the encoded name, which
+    /// `src/ir/binary.rs` is a sanctioned boundary to do, so the format is unchanged.
+    pub(crate) type_: ParameterType,
     pub(crate) fields: Vec<IrField>,
     // Source location of the variant declaration.
     pub(crate) loc: IrSourceLoc,

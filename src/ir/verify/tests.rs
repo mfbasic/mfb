@@ -610,6 +610,7 @@ fn union(name: &str, variants: &[&str]) -> IrType {
             .iter()
             .map(|v| IrVariant {
                 name: (*v).to_string(),
+                type_: crate::types::ParameterType::parse(v),
                 fields: vec![],
                 loc: IrSourceLoc::default(),
             })
@@ -8590,6 +8591,7 @@ fn rejects_a_thread_carrying_union_as_a_map_key() {
         variants: vec![
             IrVariant {
                 name: "Holder".to_string(),
+                type_: ParameterType::parse("Holder"),
                 fields: vec![IrField {
                     visibility: None,
                     name: "t".to_string(),
@@ -8600,6 +8602,7 @@ fn rejects_a_thread_carrying_union_as_a_map_key() {
             },
             IrVariant {
                 name: "Plain".to_string(),
+                type_: ParameterType::parse("Plain"),
                 fields: vec![IrField {
                     visibility: None,
                     name: "n".to_string(),
