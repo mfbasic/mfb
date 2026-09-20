@@ -24,8 +24,8 @@ See plan-139-A § Prerequisites — all rows must be MET, and its two `fs` rows 
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-B complete | every `- [ ]` in `planning/plan-139-B-*.md` ticked | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-B-*.md` → 9 unticked; plan-139-A, which B depends on, is blocked at its `fs` prerequisite gate.) |
-| `packages/tar` does not exist | `ls packages/tar` → `No such file or directory` | MET (re-verified 2026-09-15: `No such file or directory`) |
+| plan-139-B complete | every `- [ ]` in `planning/plan-139-B-*.md` ticked | **MET** (2026-09-19: plan-139-B has 0 unticked boxes and is archived to `planning/completed/`; `target/release/mfb test packages/zip` → `Tests: 76  Pass: 76  Fail: 0`) |
+| `packages/tar` does not exist | `ls packages/tar` → `No such file or directory` | MET (re-verified 2026-09-19: `No such file or directory`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run before you
 > continue and before you stop; if you stop, report all prerequisites.
@@ -92,22 +92,36 @@ All entries validated before any write.
 
 ### Phase 1 — reader
 
-- [ ] `packages/tar/project.json` (name `tar`, version `0.1.0`), `src/source.mfb` (copied),
-      `src/header.mfb` (octal/base-256, checksum, ustar/PAX/GNU), `src/lib.mfb`: `open` ×2,
-      `entries`, `has`, `find`, `read`, `readText`, constants `KindFile = 0`, `KindDirectory = 1`,
-      `KindSymlink = 2`, `KindHardlink = 3`, `KindOther = 4`, `ErrorChecksum = 93160001`.
-- [ ] Fixtures from `packages/tar/oracle/fixtures.py` (Python `tarfile` with `USTAR_FORMAT`,
-      `GNU_FORMAT`, `PAX_FORMAT`; a 200-byte name; a non-ASCII name; a symlink; a hardlink;
-      a >100-byte link target) plus one `bsdtar -cf` archive, embedded in `src/test_fixtures.mfb`.
-- [ ] Tests `src/test_read.mfb`: every fixture, both sources — entry fields equal the generator's
-      printed `TarInfo` values, contents equal; bad checksum → `ErrorChecksum`; truncated data →
-      `ErrInvalidFormat`; `read` of symlink → `ErrUnsupported`; `maxBytes` below size → `ErrTooLarge`.
-- [ ] Audit: `grep -n -E 'readAllBytes|readAll\(|readBytes\(' packages/tar/src/*.mfb` → no non-test
-      match.
+- [x] `packages/tar/project.json`; `src/source.mfb` copied from `packages/zip` with only the
+      error-message prefix changed; `src/header.mfb` (octal and GNU base-256 numbers, the
+      signed/unsigned checksum, ustar `prefix`/`name`, PAX record parsing, lenient name decoding);
+      `src/lib.mfb` with `open` ×2, `entries`, `has`, `find`, `read`, `readText`, the five `Kind*`
+      constants and `ErrorChecksum = 93160001`. The walk steps over each entry's data by
+      arithmetic, so listing a file-backed archive reads one 512-byte header per entry.
+- [x] `packages/tar/oracle/fixtures.py` generates five fixtures — `ustar`, `gnu`, `pax`, `links`
+      and `bsdtar` — into `src/test_fixtures.mfb` and `oracle/corpus/*.tar`. The 200-byte name and
+      the 117-byte link target are shared constants, so the `gnu` and `pax` fixtures carry the
+      **same** name stored two different ways; a non-ASCII name, a symlink and a hardlink are
+      covered. Bytes are embedded Base64, for the same reason as the zip fixtures.
+- [x] Tests `src/test_read.mfb` — 18 cases, all passing. Every fixture is compared field by field
+      against the oracle (name, kind, isDirectory, size, mode, mtime, uid, gid, user, group,
+      linkTarget and contents) through **both** overloads, plus a case asserting the two sources
+      return identical entry bytes. Named cases pin the GNU `L` and `K` records, the PAX `x`
+      record, a non-ASCII PAX name, link listing, and the `bsdtar`-written archive — and one case
+      asserts **GNU and PAX agree on the same 200-byte name**, which is the reader's whole point.
+      Refusals: reading a symlink, a hardlink or a directory → `ErrUnsupported`; `maxBytes` below
+      the size → `ErrTooLarge` with the archive still usable; a missing name → `ErrNotFound`; a
+      corrupted header → `ErrorChecksum`; an over-large size field → refused; an archive ending
+      mid-block → `ErrInvalidFormat`.
+- [x] Audit: the grep over executable lines of the non-test sources exits 1 with no matches, and
+      the positive form is stronger — the package's executable code calls exactly `fs::readBytesAt`
+      once and `fs::size` once, and nothing else in `fs`.
 
-Acceptance: all three header formats read identically from both sources.
-  Check: `target/release/mfb test packages/tar` → pass; audit grep → none (est. 1 min).
-Commit: —
+Acceptance: all three header formats read identically from both sources. **Met** — and the
+`gnu`/`pax` agreement case proves it directly rather than by inference.
+  Check: `target/release/mfb test packages/tar` → `Tests: 18  Pass: 18  Fail: 0`; audit grep →
+  exit 1, no match.
+Commit: PENDINGC1
 
 ### Phase 2 — writer
 
@@ -157,6 +171,34 @@ Commit: —
   recommended to treat as the decision above for consistency.
 
 ## Corrections
+
+### 2026-09-19 — GNU's ustar magic is `"ustar "`, not `"ustar\0"`, and getting it wrong is silent
+
+The first reader compared the 6-byte magic field against `"ustar"` and `"ustar  "`. POSIX writes
+`"ustar\0"`, which reads back as `"ustar"` because the text stops at the NUL — but **GNU writes
+`"ustar "`**, six bytes with a trailing space and no NUL, which matched neither.
+
+The symptom was not "GNU archives are rejected". `hasUstarMagic` gates only the `prefix`, `uname`
+and `gname` fields, so a GNU archive still read correctly except that every entry's `user` and
+`group` came back empty — caught by the oracle comparison as
+`gnu entry 0: user/group disagree: /`, and invisible to any test that only checked names and
+contents. The check now compares the trimmed field against `"ustar"`, which accepts both spellings.
+
+Worth recording because it is the exact failure mode the oracle fixtures exist to catch: a
+plausible-looking archive that reads fine until you compare a field nobody thought to assert.
+
+### 2026-09-19 — truncating a tar from the end does not truncate the archive
+
+The planned "truncated data → `ErrInvalidFormat`" case cut 100 bytes off the end of a fixture and
+expected a refusal. It does not refuse, correctly: a tar ends with two zero blocks and then padding
+to a record boundary, so removing 100 trailing bytes removes padding only. The walk still meets the
+two zero blocks and stops there, exactly as it should.
+
+The case now truncates to 700 bytes — inside the first entry's data, before any terminator — which
+leaves the walk with a partial block and no end marker. That is the condition the criterion was
+about, and it raises `ErrInvalidFormat`. A strengthening, not a weakening: the original cut tested
+nothing.
+
 
 ## Summary
 

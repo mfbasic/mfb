@@ -1,0 +1,275 @@
+' ---------------------------------------------------------------------------
+' tar/lib.mfb — the package's public surface, and the walk that builds it.
+'
+' There is no index in a tar archive: `open` walks it, reading one 512-byte
+' header per entry and stepping over the data between them by arithmetic. That
+' is what keeps opening a file-backed archive cheap -- a 40 GB archive costs one
+' header read per entry, not 40 GB.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+' The kind of thing an entry describes.
+EXPORT LET KindFile AS Integer = 0
+EXPORT LET KindDirectory AS Integer = 1
+EXPORT LET KindSymlink AS Integer = 2
+EXPORT LET KindHardlink AS Integer = 3
+EXPORT LET KindOther AS Integer = 4
+
+' A header whose recorded checksum does not match its bytes.
+EXPORT LET ErrorChecksum AS Integer = 93160001
+
+' One entry in an archive.
+EXPORT TYPE Entry
+  name AS String
+  kind AS Integer
+  isDirectory AS Boolean
+  size AS Integer
+  mode AS Integer
+  modifiedSeconds AS Integer
+  uid AS Integer
+  gid AS Integer
+  user AS String
+  group AS String
+  linkTarget AS String
+  dataOffset AS Integer
+END TYPE
+
+' An open archive.
+'
+' An `Archive` over a file refers to the file you opened without taking it over.
+' Closing that file makes later reads through this archive fail with
+' `errorCode::ErrResourceClosed`.
+EXPORT TYPE Archive
+  source AS Source
+  entries AS List OF Entry
+END TYPE
+
+' Open an archive held in memory.
+EXPORT FUNC open(data AS List OF Byte) AS Archive
+  RETURN walkArchive(MemorySource[data])
+END FUNC
+
+' Open an archive from a file you have open.
+EXPORT FUNC open(RES file AS fs::File) AS Archive
+  RETURN walkArchive(FileSource[file])
+END FUNC
+
+' Every entry, in the order the archive lists them.
+EXPORT FUNC entries(archive AS Archive) AS List OF Entry
+  RETURN archive.entries
+END FUNC
+
+' Whether an entry with exactly this name is present.
+EXPORT FUNC has(archive AS Archive, name AS String) AS Boolean
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The entry with exactly this name.
+'
+' Tar permits the same name to appear more than once -- that is how an archive
+' records a file being replaced. This returns the FIRST, which is the one
+' `bsdtar -t` lists first; extracting applies them in order, so the last wins on
+' disk.
+EXPORT FUNC find(archive AS Archive, name AS String) AS Entry
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN entry
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "tar: no entry named \"" & name & "\"")
+END FUNC
+
+' Read one entry's bytes.
+EXPORT FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
+  IF entry.kind <> KindFile THEN
+    FAIL error(errorCode::ErrUnsupported, "tar: entry \"" & entry.name & "\" is not a regular file")
+  END IF
+  IF entry.size > maxBytes THEN
+    FAIL error(errorCode::ErrTooLarge, "tar: entry \"" & entry.name & "\" is " & toString(entry.size) & " bytes, over the " & toString(maxBytes) & "-byte limit")
+  END IF
+  IF entry.size = 0 THEN
+    RETURN []
+  END IF
+  RETURN readAt(archive.source, entry.dataOffset, entry.size)
+END FUNC
+
+' Read one entry and decode it as UTF-8 text.
+EXPORT FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
+  LET data AS List OF Byte = read(archive, entry, maxBytes)
+  LET text AS String = encoding::utf8Decode(data) TRAP(e)
+    FAIL error(errorCode::ErrInvalidFormat, "tar: entry \"" & entry.name & "\" is not valid UTF-8")
+  END TRAP
+  RETURN text
+END FUNC
+
+' Walk the archive, header by header.
+'
+' PAX and GNU pseudo-entries carry overrides for the header that FOLLOWS them,
+' so the walk keeps them in hand rather than emitting them as entries. Precedence
+' when more than one applies: a PAX `x` record wins over a GNU long-name record,
+' which wins over the ustar fields. A PAX `g` record sets defaults for every
+' following entry until replaced.
+PUBLIC FUNC walk(source AS Source) AS List OF Entry
+  LET total AS Integer = sizeOf(source)
+  MUT out AS List OF Entry = []
+  MUT at AS Integer = 0
+  MUT zeroRun AS Integer = 0
+  MUT pendingName AS String = ""
+  MUT pendingLink AS String = ""
+  MUT pax AS Map OF String TO String = Map OF String TO String {}
+  MUT globals AS Map OF String TO String = Map OF String TO String {}
+
+  WHILE at + BLOCK <= total
+    LET block AS List OF Byte = readAt(source, at, BLOCK)
+    IF isZeroBlock(block) THEN
+      zeroRun = zeroRun + 1
+      at = at + BLOCK
+      ' Two zero blocks end the archive. Anything after them is padding.
+      IF zeroRun >= 2 THEN
+        RETURN out
+      END IF
+    ELSE
+      zeroRun = 0
+      verifyChecksum(block, at)
+      LET flag AS Integer = headerTypeFlag(block)
+      LET size AS Integer = headerSize(block)
+      LET dataAt AS Integer = at + BLOCK
+      IF dataAt + size > total THEN
+        FAIL error(errorCode::ErrInvalidFormat, "tar: entry at " & toString(at) & " claims " & toString(size) & " bytes, past the end of a " & toString(total) & "-byte archive")
+      END IF
+
+      IF flag = 76 THEN
+        ' 'L' — a GNU long name for the next header.
+        pendingName = trimNul(readAt(source, dataAt, size))
+      ELSE
+        IF flag = 75 THEN
+          ' 'K' — a GNU long link target for the next header.
+          pendingLink = trimNul(readAt(source, dataAt, size))
+        ELSE
+          IF flag = 120 THEN
+            ' 'x' — a PAX header for the next entry.
+            pax = parsePaxRecords(readAt(source, dataAt, size))
+          ELSE
+            IF flag = 103 THEN
+              ' 'g' — PAX defaults for every following entry.
+              globals = parsePaxRecords(readAt(source, dataAt, size))
+            ELSE
+              out = collections::append(out, buildEntry(block, dataAt, pendingName, pendingLink, pax, globals))
+              pendingName = ""
+              pendingLink = ""
+              pax = Map OF String TO String {}
+            END IF
+          END IF
+        END IF
+      END IF
+      at = dataAt + paddedSize(size)
+    END IF
+  END WHILE
+
+  ' Ending exactly on a block boundary without the two zero blocks is what GNU
+  ' tar accepts from a truncated-but-complete archive, so it is accepted here.
+  IF at <> total THEN
+    FAIL error(errorCode::ErrInvalidFormat, "tar: archive ends with a partial block")
+  END IF
+  RETURN out
+END FUNC
+
+PRIVATE FUNC buildEntry(block AS List OF Byte, dataAt AS Integer, longName AS String, longLink AS String, pax AS Map OF String TO String, globals AS Map OF String TO String) AS Entry
+  LET flag AS Integer = headerTypeFlag(block)
+
+  MUT name AS String = readName(block)
+  IF len(longName) > 0 THEN
+    name = longName
+  END IF
+  name = overrideText(pax, globals, "path", name)
+
+  MUT link AS String = headerLinkTarget(block)
+  IF len(longLink) > 0 THEN
+    link = longLink
+  END IF
+  link = overrideText(pax, globals, "linkpath", link)
+
+  LET size AS Integer = overrideNumber(pax, globals, "size", headerSize(block))
+  LET mtime AS Integer = overrideNumber(pax, globals, "mtime", headerMtime(block))
+  LET uid AS Integer = overrideNumber(pax, globals, "uid", headerUid(block))
+  LET gid AS Integer = overrideNumber(pax, globals, "gid", headerGid(block))
+  LET user AS String = overrideText(pax, globals, "uname", headerUser(block))
+  LET group AS String = overrideText(pax, globals, "gname", headerGroup(block))
+
+  LET kind AS Integer = kindOf(flag, name)
+  RETURN Entry[ _
+    name, kind, kind = KindDirectory, size, headerMode(block), mtime, _
+    uid, gid, user, group, link, dataAt _
+  ]
+END FUNC
+
+' Which kind a type flag denotes.
+'
+' '0' and NUL are regular files; old archives also mark a directory only by a
+' trailing slash on the name, which is why the name is consulted too.
+PRIVATE FUNC kindOf(flag AS Integer, name AS String) AS Integer
+  IF flag = 53 THEN
+    RETURN KindDirectory
+  END IF
+  IF flag = 50 THEN
+    RETURN KindSymlink
+  END IF
+  IF flag = 49 THEN
+    RETURN KindHardlink
+  END IF
+  IF flag = 48 OR flag = 0 THEN
+    IF strings::endsWith(name, "/") THEN
+      RETURN KindDirectory
+    END IF
+    RETURN KindFile
+  END IF
+  RETURN KindOther
+END FUNC
+
+PRIVATE FUNC overrideText(pax AS Map OF String TO String, globals AS Map OF String TO String, key AS String, fallback AS String) AS String
+  IF collections::hasKey(pax, key) THEN
+    RETURN collections::get(pax, key)
+  END IF
+  IF collections::hasKey(globals, key) THEN
+    RETURN collections::get(globals, key)
+  END IF
+  RETURN fallback
+END FUNC
+
+PRIVATE FUNC overrideNumber(pax AS Map OF String TO String, globals AS Map OF String TO String, key AS String, fallback AS Integer) AS Integer
+  LET text AS String = overrideText(pax, globals, key, "")
+  IF len(text) = 0 THEN
+    RETURN fallback
+  END IF
+  ' PAX writes mtime with a fractional part; the whole seconds are what an
+  ' Integer can carry, and the fraction is not information this API exposes.
+  LET whole AS String = collections::get(strings::split(text, "."), 0)
+  LET parsed AS Integer = toInt(whole) TRAP(e)
+    RECOVER fallback
+  END TRAP
+  RETURN parsed
+END FUNC
+
+PRIVATE FUNC trimNul(bytes AS List OF Byte) AS String
+  MUT kept AS List OF Byte = []
+  FOR EACH b IN bytes
+    IF toInt(b) <> 0 THEN
+      kept = collections::append(kept, b)
+    END IF
+  NEXT
+  RETURN readText(kept, 0, len(kept))
+END FUNC
+
+PRIVATE FUNC walkArchive(source AS Source) AS Archive
+  RETURN Archive[source, walk(source)]
+END FUNC

@@ -1,0 +1,14 @@
+{
+  "name": "tar",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Reads and writes tar archives in the ustar, PAX and GNU dialects. An archive is opened either from an open fs::File or from a List OF Byte, through the same `open` call, and both forms produce the same entries with the same contents. Opening a file-backed archive reads one 512-byte header per entry and skips the data between them by arithmetic, so listing an archive far larger than memory costs only its headers.\n\nEntry names longer than the ustar fields allow are read from PAX extended headers or GNU long-name records, and written as PAX when they do not fit. Symbolic links, hard links and device nodes are listed with their metadata; reading the contents of anything that is not a regular file is refused rather than guessed at. Every header's checksum is verified, and both the octal and the GNU base-256 spellings of a numeric field are understood.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}
