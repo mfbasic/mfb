@@ -49,12 +49,12 @@ These gate the whole plan-139 feature; letters B–D point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| `fs` exposes a size query on an open handle: `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-15 against a fresh `cargo build --release` → `Finished \`release\` profile ... in 1m 57s`: `target/release/mfb man fs size` → ``error: unknown fs function `size` ``; the plan's own `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs \| grep -i -E 'size\|seek\|At"'` → exit 1, no matches) |
-| `fs` exposes a positional read on an open handle that does not require reading from the start: `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte` (returns fewer than `count` bytes only at end of file) | `target/release/mfb man fs readBytesAt` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-15, same fresh build: `target/release/mfb man fs readBytesAt` → ``error: unknown fs function `readBytesAt` ``. `target/release/mfb man fs` lists only `readLine`, `readAll`, `readAllBytes`, `readBytes`, `eof` — and `readBytes` is the path-based whole-file read, not positional: `src/codegen/builtins/fs/func_read_bytes.rs` DESC reads "reads its complete contents into a single `List OF Byte` ... The whole file is read in one call") |
-| `packages/zip` and `packages/tar` do not exist yet | `ls packages/zip packages/tar` → `No such file or directory` ×2 | MET (re-verified 2026-09-15: both `No such file or directory`) |
-| Package parameter defaults work for importers (plan-136-B) | `ls planning/completed/plan-136-B-package-parameter-defaults.md` → present | MET (re-verified 2026-09-15: file present) |
-| Release compiler is current with HEAD | `cargo build --release` → `Finished` | MET (re-verified 2026-09-15 in `.claude/worktrees/P-139` at HEAD `8957025e4`: `Finished \`release\` profile [optimized] target(s) in 1m 57s`) |
-| Python 3 with `zipfile`/`tarfile`, `/usr/bin/zip`, `bsdtar` (oracle, letter D; corpus, every letter) | `python3 -c "import zipfile,tarfile"; which zip bsdtar` → no error, two paths | MET (re-verified 2026-09-15: `python3 -c "import zipfile,tarfile"` → ok; `which zip bsdtar` → `/usr/bin/zip`, `/usr/bin/bsdtar`) |
+| `fs` exposes a size query on an open handle: `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-19 at main tip `23c06f46b`, fresh `cargo build --release` → `Finished \`release\` profile [optimized] target(s) in 1m 51s: `target/release/mfb man fs size` → ``error: unknown fs function `size` ``; registry probe `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs | grep -i -E 'size|seek|At"'` → exit 1, no matches) |
+| `fs` exposes a positional read on an open handle that does not require reading from the start: `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte` (returns fewer than `count` bytes only at end of file) | `target/release/mfb man fs readBytesAt` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-19, same build: `target/release/mfb man fs readBytesAt` → ``error: unknown fs function `readBytesAt` ``. `target/release/mfb man fs` still lists only `readLine`, `readAll`, `readAllBytes`, `readBytes`, `eof` as handle reads — `readBytes` remains the path-based whole-file read) |
+| `packages/zip` and `packages/tar` do not exist yet | `ls packages/zip packages/tar` → `No such file or directory` ×2 | MET (re-verified 2026-09-19: both `No such file or directory`) |
+| Package parameter defaults work for importers (plan-136-B) | `ls planning/completed/plan-136-B-package-parameter-defaults.md` → present | MET (re-verified 2026-09-19: file present) |
+| Release compiler is current with HEAD | `cargo build --release` → `Finished` | MET (re-verified 2026-09-19 in `.claude/worktrees/P-139` at HEAD `23c06f46b`: `Finished \`release\` profile [optimized] target(s) in 1m 51s`) |
+| Python 3 with `zipfile`/`tarfile`, `/usr/bin/zip`, `bsdtar` (oracle, letter D; corpus, every letter) | `python3 -c "import zipfile,tarfile"; which zip bsdtar` → no error, two paths | MET (re-verified 2026-09-19: `python3 -c "import zipfile,tarfile"` → ok; `which zip bsdtar` → `/usr/bin/zip`, `/usr/bin/bsdtar`) |
 
 The two `fs` rows are **builtin** work (a new registry function each, per-target codegen for
 `pread`/`lseek`+`read`/`ReadFile` with `OVERLAPPED`, man pages, spec) and belong to their own plan.
@@ -413,6 +413,42 @@ Both blocked rows give the identical result at the new tip:
 `ls src/codegen/builtins/fs/func_*.rs | wc -l` → 41 (unchanged), and the registry probe still
 returns no matches. main's changes did not touch `fs`, so the gate verdict stands against
 current main.
+
+### 2026-09-19 — Prerequisites gate re-run at new main tip: still NOT MET, plan not started
+
+`/follow-plan 139` re-ran every Prerequisites command in a fresh worktree
+(`.claude/worktrees/P-139`, branch `worktree-P-139`, forked from `main` at `23c06f46b` —
+main has advanced 4 commits since the 2026-09-15 run, which measured `e0f72a1ae`).
+`cargo build --release` → `Finished \`release\` profile [optimized] target(s) in 1m 51s`.
+Four of six rows MET, the same two NOT MET. No phase of any letter (A, B, C or D) was
+started; no `packages/zip` or `packages/tar` file was created.
+
+| Row | Command run | Result |
+|---|---|---|
+| `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` | **NOT MET** — ``error: unknown fs function `size` `` |
+| `fs::readBytesAt(file, offset, count)` | `target/release/mfb man fs readBytesAt` | **NOT MET** — ``error: unknown fs function `readBytesAt` `` |
+| `packages/zip`, `packages/tar` absent | `ls packages/zip packages/tar` | MET — `No such file or directory` ×2 |
+| plan-136-B archived | `ls planning/completed/plan-136-B-package-parameter-defaults.md` | MET — present |
+| release compiler current | `cargo build --release` | MET — `Finished` (above) |
+| Python + `zip` + `bsdtar` | `python3 -c "import zipfile,tarfile"; which zip bsdtar` | MET — ok; `/usr/bin/zip`, `/usr/bin/bsdtar` |
+
+Evidence that main's four new commits did not move the gate:
+
+- Registry probe unchanged: `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs
+  | grep -i -E 'size|seek|At"'` → exit 1, no matches.
+- The full sorted registry name list from that same grep contains no `size`, no `seek`, and no
+  `*At` read. The handle reads are exactly `readLine`, `readAll`, `readAllBytes`, `eof`;
+  `readBytes`/`readText` are the path-based whole-file forms (`mfb man fs`: "fs::readText and
+  fs::readBytes read the entire file in one call"). Building the source layer on those is the
+  whole-file load §1 Non-goals forbids, so no spelling substitution rescues the gate.
+
+**The prerequisite work is still unplanned, not merely undone.** `grep -rln 'readBytesAt'
+planning/` matches only this plan's own file. `grep -rln -E 'readBytesAt|fs::size|pread'
+planning/*.md` additionally matched `plan-125-I`, `speed.md` and `todo.md`, but all three are
+false positives on the word "spread" (verified by `grep -n`); none is a pending fs plan.
+`ls planning/completed/ | grep -i -E 'fs-|positional|readbytesat|seek'` → nothing relevant.
+A separate plan must first land the two `fs` builtins (registry function each, per-target
+codegen for `pread` / `lseek`+`read` / `ReadFile` with `OVERLAPPED`, man pages, spec).
 
 ## Summary
 
