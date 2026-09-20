@@ -1,0 +1,399 @@
+' ---------------------------------------------------------------------------
+' zip/writer.mfb — building an archive.
+'
+' A `Builder` is an ordinary value: every `add*` returns an updated copy rather
+' than mutating in place, so a builder can be passed around and reused without
+' anyone wondering who owns it.
+'
+' Output is deterministic. The same calls in the same order produce the same
+' bytes, every time: a fixed "version made by", entries in insertion order, no
+' extended-timestamp field unless the caller supplied a time, and names always
+' written as UTF-8 with general-purpose flag bit 11 set. That is what makes a
+' written archive diffable and a regression visible.
+'
+' ZIP64 records are emitted ONLY when the archive actually needs them -- a size
+' or offset that does not fit 32 bits, or 65535 or more entries. A small archive
+' is therefore byte-for-byte a classic zip that any reader, however old,
+' accepts.
+'
+' --- Why this file is shaped the way it is -------------------------------
+'
+' A growing `List OF Byte` is cheap to append to and expensive to move. Measured
+' (plan-139-B Corrections), per append, at lengths 0 / 4000 / 16000 / 64000:
+'
+'   append to a bare local              10-28ns      flat
+'   WITH record { field := append(..) } 13-37ns      flat
+'   rebuild the record positionally     871..78086ns grows with the list
+'   pass the list to a FUNC and return  411..23639ns grows with the list
+'
+' So the archive body is assembled ONCE, inside `finish`, in a single bare local
+' that is never handed to a function and never stored in a record until it is
+' returned. The `add*` functions only accumulate small per-entry records, each
+' appended through a `WITH` update. Helper functions still build the fixed-size
+' headers, because those lists are ~46 bytes and copying one is free; it is only
+' the archive-sized list that must not move.
+'
+' Written the obvious way instead -- a `Builder` carrying its body and each
+' `add*` appending to it -- the writer was quadratic: 500 entries took 1.4s,
+' 4000 took 165s, and 65536 would have taken hours.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT compress
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+PRIVATE LET U32_MAX AS Integer = 4294967295
+PRIVATE LET U16_MAX AS Integer = 65535
+
+' "Version made by" 3.0 / Unix: host 3 in the high byte, version 30 in the low.
+PRIVATE LET VERSION_MADE_BY AS Integer = 798
+PRIVATE LET VERSION_NEEDED AS Integer = 20
+PRIVATE LET VERSION_NEEDED_ZIP64 AS Integer = 45
+' General-purpose flag bit 11: the name and comment are UTF-8.
+PRIVATE LET FLAG_UTF8 AS Integer = 2048
+
+PRIVATE LET METHOD_STORED AS Integer = 0
+PRIVATE LET METHOD_DEFLATE AS Integer = 8
+
+PRIVATE LET MODE_FILE AS Integer = 33188
+PRIVATE LET MODE_DIRECTORY AS Integer = 16877
+
+' One entry, held until `finish` lays the archive out.
+'
+' Internal -- use the `add*` functions. Exported only because `Builder` has a
+' field of this type, and an exported record's field type must be nameable by
+' importers.
+EXPORT TYPE Pending
+  name AS String
+  isDirectory AS Boolean
+  method AS Integer
+  size AS Integer
+  crc AS Integer
+  payload AS List OF Byte
+  modifiedSeconds AS Integer
+  mode AS Integer
+END TYPE
+
+' An archive under construction.
+'
+' Hold it, add to it, and call `finish` when done. Each `add*` returns a new
+' builder; the one passed in is unchanged.
+EXPORT TYPE Builder
+  pending AS List OF Pending
+END TYPE
+
+' An empty archive.
+EXPORT FUNC createBuilder() AS Builder
+  RETURN Builder[[]]
+END FUNC
+
+' Add a file entry holding `data`.
+EXPORT FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean, modifiedSeconds AS Integer) AS Builder
+  requireSafeName(name)
+  IF strings::endsWith(name, "/") THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: file entry name \"" & name & "\" ends in a slash; use addDirectory")
+  END IF
+
+  LET crc AS Integer = compress::crc32(data)
+  MUT method AS Integer = METHOD_STORED
+  MUT payload AS List OF Byte = data
+  IF NOT store AND len(data) > 0 THEN
+    LET deflated AS List OF Byte = compress::deflate(data)
+    ' Only take the compressed form when it is actually smaller. This is the
+    ' format's normal choice, not a fallback from a failure.
+    IF len(deflated) < len(data) THEN
+      method = METHOD_DEFLATE
+      payload = deflated
+    END IF
+  END IF
+  LET record AS Pending = Pending[name, FALSE, method, len(data), crc, payload, modifiedSeconds, MODE_FILE]
+  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+END FUNC
+
+' Add a file entry holding the UTF-8 bytes of `text`.
+EXPORT FUNC addTextEntry(builder AS Builder, name AS String, text AS String, store AS Boolean, modifiedSeconds AS Integer) AS Builder
+  RETURN addFileEntry(builder, name, encoding::utf8Encode(text), store, modifiedSeconds)
+END FUNC
+
+' Add a directory entry. A trailing slash is added when absent.
+EXPORT FUNC addDirectoryEntry(builder AS Builder, name AS String, modifiedSeconds AS Integer) AS Builder
+  requireSafeName(name)
+  MUT full AS String = name
+  IF NOT strings::endsWith(full, "/") THEN
+    full = full & "/"
+  END IF
+  LET record AS Pending = Pending[full, TRUE, METHOD_STORED, 0, compress::crc32([]), [], modifiedSeconds, MODE_DIRECTORY]
+  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+END FUNC
+
+' Finish the archive and return its bytes.
+'
+' One pass: local headers and data, then the central directory, then the
+' end-of-central-directory records. `out` is a bare local for the whole
+' function -- see the note at the top of this file.
+EXPORT FUNC finishBuilder(builder AS Builder, comment AS String) AS List OF Byte
+  LET commentBytes AS List OF Byte = encoding::utf8Encode(comment)
+  IF len(commentBytes) > U16_MAX THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: archive comment of " & toString(len(commentBytes)) & " bytes exceeds the 65535-byte field")
+  END IF
+
+  MUT out AS List OF Byte = []
+  MUT offsets AS List OF Integer = []
+
+  FOR EACH entry IN builder.pending
+    offsets = collections::append(offsets, len(out))
+    FOR EACH b IN localHeaderOf(entry)
+      out = collections::append(out, b)
+    NEXT
+    FOR EACH b IN entry.payload
+      out = collections::append(out, b)
+    NEXT
+  NEXT
+
+  LET centralAt AS Integer = len(out)
+  MUT index AS Integer = 0
+  FOR EACH entry IN builder.pending
+    FOR EACH b IN centralHeaderOf(entry, collections::get(offsets, index))
+      out = collections::append(out, b)
+    NEXT
+    index = index + 1
+  NEXT
+  LET centralSize AS Integer = len(out) - centralAt
+  LET count AS Integer = len(builder.pending)
+
+  ' ZIP64 is needed when any of the three EOCD fields cannot be written as a
+  ' 32-bit (or, for the count, 16-bit) value.
+  IF count > U16_MAX OR centralSize > U32_MAX OR centralAt > U32_MAX THEN
+    FOR EACH b IN zip64Trailer(count, centralSize, centralAt, len(out))
+      out = collections::append(out, b)
+    NEXT
+  END IF
+
+  FOR EACH b IN endRecord(count, centralSize, centralAt, len(commentBytes))
+    out = collections::append(out, b)
+  NEXT
+  FOR EACH b IN commentBytes
+    out = collections::append(out, b)
+  NEXT
+  RETURN out
+END FUNC
+
+' The 30-byte local header plus the entry's name. Small, so the put* helpers'
+' copying is free here.
+PRIVATE FUNC localHeaderOf(entry AS Pending) AS List OF Byte
+  LET nameBytes AS List OF Byte = encoding::utf8Encode(entry.name)
+  IF len(nameBytes) > U16_MAX THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: entry name of " & toString(len(nameBytes)) & " bytes exceeds the 65535-byte field")
+  END IF
+  LET stamp AS Integer = dosStamp(entry.modifiedSeconds)
+  MUT header AS List OF Byte = []
+  header = putU32(header, 67324752)
+  header = putU16(header, VERSION_NEEDED)
+  header = putU16(header, FLAG_UTF8)
+  header = putU16(header, entry.method)
+  header = putU16(header, stamp MOD 65536)
+  header = putU16(header, stamp / 65536)
+  header = putU32(header, entry.crc)
+  header = putU32(header, capU32(len(entry.payload)))
+  header = putU32(header, capU32(entry.size))
+  header = putU16(header, len(nameBytes))
+  header = putU16(header, 0)
+  RETURN putBytes(header, nameBytes)
+END FUNC
+
+' The 46-byte central directory header, the entry's name, and a ZIP64 extra
+' field when one of the fields does not fit.
+PRIVATE FUNC centralHeaderOf(entry AS Pending, headerOffset AS Integer) AS List OF Byte
+  LET nameBytes AS List OF Byte = encoding::utf8Encode(entry.name)
+  LET stamp AS Integer = dosStamp(entry.modifiedSeconds)
+  LET compressedSize AS Integer = len(entry.payload)
+  ' A field that does not fit is written as all-ones and its real value goes in
+  ' the ZIP64 extra field, in the order APPNOTE §4.5.3 fixes.
+  LET bigSize AS Boolean = entry.size > U32_MAX
+  LET bigCompressed AS Boolean = compressedSize > U32_MAX
+  LET bigOffset AS Boolean = headerOffset > U32_MAX
+  MUT extra AS List OF Byte = []
+  IF bigSize OR bigCompressed OR bigOffset THEN
+    MUT payload AS List OF Byte = []
+    IF bigSize THEN
+      payload = putU64(payload, entry.size)
+    END IF
+    IF bigCompressed THEN
+      payload = putU64(payload, compressedSize)
+    END IF
+    IF bigOffset THEN
+      payload = putU64(payload, headerOffset)
+    END IF
+    extra = putU16(extra, 1)
+    extra = putU16(extra, len(payload))
+    extra = putBytes(extra, payload)
+  END IF
+
+  MUT header AS List OF Byte = []
+  header = putU32(header, 33639248)
+  header = putU16(header, VERSION_MADE_BY)
+  header = putU16(header, versionNeededFor(bigSize OR bigCompressed OR bigOffset))
+  header = putU16(header, FLAG_UTF8)
+  header = putU16(header, entry.method)
+  header = putU16(header, stamp MOD 65536)
+  header = putU16(header, stamp / 65536)
+  header = putU32(header, entry.crc)
+  header = putU32(header, capU32(compressedSize))
+  header = putU32(header, capU32(entry.size))
+  header = putU16(header, len(nameBytes))
+  header = putU16(header, len(extra))
+  header = putU16(header, 0)
+  header = putU16(header, 0)
+  header = putU16(header, 0)
+  header = putU32(header, entry.mode * 65536)
+  header = putU32(header, capU32(headerOffset))
+  header = putBytes(header, nameBytes)
+  RETURN putBytes(header, extra)
+END FUNC
+
+' The ZIP64 end-of-central-directory record and its locator.
+PRIVATE FUNC zip64Trailer(count AS Integer, centralSize AS Integer, centralAt AS Integer, recordAt AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  out = putU32(out, 101075792)
+  out = putU64(out, 44)
+  out = putU16(out, VERSION_MADE_BY)
+  out = putU16(out, VERSION_NEEDED_ZIP64)
+  out = putU32(out, 0)
+  out = putU32(out, 0)
+  out = putU64(out, count)
+  out = putU64(out, count)
+  out = putU64(out, centralSize)
+  out = putU64(out, centralAt)
+  out = putU32(out, 117853008)
+  out = putU32(out, 0)
+  out = putU64(out, recordAt)
+  RETURN putU32(out, 1)
+END FUNC
+
+' The 22-byte end-of-central-directory record, without its comment.
+PRIVATE FUNC endRecord(count AS Integer, centralSize AS Integer, centralAt AS Integer, commentLength AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  out = putU32(out, 101010256)
+  out = putU16(out, 0)
+  out = putU16(out, 0)
+  out = putU16(out, capU16(count))
+  out = putU16(out, capU16(count))
+  out = putU32(out, capU32(centralSize))
+  out = putU32(out, capU32(centralAt))
+  RETURN putU16(out, commentLength)
+END FUNC
+
+PRIVATE FUNC versionNeededFor(zip64 AS Boolean) AS Integer
+  IF zip64 THEN
+    RETURN VERSION_NEEDED_ZIP64
+  END IF
+  RETURN VERSION_NEEDED
+END FUNC
+
+' All-ones when the value does not fit, which is the format's "see the ZIP64
+' record" marker.
+PRIVATE FUNC capU32(value AS Integer) AS Integer
+  IF value > U32_MAX THEN
+    RETURN U32_MAX
+  END IF
+  RETURN value
+END FUNC
+
+PRIVATE FUNC capU16(value AS Integer) AS Integer
+  IF value > U16_MAX THEN
+    RETURN U16_MAX
+  END IF
+  RETURN value
+END FUNC
+
+' DOS date and time packed into one Integer: date in the high 16 bits, time in
+' the low.
+'
+' Zip's own clock starts in 1980 and ticks every two seconds, so a time before
+' that -- including the 0 that means "no time given" -- becomes the earliest
+' instant the format can express rather than a negative field.
+PRIVATE FUNC dosStamp(modifiedSeconds AS Integer) AS Integer
+  IF modifiedSeconds <= 315532800 THEN
+    ' 1980-01-01 00:00:00 UTC, the earliest a DOS timestamp can name.
+    RETURN 33 * 65536
+  END IF
+  LET days AS Integer = modifiedSeconds / 86400
+  LET rest AS Integer = modifiedSeconds - days * 86400
+  LET ymd AS List OF Integer = civilFromDays(days)
+  LET year AS Integer = collections::get(ymd, 0)
+  IF year > 2107 THEN
+    ' The last year a 7-bit "years since 1980" field can name.
+    FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(year) & " is past the last year a zip timestamp can express")
+  END IF
+  LET date AS Integer = (year - 1980) * 512 + collections::get(ymd, 1) * 32 + collections::get(ymd, 2)
+  LET time AS Integer = (rest / 3600) * 2048 + ((rest / 60) MOD 60) * 32 + (rest MOD 60) / 2
+  RETURN date * 65536 + time
+END FUNC
+
+' Year, month, day for a count of days since 1970-01-01.
+'
+' Howard Hinnant's `civil_from_days`, the inverse of `central.mfb`'s
+' `daysFromCivil`.
+PRIVATE FUNC civilFromDays(days AS Integer) AS List OF Integer
+  LET z AS Integer = days + 719468
+  LET era AS Integer = z / 146097
+  LET doe AS Integer = z - era * 146097
+  LET yoe AS Integer = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  LET y AS Integer = yoe + era * 400
+  LET doy AS Integer = doe - (365 * yoe + yoe / 4 - yoe / 100)
+  LET mp AS Integer = (5 * doy + 2) / 153
+  LET d AS Integer = doy - (153 * mp + 2) / 5 + 1
+  MUT m AS Integer = mp + 3
+  IF mp >= 10 THEN
+    m = mp - 9
+  END IF
+  MUT year AS Integer = y
+  IF m <= 2 THEN
+    year = y + 1
+  END IF
+  RETURN [year, m, d]
+END FUNC
+
+' Refuse a name that would be unsafe to extract, before it is ever written.
+'
+' Rules 1-3 of plan-139-B §4.3. Checking at WRITE time as well as at extract
+' time means this package cannot be used to build the hostile archive it
+' refuses to extract.
+PRIVATE SUB requireSafeName(name AS String)
+  IF len(name) = 0 THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"\"")
+  END IF
+  IF strings::contains(name, "\\") THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  IF strings::startsWith(name, "/") THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  IF hasDriveLetter(name) THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  FOR EACH part IN strings::split(name, "/")
+    IF part = ".." THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+END SUB
+
+' `X:` at the start, which Windows reads as a drive-relative path.
+PRIVATE FUNC hasDriveLetter(name AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(name)
+  IF len(scalars) < 2 THEN
+    RETURN FALSE
+  END IF
+  IF toInt(collections::get(scalars, 1)) <> 58 THEN
+    RETURN FALSE
+  END IF
+  RETURN strings::isLetter(collections::get(scalars, 0))
+END FUNC

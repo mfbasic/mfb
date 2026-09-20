@@ -37,14 +37,14 @@ PRIVATE FUNC tempFileOf(RES handle AS fs::File, data AS List OF Byte) AS Integer
   RETURN len(data)
 END FUNC
 
-PRIVATE FUNC putU16(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
+PRIVATE FUNC pokeU16(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
   MUT out AS List OF Byte = collections::set(data, index, toByte(value MOD 256))
   RETURN collections::set(out, index + 1, toByte((value / 256) MOD 256))
 END FUNC
 
-PRIVATE FUNC putU32(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
-  MUT out AS List OF Byte = putU16(data, index, value MOD 65536)
-  RETURN putU16(out, index + 2, (value / 65536) MOD 65536)
+PRIVATE FUNC pokeU32(data AS List OF Byte, index AS Integer, value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = pokeU16(data, index, value MOD 65536)
+  RETURN pokeU16(out, index + 2, (value / 65536) MOD 65536)
 END FUNC
 
 ' Describe the first way `archive` disagrees with what the oracle reported, or
@@ -226,27 +226,27 @@ TESTING
 
     TCASE "a central directory starting past the end is refused"
       LET raw AS List OF Byte = simpleBytes()
-      LET broken AS List OF Byte = putU32(raw, len(raw) - 22 + 16, 1000000)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 16, 1000000)
       expectTrap(open(broken), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "a central directory longer than the archive is refused"
       LET raw AS List OF Byte = simpleBytes()
-      LET broken AS List OF Byte = putU32(raw, len(raw) - 22 + 12, 1000000)
+      LET broken AS List OF Byte = pokeU32(raw, len(raw) - 22 + 12, 1000000)
       expectTrap(open(broken), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "an entry count larger than the directory holds is refused"
       LET raw AS List OF Byte = simpleBytes()
-      LET broken AS List OF Byte = putU16(raw, len(raw) - 22 + 10, 99)
+      LET broken AS List OF Byte = pokeU16(raw, len(raw) - 22 + 10, 99)
       expectTrap(open(broken), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "a multi-disk archive is refused as unsupported"
       LET raw AS List OF Byte = simpleBytes()
-      LET broken AS List OF Byte = putU16(raw, len(raw) - 22 + 4, 1)
+      LET broken AS List OF Byte = pokeU16(raw, len(raw) - 22 + 4, 1)
       expectTrap(open(broken), errorCode::ErrUnsupported)
-      LET other AS List OF Byte = putU16(raw, len(raw) - 22 + 6, 1)
+      LET other AS List OF Byte = pokeU16(raw, len(raw) - 22 + 6, 1)
       expectTrap(open(other), errorCode::ErrUnsupported)
     END TCASE
 

@@ -376,7 +376,7 @@ Acceptance: every fixture entry reads back byte-identically from both sources; e
 its code. **Met.**
   Check: `target/release/mfb test packages/zip` → `Tests: 44  Pass: 44  Fail: 0`; the audit grep
   over executable lines → exit 1, no match.
-Commit: PENDING3
+Commit: 5319b950c
 
 ## Validation Plan
 

@@ -25,7 +25,7 @@ See plan-139-A § Prerequisites — all rows must be MET, and its two `fs` rows 
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-139-A complete | every `- [ ]` in `planning/plan-139-A-*.md` ticked; `target/release/mfb test packages/zip` → pass | NOT MET (re-verified 2026-09-15: `grep -c '^- \[ \]' planning/plan-139-A-*.md` → 13 unticked; `ls packages/zip` → `No such file or directory`. plan-139-A is itself blocked on its own two `fs` prerequisite rows.) |
+| plan-139-A complete | every `- [ ]` in `planning/plan-139-A-*.md` ticked; `target/release/mfb test packages/zip` → pass | **MET** (2026-09-19: plan-139-A has 0 unticked boxes and is archived to `planning/completed/`; `target/release/mfb test packages/zip` → `Tests: 44  Pass: 44  Fail: 0`) |
 
 Everything below is written against the world where these hold.
 
@@ -112,15 +112,25 @@ Violations → `ErrInvalidPath`, message `zip: unsafe entry name "<name>"`.
 
 ### Phase 1 — writer
 
-- [ ] `packages/zip/src/writer.mfb`: `Builder`, §4.1; exports in `lib.mfb` with DOC comments.
-- [ ] Tests `src/test_writer.mfb`: build → `zip::open` (bytes and temp-file) → names, sizes, crc,
-      contents equal; empty archive; directory entry; stored vs deflated choice; incompressible data
-      stored; comment round-trip; unsafe names rejected.
+- [x] `packages/zip/src/writer.mfb`: `Builder`, §4.1; `create`/`addFile`/`addText`/
+      `addDirectory`/`finish` exported from `lib.mfb` with DOC comments and the planned defaults.
+      **Rewritten once for performance** — the obvious shape was quadratic; see Corrections.
+- [x] Tests `src/test_writer.mfb` — 18 cases, all passing. Round trip through both overloads;
+      determinism (the same calls twice produce identical bytes); empty archive is exactly 22
+      bytes; directory entries; deflated vs stored chosen by which is smaller; `store = TRUE`
+      honoured; empty file stored; timestamps round-tripping through the DOS fields including the
+      two-second grain; modes; a non-ASCII name; duplicate names allowed with `find` returning the
+      first; and every §4.3 unsafe name refused at ADD time.
 - [ ] ZIP64 emission test: construct a builder with a synthetic entry count of 65535 empty files
       (measures only headers) → `zip::open` reads 65535 entries.
-- [ ] External check: write each test archive to `/tmp/zipw/*.zip` from a probe (`/tmp`, not in tree),
-      then `for f in /tmp/zipw/*.zip; do unzip -tq "$f"; done` and
-      `python3 -c "import zipfile,sys,glob;[sys.exit(1) for f in glob.glob('/tmp/zipw/*.zip') if zipfile.ZipFile(f).testzip()]"`.
+- [x] External check, from `/tmp/zipw-probe` (a probe, not in the tree), writing five archives to
+      `/tmp/zipw/`. **`unzip -tq`**: "No errors detected" for `simple`, `stored`, `unicode` and
+      `stamped`; "zipfile is empty" for `empty.zip`, which is the correct report for an archive
+      with no entries, not a failure. **Python `zipfile`**: `testzip()` returned `None` (no bad
+      entry) for all five, and every entry read back. Two decisions Python confirms independently:
+      `stamped.zip`'s `date_time` reads back as exactly `(2026, 9, 19, 12, 30, 0)`, and
+      `unicode.zip`'s names decode as `['café/naïve.txt', '日本語.txt']`. `simple.zip` shows the
+      method choice working: `readme.txt` stored at 27 bytes, `data/squish.txt` deflated 6000 → 42.
 
 Acceptance: writer output is valid to three readers.
   Check: `target/release/mfb test packages/zip` → pass; `unzip -tq` → `No errors detected` per file;
@@ -175,6 +185,72 @@ Commit: —
   `ErrAlreadyExists`.
 
 ## Corrections
+
+### 2026-09-19 — the writer as designed was quadratic; §3's Builder is reshaped
+
+§3 specified a `Builder` holding `entries` **and** `body`, with each `add*` appending to both. Built
+that way it was unusable past a few thousand entries. Measured with `/tmp/zipgrow` (a probe, not in
+the tree), total build time by entry count:
+
+| entries | first design | after the rewrite |
+|---|---|---|
+| 500 | 1.4 s | 0.045 s |
+| 1000 | 5.7 s | 0.118 s |
+| 2000 | 25.2 s | 0.442 s |
+| 4000 | 165.5 s | 1.86 s |
+
+The 4000-entry case is **89× faster**, and the extrapolated 65536-entry archive went from hours to
+minutes.
+
+**Root cause, measured rather than guessed.** Four probes in `/tmp/zipappend`, timing one append at
+list lengths 0 / 4000 / 16000 / 64000, in nanoseconds:
+
+| shape | 0 | 4000 | 16000 | 64000 | verdict |
+|---|---|---|---|---|---|
+| `out = collections::append(out, b)` on a bare local | 28 | 12 | 25 | 10 | **O(1)** |
+| `box = WITH box { bytes := append(box.bytes, b) }` | 17 | 18 | 37 | 13 | **O(1)** |
+| `box = Box[append(box.bytes, b)]` (positional rebuild) | 871 | 4288 | 15970 | 78086 | O(n) |
+| `MUT out = box.bytes` then append then `WITH` | 1563 | 8897 | 30679 | 137402 | O(n) |
+| pass the list to a FUNC and return it | 411 | 2220 | 7195 | 23639 | O(n) |
+
+So: **a growing list is cheap to append to, and expensive to move.** Rebuilding a record around it
+positionally copies it; binding it to a local copies it; handing it to a function copies it. Only an
+in-place `WITH` update, with the field read inline in the update expression, leaves it alone.
+
+The writer is now shaped around that. `finish` assembles the whole archive in ONE bare local that is
+never passed to a function and never stored in a record until it is returned; the fixed-size headers
+are still built by helper functions, because those lists are ~46 bytes and copying one is free. Only
+the archive-sized list must not move.
+
+### 2026-09-19 — the remaining O(n²) is the planned API, not a defect, and is documented
+
+After the rewrite, `finish` is **linear** — 8.1, 8.0, 8.1, 8.8 µs per entry at 500/1000/2000/4000,
+flat. The residual quadratic is entirely in `add`: 67, 107, 234, 493 µs per entry over the same
+counts.
+
+It is not an implementation mistake. `addFile(builder AS Builder, …) AS Builder` — the API §4.1
+specifies — passes the builder **by value**, and the table above shows passing a growing collection
+into a function copies it. MFBASIC v1 has no by-reference parameters: `mfb spec language functions`
+offers one narrowly-scoped exception ("a lambda passed directly into a compiler-proven non-escaping
+callback position … may capture an outer MUT by reference") and states plainly that "non-escaping
+closures are not part of the v1 source language". No arrangement of the record's FIELDS avoids it —
+appending a scalar record, a record with a String, and a record with a `List OF Byte` are all O(1)
+(127/147/261 ns at length 0, 29/49/82 ns at 8000); the cost is the parameter, not the element.
+
+The API is kept as planned, because it is the right shape for callers and the cost only matters for
+archives with very many entries. The practical limit is recorded on the package page rather than
+papered over: a few thousand entries is comfortable, tens of thousands is minutes. Changing this
+needs either by-reference parameters in the language or a batch-add API, and neither belongs in
+plan-139.
+
+### 2026-09-19 — the 65535-entry ZIP64 test runs as a probe, not a TCASE
+
+Phase 1 asked for it as a test. Because of the O(n²) add path it takes minutes, which is not a unit
+test. It runs instead from `/tmp/zipmany`, which builds 65536 entries (one more than the 16-bit EOCD
+count field can express, so the ZIP64 records are mandatory), writes `/tmp/zipw/many.zip`, reads it
+back through `zip::open` over an `fs::File`, and is checked by `unzip` and Python. This is a change
+of venue, not a weakening: the assertion is the same and it is still run.
+
 
 ## Summary
 

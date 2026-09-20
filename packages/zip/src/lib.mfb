@@ -172,3 +172,65 @@ END FUNC
 EXPORT FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
   RETURN readEntryText(archive, entry, maxBytes)
 END FUNC
+
+' Start building a new archive.
+'
+' Each `add*` returns a new `Builder`; the one passed in is unchanged. `finish`
+' turns the result into the archive's bytes.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   MUT b AS zip::Builder = zip::create()
+'   b = zip::addText(b, "notes.txt", "hello")
+'   fs::writeBytes("out.zip", zip::finish(b))
+' END SUB
+' ```
+EXPORT FUNC create() AS Builder
+  RETURN createBuilder()
+END FUNC
+
+' Add a file entry holding `data`.
+'
+' The entry is deflated when that makes it smaller and stored when it does not,
+' which is what `zip(1)` does — an incompressible entry is never made bigger by
+' compressing it. Pass `store = TRUE` to skip compression entirely.
+'
+' `modifiedSeconds` is seconds since the Unix epoch; 0 means "not recorded" and
+' writes the earliest time the format can express (1980-01-01). Zip timestamps
+' have two-second granularity, so an odd second is rounded down.
+'
+' Raises `errorCode::ErrInvalidPath` for a name that would be unsafe to
+' extract — absolute, containing `..`, containing a backslash or a NUL, or
+' naming a Windows drive. Refusing at write time means this package cannot be
+' used to build the archive its own `extractTo` would refuse.
+EXPORT FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addFileEntry(builder, name, data, store, modifiedSeconds)
+END FUNC
+
+' Add a file entry holding the UTF-8 bytes of `text`.
+EXPORT FUNC addText(builder AS Builder, name AS String, text AS String, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addTextEntry(builder, name, text, store, modifiedSeconds)
+END FUNC
+
+' Add a directory entry. A trailing `/` is added when the name lacks one.
+'
+' Directory entries are optional in a zip — a file named `a/b.txt` implies `a/`
+' — but most tools list them, so adding them makes the archive look the way a
+' user expects.
+EXPORT FUNC addDirectory(builder AS Builder, name AS String, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addDirectoryEntry(builder, name, modifiedSeconds)
+END FUNC
+
+' Finish the archive and return its bytes.
+'
+' The result is deterministic: the same calls in the same order always produce
+' the same bytes. ZIP64 records are written only when the archive needs them, so
+' a small archive is an ordinary zip any reader accepts.
+'
+' Raises `errorCode::ErrTooLarge` when `comment` is longer than 65535 bytes.
+EXPORT FUNC finish(builder AS Builder, comment AS String = "") AS List OF Byte
+  RETURN finishBuilder(builder, comment)
+END FUNC
