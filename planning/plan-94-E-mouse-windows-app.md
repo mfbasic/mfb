@@ -177,7 +177,7 @@ gated on `_mfb_rt_mouse_mode` before anything else, and eight `WriteFile` calls
 where there was one. The frame grew by exactly `MOUSE_FRAME_EXTRA` (264 → 376).
 Goldens: 0 diffs tree-wide, with every pre-existing Windows app fixture
 byte-identical.
-Commit: —
+Commit: bd4cb74f3
 
 ### Phase 2 — Full event set + modifiers
 
@@ -196,7 +196,7 @@ regenerated goldens diff only by the new arms.
 one** arm — `mw`, the wheel — which is the asymmetry §3 predicted, and its
 absence from the other seven is as much the point as its presence in that one.
 Goldens: 0 diffs tree-wide.
-Commit: —
+Commit: bd4cb74f3
 
 ### Phase 3 — Canvas surface, pixels
 
@@ -222,7 +222,7 @@ goldens diff only by the new arms.
 fixed at 80x25, which is the same fact that makes `term::didResize` read FALSE
 here), and the pixel path has no divide of any kind. The `.exe` links. Goldens:
 0 diffs across 2066.
-Commit: —
+Commit: bd4cb74f3
 
 ## Validation Plan
 
