@@ -5,10 +5,11 @@
 //! (`setForeground`/`setBackground`/`setBold`/`setUnderline` + the `get*` readers),
 //! cursor control (`showCursor`/`hideCursor`/`moveTo`), screen clearing / frame
 //! presentation (`clear`/`sync`), box-drawing (`drawHLine`/`drawVLine`/`drawBox`/
-//! `fillRect`), text/glyph stamping (`drawText`/`drawGlyph`), and size/resize queries
-//! (`terminalSize`/`didResize`).
+//! `fillRect`), text/glyph stamping (`drawText`/`drawGlyph`), size/resize queries
+//! (`terminalSize`/`didResize`), and the opt-in mouse surface
+//! (`enableMouse`/`pollMouse`, plan-94).
 //!
-//! Each of the 24 members owns its `Body::abi_function` body
+//! Each of the 26 members owns its `Body::abi_function` body
 //! (`func_*.rs::lower_<name>`); the `abi_function` wrapper seeds the entry label,
 //! binds the ABI argument registers, and finalizes. Each body calls the shared
 //! family-generic [`gen_shared::lower_term_helper`] with its own runtime-call name,
@@ -25,22 +26,34 @@
 //! Byte"`, …) is kept hand-authored on the descriptor (the registry's per-position
 //! render would say `"()"`), decoupled from the machine coercion table (bug-443).
 //!
-//! `term` owns three value types. The record `TermSize` (`columns`/`rows` `Integer`)
+//! `term` owns six value types. The record `TermSize` (`columns`/`rows` `Integer`)
 //! is registered via [`add_record`] — it is **read-only** (the runtime allocates it;
 //! a program may neither construct nor WITH-update one — see [`is_read_only_record`],
 //! consulted by `ir::verify`/the former source checker). Its binary-repr wire id stays
 //! the reserved high-band `TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`).
+//!
+//! plan-94-A added the mouse trio: the record `MouseEvent` and the enums `MouseKind`
+//! and `MouseButton`. `MouseEvent` is an **ordinary** value record, deliberately not
+//! a read-only one ([`MOUSE_EVENT_TYPE`]) — the runtime being the usual author of a
+//! mouse event is not a reason to forbid a program from building one, and the
+//! `canvas::` value-record shape is the simpler precedent. Its `kind`/`button` props
+//! are enum-typed, which `canvas::Gradient.kind AS GradientKind` already proves the
+//! registry supports; every prop is a plain 8-byte value slot (an enum is an ordinal,
+//! not a composite), so the block is a flat 56 bytes with no trailing data region.
+//! **`None` is the first variant of both enums on purpose**: ordinal 0 is what makes
+//! the all-zero record read as "nothing pending", which is the sentinel an idle
+//! `term::pollMouse` returns.
 //!
 //! plan-122-F retired the sibling `TermColor`. The colour members take and return a
 //! `color::Color`, which is an ordinary value record owned by `color` — so it needs
 //! no read-only rule, no reserved wire id and no resolver seed here. `term` still
 //! declares **no** `add_imports`: a native member can name a foreign record through a
 //! qualified type-id constant, exactly as `tcp::localAddress` returns `net.Address`,
-//! and that is what keeps `IMPORT term` costing a program zero bytes. The two
-//! enums `LineStyle` (the box-drawing weight) and `FillStyle` (the block/shade glyph)
-//! are registry-modeled via [`RegistryPackage::add_enum`] and rendered into the
-//! injected `<builtin-term>` source by `get_mfb` (their variant docs surface on the
-//! man `types` page).
+//! and that is what keeps `IMPORT term` costing a program zero bytes. The four
+//! enums `LineStyle` (the box-drawing weight), `FillStyle` (the block/shade glyph),
+//! `MouseKind` and `MouseButton` are registry-modeled via
+//! [`RegistryPackage::add_enum`] and rendered into the injected `<builtin-term>`
+//! source by `get_mfb` (their variant docs surface on the man `types` page).
 //!
 //! The `term`↔`astrings` `drawText(AttributedString)` bridge (`helper_astrings_bridge.rs`,
 //! carrying `__term_drawTextAttr`) is injected as a `WhenBothImported("term", "astrings")`
@@ -64,6 +77,7 @@ mod func_draw_glyph;
 mod func_draw_hline;
 mod func_draw_text;
 mod func_draw_vline;
+mod func_enable_mouse;
 mod func_fill_rect;
 mod func_get_background;
 mod func_get_bold;
@@ -74,6 +88,7 @@ mod func_is_on;
 mod func_move_to;
 mod func_off;
 mod func_on;
+mod func_poll_mouse;
 mod func_set_background;
 mod func_set_bold;
 mod func_set_foreground;
@@ -98,6 +113,14 @@ pub(crate) const DRAW_TEXT: &str = "term.drawText";
 /// record rather than a runtime-allocated read-only one, so it needs no constant
 /// here, no read-only rule, no reserved wire id and no resolver seed.
 pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
+/// The `MouseEvent` value record `term::pollMouse` returns (plan-94-A §4.1).
+///
+/// Unlike [`TERM_SIZE_TYPE`] it is an **ordinary value record**, not a read-only
+/// one: nothing about a mouse event requires the runtime to be its only author, and
+/// letting a program build one keeps it testable and keeps the shape the same as
+/// every `canvas::` value record. So it deliberately has no [`is_read_only_record`]
+/// rule and no reserved wire id.
+pub(crate) const MOUSE_EVENT_TYPE: &str = "MouseEvent";
 /// Its package-qualified identity — what a consumer must write, and what the
 /// resolver seeds, so a bare `AS TermSize` is refused (bug-484).
 pub(crate) const TERM_SIZE_TYPE_ID: &str = "term.TermSize";
@@ -201,7 +224,17 @@ chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Chec
 a string at an absolute position (without moving the cursor), and
 `term::drawGlyph` stamps a single scalar by code point.
 
-The package defines one built-in record type and two enums; its colour surface uses
+The mouse is available too, and it is **opt-in**: `term::enableMouse(TRUE)`
+asks the terminal to report mouse activity and `term::pollMouse` takes the
+next event it reported, as a `term::MouseEvent`. A program that never asks sees
+the terminal it has always seen — the mouse stays the user's, for selection
+and scrolling. Polling never waits: with nothing pending it reports
+`term::MouseKind.None`, so a draw loop can poll every frame and simply see
+nothing happen. Event positions are the same zero-based `row`/`column` cells
+every other `term::` call takes, so a click can be handed straight to
+`term::moveTo` or `term::drawText`.
+
+The package defines two built-in record types and four enums; its colour surface uses
 `color::Color`. `term::getForeground` and `term::getBackground` return a
 `color::Color`, and `term::setForeground`/`term::setBackground` take one — so a
 colour read from the surface can be handed straight back to it, and the same value
@@ -215,7 +248,15 @@ the surface size can change between calls (for example when the terminal window 
 resized), so a program that depends on it should query it again rather than caching
 the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLine`,
 `term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
-glyph for `term::fillRect`."#;
+glyph for `term::fillRect`.
+
+`term::MouseEvent` carries one thing the mouse did: `kind` (a
+`term::MouseKind` — `None`, `Down`, `Up`, `Move`, `Drag`, `ScrollUp`,
+`ScrollDown`), `button` (a `term::MouseButton` — `None`, `Left`, `Middle`,
+`Right`), the `row` and `column` cell it happened over, and the `shift`, `ctrl`
+and `alt` modifier flags. `None` is the first variant of both enums, so the
+record an idle poll reports reads as "nothing pending, no button" without a
+program having to spell that out."#;
 
 /// Register the `term` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -247,6 +288,139 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Integer,
                 description: "The height in character cells, never pixels. Valid \
                               rows are 0 through rows-1.",
+            },
+        ],
+    });
+
+    // plan-94-A: the mouse surface. `MouseEvent` is an ordinary value record (see
+    // `MOUSE_EVENT_TYPE`) whose `kind`/`button` are enum-typed props — the shape
+    // `canvas::Gradient.kind AS GradientKind` already proves works. Its seven props
+    // are all plain 8-byte value slots (an enum is an ordinal, not a composite), so
+    // the block is a flat 56 bytes with no trailing data region.
+    pkg.add_record(RegistryRecord {
+        name: MOUSE_EVENT_TYPE,
+        export: true,
+        description: "One thing the mouse did, as reported by `term::pollMouse`. \
+                      Test `kind` against `term::MouseKind.None` first: that is what \
+                      an idle poll reports, and the rest of the record is \
+                      meaningless when it does.",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::named("MouseKind"),
+                description: "What happened — a press, a release, motion, a drag, or \
+                              a wheel turn. `None` when nothing is pending.",
+            },
+            RecordProp {
+                name: "button",
+                ty: ParameterType::named("MouseButton"),
+                description: "Which button the event is about. `None` for motion and \
+                              wheel events, which belong to no button.",
+            },
+            RecordProp {
+                name: "row",
+                ty: ParameterType::Integer,
+                description: "The row the mouse was over, in character cells, \
+                              counting from 0 at the top of the surface.",
+            },
+            RecordProp {
+                name: "column",
+                ty: ParameterType::Integer,
+                description: "The column the mouse was over, in character cells, \
+                              counting from 0 at the left of the surface.",
+            },
+            RecordProp {
+                name: "shift",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Shift was held as the event happened.",
+            },
+            RecordProp {
+                name: "ctrl",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Control was held as the event happened.",
+            },
+            RecordProp {
+                name: "alt",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Alt (Option) was held as the event happened.",
+            },
+        ],
+    });
+
+    // plan-94-A: what the mouse did. `None` MUST stay declared first — its
+    // ordinal 0 is what makes the all-zero `MouseEvent` read as "nothing pending",
+    // which is the sentinel `term::pollMouse` returns on an idle poll.
+    pkg.add_enum(RegistryEnum {
+        name: "MouseKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "Nothing is pending. What an idle `term::pollMouse` \
+                              reports, and what a terminal that does not report \
+                              mouse activity always reports.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Down",
+                description: "A button was pressed. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Up",
+                description: "A button was released. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Move",
+                description: "The mouse moved with no button held. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Drag",
+                description: "The mouse moved with a button held. `button` says \
+                              which one is down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollUp",
+                description: "The wheel turned away from the user. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollDown",
+                description: "The wheel turned toward the user. `button` is `None`.",
+                advisory: None,
+            },
+        ],
+    });
+    // plan-94-A: which button an event is about. `None` is declared first for the
+    // same reason `MouseKind.None` is — the zero record must read as "no button".
+    pkg.add_enum(RegistryEnum {
+        name: "MouseButton",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "No button — what motion and wheel events report.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Left",
+                description: "The primary button.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Middle",
+                description: "The middle button, usually the wheel pressed down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Right",
+                description: "The secondary button.",
+                advisory: None,
             },
         ],
     });
@@ -361,6 +535,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_get_underline::register(&mut pkg);
     func_terminal_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
+    func_enable_mouse::register(&mut pkg);
+    func_poll_mouse::register(&mut pkg);
 
     // The `term`↔`astrings` `drawText(AttributedString)` bridge — a cross-package
     // gated helper chunk (see `helper_astrings_bridge.rs` for why it is not a

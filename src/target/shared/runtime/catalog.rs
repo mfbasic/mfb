@@ -24,7 +24,7 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // `io` is migrated: its specs are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
     // hand-written `IO_*_SPEC` rows live here.
-    // `term` is migrated: its 24 native OS-seam helpers (the mode toggle, colors,
+    // `term` is migrated: its 26 native OS-seam helpers (the mode toggle, colors,
     // attributes, cursor, clear/sync, box-drawing, text/glyph, size/resize) are
     // DERIVED from the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `TERM_*_SPEC` rows live here.

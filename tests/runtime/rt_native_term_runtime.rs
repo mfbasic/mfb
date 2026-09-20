@@ -3,6 +3,89 @@ mod common;
 use common::*;
 
 #[test]
+fn native_term_poll_mouse_is_none_stub() {
+    // plan-94-A: the mouse surface exists on every target, typechecks, lowers and
+    // runs — and does nothing yet. `term::enableMouse` is inert and
+    // `term::pollMouse` always reports the all-zero `MouseEvent`, which reads as
+    // `MouseKind.None` because `None` is the first-declared variant and so takes
+    // ordinal 0. That zero record is the permanent "no event" sentinel: plan-94-B
+    // replaces where the fields COME FROM, not what an idle poll answers, so this
+    // case keeps its meaning after the decoder lands.
+    //
+    // The escape-byte assertion is the one with teeth. `enableMouse` is opt-in
+    // specifically so a program that never asks sees the terminal it has always
+    // seen, and this sub-plan's Compatibility section promises "no new ANSI bytes
+    // emitted". A stub that quietly wrote `\x1b[?1000h` would break that
+    // invisibly — the program would still print `None` — so the output is checked
+    // for escape bytes, not only for the decoded answer.
+    let project = temp_project(
+        "native_term_poll_mouse",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  LET event AS term::MouseEvent = term::pollMouse()
+  IF event.kind = term::MouseKind.None THEN
+    io::print("KIND:None")
+  ELSE
+    io::print("KIND:other")
+  END IF
+  IF event.button = term::MouseButton.None THEN
+    io::print("BUTTON:None")
+  ELSE
+    io::print("BUTTON:other")
+  END IF
+  io::print("AT:" & toString(event.row) & "," & toString(event.column))
+  io::print("MODS:" & toString(event.shift) & toString(event.ctrl) & toString(event.alt))
+  term::enableMouse(FALSE)
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+
+    let direct = run_with_stdin(&executable, b"");
+    assert!(
+        direct.contains("KIND:None"),
+        "an idle pollMouse must report MouseKind.None, got {direct:?}"
+    );
+    assert!(
+        direct.contains("BUTTON:None"),
+        "an idle pollMouse must report MouseButton.None, got {direct:?}"
+    );
+    assert!(
+        direct.contains("AT:0,0"),
+        "the no-event record's coordinates must be zero, got {direct:?}"
+    );
+    assert!(
+        direct.contains("MODS:FALSEFALSEFALSE"),
+        "the no-event record's modifier flags must all be FALSE, got {direct:?}"
+    );
+    assert!(
+        !direct.contains('\x1b'),
+        "enableMouse is inert in plan-94-A and must emit no escape bytes, got {:?}",
+        direct
+    );
+
+    // Under a real terminal too: mouse tracking sequences would only ever be
+    // written to a tty, so a piped run alone could not prove the stub silent.
+    #[cfg(unix)]
+    {
+        let pty = run_under_pty(&executable).replace("\r\n", "\n");
+        assert!(
+            pty.contains("KIND:None"),
+            "an idle pollMouse must report None under a pty too, got {pty:?}"
+        );
+        assert!(
+            !pty.contains('\x1b'),
+            "enableMouse must emit no escape bytes even with a tty, got {pty:?}"
+        );
+    }
+}
+
+#[test]
 fn native_term_size_reports_unsupported_off_and_size_when_active() {
     // `term::terminalSize` errors with ERR_UNSUPPORTED_OPERATION while TUI mode
     // is off (plan-01-term.md §4.7) and returns the live window size once active.

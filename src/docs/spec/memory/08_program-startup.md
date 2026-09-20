@@ -55,15 +55,44 @@ top of the frame — the slots must not overlap the globals (they are written
 after global initialization, while the globals are live) and must not spill
 past the frame (at a raw Linux ELF entry the words above the frame are the OS
 `argc`/`argv` vector itself). The total frame is `ENTRY_STACK_SIZE + (globals +
-LINK + term:: state slots) * 8`, rounded up to 16, plus `ENTRY_ARGS_REGION_SIZE`
-(`48`) when the entry accepts args.
+LINK + term:: state + presentation-mode + mouse-state slots) * 8`, rounded up to
+16, plus `ENTRY_ARGS_REGION_SIZE` (`48`) when the entry accepts args.
 [[src/codegen/error/constants/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
 
-When the program uses `term::`, `TERM_STATE_SLOTS` (`u64` each, 27 in all —
-leading style slots plus the raw-termios save area) are reserved just past the
-program globals and `LINK` slots; the entry's global-slot clear zero-initializes
-them, which is the inert (TUI-off) default. [[src/codegen/error/constants/error_constants.rs:TERM_STATE_SLOTS]]
-[[src/codegen/error/constants/error_constants.rs:TERM_STATE_SLOTS]]
+### The conditionally-reserved region chain
+
+Past the program globals and `LINK` slots the frame carries up to three further
+regions, each reserved only when the program actually uses the feature, and each
+**appended** after the last — never inserted:
+
+```
+globals | LINK | term:: state (uses_term) | presentation mode (uses_app) | mouse state (uses_mouse)
+```
+
+Appending is the rule the chain depends on. Every region is addressed as a fixed
+byte offset off the pinned arena-state register by hand-written emitters, so
+inserting a new region anywhere but the end would renumber the ones after it for
+every program that uses both — and churn the goldens of programs that use none of
+the new feature.
+
+- **`term::` state** — `TERM_STATE_SLOTS` (`u64` each, 27 in all: the leading
+  style slots plus the raw-termios save area), when the program uses `term::`.
+  [[src/codegen/error/constants/error_constants.rs:TERM_STATE_SLOTS]]
+- **Presentation mode** — `PRESENTATION_MODE_SLOTS` (one word, the `app::Mode`
+  discriminant), when the program uses `app::`.
+  [[src/codegen/error/constants/error_constants.rs:PRESENTATION_MODE_SLOTS]]
+- **Mouse state** — `MOUSE_STATE_SLOTS` (8 words: the decoded-event ring pointer,
+  its head and tail cursors, and the stdin decoder's partial-sequence buffer),
+  when the program uses `enableMouse`/`pollMouse` from either `term::` or
+  `canvas::`. Keyed on those member symbols rather than on a package prefix, so a
+  `term::` program that only draws pays nothing; and reserved independently of
+  `term::` state, so a canvas-only program gets its ring without carrying 27 slots
+  of terminal state it will never read.
+  [[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_SLOTS]]
+
+The entry's global-slot clear zero-initializes all of them, which is each one's
+inert default: TUI off, `Mode.Console`, and mouse reporting off with an
+unallocated ring.
 
 ## Publishing the Arena Address
 

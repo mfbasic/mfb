@@ -334,6 +334,93 @@ pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) 
 /// `_mfb_rt_app_get_mode` loads it and `_mfb_rt_app_set_mode` stores it.
 pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
 
+// plan-94-A §4.4a: the per-arena **mouse-state** region — the decoded-event ring,
+// its cursors, and the stdin decoder's partial-sequence buffer.
+//
+// Appended **past** the presentation-mode word, as a third conditionally-reserved
+// region, and only when the program uses `enableMouse`/`pollMouse`. Appending is
+// the whole point: `term_state_offset` and `presentation_mode_offset` keep their
+// exact values for every program that does not use mouse, so no existing entry
+// frame or golden moves. Growing `TERM_STATE_SLOTS` instead would have shifted the
+// presentation-mode word for every program using both `term::` and `app::`, AND
+// left a canvas-only program — which never reserves `term::` state at all — with
+// nowhere to put its ring.
+//
+// Per-arena (per-thread), not process-global, and deliberately so: the ring is
+// **worker-local**, written only by the stdin decoder running on the thread that
+// owns it. That is what lets overwrite-on-full need no atomics. The cross-thread
+// boundary in app mode is the window input pipe, not this region
+// (`.ai/canvas-threading.md` §2). The one piece of mouse state a UI thread DOES
+// need is the mode word below, which is process-global for exactly that reason.
+//
+// The four slot offsets below carry `#[allow(dead_code)]` because plan-94-A
+// RESERVES this region and plan-94-B is what reads and writes it. That split is the
+// design, not a deferral: A's deliverable is that the storage exists, is sized, and
+// lands past the presentation-mode word without moving an existing offset — which is
+// what `MOUSE_STATE_SLOTS` (used, by the arena builder) and the layout tests in
+// `builder::tests` actually check. B deletes these attributes as it wires each slot up.
+/// Byte offset of the pointer to the event ring block, allocated on
+/// `enableMouse(TRUE)` and zero while mouse mode is off.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_RING_PTR_OFFSET: usize = 0;
+/// Byte offset of the ring's head cursor — where the decoder writes next.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_HEAD_OFFSET: usize = 8;
+/// Byte offset of the ring's tail cursor — where `pollMouse` reads next. Head
+/// catching tail advances tail, which is the overwrite-on-full rule: newest wins.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_TAIL_OFFSET: usize = 16;
+/// Byte offset of the count of bytes currently held in the partial-sequence buffer.
+/// Zero means the decoder is not mid-sequence, which is its resting state.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_PARSE_LEN_OFFSET: usize = 24;
+/// Byte offset of the partial-sequence buffer itself: the bytes of an escape
+/// sequence seen so far but not yet known to be (or not to be) a complete mouse
+/// report. A 1006 SGR report is at most `\x1b[<255;99999;99999M` — 21 bytes — so 32
+/// leaves room without a second block to manage.
+pub(crate) const MOUSE_STATE_PARSE_BUF_OFFSET: usize = 32;
+/// Bytes of partial-sequence buffer reserved at [`MOUSE_STATE_PARSE_BUF_OFFSET`].
+pub(crate) const MOUSE_STATE_PARSE_BUF_BYTES: usize = 32;
+/// Total reserved slots: through the end of the partial-sequence buffer.
+pub(crate) const MOUSE_STATE_SLOTS: usize =
+    (MOUSE_STATE_PARSE_BUF_OFFSET + MOUSE_STATE_PARSE_BUF_BYTES) / 8;
+
+/// plan-94-A §4.4b: the process-global **mouse-mode word**, and the one piece of
+/// mouse state that is NOT per-arena.
+///
+/// An app backend's mouse handler runs on the **UI thread**, which has no arena
+/// state at all (`.ai/canvas-threading.md` §2) and therefore cannot read the region
+/// above. It needs two answers before it does anything — should I emit, and in
+/// which unit — and one word carries both:
+///
+/// ```text
+/// 0 = off      no handler emits anything
+/// 1 = cells    term:: asked; coordinates are character cells
+/// 2 = pixels   canvas:: asked; coordinates are surface pixels
+/// ```
+///
+/// Written by `term::enableMouse` / `canvas::enableMouse` on the worker, read by
+/// every UI-thread handler on every backend. A writable process-global data symbol
+/// is the same escape the canvas scene takes ([`super::super::super::runtime::canvas`]'s
+/// `CANVAS_SCENE_SYMBOL` / `GRAPHICS_STATE_SYMBOL`).
+///
+/// A full word rather than a byte so a plain 8-byte load/store works on every
+/// backend with no sub-word addressing, and no atomics: there is exactly one writer
+/// (the worker) and the readers tolerate a one-event-stale answer — the cost of
+/// losing the race is one mouse event emitted or dropped at the moment the program
+/// toggled reporting, which is indistinguishable from the user having moved the
+/// mouse a millisecond earlier.
+pub(crate) const MOUSE_MODE_SYMBOL: &str = "_mfb_rt_mouse_mode";
+/// `_mfb_rt_mouse_mode` = mouse reporting is off; no handler emits.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_OFF: u64 = 0;
+/// `_mfb_rt_mouse_mode` = `term::` asked; handlers emit character-cell coordinates.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_CELLS: u64 = 1;
+/// `_mfb_rt_mouse_mode` = `canvas::` asked; handlers emit surface-pixel coordinates.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_PIXELS: u64 = 2;
+
 // plan-98-B: the per-arena **canvas scene** region — the retained scene
 // `canvas::present` publishes. Reserved just past the presentation-mode word, on the
 // same pinned arena-state register, and only when the program uses `canvas::`.

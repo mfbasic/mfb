@@ -418,6 +418,10 @@ name = "codegen_tls_c_return_x86_64"
 path = "tests/codegen/codegen_tls_c_return_x86_64.rs"
 
 [[test]]
+name = "codegen_mouse_arena_region"
+path = "tests/codegen/codegen_mouse_arena_region.rs"
+
+[[test]]
 name = "codegen_win64_entry_seed_scratch"
 path = "tests/codegen/codegen_win64_entry_seed_scratch.rs"
 

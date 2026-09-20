@@ -158,6 +158,54 @@ observed. [[src/codegen/term/core/term.rs:emit_did_resize]]
 `mov x9, #value; str x9, [x19, term_state_offset+field]`, with the pinned register
 substituted per architecture. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
 
+## Mouse state: one arena region, one process-global word
+
+plan-94-A adds the opt-in mouse surface — `term::enableMouse`/`term::pollMouse`
+and their `canvas::` mirrors — whose state is split across two places for two
+different reasons.
+
+**The per-arena mouse region** holds the decoded-event ring, its head/tail cursors
+and the stdin decoder's partial-sequence buffer. It is a **third**
+conditionally-reserved region in the arena-state chain, appended *past* the
+`app::` presentation-mode word, and reserved only when the program references
+`enableMouse`/`pollMouse`:
+
+```
+globals | term state (uses_term) | presentation mode (uses_app) | mouse state (uses_mouse)
+```
+
+Appending is load-bearing rather than tidy: every program that does not use mouse
+keeps `term_state_offset` and `presentation_mode_offset` at exactly the byte
+offsets it had before, so no existing emitter is renumbered. Growing the
+`term::` state region instead would have shifted the presentation-mode word for
+every program using both packages, and would have left a canvas-only program —
+which reserves no `term::` state at all — with nowhere to put its ring. The region
+is per-arena (per-thread) because the ring is **worker-local**: only the stdin
+decoder running on the owning thread writes it, which is what lets
+overwrite-on-full need no atomics.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_RING_PTR_OFFSET]]
+
+**The process-global mouse-mode word** `_mfb_rt_mouse_mode` is the one piece of
+mouse state that is *not* per-arena, and it is the exception for a concrete
+reason: an app backend's mouse handler runs on the **UI thread**, which has no
+arena state at all, so it cannot read the region above. It needs two answers
+before it acts — should I emit, and in which unit — and one word carries both:
+`0` = off, `1` = cells (`term::` asked), `2` = pixels (`canvas::` asked). Written
+by `enableMouse` on the worker, read by every UI-thread handler on every backend.
+A full word rather than a byte so a plain 8-byte load/store works everywhere with
+no sub-word addressing; no atomics, because there is one writer and the readers
+tolerate a one-event-stale answer.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_MODE_SYMBOL]]
+
+As of plan-94-A both members are **inert stubs** on every backend: `enableMouse`
+writes nothing (not even the mode word — turning it on before plan-94-B's decoder
+exists would fill the input pipe with reports nothing consumes), and `pollMouse`
+always returns the all-zero `MouseEvent`, which reads as `MouseKind.None` because
+`None` is the first-declared variant of both enums. `term::on`/`term::off` emit no
+new ANSI bytes. The two `term::` members are not added to any app dispatch, so
+they delegate to the shared console backend and behave identically in every mode.
+[[src/codegen/term/core/term.rs:emit_poll_mouse]]
+
 ## Retained double-buffered surface + mandatory present
 
 While TUI mode is on, `term::` is a **retained, double-buffered** surface with one

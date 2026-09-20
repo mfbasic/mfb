@@ -1293,10 +1293,13 @@ pub(crate) struct ArenaLayout {
     /// Byte offset of the `app::` presentation-mode word (plan-62-B), when this is
     /// an app build. Reserved just past the `term::` state region.
     pub(crate) presentation_mode_offset: Option<usize>,
-    /// Byte offset of the `canvas::` retained-scene region (plan-98-B), when the
-    /// program uses `canvas::`. Reserved just past the presentation-mode word.
+    /// Byte offset of the mouse-state region (plan-94-A §4.4a) — the decoded-event
+    /// ring, its cursors and the stdin decoder's partial-sequence buffer — when the
+    /// program uses `enableMouse`/`pollMouse`. Reserved just past the
+    /// presentation-mode word, so no existing offset moves.
+    pub(crate) mouse_state_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state + the app presentation-mode slot + the canvas scene region.
+    /// `term::` state + the app presentation-mode slot + the mouse-state region.
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,

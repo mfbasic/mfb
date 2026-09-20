@@ -8,7 +8,7 @@
 //! (`code::lower_term_helper`) or, in an `--app` build, the platform's synthesized
 //! `TermView` surface (`CodegenPlatform::emit_app_term_helper`).
 //!
-//! Each of the 24 members owns its `Body::abi_function` body (`lower_<name>`) in its
+//! Each of the 26 members owns its `Body::abi_function` body (`lower_<name>`) in its
 //! own `func_*.rs`: the `abi_function` wrapper seeds the entry label, binds the
 //! incoming ABI argument registers, and finalizes; the body calls the one
 //! genuinely-shared family-generic [`lower_term_helper`] with its own runtime-call

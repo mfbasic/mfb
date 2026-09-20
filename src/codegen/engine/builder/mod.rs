@@ -1545,6 +1545,49 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
+    // plan-94-A §4.4a: the mouse-state region — the decoded-event ring, its cursors
+    // and the stdin decoder's partial-sequence buffer. A THIRD conditionally-reserved
+    // region, appended past the presentation-mode word.
+    //
+    // Appending is load-bearing, not tidiness: every program that does not use mouse
+    // keeps `term_state_offset` and `presentation_mode_offset` byte-identical, so no
+    // existing entry frame or golden moves. The rejected alternative — growing
+    // `TERM_STATE_SLOTS` — would have shifted the presentation-mode word for every
+    // program using both `term::` and `app::`, and would have given a canvas-only
+    // program (which reserves no `term::` state at all) nowhere to put its ring.
+    //
+    // Keyed on the member symbols rather than on the package prefix, because
+    // `_mfb_rt_term_` is already true for any `term::` program: a program that draws
+    // a box and never touches the mouse must not pay for a ring. Matching the
+    // suffix covers both packages' spellings (`_mfb_rt_term_term_pollMouse`,
+    // `_mfb_rt_canvas_canvas_pollMouse`) without enumerating four symbols that would
+    // then have to be kept in step with the registry.
+    let uses_mouse = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"));
+    let mouse_state_offset = if uses_mouse {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base + link_slot_count + term_state_slots + presentation_mode_slots) * 8,
+        )
+    } else {
+        None
+    };
+    let mouse_state_slots = if uses_mouse { MOUSE_STATE_SLOTS } else { 0 };
+    // plan-94-A §4.4b: the process-global mouse-mode word. Not part of any arena,
+    // because an app backend's mouse handler runs on the UI thread and has no arena
+    // state to read — see `MOUSE_MODE_SYMBOL`. Emitted only when the program uses
+    // mouse, so every other program keeps its exact data-object set.
+    if uses_mouse {
+        data_objects.push(CodeDataObject {
+            symbol: MOUSE_MODE_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.mouse_mode.v1 { u64 mode }".to_string(),
+            align: 8,
+            size: 8,
+            value: "00".repeat(8),
+        });
+    }
     // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
     // (plan-98-B put it one region past the presentation-mode word), but arena state is
     // per-thread and the graphics thread has to see what the worker published, so it
@@ -1578,8 +1621,11 @@ pub(crate) fn lower_module_for_platform(
     // this same number in `lower_thread_start_helper` (bug-369). Before that, a
     // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
     // in a worker ran off the end of the block into neighbouring arena memory.
-    let arena_global_slots =
-        globals_base + link_slot_count + term_state_slots + presentation_mode_slots;
+    let arena_global_slots = globals_base
+        + link_slot_count
+        + term_state_slots
+        + presentation_mode_slots
+        + mouse_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -2315,6 +2361,7 @@ pub(crate) fn lower_module_for_platform(
                     ArenaLayout {
                         term_state_offset,
                         presentation_mode_offset,
+                        mouse_state_offset,
                         global_slots: arena_global_slots,
                         debug_arena_registry: crate::codegen::debug::feature_active(
                             module,
@@ -2882,6 +2929,7 @@ pub(crate) fn lower_runtime_helper(
                 string_symbols,
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
+                arena_layout.mouse_state_offset,
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,

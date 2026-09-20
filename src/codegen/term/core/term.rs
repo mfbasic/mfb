@@ -56,6 +56,12 @@ const ESC_OFF_SYMBOL: &str = "_mfb_term_esc_off";
 /// retired 3-field `TermColor`).
 const COLOR_RECORD_SIZE: usize = 32;
 const TERM_SIZE_RECORD_SIZE: usize = 16;
+/// Bytes allocated for the `term::MouseEvent` record `term::pollMouse` returns:
+/// seven props (`kind`, `button`, `row`, `column`, `shift`, `ctrl`, `alt`), one
+/// 8-byte value slot each. An enum prop is an ordinal, not a composite, so none of
+/// the seven is inlined and the block carries no trailing data region — the flat
+/// `8 * fields.len()` layout `pointer_field_offset` assumes.
+const MOUSE_EVENT_RECORD_SIZE: usize = 56;
 /// Default foreground while inactive (white, packed `r | g<<8 | b<<16`).
 const DEFAULT_FOREGROUND_PACKED: &str = "16777215";
 
@@ -315,6 +321,8 @@ pub(crate) fn lower_term_helper(
             &done,
         )?,
         "term.didResize" => emit_did_resize(term_state_offset, &mut instructions),
+        "term.enableMouse" => emit_enable_mouse(&mut instructions),
+        "term.pollMouse" => emit_poll_mouse(symbol, &done, &mut instructions, &mut relocations),
         other => return Err(format!("unknown term runtime helper '{other}'")),
     }
 
@@ -563,6 +571,76 @@ fn emit_did_resize(term_state_offset: usize, instructions: &mut Vec<CodeInstruct
         "Integer",
         RESULT_OK_TAG,
     ));
+}
+
+/// `term::enableMouse(Boolean)` (plan-94-A): the opt-in mouse-reporting toggle.
+///
+/// **A no-op stub in plan-94-A** — it accepts the argument and ignores it, writes no
+/// tracking sequence, and leaves `term::pollMouse` reporting `MouseKind.None`. That
+/// is the whole point of the A sub-plan: the surface, the seams and the storage land
+/// first so B–E implement behind a frozen signature. plan-94-B replaces this body
+/// with the `\x1b[?1000h\x1b[?1002h\x1b[?1006h` set / reset pair and the
+/// `_mfb_rt_mouse_mode` write.
+///
+/// Not gated on `active` even once it is real: asking for mouse reporting before
+/// `term::on` is a sequencing mistake the program can make either way, and a setter
+/// that silently no-ops is the established `term::` answer (`emit_set_attr`) rather
+/// than an error.
+fn emit_enable_mouse(instructions: &mut Vec<CodeInstruction>) {
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::pollMouse() AS MouseEvent` (plan-94-A): take the next pending event.
+///
+/// **A stub in plan-94-A** — it always allocates the all-zero record. Zero is not an
+/// arbitrary filler here: `MouseKind.None` and `MouseButton.None` are declared first
+/// in their enums and so take ordinal 0, which makes the zero record read exactly as
+/// "nothing pending, no button, at the home cell, no modifiers". That is the
+/// permanent "no event" sentinel, so plan-94-B replaces the *source* of the fields
+/// with the ring drain and keeps this shape for the idle answer.
+///
+/// Like `emit_get_color`, an allocation failure raises `ErrOutOfMemory` rather than
+/// returning a half-built record.
+fn emit_poll_mouse(
+    symbol: &str,
+    done: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let alloc_ok = format!("{symbol}_alloc_ok");
+    let alloc_error = format!("{symbol}_alloc_error");
+    instructions.extend([
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &MOUSE_EVENT_RECORD_SIZE.to_string(),
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::branch(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::move_register("%v9", RESULT_VALUE_REGISTER),
+        abi::move_immediate("%v10", "Integer", "0"),
+    ]);
+    for field in 0..MOUSE_EVENT_RECORD_SIZE / 8 {
+        instructions.push(abi::store_u64("%v10", "%v9", field * 8));
+    }
+    instructions.extend([
+        abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(done),
+        abi::label(&alloc_error),
+    ]);
+    raise_error_into(symbol, "ErrOutOfMemory", instructions, relocations);
 }
 
 /// `term::setForeground`/`setBackground` (plan-35-B): pack `r|g<<8|b<<16` into the

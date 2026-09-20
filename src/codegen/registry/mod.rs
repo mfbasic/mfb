@@ -64,10 +64,15 @@ pub(crate) struct AbiCtx<'a> {
     /// bodies (presentation-mode load/store + the app-mode `ErrWrongMode` gate);
     /// carries the `ArenaLayout` value byte-for-byte. Most abi bodies ignore it.
     pub(crate) presentation_mode_offset: Option<usize>,
-    /// The arena offset of the `canvas::` retained-scene region, or `None` when the
-    /// program uses no `canvas::`. Read by the `canvas` `abi_function` bodies
-    /// (`present`/`presentLayers`); carries the `ArenaLayout` value byte-for-byte.
-    /// Every other abi body ignores it.
+    /// plan-94-A §4.4a: the arena offset of the mouse-state region (the decoded-event
+    /// ring, its cursors and the decoder's partial-sequence buffer), or `None` when
+    /// the program uses no `enableMouse`/`pollMouse`. Read by the mouse `abi_function`
+    /// bodies and by the stdin decoder plan-94-B installs; carries the `ArenaLayout`
+    /// value byte-for-byte. Every other abi body ignores it.
+    ///
+    /// The mouse-MODE word is deliberately not here: it is process-global
+    /// (`MOUSE_MODE_SYMBOL`), because a UI-thread handler has no arena state.
+    pub(crate) mouse_state_offset: Option<usize>,
     /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
     /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
     /// `thread.start` alone consumes it to size a spawned worker's arena block so its

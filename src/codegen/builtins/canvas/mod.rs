@@ -40,6 +40,7 @@ mod func_create_image;
 mod func_destroy_font;
 mod func_destroy_image;
 mod func_did_resize;
+mod func_enable_mouse;
 mod func_fill;
 mod func_fill_stroke;
 mod func_get_bytes;
@@ -54,6 +55,7 @@ mod func_load_image;
 mod func_measure_text;
 mod func_metal_draw;
 mod func_new_surface;
+mod func_poll_mouse;
 mod func_present;
 mod func_present_layers;
 mod func_publish_scene;
@@ -82,6 +84,15 @@ mod helper_render;
 mod helper_shapes;
 mod helper_surface;
 mod scene_base;
+
+/// plan-94-A: the `MouseEvent` value record `canvas::pollMouse` returns.
+///
+/// `term` owns an independent record of the same name — deliberately, because
+/// `term::` is `Mode.Console`-gated and `canvas::` is `Mode.Canvas`-gated, so a
+/// canvas program must never have to `IMPORT term` to ask where the mouse is. The
+/// two differ in their coordinate prop: `term`'s is `row`/`column` cells, this one's
+/// is a `position AS Point` in surface pixels.
+pub(crate) const MOUSE_EVENT_TYPE: &str = "MouseEvent";
 
 /// The `Image` resource's bare type name, and the package-qualified id members
 /// spell in their signatures.
@@ -224,6 +235,140 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "y",
                 ty: ParameterType::Float,
                 description: "The vertical coordinate in pixels, increasing downward.",
+            },
+        ],
+    });
+
+    // plan-94-A: the mouse surface, in canvas pixels. `term::` carries an
+    // independent set of the same three types, and deliberately so: `term::` traps
+    // outside `Mode.Console` and `canvas::` outside `Mode.Canvas`, so a canvas
+    // program must never be made to `IMPORT term` to ask where the mouse is. Two
+    // small type sets cost a little duplication and keep `IMPORT` at zero bytes —
+    // the shape `term::didResize` / `canvas::didResize` already have.
+    //
+    // `position` is a `Point` rather than two bare `Float`s so an event hands
+    // straight to a hit test, and so every canvas coordinate is the same type.
+    // Being a record makes it an INLINED prop (its slot holds a block-relative
+    // offset, and the `Point` sub-block follows the fixed slots) — see
+    // `func_poll_mouse.rs`, which has to build that layout by hand.
+    pkg.add_record(RegistryRecord {
+        name: MOUSE_EVENT_TYPE,
+        export: true,
+        description: "One thing the mouse did, as reported by `canvas::pollMouse`. \
+                      Test `kind` against `canvas::MouseKind.None` first: that is \
+                      what an idle poll reports, and the rest of the record is \
+                      meaningless when it does.",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::named("MouseKind"),
+                description: "What happened — a press, a release, motion, a drag, or \
+                              a wheel turn. `None` when nothing is pending.",
+            },
+            RecordProp {
+                name: "button",
+                ty: ParameterType::named("MouseButton"),
+                description: "Which button the event is about. `None` for motion and \
+                              wheel events, which belong to no button.",
+            },
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named("Point"),
+                description: "Where the mouse was, in surface pixels — the same \
+                              top-left-origin coordinates every `canvas::DrawItem` \
+                              uses, so it hands straight to a hit test.",
+            },
+            RecordProp {
+                name: "shift",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Shift was held as the event happened.",
+            },
+            RecordProp {
+                name: "ctrl",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Control was held as the event happened.",
+            },
+            RecordProp {
+                name: "alt",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Alt (Option) was held as the event happened.",
+            },
+        ],
+    });
+
+    // `None` MUST stay declared first in both enums: ordinal 0 is what makes the
+    // all-zero record read as "nothing pending, no button", which is the sentinel
+    // an idle `canvas::pollMouse` returns.
+    pkg.add_enum(RegistryEnum {
+        name: "MouseKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "Nothing is pending. What an idle `canvas::pollMouse` \
+                              reports, and what every call reports before \
+                              `canvas::enableMouse(TRUE)`. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Down",
+                description: "A button was pressed. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Up",
+                description: "A button was released. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Move",
+                description: "The mouse moved with no button held. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Drag",
+                description: "The mouse moved with a button held. `button` says \
+                              which one is down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollUp",
+                description: "The wheel turned away from the user. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollDown",
+                description: "The wheel turned toward the user. `button` is `None`.",
+                advisory: None,
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "MouseButton",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "No button — what motion and wheel events report. The \
+                              zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Left",
+                description: "The primary button.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Middle",
+                description: "The middle button, usually the wheel pressed down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Right",
+                description: "The secondary button.",
+                advisory: None,
             },
         ],
     });
@@ -1045,6 +1190,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_destroy_font::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
+    func_enable_mouse::register(&mut pkg);
+    func_poll_mouse::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
