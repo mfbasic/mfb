@@ -181,7 +181,7 @@ disassembles to exactly the predicted shape: `ldr` of `_mfb_rt_mouse_mode` →
 `convertPoint:fromView:` with a nil source; the cell divide; then
 `_objc_getAssociatedObject` on `_mfb_macapp_pipe_key` and `_write`. No app
 fixture diffed at all (see Corrections C3 for the two rounds it took).
-Commit: —
+Commit: 1bf8ef5c3
 
 ### Phase 2 — Full TermView event set
 
@@ -209,7 +209,7 @@ distinguishes the two variants exactly as designed: the term IMP contains
 (the Y-flip) and **no** `fdiv_d`, and both end in `fcvtms_x_from_d`. Goldens: 0
 diffs tree-wide. And `MFB_MOUSE_INJECT` (plan-94-B) drives the decoder without a
 mouse, so the end-to-end path IS machine-checked — see Phase 3.
-Commit: —
+Commit: 1bf8ef5c3
 
 ### Phase 3 — `MFBCanvasView` (pixels)
 
@@ -241,7 +241,7 @@ zero-based `Float`s in the right fields, which is simultaneously proof of the
 inlined-`Point` layout, the transposition, the integer→float conversion, the
 ring and the `Mode.Canvas` gate. The canvas IMPs contain no `fdiv_d`. Gate: 0
 diffs across 2066 goldens.
-Commit: —
+Commit: 1bf8ef5c3
 
 ## Validation Plan
 
