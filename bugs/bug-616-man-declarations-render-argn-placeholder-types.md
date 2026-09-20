@@ -46,10 +46,13 @@ Expected: `0`.
 ## Root cause
 
 `src/types.rs:ParameterType::name` renders `ParameterType::Arg(n)` as
-`format!("Arg{n}")`. `src/cli/man.rs:public_type_name`, which is
-`ty.name().replace('.', "::")`, passes that through for every declaration and
-return line (the `render_*` callers of `public_type_name(&implementation.return_type)`).
-Nothing substitutes the n-th parameter's type before rendering.
+`format!("Arg{n}")`. ~~`src/cli/man.rs:public_type_name`~~ — **stale name,
+corrected 2026-09-19**: that helper no longer exists; it is now
+`src/types.rs:ParameterType::display`, the same `name().replace('.', "::")`
+passthrough, and the bug is unchanged. It passes the placeholder through for
+every declaration and return line (the `render_*` callers of
+`implementation.return_type.display()`). Nothing substitutes the n-th
+parameter's type before rendering.
 
 ## Non-goals
 
@@ -60,16 +63,44 @@ Nothing substitutes the n-th parameter's type before rendering.
 
 ## Blast-radius audit
 
-- Every `ParameterType::Arg(` in `src/codegen/builtins/**` (`math/mod.rs` shared
-  helpers, `collections`). All render through `public_type_name`.
-- Nested `Arg` inside `List OF Arg0` or `FUNC(...) AS Arg0`: the resolver must
-  substitute recursively.
-- HTML docs (`mfb doc`, `mfb pkg doc`) may share the rendering; check them.
+**Verdicts, 2026-09-19 (release compiler at `be60f76eb`):**
+
+- [x] Every `ParameterType::Arg(` in `src/codegen/builtins/**` — **23 sites**
+      (`grep -rn "ParameterType::Arg(" src/codegen/builtins/ | grep -v tests`):
+      `math/mod.rs` (the `preserving_unary` shared shape) and `math/func_clamp.rs`,
+      plus 15 `collections` members. All render through
+      `ParameterType::display()`, all fixed by the one substitution.
+- [x] Nested `Arg` inside `List OF Arg0` or `FUNC(...) AS Arg0` — **no descriptor
+      builds one today**: every one of the 23 sites is a bare top-level return.
+      The resolver is written recursively anyway so a future nested use resolves
+      rather than silently shipping a placeholder.
+- [x] HTML docs (`mfb doc`, `mfb pkg doc`) — **verdict: NOT shared, no change
+      needed.** Both render *user* documentation, not the builtin registry:
+      `mfb doc` renders source doc-blocks via `build_source_doc_page`, and
+      `mfb pkg doc` reads the doc section out of a compiled `.mfp`
+      (`binary_repr::read_package_docs`). No registry `Implementation::return_type`
+      reaches either, and `grep -rn "render_declaration\|render_function_markdown"
+      src/` has no hit outside `man.rs`.
+
+**Census correction.** The document's target was the 78 lines matching
+`(AS|OF|TO) ArgN`. The true surface is **93** occurrences: the other 15 are the
+`Returns ArgN.` sentences and the continuation lines of declarations that word-wrap
+mid-type. The stated Goal ("No rendered page contains `ArgN`") already covers
+them, so the fix and its sweep test target 93 → 0, not 78 → 0.
 
 ## Fix
 
-Phase 1 — renderer unit test: a descriptor with `return_type: Arg(0)` on a
-`Float` parameter renders `AS Float` (RED); census 78 → 0 target. Commit:
+Phase 1 — [x] renderer unit tests: `a_declaration_resolves_an_arg_placeholder_to_the_parameters_type`
+(the concrete `math::abs` overloads, the generic `collections::reduceRight`, and a
+container `collections::append`) plus a TOTAL sweep,
+`no_rendered_page_spells_an_arg_placeholder`, modelled on the existing
+`no_rendered_page_spells_a_dotted_package_type` (bug-605) so a new render site
+cannot reintroduce the leak. Both confirmed RED, listing all 93 occurrences.
+Commit: `89b36ba68`
 
-Phase 2 — resolve `Arg(n)` against the overload's parameter list in the man
-renderer, recursively (GREEN); update proven-wrong pins. Commit:
+Phase 2 — [x] `src/cli/man.rs:resolved_return_type` substitutes `Arg(n)` with the
+n-th parameter's type, recursively, at the two sites that render a return type
+(`render_declaration` and `render_parameters`' "Returns" line). Kept at the
+rendering layer per the Non-goals; `ParameterType::name` is untouched. No pin was
+proven wrong — no existing test asserted an `ArgN` spelling.
+Commit: `89b36ba68`
