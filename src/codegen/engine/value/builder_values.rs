@@ -580,6 +580,21 @@ impl CodeBuilder<'_> {
     /// thread-spawn move) now owns its block and will free it exactly once. The
     /// outermost node's temp is always the most recently registered, so matching
     /// the tail entry's origin register is precise.
+    /// Whether [`Self::claim_pending_temp`] would claim `result` — i.e. it is the
+    /// statement's most recent pending temporary, a block this frame freshly allocated
+    /// and still owns.
+    ///
+    /// bug-655: `thread.start` may only hand the seed block's ownership to the thread
+    /// when this is true. A seed that is a STRING LITERAL is a static symbol, not arena
+    /// memory (freeing it is a bus error), and a seed that is a `Local` is still owned
+    /// by that binding, whose own scope-drop frees it (freeing it again is a double free
+    /// — segfault). Both were measured before this gate existed; neither is hypothetical.
+    pub(crate) fn pending_temp_would_be_claimed(&self, result: &ValueResult) -> bool {
+        self.pending_temp_frees
+            .last()
+            .is_some_and(|temp| temp.location == result.location)
+    }
+
     pub(crate) fn claim_pending_temp(&mut self, result: &ValueResult) {
         if self
             .pending_temp_frees
