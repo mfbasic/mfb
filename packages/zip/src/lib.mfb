@@ -123,3 +123,52 @@ EXPORT FUNC find(archive AS Archive, name AS String) AS Entry
   NEXT
   FAIL error(errorCode::ErrNotFound, "zip: no entry named \"" & name & "\"")
 END FUNC
+
+' Read one entry's uncompressed bytes.
+'
+' `maxBytes` bounds how much memory one call can need. It is checked against the
+' size the central directory records BEFORE any data is read, so an oversized
+' entry is refused without cost -- which is what makes it safe to open an
+' untrusted archive and look at its entry list.
+'
+' The bytes are checked against the CRC-32 the archive records for them: a
+' mismatch raises `zip::ErrorChecksum` rather than returning data that does not
+' match its own checksum. A directory entry reads as the empty list.
+'
+' Raises `errorCode::ErrUnsupported` for an encrypted entry or any compression
+' method other than stored (0) and deflate (8).
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
+'   io::print(toString(len(bytes)))
+' END SUB
+' ```
+EXPORT FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
+  RETURN readEntry(archive, entry, maxBytes)
+END FUNC
+
+' Read one entry and decode it as UTF-8 text.
+'
+' Everything `read` does, plus a strict UTF-8 decode: an entry that is not valid
+' UTF-8 raises `errorCode::ErrInvalidFormat` rather than returning replacement
+' characters.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(zip::readText(archive, zip::find(archive, "notes.txt")))
+' END SUB
+' ```
+EXPORT FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
+  RETURN readEntryText(archive, entry, maxBytes)
+END FUNC

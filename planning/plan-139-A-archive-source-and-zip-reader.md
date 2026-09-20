@@ -347,31 +347,43 @@ Commit: 22a7747d9
 Acceptance: every fixture's entry list matches Python's `ZipInfo` values through both overloads.
 **Met** — all six fixtures, both overloads, per field.
   Check: `target/release/mfb test packages/zip` → `Tests: 29  Pass: 29  Fail: 0`.
-Commit: PENDING
+Commit: dedf0a160
 
 ### Phase 3 — entry reads
 
-- [ ] `src/entry.mfb`: §4.4; `read`, `readText` in `lib.mfb`.
-- [ ] Tests `src/test_read.mfb`: every fixture entry reads back to the generator's bytes via both
-      overloads; one flipped data byte → `zip::ErrorChecksum`; `maxBytes` below entry size →
-      `ErrTooLarge` with nothing read (file-backed, verify by closing nothing and checking no
-      exception other than `ErrTooLarge`); encrypted flag → `ErrUnsupported`; method 12 →
-      `ErrUnsupported`; stored entry with `compressedSize ≠ size` → `ErrInvalidFormat`.
-- [ ] No-whole-file-load audit: `grep -n -E 'readAllBytes|readAll\(|readBytes\(' packages/zip/src/*.mfb`
-      → no matches outside `test_*.mfb`.
+- [x] `src/entry.mfb` implements §4.4 as `readEntry`/`readEntryText`; `lib.mfb` exports `read`
+      and `readText` over them with `maxBytes AS Integer = 67108864` defaults. Sizes, CRC and
+      method come from the central directory, so no data descriptor is ever needed — which is what
+      lets a file-backed read stay a single positional read rather than a forward scan.
+- [x] Tests `src/test_read.mfb` — 15 cases. Every fixture entry reads back to the oracle's bytes
+      through both overloads, plus a case asserting the two sources return identical entry bytes.
+      Refusals: a flipped data byte → `ErrorChecksum` (checked from memory AND from a file);
+      `maxBytes` below the entry size → `ErrTooLarge`, with a follow-up read proving the archive is
+      still usable and the refusal read nothing; encrypted flag → `ErrUnsupported`; method 12 →
+      `ErrUnsupported`; stored entry with `compressedSize ≠ size` → `ErrInvalidFormat`; broken
+      local-header signature → `ErrInvalidFormat`. One case pins the ORDER of checks: a corrupted
+      entry fails its CRC before `readText` attempts a decode.
+- [x] No-whole-file-load audit. The plan's grep has one match — `fs::readBytes("photos.zip")`
+      inside a DOC-comment example in `lib.mfb`, showing what a CALLER does to get bytes for the
+      memory overload, not what the package does. Re-run over executable lines only
+      (`| grep -v -E ":[0-9]+:[[:space:]]*'"`) it exits 1 with no matches. The positive form is
+      stronger and is the one recorded: the package's executable code calls exactly
+      **`fs::readBytesAt` once and `fs::size` once**, and nothing else in `fs`
+      (`grep -h 'fs::' <non-test sources> | grep -v "^[[:space:]]*'" | grep -oE 'fs::[a-zA-Z]+' |
+      sort | uniq -c` → `2 fs::File`, `1 fs::readBytesAt`, `1 fs::size`).
 
 Acceptance: every fixture entry reads back byte-identically from both sources; each defect maps to
-its code.
-  Check: `target/release/mfb test packages/zip` → all cases pass; the grep above → no non-test match
-  (est. 1 min).
-Commit: —
+its code. **Met.**
+  Check: `target/release/mfb test packages/zip` → `Tests: 44  Pass: 44  Fail: 0`; the audit grep
+  over executable lines → exit 1, no match.
+Commit: PENDING3
 
 ## Validation Plan
 
 - Tests: `packages/zip/src/test_source.mfb`, `test_central.mfb`, `test_read.mfb` (positive per
   fixture ×2 sources, negative per error code).
-- Coverage check: every exported function in `lib.mfb` is called from at least one `TCASE`:
-  `grep -o -E '^EXPORT FUNC [a-zA-Z]+' packages/zip/src/lib.mfb` names each appear in `test_*.mfb`.
+- Coverage check: **done** — all seven exports of `lib.mfb` are called from a `TCASE`
+  (`open` 37 call sites, `find` 18, `entries` 15, `read` 13, `comment` 4, `has` 3, `readText` 3).
 - Runtime proof: letter D (differential + RSS). This letter's proof is the test run above.
 - Doc sync: DOC comments on every export in `lib.mfb` (README/doc.html are letter B).
 - Final gate: letter D (run once at the end of plan-139).

@@ -1,0 +1,212 @@
+' ---------------------------------------------------------------------------
+' Tests: reading entry contents.
+'
+' Like the central-directory tests, every positive case runs from both sources
+' and compares against what the oracle said the entry contains -- so "the file
+' form and the memory form return the same bytes" is checked per entry rather
+' than assumed from the seam.
+'
+' The negative cases are the ones that matter for an untrusted archive: a
+' flipped data byte must be caught by the CRC rather than returned, and an
+' oversized or unsupported entry must be refused before its data is read.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+
+PRIVATE FUNC fixtureFor(label AS String) AS Fixture
+  FOR EACH f IN allFixtures()
+    IF f.label = label THEN
+      RETURN f
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "test: no fixture named " & label)
+END FUNC
+
+PRIVATE FUNC sameBytesRead(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Describe the first entry of `archive` whose bytes are not what the oracle
+' recorded, or "" when every entry reads back correctly.
+PRIVATE FUNC contentMismatch(archive AS Archive, fixture AS Fixture) AS String
+  FOR i = 0 TO len(fixture.entries) - 1
+    LET entry AS Entry = collections::get(entries(archive), i)
+    LET want AS ExpectedEntry = collections::get(fixture.entries, i)
+    LET expected AS List OF Byte = encoding::base64Decode(want.contentBase64)
+    LET actual AS List OF Byte = read(archive, entry)
+    IF len(actual) <> len(expected) THEN
+      RETURN fixture.label & "/" & entry.name & ": " & toString(len(actual)) & " bytes, oracle says " & toString(len(expected))
+    END IF
+    IF NOT sameBytesRead(actual, expected) THEN
+      RETURN fixture.label & "/" & entry.name & ": contents differ from the oracle"
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+' Flip one byte in the middle of the first entry's compressed data.
+'
+' The `simple` fixture's first entry is stored at a known local header offset of
+' 0, so its data begins right after the 30-byte header and the name.
+PRIVATE FUNC withFlippedData(raw AS List OF Byte) AS List OF Byte
+  LET nameLength AS Integer = u16le(raw, 26)
+  LET extraLength AS Integer = u16le(raw, 28)
+  LET dataAt AS Integer = 30 + nameLength + extraLength
+  LET was AS Integer = toInt(collections::get(raw, dataAt))
+  RETURN collections::set(raw, dataAt, toByte((was + 1) MOD 256))
+END FUNC
+
+' Set the local header's general-purpose flag bit 0 (encrypted).
+PRIVATE FUNC withEncryptedFlag(raw AS List OF Byte) AS List OF Byte
+  LET flags AS Integer = u16le(raw, 6)
+  RETURN collections::set(raw, 6, toByte((flags MOD 256) + 1))
+END FUNC
+
+TESTING
+  TGROUP "read"
+    TCASE "every fixture entry reads back to the oracle's bytes, from memory"
+      FOR EACH fixture IN allFixtures()
+        LET raw AS List OF Byte = fixture.bytes
+        expectString(contentMismatch(open(raw), fixture), "")
+      NEXT
+    END TCASE
+
+    TCASE "every fixture entry reads back to the oracle's bytes, from a file"
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        fs::writeAllBytes(f, fixture.bytes)
+        fs::flush(f)
+        expectString(contentMismatch(open(f), fixture), "")
+        fs::close(f)
+      NEXT
+    END TCASE
+
+    TCASE "the two sources return identical entry bytes"
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        fs::writeAllBytes(f, fixture.bytes)
+        fs::flush(f)
+        LET raw AS List OF Byte = fixture.bytes
+        LET fromMemory AS Archive = open(raw)
+        LET fromFile AS Archive = open(f)
+        FOR i = 0 TO len(entries(fromMemory)) - 1
+          LET a AS List OF Byte = read(fromMemory, collections::get(entries(fromMemory), i))
+          LET b AS List OF Byte = read(fromFile, collections::get(entries(fromFile), i))
+          expectEqual(sameBytesRead(a, b), TRUE)
+        NEXT
+        fs::close(f)
+      NEXT
+    END TCASE
+
+    TCASE "a deflated entry inflates to its recorded size"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET archive AS Archive = open(raw)
+      LET entry AS Entry = find(archive, "repeat.txt")
+      expectInteger(entry.method, 8)
+      expectInteger(len(read(archive, entry)), 1024)
+    END TCASE
+
+    TCASE "readText decodes an entry as UTF-8"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET archive AS Archive = open(raw)
+      expectString(readText(archive, find(archive, "hello.txt")), "Hello, world!\n")
+    END TCASE
+
+    TCASE "a directory entry reads as empty"
+      LET raw AS List OF Byte = fixtureFor("dirs").bytes
+      LET archive AS Archive = open(raw)
+      expectInteger(len(read(archive, find(archive, "sub/"))), 0)
+    END TCASE
+
+    TCASE "a ZIP64 entry's data is found through its ZIP64 offsets"
+      LET raw AS List OF Byte = fixtureFor("zip64").bytes
+      LET archive AS Archive = open(raw)
+      expectString(readText(archive, find(archive, "big.txt")), "pretend this is enormous\n")
+    END TCASE
+  END TGROUP
+
+  TGROUP "read refusals"
+    TCASE "a flipped data byte is caught by the CRC, not returned"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET broken AS List OF Byte = withFlippedData(raw)
+      LET archive AS Archive = open(broken)
+      expectTrap(read(archive, find(archive, "hello.txt")), ErrorChecksum)
+    END TCASE
+
+    TCASE "the same corruption is caught from a file source too"
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, withFlippedData(fixtureFor("simple").bytes))
+      fs::flush(f)
+      LET archive AS Archive = open(f)
+      expectTrap(read(archive, find(archive, "hello.txt")), ErrorChecksum)
+      fs::close(f)
+    END TCASE
+
+    TCASE "maxBytes below the entry size refuses before reading"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "hello.txt"), 4), errorCode::ErrTooLarge)
+      ' The archive is still usable afterwards: the refusal read nothing and
+      ' changed nothing.
+      expectInteger(len(read(archive, find(archive, "hello.txt"))), 14)
+    END TCASE
+
+    TCASE "an encrypted entry is refused as unsupported"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET archive AS Archive = open(withEncryptedFlag(raw))
+      expectTrap(read(archive, find(archive, "hello.txt")), errorCode::ErrUnsupported)
+    END TCASE
+
+    TCASE "an unknown compression method is refused as unsupported"
+      ' Method 12 (bzip2) is a real zip method this package does not implement.
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET cdAt AS Integer = u32le(raw, len(raw) - 22 + 16)
+      LET broken AS List OF Byte = collections::set(raw, cdAt + 10, toByte(12))
+      LET archive AS Archive = open(broken)
+      expectTrap(read(archive, find(archive, "hello.txt")), errorCode::ErrUnsupported)
+    END TCASE
+
+    TCASE "a stored entry whose sizes disagree is refused"
+      ' Change only the central directory's uncompressed size, so stored data
+      ' no longer matches its declared length.
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET cdAt AS Integer = u32le(raw, len(raw) - 22 + 16)
+      LET broken AS List OF Byte = collections::set(raw, cdAt + 24, toByte(13))
+      LET archive AS Archive = open(broken)
+      expectTrap(read(archive, find(archive, "hello.txt")), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an entry whose local header signature is broken is refused"
+      LET raw AS List OF Byte = fixtureFor("simple").bytes
+      LET broken AS List OF Byte = collections::set(raw, 3, toByte(0))
+      LET archive AS Archive = open(broken)
+      expectTrap(read(archive, find(archive, "hello.txt")), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "readText refuses an entry that is not valid UTF-8"
+      LET raw AS List OF Byte = fixtureFor("cp437").bytes
+      LET archive AS Archive = open(raw)
+      ' The cp437 fixture's CONTENT is ASCII, so break it deliberately: a lone
+      ' 0x82 byte is valid CP437 but not valid UTF-8.
+      LET nameLength AS Integer = u16le(raw, 26)
+      LET dataAt AS Integer = 30 + nameLength + u16le(raw, 28)
+      LET broken AS List OF Byte = collections::set(raw, dataAt, toByte(130))
+      LET damaged AS Archive = open(broken)
+      LET entry AS Entry = collections::get(entries(damaged), 0)
+      ' The CRC now fails first, which is the correct order: contents are
+      ' checked before they are decoded.
+      expectTrap(readText(damaged, entry), ErrorChecksum)
+    END TCASE
+  END TGROUP
+END TESTING

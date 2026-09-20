@@ -1,0 +1,102 @@
+' ---------------------------------------------------------------------------
+' zip/entry.mfb — reading one entry's bytes.
+'
+' The sizes and the CRC come from the central directory, which `open` has
+' already parsed, so this never needs the data descriptor that follows an entry
+' written with general-purpose flag bit 3 set. That matters for the file source:
+' a data descriptor can only be found by scanning forward past the compressed
+' data, and scanning is what "read one entry without reading the file" rules
+' out.
+'
+' Only the local header's name and extra lengths are trusted from the local
+' header itself, and only to work out where the data starts. Everything else --
+' sizes, CRC, method -- is the central directory's, because the central
+' directory is the authoritative copy and a mismatch between the two is a
+' standard corruption a reader should not have to adjudicate.
+'
+' The limit is applied BEFORE any data is read, so an entry that claims to be
+' larger than `maxBytes` costs nothing to refuse.
+' ---------------------------------------------------------------------------
+
+IMPORT compress
+IMPORT encoding
+IMPORT errorCode
+
+PRIVATE LET LOCAL_FIXED AS Integer = 30
+
+' Read one entry's uncompressed bytes.
+'
+' `maxBytes` caps the decompressed size; an entry larger than it raises
+' `errorCode::ErrTooLarge` before anything is read.
+EXPORT FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS List OF Byte
+  IF entry.size > maxBytes THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" is " & toString(entry.size) & " bytes, over the " & toString(maxBytes) & "-byte limit")
+  END IF
+  IF entry.isDirectory THEN
+    RETURN []
+  END IF
+
+  LET total AS Integer = sizeOf(archive.source)
+  LET header AS List OF Byte = readAt(archive.source, entry.headerOffset, LOCAL_FIXED)
+  IF u32le(header, 0) <> 67324752 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has no local header signature")
+  END IF
+
+  ' Encryption and unknown methods are refused rather than guessed at. Both
+  ' checks read the LOCAL header's flags/method, which is where a reader that
+  ' is about to decompress must look.
+  LET flags AS Integer = u16le(header, 6)
+  IF flags MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" is encrypted")
+  END IF
+  IF entry.method <> 0 AND entry.method <> 8 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" uses compression method " & toString(entry.method))
+  END IF
+
+  LET nameLength AS Integer = u16le(header, 26)
+  LET extraLength AS Integer = u16le(header, 28)
+  LET dataOffset AS Integer = entry.headerOffset + LOCAL_FIXED + nameLength + extraLength
+  IF dataOffset + entry.compressedSize > total THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" claims " & toString(entry.compressedSize) & " bytes at " & toString(dataOffset) & ", past the end of a " & toString(total) & "-byte archive")
+  END IF
+
+  ' A DEFLATE stream cannot expand by more than its block framing, so a
+  ' compressed size far beyond that bound is a corrupt field, not a real entry,
+  ' and is refused before the bytes are read rather than after inflating them.
+  IF entry.method = 8 THEN
+    LET ceiling AS Integer = maxBytes + 5 * (maxBytes / 65535 + 1)
+    IF entry.compressedSize > ceiling THEN
+      FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " compressed bytes, more than any valid deflate of " & toString(maxBytes) & " bytes")
+    END IF
+  END IF
+
+  LET raw AS List OF Byte = readAt(archive.source, dataOffset, entry.compressedSize)
+  MUT data AS List OF Byte = []
+  IF entry.method = 0 THEN
+    IF entry.compressedSize <> entry.size THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: stored entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " bytes for a size of " & toString(entry.size))
+    END IF
+    data = raw
+  ELSE
+    data = compress::inflate(raw, maxBytes)
+    IF len(data) <> entry.size THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" inflated to " & toString(len(data)) & " bytes, not the " & toString(entry.size) & " recorded")
+    END IF
+  END IF
+
+  ' The checksum is the last word: an entry whose bytes do not match what the
+  ' archive recorded is refused rather than returned.
+  IF compress::crc32(data) <> entry.crc THEN
+    FAIL error(ErrorChecksum, "zip: entry \"" & entry.name & "\" failed its CRC-32 check")
+  END IF
+  RETURN data
+END FUNC
+
+' Read one entry and decode it as UTF-8.
+EXPORT FUNC readEntryText(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS String
+  LET data AS List OF Byte = readEntry(archive, entry, maxBytes)
+  LET text AS String = encoding::utf8Decode(data) TRAP(e)
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" is not valid UTF-8")
+  END TRAP
+  RETURN text
+END FUNC
