@@ -764,6 +764,13 @@ This is a fix to a shared instrument rather than to plan-94's own surface, and i
 is recorded here because §5's acceptance is what surfaced it: a gate that cannot
 build 35 examples cannot testify about the 47 `term::` ones this plan added.
 
+Whole-gate re-run after the fix, `./scripts/man-examples-gate.sh
+./target/release/mfb` → `man examples: 1090 checked, 1 failed, 0 stale not-run
+entr(y/ies), 569s`, the one failure being the port-8080 example above (36
+failures before). The rows this plan is responsible for:
+`term  47 47 37 10 0`, `canvas  26 26 26 0 0`, `app  2 2 2 0 0` — every
+mouse-bearing page builds and, where a tty is not required, runs.
+
 **C2 — `uses_mouse` keys on the member-symbol SUFFIX, not a package prefix.**
 §4.4a says to scan `runtime_symbols` "as `uses_app` does". `uses_app` matches the
 prefix `_mfb_rt_app_`, and copying that shape literally would have been wrong
