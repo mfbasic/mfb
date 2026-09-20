@@ -5,8 +5,37 @@ Effort: small–medium
 Severity: LOW
 Class: Correctness (registry error declaration) / Documentation
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: **FIXED (`0d9366a17`, `271a978f6`)** — landed on main 2026-09-19.
+Regression Test:
+`codegen::builtins::math::tests::each_overload_declares_only_the_errors_its_own_lowering_can_raise`
+(a 28-row table pinning every corrected member/error/overload triple) and
+`codegen::builtins::math::tests::no_member_lost_its_fallibility_when_the_declarations_were_narrowed`.
+
+## STATUS: FIXED (`0d9366a17`, `271a978f6`)
+
+Every man Errors table now matches the measured per-overload behavior. `math::asin` —
+the document's own reproduction — renders `ErrInvalidArgument` on overload 3 alone and
+`ErrFloatDomain` on 1 and 2, against the measured `Fixed`→`77050002`,
+`Float`/`List OF Float`→`77050012`.
+
+**Validation.** `cargo test --no-fail-fast`: **exit 0**, 199 result blocks, 0 failures
+(4274 tests in the main binary). `artifact_gate_all`: 2058 goldens checked, **0 diffs** —
+the declarations are registry data, so no codegen golden moves. The rendered-manual diff
+is confined entirely to `math`'s own pages (hunks 13488–15118, inside math's 13277–15163).
+No runtime behaviour changed and no new diagnostic appeared: the reproduction still prints
+`asin Fixed raised 77050002` / `asin Float raised 77050012` and builds warning-free.
+
+Main was merged in before the final run (it had advanced with bug-616, bug-654 and another
+session's plan-139 work).
+
+**A first run reported exit 101 and was NOT accepted.** It surfaced two things, both
+handled: a genuine dead-code warning (`preserving_unary` had no callers once every member
+moved to the typed form — removed in `271a978f6`), and one failure of
+`decode_time_is_linear_in_output_size`, a wall-clock RATIO assertion in
+`tests/runtime/rt_compress_bounds.rs` (4.74x against a 4.4x limit). That is a
+load-sensitive flake, self-inflicted by running three cargo suites concurrently: it passes
+in isolation, `compress` decode reaches no `math` member, and it passed in the clean
+serialised run above. Recorded rather than filed, because the contention was ours.
 
 Several `math` descriptors attach one shared error list to every overload.
 Because a unary member's overloads share a helper
@@ -144,7 +173,7 @@ Phase 1 — [x] audit table per overload (above); RED tests that each overload d
 what its own lowering raises, and that no member lost its fallibility. Confirmed RED on the
 pre-fix tree: `asin` declared `ErrInvalidArgument` and `ErrFloatDomain` on overloads 1, 2
 and 3 alike, against a measured split of `Fixed`→`77050002`, `Float`/`List OF Float`→`77050012`.
-Commit: see below
+Commit: `0d9366a17`
 
 Phase 2 — [x] per-overload error lists (GREEN). The registration helpers were generalized
 rather than the `&[...]` slices edited, because bug-615's `extra:
@@ -161,7 +190,7 @@ Option<(ParameterType, &[&str])>` hook is **additive and scalar-only** — it co
 * `rounding` gained the same partition (only the `Float` family range-checks).
 
 No golden outside `math`'s own man pages moved, and no runtime behavior changed.
-Commit: see below
+Commit: `0d9366a17`
 
 Phase 3 — [x] full suite; man-manual diff inspected. Commit: see below
 
