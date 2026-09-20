@@ -108,8 +108,8 @@ References:
 | What | Count | Command |
 |---|---|---|
 | `fs` registry function files | 41 | `ls src/codegen/builtins/fs/func_*.rs \| wc -l` → 41 |
-| existing `fs` rt-behavior fixtures | 24 | `ls -d tests/rt-behavior/fs/*/ \| wc -l` → measure in Phase 1 and record |
-| sites emitting the save/measure/restore seek triple | 3 (`readAll`, `readAllBytes`, `eof`) | `grep -c 'emit_seek_file' src/codegen/builtins/fs/gen_read_write.rs` → 9 calls = 3 triples |
+| existing `fs` rt-behavior fixtures | 56 | `ls -d tests/rt-behavior/fs/*/ \| wc -l` → 56 (measured 2026-09-19; the plan first guessed 24) |
+| sites emitting the save/measure/restore seek triple | 3 (`readAll`, `readAllBytes`, `eof`) | `grep -c 'emit_seek_file' src/codegen/builtins/fs/gen_read_write.rs` → **10** calls = 3 triples + 1 inside `emit_reconcile_read_buffer` (the plan first predicted 9; corrected 2026-09-19) |
 | spec lines listing `fs::` members | 1 | `grep -c 'fs::readAllBytes' src/docs/spec/language/18_builtin-functions.md` → 1 |
 
 ### Verified properties
@@ -164,7 +164,10 @@ one full `scripts/artifact-gate.sh <exe> all`.
 ### 4.1 `fs::size(file AS fs::File) AS Integer`
 
 New files: `src/codegen/builtins/fs/func_size.rs` (descriptor, modeled on `func_read_all_bytes.rs`)
-and `lower_fs_size_helper` in `gen_read_write.rs`. Registered in `mod.rs` beside `func_eof`.
+and `lower_fs_size_helper` in `gen_read_write.rs`. Registered in `mod.rs` beside `func_eof`, **and
+in six per-target sites without which no program can call it** (corrected 2026-09-19, see
+Corrections): the capability list and the import-plan arm of each of `macos_aarch64`,
+`linux_common` and `win_x86_64`. Also listed in `src/docs/spec/architecture/06_native.md`.
 
 1. `file.closed ≠ 0` → `ErrResourceClosed`.
 2. `fd = file.fd`; `saved = seek(fd, 0, SEEK_CUR)`; `< 0` → `ErrReadFailed`.
@@ -178,7 +181,9 @@ already does; the man page says so.
 ### 4.2 `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte`
 
 New files: `src/codegen/builtins/fs/func_read_bytes_at.rs` and `lower_fs_read_bytes_at_helper` in
-`gen_read_write.rs`.
+`gen_read_write.rs`. Same seven registration sites as §4.1 plus one more `fs::size` does not need:
+`CALLER_ARENA_BLOCK_RESULTS` in `src/codegen/registry/mod.rs`, because this one returns a
+block-carrying `List OF Byte`.
 
 1. `file.closed ≠ 0` → `ErrResourceClosed`.
 2. `offset < 0` or `count < 0` → `ErrInvalidArgument`.
@@ -232,24 +237,35 @@ measured in Phase 3).
 The smaller function first: it proves the descriptor → codegen → man → fixture → golden path end to
 end before the harder allocation-carrying one is written.
 
-- [ ] Record the measured-population row for `fs` rt-behavior fixtures (`ls -d
-      tests/rt-behavior/fs/*/ | wc -l`) and re-run the Prerequisites table at the worktree tip.
-- [ ] `src/codegen/builtins/fs/func_size.rs` — descriptor per §4.1/§4.4, modeled on
-      `func_read_all_bytes.rs`; `mod func_size;` + `func_size::register(&mut pkg);` in `mod.rs`.
-- [ ] `lower_fs_size_helper` in `gen_read_write.rs` per §4.1.
-- [ ] `target/release/mfb man fs size` → a page whose Declaration is
-      `fs::size(file AS fs::File) AS Integer`, with no banned vocabulary
-      (`target/release/mfb man fs size | grep -n -i -E 'borrow|ownership|heap|lifetime|allocate|refcount|dangling'`
-      → no matches).
-- [ ] Spec line updated (`src/docs/spec/language/18_builtin-functions.md:83`).
-- [ ] New fixture `tests/rt-behavior/fs/func_fs_size_valid/` (layout copied from
-      `func_fs_readAllBytes_valid`): writes a known-length file, opens it, prints `fs::size`, then
-      prints `fs::readLine` **after** the size call to show the position was not moved, then
-      `fs::size` after `fs::close` raising `ErrResourceClosed`. Pre-create the `golden/`
-      placeholders (`build.log`, `.ast`, `.ir`, `.run`) before syncing — `sync-goldens.sh` only
-      refreshes files that already exist.
-- [ ] `scripts/sync-goldens.sh target/release/mfb 'func_fs_size_valid'` then
-      `scripts/test-accept.sh target/release/mfb "$(mktemp -d)" 'func_fs_size_valid'` → pass.
+- [x] Record the measured-population row for `fs` rt-behavior fixtures (`ls -d
+      tests/rt-behavior/fs/*/ | wc -l` → **56**, not the 24 first guessed) and re-run the
+      Prerequisites table at the worktree tip (all 4 rows re-measured MET at `f204b84e2`;
+      `cargo build --release` → `Finished ... in 3m 38s`).
+- [x] `src/codegen/builtins/fs/func_size.rs` — descriptor per §4.1/§4.4, modeled on
+      `func_read_all_bytes.rs`; `mod func_size;` (`mod.rs:71`) + `func_size::register(&mut pkg);`
+      (`mod.rs:215`).
+- [x] `lower_fs_size_helper` in `gen_read_write.rs` per §4.1. **Plus an unlisted task the plan
+      missed: per-target registration.** A new runtime call must also be added to each target's
+      capability list and import-plan arm, or the build fails with `error: native backend does not
+      support runtime call 'fs.size'` (observed). Added to `macos_aarch64/mod.rs` + `plan.rs`,
+      `linux_common/mod.rs` + `plan.rs`, `win_x86_64/mod.rs` + `plan.rs`, and the call list in
+      `src/docs/spec/architecture/06_native.md`.
+- [x] `target/release/mfb man fs size` → Declaration `fs::size(file AS fs::File) AS Integer`
+      (exactly the signature plan-139-A's Prerequisites row names); the banned-vocabulary grep
+      exits 1 with no matches.
+- [x] Spec line updated (`src/docs/spec/language/18_builtin-functions.md:83`) — both names added
+      at once, so Phase 2 needs no second spec edit.
+- [x] New fixture `tests/rt-behavior/fs/func_fs_size_valid/`. Run output:
+      `size=23 / afterSize=first line / sizeMid=23 / afterSizeMid=second line / empty=0 /
+      closed=ErrResourceClosed`, exit 0. **Design correction found here:** the plan assumed a
+      fixture could `fs::close(f)` then call `fs::size(f)`; it cannot — that is
+      `error[2-203-0055 TYPE_USE_AFTER_MOVE]` at compile time. The closed-handle path is only
+      reachable through an alias the move rules cannot track, so the fixture closes through a
+      callee (`SUB closeHandle(RES f AS fs::File)`), which spec §15 names as exactly the case the
+      runtime flag catches. Recorded in Corrections.
+- [x] `scripts/sync-goldens.sh target/release/mfb 'func_fs_size_valid'` → `synced 3 golden
+      file(s) across 1 test(s)`; `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-size
+      'func_fs_size_valid'` → `acceptance tests passed (1 test(s) ran)`.
 
 Acceptance: `fs::size` reports the right length and does not move the read position.
   Check: `cargo test --bin mfb` → pass; the fixture's `build.log` shows the file's true length and
@@ -258,24 +274,34 @@ Commit: —
 
 ### Phase 2 — `fs::readBytesAt`
 
-- [ ] `src/codegen/builtins/fs/func_read_bytes_at.rs` — descriptor per §4.2/§4.4; registered in
-      `mod.rs`.
-- [ ] `lower_fs_read_bytes_at_helper` in `gen_read_write.rs` per §4.2, including the
-      restore-on-every-path tail (§4.2 step 8).
-- [ ] `target/release/mfb man fs readBytesAt` → Declaration
-      `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte`;
-      same banned-vocabulary grep → no matches.
-- [ ] Spec line updated.
-- [ ] New fixture `tests/rt-behavior/fs/func_fs_readBytesAt_valid/` covering, in one program:
-      a read at offset 0; a read in the middle; a read whose `count` runs past EOF (fewer bytes,
-      no error); `offset` at/past EOF → empty list; **position-neutrality** — `fs::readLine`,
-      then `fs::readBytesAt`, then `fs::readLine` returning the SECOND line, proving the positional
-      read did not disturb the buffered handle (the UNVERIFIED property in §2); a negative `count`
-      → `ErrInvalidArgument`; a read after `fs::close` → `ErrResourceClosed`. Pre-create the
-      `golden/` placeholders as in Phase 1.
-- [ ] `scripts/sync-goldens.sh` + `scripts/test-accept.sh` on the new fixture → pass.
-- [ ] Both `fs` rt-behavior fixtures still pass together:
-      `scripts/test-accept.sh target/release/mfb "$(mktemp -d)" 'func_fs_*'` → no mismatch.
+- [x] `src/codegen/builtins/fs/func_read_bytes_at.rs` — descriptor per §4.2/§4.4; registered in
+      `mod.rs`, in all three targets' capability lists and import-plan arms, and — an extra site
+      `fs::size` did not need — in `CALLER_ARENA_BLOCK_RESULTS`
+      (`src/codegen/registry/mod.rs`), because unlike `fs::size` it returns a block-carrying
+      `List OF Byte`.
+- [x] `lower_fs_read_bytes_at_helper` in `gen_read_write.rs` per §4.2, including the
+      restore-on-every-path tail (§4.2 step 8) — the read-error and alloc-error exits each seek
+      back to the saved position before raising.
+- [x] `target/release/mfb man fs readBytesAt` → Declaration
+      `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte`
+      — exactly the signature plan-139-A's Prerequisites row names; banned-vocabulary grep exits
+      1 with no matches.
+- [x] ~~Spec line updated.~~ — moot: done in Phase 1, which added both names to
+      `18_builtin-functions.md:83` and `architecture/06_native.md` in one edit.
+- [x] New fixture `tests/rt-behavior/fs/func_fs_readBytesAt_valid/`, all cases covered. Run
+      output, exit 0: `at0=first`, `at11=second`, `tailLen=5` + `tail=line\n` (count 100 clamped
+      at EOF, no error), `atEnd=0`, `pastEnd=0`, `zero=0`, then the position-neutrality sequence
+      `line1=first line` / `between=first` / `line2=second line` — **the UNVERIFIED property in §2
+      is now measured: a positional read between two `fs::readLine` calls leaves the buffered
+      read-ahead intact.** Also `negCount=ErrInvalidArgument`, `negOffset=ErrInvalidArgument`,
+      `afterErrors=first` (a refused read still restored the position), `closed=ErrResourceClosed`.
+- [x] `scripts/sync-goldens.sh target/release/mfb 'func_fs_readBytesAt_valid'` → `synced 3 golden
+      file(s) across 1 test(s)`; covered by the `func_fs_*` run below.
+- [x] `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-fs 'func_fs_*'` →
+      `acceptance tests passed (84 test(s) ran)`, no mismatch. **Unlisted task added:** both new
+      fixtures were also registered in the unit-suite lowering corpus
+      (`src/codegen/builtins/tests/corpus.rs`), so the two new codegen paths are exercised by
+      `cargo test --bin mfb` and not only by the acceptance harness.
 
 Acceptance: positional reads are correct, clamp only at EOF, and leave the handle's position and
 read-ahead untouched.
@@ -286,8 +312,8 @@ Commit: —
 
 ### Phase 3 — gate, and release the plan-139-A prerequisite
 
-- [ ] `cargo build --bin mfb --tests` → clean (catches cross-module breakage `--bin mfb` alone
-      misses, per `.ai/testing-gates.md`).
+- [x] `cargo build --bin mfb --tests` → `Finished \`dev\` profile [unoptimized + debuginfo]
+      target(s)`, no error or warning.
 - [ ] Full `scripts/artifact-gate.sh target/release/mfb all` (~15–20 min — start it in the
       background and do the next task while it runs). Expected `diffs=0` per §1 Non-goals.
       **If it is not 0:** objdump/diff ONE flagged fixture to localize before concluding anything.
@@ -335,7 +361,52 @@ Commit: —
 
 ## Corrections
 
-*(none yet — this letter was authored 2026-09-19)*
+### 2026-09-19 — §4.1/§4.2 missed per-target registration; the build names the gap
+
+The plan described a new builtin as "a registry descriptor + a codegen helper". That is not
+sufficient: the first build of `fs::size` failed with
+
+    error: native backend does not support runtime call 'fs.size'
+
+from `src/target/shared/validate/capabilities.rs:21`. A new runtime call must also be listed in
+each target's capability list **and** its import-plan arm, or no program can call it. Six extra
+sites per function: `macos_aarch64/mod.rs` + `plan.rs`, `linux_common/mod.rs` + `plan.rs`,
+`win_x86_64/mod.rs` + `plan.rs`. `fs::readBytesAt` needed a seventh that `fs::size` did not —
+`CALLER_ARENA_BLOCK_RESULTS` in `src/codegen/registry/mod.rs`, the list of runtime calls whose
+return value carries an arena block — because it returns `List OF Byte` while `fs::size` returns
+`Integer`. §4.1 and §4.2 have been corrected to name these sites. Both functions were also added
+to `src/docs/spec/architecture/06_native.md`'s call list, which §4.4 had not mentioned either.
+
+### 2026-09-19 — a closed handle cannot be reached the way the fixtures assumed
+
+Phase 1's fixture was written to `fs::close(f)` and then call `fs::size(f)`. That does not
+compile: `error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move`. The language
+refuses it statically, so the `ErrResourceClosed` arm in both helpers is unreachable from a
+straight-line program.
+
+This is not a dead arm. Spec §15 (`15_resource-management.md:24`) says the static rules catch it
+"wherever the compiler can still prove it. Where it cannot — through a call that may hand the same
+resource back — the runtime flag catches it instead." Both fixtures therefore close through a
+callee (`SUB closeHandle(RES f AS fs::File)`) and then call, which reaches the runtime flag: both
+print `closed=ErrResourceClosed`. This is also precisely the shape letter A relies on — its
+`Archive` holds the caller's `fs::File` in a record field, and plan-139-A's §1 Non-goals require
+that closing the file makes later reads fail with `ErrResourceClosed`. That contract is now
+measured, not assumed.
+
+### 2026-09-19 — two measured counts differed from the plan's
+
+`ls -d tests/rt-behavior/fs/*/ | wc -l` → **56**, not the 24 the plan guessed.
+`grep -c 'emit_seek_file' src/codegen/builtins/fs/gen_read_write.rs` → **10**, not 9: three
+save/measure/restore triples (`readAll`, `readAllBytes`, `eof`) plus one inside
+`emit_reconcile_read_buffer`. Both corrected in Measured populations. Neither changes any letter's
+scope — the seek triple the design copies is still the three-call shape §2 describes.
+
+### 2026-09-19 — Phases 1 and 2 landed in one commit
+
+The two phases share four files (`gen_read_write.rs`, `fs/mod.rs`, and each target's `mod.rs` /
+`plan.rs`), so splitting them into two commits would have meant committing a tree that does not
+build. Both phases' `Commit:` lines therefore carry the same hash. The per-phase acceptance checks
+were still run and recorded separately, in phase order.
 
 ## Summary
 

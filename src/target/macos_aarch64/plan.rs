@@ -590,7 +590,9 @@ impl plan::NativePlanPlatform for Platform {
             | "fs.setBuffered"
             | "fs.isBuffered"
             | "fs.flush"
-            | "fs.eof" => {
+            | "fs.eof"
+            | "fs.size"
+            | "fs.readBytesAt" => {
                 let mut imports = vec![
                     PlatformImport {
                         library: "libSystem".to_string(),

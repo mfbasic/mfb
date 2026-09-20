@@ -1,0 +1,169 @@
+{
+  "project": "func_fs_readBytesAt_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 6 },
+    { "module": "io", "line": 7 },
+    { "module": "errorCode", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "closeHandle",
+      "line": 12,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 12 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "readAfterClose",
+      "line": 16,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 16 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "closeHandle", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }] }] }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "readNegative",
+      "line": 22,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 22 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "readNegativeOffset",
+      "line": 26,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 26 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "4" }] }] }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/func_fs_readBytesAt_valid.txt" }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "first line\nsecond line\n" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "at0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "5" }] }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "at11=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "11" }, { "kind": "number", "value": "6" }] }] } }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "tail", "type": "List OF Byte", "value": { "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "18" }, { "kind": "number", "value": "100" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tailLen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "tail" }] }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tail=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "tail" }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "atEnd=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "23" }, { "kind": "number", "value": "10" }] }] }] } }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pastEnd=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "10" }] }] }] } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zero=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "line1=" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "between=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "5" }] }] } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "line2=" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] } }] }, "line": 56 },
+      { "kind": "binding", "mutable": true, "name": "negCount", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 59 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 60,
+        "expression": { "kind": "call", "callee": "readNegative", "arguments": [{ "kind": "identifier", "value": "f" }] },
+        "handler": [
+        { "kind": "assignment", "name": "negCount", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 61 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 62 }
+        ]
+      }, "line": 60 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "negCount" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 64,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "negCount=ErrInvalidArgument" }] }, "line": 65 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negCount=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negCount" }] } }] }, "line": 67 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "negOffset", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 70 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 71,
+        "expression": { "kind": "call", "callee": "readNegativeOffset", "arguments": [{ "kind": "identifier", "value": "f" }] },
+        "handler": [
+        { "kind": "assignment", "name": "negOffset", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 72 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 73 }
+        ]
+      }, "line": 71 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "negOffset" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 75,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "negOffset=ErrInvalidArgument" }] }, "line": 76 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negOffset=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negOffset" }] } }] }, "line": 78 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "afterErrors=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.readBytesAt", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "5" }] }] } }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 83 },
+      { "kind": "binding", "mutable": true, "name": "closedCode", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 86 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 87,
+        "expression": { "kind": "call", "callee": "readAfterClose", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "handler": [
+        { "kind": "assignment", "name": "closedCode", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 88 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 89 }
+        ]
+      }, "line": 87 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "closedCode" }, "right": { "kind": "identifier", "value": "errorCode.ErrResourceClosed" } },
+        "line": 91,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed=ErrResourceClosed" }] }, "line": 92 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "closedCode" }] } }] }, "line": 94 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 97 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 98 }
+      ]
+    }
+    ]
+  }
+  ]
+}
