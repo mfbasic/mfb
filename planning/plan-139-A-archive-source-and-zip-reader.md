@@ -307,29 +307,47 @@ Proves the two premises the reader rests on (slice cost, `readBytesAt` contract)
       and `readAt` after a callee closed the handle → `ErrResourceClosed`. The `u64le` of `FF×8`
       case asserts `ErrTooLarge`, not a round trip — see Corrections.
 
-Acceptance: both sources return identical bytes and fail identically.
-  Check: `target/release/mfb test packages/zip` → all `source` cases pass (est. 1 min).
-Commit: —
+Acceptance: both sources return identical bytes and fail identically. **Met** — the seven
+`source` cases compare the two sources byte-for-byte at five windows and assert the same error
+code from both for every refusal.
+  Check: `target/release/mfb test packages/zip` → `Tests: 11  Pass: 11  Fail: 0`.
+Commit: 22a7747d9
 
 ### Phase 2 — central directory
 
-- [ ] `src/cp437.mfb`: table from APPNOTE Appendix D; `cp437Decode(bytes) AS String`.
-- [ ] `src/central.mfb`: §4.3 steps 1–5, producing `Archive`.
-- [ ] `src/lib.mfb`: `open` ×2, `entries`, `comment`, `has`, `find` (`ErrNotFound`; first match in
-      central-directory order when names repeat) with DOC comments whose example uses a typed
-      `LET data AS List OF Byte` binding (Verified properties).
-- [ ] Fixtures: generate with `python3` (`zipfile`, incl. `force_zip64=True`, an archive comment, a
-      non-UTF-8 CP437 name via `ZipInfo` with flag bit 11 clear) and `/usr/bin/zip`; embed each as a
-      byte-list literal in `src/test_fixtures.mfb`; write the generator as `packages/zip/oracle/
-      fixtures.py` (letter D extends it) so fixtures are reproducible.
-- [ ] Tests `src/test_central.mfb`: entry names/sizes/crc/method/modifiedSeconds match the
-      generator's printed values for every fixture, via both overloads (fixture bytes written to a
-      temp file with `fs::createTempFile`); truncated EOCD, bad signature, CD past EOF, count
-      mismatch, multi-disk → the §4.5 codes.
+- [x] `src/cp437.mfb`: 256 code points + `cp437Decode`. **Generated**, not hand-typed, by
+      `packages/zip/oracle/cp437_table.py` from Python's own `cp437` codec — the same repertoire
+      APPNOTE Appendix D defines. A hand-typed 256-entry table has exactly one failure mode (a
+      single wrong character nobody notices until an archive with that byte shows up), and
+      transcribing it from a codec removes it.
+- [x] `src/central.mfb`: §4.3 steps 1–5, producing `Archive` — EOCD backwards scan (accepting a
+      candidate only when its comment length lands exactly at end of archive), ZIP64
+      locator/record, the 256 MiB central-directory cap, per-entry parse with the ZIP64 extra
+      field applied only to the fields written as all-ones, CP437/UTF-8 name selection on flag bit
+      11, Unix mode from the external attributes, and DOS date/time converted to epoch seconds by
+      `daysFromCivil` (extended-timestamp field 0x5455 overriding where present).
+- [x] `src/lib.mfb`: `open` ×2, `entries`, `comment`, `has`, `find`, `Entry`, `Archive`,
+      `ErrorChecksum`, each with a DOC comment; the memory example uses a typed
+      `LET raw AS List OF Byte` binding, as the overload rule requires.
+- [x] `packages/zip/oracle/fixtures.py` generates six fixtures — `simple` (stored + deflated),
+      `comment`, `dirs`, `zip64` (`force_zip64=True`), `cp437`, `ziptool` (`/usr/bin/zip`) — into
+      `src/test_fixtures.mfb` **and** into `oracle/corpus/*.zip` for letter D. Two corrections:
+      the CP437 fixture is hand-assembled because `zipfile` cannot write a non-UTF-8 name with
+      flag bit 11 clear, and the bytes are embedded Base64 rather than as a byte-list literal —
+      see Corrections.
+- [x] Tests `src/test_central.mfb` — 18 cases. Every fixture's names/sizes/crc/method/
+      isDirectory match the oracle through BOTH overloads, and a third case asserts the two
+      sources agree field for field (including `compressedSize`, `modifiedSeconds`, `mode` and
+      `headerOffset`, which the oracle does not report). Named cases pin the CP437 decode
+      (`café.txt`), ZIP64 sizes, the archive comment, directory flagging, the Unix mode (33188)
+      and the epoch conversion (1789821000). Malformed: too short, empty, broken EOCD signature,
+      truncation, CD offset past EOF, CD size past EOF, count mismatch, multi-disk (both disk
+      fields) and a broken central-header signature → the §4.5 codes.
 
 Acceptance: every fixture's entry list matches Python's `ZipInfo` values through both overloads.
-  Check: `target/release/mfb test packages/zip` → all `central` cases pass (est. 1 min).
-Commit: —
+**Met** — all six fixtures, both overloads, per field.
+  Check: `target/release/mfb test packages/zip` → `Tests: 29  Pass: 29  Fail: 0`.
+Commit: PENDING
 
 ### Phase 3 — entry reads
 
@@ -367,6 +385,41 @@ Commit: —
   an `open` parameter (would break the identical two-overload shape).
 
 ## Corrections
+
+### 2026-09-19 — Phase 2: fixture-generation corrections and four language surprises
+
+**The CP437 fixture cannot come from `zipfile`.** Phase 2 asked for "a non-UTF-8 CP437 name via
+`ZipInfo` with flag bit 11 clear". Python will not write one: it encodes any non-ASCII name as
+UTF-8 and sets bit 11, with no documented way to override. That fixture is therefore assembled by
+hand in `fixtures.py` from `struct.pack` — which is arguably better, since the case the CP437 table
+exists for is now built deliberately rather than coaxed out of a writer that does not want to
+produce it.
+
+**An archive comment containing a `PK\x05\x06` lookalike cannot be an oracle fixture.** The first
+draft of the `comment` fixture embedded one, to check that the EOCD scan accepts only a candidate
+whose comment length lands exactly at end of file. Python's own reader refuses such an archive
+(`BadZipFile: File is not a zip file`), so there is no oracle to compare against. The fixture's
+comment is now plain, and the adversarial case moves to letter D's hand-damaged corpus, where
+"both refuse" is the expected outcome. **The scan itself still implements the exact-fit rule** —
+it is just not provable against Python.
+
+**Fixture bytes are Base64, not a byte-list literal.** The plan said "embed each as a byte-list
+literal". Six fixtures totalling a few KB would be several thousand `toByte(...)` calls to compile
+for no added clarity; `encoding::base64Decode` of a single string literal carries the identical
+bytes. Recorded rather than done silently.
+
+Four language facts the plan's design did not anticipate, all corrected in place:
+
+- `DIV` is the **Float** escape, not integer division (`mfb spec language operators`: "DIV always
+  returns Float"). Integer division is `/` on two Integers. Eleven sites in `central.mfb` were
+  written the wrong way round and produced `TYPE_BINDING_MISMATCH` against an `Integer` binding.
+- A union's members are written one per line; `A | B` is a lexer error.
+- `RETURN <expr> TRAP(e) ... END TRAP` does not parse — a `TRAP` attaches to a binding, so the
+  UTF-8 name decode binds first and returns after.
+- The `expect*` builtins are valid **only directly inside a `TCASE` body**
+  (`TESTING_EXPECT_OUTSIDE_TCASE`), so the per-field comparison loops are helper FUNCs returning a
+  description of the first disagreement, asserted with one `expectString(..., "")` in the case.
+  This is better than it sounds: a failure now names the fixture, the entry index and the field.
 
 ### 2026-09-19 — Phase 1 measurements and three plan corrections
 

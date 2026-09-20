@@ -1,0 +1,125 @@
+' ---------------------------------------------------------------------------
+' zip/lib.mfb — the package's public surface.
+'
+' Two `open` overloads, one for each place an archive's bytes can be, and one
+' set of accessors that works the same either way. Everything below this file
+' reads through `source.mfb`'s `readAt`, so "the file form and the memory form
+' agree" is a property of the structure rather than something the accessors
+' have to maintain.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+
+' The checksum a stored entry's bytes did not match.
+'
+' Every other failure this package reports uses a shared `errorCode::` value; a
+' CRC mismatch has no shared equivalent, so it gets the package's own code.
+EXPORT LET ErrorChecksum AS Integer = 93150001
+
+' One entry in an archive.
+'
+' `size` and `compressedSize` are what the central directory records, so they
+' are known before any of the entry's data is read. `headerOffset` locates the
+' entry's local header; `read` uses it and callers normally do not.
+EXPORT TYPE Entry
+  name AS String
+  isDirectory AS Boolean
+  method AS Integer
+  size AS Integer
+  compressedSize AS Integer
+  crc AS Integer
+  modifiedSeconds AS Integer
+  mode AS Integer
+  comment AS String
+  headerOffset AS Integer
+END TYPE
+
+' An open archive: where its bytes are, what it contains, and its comment.
+'
+' An `Archive` over a file refers to the caller's `fs::File` without owning it.
+' The file stays open until the caller closes it, and closing it makes later
+' reads through this archive fail with `errorCode::ErrResourceClosed`.
+EXPORT TYPE Archive
+  source AS Source
+  entries AS List OF Entry
+  comment AS String
+END TYPE
+
+' Open an archive held in memory.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   ' A typed binding is required: an untyped list literal selects neither
+'   ' overload.
+'   LET raw AS List OF Byte = fs::readBytes("photos.zip")
+'   LET archive AS zip::Archive = zip::open(raw)
+'   FOR EACH entry IN zip::entries(archive)
+'     io::print(entry.name)
+'   NEXT
+' END SUB
+' ```
+EXPORT FUNC open(data AS List OF Byte) AS Archive
+  RETURN parseArchive(MemorySource[data])
+END FUNC
+
+' Open an archive from a file the caller has open.
+'
+' The whole file is never read. Opening reads only the central directory, and
+' `read` afterwards holds one entry at a time, so an archive far larger than
+' memory is still readable one entry at a time.
+'
+' The handle belongs to the caller; this package never closes it.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(toString(len(zip::entries(archive))))
+'   ' f closes itself when this scope ends
+' END SUB
+' ```
+EXPORT FUNC open(RES file AS fs::File) AS Archive
+  RETURN parseArchive(FileSource[file])
+END FUNC
+
+' Every entry, in central-directory order.
+EXPORT FUNC entries(archive AS Archive) AS List OF Entry
+  RETURN archive.entries
+END FUNC
+
+' The archive-level comment, or the empty string.
+EXPORT FUNC comment(archive AS Archive) AS String
+  RETURN archive.comment
+END FUNC
+
+' Whether an entry with exactly this name is present.
+EXPORT FUNC has(archive AS Archive, name AS String) AS Boolean
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The entry with exactly this name.
+'
+' Zip permits an archive to hold the same name twice. This returns the FIRST
+' such entry in central-directory order, which is the one `unzip` lists first.
+' Raises `errorCode::ErrNotFound` when the name is absent.
+EXPORT FUNC find(archive AS Archive, name AS String) AS Entry
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN entry
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "zip: no entry named \"" & name & "\"")
+END FUNC
