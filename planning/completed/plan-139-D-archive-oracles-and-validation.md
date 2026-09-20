@@ -148,11 +148,24 @@ Commit: ce50bab83
       the proposal (the second `open` overload, `tar` `maxBytes`, `tar::Entry.isDirectory`, shared
       `errorCode::` values, the package-local CP437 table, the extra `Entry` fields, and
       `tar::addSymlink` with its link-refusing `extractTo`).
-- [ ] Move `planning/plan-139-*.md` to `planning/completed/`.
+- [x] All five letters moved to `planning/completed/`: A, B, C and E were archived as each
+      completed, and D with this commit.
 
-Acceptance: all gates green; plan archived.
-  Check: the four commands above (est. 3 min).
-Commit: —
+Acceptance: all gates green; plan archived. **Met**, and re-run on the merged tree after main
+advanced (bug-630 changed codegen, so the earlier pass no longer applied):
+
+| Gate | Result |
+|---|---|
+| `mfb test packages/zip` | `Tests: 83  Pass: 83  Fail: 0` |
+| `mfb test packages/tar` | `Tests: 46  Pass: 46  Fail: 0` |
+| `scripts/artifact-gate.sh target/release/mfb all` | 1466 tests, 1637 builds, 2058 goldens, **0 diffs** |
+| `scripts/test-accept.sh target/release/mfb` | `acceptance tests passed (1490 test(s) ran)`, exit 0 |
+| `cargo test --bin mfb` | `4270 passed; 0 failed; 1 ignored` |
+| `diff.py corpus` (both) | 70 and 60 archives, 0 disagreements |
+| `diff.py fuzz --count 2000 --seed 139` (both) | 2000 each, 0 disagreements |
+| `src` diff from letter A's first commit | empty |
+
+Commit: PENDINGD4
 
 ## Validation Plan
 
