@@ -85,12 +85,12 @@ EXPORT TYPE Builder
 END TYPE
 
 ' An empty archive.
-EXPORT FUNC createBuilder() AS Builder
+FUNC createBuilder() AS Builder
   RETURN Builder[[]]
 END FUNC
 
 ' Add a file entry holding `data`.
-EXPORT FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean, modifiedSeconds AS Integer) AS Builder
+FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean, modifiedSeconds AS Integer) AS Builder
   requireSafeName(name)
   IF strings::endsWith(name, "/") THEN
     FAIL error(errorCode::ErrInvalidPath, "zip: file entry name \"" & name & "\" ends in a slash; use addDirectory")
@@ -113,12 +113,12 @@ EXPORT FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byt
 END FUNC
 
 ' Add a file entry holding the UTF-8 bytes of `text`.
-EXPORT FUNC addTextEntry(builder AS Builder, name AS String, text AS String, store AS Boolean, modifiedSeconds AS Integer) AS Builder
+FUNC addTextEntry(builder AS Builder, name AS String, text AS String, store AS Boolean, modifiedSeconds AS Integer) AS Builder
   RETURN addFileEntry(builder, name, encoding::utf8Encode(text), store, modifiedSeconds)
 END FUNC
 
 ' Add a directory entry. A trailing slash is added when absent.
-EXPORT FUNC addDirectoryEntry(builder AS Builder, name AS String, modifiedSeconds AS Integer) AS Builder
+FUNC addDirectoryEntry(builder AS Builder, name AS String, modifiedSeconds AS Integer) AS Builder
   requireSafeName(name)
   MUT full AS String = name
   IF NOT strings::endsWith(full, "/") THEN
@@ -133,7 +133,7 @@ END FUNC
 ' One pass: local headers and data, then the central directory, then the
 ' end-of-central-directory records. `out` is a bare local for the whole
 ' function -- see the note at the top of this file.
-EXPORT FUNC finishBuilder(builder AS Builder, comment AS String) AS List OF Byte
+FUNC finishBuilder(builder AS Builder, comment AS String) AS List OF Byte
   LET commentBytes AS List OF Byte = encoding::utf8Encode(comment)
   IF len(commentBytes) > U16_MAX THEN
     FAIL error(errorCode::ErrTooLarge, "zip: archive comment of " & toString(len(commentBytes)) & " bytes exceeds the 65535-byte field")

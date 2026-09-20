@@ -44,7 +44,7 @@ PRIVATE TYPE Directory
 END TYPE
 
 ' Parse `source` into an `Archive`.
-EXPORT FUNC parseArchive(source AS Source) AS Archive
+FUNC parseArchive(source AS Source) AS Archive
   LET total AS Integer = sizeOf(source)
   IF total < EOCD_FIXED THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(total) & " bytes is too short to be an archive")

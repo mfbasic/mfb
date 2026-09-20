@@ -234,3 +234,40 @@ END FUNC
 EXPORT FUNC finish(builder AS Builder, comment AS String = "") AS List OF Byte
   RETURN finishBuilder(builder, comment)
 END FUNC
+
+' Extract every entry into `directory`, returning the number of files written.
+'
+' Directories in the archive are created but not counted.
+'
+' **Every entry is validated before any byte is written.** An archive with one
+' unsafe entry leaves the directory exactly as it was, rather than extracting
+' part of itself and then failing. A name is refused with
+' `errorCode::ErrInvalidPath` when it is empty, absolute, contains `..` or a
+' backslash or a NUL, names a Windows drive, or — the case string inspection
+' cannot catch — resolves outside `directory` once symlinks already on disk are
+' followed.
+'
+' `maxTotalBytes` caps the total uncompressed size, checked before writing, so a
+' small archive cannot be used to fill a disk.
+'
+' Each entry's CRC-32 is verified as it is written; a mismatch deletes the
+' partial file and raises `zip::ErrorChecksum`. Stored entries are copied in
+' bounded chunks, so extracting a huge entry from a file-backed archive does not
+' hold it in memory.
+'
+' File permissions and modification times are NOT restored: `fs` has no way to
+' set either. Extracted files get the host's defaults.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(toString(zip::extractTo(archive, "out")) & " files")
+' END SUB
+' ```
+EXPORT FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+  RETURN extractArchive(archive, directory, maxTotalBytes)
+END FUNC

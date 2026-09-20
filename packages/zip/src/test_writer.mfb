@@ -201,3 +201,55 @@ TESTING
     END TCASE
   END TGROUP
 END TESTING
+
+' ---------------------------------------------------------------------------
+' ZIP64 emission on the entry-count field.
+'
+' The end-of-central-directory record counts entries in 16 bits, so an archive
+' of more than 65535 entries REQUIRES the ZIP64 records. Reaching that count
+' through the public `add*` API is not affordable -- the API passes the builder
+' by value, which copies its accumulated entries on every call (plan-139-B
+' Corrections), and a 65536-entry run was killed by the host after exhausting
+' memory.
+'
+' So the entry list is built here as a bare local, where appends are O(1), and
+' handed to `finishBuilder` once. That exercises exactly the code under test --
+' the ZIP64 trailer emission and the all-ones EOCD fields -- without paying for
+' an API path whose cost is already measured and documented.
+' ---------------------------------------------------------------------------
+PRIVATE FUNC manyEntryArchive(count AS Integer) AS List OF Byte
+  MUT records AS List OF Pending = []
+  FOR i = 1 TO count
+    records = collections::append(records, Pending["e" & toString(i) & ".txt", FALSE, 0, 0, 0, [], 0, 33188])
+  NEXT
+  RETURN finishBuilder(Builder[records], "")
+END FUNC
+
+TESTING
+  TGROUP "writer zip64"
+    TCASE "an archive of 65536 entries emits ZIP64 and reads back"
+      LET raw AS List OF Byte = manyEntryArchive(65536)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 65536)
+      expectString(find(archive, "e1.txt").name, "e1.txt")
+      expectString(find(archive, "e65536.txt").name, "e65536.txt")
+    END TCASE
+
+    TCASE "65535 entries still fits a classic zip, with no ZIP64 record"
+      ' One below the threshold: the EOCD count field holds it exactly, so no
+      ' ZIP64 record is emitted and the archive stays a classic zip.
+      LET raw AS List OF Byte = manyEntryArchive(65535)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 65535)
+      ' The ZIP64 locator signature must NOT appear in the last 40 bytes.
+      LET tail AS List OF Byte = collections::mid(raw, len(raw) - 40, 40)
+      MUT sawLocator AS Boolean = FALSE
+      FOR i = 0 TO len(tail) - 4
+        IF u32le(tail, i) = 117853008 THEN
+          sawLocator = TRUE
+        END IF
+      NEXT
+      expectEqual(sawLocator, FALSE)
+    END TCASE
+  END TGROUP
+END TESTING

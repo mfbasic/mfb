@@ -18,14 +18,14 @@ IMPORT collections
 IMPORT errorCode
 
 ' The unsigned 16-bit value at `index`.
-EXPORT FUNC u16le(bytes AS List OF Byte, index AS Integer) AS Integer
+FUNC u16le(bytes AS List OF Byte, index AS Integer) AS Integer
   requireRoom(bytes, index, 2)
   RETURN toInt(collections::get(bytes, index)) _
     + toInt(collections::get(bytes, index + 1)) * 256
 END FUNC
 
 ' The unsigned 32-bit value at `index`.
-EXPORT FUNC u32le(bytes AS List OF Byte, index AS Integer) AS Integer
+FUNC u32le(bytes AS List OF Byte, index AS Integer) AS Integer
   requireRoom(bytes, index, 4)
   RETURN toInt(collections::get(bytes, index)) _
     + toInt(collections::get(bytes, index + 1)) * 256 _
@@ -37,7 +37,7 @@ END FUNC
 '
 ' Raises `errorCode::ErrTooLarge` when the value does not fit a signed 64-bit
 ' Integer — an archive that big is not one this package can address.
-EXPORT FUNC u64le(bytes AS List OF Byte, index AS Integer) AS Integer
+FUNC u64le(bytes AS List OF Byte, index AS Integer) AS Integer
   requireRoom(bytes, index, 8)
   LET low AS Integer = u32le(bytes, index)
   LET high AS Integer = u32le(bytes, index + 4)
@@ -59,14 +59,14 @@ END SUB
 ' ---------------------------------------------------------------------------
 
 ' Append `value` as an unsigned 16-bit little-endian field.
-EXPORT FUNC putU16(out AS List OF Byte, value AS Integer) AS List OF Byte
+FUNC putU16(out AS List OF Byte, value AS Integer) AS List OF Byte
   requireFits(value, 65535, 16)
   MUT acc AS List OF Byte = collections::append(out, toByte(value MOD 256))
   RETURN collections::append(acc, toByte((value / 256) MOD 256))
 END FUNC
 
 ' Append `value` as an unsigned 32-bit little-endian field.
-EXPORT FUNC putU32(out AS List OF Byte, value AS Integer) AS List OF Byte
+FUNC putU32(out AS List OF Byte, value AS Integer) AS List OF Byte
   requireFits(value, 4294967295, 32)
   MUT acc AS List OF Byte = putU16(out, value MOD 65536)
   RETURN putU16(acc, (value / 65536) MOD 65536)
@@ -76,7 +76,7 @@ END FUNC
 '
 ' Only non-negative values are representable here: the archive fields this
 ' writes are all sizes, counts and offsets.
-EXPORT FUNC putU64(out AS List OF Byte, value AS Integer) AS List OF Byte
+FUNC putU64(out AS List OF Byte, value AS Integer) AS List OF Byte
   IF value < 0 THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: cannot write a negative 64-bit field")
   END IF
@@ -85,7 +85,7 @@ EXPORT FUNC putU64(out AS List OF Byte, value AS Integer) AS List OF Byte
 END FUNC
 
 ' Append every byte of `extra`.
-EXPORT FUNC putBytes(out AS List OF Byte, extra AS List OF Byte) AS List OF Byte
+FUNC putBytes(out AS List OF Byte, extra AS List OF Byte) AS List OF Byte
   MUT acc AS List OF Byte = out
   FOR EACH b IN extra
     acc = collections::append(acc, b)

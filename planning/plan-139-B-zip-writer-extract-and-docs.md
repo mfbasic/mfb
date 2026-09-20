@@ -121,8 +121,18 @@ Violations → `ErrInvalidPath`, message `zip: unsafe entry name "<name>"`.
       honoured; empty file stored; timestamps round-tripping through the DOS fields including the
       two-second grain; modes; a non-ASCII name; duplicate names allowed with `find` returning the
       first; and every §4.3 unsafe name refused at ADD time.
-- [ ] ZIP64 emission test: construct a builder with a synthetic entry count of 65535 empty files
-      (measures only headers) → `zip::open` reads 65535 entries.
+- [x] ZIP64 emission test, two cases in `test_writer.mfb`: **65536 entries** (one past what the
+      16-bit EOCD count can express) emits the ZIP64 records and reads back through `zip::open`
+      with the first and last entry findable; **65535 entries** emits no ZIP64 locator, so an
+      archive that fits a classic zip stays one. The entry list is built as a bare local and
+      handed to `finishBuilder` once, rather than through 65536 `add*` calls — the public API
+      copies the builder per call and a 65536-entry run through it was killed by the host after
+      exhausting memory (see Corrections). This tests exactly the code under test, the ZIP64
+      trailer emission.
+      **Externally validated**: the 65536-entry archive (6,269,342 bytes) was written out once and
+      checked — `unzip -tq` → "No errors detected"; Python `zipfile` → 65536 entries, first
+      `e1.txt`, last `e65536.txt`, `testzip()` → `None`; and both ZIP64 signatures present
+      (`PK\x06\x06` and `PK\x06\x07` found in the bytes).
 - [x] External check, from `/tmp/zipw-probe` (a probe, not in the tree), writing five archives to
       `/tmp/zipw/`. **`unzip -tq`**: "No errors detected" for `simple`, `stored`, `unicode` and
       `stamped`; "zipfile is empty" for `empty.zip`, which is the correct report for an archive
@@ -132,24 +142,37 @@ Violations → `ErrInvalidPath`, message `zip: unsafe entry name "<name>"`.
       `unicode.zip`'s names decode as `['café/naïve.txt', '日本語.txt']`. `simple.zip` shows the
       method choice working: `readme.txt` stored at 27 bytes, `data/squish.txt` deflated 6000 → 42.
 
-Acceptance: writer output is valid to three readers.
-  Check: `target/release/mfb test packages/zip` → pass; `unzip -tq` → `No errors detected` per file;
-  the Python one-liner exits 0 (est. 3 min).
-Commit: —
+Acceptance: writer output is valid to three readers. **Met** — our reader, `unzip`, and Python
+`zipfile`, including the ZIP64 case.
+  Check: `target/release/mfb test packages/zip` → `Tests: 76  Pass: 76  Fail: 0`; `unzip -tq` →
+  "No errors detected" for every non-empty archive ("zipfile is empty" for the empty one, which is
+  correct); Python `testzip()` → `None` for all.
+Commit: PENDING1
 
 ### Phase 2 — extractTo
 
-- [ ] `packages/zip/src/extract.mfb`: §4.2, §4.3; export in `lib.mfb`.
-- [ ] Tests `src/test_extract.mfb` (into `fs::createTempFile`'s directory + a fresh subdirectory):
-      files/dirs extracted with right bytes from both sources; returns file count; `../x`, `/x`,
-      `a/../../x`, `C:x`, `a\\b` each → `ErrInvalidPath` and the directory is still empty;
-      pre-existing symlink `dir/link → /tmp` then entry `link/x` → `ErrInvalidPath`; total over
-      `maxTotalBytes` → `ErrTooLarge`, directory empty; corrupted stored entry → `ErrorChecksum`,
-      no partial file left.
+- [x] `packages/zip/src/extract.mfb`: §4.2, §4.3; `extractTo` exported from `lib.mfb` with a DOC
+      comment stating the safety rules, the limit and the fact that permissions and timestamps are
+      not restored. Stored entries copy in 1 MiB chunks with a running CRC, so extracting a huge
+      entry from a file-backed archive holds a chunk rather than the entry.
+- [x] Tests `src/test_extract.mfb` — 12 cases, all passing. Files and directories written with
+      the right bytes from BOTH sources, returning the file count (directories not counted); empty
+      archive writes nothing; a missing target → `ErrNotFound`. Every traversal case is refused
+      with `ErrInvalidPath` **and asserts the target directory is still empty**: `../bb.txt`,
+      `a/../../cc.txt`, `/tmp/x.txt`, `a\\b.txt`, `C:evil.txt`, and a two-entry archive whose
+      SAFE entry comes first (so a lazily-validating extractor would already have written it).
+      Over `maxTotalBytes` → `ErrTooLarge` with nothing written; a corrupted stored entry →
+      `ErrorChecksum` with the partial file deleted. The hostile archives are assembled by patching
+      raw bytes, because this package's own writer refuses such names. ~~pre-existing symlink~~ —
+      moot: `fs` has no symlink-creation function (`grep -h -o 'name: "[a-zA-Z]*"'
+      src/codegen/builtins/fs/func_*.rs | grep -i link` → no matches), so the case cannot be set
+      up from MFBASIC. The defence it tests is still implemented and is what `fs::isWithin` is
+      called for; letter D's corpus can stage one from Python.
 
-Acceptance: safe extraction and all-or-nothing refusal.
-  Check: `target/release/mfb test packages/zip` → all `extract` cases pass (est. 1 min).
-Commit: —
+Acceptance: safe extraction and all-or-nothing refusal. **Met** — every refusal case asserts the
+target directory is still empty afterwards.
+  Check: `target/release/mfb test packages/zip` → `Tests: 74  Pass: 74  Fail: 0`.
+Commit: PENDING2
 
 ### Phase 3 — README and doc.html
 
@@ -243,7 +266,25 @@ papered over: a few thousand entries is comfortable, tens of thousands is minute
 needs either by-reference parameters in the language or a batch-add API, and neither belongs in
 plan-139.
 
-### 2026-09-19 — the 65535-entry ZIP64 test runs as a probe, not a TCASE
+### 2026-09-19 — the 65536-entry ZIP64 test: not a probe either, but a package-internal case
+
+The entry above said the 65535-entry case would move to a `/tmp` probe because it takes minutes.
+That turned out to be optimistic: the probe was **killed by the host (exit 137)** after ~30 minutes
+without producing a file. The O(n²) add path is not only slow, it allocates a copy of the
+accumulated entry list per call, and 65536 entries exhausts memory before it exhausts patience.
+
+It is now a `TCASE` in `test_writer.mfb` that builds the `List OF Pending` as a bare local —
+where appends are O(1) — and calls `finishBuilder` once. This exercises precisely the code the
+acceptance criterion is about (ZIP64 trailer emission and the all-ones EOCD fields) and skips only
+the API path whose cost is separately measured and documented. A second case asserts the boundary
+in the other direction: 65535 entries emits **no** ZIP64 locator.
+
+The archive was written out once for external judgement: `unzip -tq` reported "No errors detected",
+and Python `zipfile` read all 65536 entries with `testzip()` returning `None`, with both
+`PK\x06\x06` and `PK\x06\x07` present in the bytes. So the ZIP64 write path is confirmed by two
+independent readers, not only by ours.
+
+### 2026-09-19 — the 65535-entry ZIP64 test runs as a probe, not a TCASE (superseded, see above)
 
 Phase 1 asked for it as a test. Because of the O(n²) add path it takes minutes, which is not a unit
 test. It runs instead from `/tmp/zipmany`, which builds 65536 entries (one more than the 16-bit EOCD

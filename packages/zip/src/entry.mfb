@@ -28,7 +28,7 @@ PRIVATE LET LOCAL_FIXED AS Integer = 30
 '
 ' `maxBytes` caps the decompressed size; an entry larger than it raises
 ' `errorCode::ErrTooLarge` before anything is read.
-EXPORT FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS List OF Byte
+FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS List OF Byte
   IF entry.size > maxBytes THEN
     FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" is " & toString(entry.size) & " bytes, over the " & toString(maxBytes) & "-byte limit")
   END IF
@@ -93,7 +93,7 @@ EXPORT FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) A
 END FUNC
 
 ' Read one entry and decode it as UTF-8.
-EXPORT FUNC readEntryText(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS String
+FUNC readEntryText(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS String
   LET data AS List OF Byte = readEntry(archive, entry, maxBytes)
   LET text AS String = encoding::utf8Decode(data) TRAP(e)
     FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" is not valid UTF-8")

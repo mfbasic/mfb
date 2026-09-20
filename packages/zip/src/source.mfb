@@ -54,7 +54,7 @@ EXPORT UNION Source
 END UNION
 
 ' How many bytes the archive holds.
-EXPORT FUNC sizeOf(source AS Source) AS Integer
+FUNC sizeOf(source AS Source) AS Integer
   MATCH source
     CASE MemorySource(m)
       RETURN len(m.bytes)
@@ -68,7 +68,7 @@ END FUNC
 ' Raises `errorCode::ErrInvalidFormat` when the window is not wholly inside the
 ' archive — including the case where a file was truncated underneath an open
 ' handle, which shows up as a short read.
-EXPORT FUNC readAt(source AS Source, offset AS Integer, count AS Integer) AS List OF Byte
+FUNC readAt(source AS Source, offset AS Integer, count AS Integer) AS List OF Byte
   IF offset < 0 OR count < 0 THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: read of " & toString(count) & " bytes at " & toString(offset) & " is out of range")
   END IF

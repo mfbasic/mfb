@@ -65,7 +65,7 @@ END FUNC
 ' Every byte has a character in CP437 -- it is a complete single-byte encoding
 ' with no undefined positions -- so this never fails, which is precisely why the
 ' format uses it as the fallback for a name that is not declared UTF-8.
-EXPORT FUNC cp437Decode(bytes AS List OF Byte) AS String
+FUNC cp437Decode(bytes AS List OF Byte) AS String
   LET table AS List OF Integer = codePoints()
   MUT scalars AS List OF Scalar = []
   FOR EACH b IN bytes
