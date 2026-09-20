@@ -149,37 +149,64 @@ Acceptance: writer output lists identically in `bsdtar` and `tarfile`. **Met**, 
 PAX case.
   Check: `target/release/mfb test packages/tar` → `Tests: 31  Pass: 31  Fail: 0`; both listings
   match the builder's inputs (above).
-Commit: PENDINGC2
+Commit: fdb2768c6
 
 ### Phase 3 — extractTo, README, doc.html
 
-- [ ] `src/extract.mfb`: as §3, exported with DOC comments.
-- [ ] Tests `src/test_extract.mfb`: same traversal cases as plan-139-B Phase 2; hardlink/symlink
-      targets outside the directory refused before any write.
-- [ ] `packages/tar/README.md` + `doc.html` (same structure and vocabulary check as plan-139-B
-      Phase 3), including the `.tar.gz` composition example; examples run from `/tmp` probes.
+- [x] `src/extract.mfb`, exported as `extractTo` with a DOC block. Same two rules as the zip
+      extractor — validate every entry before writing any byte, and check containment against the
+      DISK via `fs::isWithin` on the deepest existing ancestor. Regular files copy in 1 MiB
+      pieces. **Open Decision resolved as recommended:** an archive containing a symlink, hardlink
+      or device node is refused entirely with `ErrUnsupported`, because `fs` cannot create any of
+      them and a silently incomplete tree is worse than a refusal.
+- [x] Tests `src/test_extract.mfb` — 13 cases. Files and directories written with the right
+      bytes from both sources; the file count returned; empty archive writes nothing; missing
+      target → `ErrNotFound`. Every traversal case refused with `ErrInvalidPath` **and the
+      directory asserted still empty**: `../escape.txt`, `a/../../escape.txt`, `/tmp/escape.txt`,
+      `a\\b.txt`, `C:evil.txt`, and a two-entry archive whose SAFE entry comes first. Over
+      `maxTotalBytes` → `ErrTooLarge`, nothing written. Links: an archive with a symlink and one
+      with a hardlink are each refused with `ErrUnsupported` before anything is written — the
+      symlink case puts a safe entry first so the "nothing written" claim is tested, not assumed.
+      The hostile archives are built by patching header bytes and repairing the checksum, since
+      this package's writer refuses such names.
+- [x] `packages/tar/README.md` — why listing is cheap, the three dialects and their precedence,
+      the two numeric spellings, the reading and writing surfaces, the PAX-only-when-needed rule,
+      the entry-count cost, extraction safety and the link refusal with its reasoning, the
+      `.tar.gz` composition, and the error table. Banned-vocabulary grep → exit 1, no matches.
+      `packages/tar/src/doc.mfb` carries proper DOC blocks (PACKAGE, every public type with PROP,
+      every function with ARG/RET/ERROR/EXAMPLE, GROUP headings, `DOC INTERNAL` on the four
+      internal types); `mfb doc packages/tar --out packages/tar/doc.html` renders 34,337 bytes
+      with sections Types / Reading / Writing / Internal. Every README example compiled and ran
+      from `/tmp/tarreadme`: the listing prints `notes.txt (21 bytes)`, `data/ (0 bytes)`,
+      `data/inner.txt (6 bytes)`; writing produces 4096 bytes; `extractTo` returns 2 and the text
+      reads back; the `.tar.gz` round trip reports 1 entry and `hello`. Exit 0.
 
-Acceptance: safe extraction; README examples run.
-  Check: `target/release/mfb test packages/tar` → pass; README probes print documented output
-  (est. 5 min).
-Commit: —
+Acceptance: safe extraction; README examples run. **Met.**
+  Check: `target/release/mfb test packages/tar` → `Tests: 44  Pass: 44  Fail: 0`; the README probe
+  prints the documented output and exits 0.
+Commit: PENDINGC3
 
 ## Validation Plan
 
 - Tests: `test_read.mfb`, `test_writer.mfb`, `test_extract.mfb`; external `bsdtar`/`tarfile`.
-- Coverage check: every export of `packages/tar/src/lib.mfb` appears in a `TCASE`.
+- Coverage check: **done** — `open` (both overloads), `entries`, `has`, `find`, `read`,
+  `readText`, `create`, `addFile`, `addText`, `addDirectory`, `addSymlink`, `finish` and
+  `extractTo` are each called from at least one `TCASE`, across `test_read.mfb` (18),
+  `test_writer.mfb` (13) and `test_extract.mfb` (13).
 - Runtime proof: plan-139-D.
 - Doc sync: README.md, doc.html, DOC comments.
 - Final gate: plan-139-D.
 
 ## Open Decisions
 
-- Link entries during `extractTo` — refuse the whole extraction with `ErrUnsupported` before writing
-  anything when any symlink/hardlink is present (recommended: silently skipping produces a wrong tree;
-  `fs` cannot create links) vs. skip and return a list of skipped names (changes the return type away
-  from zip's) vs. a prerequisite fs plan for `fs::createSymlink`.
-- Hardlink to an earlier regular entry — could be materialised as a copy of that entry's bytes;
-  recommended to treat as the decision above for consistency.
+- Link entries during `extractTo` — **resolved 2026-09-19 as the recommended option**: refuse the
+  whole extraction with `ErrUnsupported`, in the pre-pass, before anything is written. Skipping
+  would hand back a tree that looks complete and is not, and the failure would surface far from
+  the extraction that caused it. `fs::createSymlink` remains a possible future prerequisite plan;
+  it is not one plan-139 needs.
+- Hardlink to an earlier regular entry — **resolved 2026-09-19 as recommended**: treated the same
+  as a symlink and refused. Materialising it as a copy would silently turn one file into two, which
+  is a different archive from the one the caller was given.
 
 ## Corrections
 

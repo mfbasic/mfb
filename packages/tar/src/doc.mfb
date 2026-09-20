@@ -1,0 +1,347 @@
+' ---------------------------------------------------------------------------
+' tar/doc.mfb — the package's compiler-validated documentation.
+'
+' A compiled `.mfp` ships without source, so an ordinary `'` comment reaches
+' nobody outside this directory. Only a DOC block is carried in the package
+' binary, checked against the declaration it names, and rendered by `mfb doc`.
+' ---------------------------------------------------------------------------
+
+DOC
+  PACKAGE
+  DESC Read and write tar archives -- ustar, PAX and GNU.
+  DESC
+  DESC An archive is opened either from bytes already in memory or from a file
+  DESC you have open, through the same `open` call, and both forms give you the
+  DESC same entries with the same contents.
+  DESC
+  DESC A tar archive has no index, so `open` walks it -- but walking is not
+  DESC reading it. Each 512-byte header is read and the data between them is
+  DESC stepped over by arithmetic, so listing a 40 GB archive reads about one
+  DESC header per entry.
+  INFO Tar records a checksum for each header but none for an entry's CONTENTS,
+  INFO so unlike a zip this package cannot tell you whether an entry's data was
+  INFO corrupted. That is a property of the format, worth knowing before
+  INFO trusting an archive.
+  SEC `extractTo` treats an archive as untrusted input: it validates every entry
+  SEC before writing any byte, so an archive with one unsafe name leaves your
+  SEC directory exactly as it was.
+END DOC
+
+DOC
+  TYPE Archive
+  DESC An open archive.
+  DESC
+  DESC An `Archive` over a file refers to the file you opened without taking it
+  DESC over. Closing that file makes later reads through this archive fail with
+  DESC `errorCode::ErrResourceClosed`.
+  PROP source Where the archive's bytes come from. Internal.
+  PROP entries Every entry, in the order the archive lists them.
+END DOC
+
+DOC
+  TYPE Entry
+  DESC One entry in an archive.
+  PROP name The entry's name, with `/` separating directories.
+  PROP kind One of `KindFile`, `KindDirectory`, `KindSymlink`, `KindHardlink` or `KindOther`.
+  PROP isDirectory Whether this entry is a directory.
+  PROP size The entry's size in bytes. Always 0 for anything that is not a regular file.
+  PROP mode The Unix permission bits.
+  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
+  PROP uid The numeric user id recorded for the entry.
+  PROP gid The numeric group id recorded for the entry.
+  PROP user The user name recorded for the entry, or the empty string.
+  PROP group The group name recorded for the entry, or the empty string.
+  PROP linkTarget Where a link points, or the empty string for anything else.
+  PROP dataOffset Where the entry's data begins in the archive. Used by `read`.
+END DOC
+
+DOC
+  TYPE Builder
+  DESC An archive under construction.
+  DESC
+  DESC Start one with `create`, add to it, and call `finish`. Each `add` call
+  DESC gives you back a new builder; the one you passed in is unchanged.
+  PROP pending The entries added so far. Internal.
+END DOC
+
+DOC INTERNAL
+  TYPE PendingEntry
+  DESC One entry a `Builder` is holding until `finish` lays the archive out.
+  PROP name The entry's name.
+  PROP typeFlag The tar type flag to record.
+  PROP mode The Unix permission bits.
+  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
+  PROP linkTarget Where a link points, or the empty string.
+  PROP payload The entry's contents.
+END DOC
+
+DOC INTERNAL
+  TYPE MemorySource
+  DESC An archive's bytes, already in memory. Use `open` instead.
+  PROP bytes The archive's bytes.
+END DOC
+
+DOC INTERNAL
+  TYPE FileSource
+  DESC An archive's bytes, in a file you have open. Use `open` instead.
+  PROP handle The file the archive is read from.
+END DOC
+
+DOC INTERNAL
+  UNION Source
+  DESC Where an archive's bytes come from. Use `open` instead.
+END DOC
+
+DOC
+  FUNC open(List OF Byte)
+  GROUP Reading
+  DESC Open an archive held in memory.
+  INFO The argument needs a typed binding: an untyped list literal does not say
+  INFO which of the two `open` forms you meant, so it does not compile.
+  ARG data The archive's bytes.
+  RET The opened archive.
+  ERROR 7-705-0004 The bytes are not a well-formed archive.
+  ERROR 9316-0001 A header's recorded checksum does not match its bytes.
+  EXAMPLE
+    IMPORT tar
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      LET raw AS List OF Byte = fs::readBytes("backup.tar")
+      LET archive AS tar::Archive = tar::open(raw)
+      io::print(toString(len(tar::entries(archive))) & " entries")
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC open(fs.File)
+  GROUP Reading
+  DESC Open an archive from a file you have open.
+  DESC
+  DESC The archive is walked, not read: one 512-byte header per entry, with the
+  DESC data between them stepped over by arithmetic. Listing a 40 GB archive
+  DESC costs about one header per entry.
+  INFO The file stays yours. This package never closes it, and it is left at the
+  INFO same read position it was found at.
+  ARG file The file to read the archive from.
+  RET The opened archive.
+  ERROR 7-705-0004 The bytes are not a well-formed archive.
+  ERROR 9316-0001 A header's recorded checksum does not match its bytes.
+  EXAMPLE
+    IMPORT tar
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("backup.tar")
+      LET archive AS tar::Archive = tar::open(f)
+      FOR EACH entry IN tar::entries(archive)
+        io::print(entry.name)
+      NEXT
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC entries
+  GROUP Reading
+  DESC Every entry, in the order the archive lists them.
+  ARG archive The archive to list.
+  RET The entries.
+END DOC
+
+DOC
+  FUNC has
+  GROUP Reading
+  DESC Whether an entry with exactly this name is present.
+  ARG archive The archive to search.
+  ARG name The name to look for, matched exactly.
+  RET TRUE when the name is present.
+END DOC
+
+DOC
+  FUNC find
+  GROUP Reading
+  DESC The entry with exactly this name.
+  DESC
+  DESC Tar permits the same name more than once -- that is how an archive
+  DESC records a file being replaced. This returns the first, which is the one
+  DESC `bsdtar -t` lists first; extracting applies them in order, so the last
+  DESC one wins on disk.
+  ARG archive The archive to search.
+  ARG name The name to look for, matched exactly.
+  RET The matching entry.
+  ERROR 7-705-0003 No entry has that name.
+END DOC
+
+DOC
+  FUNC read
+  GROUP Reading
+  DESC Read one entry's bytes.
+  INFO Only a regular file has contents to read. A link, a directory or a device
+  INFO node raises rather than returning something invented -- a symlink's
+  INFO `linkTarget` is where its information is.
+  ARG archive The archive to read from.
+  ARG entry The entry to read.
+  ARG maxBytes The largest size to accept. Defaults to 64 MiB.
+  RET The entry's bytes.
+  ERROR 7-705-0050 The entry is not a regular file.
+  ERROR 7-705-0027 The entry is larger than `maxBytes`.
+  EXAMPLE
+    IMPORT tar
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("backup.tar")
+      LET archive AS tar::Archive = tar::open(f)
+      LET bytes AS List OF Byte = tar::read(archive, tar::find(archive, "notes.txt"))
+      io::print(toString(len(bytes)) & " bytes")
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC readText
+  GROUP Reading
+  DESC Read one entry and decode it as UTF-8 text.
+  ARG archive The archive to read from.
+  ARG entry The entry to read.
+  ARG maxBytes The largest size to accept. Defaults to 64 MiB.
+  RET The entry's text.
+  ERROR 7-705-0004 The entry is not valid UTF-8.
+  ERROR 7-705-0050 The entry is not a regular file.
+  ERROR 7-705-0027 The entry is larger than `maxBytes`.
+END DOC
+
+DOC
+  FUNC create
+  GROUP Writing
+  DESC Start building a new archive.
+  RET An empty builder.
+  EXAMPLE
+    IMPORT tar
+    IMPORT fs
+
+    SUB main()
+      MUT b AS tar::Builder = tar::create()
+      b = tar::addText(b, "notes.txt", "hello")
+      fs::writeBytes("out.tar", tar::finish(b))
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC addFile
+  GROUP Writing
+  DESC Add a file entry holding `data`.
+  INFO Refusing an unsafe name here, and not only when extracting, means this
+  INFO package cannot be used to build the archive its own `extractTo` refuses.
+  ARG builder The builder to add to. It is not modified; the new builder is returned.
+  ARG name The entry's name, with `/` separating directories.
+  ARG data The entry's contents.
+  ARG mode The Unix permission bits. Defaults to 420, which is 0o644.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe: empty, absolute, containing `..`, a backslash or a NUL byte.
+END DOC
+
+DOC
+  FUNC addText
+  GROUP Writing
+  DESC Add a file entry holding the UTF-8 bytes of `text`.
+  ARG builder The builder to add to.
+  ARG name The entry's name.
+  ARG text The entry's contents.
+  ARG mode The Unix permission bits. Defaults to 420, which is 0o644.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe.
+END DOC
+
+DOC
+  FUNC addDirectory
+  GROUP Writing
+  DESC Add a directory entry. A trailing `/` is added when the name lacks one.
+  ARG builder The builder to add to.
+  ARG name The directory's name.
+  ARG mode The Unix permission bits. Defaults to 493, which is 0o755.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe.
+END DOC
+
+DOC
+  FUNC addSymlink
+  GROUP Writing
+  DESC Add a symbolic-link entry pointing at `target`.
+  DESC
+  DESC The link is recorded, not followed: nothing about `target` is read, and it
+  DESC does not have to exist.
+  WARN `extractTo` refuses an archive containing a link, because `fs` cannot
+  WARN create one. An archive written with this is still valid and still extracts
+  WARN with `bsdtar` or `tar(1)`.
+  ARG builder The builder to add to.
+  ARG name The link's name.
+  ARG target Where the link points.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe, or the target is empty.
+END DOC
+
+DOC
+  FUNC finish
+  GROUP Writing
+  DESC Finish the archive and return its bytes.
+  DESC
+  DESC Entries are written as ustar, with a PAX extended header only where the
+  DESC fixed fields cannot carry the name, link target or size. Reaching for the
+  DESC extension every time would produce archives older tools cannot read.
+  DESC
+  DESC The result is deterministic: the same calls in the same order always
+  DESC produce the same bytes.
+  WARN Adding an entry costs more as the archive grows, because each `add` call
+  WARN takes the whole builder and returns a new one. A few thousand entries is
+  WARN comfortable; tens of thousands takes minutes. Reading has no such limit.
+  ARG builder The builder to finish.
+  RET The archive's bytes.
+END DOC
+
+DOC
+  FUNC extractTo
+  GROUP Writing
+  DESC Extract every entry into `directory`, returning how many files were written.
+  DESC
+  DESC Directories in the archive are created but not counted.
+  SEC Every entry is validated before any byte is written, so an archive with one
+  SEC unsafe entry leaves the directory exactly as it was. A name is refused when
+  SEC it is empty, absolute, contains `..`, a backslash or a NUL byte, names a
+  SEC Windows drive, or resolves outside `directory` once symlinks already on
+  SEC disk are followed.
+  WARN An archive containing a symbolic link, a hard link or a device node is
+  WARN refused entirely, because `fs` cannot create any of them. Skipping them
+  WARN would hand back a directory that looks complete and is not.
+  INFO File permissions and modification times are not restored, because `fs` has
+  INFO no way to set either.
+  ARG archive The archive to extract.
+  ARG directory An existing directory to extract into.
+  ARG maxTotalBytes The largest total size to write. Defaults to 1 GiB.
+  RET The number of files written.
+  ERROR 7-705-0003 The directory does not exist.
+  ERROR 7-705-0013 An entry name is unsafe to write.
+  ERROR 7-705-0050 The archive contains a link or a device node.
+  ERROR 7-705-0027 The archive's total size is over `maxTotalBytes`.
+  EXAMPLE
+    IMPORT tar
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("backup.tar")
+      LET archive AS tar::Archive = tar::open(f)
+      io::print(toString(tar::extractTo(archive, "out")) & " files")
+    END SUB
+  END EXAMPLE
+END DOC
