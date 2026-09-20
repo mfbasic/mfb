@@ -5,11 +5,18 @@ Effort: small–medium
 Severity: LOW
 Class: Correctness (accuracy, not a wrong answer)
 
-Status: **FIXED** — the `Fixed` `slerp`/`angle` chains now carry their intermediates in
-`Float` and round to Q32.32 exactly once, at the end.
+Status: **FIXED (in two rounds — see "Round 2", which is why)** — the `Fixed` chains of
+`slerp`, `angle`, `project`, `reject` and `clamp_length` now carry their intermediates in
+`Float` and round to Q32.32 exactly once, at the end. Every `Fixed` `vector::` member is
+within one unit with exact inputs: 0 of 34 measurements over, worst 0.800.
 Regression Test: the re-derived `Fixed` expectations in `tests/acceptance/src/vector.mfb`
-(`angle` and `slerp` TCASEs), which now pin the correctly-rounded value for all 12
-components.
+(the `angle`, `slerp`, `project`, `reject` and `clamp_length` TCASEs), which pin the
+correctly-rounded value for all 28 components.
+
+**Round 1 closed this bug with three members still out of spec.** If you are reading this
+to learn what was done, read "Round 2" before trusting the round-1 sections below: their
+"Left undone, deliberately" verdict on `project`/`reject` was wrong, and their blast-radius
+audit never measured `clamp_length` at all.
 
 ## Outcome
 
@@ -48,7 +55,8 @@ Measured with exact inputs, against the same oracle:
 |---|---|---|
 | `slerp` 2/3/4 `Fixed` | 1.7–6.0 units | **the defect** — fixed |
 | `angle` 2/3/4 `Fixed` | up to 2.3 units | **the defect** — fixed |
-| `project`, `reject` | 1.111 units | **marginally over**, and NOT from trig: `(dot/bb) * b` rounds the quotient to Q32.32 before multiplying. Reassociating to `(dot * b.c) / bb` would divide last and land ≤0.5. Left unfixed — out of this document's title and table, and a different mechanism. Worth its own bug. |
+| `project`, `reject` | 1.111 → **0.444** | over the bar, and NOT from trig: `(dot/bb) * b` rounds the quotient to Q32.32 before multiplying. **Fixed in round 2** (see below) — round 1 wrongly left this as a documented bound. |
+| `clamp_length` | 1.600 → **0.400** | **MISSED ENTIRELY BY ROUND 1's AUDIT**, and the worst member of the set. Same shape: `maxLen/len` rounded before multiplying. Fixed in round 2. |
 | `reflect` | **0.000 with exact inputs** | **NOT affected.** An early measurement put it at 7.2 units, but that fed it `normalize(b)` — an already-inexact normal — and `reflect` multiplies that error by `2·dot`. With an exactly representable normal (`(0,0,1)`, `(0.5,0.5,0.5)`) it is exact. The error is inherited from its argument, which is the caller's business, not this bug's. |
 | `normalize` | ≤0.667 units | within one unit — not affected |
 | `rotate_2d` | ≤0.799 units | within one unit — not affected |
@@ -120,18 +128,80 @@ first filter was wrong in a way the acceptance harness alone did not catch:
 **No `.run` and no `build.log` moved in either pass**, i.e. no program's observable output
 changed anywhere in the tree.
 
-## STATUS: FIXED
+## STATUS (round 1 — superseded by Round 2 below)
 
 **Validation.** `cargo test --no-fail-fast` on the merged tree: **exit 0**, 199 result
 blocks, 0 failures (4272 tests in the main binary). `artifact-gate.sh vector`: 7 goldens
-checked, 0 diffs. `mfb test tests/acceptance`: 782 pass / 0 fail. Main was merged in before
+checked, 0 diffs. NOTE: this ran the gate with a `vector` selector only; round 2 runs the
+FULL `artifact-gate.sh all`. `mfb test tests/acceptance`: 782 pass / 0 fail. Main was merged in before
 the final run (it had advanced with bug-616 and another session's plan-139 work).
 
-**Left undone, deliberately:** `project`/`reject` sit at 1.111 units with exact inputs —
-over the one-unit bar, but from a different mechanism than this bug's (`(dot/bb) * b`
-rounds the quotient before multiplying, where `(dot * b.c) / bb` would divide last and land
-≤0.5). It is outside this document's title, table and Fix phases, so it is recorded in the
-Blast-radius audit above rather than folded in here.
+## Round 2 — the first pass closed this bug early, and should not have
+
+**This document was marked FIXED after round 1 with `project`/`reject` left at 1.111 units
+and recorded as a "documented bound". That was a misreading of its own acceptance
+criterion, and the close was wrong.** The criterion is not scoped to `slerp`/`angle`:
+
+> a `Fixed` `vector::` member whose inputs are exact is within one Q32.32 unit of the true
+> result … **or, if that is not reachable for a given member**, a documented bound that is
+> actually measured.
+
+`project` and `reject` are `Fixed` `vector::` members measured over the bar with exact
+inputs, and one unit **was** reachable for them — round 1 had already identified how
+(divide last rather than rounding the quotient first) and declined to do it. The
+documented-bound alternative is only sanctioned when the bound is unreachable, so it did
+not apply. Recorded here rather than quietly amended, because "measured it, wrote the
+number down, closed the bug" is the failure mode this note exists to prevent.
+
+### What a complete audit found
+
+Round 1 probed a handful of members. Round 2 swept **every** `Fixed` `vector::` member with
+exact inputs — 34 measurements — and found **8 over one unit across three members**,
+including one round 1 never measured at all:
+
+| Member | Worst (before) | Note |
+|---|---|---|
+| `clamp_length` | **1.600** | **never measured in round 1** — the worst of the set |
+| `project` | 1.111 | |
+| `reject` | 1.111 | inherits `project`'s error wholesale |
+
+All three share one shape, and it is the same shape in different clothes: a **ratio rounded
+to Q32.32 and then multiplied**, so the quotient's rounding is scaled up by every
+component. `project` computes `dot(a,b)/dot(b,b)` first; `clamp_length` computes
+`maxLen/len` first.
+
+Fixed the same way `slerp`/`angle` were: carry the chain in `Float`, convert to `Fixed`
+exactly once per returned component.
+
+### After
+
+**0 of 34 measurements over one unit; worst 0.800.** The members this change does not touch
+were measured and confirmed in spec rather than assumed: `normalize` ≤0.800, `rotate_2d`
+0.799, `distance` 0.096, `length`/`dot`/`lerp`/`scale` exact, `reflect` exact with exact
+inputs.
+
+Edge cases verified unchanged: `project`/`reject` still raise `77050002` on a zero-length
+`b`; `clamp_length` still raises on a negative max, still returns `v` unchanged under and
+at the cap, and still handles the zero vector without dividing by zero.
+
+### Re-derived expectations, and a mistake worth recording
+
+16 acceptance expectations across the three members' `Fixed` TCASEs. Provenance is
+`b5cb72b51`, a mechanical literal-modernisation rather than an oracle derivation; sole
+dependent; the old values are 1.111–1.600 units from truth against the 80-digit oracle
+while the new ones are ≤0.444.
+
+**They were edited BY LINE NUMBER after a first attempt by string replacement silently
+corrupted `normalize`'s own correct expectation** — the same literal
+(`0.666666666511446237F`) appears in members this change does not touch. The acceptance run
+caught it. Anyone re-deriving expectations in this file should target lines, not literals.
+
+### Round 2 validation
+
+`cargo test --no-fail-fast`: **exit 0**, 199 result blocks, 0 failures (4274 tests in the
+main binary). Full `artifact-gate.sh all`: **2058 goldens checked, 0 diffs**.
+`mfb test tests/acceptance`: 782 pass / 0 fail. No `.run` and no `build.log` moved.
+Commit: `2e80e12e6`
 
 `Fixed` `sin`, `cos`, `tan` (bug-615), the inverse family (bug-615-C) and the
 `Float` trig kernels (bug-618) are now within **one** Q32.32 unit (2^-32) of the
