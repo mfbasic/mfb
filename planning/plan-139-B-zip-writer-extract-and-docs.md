@@ -195,12 +195,14 @@ Commit: 6f30dec15
 
 Acceptance: README examples run and print what the README says. **Met** — all five ran, exit 0.
   Check: `mfb build /tmp/zipreadme && /tmp/zipreadme/build/zipreadme.out` → the output above.
-Commit: PENDING3
+Commit: 5a92d711a
 
 ## Validation Plan
 
 - Tests: `test_writer.mfb`, `test_extract.mfb`; external `unzip -t` and `zipfile.testzip`.
-- Coverage check: every new export appears in a `TCASE` (same grep as plan-139-A).
+- Coverage check: **done** — `create`, `addFile`, `addText`, `addDirectory`, `finish` and
+  `extractTo` are each called from at least one `TCASE`, across `test_writer.mfb` (18 cases) and
+  `test_extract.mfb` (12 cases).
 - Runtime proof: Phase 1 external readers; Phase 3 README probes.
 - Doc sync: README.md, doc.html, DOC comments.
 - Final gate: plan-139-D.
