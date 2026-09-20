@@ -23,6 +23,7 @@
 
 mod app_io;
 mod bootstrap;
+mod mouse;
 mod term_draw;
 
 pub(crate) use app_io::*;
@@ -590,7 +591,7 @@ pub(crate) fn emit_app_program_entry(
     let mut functions = vec![
         emit_libc_start_trampoline()?,
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -608,6 +609,20 @@ pub(crate) fn emit_app_program_entry(
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
+    // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
+    // which is itself emitted only then, so emitting them unconditionally would
+    // leave every other GTK app naming an undefined symbol.
+    if spec.uses_mouse {
+        for kind in [
+            mouse::GtkMouseKind::Press,
+            mouse::GtkMouseKind::Release,
+            mouse::GtkMouseKind::Motion,
+            mouse::GtkMouseKind::Scroll,
+        ] {
+            functions.push(mouse::emit_mouse_handler(kind)?);
+        }
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -665,7 +680,7 @@ pub(crate) fn emit_app_program_entry_x86(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -682,6 +697,20 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
+    // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
+    // which is itself emitted only then, so emitting them unconditionally would
+    // leave every other GTK app naming an undefined symbol.
+    if spec.uses_mouse {
+        for kind in [
+            mouse::GtkMouseKind::Press,
+            mouse::GtkMouseKind::Release,
+            mouse::GtkMouseKind::Motion,
+            mouse::GtkMouseKind::Scroll,
+        ] {
+            functions.push(mouse::emit_mouse_handler(kind)?);
+        }
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -917,9 +946,27 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 /// window input to the reused fd-0 console readers.
 pub(crate) fn app_mode_imports(
     libc_names: AppLibcNames,
+    uses_mouse: bool,
 ) -> Vec<crate::target::shared::plan::PlatformImport> {
     use crate::target::shared::plan::PlatformImport;
     let AppLibcNames { libc, libpthread } = libc_names;
+    // plan-94-D: the three mouse controllers and what their handlers call.
+    // Separate from the fixed list and conditional, because an unused import is
+    // still recorded in the native plan — declaring these alongside the rest
+    // would diff every GTK app golden that never touches the mouse (plan-94-C
+    // Corrections C3).
+    let gtk_mouse: &[(&str, &str)] = if uses_mouse {
+        &[
+            (GTK, "gtk_gesture_click_new"),
+            (GTK, "gtk_event_controller_motion_new"),
+            (GTK, "gtk_event_controller_scroll_new"),
+            (GTK, "gtk_gesture_single_get_current_button"),
+            (GTK, "gtk_event_controller_get_current_event_state"),
+            (GTK, "gtk_widget_translate_coordinates"),
+        ]
+    } else {
+        &[]
+    };
     let gtk: &[(&str, &str)] = &[
         // Application + window lifecycle.
         (GIO, "g_application_run"),
@@ -1055,6 +1102,7 @@ pub(crate) fn app_mode_imports(
         (libc, "tcsetattr"),
     ];
     gtk.iter()
+        .chain(gtk_mouse.iter())
         .map(|(library, symbol)| PlatformImport {
             library: (*library).to_string(),
             symbol: (*symbol).to_string(),
@@ -1064,7 +1112,12 @@ pub(crate) fn app_mode_imports(
 }
 
 /// Read-only C-string data symbols + the writable runtime-state global.
-pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
+///
+/// `uses_mouse` adds the four signal names the plan-94-D controllers connect
+/// under. Gated rather than always emitted, because a data object nothing
+/// references still lands in the binary — the rule plan-94-C Corrections C3
+/// arrived at the hard way.
+pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec<CodeDataObject> {
     let app_id = gtk_app_id(project_name);
     let mut objects: Vec<CodeDataObject> = [
         (SYM_APP_ID, app_id.as_str()),
@@ -1107,6 +1160,29 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),
     });
+    // plan-94-D: the mouse controllers' signal names.
+    if uses_mouse {
+        for (symbol, text) in [
+            mouse::STR_PRESSED,
+            mouse::STR_RELEASED,
+            mouse::STR_MOTION,
+            mouse::STR_SCROLL,
+        ] {
+            objects.push(CodeDataObject {
+                symbol: symbol.to_string(),
+                kind: "raw".to_string(),
+                layout: "C string (NUL-terminated)".to_string(),
+                align: 1,
+                size: text.len() + 1,
+                value: text
+                    .bytes()
+                    .chain(std::iter::once(0))
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            });
+        }
+    }
+
     objects
 }
 

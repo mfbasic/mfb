@@ -273,6 +273,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
 
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
+    uses_mouse: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
@@ -382,6 +383,14 @@ pub(super) fn emit_activate_handler(
         asm.load_state(abi::c_arg(0), ST_WINDOW);
         asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
         asm.call_external("gtk_widget_add_controller");
+
+        // plan-94-D: the three mouse controllers, on the WINDOW for the same
+        // reason the key controller is — the window outlives the child swap
+        // between the transcript, the term area and the canvas area, so one set
+        // serves all three with nothing to re-attach on a mode change.
+        if uses_mouse {
+            mouse::emit_attach_controllers(&mut asm);
+        }
 
         // connect window "close-request" -> on_window_closed
         asm.load_state(abi::c_arg(0), ST_WINDOW);

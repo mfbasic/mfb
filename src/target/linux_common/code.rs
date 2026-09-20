@@ -562,7 +562,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         self.arch.app().require_gtk();
         // The GTK bootstrap has no reporting hook of its own.
         let _ = debug_hooks;
-        gtk::app_mode_data_objects(project_name)
+        gtk::app_mode_data_objects(project_name, _uses_mouse)
     }
 
     fn emit_app_mode_reconcile(
