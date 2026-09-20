@@ -219,6 +219,8 @@ impl NativeBackend for Backend {
                 "fs.readAll",
                 "fs.readAllBytes",
                 "fs.eof",
+                "fs.size",
+                "fs.readBytesAt",
                 "fs.canonicalPath",
                 "fs.isWithin",
                 "thread.start",

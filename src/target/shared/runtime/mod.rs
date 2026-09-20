@@ -129,6 +129,16 @@ pub(crate) struct RuntimeHelperSpec {
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeHelperAbi {
     pub(crate) returns: &'static str,
+    /// Whether `returns` is the bare spelling of a descriptor return type that
+    /// mentions a type VARIABLE (`thread.waitFor` → `"Out"`), rather than a real
+    /// nominal type. The string is still what code planning wants — every helper
+    /// gets one `CodeFunction`, whatever its surface genericity — but a type
+    /// variable must never become a *value's* type, so the runtime-call
+    /// resolver's last-resort spec fallback declines on this flag (bug-630).
+    /// Without it `declared("Out")` flowed on to marshalling and failed there
+    /// with "native inlined field size not available for type 'Out'" instead of
+    /// at the resolver, which is where an unresolved generic belongs.
+    pub(crate) returns_generic: bool,
 }
 
 mod catalog;

@@ -413,7 +413,9 @@ impl LinuxPlan<'_> {
             | "fs.setBuffered"
             | "fs.isBuffered"
             | "fs.flush"
-            | "fs.eof" => {
+            | "fs.eof"
+            | "fs.size"
+            | "fs.readBytesAt" => {
                 let mut imports = vec![
                     self.libc_import("open", required_by),
                     self.libc_import("read", required_by),

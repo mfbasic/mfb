@@ -152,3 +152,54 @@ fn catalog_is_consistent() {
     }
     assert_eq!(families.len(), 16, "unexpected extra catalogued family");
 }
+
+// bug-630: the derived catalog froze a descriptor's generic return type into
+// `abi.returns` as a bare type-variable name (`thread.waitFor` -> `"Out"`), and
+// the runtime-call resolver's last-resort `.or_else` turned that string into a
+// value type via `ParameterType::declared`. A type variable is not a type: it
+// reached the assignment's marshalling and died with "native inlined field size
+// not available for type 'Out'" instead of failing at the resolver.
+//
+// The seven generic rows are all `thread.*` (audited 2026-09-19 over
+// `registry::runtime_specs`), and every one of them is typed from its handle
+// argument by `thread_runtime_return_type`, so none depends on this fallback.
+#[test]
+fn generic_returns_are_flagged_and_all_of_them_are_thread_calls() {
+    let mut flagged: Vec<&str> = supported_helper_specs()
+        .iter()
+        .filter(|spec| spec.abi.returns_generic)
+        .map(|spec| spec.call)
+        .collect();
+    flagged.sort_unstable();
+    assert_eq!(
+        flagged,
+        [
+            "thread.accept",
+            "thread.acceptResource",
+            "thread.read",
+            "thread.readResource",
+            "thread.receive",
+            "thread.start",
+            "thread.waitFor",
+        ],
+        "the set of catalogued generic-return calls changed; \
+         a new one must be typed by `thread_runtime_return_type`-style \
+         argument inference, never by the catalog fallback"
+    );
+
+    // The flag is exactly `contains_var` over the descriptor return type.
+    for spec in supported_helper_specs() {
+        let Some(call) = crate::codegen::registry::runtime_specs()
+            .iter()
+            .find(|call| call.name == spec.call)
+        else {
+            continue;
+        };
+        assert_eq!(
+            spec.abi.returns_generic,
+            crate::codegen::registry::contains_var(&call.return_type),
+            "{} generic flag disagrees with its descriptor",
+            spec.call
+        );
+    }
+}

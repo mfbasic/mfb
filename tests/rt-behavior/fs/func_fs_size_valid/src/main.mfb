@@ -1,0 +1,61 @@
+' plan-139-E: fs::size reports an open File's byte length without moving its read
+' position. The position-neutrality case is the one that matters — letter A's
+' zip/tar Archive aliases a caller's File, so a measurement must not disturb a
+' reader. A closed handle raises ErrResourceClosed.
+IMPORT fs
+IMPORT io
+IMPORT errorCode
+
+' Closing through a callee is the case the static move rules cannot prove, so the
+' runtime closed-flag is what refuses the later use (spec §15: "through a call
+' that may hand the same resource back — the runtime flag catches it instead").
+SUB closeHandle(RES f AS fs::File)
+  fs::close(f)
+END SUB
+
+FUNC sizeOfClosed(path AS String) AS Integer
+  RES f AS fs::File = fs::openFile(path)
+  closeHandle(f)
+  RETURN fs::size(f)
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_size_valid.txt"
+  ' 23 bytes: "first line\nsecond line\n"
+  fs::writeText(path, "first line\nsecond line\n")
+
+  ' The length is the whole file, not the bytes remaining.
+  RES f AS fs::File = fs::openFile(path)
+  io::print("size=" & toString(fs::size(f)))
+
+  ' Measuring did not move the read position: the first line is still next.
+  io::print("afterSize=" & fs::readLine(f))
+
+  ' Measuring mid-file still reports the whole file, and still does not move on.
+  io::print("sizeMid=" & toString(fs::size(f)))
+  io::print("afterSizeMid=" & fs::readLine(f))
+  fs::close(f)
+
+  ' An empty file measures zero.
+  LET empty AS String = "target/func_fs_size_valid_empty.txt"
+  fs::writeText(empty, "")
+  RES g AS fs::File = fs::openFile(empty)
+  io::print("empty=" & toString(fs::size(g)))
+  fs::close(g)
+
+  ' A closed handle raises ErrResourceClosed.
+  MUT closedCode AS Integer = 0
+  sizeOfClosed(path) TRAP(e)
+    closedCode = e.code
+    RECOVER 0
+  END TRAP
+  IF closedCode = errorCode::ErrResourceClosed THEN
+    io::print("closed=ErrResourceClosed")
+  ELSE
+    io::print("closed=" & toString(closedCode))
+  END IF
+
+  fs::deleteFile(path)
+  fs::deleteFile(empty)
+  RETURN 0
+END FUNC

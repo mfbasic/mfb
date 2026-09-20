@@ -284,7 +284,7 @@ Shape-selection criteria the repo's own choices reveal:
 | 2 | Logging (`log`, #29) | Pure MFB package (condition below) | Composition over `io`, `os::getEnv`, `datetime`. Today the surface is `io::print`/`io::printError`. |
 | 3 | TOML | Pure MFB package | Exact `yaml` precedent — parse to `json::Json`, let `json::get`/`stringify` do the rest. Config-scale text, no perf cliff. Oracle is free (Python `tomllib`). |
 | 4 | gzip/deflate | Builtin + dlopen — already decided | plan-93-A specifies `compress::` mirroring the libssl dlopen against system zlib. Reasoning holds: 64 MiB bodies, dynamic Huffman + 32 KiB LZ77 window, and `http::` is a consumer. Unblocks 93-B/C. |
-| 5 | zip/tar archives | Pure MFB package | Container formats are header parsing and offsets; delegate DEFLATE to `compress::`. Matches http's own contract — "all protocol work is string manipulation; only the transport branches reach native code" (`src/builtins/http.rs:5`, quoted in plan-93-A). Unblocks `.docx`/`.xlsx`/`.odt`/`.epub`/`.jar`. |
+| 5 | zip/tar archives | **DONE — plan-139** | Landed as `packages/zip` and `packages/tar` (plan-139-A…E, archived in `planning/completed/`). Both read from an open `fs::File` or a `List OF Byte` through one `open` overload pair, and agree; opening a 2 GiB archive and reading one entry peaks at ~3.3 MiB. Checked against Python `zipfile`/`tarfile`, `unzip` and `bsdtar` over a corpus, 2000 fuzzed archives each, and round trips. See the API changes below. |
 | 6 | XML | Pure MFB package — **done, plan-138 (A–E)** | See note below. `packages/xml` reads XML 1.0 (Fifth Edition, with Namespaces) into a `UNION` tree, writes it back compact or pretty, and answers an XPath 1.0 subset (`evaluate`/`select`/`selectAttributes`/`valueOf`). 253 package tests, plus a three-way differential oracle against Node (saxes + xmldom + npm `xpath`) and Rust (roxmltree + quick-xml + `xpath-eval`) as equal peers: 26 corpus documents, 2,140 W3C conformance tests, fuzzed reading, writing, round-tripping, mutation and XPath, and a 100k-node budget. One declared divergence, and it is a language limit rather than an XML one — `toString(Float)` prints two decimals where XPath §4.2 wants full precision. |
 | 7 | WebSocket | Pure MFB package (client + standalone server); the `http`-integrated server needs a builtin seam | `wss://` establishes TLS at connect time and then speaks HTTP over it, so it never needs `tls::wrap` — this is NOT blocked by the macOS constraint below. A package owning the connection from `tcp::connect`/`tls::connect` onward ships today. Only sharing a port with `http::server` needs the hijack seam. See `# websockets` above, which reaches the same three verdicts. |
 | 8 | PostgreSQL client | **Binding package (libpq)** — corrected 2026-09-06 | Postgres negotiates TLS in-band (SSLRequest, then handshake on the same socket), which is exactly the `tls::wrap` that cannot exist. See note below. |
@@ -790,7 +790,35 @@ No testing needed:
 
 # Proposed API: `compress::`, `zip::`, `tar::`
 
-This is a design proposal only; I haven't changed any files. Names follow what the tree already does: `List OF Byte` for binary data, parameter defaults written in the declaration (plan-136), `Err*` error constants for builtins (like `crypto::ErrAuthenticationFailed`), and `Error*` constants exported with `EXPORT LET` for packages (like `jwt::ErrorExpired`).
+> **`zip::` and `tar::` are no longer a proposal — they shipped in plan-139**
+> (`packages/zip`, `packages/tar`; letters A–E archived in `planning/completed/`).
+> What follows is kept as the original design note; the list below records where
+> the shipped API differs from it, and the packages' own README and `mfb doc`
+> pages are the current reference.
+>
+> **What changed from this proposal:**
+>
+> 1. **`open` gained a second overload**, `open(RES file AS fs::File)`, alongside
+>    `open(data AS List OF Byte)`. That is the whole point of the feature: an
+>    archive far larger than memory is readable one entry at a time. The memory
+>    form needs a typed binding, because an untyped list literal selects neither
+>    overload.
+> 2. **`tar::read`/`readText` gained `maxBytes`**, which the in-memory-only
+>    proposal did not need.
+> 3. **`tar::Entry` gained `isDirectory`**, so code written against the common
+>    subset of `Entry` works for both packages.
+> 4. **Shared `errorCode::` values replaced the proposed per-package `ErrorInvalid`,
+>    `ErrorUnsupported`, `ErrorNotFound`, `ErrorTooLarge` and `ErrorUnsafePath`.**
+>    Only the checksum mismatch is package-specific: `zip::ErrorChecksum`,
+>    `tar::ErrorChecksum`.
+> 5. **`encoding::codepageDecode` is not used for CP437** — `encoding::Codepage`
+>    has no CP437 member, so `packages/zip` carries its own table.
+> 6. **`zip::Entry` gained `headerOffset` and `flags`**, and `tar::Entry` gained
+>    `kind`, `uid`, `gid`, `user`, `group`, `linkTarget` and `dataOffset`.
+> 7. **`tar::addSymlink` was added**, and `tar::extractTo` refuses an archive
+>    containing links rather than skipping them, because `fs` cannot create one.
+
+This was a design proposal; the files have since been written. Names follow what the tree already does: `List OF Byte` for binary data, parameter defaults written in the declaration (plan-136), `Err*` error constants for builtins (like `crypto::ErrAuthenticationFailed`), and `Error*` constants exported with `EXPORT LET` for packages (like `jwt::ErrorExpired`).
 
 ## `compress::` — builtin (row 4)
 
