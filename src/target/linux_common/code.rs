@@ -1670,7 +1670,7 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn data_objects() {
-            let _ = riscv64().app_mode_data_objects("demo", false);
+            let _ = riscv64().app_mode_data_objects("demo", false, false);
         }
 
         #[test]

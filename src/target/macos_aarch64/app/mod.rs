@@ -1430,7 +1430,7 @@ mod release_tests {
     #[test]
     fn release_selector_string_is_emitted() {
         assert!(
-            app_mode_data_objects()
+            app_mode_data_objects(false)
                 .iter()
                 .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
             "the `release` selector C-string must be emitted (bug-53)"

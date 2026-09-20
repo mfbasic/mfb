@@ -268,7 +268,7 @@ fn a_backend_that_overrides_nothing_declines_every_optional_hook() {
     // The value-returning defaults, which `optional_hook_answers` cannot reach
     // because they answer with a collection rather than an `Option`.
     assert!(
-        stub.app_mode_data_objects("probe", false).is_empty(),
+        stub.app_mode_data_objects("probe", false, false).is_empty(),
         "a backend with no app mode has no app-mode data objects"
     );
     assert!(

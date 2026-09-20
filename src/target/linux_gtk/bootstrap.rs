@@ -1776,7 +1776,7 @@ mod tests {
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
         // The pipe/dup2 wiring this test asserts lives in the Console surface path.
-        let func = emit_activate_handler(PresentationMode::Console).unwrap();
+        let func = emit_activate_handler(PresentationMode::Console, false).unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

@@ -192,6 +192,6 @@ mod tests {
         let platform = Platform {
             flavor: LinuxFlavor::Glibc,
         };
-        let _ = platform.app_mode_imports();
+        let _ = platform.app_mode_imports(false);
     }
 }

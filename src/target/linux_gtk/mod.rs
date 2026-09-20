@@ -1288,7 +1288,7 @@ mod identity_tests {
 
     #[test]
     fn app_mode_data_objects_carry_the_derived_id_and_title() {
-        let objects = app_mode_data_objects("my-app");
+        let objects = app_mode_data_objects("my-app", false);
         let id = objects
             .iter()
             .find(|object| object.symbol == SYM_APP_ID)
@@ -1328,7 +1328,7 @@ mod import_tests {
     /// produced, so threading the names moves no byte.
     #[test]
     fn app_mode_imports_glibc_is_unchanged() {
-        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.library)
             .collect();
@@ -1359,7 +1359,7 @@ mod import_tests {
                 "libc.musl-aarch64.so.1",
             ),
         ] {
-            let imports = app_mode_imports(names);
+            let imports = app_mode_imports(names, false);
             let libs: Vec<&str> = imports.iter().map(|i| i.library.as_str()).collect();
             for glibc_only in [
                 "libc.so.6",
@@ -1396,11 +1396,11 @@ mod import_tests {
     /// The import *set* is flavor-independent — only attribution changes.
     #[test]
     fn app_mode_imports_symbol_set_is_flavor_independent() {
-        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
-        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES)
+        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
@@ -1412,7 +1412,7 @@ mod import_tests {
     /// the import plan against reintroducing the dead symbol or dropping `close`.
     #[test]
     fn app_mode_imports_drop_getenv_add_close() {
-        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -1446,7 +1446,7 @@ mod import_tests {
     /// at build time.
     #[test]
     fn every_emitted_external_call_is_a_declared_import() {
-        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES)
+        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -1781,10 +1781,15 @@ mod canvas_reconcile_tests {
     /// the build.
     #[test]
     fn canvas_symbols_are_declared_imports() {
-        let declared: Vec<String> = app_mode_imports(AppLibcNames {
-            libc: "libc.so.6",
-            libpthread: "libpthread.so.0",
-        })
+        let declared: Vec<String> = app_mode_imports(
+            AppLibcNames {
+                libc: "libc.so.6",
+                libpthread: "libpthread.so.0",
+            },
+            // This case asks what a NON-mouse GTK app declares; the mouse set is
+            // covered by the app-mouse-surface fixture's per-target goldens.
+            false,
+        )
         .into_iter()
         .map(|import| import.symbol)
         .collect();
@@ -1844,7 +1849,8 @@ mod canvas_reconcile_tests {
     /// read waiting on the old file description forever.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = bootstrap::emit_activate_handler(PresentationMode::None).expect("activate");
+        let none =
+            bootstrap::emit_activate_handler(PresentationMode::None, false).expect("activate");
         assert_eq!(
             externals(&none, "pipe"),
             1,
@@ -1858,7 +1864,7 @@ mod canvas_reconcile_tests {
         // The Console-default path keeps exactly one — the extraction must not have
         // duplicated it into the branch it came from.
         let console =
-            bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
+            bootstrap::emit_activate_handler(PresentationMode::Console, false).expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
     }
 }
