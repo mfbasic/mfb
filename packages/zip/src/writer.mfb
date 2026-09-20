@@ -26,6 +26,12 @@
 '   rebuild the record positionally     871..78086ns grows with the list
 '   pass the list to a FUNC and return  411..23639ns grows with the list
 '
+' This is the value model, not a quirk to route around: `mfb spec language
+' memory-semantics` §14.2 makes a function argument an OWNED value, so handing a
+' collection to a call hands over a copy. Only a resource pointer (§15) is ever
+' aliased, which is why a `RES fs::File` can be passed freely and a
+' `List OF Byte` cannot.
+'
 ' So the archive body is assembled ONCE, inside `finish`, in a single bare local
 ' that is never handed to a function and never stored in a record until it is
 ' returned. The `add*` functions only accumulate small per-entry records, each

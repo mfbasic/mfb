@@ -299,20 +299,35 @@ After the rewrite, `finish` is **linear** — 8.1, 8.0, 8.1, 8.8 µs per entry a
 flat. The residual quadratic is entirely in `add`: 67, 107, 234, 493 µs per entry over the same
 counts.
 
-It is not an implementation mistake. `addFile(builder AS Builder, …) AS Builder` — the API §4.1
-specifies — passes the builder **by value**, and the table above shows passing a growing collection
-into a function copies it. MFBASIC v1 has no by-reference parameters: `mfb spec language functions`
-offers one narrowly-scoped exception ("a lambda passed directly into a compiler-proven non-escaping
-callback position … may capture an outer MUT by reference") and states plainly that "non-escaping
-closures are not part of the v1 source language". No arrangement of the record's FIELDS avoids it —
-appending a scalar record, a record with a String, and a record with a `List OF Byte` are all O(1)
-(127/147/261 ns at length 0, 29/49/82 ns at 8000); the cost is the parameter, not the element.
+It is not an implementation mistake, and it is not a gap waiting to be filled either. **MFBASIC is
+a by-value language by design**, which `mfb spec language memory-semantics` states as a rule:
+
+> §14.2 — *Function arguments are owned values. Passing an argument follows the same copy-or-move
+> rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has
+> been passed, except through a resource pointer as described in §15.*
+
+§14 opens with "Each live value is owned by exactly one binding … There is no tracing GC, no
+reference counting, and no user-visible `free`", §14.6 adds "No two live mutable bindings may refer
+to the same collection buffer", and `mfb spec memory collections` §"Headroom" names pass-by-value
+outright: "Copying a collection value (pass-by-value, binding, embedding, thread transfer) is
+shrink-to-fit". The one escape is a **resource pointer** (§15), which is why a `RES fs::File` can be
+aliased and a `List OF Byte` cannot.
+
+So `addFile(builder AS Builder, …) AS Builder` — the API §4.1 specifies — hands the builder over as
+an owned value, and the table above is that rule being measured. §14.1 permits the compiler to
+substitute a move "when it proves the source is not used afterward", but that is an optimization it
+may apply, not a semantic the API can rely on, and here it does not fire. No arrangement of the
+record's FIELDS avoids it — appending a scalar record, a record with a String, and a record with a
+`List OF Byte` are all O(1) (127/147/261 ns at length 0, 29/49/82 ns at 8000); the cost is the
+parameter, not the element.
 
 The API is kept as planned, because it is the right shape for callers and the cost only matters for
 archives with very many entries. The practical limit is recorded on the package page rather than
-papered over: a few thousand entries is comfortable, tens of thousands is minutes. Changing this
-needs either by-reference parameters in the language or a batch-add API, and neither belongs in
-plan-139.
+papered over: a few thousand entries is comfortable, tens of thousands is minutes. **The only
+remedy is an API that does not thread a growing collection through a call per element** — a
+batch add taking every entry at once, or a builder that writes as it goes. Neither belongs in
+plan-139, and neither is a language change: waiting for by-reference parameters is waiting for
+something the value model rules out.
 
 ### 2026-09-19 — the 65536-entry ZIP64 test: not a probe either, but a package-internal case
 
