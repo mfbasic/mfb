@@ -1,0 +1,55 @@
+' bug-630: a thread read whose handle argument is a nested `thread::start(…)`
+' call must type exactly like the bound-handle spelling. Before the fix the
+' builder could not name the temporary handle's type, so `thread::waitFor` fell
+' through to the catalog's frozen generic return ("native inlined field size not
+' available for type 'Out'") and `thread::receive`/`thread::accept` failed their
+' parent/worker direction split ("handle has unknown type"). All three shapes are
+' pinned here against their bound-handle equivalents.
+IMPORT fs
+IMPORT io
+IMPORT thread
+
+ISOLATED FUNC sizer(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+ISOLATED FUNC talker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(w, "hi-" & seed)
+  RETURN len(seed)
+END FUNC
+
+ISOLATED FUNC opener(w AS ThreadWorker OF Nothing RES fs::File TO Integer, seed AS String) AS Integer
+  RES f AS fs::File = fs::open(seed, "r")
+  thread::transfer(w, f)
+  RETURN 1
+END FUNC
+
+SUB main()
+  ' waitFor — the document's own reproduction, nested inside a loop so the
+  ' temporary handle is created and consumed 100 times.
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 100
+    total = total + thread::waitFor(thread::start(sizer, "abc"))
+    i = i + 1
+  END WHILE
+  io::print("nested waitFor total=" & toString(total))
+
+  ' The bound-handle spelling must still agree.
+  MUT bound AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 100
+    LET t AS Thread OF String TO Integer = thread::start(sizer, "abc")
+    bound = bound + thread::waitFor(t)
+    j = j + 1
+  END WHILE
+  io::print("bound waitFor total=" & toString(bound))
+
+  ' receive — the parent/worker direction split reads the handle's type.
+  LET msg AS String = thread::receive(thread::start(talker, "abc"))
+  io::print("nested receive msg=" & msg)
+
+  ' accept — the resource plane, same split.
+  RES got AS fs::File = thread::accept(thread::start(opener, "tests/rt-behavior/threads/bug630-nested-thread-handle-rt/data/input.txt"))
+  io::print("nested accept text=" & fs::readAll(got))
+END SUB
