@@ -1,0 +1,54 @@
+' ---------------------------------------------------------------------------
+' zip/bytes.mfb — little-endian integer readers over a `List OF Byte`.
+'
+' Every multi-byte number in a zip file is little-endian (APPNOTE.TXT §4.4), so
+' these three functions are how every header field is read. They take the list
+' and an index rather than a slice, so a caller that has already read a whole
+' header block reads its fields out of that one block instead of cutting a new
+' list per field.
+'
+' `u64le` is the one that can overflow: MFBASIC's Integer is signed 64-bit, so a
+' ZIP64 field with the top bit set has no representable value. That only happens
+' in an archive claiming a size of 8 exabytes or more, which is not a real
+' archive, so it is refused here rather than silently returned as a negative
+' number that would then pass a `<= size` bounds check.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT errorCode
+
+' The unsigned 16-bit value at `index`.
+EXPORT FUNC u16le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 2)
+  RETURN toInt(collections::get(bytes, index)) _
+    + toInt(collections::get(bytes, index + 1)) * 256
+END FUNC
+
+' The unsigned 32-bit value at `index`.
+EXPORT FUNC u32le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 4)
+  RETURN toInt(collections::get(bytes, index)) _
+    + toInt(collections::get(bytes, index + 1)) * 256 _
+    + toInt(collections::get(bytes, index + 2)) * 65536 _
+    + toInt(collections::get(bytes, index + 3)) * 16777216
+END FUNC
+
+' The unsigned 64-bit value at `index`.
+'
+' Raises `errorCode::ErrTooLarge` when the value does not fit a signed 64-bit
+' Integer — an archive that big is not one this package can address.
+EXPORT FUNC u64le(bytes AS List OF Byte, index AS Integer) AS Integer
+  requireRoom(bytes, index, 8)
+  LET low AS Integer = u32le(bytes, index)
+  LET high AS Integer = u32le(bytes, index + 4)
+  IF high > 2147483647 THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: 64-bit field at " & toString(index) & " exceeds the largest addressable size")
+  END IF
+  RETURN low + high * 4294967296
+END FUNC
+
+PRIVATE SUB requireRoom(bytes AS List OF Byte, index AS Integer, width AS Integer)
+  IF index < 0 OR index + width > len(bytes) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(width) & "-byte field at " & toString(index) & " runs past a " & toString(len(bytes)) & "-byte block")
+  END IF
+END SUB

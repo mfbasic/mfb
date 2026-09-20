@@ -344,7 +344,7 @@ Acceptance: the tree is green and plan-139-A's gate is open.
   `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-merged` →
   `acceptance tests passed (1488 test(s) ran)`, exit 0, zero mismatches;
   `cargo test --bin mfb` → `test result: ok. 4269 passed; 0 failed; 1 ignored` in 2243s.
-Commit: —
+Commit: eb6e837f7
 
 ## Validation Plan
 

@@ -286,20 +286,26 @@ New packages only. No compiler, spec, builtin or existing-package change. The su
 
 Proves the two premises the reader rests on (slice cost, `readBytesAt` contract) before any parser.
 
-- [ ] Create `packages/zip/project.json` (mirror `packages/jwt/project.json`: `kind "package"`,
-      name `zip`, version `0.1.0`, description, sources root `src` role `package`).
-- [ ] `packages/zip/src/source.mfb`: `Source` union, `readAt`, `sizeOf`. `readAt` with
-      `offset < 0`, `count < 0`, or `offset + count > sizeOf` → `ErrInvalidFormat` (callers
-      bounds-check first; this is the backstop). File branch calls `fs::readBytesAt` and treats a
-      short read as `ErrInvalidFormat` (file truncated underneath).
-- [ ] `packages/zip/src/bytes.mfb`: `u16le`, `u32le`, `u64le` over `(bytes, index)`.
-- [ ] Measure slice cost: a `TCASE` is not a timer, so write `/tmp/zipslice` (a program, not in the
-      tree) reading 4 KiB at offset 0 and at offset 60 MiB of a 64 MiB `List OF Byte`, 1000 times
-      each; record both wall times in Corrections. Ratio > 2× → the slice is O(n); switch the memory
-      branch to the cheapest O(count) primitive the collections package offers and record which.
-- [ ] Tests `packages/zip/src/test_source.mfb`: memory and file `readAt` return identical bytes at
-      start/middle/end; out-of-range → `ErrInvalidFormat`; `readAt` after `fs::close` →
-      `ErrResourceClosed`; `u64le` of `FF×8` round-trips as the documented Integer value.
+- [x] Created `packages/zip/project.json` mirroring `packages/jwt/project.json`.
+- [x] `packages/zip/src/source.mfb`: `Source` union, `readAt`, `sizeOf`, all four refusals as
+      specified. The memory branch is `collections::mid` (the plan did not name a primitive;
+      `collections::slice` does not exist — `mid(list, start, count)` is the one with exactly this
+      signature). Union members are written one per line, not `A | B`, which is a lexer error.
+- [x] `packages/zip/src/bytes.mfb`: `u16le`, `u32le`, `u64le` over `(bytes, index)`, each
+      bounds-checked against the block. `u64le` refuses a value above `2^63 - 1` with
+      `ErrTooLarge` rather than returning a wrapped negative — see Corrections; a negative would
+      silently pass the `<= size` bounds checks the parsers rely on.
+- [x] Slice cost measured with `/tmp/zipslice` (a program, not in the tree), 1000 reads of a
+      4 KiB window in a 64 MiB `List OF Byte`: **offset 0 → 1,389,000 ns; offset 60 MiB →
+      1,383,000 ns; ratio 0.99**. `collections::mid` is O(count), not O(list length), so the
+      memory branch needs no replacement. The UNVERIFIED property in §Verified properties is now
+      measured.
+- [x] Tests `packages/zip/src/test_source.mfb` — 11 cases, all passing
+      (`target/release/mfb test packages/zip` → `Tests: 11  Pass: 11  Fail: 0`): identical bytes
+      from both sources at start/middle/end/whole/last-byte, zero-byte reads, out-of-range and
+      negative arguments refused by both, a file read that does not move the handle's position,
+      and `readAt` after a callee closed the handle → `ErrResourceClosed`. The `u64le` of `FF×8`
+      case asserts `ErrTooLarge`, not a round trip — see Corrections.
 
 Acceptance: both sources return identical bytes and fail identically.
   Check: `target/release/mfb test packages/zip` → all `source` cases pass (est. 1 min).
@@ -361,6 +367,36 @@ Commit: —
   an `open` parameter (would break the identical two-overload shape).
 
 ## Corrections
+
+### 2026-09-19 — Phase 1 measurements and three plan corrections
+
+**The slice is O(count) — the design's central memory premise holds.** The plan listed "cost of
+slicing a `List OF Byte`" as UNVERIFIED and required a measurement before the reader was built on
+it. `/tmp/zipslice` (a program, not a `TCASE` — a test asserts, it does not time) read a 4 KiB
+window out of a 64 MiB `List OF Byte` 1000 times at offset 0 and 1000 times at offset 60 MiB:
+
+    nearNanos=1389000   farNanos=1383000   farOverNearHundredths=99
+
+A ratio of 0.99 against the plan's "switch primitives if > 2" threshold. `collections::mid` costs
+what the window costs, not what the list costs, so the memory branch stands as written.
+
+**`collections::slice` does not exist.** §4.1 named no primitive and the first draft assumed that
+spelling. The collections member with exactly the needed signature is
+`collections::mid(value AS List OF T, start AS Integer, count AS Integer)`, which raises rather
+than clamping when `start + count` exceeds the length — the behaviour `readAt` wants.
+
+**`u64le` of `FF×8` cannot "round-trip as the documented Integer value".** Phase 1's test list
+asked for that. MFBASIC's Integer is signed 64-bit, so `0xFFFFFFFFFFFFFFFF` has no representable
+value: the only round trip available is to `-1`, and a negative length would then pass every
+`offset + count <= size` bounds check the parsers use to police untrusted offsets. `u64le` refuses
+anything above `2^63 - 1` with `ErrTooLarge` instead, and the test asserts that. The strictly
+larger `0x7FFFFFFFFFFFFFFF` case is tested as a genuine round trip. This strengthens the acceptance
+criterion rather than weakening it — an archive claiming 8+ exabytes is refused, not mis-parsed.
+
+**A `RES` record field cannot be closed and then used in the same scope**, so the closed-handle
+test closes through a callee (`SUB closeHandle(RES f AS fs::File)`), the case spec §15 says the
+runtime flag catches. This confirms plan-139-A §1's requirement that closing the caller's file
+makes later reads fail with `ErrResourceClosed` — measured, not assumed.
 
 ### 2026-09-15 — Prerequisites gate re-run: still NOT MET, plan not started
 
