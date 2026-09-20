@@ -165,7 +165,7 @@ advanced (bug-630 changed codegen, so the earlier pass no longer applied):
 | `diff.py fuzz --count 2000 --seed 139` (both) | 2000 each, 0 disagreements |
 | `src` diff from letter A's first commit | empty |
 
-Commit: PENDINGD4
+Commit: 833c716ec
 
 ## Validation Plan
 
