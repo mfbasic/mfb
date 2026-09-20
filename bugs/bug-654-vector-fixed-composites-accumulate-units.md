@@ -5,8 +5,107 @@ Effort: small–medium
 Severity: LOW
 Class: Correctness (accuracy, not a wrong answer)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: **FIXED** — the `Fixed` `slerp`/`angle` chains now carry their intermediates in
+`Float` and round to Q32.32 exactly once, at the end.
+Regression Test: the re-derived `Fixed` expectations in `tests/acceptance/src/vector.mfb`
+(`angle` and `slerp` TCASEs), which now pin the correctly-rounded value for all 12
+components.
+
+## Outcome
+
+**Every measured component is within 0.481 units — inside the one-unit target, and each is
+the correctly rounded `Fixed` (|error| < 0.5).** Measured against an independent 80-digit
+`Decimal` oracle that reproduces this document's own "After" column to within display
+rounding, which is what validates it:
+
+| Call | Before (units) | After (units) |
+|---|---|---|
+| `slerp(Fixed4…).w` | −4.345 | **−0.345** |
+| `slerp(Fixed3…).z` | −5.968 | **+0.032** |
+| `slerp(Fixed3…).x` | −4.476 | **−0.476** |
+| `slerp(Fixed2…).y` | −4.422 | **−0.422** |
+| `slerp(Fixed2…).x` | −2.948 | **+0.052** |
+| `slerp(Fixed4…).x` | −2.607 | **+0.393** |
+| `slerp(Fixed4…).z` | −1.738 | **+0.262** |
+| `angle(Fixed2…)` | +2.320 | **+0.320** |
+| `angle(Fixed4…)` | +1.519 | **−0.481** |
+| `angle(Fixed3…)` | +0.962 | **−0.038** |
+
+The document's own table is confirmed (its 4.3 / 6.0 / 2.6 / 4.5 / 2.9 / 2.3 / 1.0 / 1.52
+match the measured −4.345 / −5.968 / −2.607 / −4.476 / −2.948 / +2.320 / +0.962 / +1.519).
+
+**Correction to this document:** the raw integers in the Reproduction are mistyped. It
+gives `raw 11810686616` observed and `11810686620.345` true for `slerp(Fixed4…).w`; the
+correct raws are **11810071545** and **11810071549.345**. The decimal values and the
+4.3-unit deficit quoted alongside them are right — only the integers are wrong
+(`11810686620 / 2^32` is 2.74989…, not the 2.7497465… the same line quotes).
+
+## Blast-radius audit — verdicts
+
+Measured with exact inputs, against the same oracle:
+
+| Member | Worst deviation | Verdict |
+|---|---|---|
+| `slerp` 2/3/4 `Fixed` | 1.7–6.0 units | **the defect** — fixed |
+| `angle` 2/3/4 `Fixed` | up to 2.3 units | **the defect** — fixed |
+| `project`, `reject` | 1.111 units | **marginally over**, and NOT from trig: `(dot/bb) * b` rounds the quotient to Q32.32 before multiplying. Reassociating to `(dot * b.c) / bb` would divide last and land ≤0.5. Left unfixed — out of this document's title and table, and a different mechanism. Worth its own bug. |
+| `reflect` | **0.000 with exact inputs** | **NOT affected.** An early measurement put it at 7.2 units, but that fed it `normalize(b)` — an already-inexact normal — and `reflect` multiplies that error by `2·dot`. With an exactly representable normal (`(0,0,1)`, `(0.5,0.5,0.5)`) it is exact. The error is inherited from its argument, which is the caller's business, not this bug's. |
+| `normalize` | ≤0.667 units | within one unit — not affected |
+| `rotate_2d` | ≤0.799 units | within one unit — not affected |
+| `length`, `lerp` | 0.000 | exact — not affected |
+| `distance` | 0.048 units | within one unit — not affected |
+| `Integer` forms | — | insensitive as predicted: they round the same values to whole numbers |
+
+## Fix
+
+The `Fixed` bodies of `__vector_slerp_fixed{2,3,4}` and `__vector_angle_fixed{2,3,4}` now
+compute the whole chain — squared lengths, the dot, `cosv`, `omega`, `sin(omega)`, `w0`,
+`w1` and the final combination — in `Float`, converting to `Fixed` exactly once per
+returned component. `Float`'s 53-bit mantissa carries ~51 fractional bits for these
+magnitudes against Q32.32's 32, so the single final rounding is the only one that costs
+anything, which is why every result is now correctly rounded.
+
+The dot products are inlined in `Float` rather than calling `#vector_dot_fixedN`: routing
+through the `Fixed` dot would round early and is also what overflowed (see below).
+
+`slerp` computes its own `omega` inline instead of calling `__vector_angle_fixedN`, so the
+angle is not rounded to `Fixed` and back in the middle of the chain.
+
+### Behavior changes, disclosed
+
+1. **A spurious `ErrOverflow` is gone.** `vector::slerp` on a `Fixed4` of 1e8-magnitude
+   components used to raise `ErrOverflow` — the all-`Fixed` chain squared each component
+   (1e16) far past the `Fixed` ±2.1e9 range, so any vector longer than ~46341 failed. It
+   now returns `274974656.04323304`. This is a fix, not a regression, but it converts a
+   raise into a success and is recorded here rather than left to be discovered.
+2. **Edge cases verified unchanged**: `angle` and `slerp` still raise `77050002` on a
+   zero-length input (the `FAIL` the inlined `angle` used to raise is preserved verbatim —
+   an early draft wrongly fell back to `lerp_unclamped` there), and the near-parallel
+   `sin(omega) ≈ 0` fallback to `lerp_unclamped` still fires.
+
+### Re-derived expectations — proof, not re-baselining
+
+The 12 `Fixed` components in `tests/acceptance/src/vector.mfb` were re-derived. The
+four-question bar:
+
+1. **When/why written:** `31d40c93a`, "tests(bug-615): re-derive the Fixed trig
+   expectations the new kernels moved" — themselves measured against a 336-bit oracle.
+2. **Behavior protected:** the correctly-rounded `Fixed` result of each composite.
+3. **Who else depends:** nobody. `grep -rn '0.179853500332683325' tests/ src/ planning/ bugs/`
+   → one hit, the line itself.
+4. **Proof wrong:** bug-615's own commit message records these residuals as "the `Fixed`
+   composites' own intermediate rounding, not the kernels; **filed as bug-654**" — the
+   author documented them as encoding this very defect. Independently, the oracle puts them
+   2.6–6.0 units from the true value while the new ones are ≤0.481.
+
+Only the ten disproved literals changed; no other line of the file moved. Acceptance:
+782 pass / 0 fail.
+
+### Goldens
+
+12 `.ir` goldens moved (the IR dump embeds the injected bodies). **No `.run` and no
+`build.log` moved**, i.e. no program's observable output changed. One diff was inspected
+in full to localize: it contains only the rewritten `angle`/`slerp` bodies.
 
 `Fixed` `sin`, `cos`, `tan` (bug-615), the inverse family (bug-615-C) and the
 `Float` trig kernels (bug-618) are now within **one** Q32.32 unit (2^-32) of the

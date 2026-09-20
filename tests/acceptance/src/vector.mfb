@@ -65,9 +65,9 @@ TESTING
         expectFloat(vector::angle(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 0.85899698838604177)
       END TCASE
       TCASE "Fixed"
-        expectFixed(vector::angle(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), 0.179853500332683325F)
-        expectFixed(vector::angle(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), 0.475882249884307384F)
-        expectFixed(vector::angle(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), 0.858996988739818335F)
+        expectFixed(vector::angle(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), 0.179853499867022037F)
+        expectFixed(vector::angle(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), 0.475882249651476740F)
+        expectFixed(vector::angle(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), 0.858996988274157047F)
       END TCASE
       TCASE "Integer"
         expectInteger(vector::angle(vector::Integer2[3, 4], vector::Integer2[1, 2]), 0)
@@ -572,17 +572,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::slerp(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)], 0.5)
-        expectFixed(x2.x, 2.008114158175885677F)
-        expectFixed(x2.y, 3.012171237263828516F)
+        expectFixed(x2.x, 2.008114158874377608F)
+        expectFixed(x2.y, 3.012171238195151090F)
         LET x3 AS vector::Fixed3 = vector::slerp(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)], 0.5)
-        expectFixed(x3.x, 1.543487265240401030F)
-        expectFixed(x3.y, 1.543487265240401030F)
-        expectFixed(x3.z, 2.057983020320534706F)
+        expectFixed(x3.x, 1.543487266171723604F)
+        expectFixed(x3.y, 1.543487266171723604F)
+        expectFixed(x3.z, 2.057983021717518568F)
         LET x4 AS vector::Fixed4 = vector::slerp(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], 0.5)
-        expectFixed(x4.x, 1.649847935652360320F)
-        expectFixed(x4.y, 1.649847935652360320F)
-        expectFixed(x4.z, 1.099898623768240213F)
-        expectFixed(x4.w, 2.749746559420600533F)
+        expectFixed(x4.x, 1.649847936350852251F)
+        expectFixed(x4.y, 1.649847936350852251F)
+        expectFixed(x4.z, 1.099898624233901500F)
+        expectFixed(x4.w, 2.749746560351923108F)
       END TCASE
       TCASE "Integer"
         LET i4 AS vector::Integer4 = vector::slerp(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], 0.5)
