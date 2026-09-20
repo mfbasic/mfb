@@ -321,7 +321,9 @@ Commit: 48f8f2c4e (8 of 17), 1f0edf0f5 (closed)
 #### Phase 3 progress — paused on the Codex usage limit (boxes stay open)
 
 14 of 26 units reviewed (`exit 0`) and applied below; the other 12 came back
-`FAILED` in 3 s with the usage limit in their logs. Resume with
+`FAILED` in 3 s with the usage limit in their logs. A retry on 2026-09-20 failed the
+same way: the logs name the reset as **Sep 22nd, 2026 9:27 AM**, so the remaining
+units wait for that. Resume with
 `./scripts/doc-review-fanout.sh --letter D-phase3 --units planning/plan-125-units/D-phase3-resume.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 4 --timeout 1800`
 (re-run rows append; `--reconcile` reads each unit's last row).
 

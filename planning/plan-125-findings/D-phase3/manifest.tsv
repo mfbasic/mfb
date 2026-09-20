@@ -25,3 +25,11 @@ man-page:term/moveTo	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/showCursor	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/sync	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/terminalSize	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/isOn	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/off	FAILED	2	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/getUnderline	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/moveTo	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/on	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setBackground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setForeground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/setUnderline	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
