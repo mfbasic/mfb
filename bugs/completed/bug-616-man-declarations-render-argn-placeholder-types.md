@@ -5,8 +5,33 @@ Effort: small
 Severity: LOW
 Class: Documentation (renderer)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: **FIXED (`d68ec886e`)** — landed on main 2026-09-19.
+Regression Test: `cli::man::tests::a_declaration_resolves_an_arg_placeholder_to_the_parameters_type`
+(the concrete `math::abs` overloads, the generic `collections::reduceRight`, and a
+container `collections::append`) and the TOTAL sweep
+`cli::man::tests::no_rendered_page_spells_an_arg_placeholder`.
+
+## STATUS: FIXED (`d68ec886e`)
+
+`scripts/man-manual.sh` renders **0** `ArgN` occurrences, down from 93. Every line the
+manual diff removes contained an `ArgN`; none were collateral. The document's four quoted
+examples now render as it specified — `math::abs(value AS Float) AS Float`,
+`math::atan2(y AS Fixed, x AS Fixed) AS Fixed`, `collections::reduceRight(…) AS U`, and
+`Returns \`List OF T\`.`
+
+**Validation.** `cargo test --no-fail-fast`: **exit 0**, 199 result blocks, 0 failures
+(4272 tests in the main binary). Run on the tree *after* merging main, which had advanced
+by ~25 commits (another session's plan-139 landed the `zip` and `tar` packages and two new
+`fs` builtins) — the sweep test covers their new man pages automatically and passes.
+
+**Two corrections to this document, both recorded above:** its root-cause symbol
+(`public_type_name`) no longer exists and is now `ParameterType::display`, and its census
+of 78 undercounts the true surface of 93 (the extra 15 are the `Returns ArgN.` sentences
+and the continuation lines of declarations that word-wrap mid-type). The stated Goal
+already covered them.
+
+**Blast Radius item closed as a non-issue:** `mfb doc` / `mfb pkg doc` do not share the
+rendering — both render *user* documentation, not registry descriptors.
 
 A descriptor can say "this overload returns the same type as argument n" with
 `ParameterType::Arg(n)`. The renderer prints that internal placeholder literally,
