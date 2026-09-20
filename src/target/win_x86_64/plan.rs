@@ -94,7 +94,7 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
-    fn app_mode_imports(&self, _uses_mouse: bool) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
         // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
         // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
         // worker is a CreateThread routine; console output rides GetStdHandle +
@@ -168,6 +168,15 @@ impl NativePlanPlatform for Platform {
             import("ExtTextOutW", GDI32, "_main"),
             import("MultiByteToWideChar", KERNEL32, "_main"),
         ]
+        .into_iter()
+        // plan-94-E: what the `WndProc` mouse arms call. Conditional, because an
+        // unused import is still recorded in the native plan and would diff every
+        // Windows app golden that never touches the mouse (plan-94-C Corrections
+        // C3). `ScreenToClient` serves the wheel's screen-coordinate asymmetry;
+        // `GetKeyState` supplies Alt, which `wParam` alone does not carry.
+        .chain(uses_mouse.then(|| import("ScreenToClient", USER32, "_main")))
+        .chain(uses_mouse.then(|| import("GetKeyState", USER32, "_main")))
+        .collect()
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
@@ -459,9 +468,19 @@ impl NativePlanPlatform for Platform {
                 import("WriteFile", KERNEL32, required_by),
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
-                import("getenv", KERNEL32, required_by),
+                // No `getenv`: `MFB_MOUSE_INJECT` is POSIX-only (see
+                // `emit_mouse_inject`), and `getenv` is a CRT function rather
+                // than a kernel32 export, so declaring it here does not link.
             ],
             "term.pollMouse" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            // plan-94-E: the canvas members reach the same ring and clock.
+            // `canvas.enableMouse` needs neither here — the ring allocation makes
+            // no call, and the `MFB_MOUSE_INJECT` affordance (which would stamp an
+            // event) is POSIX-only.
+            "canvas.pollMouse" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],

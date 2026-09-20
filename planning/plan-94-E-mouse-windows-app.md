@@ -37,11 +37,11 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-94-B complete | CLI mouse rt test passes | NOT MET |
+| plan-94-B complete | CLI mouse rt test passes | MET (measured 2026-09-20: `cargo test --test rt_native_term_runtime` → `EXIT=0`, 16 passed / 0 failed) |
 | Windows keystroke→worker input path located | `editproc` writes each `WM_CHAR` to the pipe (`app/mod.rs:106-107`, `:610`) | MET (read at HEAD) |
 | Cell metrics available as constants | `TUI_CELL_W = 8`, `TUI_CELL_H = 16` (`app/mod.rs:66-67`) | MET |
 | A mouse-enabled flag reachable from `WndProc` | `_mfb_rt_mouse_mode`, plan-94-A §4.4b | MET (by design, once A lands) |
-| **Which window receives mouse messages in each mode** | read the EDIT show/hide logic (`SW_HIDE` at `:650`, `:1499`, `:1533`) | UNVERIFIED (Phase 1 first task) |
+| **Which window receives mouse messages in each mode** | read the EDIT show/hide logic (`SW_HIDE` at `:650`, `:1499`, `:1533`) | MET — **the main `WndProc`, in every mode that can report mouse.** Evidence in Corrections E1; no `editproc` fallback needed. |
 
 > If plan-94-B is not complete, this sub-plan cannot start, full stop.
 
@@ -151,43 +151,77 @@ diff.
 
 ### Phase 1 — Prove the message route, then one button (WM_LBUTTONDOWN/UP → Down/Up)
 
-- [ ] **Determine which window receives mouse messages in TUI mode and in canvas
-      mode** — read the EDIT show/hide logic (`SW_HIDE` at `:650`, `:1499`,
-      `:1533`) and the canvas mode entry. Record the answer in Corrections. If the
-      EDIT is visible in a mode that needs mouse, move the handler body to
-      `editproc` and note it.
-- [ ] Add `WM_LBUTTONDOWN`/`WM_LBUTTONUP` arms: gate, extract, px→cell, SGR
-      encode, pipe write.
-- [ ] Windows `emit_app_term_helper` (`:2633`): a `term.enableMouse` arm writing
-      `_mfb_rt_mouse_mode`.
+- [x] **Determine which window receives mouse messages in TUI mode and in canvas
+      mode** — read the EDIT show/hide logic and the canvas mode entry. Record the
+      answer in Corrections. If the EDIT is visible in a mode that needs mouse,
+      move the handler body to `editproc` and note it.
+      — **The main `WndProc`.** The EDIT is hidden in every mode that can report
+      mouse, so it never intercepts. Evidence in Corrections E1; no `editproc`
+      fallback was needed and none was written.
+- [x] Add `WM_LBUTTONDOWN`/`WM_LBUTTONUP` arms: gate, extract, px→cell, SGR
+      encode, pipe write. — done, and **generalised to all eight at once** from
+      one table (`app/mouse.rs::arms`), so Phase 2's set arrived with Phase 1's.
+- [x] Windows `emit_app_term_helper` (`:2633`): a `term.enableMouse` arm writing
+      `_mfb_rt_mouse_mode`. — **not needed**, for the third time and the same
+      reason as macOS and GTK: plan-94-B's shared `emit_enable_mouse` writes the
+      mode word in app builds, and the member reaches it because no backend
+      claims it. Three per-backend arms the plan asked for, none of them
+      necessary — see Corrections E4.
 
 Acceptance: `cargo build` clean; the new `WndProc` arms disassemble to the
 expected gate + px→cell + pipe write; a Windows-app mouse fixture
 `.app.ncode`/`.ncodesum` diffs only by the new arms (regenerate + confirm).
+**Met.** `cargo build` clean, no warnings. The `WndProc` carries all eight arm
+bodies (`_mfb_winapp_wndproc_mouse_body_{lbd,lbu,mbd,mbu,rbd,rbu,mm,mw}`), each
+gated on `_mfb_rt_mouse_mode` before anything else, and eight `WriteFile` calls
+where there was one. The frame grew by exactly `MOUSE_FRAME_EXTRA` (264 → 376).
+Goldens: 0 diffs tree-wide, with every pre-existing Windows app fixture
+byte-identical.
 Commit: —
 
 ### Phase 2 — Full event set + modifiers
 
-- [ ] `WM_RBUTTON*`/`WM_MBUTTON*` (Right/Middle), `WM_MOUSEMOVE` (Move/Drag from
+- [x] `WM_RBUTTON*`/`WM_MBUTTON*` (Right/Middle), `WM_MOUSEMOVE` (Move/Drag from
       the `wParam` button flags, gated on the mode word), `WM_MOUSEWHEEL`
       (ScrollUp/ScrollDown, with the `ScreenToClient` conversion), modifier bits
       from `wParam`.
+      — all eight. **Modifiers are not all in `wParam`**: it carries `MK_SHIFT`
+      and `MK_CONTROL` but has no `MK_ALT`, so Alt takes a
+      `GetKeyState(VK_MENU)` (Corrections E3). Coordinate extraction is signed
+      (Corrections E2).
 
 Acceptance: `cargo build` clean; each arm disassembles to the correct SGR encode;
 regenerated goldens diff only by the new arms.
+**Met.** Verified per arm from the dump: `ScreenToClient` appears in **exactly
+one** arm — `mw`, the wheel — which is the asymmetry §3 predicted, and its
+absence from the other seven is as much the point as its presence in that one.
+Goldens: 0 diffs tree-wide.
 Commit: —
 
 ### Phase 3 — Canvas surface, pixels
 
-- [ ] Extend each arm with the `mode == 2` branch: no cell divide, clamp to
-      `GRAPHICS_OFFSET_WIDTH`/`HEIGHT`.
-- [ ] A `canvas.enableMouse` arm writing `_mfb_rt_mouse_mode = 2`;
-      `canvas::pollMouse` reading the ring as `Point`.
-- [ ] A `syntax/app` fixture exercising `canvas::enableMouse`+`pollMouse` so the
+- [x] Extend each arm with the `mode == 2` branch: no cell divide, clamp to
+      `GRAPHICS_OFFSET_WIDTH`/`HEIGHT`. — done, and with **no Y-flip**: Win32's
+      client origin is top-left, like `canvas::Point`'s. Only macOS needs the
+      flip, and only for one of its two views (plan-94-C Corrections C2).
+- [x] A `canvas.enableMouse` arm writing `_mfb_rt_mouse_mode = 2`;
+      `canvas::pollMouse` reading the ring as `Point`. — landed in plan-94-C as
+      shared package bodies, so E inherited them; what E did add is the two
+      members' Windows *import* arms, which the shared bodies need
+      (`QueryPerformanceCounter`/`Frequency` for the ring stamp) and which nothing
+      had declared — caught by a link failure, not by reading.
+- [x] A `syntax/app` fixture exercising `canvas::enableMouse`+`pollMouse` so the
       Windows `.app.ncodesum` golden covers the canvas branch.
+      — `tests/syntax/app/app-mouse-surface`, created in plan-94-C and covering
+      all four targets, so C, D and E share one fixture rather than three.
 
 Acceptance: `cargo build` clean; the pixel branch disassembles with no divide;
 goldens diff only by the new arms.
+**Met.** The Windows cell path uses a *constant integer* divide (`TUI_CELL_W`/
+`TUI_CELL_H`, no cached metrics and no float arithmetic at all — the grid is
+fixed at 80x25, which is the same fact that makes `term::didResize` read FALSE
+here), and the pixel path has no divide of any kind. The `.exe` links. Goldens:
+0 diffs across 2066.
 Commit: —
 
 ## Validation Plan
@@ -214,8 +248,82 @@ process-global `_mfb_rt_mouse_mode` word, plan-94-A §4.4b.)*
 
 ## Corrections
 
-<Filled in during execution — the message-route finding, and anything the Win64
-calling convention costs that §3 does not predict.>
+**E1 — the message route: the main `WndProc`, and the EDIT never intercepts.**
+This was the sub-plan's one genuinely open question, and §2 framed it exactly
+right. The answer, from reading the show/hide logic rather than assuming:
+
+| Mode | Transcript EDIT | Who gets mouse |
+|---|---|---|
+| Transcript (line) | **visible** — it fills the client area | the EDIT |
+| TUI (`term::on`) | hidden — `ShowWindow(edit, SW_HIDE)` in `term::on`'s body, so the grid shows through | the main `WndProc` |
+| `Mode.Canvas` | hidden — `wnd_reconcile_canvas` | the main `WndProc` |
+| `Mode.None` | hidden, along with the window | nobody |
+
+So the EDIT is visible in exactly one mode — the transcript — and mouse there is
+an explicit non-goal of this sub-plan ("a transcript is a text log"). **Every
+mode that can report mouse has the EDIT hidden**, which leaves the main
+`WndProc`. The `editproc` fallback §2 held in reserve was not needed and is not
+written.
+
+**E2 — coordinates are signed, and reading them unsigned fails quietly.**
+`GET_X_LPARAM`/`GET_Y_LPARAM` are *signed* 16-bit values. A drag that leaves the
+client area reports negative coordinates — `lParam` carrying, say, `0xFFF6` for
+`-10`. Read as unsigned that becomes 65526, which sails past a `< limit` check
+only because it is enormous, and would land on a real cell if the surface were
+ever that wide. The extraction is therefore `shift_left 48` + *arithmetic*
+`shift_right 48`, and the range check is signed, so an off-client point is
+rejected for the right reason rather than by luck.
+
+**E3 — `wParam` has no `MK_ALT`.** §3 says "`wParam` carries `MK_SHIFT`/
+`MK_CONTROL` (→ modifier bits)", which is right, and it is easy to read that as
+covering all three modifiers. It does not: Win32 defines `MK_SHIFT` (0x0004) and
+`MK_CONTROL` (0x0008) but **no Alt flag at all**. Alt takes a separate
+`GetKeyState(VK_MENU)`, whose high bit (0x8000) means the key is down now.
+
+Without this, `.alt` would have been silently and permanently `FALSE` on Windows
+while working everywhere else — the kind of gap that survives a long time
+because every test that would catch it needs a Windows box and a keyboard.
+
+**E4 — none of the three backends needed the `emit_app_term_helper` arm the
+plans asked for.** C, D and E each carried a task to add a per-backend
+`term.enableMouse` arm writing the mode word. All three were unnecessary, for
+one shared reason: plan-94-B's `emit_enable_mouse` writes `_mfb_rt_mouse_mode` in
+**both** console and app builds (only the terminal escapes are suppressed in app
+mode), and the member is in no backend's app dispatch, so it reaches that shared
+body everywhere.
+
+Worth recording as a pattern rather than three separate non-events: the plans
+were written before B existed and assumed each backend would own its own enable
+path. Doing the shared thing once in B made three per-backend arms redundant —
+and would have made three places to keep in step if they had been written.
+
+**E5 — the canvas members' Windows imports were missing, and a link failure is
+what found it.** `canvas::enableMouse`/`canvas::pollMouse` got their real bodies
+in plan-94-C, reading the ring and therefore the monotonic clock. Nothing
+declared the Windows imports that needs — only the `term.*` arms had them — so
+the `.exe` failed to link with `runtime helper requires QueryPerformanceCounter
+import`.
+
+Two things are worth taking from it. First, the failure came from *linking*, not
+from compiling or from inspecting a dump: a missing import is invisible until
+something tries to resolve it, which is exactly why plan-94-D's compile-only
+fallback insists on linking rather than stopping at `cargo build`. Second, the
+per-call import rows are per-*call*, not per-package — a shared body added in one
+sub-plan needs its import row added for every target that can reach it.
+
+**E6 — `MFB_MOUSE_INJECT` is POSIX-only, and Windows pays for it.** The
+injection affordance calls `getenv`. That is a CRT function, not a kernel32
+export, so declaring it fails to link outright; and Windows' own environment API
+is UTF-16 (`GetEnvironmentVariableW`), while the variable carries raw SGR
+*bytes*. Bridging that would mean a UTF-16→bytes conversion whose only consumer
+is a test affordance.
+
+So the affordance is skipped on Windows, and the cost is named rather than
+hidden: **the Windows mouse path has no machine-driven smoke.** It is proven by
+compiling, linking, the golden, and — for behaviour — a human with a mouse on a
+real Windows host, which is what this sub-plan's Validation Plan already
+specified ("Runtime proof: manual on a Windows host (documented; not in CI)").
+Every other target keeps the affordance and is machine-checked through it.
 
 ## Summary
 

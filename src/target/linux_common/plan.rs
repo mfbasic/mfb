@@ -377,6 +377,12 @@ impl LinuxPlan<'_> {
                 self.libc_import("getenv", required_by),
             ],
             "term.pollMouse" => vec![self.libc_import("clock_gettime", required_by)],
+            // plan-94-D: the canvas members reach the same ring and clock.
+            "canvas.enableMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("getenv", required_by),
+            ],
+            "canvas.pollMouse" => vec![self.libc_import("clock_gettime", required_by)],
             "fs.exists" => vec![self.libc_import("access", required_by)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", required_by)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", required_by)],

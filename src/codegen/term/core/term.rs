@@ -945,6 +945,19 @@ pub(crate) fn emit_mouse_inject(
     let loop_head = format!("{symbol}_inject_loop");
     let loop_done = format!("{symbol}_inject_done");
 
+    // **POSIX only.** The variable carries raw SGR *bytes*, and Windows'
+    // environment API is UTF-16 (`GetEnvironmentVariableW`) — feeding its output
+    // to a byte decoder would need a conversion whose only consumer is a test
+    // affordance. `getenv` is also not a kernel32 export, so declaring it there
+    // fails to link outright.
+    //
+    // The cost is named rather than hidden: on Windows the mouse path is proven
+    // by a human with a mouse on a real Windows host, which is what plan-94-E's
+    // "Runtime proof: manual on a Windows host" already specifies. Every other
+    // target keeps the affordance.
+    if ctx.platform.family() == PlatformFamily::Windows {
+        return Ok(());
+    }
     let name = vregs.next();
     push_symbol_address(
         symbol,

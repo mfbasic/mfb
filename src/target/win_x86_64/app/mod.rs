@@ -21,6 +21,8 @@
 //! its stdout), which the box run over ssh observes. J-3 adds the GDI transcript
 //! window; J-4 the input pipe; J-5 the `term::` TUI grid + mode reconcile.
 
+mod mouse;
+
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
@@ -377,7 +379,7 @@ pub(super) fn emit_app_program_entry(
     Ok(vec![
         emit_main(spec.initial_mode, spec.uses_canvas, spec.debug_hooks),
         emit_worker(),
-        emit_wndproc(spec.uses_canvas),
+        emit_wndproc(spec.uses_canvas, spec.uses_mouse),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
         // like the wndproc it posts to — whether a program ever enters canvas mode is
         // a runtime question, not a static one.
@@ -1043,7 +1045,7 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
+fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     // Frame (plan-66-J-5 added the WM_PAINT TUI present; plan-98-C Phase 3 the
     // canvas present): shadow[0..0x20], outgoing stack args [0x20..0x60] —
     // `SetDIBitsToDevice` has 8 stack args, the widest call here — saved
@@ -1067,10 +1069,19 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     /// 40 bytes with no spare corner.
     const BLOCK: usize = 0xF8;
     let from = WNDPROC_SYMBOL;
+    // plan-94-E: the mouse arms need their own slots — the report buffer, the
+    // decimal scratch, a POINT for `ScreenToClient` and a handful of values. They
+    // are APPENDED past the base frame, so every offset above is unchanged and a
+    // `WndProc` without mouse keeps its exact frame and goldens.
+    let frame = if uses_mouse {
+        FRAME + mouse::MOUSE_FRAME_EXTRA
+    } else {
+        FRAME
+    };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::subtract_stack(frame));
     // Save the four WndProc args — the WM_PAINT path below clobbers ARG registers,
     // and the default DefWindowProcW tail needs them intact.
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
@@ -1141,7 +1152,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     // arm was writing 0 into `rcx` and returning whatever the arm's last Win32
     // call had left in `rax`.
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
     // ---- plan-98-C Phase 3: WM_PAINT while a canvas surface is presented ----
     //
@@ -1246,7 +1257,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
 
     ins.push(abi::label("wnd_check_destroy"));
@@ -1255,7 +1266,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
 
     // ---- plan-98-F Phase 3: WM_SIZE publishes the new surface size ----
@@ -1386,7 +1397,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     ));
     call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
 
     // ---- plan-98-A Phase 3: WM_APP_RECONCILE (wParam = the new Mode) ----
@@ -1433,7 +1444,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // bErase FALSE
     call_external(from, "InvalidateRect", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
 
     ins.push(abi::label("wnd_check_reconcile"));
@@ -1535,8 +1546,26 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
 
     ins.push(abi::label("wnd_reconcile_done"));
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
+    // plan-94-E: the mouse arms. Placed last in the dispatch chain, so the
+    // messages the window already handles keep their existing paths, and anything
+    // that is not a mouse message falls through to `wnd_default` unchanged.
+    if uses_mouse {
+        mouse::emit_mouse_arms(
+            from,
+            FRAME,
+            H1,
+            H2,
+            H3,
+            H0,
+            "wnd_default",
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::add_stack(frame));
+        ins.push(abi::return_());
+    }
     // default: DefWindowProcW(hwnd, msg, wParam, lParam) — reload the saved args.
     ins.push(abi::label("wnd_default"));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
@@ -1544,7 +1573,7 @@ fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), H2));
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), H3));
     call_external(from, "DefWindowProcW", USER32, &mut ins, &mut rel);
-    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
 }
