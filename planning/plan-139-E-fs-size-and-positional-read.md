@@ -49,9 +49,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Release compiler builds at HEAD | `cargo build --release` → `Finished` | MET (2026-09-19 in `.claude/worktrees/P-139` at `f204b84e2`: `Finished \`release\` profile [optimized] target(s) in 1m 51s` at the earlier tip `23c06f46b`; re-measure at the worktree tip before Phase 1) |
+| Release compiler builds at HEAD | `cargo build --release` → `Finished` | MET (re-measured 2026-09-19 at the merged worktree tip, main `41a7e2063` + this letter: `cargo build --release` → `Finished \`release\` profile [optimized] target(s) in 57.77s`) |
 | `emit_seek_file` and `emit_read_file` exist on `CodegenPlatform` and are implemented by every real target | `grep -rn 'fn emit_seek_file\|fn emit_read_file' src/target/*/code.rs src/codegen/engine/types/types.rs` → trait decl + macos_aarch64 + linux_common + win_x86_64 | MET (2026-09-19: 2 in `types.rs`, 2 in each of `macos_aarch64/code.rs`, `linux_common/code.rs`, `win_x86_64/code.rs`) |
-| `fs::size` / `fs::readBytesAt` do not already exist | `target/release/mfb man fs size`, `… readBytesAt` → `unknown fs function` ×2 | MET (2026-09-19: both report `error: unknown fs function`) |
+| `fs::size` / `fs::readBytesAt` do not already exist | `target/release/mfb man fs size`, `… readBytesAt` → `unknown fs function` ×2 | MET **at gate time** (2026-09-19, before Phase 1: both reported `error: unknown fs function`). Now deliberately false — this letter created them; the row is kept as the entry-gate record. |
 | A builtin may take three arguments | `grep -rn 'mfb_return(2)' src/codegen/builtins/` → at least one site | MET (2026-09-19: `src/codegen/builtins/fs/gen_open.rs:605`, `fs::openWithin`'s `mode`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every command
@@ -316,13 +316,18 @@ Commit: f177b5ff7 (same commit as Phase 1 — see Corrections)
       target(s)`, no error or warning.
 - [x] Full `scripts/artifact-gate.sh target/release/mfb all` →
       `artifact-gate [all]: 1464 tests, 1635 build(s), 2056 golden(s) checked, 0 diff(s)`,
-      exit 0. **The §1 Non-goals neutrality prediction held**: adding two registry functions that
-      existing programs do not call left every covered fixture byte-identical across all five
-      targets, so no root-cause pass was needed.
-- [ ] `scripts/test-accept.sh target/release/mfb "$(mktemp -d)"` → only the 4 known-baseline
-      mismatches (`rt-behavior/native/libsnd-load-sound-rt`, `…/libsnd-playback-rt`,
-      `…/native-link-inline-trap-rt`, `rt-behavior/tls/tls-connect-google-rt`). Any fifth is
-      proven against a clean base checkout before it is treated as this letter's regression.
+      exit 0 — run **twice**, once before and once after merging main (see Corrections), with the
+      identical result. **The §1 Non-goals neutrality prediction held**: adding two registry
+      functions that existing programs do not call left every covered fixture byte-identical
+      across all five targets, so no root-cause pass was needed.
+- [x] `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-full` →
+      `acceptance tests passed (1488 test(s) ran)`, exit 0, **zero mismatches — not even the 4 the
+      plan expected**. Those four were re-run by name to be sure they were not silently excluded:
+      `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-base 'libsnd-load-sound-rt'
+      'libsnd-playback-rt' 'native-link-inline-trap-rt' 'tls-connect-google-rt'` →
+      `acceptance tests passed (4 test(s) ran)`. `.ai/testing-gates.md`'s recorded 4-mismatch
+      baseline is therefore **stale** — they have been fixed on main since it was written. Noted
+      here rather than edited into that doc, which is outside this plan's scope.
 - [x] plan-139-A § Prerequisites: both `fs` rows re-measured and flipped to **MET**, each citing
       the `mfb man` Declaration that matches the row's signature verbatim. The note that sent this
       work to "their own plan" was rewritten to point at letter E when E was authored.
@@ -331,8 +336,14 @@ Commit: f177b5ff7 (same commit as Phase 1 — see Corrections)
       plan-139-D's Corrections (landed in `a1b7139be`).
 
 Acceptance: the tree is green and plan-139-A's gate is open.
-  Check: `target/release/mfb man fs size` and `… man fs readBytesAt` both print a page with the
-  §1 Goal declarations; artifact gate `diffs=0`; test-accept at baseline (est. 25 min).
+  Check (all four measured on the merged tree at `41a7e2063` + this letter):
+  `target/release/mfb man fs size` → `fs::size(file AS fs::File) AS Integer` and
+  `… man fs readBytesAt` → `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer)
+  AS List OF Byte`, the §1 Goal declarations verbatim;
+  `scripts/artifact-gate.sh target/release/mfb all` → 1464 tests, 2056 goldens, **0 diffs**;
+  `scripts/test-accept.sh target/release/mfb /tmp/accept-p139-merged` →
+  `acceptance tests passed (1488 test(s) ran)`, exit 0, zero mismatches;
+  `cargo test --bin mfb` → `test result: ok. 4269 passed; 0 failed; 1 ignored` in 2243s.
 Commit: —
 
 ## Validation Plan
@@ -391,6 +402,34 @@ print `closed=ErrResourceClosed`. This is also precisely the shape letter A reli
 `Archive` holds the caller's `fs::File` in a record field, and plan-139-A's §1 Non-goals require
 that closing the file makes later reads fail with `ErrResourceClosed`. That contract is now
 measured, not assumed.
+
+### 2026-09-19 — `CALLER_ARENA_BLOCK_RESULTS` is a sorted list, and its guard test caught it
+
+`cargo test --bin mfb` went red on
+`codegen::registry::raw_result_block_ownership::every_block_returning_runtime_helper_is_classified`.
+The membership was right — the only difference between the expected and actual vectors was
+position: `"fs.readBytesAt"` had been inserted next to `"fs.readAllBytes"` rather than after
+`"fs.readBytes"`, and `"fs.readBytes"` sorts before `"fs.readBytesAt"` because it is a prefix of
+it. Reordered; the three `raw_result_block_ownership` tests then pass.
+
+Worth recording because the test is doing exactly its job: it pins the set of runtime calls whose
+result block the caller may free, and it refuses to let that set drift silently. No re-run of the
+artifact gate was needed for the fix — the list's membership never changed, only its order, and
+it is consumed by set membership, so no emitted byte depends on it. The gate had already passed
+with `fs.readBytesAt` present.
+
+### 2026-09-19 — main advanced mid-letter, so every gate was re-run on the merged tree
+
+`main` moved three times while letter E was being built — `23c06f46b` → `f204b84e2` →
+`41a7e2063` — and the last move was not inert: bug-657/bug-658 changed thread codegen (freeing a
+stranded seed on the failed-start path) and regenerated ten `.ncodesum` goldens. The first full
+artifact-gate pass (0 diffs over 2056 goldens) therefore measured a tree that no longer exists.
+
+Merging main into `worktree-P-139` was clean — no conflict, 18 files changed, all of them main's.
+The release compiler was rebuilt at the merged tip and the **full artifact gate, the unit suite and
+the acceptance harness were all re-run there**, because a codegen change on main plus two new
+builtins in this letter is exactly the combination where only the merged tree tells the truth.
+Those merged-tree results are the ones recorded on the Phase 3 boxes.
 
 ### 2026-09-19 — two measured counts differed from the plan's
 

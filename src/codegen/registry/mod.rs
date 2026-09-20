@@ -6656,8 +6656,8 @@ mod raw_result_block_ownership {
         "fs.listDirectory",         // List OF String
         "fs.readAll",               // String
         "fs.readAllBytes",          // List OF Byte
-        "fs.readBytesAt",           // List OF Byte
         "fs.readBytes",             // List OF Byte
+        "fs.readBytesAt",           // List OF Byte
         "fs.readLine",              // String
         "fs.readText",              // String
         "fs.tempDirectory",         // String

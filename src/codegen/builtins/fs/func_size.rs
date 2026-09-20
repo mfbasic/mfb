@@ -16,11 +16,8 @@ pub(crate) fn lower_fs_size(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) = super::gen_read_write::lower_fs_size_helper(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-    )?;
+    let (instructions, relocations, stack_size) =
+        super::gen_read_write::lower_fs_size_helper(&symbol, ctx.platform_imports, ctx.platform)?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;
