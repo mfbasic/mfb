@@ -726,6 +726,18 @@ impl CodeBuilder<'_> {
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         match type_ {
+            // bug-656: `self.is_enum_type(__t)` is in this arm because an enum IS a
+            // scalar — its value is the member ordinal, in the slot, with no block
+            // anywhere. It is a `Named` nominal, though, so it used to fall past this
+            // arm into the memcpy-copyable one below: `flatness_of_model_type` answers
+            // "flat" for a name it does not recognise as a record/union/resource, which
+            // sent an enum to `copy_flat_block`, which asked
+            // `emit_inlined_block_size_from_ptr_slot` for the block size of a value that
+            // has no block. That is the reported internal error, "native inlined field
+            // size not available for type 'Colour'", on a program the frontend accepts —
+            // the verifier's own classifier says enums are sendable in as many words
+            // ("enums yes", `thread_unsendable_cause`), and `mfb spec language threads`
+            // makes every primitive owned value sendable.
             __t if matches!(
                 __t,
                 ParameterType::Nothing
@@ -735,7 +747,8 @@ impl CodeBuilder<'_> {
                     | ParameterType::Float
                     | ParameterType::Fixed
                     | ParameterType::Money
-            ) || __t.is_named("Scalar") =>
+            ) || __t.is_named("Scalar")
+                || self.is_enum_type(__t) =>
             {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));

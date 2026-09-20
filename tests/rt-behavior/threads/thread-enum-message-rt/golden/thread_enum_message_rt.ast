@@ -1,0 +1,130 @@
+{
+  "project": "thread_enum_message_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 16 },
+    { "module": "thread", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Colour",
+      "line": 19,
+      "members": [
+      { "name": "Red", "line": 20 },
+      { "name": "Green", "line": 21 },
+      { "name": "Blue", "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "shift",
+      "line": 27,
+      "params": [
+      { "name": "w", "type": "ThreadWorker OF Colour TO Integer", "default": null, "line": 27 },
+      { "name": "seed", "type": "Integer", "default": null, "line": 27 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "got", "type": "Colour", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "number", "value": "20000" }] }, "line": 28 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Red" } },
+        "line": 29,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Green" }] }, "line": 30 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 31 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Green" } },
+        "line": 33,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Blue" }] }, "line": 34 },
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 35 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Red" }] }, "line": 37 },
+      { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 41,
+      "params": [
+      { "name": "sent", "type": "Colour", "default": null, "line": 41 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Colour TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "shift" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "4" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "sent" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "Colour", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "20000" }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 45 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "back" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Red" } },
+        "line": 46,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "back=Red code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] } }] }, "line": 47 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "back" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Green" } },
+        "line": 49,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "back=Green code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] } }] }, "line": 50 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "back" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Blue" } },
+        "line": 52,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "back=Blue code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] } }] }, "line": 53 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "code" }, "line": 55 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 58,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 59 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Red" }] } }, "line": 60 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Green" }] } }, "line": 61 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Colour" }, "member": "Blue" }] } }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "total=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 63 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 64 }
+      ]
+    }
+    ]
+  }
+  ]
+}

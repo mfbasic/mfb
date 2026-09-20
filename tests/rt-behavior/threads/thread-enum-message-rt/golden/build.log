@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-enum-message-rt
+Wrote AST to tests/rt-behavior/threads/thread-enum-message-rt/thread_enum_message_rt.ast
+Wrote IR to tests/rt-behavior/threads/thread-enum-message-rt/thread_enum_message_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-enum-message-rt
+Wrote executable to tests/rt-behavior/threads/thread-enum-message-rt/build/thread_enum_message_rt.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-enum-message-rt/build/thread_enum_message_rt.out
+back=Green code=1
+back=Blue code=2
+back=Red code=3
+total=6
+[exit 0]
