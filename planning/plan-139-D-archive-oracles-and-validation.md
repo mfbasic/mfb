@@ -18,7 +18,8 @@ References:
 
 ## Prerequisites
 
-See plan-139-A § Prerequisites, plus:
+See plan-139-A § Prerequisites — its two `fs` rows are delivered by **plan-139-E**, which gates
+the whole chain `E -> A -> B -> C -> D`. Plus:
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -99,8 +100,12 @@ Commit: —
 ### Phase 4 — final gate and archive
 
 - [ ] `target/release/mfb test packages/zip` and `target/release/mfb test packages/tar` → pass.
-- [ ] No `src/` change across plan-139: `git diff --stat <plan-139-A first commit>^ HEAD -- src` →
-      empty.
+- [ ] No `src/` change in letters A–D: `git diff --stat <plan-139-A first commit>^ HEAD -- src`
+      → empty. (Corrected 2026-09-19: as written this said "across plan-139", which letter E
+      falsifies — E adds two `fs` builtins under `src/codegen/builtins/fs/`. The property that
+      matters is that the two *packages* need no compiler change, so it is measured from letter
+      A's first commit, which lands after E. This is a correction, not a weakening: E carries its
+      own artifact-gate and test-accept gate in its Phase 3.)
 - [ ] Update `planning/todo.md` row 5 and "# Proposed API" section to point at plan-139 and note the
       API changes of plan-139-A §3.
 - [ ] Move `planning/plan-139-*.md` to `planning/completed/`.
@@ -122,6 +127,14 @@ Commit: —
 - None beyond those carried from letters A–C.
 
 ## Corrections
+
+### 2026-09-19 — Phase 4's "no `src/` change" criterion corrected for letter E
+
+plan-139-E (the two `fs` builtins, appended 2026-09-19 — see plan-139-A Corrections) changes
+`src/`, which made Phase 4's "No `src/` change across plan-139" check false as written. It is
+corrected in place to cover letters A–D only, measured from letter A's first commit. The property
+being protected — that `packages/zip` and `packages/tar` are pure MFBASIC and need no compiler
+change — is unchanged and still checked.
 
 ## Summary
 

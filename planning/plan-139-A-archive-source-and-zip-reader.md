@@ -7,7 +7,7 @@ packages, `packages/zip` and `packages/tar`, that read archives from either an o
 and write archives to a `List OF Byte`, checked against Python's `zipfile`/`tarfile`, `/usr/bin/zip`
 and `bsdtar` as oracles
 Effort: large (3h–1d)
-Depends on: nothing inside plan-139 (see Prerequisites for the whole-feature gate)
+Depends on: **plan-139-E** (complete) — the two `fs` builtins this letter's source layer reads through
 
 plan-139 adds `packages/zip` and `packages/tar`. The behavioral outcome of the whole feature:
 **for any archive, `zip::open`/`tar::open` over an `fs::File` and over the same file's bytes as a
@@ -20,6 +20,7 @@ builds the complete zip reader: `open` ×2, `entries`, `comment`, `has`, `find`,
 
 | Letter | Delivers | Effort |
 |---|---|---|
+| E | `fs::size`, `fs::readBytesAt` — the two builtins this letter is gated on | medium |
 | **A** (this) | package skeleton, source layer, zip reader (ZIP64, CP437 names, CRC, limits) | large |
 | B | zip writer (`create`/`add*`/`finish`), `zip::extractTo`, README/doc.html | large |
 | C | tar reader + writer + `tar::extractTo` (ustar, PAX, GNU long names), README/doc.html | large |
@@ -49,19 +50,21 @@ These gate the whole plan-139 feature; letters B–D point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| `fs` exposes a size query on an open handle: `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-19 at main tip `23c06f46b`, fresh `cargo build --release` → `Finished \`release\` profile [optimized] target(s) in 1m 51s: `target/release/mfb man fs size` → ``error: unknown fs function `size` ``; registry probe `grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs | grep -i -E 'size|seek|At"'` → exit 1, no matches) |
-| `fs` exposes a positional read on an open handle that does not require reading from the start: `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte` (returns fewer than `count` bytes only at end of file) | `target/release/mfb man fs readBytesAt` → a page whose Declaration is that signature | **NOT MET** (re-verified 2026-09-19, same build: `target/release/mfb man fs readBytesAt` → ``error: unknown fs function `readBytesAt` ``. `target/release/mfb man fs` still lists only `readLine`, `readAll`, `readAllBytes`, `readBytes`, `eof` as handle reads — `readBytes` remains the path-based whole-file read) |
+| `fs` exposes a size query on an open handle: `fs::size(file AS fs::File) AS Integer` | `target/release/mfb man fs size` → a page whose Declaration is that signature | **NOT MET — now covered by plan-139-E Phase 1** (re-measured 2026-09-19: `target/release/mfb man fs size` → ``error: unknown fs function `size` ``. No longer an external blocker: the work is letter E, which gates this letter.) |
+| `fs` exposes a positional read on an open handle that does not require reading from the start: `fs::readBytesAt(file AS fs::File, offset AS Integer, count AS Integer) AS List OF Byte` (returns fewer than `count` bytes only at end of file) | `target/release/mfb man fs readBytesAt` → a page whose Declaration is that signature | **NOT MET — now covered by plan-139-E Phase 2** (re-measured 2026-09-19: `target/release/mfb man fs readBytesAt` → ``error: unknown fs function `readBytesAt` ``. No longer an external blocker: the work is letter E, which gates this letter.) |
 | `packages/zip` and `packages/tar` do not exist yet | `ls packages/zip packages/tar` → `No such file or directory` ×2 | MET (re-verified 2026-09-19: both `No such file or directory`) |
 | Package parameter defaults work for importers (plan-136-B) | `ls planning/completed/plan-136-B-package-parameter-defaults.md` → present | MET (re-verified 2026-09-19: file present) |
 | Release compiler is current with HEAD | `cargo build --release` → `Finished` | MET (re-verified 2026-09-19 in `.claude/worktrees/P-139` at HEAD `23c06f46b`: `Finished \`release\` profile [optimized] target(s) in 1m 51s`) |
 | Python 3 with `zipfile`/`tarfile`, `/usr/bin/zip`, `bsdtar` (oracle, letter D; corpus, every letter) | `python3 -c "import zipfile,tarfile"; which zip bsdtar` → no error, two paths | MET (re-verified 2026-09-19: `python3 -c "import zipfile,tarfile"` → ok; `which zip bsdtar` → `/usr/bin/zip`, `/usr/bin/bsdtar`) |
 
-The two `fs` rows are **builtin** work (a new registry function each, per-target codegen for
-`pread`/`lseek`+`read`/`ReadFile` with `OVERLAPPED`, man pages, spec) and belong to their own plan.
-If those two functions do not exist, plan-139 cannot start, full stop. The packages will not emulate
-positional reads with `readAllBytes` — that is exactly the whole-file load requirement 1 forbids.
-The exact signatures above are what every letter of this plan is written against; if the fs plan
-lands a different spelling, update this table and the one `readAt` function in §4 before starting.
+The two `fs` rows are **builtin** work (a new registry function each, codegen, man pages, spec).
+They were originally deferred to "their own plan"; no such plan was ever written, so on 2026-09-19
+they were absorbed into plan-139 as **letter E**, which gates this letter (see Corrections). Until
+letter E lands, this letter cannot start, full stop. The packages will not emulate positional reads
+with `readAllBytes` — that is exactly the whole-file load requirement 1 forbids. The exact
+signatures above are what every letter of this plan is written against, and letter E is written to
+produce exactly them; if letter E lands a different spelling, update this table and the one `readAt`
+function in §4 before starting.
 
 Everything below is written against the world where these hold.
 
@@ -449,6 +452,30 @@ false positives on the word "spread" (verified by `grep -n`); none is a pending 
 `ls planning/completed/ | grep -i -E 'fs-|positional|readbytesat|seek'` → nothing relevant.
 A separate plan must first land the two `fs` builtins (registry function each, per-target
 codegen for `pread` / `lseek`+`read` / `ReadFile` with `OVERLAPPED`, man pages, spec).
+
+### 2026-09-19 — the two `fs` prerequisites absorbed into the plan as letter E
+
+The Prerequisites section deferred the two `fs` builtins to "their own plan". Measured
+2026-09-19, that plan does not exist and never did: `grep -rln 'readBytesAt' planning/`
+matched only this file, and a broader `grep -rln -E 'readBytesAt|fs::size|pread' planning/*.md`
+matched three more files that are all false positives on the word "spread" (confirmed with
+`grep -n`). A precondition nobody owns is a precondition that never lands, so on the user's
+explicit instruction the work was appended to this plan as **plan-139-E**
+(`planning/plan-139-E-fs-size-and-positional-read.md`), with the edge `E -> A` added to the
+letter table and this letter's `Depends on:` line. The alphabet is append-only; A-D keep their
+letters and their order.
+
+**A prediction in this section was wrong, and letter E is smaller because of it.** The
+Prerequisites note claimed the two rows need "per-target codegen for `pread` / `lseek`+`read` /
+`ReadFile` with `OVERLAPPED`". They do not. `CodegenPlatform` already declares `emit_seek_file`
+and `emit_read_file` (`src/codegen/engine/types/types.rs:781,760`) and all three real target
+backends already implement both (`src/target/macos_aarch64/code.rs:690,660`;
+`src/target/linux_common/code.rs:1027,969`; `src/target/win_x86_64/code.rs:2262,2112`).
+Three existing `fs` functions - `readAll`, `readAllBytes` and `eof` - already emit the exact
+save/measure/restore seek triple `fs::size` needs (`gen_read_write.rs:509-547`, `:703-745`).
+So letter E adds two registry descriptors and two codegen helpers composed from existing hooks,
+and is scoped medium (1h-2h) rather than the large per-target effort this note predicted. The
+note has been corrected in place.
 
 ## Summary
 

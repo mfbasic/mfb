@@ -20,7 +20,8 @@ References:
 
 ## Prerequisites
 
-See plan-139-A § Prerequisites (all rows must be MET), plus:
+See plan-139-A § Prerequisites — all rows must be MET, and its two `fs` rows are delivered by
+**plan-139-E**, which gates the whole chain `E -> A -> B -> C -> D`. Plus:
 
 | Must be true | Command | Status |
 |---|---|---|
