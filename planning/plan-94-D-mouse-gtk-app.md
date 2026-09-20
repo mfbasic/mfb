@@ -163,7 +163,7 @@ and no GTK here (Prerequisites), so the smoke is replaced by what *can* be
 measured — see Corrections D1: the handlers cross-build and LINK into real
 glibc+musl AppImages on `linux-x86_64` and `linux-aarch64`, and their emitted
 code is pinned by per-target goldens.
-Commit: —
+Commit: 0bd7f79be
 
 ### Phase 2 — Motion, scroll, modifiers
 
@@ -182,7 +182,7 @@ is 0" half IS statically checkable and is checked: the gate is the handler's
 first act, and a program that never calls `enableMouse` leaves the word zero. The
 stronger version — that a non-mouse program has no handlers *at all* — is what
 the 0-diff gate proves.
-Commit: —
+Commit: 0bd7f79be
 
 ### Phase 3 — Canvas area, pixels
 
@@ -217,7 +217,7 @@ delivering events.
 this acceptance is really about is shared with macOS, where it IS runtime-proven:
 the same `emit_format_report` and the same decoder produced `EVENT Down at
 100.00,50.00` from a one-based wire report there.
-Commit: —
+Commit: 0bd7f79be
 
 ## Validation Plan
 
