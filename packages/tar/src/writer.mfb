@@ -1,0 +1,357 @@
+' ---------------------------------------------------------------------------
+' tar/writer.mfb — building an archive.
+'
+' Shaped by the same measurement that shaped `packages/zip`'s writer
+' (plan-139-B Corrections): a growing `List OF Byte` is cheap to append to and
+' expensive to MOVE. Storing one in a record positionally, binding it to a
+' local, or passing it to a function each copies it, so the archive body is
+' assembled once, inside `finish`, in a single bare local. The `add*` functions
+' only accumulate small per-entry records, appended through a `WITH` update.
+'
+' Output is ustar by default and PAX only when it has to be: a name that does
+' not fit the 155-byte prefix plus 100-byte name split, a link target over 100
+' bytes, a size over 8 GiB, or a non-ASCII name. That keeps ordinary archives
+' readable by the oldest tools, and reaches for the extension exactly when the
+' fixed fields cannot say what is needed.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+' The largest value the 12-byte octal size field can hold: 8^11 - 1.
+PRIVATE LET MAX_OCTAL_SIZE AS Integer = 8589934591
+PRIVATE LET MAX_NAME_FIELD AS Integer = 100
+PRIVATE LET MAX_PREFIX_FIELD AS Integer = 155
+
+PRIVATE LET TYPE_FILE AS Integer = 48
+PRIVATE LET TYPE_HARDLINK AS Integer = 49
+PRIVATE LET TYPE_SYMLINK AS Integer = 50
+PRIVATE LET TYPE_DIRECTORY AS Integer = 53
+PRIVATE LET TYPE_PAX AS Integer = 120
+
+' One entry, held until `finish` lays the archive out.
+'
+' Internal -- use the `add*` functions. Exported only because `Builder` has a
+' field of this type, and an exported record's field type must be nameable by
+' importers.
+EXPORT TYPE PendingEntry
+  name AS String
+  typeFlag AS Integer
+  mode AS Integer
+  modifiedSeconds AS Integer
+  linkTarget AS String
+  payload AS List OF Byte
+END TYPE
+
+' An archive under construction.
+EXPORT TYPE Builder
+  pending AS List OF PendingEntry
+END TYPE
+
+FUNC createBuilder() AS Builder
+  RETURN Builder[[]]
+END FUNC
+
+FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byte, mode AS Integer, modifiedSeconds AS Integer) AS Builder
+  requireSafeName(name)
+  LET record AS PendingEntry = PendingEntry[name, TYPE_FILE, mode, modifiedSeconds, "", data]
+  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+END FUNC
+
+FUNC addTextEntry(builder AS Builder, name AS String, text AS String, mode AS Integer, modifiedSeconds AS Integer) AS Builder
+  RETURN addFileEntry(builder, name, encoding::utf8Encode(text), mode, modifiedSeconds)
+END FUNC
+
+FUNC addDirectoryEntry(builder AS Builder, name AS String, mode AS Integer, modifiedSeconds AS Integer) AS Builder
+  requireSafeName(name)
+  MUT full AS String = name
+  IF NOT strings::endsWith(full, "/") THEN
+    full = full & "/"
+  END IF
+  LET record AS PendingEntry = PendingEntry[full, TYPE_DIRECTORY, mode, modifiedSeconds, "", []]
+  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+END FUNC
+
+FUNC addSymlinkEntry(builder AS Builder, name AS String, target AS String, modifiedSeconds AS Integer) AS Builder
+  requireSafeName(name)
+  IF len(target) = 0 THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: symlink \"" & name & "\" has an empty target")
+  END IF
+  LET record AS PendingEntry = PendingEntry[name, TYPE_SYMLINK, 511, modifiedSeconds, target, []]
+  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+END FUNC
+
+' Finish the archive and return its bytes.
+'
+' Ends with two zero blocks, then nothing: the 10240-byte record padding that
+' `tar(1)` adds by default is optional, and both `bsdtar` and Python's `tarfile`
+' read an archive without it.
+FUNC finishBuilder(builder AS Builder) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR EACH entry IN builder.pending
+    ' A PAX header, when the fixed fields cannot carry the name or link target.
+    LET extended AS List OF Byte = paxRecordsFor(entry)
+    IF len(extended) > 0 THEN
+      FOR EACH b IN headerBlock("PaxHeader/" & shortNameOf(entry.name), TYPE_PAX, 420, entry.modifiedSeconds, len(extended), "")
+        out = collections::append(out, b)
+      NEXT
+      FOR EACH b IN paddedBlocks(extended)
+        out = collections::append(out, b)
+      NEXT
+    END IF
+
+    LET storedName AS String = truncatedName(entry.name)
+    LET storedLink AS String = truncatedLink(entry.linkTarget)
+    FOR EACH b IN headerBlock(storedName, entry.typeFlag, entry.mode, entry.modifiedSeconds, len(entry.payload), storedLink)
+      out = collections::append(out, b)
+    NEXT
+    FOR EACH b IN paddedBlocks(entry.payload)
+      out = collections::append(out, b)
+    NEXT
+  NEXT
+
+  ' Two zero blocks mark the end.
+  FOR i = 1 TO BLOCK * 2
+    out = collections::append(out, toByte(0))
+  NEXT
+  RETURN out
+END FUNC
+
+' `data` followed by enough zero bytes to reach a block boundary.
+PRIVATE FUNC paddedBlocks(data AS List OF Byte) AS List OF Byte
+  IF len(data) = 0 THEN
+    RETURN []
+  END IF
+  MUT out AS List OF Byte = data
+  LET remainder AS Integer = len(data) MOD BLOCK
+  IF remainder <> 0 THEN
+    FOR i = 1 TO BLOCK - remainder
+      out = collections::append(out, toByte(0))
+    NEXT
+  END IF
+  RETURN out
+END FUNC
+
+' The PAX records an entry needs, or an empty list when ustar suffices.
+PRIVATE FUNC paxRecordsFor(entry AS PendingEntry) AS List OF Byte
+  MUT records AS List OF Byte = []
+  IF NOT fitsUstarName(entry.name) OR NOT isAscii(entry.name) THEN
+    records = appendPaxRecord(records, "path", entry.name)
+  END IF
+  IF strings::byteLen(entry.linkTarget) > MAX_NAME_FIELD OR NOT isAscii(entry.linkTarget) THEN
+    IF len(entry.linkTarget) > 0 THEN
+      records = appendPaxRecord(records, "linkpath", entry.linkTarget)
+    END IF
+  END IF
+  IF len(entry.payload) > MAX_OCTAL_SIZE THEN
+    records = appendPaxRecord(records, "size", toString(len(entry.payload)))
+  END IF
+  RETURN records
+END FUNC
+
+' One `"<length> <key>=<value>\n"` record.
+'
+' The length counts the whole record including its own digits, so it depends on
+' its own width -- the loop settles that rather than guessing.
+PRIVATE FUNC appendPaxRecord(records AS List OF Byte, key AS String, value AS String) AS List OF Byte
+  LET body AS String = key & "=" & value
+  LET bodyLength AS Integer = strings::byteLen(body) + 1
+  MUT width AS Integer = 1
+  MUT total AS Integer = bodyLength + 1 + width
+  WHILE len(toString(total)) <> width
+    width = len(toString(total))
+    total = bodyLength + 1 + width
+  END WHILE
+  MUT out AS List OF Byte = records
+  LET encoded AS List OF Byte = encoding::utf8Encode(toString(total) & " " & body & "\n")
+  FOR EACH b IN encoded
+    out = collections::append(out, b)
+  NEXT
+  RETURN out
+END FUNC
+
+' Whether the name fits the ustar `prefix`/`name` split at a `/` boundary.
+PRIVATE FUNC fitsUstarName(name AS String) AS Boolean
+  LET bytes AS Integer = strings::byteLen(name)
+  IF bytes <= MAX_NAME_FIELD THEN
+    RETURN TRUE
+  END IF
+  IF bytes > MAX_NAME_FIELD + MAX_PREFIX_FIELD + 1 THEN
+    RETURN FALSE
+  END IF
+  RETURN splitPoint(name) >= 0
+END FUNC
+
+' The index of the `/` that splits a long name into a prefix and a name that
+' each fit their field, or -1.
+PRIVATE FUNC splitPoint(name AS String) AS Integer
+  LET parts AS List OF String = strings::split(name, "/")
+  MUT prefixLength AS Integer = 0
+  FOR i = 0 TO len(parts) - 2
+    prefixLength = prefixLength + strings::byteLen(collections::get(parts, i)) + 1
+    LET remaining AS Integer = strings::byteLen(name) - prefixLength
+    IF prefixLength - 1 <= MAX_PREFIX_FIELD AND remaining <= MAX_NAME_FIELD THEN
+      RETURN prefixLength - 1
+    END IF
+  NEXT
+  RETURN -1
+END FUNC
+
+' The name as the fixed fields will carry it. When a PAX record is also written
+' the fixed fields hold a truncation, which is what readers that ignore PAX see.
+PRIVATE FUNC truncatedName(name AS String) AS String
+  IF fitsUstarName(name) AND isAscii(name) THEN
+    RETURN name
+  END IF
+  RETURN clampBytes(name, MAX_NAME_FIELD)
+END FUNC
+
+PRIVATE FUNC truncatedLink(link AS String) AS String
+  IF strings::byteLen(link) <= MAX_NAME_FIELD AND isAscii(link) THEN
+    RETURN link
+  END IF
+  RETURN clampBytes(link, MAX_NAME_FIELD)
+END FUNC
+
+' The longest prefix of `text` whose UTF-8 is at most `limit` bytes, cut at a
+' character boundary so the field never holds half a character.
+PRIVATE FUNC clampBytes(text AS String, limit AS Integer) AS String
+  MUT kept AS List OF Scalar = []
+  MUT used AS Integer = 0
+  FOR EACH scalar IN strings::toScalars(text)
+    LET width AS Integer = strings::byteLen(strings::fromScalars([scalar]))
+    IF used + width > limit THEN
+      RETURN strings::fromScalars(kept)
+    END IF
+    kept = collections::append(kept, scalar)
+    used = used + width
+  NEXT
+  RETURN strings::fromScalars(kept)
+END FUNC
+
+PRIVATE FUNC shortNameOf(name AS String) AS String
+  LET parts AS List OF String = strings::split(name, "/")
+  RETURN clampBytes(collections::get(parts, len(parts) - 1), 60)
+END FUNC
+
+PRIVATE FUNC isAscii(text AS String) AS Boolean
+  FOR EACH scalar IN strings::toScalars(text)
+    IF toInt(scalar) > 127 THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' One 512-byte header block, with its checksum filled in.
+PRIVATE FUNC headerBlock(name AS String, typeFlag AS Integer, mode AS Integer, modifiedSeconds AS Integer, size AS Integer, linkTarget AS String) AS List OF Byte
+  MUT block AS List OF Byte = []
+  FOR i = 1 TO BLOCK
+    block = collections::append(block, toByte(0))
+  NEXT
+
+  MUT storedName AS String = name
+  MUT prefix AS String = ""
+  LET cut AS Integer = splitPoint(name)
+  IF strings::byteLen(name) > MAX_NAME_FIELD AND cut > 0 THEN
+    prefix = strings::left(name, cut)
+    storedName = strings::mid(name, cut + 1, len(name) - cut - 1)
+  END IF
+
+  block = putText(block, 0, 100, storedName)
+  block = putOctal(block, 100, 8, mode)
+  block = putOctal(block, 108, 8, 0)
+  block = putOctal(block, 116, 8, 0)
+  block = putOctal(block, 124, 12, size)
+  block = putOctal(block, 136, 12, modifiedSeconds)
+  ' The checksum field reads as spaces while the sum is computed.
+  block = putText(block, 148, 8, "        ")
+  block = collections::set(block, 156, toByte(typeFlag))
+  block = putText(block, 157, 100, linkTarget)
+  block = putText(block, 257, 6, "ustar")
+  block = putText(block, 263, 2, "00")
+  block = putText(block, 265, 32, "")
+  block = putText(block, 297, 32, "")
+  block = putText(block, 345, 155, prefix)
+
+  MUT sum AS Integer = 0
+  FOR EACH b IN block
+    sum = sum + toInt(b)
+  NEXT
+  ' The field is six octal digits, a NUL, then a space -- the form every reader
+  ' accepts, including ones that insist on the trailing space.
+  block = putOctalFixed(block, 148, 6, sum)
+  block = collections::set(block, 154, toByte(0))
+  block = collections::set(block, 155, toByte(32))
+  RETURN block
+END FUNC
+
+' Write `text` into a fixed-width field, NUL-padded.
+PRIVATE FUNC putText(block AS List OF Byte, at AS Integer, width AS Integer, text AS String) AS List OF Byte
+  LET bytes AS List OF Byte = encoding::utf8Encode(text)
+  IF len(bytes) > width THEN
+    FAIL error(errorCode::ErrTooLarge, "tar: \"" & text & "\" does not fit a " & toString(width) & "-byte field")
+  END IF
+  MUT out AS List OF Byte = block
+  FOR i = 0 TO len(bytes) - 1
+    out = collections::set(out, at + i, collections::get(bytes, i))
+  NEXT
+  RETURN out
+END FUNC
+
+' Octal text, right-aligned and zero-padded, with a trailing NUL.
+PRIVATE FUNC putOctal(block AS List OF Byte, at AS Integer, width AS Integer, value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = putOctalFixed(block, at, width - 1, value)
+  RETURN collections::set(out, at + width - 1, toByte(0))
+END FUNC
+
+PRIVATE FUNC putOctalFixed(block AS List OF Byte, at AS Integer, digits AS Integer, value AS Integer) AS List OF Byte
+  IF value < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "tar: cannot write a negative numeric field")
+  END IF
+  MUT text AS String = ""
+  MUT rest AS Integer = value
+  IF rest = 0 THEN
+    text = "0"
+  END IF
+  WHILE rest > 0
+    text = toString(rest MOD 8) & text
+    rest = rest / 8
+  END WHILE
+  IF len(text) > digits THEN
+    FAIL error(errorCode::ErrTooLarge, "tar: " & toString(value) & " does not fit " & toString(digits) & " octal digits")
+  END IF
+  MUT out AS List OF Byte = block
+  LET pad AS Integer = digits - len(text)
+  FOR i = 0 TO pad - 1
+    out = collections::set(out, at + i, toByte(48))
+  NEXT
+  LET bytes AS List OF Byte = encoding::utf8Encode(text)
+  FOR i = 0 TO len(bytes) - 1
+    out = collections::set(out, at + pad + i, collections::get(bytes, i))
+  NEXT
+  RETURN out
+END FUNC
+
+' plan-139-B §4.3 rules 1-3, applied at write time so this package cannot build
+' the archive its own `extractTo` refuses.
+PRIVATE SUB requireSafeName(name AS String)
+  IF len(name) = 0 THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
+  END IF
+  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  FOR EACH part IN strings::split(name, "/")
+    IF part = ".." THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+END SUB

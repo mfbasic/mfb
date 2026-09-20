@@ -273,3 +273,42 @@ END FUNC
 PRIVATE FUNC walkArchive(source AS Source) AS Archive
   RETURN Archive[source, walk(source)]
 END FUNC
+
+' Start building a new archive.
+EXPORT FUNC create() AS Builder
+  RETURN createBuilder()
+END FUNC
+
+' Add a file entry holding `data`.
+'
+' `mode` is the Unix permission bits, 420 (0o644) by default.
+' `modifiedSeconds` is seconds since the Unix epoch.
+EXPORT FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, mode AS Integer = 420, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addFileEntry(builder, name, data, mode, modifiedSeconds)
+END FUNC
+
+' Add a file entry holding the UTF-8 bytes of `text`.
+EXPORT FUNC addText(builder AS Builder, name AS String, text AS String, mode AS Integer = 420, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addTextEntry(builder, name, text, mode, modifiedSeconds)
+END FUNC
+
+' Add a directory entry. A trailing `/` is added when the name lacks one.
+EXPORT FUNC addDirectory(builder AS Builder, name AS String, mode AS Integer = 493, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addDirectoryEntry(builder, name, mode, modifiedSeconds)
+END FUNC
+
+' Add a symbolic-link entry pointing at `target`.
+'
+' The link is recorded, not followed: nothing about `target` is read.
+EXPORT FUNC addSymlink(builder AS Builder, name AS String, target AS String, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addSymlinkEntry(builder, name, target, modifiedSeconds)
+END FUNC
+
+' Finish the archive and return its bytes.
+'
+' Entries are written as ustar, with a PAX extended header only where the fixed
+' fields cannot carry the name, link target or size. The archive ends with two
+' zero blocks.
+EXPORT FUNC finish(builder AS Builder) AS List OF Byte
+  RETURN finishBuilder(builder)
+END FUNC

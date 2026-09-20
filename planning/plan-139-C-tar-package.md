@@ -121,24 +121,35 @@ Acceptance: all three header formats read identically from both sources. **Met**
 `gnu`/`pax` agreement case proves it directly rather than by inference.
   Check: `target/release/mfb test packages/tar` → `Tests: 18  Pass: 18  Fail: 0`; audit grep →
   exit 1, no match.
-Commit: PENDINGC1
+Commit: 49eb54af5
 
 ### Phase 2 — writer
 
-- [ ] `src/writer.mfb`: `create`, `addFile(builder, name, data, mode = 420, modifiedSeconds = 0)`,
-      `addText(builder, name, text, mode = 420, modifiedSeconds = 0)`,
-      `addDirectory(builder, name, mode = 493, modifiedSeconds = 0)`,
-      `addSymlink(builder, name, target, modifiedSeconds = 0)`, `finish(builder)`; names validated by
-      plan-139-B §4.3 rules 1–3 (`ErrInvalidPath`).
-- [ ] Tests `src/test_writer.mfb`: round-trip through `tar::open` (both sources); a 300-byte name
-      forces PAX; plain short names produce no PAX record (header count = entries).
-- [ ] External check from a `/tmp` probe: `bsdtar -tvf` and
-      `python3 -c "import tarfile,sys;[print(m.name,m.size) for m in tarfile.open(sys.argv[1])]"` on
-      each written archive, compared to the builder's inputs.
+- [x] `src/writer.mfb` with all five, at the planned defaults, names validated by plan-139-B §4.3
+      rules 1–3. Built from the start around plan-139-B's measured cost model: the body is
+      assembled once in `finish` in a single bare local, and `add*` accumulates small records
+      through a `WITH` update, so `finish` is linear.
+- [x] Tests `src/test_writer.mfb` — 13 cases. Round trip through both overloads; determinism;
+      an empty archive is exactly two zero blocks; data padded to a block boundary; mode and
+      mtime round-tripping. The PAX decisions are pinned in both directions: a 300-byte name, a
+      non-ASCII name and a 140-byte link target each produce **2** header blocks, while three
+      plain short names produce **3** — header count equal to entry count, so nothing extra was
+      written — and a 120-byte name that splits at a `/` into fields that fit also produces just
+      **1**. Refusals cover every §4.3 unsafe name plus an empty symlink target.
+- [x] External check from `/tmp/tarw-probe`, six archives into `/tmp/tarw/`. **`bsdtar -tvf`**
+      lists every one correctly, including the 300-byte PAX name, both Unicode names, the
+      140-byte symlink target (`link -> ttt…`) and the 120-byte split name. **Python `tarfile`**
+      agrees field for field with what the builder was given: `readme.txt` size 27 mode 644 mtime
+      1789821000; the directory `data` mode 755; `link` mode 777 with its target; the long name
+      reported at 300 bytes, the long link at 140, the split name at 120; `café/naïve.txt` and
+      `日本語.txt` decoded correctly; every regular entry extracted without error; the empty
+      archive read as 0 entries. Exit 0.
 
-Acceptance: writer output lists identically in `bsdtar` and `tarfile`.
-  Check: `target/release/mfb test packages/tar` → pass; the two listings match the inputs (est. 3 min).
-Commit: —
+Acceptance: writer output lists identically in `bsdtar` and `tarfile`. **Met**, including every
+PAX case.
+  Check: `target/release/mfb test packages/tar` → `Tests: 31  Pass: 31  Fail: 0`; both listings
+  match the builder's inputs (above).
+Commit: PENDINGC2
 
 ### Phase 3 — extractTo, README, doc.html
 
