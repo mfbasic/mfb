@@ -22,6 +22,7 @@ use crate::codegen::registry::{
 };
 use crate::docs::man::{self, ManTopic};
 use crate::docs::render;
+use crate::types::ParameterType;
 
 pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
     let mut all = false;
@@ -564,6 +565,74 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
 /// The MFBASIC declaration of one overload — `pkg::name(p AS Type, [opt AS Type]) AS Return`
 /// (optional/defaulted parameters are bracketed). Matches the hand-written man pages'
 /// `## Overloads` convention.
+/// An overload's return type as a READER can write it: `ParameterType::Arg(n)`
+/// resolved to the n-th parameter's own type.
+///
+/// bug-616: `Arg(n)` is how a descriptor says "this overload returns the same type
+/// as argument n" (`math::abs` echoes its operand; `collections::reduceRight` folds
+/// into its `initial`). It is an internal placeholder — `ParameterType::name`
+/// renders it `Arg0`, no page defines it, and no program can spell it — so it must
+/// be substituted before it reaches a rendered page. 93 occurrences shipped before
+/// this existed.
+///
+/// The substitution is the parameter's type VERBATIM, which is why a generic
+/// parameter correctly yields the type variable (`reduceRight(…) AS U`) rather than
+/// a concrete type: `U` is the honest answer at declaration level, and the
+/// Description prose explains the binding.
+///
+/// Deliberately at the rendering layer, not on `ParameterType::name`, whose output
+/// diagnostics and IR depend on (this bug's Non-goals). The walk is recursive so a
+/// future nested `Arg` (`List OF Arg0`) resolves too, though no descriptor builds
+/// one today — every `Arg(n)` in `src/codegen/builtins/` is a bare top-level return.
+fn resolved_return_type(implementation: &Implementation) -> ParameterType {
+    fn walk(ty: &ParameterType, params: &[Parameter]) -> ParameterType {
+        match ty {
+            // An out-of-range index cannot happen from a descriptor, but render the
+            // placeholder unchanged rather than panicking in `mfb man` if one ever
+            // does — the sweep test is what catches it.
+            ParameterType::Arg(n) => params
+                .get(*n)
+                .map(|param| walk(&param.ty, params))
+                .unwrap_or_else(|| ty.clone()),
+            ParameterType::ListOf(elem) => ParameterType::list_of(walk(elem, params)),
+            ParameterType::SetOf(elem) => ParameterType::set_of(walk(elem, params)),
+            ParameterType::MapOf(key, value) => {
+                ParameterType::map_of(walk(key, params), walk(value, params))
+            }
+            ParameterType::MapEntryOf(key, value) => {
+                ParameterType::map_entry_of(walk(key, params), walk(value, params))
+            }
+            ParameterType::ResultOf(success) => ParameterType::result_of(walk(success, params)),
+            ParameterType::Res(inner) => ParameterType::res(walk(inner, params)),
+            ParameterType::UserOf(name, args) => {
+                ParameterType::UserOf(*name, args.iter().map(|arg| walk(arg, params)).collect())
+            }
+            ParameterType::Func(fn_params, ret, isolated) => {
+                let fn_params = fn_params.iter().map(|p| walk(p, params)).collect();
+                let ret = walk(ret, params);
+                if *isolated {
+                    ParameterType::func_isolated(fn_params, ret)
+                } else {
+                    ParameterType::func(fn_params, ret)
+                }
+            }
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::thread_handle(
+                *worker,
+                walk(msg, params),
+                walk(res, params),
+                walk(out, params),
+            ),
+            other => other.clone(),
+        }
+    }
+    walk(&implementation.return_type, &implementation.params)
+}
+
 fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) -> String {
     let params = implementation
         .params
@@ -590,7 +659,7 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
     // `RegistryPackage::unqualified_global` (`src/codegen/registry/mod.rs`).
     format!(
         "`{pkg}::{name}({params}) AS {}`",
-        implementation.return_type.display()
+        resolved_return_type(implementation).display()
     )
 }
 
@@ -838,7 +907,7 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     let return_type = function
         .implementations
         .first()
-        .map(|implementation| implementation.return_type.display());
+        .map(|implementation| resolved_return_type(implementation).display());
 
     if rows.is_empty() {
         if single {
@@ -2111,6 +2180,87 @@ mod tests {
                 assert!(!page.contains(dotted), "types page still prints `{dotted}`");
             }
         }
+    }
+
+    /// bug-616: a descriptor says "this overload returns the same type as argument
+    /// n" with `ParameterType::Arg(n)`. That is an INTERNAL placeholder — a reader
+    /// cannot write `Arg0`, and no page ever defines it — so it must be resolved to
+    /// the n-th parameter's own type before it is rendered.
+    #[test]
+    fn a_declaration_resolves_an_arg_placeholder_to_the_parameters_type() {
+        let math = registry().resolve_package("math").unwrap();
+        let md = render_function_markdown(math, math.function("abs").unwrap());
+        // The concrete overloads echo their own operand type.
+        assert!(md.contains("`math::abs(value AS Float) AS Float`"), "{md}");
+        assert!(md.contains("`math::abs(value AS Fixed) AS Fixed`"), "{md}");
+        assert!(md.contains("`math::abs(value AS Money) AS Money`"), "{md}");
+        assert!(
+            md.contains("`math::abs(value AS List OF Integer) AS List OF Integer`"),
+            "{md}"
+        );
+
+        // A GENERIC parameter resolves to the type variable, not to a concrete
+        // type: `reduceRight` folds into its `initial` accumulator, so `Arg(1)`
+        // is `U`. This is the case that proves the fix substitutes the
+        // parameter's type rather than inventing one.
+        let collections = registry().resolve_package("collections").unwrap();
+        let md =
+            render_function_markdown(collections, collections.function("reduceRight").unwrap());
+        assert!(md.contains(") AS U`"), "{md}");
+        assert!(md.contains("Returns `U`."), "{md}");
+
+        // `Arg(0)` over a container parameter keeps the whole container.
+        let md = render_function_markdown(collections, collections.function("append").unwrap());
+        assert!(
+            md.contains("`collections::append(value AS List OF T, item AS T) AS List OF T`"),
+            "{md}"
+        );
+    }
+
+    /// bug-616, TOTAL over the rendered surface, in the shape of
+    /// `no_rendered_page_spells_a_dotted_package_type` below: the placeholder is a
+    /// renderer-layer leak, so the gate is that NO page contains it — not that the
+    /// handful of pages found by hand were patched. 93 `ArgN` occurrences across 78
+    /// declaration lines and 15 "Returns"/wrapped lines were rendered before this.
+    #[test]
+    fn no_rendered_page_spells_an_arg_placeholder() {
+        let mut hits = Vec::new();
+        let mut scan = |page: &str, md: &str| {
+            for (number, line) in md.lines().enumerate() {
+                // `Arg` followed by a digit, at a word boundary — the exact
+                // spelling `ParameterType::name` produces for `Arg(n)`.
+                let bytes = line.as_bytes();
+                let mut from = 0;
+                while let Some(offset) = line[from..].find("Arg") {
+                    let at = from + offset;
+                    from = at + 3;
+                    let bounded = at == 0
+                        || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+                    if bounded && bytes.get(from).is_some_and(|b| b.is_ascii_digit()) {
+                        hits.push(format!("{page}:{}: {line}", number + 1));
+                    }
+                }
+            }
+        };
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            scan(
+                &format!("{pkg} (overview)"),
+                &render_package_markdown(package),
+            );
+            scan(&format!("{pkg} types"), &render_types_markdown(package));
+            for function in package.functions() {
+                scan(
+                    &format!("{pkg} {}", function.name),
+                    &render_function_markdown(package, function),
+                );
+            }
+        }
+        assert!(
+            hits.is_empty(),
+            "internal `ArgN` placeholders on rendered pages:\n{}",
+            hits.join("\n")
+        );
     }
 
     /// bug-605, TOTAL over the rendered surface: no page a developer reads may spell
