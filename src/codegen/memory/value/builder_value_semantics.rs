@@ -1279,6 +1279,17 @@ impl CodeBuilder<'_> {
                 "math.pow" | "math.atan2" => {
                     args.first().and_then(|arg| self.static_type_name(arg))
                 }
+                // bug-630: a thread read can take its handle inline
+                // (`thread::waitFor(thread::start(…))`) instead of through a
+                // binding. Without this arm the nested `start` had no static
+                // type, so `thread_runtime_return_type` could not reach the
+                // `ThreadHandle` match that yields the worker's `Out` — and the
+                // parent/worker direction split for `receive`/`accept` failed
+                // outright ("handle has unknown type"). Delegate to the one
+                // `thread.start` arm rather than copying its parent-kind
+                // derivation, so bug-479's `worker: false` correction stays in a
+                // single place.
+                "thread.start" => self.thread_runtime_return_type("thread.start", args),
                 _ => None,
             },
             NirValue::Binary {

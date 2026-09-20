@@ -2877,7 +2877,7 @@ fn substitute(
 
 /// Whether a type mentions any [`ParameterType::Var`] — i.e. it is generic and has no
 /// single static nominal type independent of a call's arguments.
-fn contains_var(ty: &ParameterType) -> bool {
+pub(crate) fn contains_var(ty: &ParameterType) -> bool {
     match ty {
         // `Var` is arg-dependent; `Arg(_)` echoes an argument verbatim — neither has a
         // single static nominal type independent of the call.
