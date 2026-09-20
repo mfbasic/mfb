@@ -1,0 +1,65 @@
+REM bug-656 runtime proof: an ENUM crosses a thread boundary, in both directions.
+REM
+REM An enum IS thread-sendable -- `mfb spec language threads` §35 makes every
+REM primitive owned value sendable, and the verifier's own classifier says so in as
+REM many words ("enums yes", `thread_unsendable_cause`). The frontend accepted this
+REM program all along; codegen then failed it with an INTERNAL error, "native
+REM inlined field size not available for type 'Colour'", because an enum is a
+REM `Named` nominal and so fell past `emit_thread_copy_real`'s scalar arm into the
+REM flat-BLOCK copy, which then asked a scalar for a block size it has none.
+REM
+REM Asserted at runtime rather than as a compile check: the fix makes an enum
+REM travel by VALUE, so the proof that matters is that the worker sees the ordinal
+REM the parent sent and the parent sees the one the worker sent back -- a
+REM by-reference or truncated copy would still build.
+
+IMPORT io
+IMPORT thread
+
+ENUM Colour
+  Red
+  Green
+  Blue
+END ENUM
+
+REM Receives a Colour, and sends back the NEXT one so the reply exercises the
+REM worker->parent direction too (thread.emit, a different copy site).
+ISOLATED FUNC shift(w AS ThreadWorker OF Colour TO Integer, seed AS Integer) AS Integer
+  LET got AS Colour = thread::receive(w, 20000)
+  IF got = Colour.Red THEN
+    thread::send(w, Colour.Green)
+    RETURN 1
+  END IF
+  IF got = Colour.Green THEN
+    thread::send(w, Colour.Blue)
+    RETURN 2
+  END IF
+  thread::send(w, Colour.Red)
+  RETURN 3
+END FUNC
+
+FUNC roundTrip(sent AS Colour) AS Integer
+  LET t AS Thread OF Colour TO Integer = thread::start(shift, 0, 4, 4)
+  thread::send(t, sent)
+  LET back AS Colour = thread::receive(t, 20000)
+  LET code AS Integer = thread::waitFor(t)
+  IF back = Colour.Red THEN
+    io::print("back=Red code=" & toString(code))
+  END IF
+  IF back = Colour.Green THEN
+    io::print("back=Green code=" & toString(code))
+  END IF
+  IF back = Colour.Blue THEN
+    io::print("back=Blue code=" & toString(code))
+  END IF
+  RETURN code
+END FUNC
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  total = total + roundTrip(Colour.Red)
+  total = total + roundTrip(Colour.Green)
+  total = total + roundTrip(Colour.Blue)
+  io::print("total=" & toString(total))
+  RETURN 0
+END FUNC
