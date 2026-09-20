@@ -648,7 +648,7 @@ Acceptance: `cargo test --bin mfb`; `scripts/test-accept.sh <exe> /tmp/out
 **0 diff(s)**` (the full sweep, not just `term`). `scripts/test-accept.sh
 ./target/release/mfb /tmp/p94/accept3` → see below. `scripts/man-examples-gate.sh
 ./target/release/mfb` → see below.
-Commit: —
+Commit: 0072f0723
 
 ## Validation Plan
 
