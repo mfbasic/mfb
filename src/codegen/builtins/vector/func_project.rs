@@ -111,40 +111,40 @@ END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED2: &str =
 r#"FUNC __vector_project_fixed2(a AS Fixed2, b AS Fixed2) AS Fixed2
-  LET db AS Fixed = __vector_dot_fixed2(b, b)
+  LET db AS Float = toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y)
   IF db = 0.0 THEN
     FAIL error(77050002, "vector::project onto a zero-length vector")
   END IF
-  LET ratio AS Fixed = __vector_dot_fixed2(a, b) / db
-  LET cx AS Fixed = ratio * b.x
-  LET cy AS Fixed = ratio * b.y
+  LET ratio AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y)) / db
+  LET cx AS Fixed = toFixed(ratio * toFloat(b.x))
+  LET cy AS Fixed = toFixed(ratio * toFloat(b.y))
   RETURN Fixed2[cx, cy]
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED3: &str =
 r#"FUNC __vector_project_fixed3(a AS Fixed3, b AS Fixed3) AS Fixed3
-  LET db AS Fixed = __vector_dot_fixed3(b, b)
+  LET db AS Float = toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z)
   IF db = 0.0 THEN
     FAIL error(77050002, "vector::project onto a zero-length vector")
   END IF
-  LET ratio AS Fixed = __vector_dot_fixed3(a, b) / db
-  LET cx AS Fixed = ratio * b.x
-  LET cy AS Fixed = ratio * b.y
-  LET cz AS Fixed = ratio * b.z
+  LET ratio AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z)) / db
+  LET cx AS Fixed = toFixed(ratio * toFloat(b.x))
+  LET cy AS Fixed = toFixed(ratio * toFloat(b.y))
+  LET cz AS Fixed = toFixed(ratio * toFloat(b.z))
   RETURN Fixed3[cx, cy, cz]
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED4: &str =
 r#"FUNC __vector_project_fixed4(a AS Fixed4, b AS Fixed4) AS Fixed4
-  LET db AS Fixed = __vector_dot_fixed4(b, b)
+  LET db AS Float = toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z) + toFloat(b.w) * toFloat(b.w)
   IF db = 0.0 THEN
     FAIL error(77050002, "vector::project onto a zero-length vector")
   END IF
-  LET ratio AS Fixed = __vector_dot_fixed4(a, b) / db
-  LET cx AS Fixed = ratio * b.x
-  LET cy AS Fixed = ratio * b.y
-  LET cz AS Fixed = ratio * b.z
-  LET cw AS Fixed = ratio * b.w
+  LET ratio AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z) + toFloat(a.w) * toFloat(b.w)) / db
+  LET cx AS Fixed = toFixed(ratio * toFloat(b.x))
+  LET cy AS Fixed = toFixed(ratio * toFloat(b.y))
+  LET cz AS Fixed = toFixed(ratio * toFloat(b.z))
+  LET cw AS Fixed = toFixed(ratio * toFloat(b.w))
   RETURN Fixed4[cx, cy, cz, cw]
 END FUNC"#;
 #[rustfmt::skip]
