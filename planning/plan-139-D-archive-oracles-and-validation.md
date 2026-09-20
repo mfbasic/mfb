@@ -129,19 +129,25 @@ demonstrated rather than merely satisfied**: the budget is 67,108,864 and both c
 threshold alone would not establish.
   Check: `/usr/bin/time -l /tmp/bigprobe/build/bigprobe.out zip /tmp/bigarch/big.zip` → 3,440,640;
   `… tar /tmp/bigarch/big.tar` → 3,244,032. Both < 67,108,864.
-Commit: PENDINGD3
+Commit: ce50bab83
 
 ### Phase 4 — final gate and archive
 
-- [ ] `target/release/mfb test packages/zip` and `target/release/mfb test packages/tar` → pass.
-- [ ] No `src/` change in letters A–D: `git diff --stat <plan-139-A first commit>^ HEAD -- src`
-      → empty. (Corrected 2026-09-19: as written this said "across plan-139", which letter E
+- [x] `target/release/mfb test packages/zip` → `Tests: 83  Pass: 83  Fail: 0`;
+      `target/release/mfb test packages/tar` → `Tests: 46  Pass: 46  Fail: 0`.
+- [x] No `src/` change in letters A–D: the diff of `src` from letter A's first commit
+      (`22a7747d9`) to HEAD is **empty**. The two packages are pure MFBASIC and needed no compiler
+      change; everything `src/` gained in this plan was letter E's two `fs` builtins, which landed
+      before letter A began. (Corrected 2026-09-19: as written this said "across plan-139", which letter E
       falsifies — E adds two `fs` builtins under `src/codegen/builtins/fs/`. The property that
       matters is that the two *packages* need no compiler change, so it is measured from letter
       A's first commit, which lands after E. This is a correction, not a weakening: E carries its
       own artifact-gate and test-accept gate in its Phase 3.)
-- [ ] Update `planning/todo.md` row 5 and "# Proposed API" section to point at plan-139 and note the
-      API changes of plan-139-A §3.
+- [x] `planning/todo.md` row 5 now reads **DONE — plan-139** with the measured outcome, and the
+      "# Proposed API" section carries a note listing all seven ways the shipped API differs from
+      the proposal (the second `open` overload, `tar` `maxBytes`, `tar::Entry.isDirectory`, shared
+      `errorCode::` values, the package-local CP437 table, the extra `Entry` fields, and
+      `tar::addSymlink` with its link-refusing `extractTo`).
 - [ ] Move `planning/plan-139-*.md` to `planning/completed/`.
 
 Acceptance: all gates green; plan archived.
@@ -161,6 +167,61 @@ Commit: —
 - None beyond those carried from letters A–C.
 
 ## Corrections
+
+### 2026-09-19 — the fuzzer found seven real bugs, and what they had in common
+
+§1 Non-goals says a disagreement here "is a bug in letter A–C code, fixed in the package, with a
+`TCASE` added — never a relaxed oracle comparison". That is what happened seven times. Zip
+disagreements went **230 → 0** and tar **21 → 0** over the course of the fixes, and every one has a
+regression test:
+
+| Package | Bug | Consequence |
+|---|---|---|
+| zip | the two copies of an entry's name were never compared | a tool listing the central directory and one walking local headers report different names for the same entry |
+| zip | the directory's declared size was never checked against its entry count | a reader walking by size sees a different set of entries than one walking by count |
+| zip | general-purpose flag bits 5, 6 and 13 were ignored | patched or strongly-encrypted data was inflated and returned as though it were the entry's contents |
+| zip | flags were read only from the local header | the central directory's copy could declare encryption the local copy did not |
+| zip | overlapping entry data regions were accepted | the shape of a zip bomb, and of a confusion attack |
+| zip | a NUL inside an entry name was kept | Python truncates there; either way two tools disagree about the entry's name |
+| tar | a GNU long-name record was NUL-*stripped* rather than NUL-*terminated* | `a\0bbb` became the single name `abbb` |
+
+Six of the seven are the same underlying mistake: **a zip or tar records the same fact twice, and
+the reader consulted only one copy.** The name, the flags, the entry count against the directory
+size. None was reachable by a hand-written test, because writing one requires already suspecting
+the gap; all seven came out of 4000 mutated archives compared against an implementation that was
+not ours. That is the argument for this letter existing.
+
+### 2026-09-19 — what a declared divergence is allowed to be
+
+§1 Non-goals permits a declaration only "unless the spec permits both readings, in which case it
+goes in `divergences.json` with the spec citation". Four were declared, all as *policies* covering
+a class with one argument rather than as per-file suppressions:
+
+- **we are stricter than Python** (both packages). We refuse self-inconsistent archives Python
+  recovers from. APPNOTE.TXT and POSIX.1-2017 specify how a *well-formed* archive is laid out and
+  do not require a reader to reconstruct a broken one, so both readings are permitted.
+- **`version needed to extract` is advisory** (zip). Python refuses on the claimed field; we
+  validate the features actually used.
+- **name encoding is unspecified** (tar). A name that is not valid UTF-8 has no single right
+  rendering; Python uses surrogate escapes, we use Latin-1. The bytes agree.
+- **Python stops early** (tar). On some damaged archives it lists fewer entries than we do.
+
+The last one is the only declaration in the dangerous direction, so it was **verified rather than
+argued**: a third checksum walk written in the diff harness — belonging to neither implementation —
+found 9 headers with valid checksums in archives where Python reported 3 members, and the 6 entries
+we list are exactly the 6 the undamaged archive holds. Each policy is also one-directional in the
+comparator: "we refused, Python accepted" is covered, "we accepted, Python refused" is not.
+
+### 2026-09-19 — the probe had to be hardened before it could judge anything
+
+The first fuzz run of the tar oracle died in `json.loads`: the probe emitted raw C1 control bytes
+inside JSON strings, from names the lenient Latin-1 fallback had produced out of fuzzed bytes. Nine
+lines in 2000 were unparseable.
+
+That is a defect in the instrument, not in the package, and it is worth recording because an
+instrument that fails on the inputs it exists to examine reports nothing. Both probes now escape
+everything outside printable ASCII as `\uXXXX`, so their output is pure ASCII and survives any
+byte sequence a fuzzer can produce.
 
 ### 2026-09-19 — Phase 4's "no `src/` change" criterion corrected for letter E
 
