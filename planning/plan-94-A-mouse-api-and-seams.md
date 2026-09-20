@@ -536,8 +536,8 @@ mfb` passes.
 five targets, `Wrote executable to …` each time. Run on the host it prints
 `kind=None / button=None / row=0 column=0 / shift=FALSE ctrl=FALSE alt=FALSE`,
 exit 0, and `od -c` finds **no** `\033` in its output (the "no new ANSI bytes"
-non-goal, measured). `cargo test --bin mfb` → see Phase 1 commit note.
-Commit: —
+non-goal, measured). `cargo test --bin mfb` → exit 0.
+Commit: 912013f22
 
 ### Phase 2 — The two storage regions
 
@@ -578,7 +578,7 @@ renumbering. Measured directly: the entry frame grows by exactly 64 bytes
 (`sub_sp` 4000 → 4064 = `MOUSE_STATE_SLOTS * 8`) and the non-mouse program's 28
 arena zero-store offsets are a strict prefix of the mouse program's 36, the new
 8 appended at 4000…4056.
-Commit: —
+Commit: 912013f22
 
 ### Phase 3 — `canvas::` surface + seams + no-op stubs
 
@@ -607,26 +607,47 @@ Acceptance: an `--app` program calling `canvas::enableMouse(TRUE)` +
 `pos=0.00,0.00` is the load-bearing line: reading `event.position.x` through the
 hand-built inline-offset layout is what proves the layout right (a wrong offset
 word reads garbage or faults, it does not print zeros).
-Commit: —
+Commit: 912013f22
 
 ### Phase 4 — Tests, spec, goldens
 
-- [ ] `tests/runtime/rt_native_term_runtime.rs`: a
+- [x] `tests/runtime/rt_native_term_runtime.rs`: a
       `native_term_poll_mouse_is_none_stub` case — build+run (piped and pty),
       assert `pollMouse().kind` prints `None` and `enableMouse(TRUE)` emits no
-      escape bytes.
-- [ ] Spec: `src/docs/spec/language/18_builtin-functions.md` lines for the four
+      escape bytes. — `cargo test --test rt_native_term_runtime
+      native_term_poll_mouse` → `1 passed; 0 failed`. It asserts all four
+      idle-record fields, and the no-escape-bytes claim **both** piped and under
+      a pty (a piped run alone could not prove it: tracking sequences would only
+      ever be written to a tty).
+- [x] Spec: `src/docs/spec/language/18_builtin-functions.md` lines for the four
       members; `src/docs/spec/app/04_term-backend.md` a note that the two term
       calls exist as stubs; `src/docs/spec/memory/08_program-startup.md` the new
       arena region in the chain. Cite with `[[path:Symbol]]` per
-      `.ai/specifications.md`.
-- [ ] Regenerate goldens: `scripts/artifact-gate.sh <exe> term` and the canvas
+      `.ai/specifications.md`. — done. §18 gained the opt-in mouse paragraph
+      covering both packages; `04_term-backend` gained a "Mouse state: one arena
+      region, one process-global word" section explaining *why* the two live
+      apart; `08_program-startup` now documents the whole three-region chain
+      (term / presentation-mode / mouse) rather than only the term one. Every
+      cited symbol grep-confirmed to exist.
+- [x] Regenerate goldens: `scripts/artifact-gate.sh <exe> term` and the canvas
       fixtures ×5, plus any `.app.ncode`/`.ncodesum` that shift; confirm each diff
-      is only the additive surface.
+      is only the additive surface. — 20 goldens regenerated (19 `.ir`, 1
+      `.app.nir`). **Regenerated only after the full suite ran**, per `AGENTS.md`:
+      `scripts/test-accept.sh … ` over all 1490 tests reported exactly these 20
+      as its only mismatches — no `.run` deviation, no `build.log` drift — and
+      the diff is `875 insertions, 38 deletions` where **every one of the 38
+      deletions is a `"line": N` renumber** (`git diff -U0 tests/ | grep '^-' |
+      grep -v '"line":'` → empty). No canvas or `.ncode`/`.ncodesum` golden
+      shifted at all.
 
 Acceptance: `cargo test --bin mfb`; `scripts/test-accept.sh <exe> /tmp/out
 '*term*'`; `scripts/artifact-gate.sh <exe> term`;
 `scripts/man-examples-gate.sh`.
+**Met.** `cargo test --bin mfb` → exit 0. `scripts/artifact-gate.sh
+./target/release/mfb all` → `1466 tests, 1637 build(s), 2058 golden(s) checked,
+**0 diff(s)**` (the full sweep, not just `term`). `scripts/test-accept.sh
+./target/release/mfb /tmp/p94/accept3` → see below. `scripts/man-examples-gate.sh
+./target/release/mfb` → see below.
 Commit: —
 
 ## Validation Plan

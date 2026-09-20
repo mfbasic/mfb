@@ -23,8 +23,50 @@
     ]
   },
   {
+    "kind": "type",
+    "line": 23,
+    "visibility": "export",
+    "name": "term.MouseEvent",
+    "fields": [
+    { "visibility": null, "line": 24, "name": "kind", "type": "term.MouseKind" },
+    { "visibility": null, "line": 25, "name": "button", "type": "term.MouseButton" },
+    { "visibility": null, "line": 26, "name": "row", "type": "Integer" },
+    { "visibility": null, "line": 27, "name": "column", "type": "Integer" },
+    { "visibility": null, "line": 28, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 29, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 30, "name": "alt", "type": "Boolean" }
+    ]
+  },
+  {
     "kind": "enum",
-    "line": 12,
+    "line": 33,
+    "visibility": "export",
+    "name": "term.MouseKind",
+    "members": [
+    { "name": "None" },
+    { "name": "Down" },
+    { "name": "Up" },
+    { "name": "Move" },
+    { "name": "Drag" },
+    { "name": "ScrollUp" },
+    { "name": "ScrollDown" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 43,
+    "visibility": "export",
+    "name": "term.MouseButton",
+    "members": [
+    { "name": "None" },
+    { "name": "Left" },
+    { "name": "Middle" },
+    { "name": "Right" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 50,
     "visibility": "export",
     "name": "term.LineStyle",
     "members": [
@@ -39,7 +81,7 @@
   },
   {
     "kind": "enum",
-    "line": 22,
+    "line": 60,
     "visibility": "export",
     "name": "term.FillStyle",
     "members": [
