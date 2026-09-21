@@ -1,0 +1,179 @@
+' rng — Brogue CE's random number generator, ported bit for bit from
+' oracle/src/brogue/Math.c ("Random number generation").
+'
+' The generator is Bob Jenkins' small noncryptographic PRNG over four unsigned
+' 32-bit words. C gets the mod-2^32 wraparound for free from uint32_t; MFBASIC
+' Integer arithmetic is checked 64-bit, so every word is kept in 0..2^32-1 and
+' each sum, difference and rotate is folded back into that range with low32.
+'
+' Brogue keeps two streams seeded identically: Substantive drives everything
+' that shapes the game (and is what a seed reproduces), Cosmetic drives visual
+' flourishes only. randomNumbersGenerated counts Substantive draws, as the C
+' global of the same name does.
+
+IMPORT bits
+IMPORT collections
+IMPORT datetime
+IMPORT math
+
+PUBLIC ENUM Stream
+  Substantive, Cosmetic
+END ENUM
+
+' One stream's state: Math.c `ranctx`, four 32-bit words.
+TYPE RanCtx
+  a AS Integer
+  b AS Integer
+  c AS Integer
+  d AS Integer
+END TYPE
+
+' Math.c `randomRange`: the bounds and clump factor randClump draws from.
+PUBLIC TYPE RandomRange
+  lowerBound AS Integer
+  upperBound AS Integer
+  clumpFactor AS Integer
+END TYPE
+
+MUT substantiveState AS RanCtx = RanCtx[a := 0, b := 0, c := 0, d := 0]
+MUT cosmeticState AS RanCtx = RanCtx[a := 0, b := 0, c := 0, d := 0]
+MUT activeStream AS Stream = Stream.Substantive
+MUT generatedCount AS Integer = 0
+
+FUNC low32(x AS Integer) AS Integer
+  RETURN bits::band(x, 0xFFFFFFFF)
+END FUNC
+
+' Math.c `ranval`: advance one state by a step.
+FUNC ranval(x AS RanCtx) AS RanCtx
+  LET e = low32(x.a - bits::rl32(x.b, 27))
+  LET a = bits::bxor(x.b, bits::rl32(x.c, 17))
+  RETURN RanCtx[a := a, b := low32(x.c + x.d), c := low32(x.d + e), d := low32(e + a)]
+END FUNC
+
+' Math.c `raninit`: the state a 64-bit seed starts from.
+FUNC raninit(seed AS Integer) AS RanCtx
+  LET lo = low32(seed)
+  MUT x AS RanCtx = RanCtx[a := 0xF1EA5EED, b := lo, c := bits::bxor(lo, bits::sr(seed, 32)), d := lo]
+  FOR i = 1 TO 20
+    x = ranval(x)
+  NEXT
+  RETURN x
+END FUNC
+
+' Advance the active stream and return its next 32-bit output.
+FUNC nextWord() AS Integer
+  IF activeStream = Stream.Substantive THEN
+    substantiveState = ranval(substantiveState)
+    RETURN substantiveState.d
+  END IF
+  cosmeticState = ranval(cosmeticState)
+  RETURN cosmeticState.d
+END FUNC
+
+' Math.c `range`: an unbiased draw in 0..n-1 by rejection.
+FUNC range(n AS Integer) AS Integer
+  LET divisor = 0xFFFFFFFF / n
+  MUT r AS Integer = nextWord() / divisor
+  DO WHILE r >= n
+    r = nextWord() / divisor
+  LOOP
+  RETURN r
+END FUNC
+
+' Select the stream later draws come from (Brogue's `rogue.RNG = ...`).
+PUBLIC SUB setStream(s AS Stream)
+  activeStream = s
+END SUB
+
+' The stream draws currently come from.
+PUBLIC FUNC stream() AS Stream
+  RETURN activeStream
+END FUNC
+
+' The number of Substantive draws so far (Brogue's `randomNumbersGenerated`).
+PUBLIC FUNC randomNumbersGenerated() AS Integer
+  RETURN generatedCount
+END FUNC
+
+PUBLIC SUB setRandomNumbersGenerated(n AS Integer)
+  generatedCount = n
+END SUB
+
+' Math.c `seedRandomGenerator`: seed both streams identically. Seed 0 means
+' "seed from the clock", offset as Brogue does. The seed is a 64-bit pattern;
+' values above 2^63-1 arrive as negative Integers and are handled bitwise.
+PUBLIC FUNC seedRandomGenerator(seed AS Integer) AS Integer
+  MUT s AS Integer = seed
+  IF s = 0 THEN s = datetime::nowNanos() / 1000000000 - 1352700000
+  substantiveState = raninit(s)
+  cosmeticState = raninit(s)
+  RETURN s
+END FUNC
+
+' Math.c `rand_range`: a uniform draw in lowerBound..upperBound inclusive.
+PUBLIC FUNC randRange(lowerBound AS Integer, upperBound AS Integer) AS Integer
+  IF upperBound <= lowerBound THEN RETURN lowerBound
+  IF activeStream = Stream.Substantive THEN generatedCount = generatedCount + 1
+  RETURN lowerBound + range(upperBound - lowerBound + 1)
+END FUNC
+
+' Math.c `rand_64bits`: two draws joined high word first, as a 64-bit pattern.
+PUBLIC FUNC rand64Bits() AS Integer
+  IF activeStream = Stream.Substantive THEN generatedCount = generatedCount + 1
+  LET hi = nextWord()
+  LET lo = nextWord()
+  RETURN bits::bor(bits::sl(hi, 32), lo)
+END FUNC
+
+' Math.c `randClumpedRange`: a draw in lowerBound..upperBound whose
+' distribution bunches toward the middle as clumpFactor grows.
+PUBLIC FUNC randClumpedRange(lowerBound AS Integer, upperBound AS Integer, clumpFactor AS Integer) AS Integer
+  IF upperBound <= lowerBound THEN RETURN lowerBound
+  IF clumpFactor <= 1 THEN RETURN randRange(lowerBound, upperBound)
+  LET numSides = (upperBound - lowerBound) / clumpFactor
+  LET wideDice = (upperBound - lowerBound) MOD clumpFactor
+  MUT total AS Integer = 0
+  FOR i = 0 TO clumpFactor - 1
+    IF i < wideDice THEN
+      total = total + randRange(0, numSides + 1)
+    ELSE
+      total = total + randRange(0, numSides)
+    END IF
+  NEXT
+  RETURN total + lowerBound
+END FUNC
+
+' Math.c `randClump`.
+PUBLIC FUNC randClump(r AS RandomRange) AS Integer
+  RETURN randClumpedRange(r.lowerBound, r.upperBound, r.clumpFactor)
+END FUNC
+
+' Math.c `rand_percent`: TRUE with a percent-in-100 chance.
+PUBLIC FUNC randPercent(percent AS Integer) AS Boolean
+  RETURN randRange(0, 99) < math::clamp(percent, 0, 100)
+END FUNC
+
+' Math.c `fillSequentialList`: 0, 1, ..., length-1.
+PUBLIC FUNC sequentialList(length AS Integer) AS List OF Integer
+  MUT list AS List OF Integer = []
+  FOR i = 0 TO length - 1
+    list = collections::append(list, i)
+  NEXT
+  RETURN list
+END FUNC
+
+' Math.c `shuffleList`: a Fisher-Yates shuffle drawing from the active stream.
+PUBLIC FUNC shuffleList(source AS List OF Integer) AS List OF Integer
+  MUT list AS List OF Integer = source
+  LET n = len(list)
+  FOR i = 0 TO n - 2
+    LET r = randRange(i, n - 1)
+    IF i <> r THEN
+      LET buf = collections::get(list, r)
+      list = collections::set(list, r, collections::get(list, i))
+      list = collections::set(list, i, buf)
+    END IF
+  NEXT
+  RETURN list
+END FUNC

@@ -1,0 +1,61 @@
+' brogue — a port of Brogue CE's dungeon generator, checked against the
+' original C source in oracle/ (see README.md).
+'
+' Usage:
+'   brogue.out rng <seed> <count>   print the RNG stream check/rng_dump.c prints
+
+IMPORT bits
+IMPORT collections
+IMPORT io
+IMPORT os
+
+SUB usage()
+  io::printError("usage: brogue rng <seed> <count>")
+END SUB
+
+' The same mixed call script as check/rng_dump.c, line for line.
+SUB dumpRng(seed AS Integer, count AS Integer)
+  setStream(Stream.Substantive)
+  setRandomNumbersGenerated(0)
+  LET ignored = seedRandomGenerator(seed)
+  FOR i = 0 TO count - 1
+    IF i MOD 7 = 6 THEN
+      setStream(Stream.Cosmetic)
+    ELSE
+      setStream(Stream.Substantive)
+    END IF
+    LET tag = toString(i)
+    LET kind = i MOD 5
+    IF kind = 0 THEN
+      io::print(tag & " range " & toString(randRange(0, 9999)))
+    ELSEIF kind = 1 THEN
+      io::print(tag & " range " & toString(randRange(-50, 50 + i MOD 13)))
+    ELSEIF kind = 2 THEN
+      io::print(tag & " clump " & toString(randClumpedRange(1, 20 + i MOD 11, 1 + i MOD 4)))
+    ELSEIF kind = 3 THEN
+      MUT hit AS Integer = 0
+      IF randPercent(i MOD 101) THEN hit = 1
+      io::print(tag & " percent " & toString(hit))
+    ELSE
+      LET v = rand64Bits()
+      io::print(tag & " bits64 " & toString(bits::sr(v, 32)) & " " & toString(bits::band(v, 0xFFFFFFFF)))
+    END IF
+  NEXT
+  setStream(Stream.Substantive)
+  MUT line AS String = "shuffle"
+  FOR EACH n IN shuffleList(sequentialList(10))
+    line = line & " " & toString(n)
+  NEXT
+  io::print(line)
+  io::print("generated " & toString(randomNumbersGenerated()))
+END SUB
+
+FUNC main() AS Integer
+  LET args = os::args()
+  IF len(args) = 3 AND collections::get(args, 0) = "rng" THEN
+    dumpRng(toInt(collections::get(args, 1)), toInt(collections::get(args, 2)))
+    RETURN 0
+  END IF
+  usage()
+  RETURN 2
+END FUNC
