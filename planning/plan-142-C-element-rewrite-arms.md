@@ -91,14 +91,33 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_se
 Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` (all 64 lines,
 with the new result check) → `1 passed` (197.89s); `rt_inplace_failure_atomic` → `1
 passed` (incl. `math::sqrt` over a negative element and `math::log` over zero).
-Commit: —
+Commit: 493f96d99
 
 ### Phase 2 — `replace` and `transform`
 
-- [ ] `replace` arm; `transform` arm with the infallible/fallible split.
-- [ ] Rows, `cases.tsv`, atomicity case for a failing `f`.
+- [x] `replace` arm; `transform` arm with the infallible/fallible split.
+      `try_inplace_replace_assign` / `try_inplace_transform_assign`
+      (`builder_inplace_rewrite.rs`). `replace` uses the copying lowering's own
+      compare (`emit_collection_payload_matches_value_branch`, as
+      `lower_list_replace`). There is no infallible/fallible split: every callback
+      is treated as fallible (plan-142-B Phase 1), so `transform` calls `f` for every
+      element first, parking each result word (a scalar, or the pointer of a
+      variable-width result) in the self-update scratch; a failure frees the parked
+      `String` results and this element's copy, then routes the error. Both arms
+      reserve tail room for longer payloads before their first
+      `lower_list_set_in_place`, so no write repacks mid-pass (the only allocation,
+      and so the only `ErrOutOfMemory`, precedes the first write). `G-atomic` never
+      declines — Correction C3. String differential probe (longer/shorter/no-match
+      `replace`, an out-of-order list, `transform` growing/shrinking/returning its
+      own argument, a 300-iteration append/transform/replace/drop loop): 10/10 `ok`,
+      `arena.0.alloc_calls 2183` = `free_calls 2183`, `live_bytes 0`.
+- [x] Rows, `cases.tsv`, atomicity case for a failing `f`. Two cases: an `Integer`
+      list and a `String` list whose results grow.
 
 Acceptance: same command → pass (est. 10 min).
+Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` filtered to
+`replace`/`transform` → `1 passed` (bound, `before` and result checks);
+`rt_inplace_failure_atomic` → `1 passed`.
 Commit: —
 
 ### Phase 3 — `sort` and `sortBy`
@@ -149,6 +168,21 @@ Commit: —
   (not self-updates, so the copying lowering), rendered and compared. RED: with the
   math arm's copy-back removed, `math::sqrt(value AS List OF Float)` fails with
   "the self-update computed `0.10,0.20,0.30,`, the copying call `0.32,0.45,0.55,`".
+- **C3 (Phase 2): `G-atomic` is never needed.** Open Decision 1 (plan-142-A) has a
+  fallible `transform` over a variable-width `T` decline when its results "cannot be
+  held without a copy of `x`". They always can: a variable-width result is one
+  pointer, so the scratch holds `n` words — the results, not a copy of `x`. The arm
+  declines for no callback shape.
+- **C4 (Phase 2): `replace` needs the `ErrIndexOutOfRange` message.** The arm writes
+  through `lower_list_set_in_place`, whose rebuild path (never taken from this arm,
+  but emitted for every list type) calls `lower_list_remove_at`, which raises
+  `ErrIndexOutOfRange`. A module calling only `collections::replace` had no data
+  object for that message — the matrix test's first run failed with "native code
+  string literal 'List or string index/range is outside valid bounds.' has no data
+  object". `data_objects::string_symbols` now also registers it when
+  `module_self_updates_with_replace` — only a module whose codegen the arm changes
+  anyway, so no other module's data section moves. (`transform` was already on the
+  message's list.)
 
 ## Summary
 

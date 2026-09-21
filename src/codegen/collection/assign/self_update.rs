@@ -62,6 +62,10 @@ pub(crate) enum ArmId {
     Distinct,
     /// `xs = math::f(xs, …)` for the 16 element-wise `math` functions (plan-142-C).
     Math,
+    /// `xs = replace(xs, old, new)` (plan-142-C).
+    Replace,
+    /// `xs = transform(xs, f)` with `f` returning the element type (plan-142-C).
+    Transform,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -117,6 +121,10 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
         b.try_inplace_distinct_assign(s, v)
     }),
     (ArmId::Math, |b, s, v| b.try_inplace_math_assign(s, v)),
+    (ArmId::Replace, |b, s, v| b.try_inplace_replace_assign(s, v)),
+    (ArmId::Transform, |b, s, v| {
+        b.try_inplace_transform_assign(s, v)
+    }),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -173,39 +181,56 @@ impl CodeBuilder<'_> {
 /// Builtins whose in-place arm keeps per-element state in the function's
 /// self-update scratch. A function holding a self-update of one of these gets the
 /// scratch slot (`prescan_self_update_scratch`).
-pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct"];
+pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct", "transform"];
 
-/// Whether `ops` (recursively) holds `x = f(x, …)` for an `f` in [`SCRATCH_ARMS`].
-fn ops_need_self_update_scratch(ops: &[NirOp]) -> bool {
+/// Whether `ops` (recursively) hold a self-update `x = f(x, …)` whose call target
+/// satisfies `wanted`.
+fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Assign { name, value } => value_needs_self_update_scratch(name, value),
+        NirOp::Assign { name, value } => {
+            let NirValue::Call { target, args, .. } = value else {
+                return false;
+            };
+            matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name) && wanted(target)
+        }
         NirOp::If {
             then_body,
             else_body,
             ..
-        } => ops_need_self_update_scratch(then_body) || ops_need_self_update_scratch(else_body),
+        } => ops_hold_self_update(then_body, wanted) || ops_hold_self_update(else_body, wanted),
         NirOp::Match { cases, .. } => cases
             .iter()
-            .any(|case| ops_need_self_update_scratch(&case.body)),
+            .any(|case| ops_hold_self_update(&case.body, wanted)),
         NirOp::While { body, .. }
         | NirOp::For { body, .. }
         | NirOp::DoUntil { body, .. }
         | NirOp::ForEach { body, .. }
-        | NirOp::Trap { body, .. } => ops_need_self_update_scratch(body),
+        | NirOp::Trap { body, .. } => ops_hold_self_update(body, wanted),
         _ => false,
     })
 }
 
-fn value_needs_self_update_scratch(name: &str, value: &NirValue) -> bool {
-    let NirValue::Call { target, args, .. } = value else {
-        return false;
-    };
-    matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name)
-        && (self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
-            || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
-                target,
-            )
-            .is_some())
+/// Whether a self-update of `target` has an arm that keeps state in the
+/// function's self-update scratch.
+fn target_needs_self_update_scratch(target: &str) -> bool {
+    self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+        || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
+            target,
+        )
+        .is_some()
+}
+
+/// Whether the module holds a `collections::replace` self-update (plan-142-C).
+/// Its arm writes through `lower_list_set_in_place`, whose rebuild path — never
+/// taken from that arm, but always emitted — raises `ErrIndexOutOfRange`, so the
+/// module needs that message's data object even when it calls no bounds-checked
+/// member (`data_objects::string_symbols`).
+pub(crate) fn module_self_updates_with_replace(module: &NirModule) -> bool {
+    module.functions.iter().any(|function| {
+        ops_hold_self_update(&function.body, &|target| {
+            self_update_builtin(target) == Some("replace")
+        })
+    })
 }
 
 impl CodeBuilder<'_> {
@@ -215,7 +240,9 @@ impl CodeBuilder<'_> {
     /// (with the null guard and prologue zeroing that drop brings). A function
     /// without such a statement is untouched.
     pub(crate) fn prescan_self_update_scratch(&mut self, ops: &[NirOp]) {
-        if self.self_update_scratch.is_some() || !ops_need_self_update_scratch(ops) {
+        if self.self_update_scratch.is_some()
+            || !ops_hold_self_update(ops, &target_needs_self_update_scratch)
+        {
             return;
         }
         let slot = self.allocate_stack_object("su_scratch", 8);
@@ -571,22 +598,22 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[probe(C, LI, "[1, 1, 2]", "collections::distinct(x)")],
     },
     // --- letter C: element rewrite / reorder ---
-    pending(
-        "collections::replace",
-        "C",
-        &[probe(C, LI, "[1, 2, 1]", "collections::replace(x, 1, 5)")],
-    ),
-    pending(
-        "collections::transform",
-        "C",
-        &[probe_with(
+    SelfUpdateRow {
+        function: "collections::replace",
+        kind: SelfUpdate::Arm(&[ArmId::Replace]),
+        probes: &[probe(C, LI, "[1, 2, 1]", "collections::replace(x, 1, 5)")],
+    },
+    SelfUpdateRow {
+        function: "collections::transform",
+        kind: SelfUpdate::Arm(&[ArmId::Transform]),
+        probes: &[probe_with(
             C,
             NEGATED,
             LI,
             "[1, 2, 3]",
             "collections::transform(x, negated)",
         )],
-    ),
+    },
     pending(
         "collections::sort",
         "C",
@@ -878,6 +905,8 @@ impl ArmId {
             ArmId::Mid => &["inplace_mid_start"],
             ArmId::Distinct => &["inplace_distinct_count"],
             ArmId::Math => &["inplace_math_result"],
+            ArmId::Replace => &["inplace_replace_old"],
+            ArmId::Transform => &["inplace_transform_action"],
         }
     }
 }

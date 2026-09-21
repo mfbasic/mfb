@@ -35,6 +35,20 @@ FUNC failOnThreeStr(s AS String) AS Boolean
   RETURN s <> \"a\"
 END FUNC
 
+FUNC tenFailOnThree(n AS Integer) AS Integer
+  IF n = 3 THEN
+    FAIL error(77050002, \"three\")
+  END IF
+  RETURN n * 10
+END FUNC
+
+FUNC growFailOnC(s AS String) AS String
+  IF s = \"c\" THEN
+    FAIL error(77050002, \"three\")
+  END IF
+  RETURN s & \"-grown-well-past-its-old-length\"
+END FUNC
+
 FUNC showInts(xs AS List OF Integer) AS String
   MUT out AS String = \"\"
   FOR EACH v IN xs
@@ -103,6 +117,20 @@ const CASES: &[(&str, &str, &str, &str, &str)] = &[
         "x = math::log(x)",
         "showFloats",
         "1.00,0.00,2.00,",
+    ),
+    (
+        "transform callback fails on the 3rd element (plan-142-C)",
+        "MUT x AS List OF Integer = [1, 2, 3, 4]",
+        "x = collections::transform(x, tenFailOnThree)",
+        "showInts",
+        "1,2,3,4,",
+    ),
+    (
+        "transform callback fails, String list with growing results (plan-142-C)",
+        "MUT x AS List OF String = [\"a\", \"b\", \"c\", \"d\"]",
+        "x = collections::transform(x, growFailOnC)",
+        "showStrs",
+        "a,b,c,d,",
     ),
     (
         "mid with a negative start",
