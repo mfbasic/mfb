@@ -2,3 +2,4 @@
 
 pub(crate) mod builder_inplace_assign;
 pub(crate) mod inplace_dest;
+pub(crate) mod self_update;

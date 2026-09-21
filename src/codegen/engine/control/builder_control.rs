@@ -1,4 +1,6 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
+use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
@@ -1154,66 +1156,24 @@ impl CodeBuilder<'_> {
                             self.observe_promoted_float(value, &d)?;
                             return Ok(());
                         }
-                        let (stack_offset, by_ref) = {
+                        let (stack_offset, by_ref, local_type) = {
                             let local = self.locals.get(name).ok_or_else(|| {
                                 format!("native code assignment unknown local '{name}'")
                             })?;
-                            (local.stack_offset, local.by_ref)
+                            (local.stack_offset, local.by_ref, local.type_.clone())
                         };
-                        // `name = collections::append(name, item)` on a uniquely
-                        // owned `MUT` list mutates the live buffer in place
-                        // (plan-01 §4.2): the helper updates the slot, so skip the
-                        // general reassignment path entirely.
-                        if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_bulk_append_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_add_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_remove_key_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_prepend_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            // plan-121-B: `removeAt` and Set `remove` had no arm in
-                            // any container, so every call allocated a fresh block
-                            // and copied the whole collection. Order within this
-                            // chain is immaterial — the arms match disjoint builtin
-                            // names — so they are appended rather than interleaved.
-                            && !self.try_inplace_remove_at_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_insert_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_remove_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
+                        // `name = f(name, …)` on a uniquely owned `MUT` local
+                        // mutates the live block in place when an arm of
+                        // `SELF_UPDATE_ARMS` recognises `f` (plan-142-A, site S1):
+                        // the arm updates the slot, so skip the general
+                        // reassignment path entirely.
+                        let site = SelfUpdateSite {
+                            name,
+                            type_: local_type,
+                            dest: InPlaceDest::Direct { slot: stack_offset },
+                            by_ref,
+                        };
+                        if !self.try_inplace_self_update(&site, value)?
                             && !self.try_inplace_record_field_append(
                                 name,
                                 value,

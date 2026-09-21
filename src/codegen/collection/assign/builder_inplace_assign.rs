@@ -1,5 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::*;
+use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::control::{nir_value_reads_local, string_self_append_operands};
 use crate::codegen::error::constants::*;
@@ -22,19 +23,16 @@ impl CodeBuilder<'_> {
     /// excluded (the item must be a single element).
     pub(crate) fn try_inplace_append_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
+        let name = site.name;
         // Container (plan-121-A's shared seam): `name = append(name, …)` on a
-        // uniquely-owned `MUT` local. Discharges G1 `by_ref`, G2 the call shape,
+        // uniquely-owned binding. Discharges G1 `by_ref`, G2 the call shape,
         // G3/G4 target and arity, G5/G6 the self-update, G7 the live `FOR EACH`
         // hazard (the grow frees the buffer the loop snapshotted — bug-142),
-        // G8 the local exists, and G10 the collection layout.
-        let Some(target) =
-            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "append", 2)
-        else {
+        // and G10 the collection layout.
+        let Some(target) = self.resolve_self_update(site, value, "append", 2) else {
             return Ok(false);
         };
         let list_type = target.collection_type.clone();
@@ -195,42 +193,23 @@ impl CodeBuilder<'_> {
     /// (the grow path would free the iterated buffer, bug-142).
     pub(crate) fn try_inplace_set_add_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("add") || args.len() != 2
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        let name = site.name;
+        // G1–G7, G10 (the shared container gates).
+        let Some(target) = self.resolve_self_update(site, value, "add", 2) else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let set_type = local.type_.clone();
+        let args = target.args;
+        let stack_offset = target.dest.block_slot();
+        let set_type = target.collection_type.clone();
+        // G9 — `add` mutates a Set.
         let Some(element_type) =
             crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&set_type).is_none() {
-            return Ok(false);
-        }
         match self.static_item_type(&args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
@@ -270,44 +249,24 @@ impl CodeBuilder<'_> {
     /// to a live iterator, bug-142). Also covers `Set` remove (same lowering).
     pub(crate) fn try_inplace_remove_key_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("removeKey")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        let name = site.name;
+        // G1–G7, G10 (the shared container gates).
+        let Some(target) = self.resolve_self_update(site, value, "removeKey", 2) else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let map_type = local.type_.clone();
+        let args = target.args;
+        let stack_offset = target.dest.block_slot();
+        let map_type = target.collection_type.clone();
+        // G9 — `removeKey` mutates a Map.
         let Some((key_type, _value_type)) =
             crate::codegen::engine::types::typed_map_type_parts(&map_type)
                 .map(|(k, v)| (k.clone(), v.clone()))
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&map_type).is_none() {
-            return Ok(false);
-        }
         match self.static_item_type(&args[1]) {
             Some(kt) if kt == key_type => {}
             _ => return Ok(false),
@@ -1398,28 +1357,18 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn try_inplace_bulk_append_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        let name = site.name;
+        // G1–G7, G10 (the shared container gates). G7 is the same live `FOR EACH`
+        // iterable hazard as the single-element append: the grow path frees the
+        // snapshot buffer out from under the loop (bug-142).
+        let Some(target) = self.resolve_self_update(site, value, "append", 2) else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
+        let args = target.args;
+        let stack_offset = target.dest.block_slot();
         // Exclude the self-alias `append(name, name)`: the grow path frees the old
         // buffer, so a RHS pointing at the same buffer would read freed memory. The
         // value path rebuilds correctly from both operands read up front.
@@ -1428,23 +1377,12 @@ impl CodeBuilder<'_> {
                 return Ok(false);
             }
         }
-        // Same live `FOR EACH` iterable hazard as the single-element append: the
-        // grow path frees the snapshot buffer out from under the loop (bug-142).
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let list_type = local.type_.clone();
+        let list_type = target.collection_type.clone();
         let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
-            return Ok(false);
-        }
         // Commit only for a statically-known RHS of the *list* type (not the
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
@@ -1489,39 +1427,17 @@ impl CodeBuilder<'_> {
     /// entry into spare slot/data headroom otherwise (geometric grow when full).
     pub(crate) fn try_inplace_set_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("set") || args.len() != 3
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        let name = site.name;
+        // G1–G7, G10 (the shared container gates).
+        let Some(target) = self.resolve_self_update(site, value, "set", 3) else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let collection_type = local.type_.clone();
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&collection_type)
-            .is_none()
-        {
-            return Ok(false);
-        }
+        let args = target.args;
+        let stack_offset = target.dest.block_slot();
+        let collection_type = target.collection_type.clone();
         if let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&collection_type).cloned()
         {
@@ -1636,43 +1552,23 @@ impl CodeBuilder<'_> {
     /// binding, so that case is excluded. Returns `true` when handled.
     pub(crate) fn try_inplace_prepend_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("prepend")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        let name = site.name;
+        // G1–G7, G10 (the shared container gates).
+        let Some(target) = self.resolve_self_update(site, value, "prepend", 2) else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let list_type = local.type_.clone();
+        let args = target.args;
+        let stack_offset = target.dest.block_slot();
+        let list_type = target.collection_type.clone();
+        // G9 — `prepend` mutates a List.
         let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
-            return Ok(false);
-        }
         // `prepend` always takes a single element of the list element type
         // (a bulk form is rejected in `lower_collection_prepend`), so no static
         // gate is needed; the post-lowering check catches any mismatch.
@@ -1713,14 +1609,15 @@ impl CodeBuilder<'_> {
     /// Returns `true` when handled.
     pub(crate) fn try_inplace_concat_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
+        let name = site.name;
+        // G1 — a by-ref slot holds the parent's slot address, not the buffer.
+        if site.by_ref {
             return Ok(false);
         }
+        let stack_offset = site.dest.block_slot();
         // Only fire for a name we pre-allocated a capacity shadow for (a self-append
         // target discovered by the prescan); the shadow is reset on every other
         // bind/assign so it always reflects the live buffer's spare bytes.
@@ -1944,16 +1841,13 @@ impl CodeBuilder<'_> {
     /// (`planning/plan-121-gate-inventory.md`, "the `removeAt` asymmetry").
     pub(crate) fn try_inplace_remove_at_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
+        let name = site.name;
         // Container (plan-121-A's seam). G7 — the live-`FOR EACH` decline — is
         // enforced here for the shift reason above, not merely the realloc one.
-        let Some(target) =
-            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "removeAt", 2)
-        else {
+        let Some(target) = self.resolve_self_update(site, value, "removeAt", 2) else {
             return Ok(false);
         };
         let list_type = target.collection_type.clone();
@@ -2024,14 +1918,11 @@ impl CodeBuilder<'_> {
     /// snapshot, which it can observe (bug-142's non-freeing twin).
     pub(crate) fn try_inplace_set_remove_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
-        let Some(target) =
-            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "remove", 2)
-        else {
+        let name = site.name;
+        let Some(target) = self.resolve_self_update(site, value, "remove", 2) else {
             return Ok(false);
         };
         let set_type = target.collection_type.clone();
@@ -2076,16 +1967,13 @@ impl CodeBuilder<'_> {
     /// which covers `insert` for the same reason.
     pub(crate) fn try_inplace_insert_assign(
         &mut self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        stack_offset: usize,
-        by_ref: bool,
     ) -> Result<bool, String> {
+        let name = site.name;
         // Container (plan-121-A's seam). G7 — the live-`FOR EACH` decline — is
         // enforced here for the shift reason above, not merely the realloc one.
-        let Some(target) =
-            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "insert", 3)
-        else {
+        let Some(target) = self.resolve_self_update(site, value, "insert", 3) else {
             return Ok(false);
         };
         let list_type = target.collection_type.clone();

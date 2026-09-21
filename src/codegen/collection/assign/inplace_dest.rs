@@ -33,6 +33,7 @@
 //! inventory rule `O-order-1`, and it is what makes this refactor provably
 //! neutral — `.ncode`/`.ncodesum` must be byte-identical across it.
 
+use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -185,14 +186,14 @@ impl InPlaceGate<'_> {
     }
 }
 
-/// A matched plain-local in-place destination: `name = <op>(name, …)` on a
-/// uniquely-owned `MUT` local.
-pub(crate) struct PlainLocalTarget<'v> {
+/// A matched self-update destination: `name = <op>(name, …)` on a uniquely-owned
+/// binding, at whichever site built the [`SelfUpdateSite`].
+pub(crate) struct SelfUpdateTarget<'v> {
     pub(crate) dest: InPlaceDest,
     /// The call's arguments. `args[0]` is the collection itself (already proven
     /// to be this same binding); the operands start at `args[1]`.
     pub(crate) args: &'v [NirValue],
-    /// The local's declared collection type.
+    /// The binding's declared collection type.
     pub(crate) collection_type: ParameterType,
 }
 
@@ -208,25 +209,24 @@ pub(crate) struct InlinedFieldTarget<'v> {
 }
 
 impl CodeBuilder<'_> {
-    /// Resolve `name = <op>(name, …)` on a uniquely-owned plain `MUT` local as an
-    /// in-place destination, running the container gates every plain-local arm
-    /// shares: `G1` `by_ref`, `G2` the value is a `Call`, `G3` the call target is
+    /// Resolve `name = <op>(name, …)` at a self-update site as an in-place
+    /// destination, running the container gates every self-update arm shares:
+    /// `G1` `by_ref`, `G2` the value is a `Call`, `G3` the call target is
     /// `builtin`, `G4` the arity, `G5` `args[0]` is a bare local, `G6` it is *this*
-    /// binding, `G7` no live `FOR EACH` over it, `G8` the local exists, and `G10`
-    /// its type has a collection layout.
+    /// binding, `G7` no live `FOR EACH` over it, and `G10` its type has a
+    /// collection layout. (`G8`, "the local exists", is discharged by whoever built
+    /// the site: the site carries the binding's type.)
     ///
     /// The operation-specific gates stay with the caller: `G9` (which collection
     /// kind this op needs), `G11` (element-vs-bulk classification) and `G12` (the
     /// self-alias). Emits nothing; `None` = decline.
-    pub(crate) fn resolve_inplace_plain_local<'v>(
+    pub(crate) fn resolve_self_update<'v>(
         &self,
-        name: &str,
+        site: &SelfUpdateSite<'_>,
         value: &'v NirValue,
-        stack_offset: usize,
-        by_ref: bool,
         builtin: &str,
         arity: usize,
-    ) -> Option<PlainLocalTarget<'v>> {
+    ) -> Option<SelfUpdateTarget<'v>> {
         // `G2` — only a direct builtin call can be recognised.
         let NirValue::Call { target, args, .. } = value else {
             return None;
@@ -243,27 +243,24 @@ impl CodeBuilder<'_> {
         let NirValue::Local(arg0) = &args[0] else {
             return None;
         };
-        if arg0 != name {
+        if arg0 != site.name {
             return None;
         }
-        // `G8`.
-        let local = self.locals.get(name)?;
-        let collection_type = local.type_.clone();
         // `G1`/`G7`/`G10`.
         if !(InPlaceGate {
-            by_ref,
-            for_each_local: Some(name),
-            layout_of: Some(&collection_type),
+            by_ref: site.by_ref,
+            for_each_local: Some(site.name),
+            layout_of: Some(&site.type_),
             ..InPlaceGate::default()
         })
         .admits(self)
         {
             return None;
         }
-        Some(PlainLocalTarget {
-            dest: InPlaceDest::Direct { slot: stack_offset },
+        Some(SelfUpdateTarget {
+            dest: site.dest.clone(),
             args,
-            collection_type,
+            collection_type: site.type_.clone(),
         })
     }
 

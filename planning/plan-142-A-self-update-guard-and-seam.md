@@ -311,22 +311,26 @@ the unit census's 59 literal rows (after rendering `Arg0` as the first parameter
 type) differs only in two rendering artifacts of the comparison script — the nested
 `FUNC(T) AS Boolean` in `filter`'s signature and `crypto.Argon2Profile` vs
 `crypto::Argon2Profile` — so the two sets name the same 59 overloads.
-Commit: —
+Commit: e86532663
 
 ### Phase 2 — Table-driven dispatch, byte-identical
 
-- [ ] Create `src/codegen/collection/assign/self_update.rs` with `ArmId`,
+- [x] Create `src/codegen/collection/assign/self_update.rs` with `ArmId`,
       `SelfUpdate`, `SelfUpdateSite`, `SELF_UPDATE_ARMS`, and
       `CodeBuilder::try_inplace_self_update`. Register the module in
-      `src/codegen/collection/assign/mod.rs`.
-- [ ] Move the 10 plain-local arms (`append`, `bulk_append`, `set_add`, `set`,
+      `src/codegen/collection/assign/mod.rs`. (`SelfUpdate` lands with the table in
+      Phase 3, its only consumer.)
+- [x] Move the 10 plain-local arms (`append`, `bulk_append`, `set_add`, `set`,
       `remove_key`, `prepend`, `remove_at`, `insert`, `set_remove`, `concat`) to
       the `ArmFn` signature, taking the destination from `SelfUpdateSite`. Keep each
-      body's emission identical.
-- [ ] Replace the first ten links of the `&&` chain at `builder_control.rs:1166-1215`
+      body's emission identical. All nine `Call` arms now run their container gates
+      through one `resolve_self_update(site, …)` (was `resolve_inplace_plain_local`
+      for four, hand-copied gates for five); the site carries the binding's type,
+      so no arm reads `self.locals` for it.
+- [x] Replace the first ten links of the `&&` chain at `builder_control.rs:1166-1215`
       with one `try_inplace_self_update` call; leave the eight
       `try_inplace_record_field_*` links as they are.
-- [ ] Keep `append` before `bulk_append` in `SELF_UPDATE_ARMS` (the one
+- [x] Keep `append` before `bulk_append` in `SELF_UPDATE_ARMS` (the one
       name-shared pair).
 
 Acceptance: codegen is unchanged.
@@ -335,6 +339,9 @@ Acceptance: codegen is unchanged.
   the only check that sees every arm's emission; a scoped fixture set would miss
   the arms it doesn't exercise). A diff = a refactor bug: objdump one fixture,
   fix, re-run.
+  Verified 2026-09-21: `cargo build --release && cargo test --test golden` →
+  `artifact-gate [all]: 1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`,
+  `test result: ok. 1 passed`.
 Commit: —
 
 ### Phase 3 — The table and the unit guards
