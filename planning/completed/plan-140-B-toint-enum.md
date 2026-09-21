@@ -271,7 +271,7 @@ citations resolve.
   `MFB=./target/release/mfb scripts/man-census.sh --memory-scope` →
   `unclassified memory-vocabulary hits: 0`. (The §4.5 sentence points at
   §18.1, where the `toInt` row lives; the plan's "§18" is that section.)
-Commit: —
+Commit: 6daf882b7
 
 ## Validation Plan
 
