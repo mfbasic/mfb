@@ -56,6 +56,21 @@ FUNC keyFailOnThree(n AS Integer) AS Integer
   RETURN 0 - n
 END FUNC
 
+FUNC longFailOnC(v AS String) AS String
+  IF v = \"c\" THEN
+    FAIL error(77050002, \"three\")
+  END IF
+  RETURN v & \"-made-longer-than-before\"
+END FUNC
+
+FUNC showMap(m AS Map OF String TO String) AS String
+  MUT out AS String = \"\"
+  FOR EACH k IN collections::keys(m)
+    out = out & k & \"=\" & collections::get(m, k) & \",\"
+  NEXT
+  RETURN out
+END FUNC
+
 FUNC showInts(xs AS List OF Integer) AS String
   MUT out AS String = \"\"
   FOR EACH v IN xs
@@ -145,6 +160,13 @@ const CASES: &[(&str, &str, &str, &str, &str)] = &[
         "x = collections::sortBy(x, keyFailOnThree)",
         "showInts",
         "4,1,3,2,",
+    ),
+    (
+        "mapValues callback fails on the 3rd value (plan-142-D)",
+        "MUT x AS Map OF String TO String = Map OF String TO String { \"p\" := \"a\", \"q\" := \"b\", \"r\" := \"c\", \"s\" := \"d\" }",
+        "x = collections::mapValues(x, longFailOnC)",
+        "showMap",
+        "p=a,q=b,r=c,s=d,",
     ),
     (
         "mid with a negative start",

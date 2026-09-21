@@ -140,3 +140,43 @@ fn permute_in_place_reorders_lanes_and_entries_without_a_gather() {
         );
     }
 }
+
+/// plan-142-D: `intersection`/`difference` write one membership mark per entry and
+/// then compact the entry table once (`lower_map_compact_in_place`); `union` reserves
+/// room for the whole batch once (`emit_map_reserve`) and then adds in place.
+#[test]
+fn map_compact_in_place_marks_then_compacts_and_union_reserves_once() {
+    let set_program = |statement: &str| {
+        format!(
+            "IMPORT collections\nIMPORT io\n\nFUNC main() AS Integer\n  \
+             MUT x AS Set OF Integer = Set OF Integer {{ 1, 2, 3 }}\n  \
+             LET t AS Set OF Integer = Set OF Integer {{ 2, 3, 4 }}\n  \
+             FOR i = 1 TO 3\n    {statement}\n  NEXT\n  \
+             io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n"
+        )
+    };
+    for op in ["intersection", "difference"] {
+        let stems = label_stems(&set_program(&format!("x = collections::{op}(x, t)")));
+        for label in ["mcompact_loop", &format!("inplace_{op}_mark_loop")] {
+            assert!(
+                stems.contains(label),
+                "`{op}` must mark then compact in place (`{label}`): {stems:?}"
+            );
+        }
+        assert!(
+            !stems.iter().any(|stem| stem.starts_with("mreserve")),
+            "`{op}` only removes entries and must never reserve: {stems:?}"
+        );
+    }
+    let stems = label_stems(&set_program("x = collections::union(x, t)"));
+    for label in ["mreserve_grow", "inplace_add_all_loop"] {
+        assert!(
+            stems.contains(label),
+            "`union` must reserve once and add in place (`{label}`): {stems:?}"
+        );
+    }
+    assert!(
+        !stems.contains("mcompact_loop"),
+        "`union` removes nothing: {stems:?}"
+    );
+}

@@ -70,6 +70,18 @@ pub(crate) enum ArmId {
     Sort,
     /// `xs = sortBy(xs, keyFn)` (plan-142-C).
     SortBy,
+    /// `s = union(s, t)` (plan-142-D).
+    Union,
+    /// `s = intersection(s, t)` (plan-142-D).
+    Intersection,
+    /// `s = difference(s, t)` (plan-142-D).
+    Difference,
+    /// `s = symmetricDifference(s, t)` (plan-142-D).
+    SymmetricDifference,
+    /// `m = merge(m, n, preferB)` (plan-142-D).
+    Merge,
+    /// `m = mapValues(m, f)` with `f` returning the value type (plan-142-D).
+    MapValues,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -131,6 +143,20 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
     }),
     (ArmId::Sort, |b, s, v| b.try_inplace_sort_assign(s, v)),
     (ArmId::SortBy, |b, s, v| b.try_inplace_sort_by_assign(s, v)),
+    (ArmId::Union, |b, s, v| b.try_inplace_union_assign(s, v)),
+    (ArmId::Intersection, |b, s, v| {
+        b.try_inplace_intersection_assign(s, v)
+    }),
+    (ArmId::Difference, |b, s, v| {
+        b.try_inplace_difference_assign(s, v)
+    }),
+    (ArmId::SymmetricDifference, |b, s, v| {
+        b.try_inplace_symmetric_difference_assign(s, v)
+    }),
+    (ArmId::Merge, |b, s, v| b.try_inplace_merge_assign(s, v)),
+    (ArmId::MapValues, |b, s, v| {
+        b.try_inplace_map_values_assign(s, v)
+    }),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -187,7 +213,19 @@ impl CodeBuilder<'_> {
 /// Builtins whose in-place arm keeps per-element state in the function's
 /// self-update scratch. A function holding a self-update of one of these gets the
 /// scratch slot (`prescan_self_update_scratch`).
-pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct", "transform", "sort", "sortBy"];
+pub(crate) const SCRATCH_ARMS: &[&str] = &[
+    "filter",
+    "distinct",
+    "transform",
+    "sort",
+    "sortBy",
+    "union",
+    "intersection",
+    "difference",
+    "symmetricDifference",
+    "mapValues",
+    "merge",
+];
 
 /// Whether `ops` (recursively) hold a self-update `x = f(x, …)` whose call target
 /// satisfies `wanted`.
@@ -771,67 +809,67 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[probe(M, LF, FLOATS, "math::tan(x)")],
     },
     // --- letter D: Set algebra and Map ---
-    pending(
-        "collections::union",
-        "D",
-        &[probe(
+    SelfUpdateRow {
+        function: "collections::union",
+        kind: SelfUpdate::Arm(&[ArmId::Union]),
+        probes: &[probe(
             C,
             SI,
             "Set OF Integer { 1, 2 }",
             "collections::union(x, Set OF Integer { 2, 3 })",
         )],
-    ),
-    pending(
-        "collections::intersection",
-        "D",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "collections::intersection",
+        kind: SelfUpdate::Arm(&[ArmId::Intersection]),
+        probes: &[probe(
             C,
             SI,
             "Set OF Integer { 1, 2 }",
             "collections::intersection(x, Set OF Integer { 2, 3 })",
         )],
-    ),
-    pending(
-        "collections::difference",
-        "D",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "collections::difference",
+        kind: SelfUpdate::Arm(&[ArmId::Difference]),
+        probes: &[probe(
             C,
             SI,
             "Set OF Integer { 1, 2 }",
             "collections::difference(x, Set OF Integer { 2, 3 })",
         )],
-    ),
-    pending(
-        "collections::symmetricDifference",
-        "D",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "collections::symmetricDifference",
+        kind: SelfUpdate::Arm(&[ArmId::SymmetricDifference]),
+        probes: &[probe(
             C,
             SI,
             "Set OF Integer { 1, 2 }",
             "collections::symmetricDifference(x, Set OF Integer { 2, 3 })",
         )],
-    ),
-    pending(
-        "collections::merge",
-        "D",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "collections::merge",
+        kind: SelfUpdate::Arm(&[ArmId::Merge]),
+        probes: &[probe(
             C,
             MSI,
             "Map OF String TO Integer { \"a\" := 1 }",
             "collections::merge(x, Map OF String TO Integer { \"b\" := 2 }, TRUE)",
         )],
-    ),
-    pending(
-        "collections::mapValues",
-        "D",
-        &[probe_with(
+    },
+    SelfUpdateRow {
+        function: "collections::mapValues",
+        kind: SelfUpdate::Arm(&[ArmId::MapValues]),
+        probes: &[probe_with(
             C,
             NEGATED,
             MSI,
             "Map OF String TO Integer { \"a\" := 1 }",
             "collections::mapValues(x, negated)",
         )],
-    ),
+    },
     // --- letter E: exempt, proven copy-free ---
     pending(
         "collections::reduce",
@@ -944,6 +982,12 @@ impl ArmId {
             ArmId::Transform => &["inplace_transform_action"],
             ArmId::Sort => &["inplace_sort_count"],
             ArmId::SortBy => &["inplace_sortby_action"],
+            ArmId::Union => &["inplace_union_other"],
+            ArmId::Intersection => &["inplace_intersection_other"],
+            ArmId::Difference => &["inplace_difference_other"],
+            ArmId::SymmetricDifference => &["inplace_symmetricDifference_other"],
+            ArmId::Merge => &["inplace_merge_prefer"],
+            ArmId::MapValues => &["inplace_mapvalues_action"],
         }
     }
 }

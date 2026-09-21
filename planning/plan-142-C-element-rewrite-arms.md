@@ -159,7 +159,7 @@ Correction C6): `cargo test --bin mfb permute_in_place` → `1 passed`; `cargo t
 mfb self_update` → `4 passed`; `rt_inplace_self_update` filtered to `sort`/`sortBy` →
 `1 passed`; `rt_inplace_failure_atomic` → `1 passed` (incl. a failing `keyFn`);
 `rt_inplace_sort` → `1 passed`. `grep -c pending:C cases.tsv` → 0.
-Commit: —
+Commit: 00be628fd
 
 ### Phase 4 — Expected outputs
 
@@ -176,12 +176,14 @@ Verified 2026-09-21: `MFB=<new release mfb> examples/brogue/check/check-terrain.
 → `all 320 (level seed, depth) pairs match (125s, 12 jobs)`.
 Full artifact-gate with every C arm: `2078 golden(s) checked, 0 diff(s)` — no
 committed fixture self-updates a `math`/`replace`/`transform`/`sort`/`sortBy` list.
-Commit: —
+Commit: 00be628fd
 
 ## Validation Plan
 
 - Tests: matrix + harness rows; `rt_inplace_failure_atomic` cases; permutation unit test.
 - Runtime proof: harness alloc counts; brogue output unchanged.
+- Per-letter unit gate (2026-09-21, at `00be628fd`): `cargo test --bin mfb` →
+  `test result: ok. 4285 passed; 0 failed; 1 ignored` (1696.95s).
 
 ## Corrections
 
