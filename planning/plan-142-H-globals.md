@@ -158,15 +158,33 @@ Commit: 02692cd64
 
 ### Phase 4 — Expected outputs
 
-- [ ] Globals self-updated in committed fixtures — measure with
+- [x] Globals self-updated in committed fixtures — measure with
       `rg -lP '^MUT (\w+)' tests examples --glob '*.mfb'` intersected with files
       containing `\1 = …(\1` (a two-step script; record the count here), regenerate
       any committed golden among them; each diff must be a `StoreGlobal` replaced by
       an arm. `examples/brogue` must still match its oracle.
+      Measured per project (a global can be declared in one file and updated in
+      another): 16 of 1516 projects have a top-level `MUT`; **2** self-update one —
+      `examples/brogue` and `tests/rt-behavior/collections/bug496_operand_snapshot_rt`
+      — and none a global `String`. Neither has a native-code golden. But the
+      built-in packages' own globals count too (Correction H5): the full artifact
+      gate showed 4 diffs, all `syntax/app/app-mouse-surface`'s `.app.ncodesum` (one
+      per target), localized by diffing that fixture's `.ncode` from the G-state and
+      final binaries to three canvas-package functions whose global self-updates
+      now take arms — `#canvas_glyphEntry` (`__CANVAS_GLYPH_LASTUSED =
+      collections::set(…)`, `helper_glyph_cache.rs`), `#canvas_textGlyphRun`
+      (`__CANVAS_GLYPH_PINS = collections::append(…)`, `helper_geometry.rs:695`) and
+      `#canvas_memoGroup` (`__CANVAS_DRAW_MEMO_*` appends and `set`,
+      `helper_render.rs`); `.app.nir`/`.app.nplan` unchanged. The four sums were
+      regenerated with the gate's own command (old macOS sum = the G-state build's).
+      Brogue with the final release binary: `check-rng.sh` → all 10 seeds `match`;
+      `check-terrain.sh 8 1` → `all 320 (level seed, depth) pairs match`.
 
 Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual` green
 (est. 15 min — globals appear in every package's fixtures, so no directory subset
 is known to cover them).
+Verified 2026-09-21 at `1f01b7590` (run as plan-142-I's full gate, on a copy of
+that `target/debug/mfb`): `acceptance tests passed (1499 test(s) ran)`.
 Commit: —
 
 ## Validation Plan
@@ -204,6 +222,12 @@ Commit: —
   every `union` line fail to build: a built-in member's monomorph is emitted into
   the user's first file, and its local `x` hit `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`.
   Fixed in `a74a27718` (`rt_user_global_vs_builtin_locals`).
+- **H5 (Phase 4): the population includes the packages' globals.** The measuring
+  script scans `tests` and `examples`; the built-in packages' MFBASIC sources
+  (canvas's glyph and draw-memo caches) hold module-level globals self-updated the
+  same way, and every program that pulls them in now runs those updates in place.
+  The only committed goldens that record it are the four `app-mouse-surface`
+  `.app.ncodesum`s.
 
 ## Summary
 
