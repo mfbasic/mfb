@@ -467,6 +467,43 @@ pub(crate) fn resolve_call_return_type_typed(
     arg_types: &[crate::types::ParameterType],
     strict: bool,
 ) -> Option<crate::types::ParameterType> {
+    resolve_call_return_type_with_kinds(callee, arg_types, strict, &NoTypeKinds)
+}
+
+/// plan-140-A: what a resolution site knows about the KIND of a declared type.
+///
+/// `ParameterType` spells every declared type (record, union, enum) as the same
+/// opaque nominal, and deliberately so: it keys the registry and `TypeModel`, and
+/// its `Hash`/`Eq` are pinned. So the resolver cannot tell an enum from a record by
+/// the type alone; a site that holds the declarations answers for it.
+///
+/// Only the sites whose answer decides ACCEPTANCE (`ir::shape`, `ir::verify`) or
+/// DISPATCH (monomorph's gap-fill override check) pass a real oracle. A typing-only
+/// site keeps [`NoTypeKinds`] through [`resolve_call_return_type_typed`].
+pub(crate) trait TypeKinds {
+    /// Whether `t` names a declared `ENUM`. Must answer from the declaration's
+    /// kind, never from "is a declared type": a record that answered `true` would
+    /// silently lose a user override at monomorph's gap-fill check.
+    fn is_enum(&self, t: &crate::types::ParameterType) -> bool;
+}
+
+/// The oracle that knows no declared kinds: every `is_enum` is `false`.
+pub(crate) struct NoTypeKinds;
+
+impl TypeKinds for NoTypeKinds {
+    fn is_enum(&self, _t: &crate::types::ParameterType) -> bool {
+        false
+    }
+}
+
+/// [`resolve_call_return_type_typed`] with the caller's [`TypeKinds`] oracle, for
+/// a site that decides whether a call is accepted or which body it dispatches to.
+pub(crate) fn resolve_call_return_type_with_kinds(
+    callee: &str,
+    arg_types: &[crate::types::ParameterType],
+    strict: bool,
+    kinds: &dyn TypeKinds,
+) -> Option<crate::types::ParameterType> {
     // Migrated (clean-room registry) packages resolve through the generic
     // matcher: `resolve_call_typed` validates arity and argument types (yielding
     // `None` on a mismatch, which the type checker turns into an error), so this
@@ -494,7 +531,7 @@ pub(crate) fn resolve_call_return_type_typed(
     // ONE entry — the render-in/parse-out pocket plan-104-C recorded here as a
     // deliberate boundary is gone, and so is the string twin that fed it.
     if general::is_general_call(callee) {
-        return general::resolve_return_type(callee, arg_types);
+        return general::resolve_return_type(callee, arg_types, kinds);
     }
     if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
         return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);

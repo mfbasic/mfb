@@ -246,7 +246,12 @@ overridable general built-in (even a sole declaration). The built-in is
 authoritative for the types it already supports: an override is selected **only
 when** `general::resolve_call` rejects the argument types (the gap-fill rule). A
 non-matching call keeps the bare built-in name for codegen dispatch.
-[[src/monomorph/lower.rs:resolve_general_builtin_override]] A user FUNC whose name is an
+[[src/monomorph/lower.rs:resolve_general_builtin_override]] The check is
+kind-aware: it passes the resolver a `TypeKinds` oracle that answers from each
+declaration's kind (a source `ENUM`, or an imported package's), so a built-in
+that supports enums stays authoritative for them while a record override keeps
+its gap-fill dispatch.
+[[src/codegen/builtins/mod.rs:resolve_call_return_type_with_kinds]] A user FUNC whose name is an
 overridable built-in is *always* force-mangled at registration so its codegen
 symbol never equals the built-in's dispatch name.
 

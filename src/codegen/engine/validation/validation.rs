@@ -246,6 +246,13 @@ impl TypeModel {
         }
     }
 
+    /// plan-140-A: whether `t` is a declared `ENUM` — some `enum_members` key has
+    /// it as its type half. Every enum declares at least one member, so no enum
+    /// is missed.
+    pub(crate) fn is_enum_type(&self, t: &ParameterType) -> bool {
+        self.enum_members.keys().any(|(type_, _)| type_ == t)
+    }
+
     pub(crate) fn from_module(module: &NirModule) -> Result<Self, String> {
         let mut model = Self::module_tables(module)?;
         model.finish();

@@ -43,8 +43,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The tree builds | `cargo build --release` → exit 0 | MET (2026-09-20: `target/release/mfb` built 13:42 and used all session) |
-| The golden gate is green before the change, so a diff afterwards is this plan's | `bash scripts/artifact-gate.sh target/release/mfb all` → no diffs | NOT MEASURED — run before Phase 1 |
+| The tree builds | `cargo build --release` → exit 0 | MET (2026-09-20, worktree P-140: `cargo build --release` → exit 0, 1m19s) |
+| The golden gate is green before the change, so a diff afterwards is this plan's | `bash scripts/artifact-gate.sh target/release/mfb all` → no diffs | MET (2026-09-20, worktree P-140 at 730645728: `artifact-gate [all]: 1467 tests, 1642 build(s), 2066 golden(s) checked, 0 diff(s)`) |
 
 Everything below is written against a tree where both hold.
 
@@ -232,27 +232,32 @@ site.
   Check: `grep -c '^- \*\*UNVERIFIED' planning/plan-140-A-enum-kind-seam.md` → 0 (est. 1 min).
   (Corrected, A-C4: the bare-word grep counts this check line itself and never
   reaches 0; the anchored form counts §2's rows.)
-Commit: —
+Commit: d9f51d6f8
 
 ### Phase 2 — The seam, wired, behavior-neutral
 
-- [ ] `src/codegen/builtins/mod.rs`: add `TypeKinds`, `NoTypeKinds`, and
+- [x] `src/codegen/builtins/mod.rs`: add `TypeKinds`, `NoTypeKinds`, and
       `resolve_call_return_type_with_kinds`. Make
       `resolve_call_return_type_typed` delegate with `&NoTypeKinds`.
-- [ ] `src/codegen/builtins/general/mod.rs`: `resolve_call` takes
+      (`cargo check` → Finished; `general::resolve_return_type` also takes `kinds`.)
+- [x] `src/codegen/builtins/general/mod.rs`: `resolve_call` takes
       `_kinds: &dyn TypeKinds`, unread until plan-140-B's `TO_INT` arm reads it.
       Update its unit tests' helper `rt(...)` to pass `&NoTypeKinds`.
-- [ ] `src/codegen/engine/builder/mod.rs`: `TypeModel::is_enum_type(&self, t)`
-      → `self.enum_members.keys().any(|(ty, _)| ty == t)`. If Phase 1 or a
+- [x] `src/codegen/engine/builder/mod.rs`: `TypeModel::is_enum_type(&self, t)`
+      → `self.enum_members.keys().any(|(ty, _)| ty == t)`. (Landed in
+      `TypeModel`'s impl block, `validation/validation.rs`; no hot-path evidence,
+      so no extra set.) If Phase 1 or a
       profile shows this is hot, add an `enum_types: HashSet<ParameterType>`
       filled beside `enum_members` in `validation.rs:288`.
-- [ ] `src/ir/shape.rs`: an adapter over `self.types` (`is_enum`), used by all
-      7 resolver calls.
-- [ ] `src/ir/verify/compat.rs`: an adapter over the source Phase 1 found, used
+- [x] `src/ir/shape.rs`: an adapter over `self.types` (`is_enum`), used by all
+      7 resolver calls. (`ShapeKinds`; `grep -c resolve_call_return_type_typed(
+      src/ir/shape.rs` → 0.)
+- [x] `src/ir/verify/compat.rs`: an adapter over the source Phase 1 found, used
       by its strict calls (`:65`, `:88`) and by `:209` if Phase 1 shows it
       decides acceptance.
-- [ ] `src/monomorph/lower.rs:984`: an adapter over the source Phase 1 found.
-- [ ] Tests: a unit test in `src/codegen/builtins/general/mod.rs`'s test module
+- [x] `src/monomorph/lower.rs:984`: an adapter over the source Phase 1 found.
+      (`impl TypeKinds for Monomorphizer` + `imported_enums`.)
+- [x] Tests: a unit test in `src/codegen/builtins/general/mod.rs`'s test module
       proving `resolve_call` returns the same answer for every existing
       `rt(TO_INT, …)` and `rt(TO_STRING, …)` case with an always-true and an
       always-false oracle. That pins the "not consulted yet" property.
@@ -263,6 +268,12 @@ Acceptance: every program compiles to byte-identical output.
   the resolver feeds every built-in call, so a whole-corpus byte-identity run is
   the smallest check that proves no site changed behavior).
   Check: `cargo test --bin mfb codegen::builtins::general` → pass (est. 2 min).
+  Result: `artifact-gate [all]: 1467 tests, 1642 build(s), 2066 golden(s)
+  checked, 0 diff(s)`; `cargo test --bin mfb codegen::builtins::general` →
+  `27 passed; 0 failed` (includes
+  `resolve_call_does_not_consult_the_kind_oracle_yet`). Doc sync:
+  `cargo test --bin mfb spec` → 43 passed; `spec-census.sh --citations` →
+  MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0.
 Commit: —
 
 ## Validation Plan
@@ -302,6 +313,16 @@ Commit: —
   reconciliation check, not acceptance, but it lives on `TypeEnv` beside the
   oracle, so it is wired too (all 8 compat calls take the oracle). With
   `NoTypeKinds` it would silently skip the annotation check for `toInt(enum)`.
+  Wired sites: `grep -rn "resolve_call_return_type_with_kinds(" src` → shape.rs
+  6 (+1 via its byte-literal helper), verify/compat.rs 7 (+1 via its helper),
+  monomorph/lower.rs 1, builtins/mod.rs 1 (the typed delegate). Left on
+  `NoTypeKinds` (typing): ir/lower.rs 5, monomorph/lower.rs:2023,
+  builder_value_semantics.rs 2, data_objects.rs 2, type_utils.rs 1, regex 1.
+- **A-C5 (Final gate):** the Validation Plan's per-letter `test-accept.sh` run
+  is consolidated into plan-140's single end-of-plan acceptance run (the
+  follow-plan rule: the full acceptance command runs once, at the end). A's
+  neutrality is proven here by the whole-corpus byte-identity gate, a strictly
+  stronger check for a no-behavior-change letter.
 - **A-C4 (Phase 1 check):** `grep -c UNVERIFIED` matches the Phase 1 text and
   its own check line (4 hits with §2 clean); anchored to §2's row form
   (`^- **UNVERIFIED`) → 0.

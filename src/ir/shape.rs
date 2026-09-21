@@ -494,6 +494,7 @@ fn resolve_table_call_with_byte_literals(
     callee: &str,
     arg_types: &[ParameterType],
     arguments: &[&HirExpression],
+    kinds: &dyn builtins::TypeKinds,
 ) -> Option<ParameterType> {
     // plan-111-B: typed throughout. `resolve_call_return_type_typed` (plan-104-C)
     // is the exact twin — it routes the three bespoke per-package resolvers
@@ -501,7 +502,9 @@ fn resolve_table_call_with_byte_literals(
     // registry path with no strings at all. That the twin exists is what let
     // this conversion happen here rather than moving to letter C, which
     // plan-111-B §2 left open pending exactly that check.
-    if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, arg_types, true) {
+    if let Some(return_type) =
+        builtins::resolve_call_return_type_with_kinds(callee, arg_types, true, kinds)
+    {
         return Some(return_type);
     }
     let eligible: Vec<usize> = arg_types
@@ -525,11 +528,31 @@ fn resolve_table_call_with_byte_literals(
                 trial[index] = ParameterType::Byte;
             }
         }
-        if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, &trial, true) {
+        if let Some(return_type) =
+            builtins::resolve_call_return_type_with_kinds(callee, &trial, true, kinds)
+        {
             return Some(return_type);
         }
     }
     None
+}
+
+/// plan-140-A: the built-in resolver's [`builtins::TypeKinds`] oracle over the
+/// walker's declared and imported types. A qualified built-in spelling falls back
+/// to its bare leaf, as the compatibility rule's lookup does.
+struct ShapeKinds<'a>(&'a HashMap<ParameterType, TypeShape>);
+
+impl builtins::TypeKinds for ShapeKinds<'_> {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        let name = t.name();
+        self.0
+            .get(t)
+            .or_else(|| {
+                let bare = builtins::builtin_qualified_bare_leaf(&name);
+                self.0.get(&ParameterType::declared(bare))
+            })
+            .is_some_and(|shape| shape.is_enum)
+    }
 }
 
 /// How a block ends, as the source checker judged it.
@@ -2528,7 +2551,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(canonical)
@@ -2570,8 +2600,13 @@ impl<'a> Walker<'a> {
                             return;
                         };
                         let trial = vec![collection, predicate_type];
-                        if builtins::resolve_call_return_type_typed(canonical, &trial, true)
-                            .is_none()
+                        if builtins::resolve_call_return_type_with_kinds(
+                            canonical,
+                            &trial,
+                            true,
+                            &ShapeKinds(&self.types),
+                        )
+                        .is_none()
                         {
                             let names: Vec<String> =
                                 trial.iter().map(|t| t.name().into_owned()).collect();
@@ -2585,7 +2620,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }
@@ -2648,7 +2690,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }
@@ -2660,7 +2709,14 @@ impl<'a> Walker<'a> {
         if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
             return;
         }
-        if resolve_table_call_with_byte_literals(canonical, &arg_types, normalized).is_none() {
+        if resolve_table_call_with_byte_literals(
+            canonical,
+            &arg_types,
+            normalized,
+            &ShapeKinds(&self.types),
+        )
+        .is_none()
+        {
             let detail = mismatch(&names, expected_overloads());
             self.emit_call_typed_unknown(detail, line);
         }

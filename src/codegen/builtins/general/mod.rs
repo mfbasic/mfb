@@ -36,6 +36,7 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
+use crate::codegen::builtins::{NoTypeKinds, TypeKinds};
 use crate::types::ParameterType;
 
 // One file per member, holding its descriptor AND its man-page prose — the same
@@ -245,7 +246,7 @@ pub(crate) fn filter_predicate_type_typed(
 ) -> Option<crate::types::ParameterType> {
     use crate::types::ParameterType;
     builtin_function_id(name)?;
-    let resolved = resolve_call(name, std::slice::from_ref(element_type))?;
+    let resolved = resolve_call(name, std::slice::from_ref(element_type), &NoTypeKinds)?;
     (resolved.return_type == ParameterType::Boolean).then(|| {
         ParameterType::Func(
             vec![element_type.clone()],
@@ -294,10 +295,11 @@ pub(crate) struct ResolvedCall {
 pub(crate) fn resolve_return_type(
     name: &str,
     arg_types: &[crate::types::ParameterType],
+    kinds: &dyn TypeKinds,
 ) -> Option<crate::types::ParameterType> {
     // plan-111-F: `general`'s own `resolve_call` is typed too now, so the
     // render-in / parse-out pair plan-111-C left here is gone with it.
-    resolve_call(name, arg_types).map(|resolved| resolved.return_type)
+    resolve_call(name, arg_types, kinds).map(|resolved| resolved.return_type)
 }
 
 /// The static (argument-independent) nominal return of a general call — the six
@@ -330,7 +332,13 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     crate::codegen::registry::registry().arity(&format!("general.{name}"))
 }
 
-pub(crate) fn resolve_call(name: &str, arg_types: &[ParameterType]) -> Option<ResolvedCall> {
+/// `_kinds` (plan-140-A) tells an enum from any other declared type; no arm
+/// consults it yet.
+pub(crate) fn resolve_call(
+    name: &str,
+    arg_types: &[ParameterType],
+    _kinds: &dyn TypeKinds,
+) -> Option<ResolvedCall> {
     let resolved = match name {
         ERROR => {
             if exact(arg_types, &[ParameterType::Integer, ParameterType::String]) {
@@ -695,7 +703,7 @@ mod tests {
         // The assertions read as spellings on purpose — a resolver test says
         // which type a call resolves to, and a name is how it says it. The parse
         // is here, once, at the test boundary (plan-111-C Correction C4's rule).
-        resolve_call(name, &types(args)).map(|r| r.return_type.name().into_owned())
+        resolve_call(name, &types(args), &NoTypeKinds).map(|r| r.return_type.name().into_owned())
     }
 
     /// A FUNC signature for `builtin_function_id_for_type`, parsed at the same
@@ -779,7 +787,7 @@ mod tests {
         );
         for name in admitted {
             for spelling in ARGUMENT_TYPES {
-                let Some(resolved) = resolve_call(name, &types(&[spelling])) else {
+                let Some(resolved) = resolve_call(name, &types(&[spelling]), &NoTypeKinds) else {
                     continue;
                 };
                 assert_eq!(
@@ -1001,6 +1009,50 @@ mod tests {
         assert_eq!(rt(TO_INT, &["Integer", "Integer"]), None);
     }
 
+    /// An oracle that calls every type an enum.
+    struct AllEnums;
+    impl TypeKinds for AllEnums {
+        fn is_enum(&self, _t: &ParameterType) -> bool {
+            true
+        }
+    }
+
+    /// plan-140-A: the seam is plumbed but no arm consults it yet, so every
+    /// `toInt`/`toString` case resolves the same under an always-true and an
+    /// always-false oracle — a declared type (`Color`) included.
+    #[test]
+    fn resolve_call_does_not_consult_the_kind_oracle_yet() {
+        let cases: &[&[&str]] = &[
+            &["String"],
+            &["Byte"],
+            &["Float"],
+            &["Fixed"],
+            &["Money"],
+            &["Scalar"],
+            &["Integer"],
+            &["Boolean"],
+            &["List OF Byte"],
+            &["List OF Integer"],
+            &["Color"],
+            &["String", "Integer"],
+            &["Integer", "Integer"],
+            &["Float", "Byte"],
+            &["Fixed", "Byte"],
+            &["Integer", "Byte"],
+            &["Float", "Integer"],
+            &["Color", "Integer"],
+            &["Color", "Byte"],
+        ];
+        for name in [TO_INT, TO_STRING] {
+            for args in cases {
+                let with = |kinds: &dyn TypeKinds| {
+                    resolve_call(name, &types(args), kinds).map(|r| r.return_type)
+                };
+                assert_eq!(with(&AllEnums), with(&NoTypeKinds), "{name}({args:?})");
+            }
+        }
+    }
+
     #[test]
     fn resolve_to_float_fixed_byte() {
         assert_eq!(rt(TO_FLOAT, &["String"]), Some("Float".to_string()));
@@ -1061,10 +1113,10 @@ mod tests {
     #[test]
     fn resolve_return_type_wrapper_delegates() {
         assert_eq!(
-            resolve_return_type(TO_MONEY, &types(&["Integer"])),
+            resolve_return_type(TO_MONEY, &types(&["Integer"]), &NoTypeKinds),
             Some(ParameterType::Money)
         );
-        assert_eq!(resolve_return_type("nope", &types(&["Integer"])), None);
+        assert_eq!(resolve_return_type("nope", &types(&["Integer"]), &NoTypeKinds), None);
     }
 
     #[test]

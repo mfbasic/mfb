@@ -43,6 +43,10 @@ struct Monomorphizer<'a> {
     /// type of the same bare name wins — the same rule IR lowering's `TypeIndex`
     /// applies to the identical `.mfp` layouts (`aa3a77745`).
     imported_records: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
+    /// The ENUM types exported by imported packages, keyed like
+    /// `imported_records` (plan-140-A): the dispatch oracle's answer for an enum
+    /// that has no declaration in `concrete_types`.
+    imported_enums: HashSet<crate::types::ParameterType>,
     concrete_functions: HashMap<String, HirFunction>,
     function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,
