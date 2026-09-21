@@ -334,7 +334,7 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
             }
             "enum" => {
                 fields.insert_enum(
-                    ParameterType::declared(&type_.name),
+                    ParameterType::named(&type_.name),
                     type_
                         .members
                         .iter()

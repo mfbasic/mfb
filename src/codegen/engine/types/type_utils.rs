@@ -86,7 +86,7 @@ pub(crate) fn to_string_enum_members<'a>(
 ) -> Option<&'a [String]> {
     if let NirValue::MemberAccess { target, member } = value {
         if let NirValue::Local(type_name) = target.as_ref() {
-            if let Some(members) = fields.enums.get(&ParameterType::declared(type_name)) {
+            if let Some(members) = fields.enums.get(&ParameterType::named(type_name)) {
                 if members.contains(member) {
                     return Some(members);
                 }

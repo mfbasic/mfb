@@ -474,7 +474,7 @@ pub(super) fn collect_imported_enums(
     crate::manifest::package::imported_type_defs_from_files(&packages)
         .into_iter()
         .filter(|def| matches!(def.kind, crate::ir::ImportedTypeKind::Enum))
-        .map(|def| ParameterType::declared(&def.name))
+        .map(|def| ParameterType::named(&def.name))
         .collect()
 }
 

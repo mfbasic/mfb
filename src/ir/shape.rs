@@ -549,7 +549,7 @@ impl builtins::TypeKinds for ShapeKinds<'_> {
             .get(t)
             .or_else(|| {
                 let bare = builtins::builtin_qualified_bare_leaf(&name);
-                self.0.get(&ParameterType::declared(bare))
+                self.0.get(&ParameterType::named(bare))
             })
             .is_some_and(|shape| shape.is_enum)
     }

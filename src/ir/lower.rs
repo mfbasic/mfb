@@ -5865,7 +5865,7 @@ impl builtins::TypeKinds for TypeIndex {
         self.enums.contains_key(t) || {
             let name = t.name();
             let bare = builtins::builtin_qualified_bare_leaf(&name);
-            bare != name.as_ref() && self.enums.contains_key(&ParameterType::declared(bare))
+            bare != name.as_ref() && self.enums.contains_key(&ParameterType::named(bare))
         }
     }
 }
