@@ -166,6 +166,12 @@ impl<'a> Monomorphizer<'a> {
                 .map(|import| import.binding_name().to_string())
                 .collect(),
             function_files,
+            internal_files: source
+                .files
+                .iter()
+                .filter(|file| file.internal)
+                .map(|file| file.path.clone())
+                .collect(),
             // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call
             // or overload whose argument names a global can be typed (bug-103).
             // `source` is immutable, so this is derived once here instead of per
@@ -659,7 +665,12 @@ impl<'a> Monomorphizer<'a> {
             .get(&function.name)
             .cloned()
             .or(saved_file.clone());
-        let result = self.lower_function_inner(function, substitutions, concrete_name);
+        let internal_origin = self
+            .function_files
+            .get(&function.name)
+            .is_some_and(|path| self.internal_files.contains(path));
+        let mut result = self.lower_function_inner(function, substitutions, concrete_name);
+        result.internal_origin |= internal_origin;
         self.current_file = saved_file;
         result
     }

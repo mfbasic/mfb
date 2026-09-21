@@ -768,6 +768,7 @@ mod tests {
             body: Vec::new(),
             trap: None,
             line: 1,
+            internal_origin: false,
         }
     }
 

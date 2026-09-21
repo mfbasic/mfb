@@ -795,6 +795,10 @@ impl Resolver<'_> {
             &mut self.active_template_params,
             function.template_params.iter().cloned().collect(),
         );
+        let previous_internal_origin = std::mem::replace(
+            &mut self.resolving_internal_origin,
+            function.internal_origin,
+        );
         let mut locals = HashMap::new();
         let parameters = function
             .params
@@ -871,6 +875,7 @@ impl Resolver<'_> {
             self.resolve_block(file, &trap.body, imports, &mut trap_locals);
         }
         self.active_template_params = previous_template_params;
+        self.resolving_internal_origin = previous_internal_origin;
     }
 
     fn resolve_block(
@@ -1399,7 +1404,7 @@ impl Resolver<'_> {
             self.report("SYMBOL_DUPLICATE_LOCAL", &duplicate, file, line);
             return;
         }
-        if file.internal {
+        if file.internal || self.resolving_internal_origin {
             return;
         }
         let Some(keys) = self.top_level_bindings.get(name) else {

@@ -328,6 +328,10 @@ struct Resolver<'a> {
     /// knowledge", never "exports nothing" (bug-480).
     package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
+    /// Set while resolving a monomorph of a built-in package template
+    /// (`HirFunction::internal_origin`): its locals are exempt from
+    /// `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` as its internal file's are.
+    resolving_internal_origin: bool,
     /// plan-136-A: set while a parameter default is being resolved. A default is
     /// evaluated outside its function, so it resolves with no locals; a name it
     /// cannot resolve that is one of the function's parameters is reported as
@@ -411,6 +415,7 @@ impl<'a> Resolver<'a> {
             link_functions: HashMap::new(),
             package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
+            resolving_internal_origin: false,
             default_scope: None,
             top_level_bindings: HashMap::new(),
             had_error: false,
@@ -818,6 +823,7 @@ mod tests {
             body: Vec::new(),
             trap: None,
             line: 1,
+            internal_origin: false,
         }
     }
 

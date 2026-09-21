@@ -655,6 +655,7 @@ mod tests {
             body,
             trap: None,
             line: 1,
+            internal_origin: false,
         }
     }
 

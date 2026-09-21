@@ -310,6 +310,11 @@ pub(crate) struct HirFunction {
     pub(crate) body: Vec<HirStatement>,
     pub(crate) trap: Option<HirTrap>,
     pub(crate) line: usize,
+    /// Set by the monomorphizer on an instantiation of a template declared in an
+    /// internal (built-in package) file. The instantiation is emitted into the
+    /// user's first file, but it is still the package's code: the resolver exempts
+    /// it from the rules an internal file is exempt from.
+    pub(crate) internal_origin: bool,
 }
 
 /// A function trap handler — the elaborated mirror of [`crate::ast::Trap`].
@@ -790,6 +795,7 @@ fn elaborate_function(function: &crate::ast::Function) -> HirFunction {
             .as_ref()
             .map(|trap| elaborate_trap(trap, type_params)),
         line: function.line,
+        internal_origin: false,
     }
 }
 
