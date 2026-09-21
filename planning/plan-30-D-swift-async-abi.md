@@ -1,6 +1,8 @@
 # plan-30-D: Swift async ABI bridge (hand-rolled)
 
-Last updated: 2026-07-07
+Last updated: 2026-09-20 (validity review: design still holds — the oracle findings
+are ABI-stable facts and the `tls.rs` block-callback precedent still exists; re-run
+the §2 oracle probes against the then-current Xcode/SDK before starting Phase 1)
 Effort: medium (1h–2h)   <!-- highest correctness risk in plan-30 -->
 
 This sub-plan hand-emits the **swiftcc** calling convention — including the **async
