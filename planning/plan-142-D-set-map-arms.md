@@ -80,7 +80,7 @@ References: plan-142-A §3; `lower_map_set_in_place` (`map/map_mutate.rs:188`),
 
 Acceptance: `cargo test --bin mfb map_compact_in_place` → pass (est. 3 min).
 Verified 2026-09-21: `test result: ok. 1 passed; 0 failed`.
-Commit: —
+Commit: 5bbca2a25
 
 ### Phase 2 — The four set operations
 
@@ -103,7 +103,7 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_se
 → pass (est. 10 min).
 Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` filtered to the
 six D lines → `1 passed` (bound, `before` and result checks).
-Commit: —
+Commit: 5bbca2a25
 
 ### Phase 3 — `merge` and `mapValues`
 
@@ -121,7 +121,7 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_se
 → pass (est. 10 min).
 Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` (D lines) → `1
 passed`; `rt_inplace_failure_atomic` → `1 passed`.
-Commit: —
+Commit: 5bbca2a25
 
 ### Phase 4 — Expected outputs
 
@@ -134,12 +134,14 @@ Acceptance: acceptance run green on that directory (est. 10 min).
 Verified 2026-09-21: the `rg` count re-run → `0`; `scripts/test-accept.sh <debug mfb> <dir>
 'rt-behavior/collections/*'` → `acceptance tests passed (65 test(s) ran)`; full
 artifact-gate with every D arm → `2078 golden(s) checked, 0 diff(s)`.
-Commit: —
+Commit: 5bbca2a25
 
 ## Validation Plan
 
 - Tests: harness rows, atomicity case, self-alias and order runtime cases,
   compaction unit test.
+- Per-letter unit gate (2026-09-21, at `5bbca2a25`): `cargo test --bin mfb` →
+  `test result: ok. 4286 passed; 0 failed; 1 ignored` (1776.08s).
 
 ## Corrections
 

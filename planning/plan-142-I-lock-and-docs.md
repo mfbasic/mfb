@@ -26,7 +26,10 @@ docs plan-141 found stale and runs the project's full gate once.
 
 ### Phase 1 — Lock
 
-- [ ] Delete `SelfUpdate::Pending` and the harness's `pending:` handling.
+- [~] Delete `SelfUpdate::Pending` and the harness's `pending:` handling.
+      `SelfUpdate::Pending` (and its `pending()` constructor) went in plan-142-E:
+      once the `Exempt` rows landed nothing constructed it, and dead code does not
+      wait. Remaining: the harness's `pending:` status and its check.
 - [ ] Run the new-builtin drill; record both failure lines here.
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_update_census --test rt_inplace_self_update`

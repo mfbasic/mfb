@@ -15,8 +15,18 @@
 //! * `pending:<letter>` — `count(2N) - count(N) >= N`: the line still copies. A
 //!   letter that lands the arm must flip its line, so an improvement that nobody
 //!   recorded fails here too.
-//! * `exempt` — no allocation bound (the result is a new value by definition);
-//!   the value check below only.
+//! * `exempt` — the result is a new value by definition (plan-142-E), so the
+//!   bound is on *live bytes*, and says `x` is read, never copied. A copy of `x`
+//!   has to be live while `x` still is (the assignment has not happened), so it
+//!   raises the program's peak live bytes by `|x|` widths. The statement's share of
+//!   the peak — the peak with it minus the peak of the same program without it, so
+//!   building `x` cancels out — may grow from `|x| = M` to `2M` by less than *half*
+//!   of `M` widths plus the growth of the result's own storage (`4 * Δlen * width`,
+//!   the most a list built by geometric appends can hold) and a small constant. A
+//!   setup line says `{M}` for the size; `M` is above deflate's 32 KiB window, so
+//!   that working table is the same size at both. (Total bytes *allocated* cannot
+//!   make this distinction: these functions allocate per-block temporaries that
+//!   they free as they go — plan-142-E Correction E2.)
 //!
 //! **Value semantics.** Every program first takes `LET before = x`, prints the
 //! line's check expression over `before`, runs the loop, and prints it again: the
@@ -41,6 +51,11 @@ use std::sync::Mutex;
 
 const DEFAULT_N: u64 = 2000;
 
+/// `{M}` in an `exempt` line's setup: the size of `x` for the byte check, and the
+/// (small) size every other program builds.
+const EXEMPT_M: u64 = 65536;
+const VALUE_M: u64 = 64;
+
 const CASES: &str = include_str!("inplace_self_update/cases.tsv");
 
 /// Helper functions every program carries: callbacks the statements pass, and the
@@ -63,6 +78,10 @@ END FUNC
 
 FUNC push(acc AS List OF Integer, n AS Integer) AS List OF Integer
   RETURN collections::append(acc, n)
+END FUNC
+
+FUNC keepAcc(acc AS List OF Integer, n AS Integer) AS List OF Integer
+  RETURN acc
 END FUNC
 
 FUNC showInts(xs AS List OF Integer) AS String
@@ -185,14 +204,19 @@ enum Site {
 
 const ENABLED_SITES: &[Site] = &[Site::Local];
 
+/// `text` with `{M}` replaced by `m`.
+fn sized(text: &str, m: u64) -> String {
+    text.replace("{M}", &m.to_string())
+}
+
 fn program(case: &Case, site: Site, n: u64) -> String {
     let mut src = String::from(PRELUDE);
     match site {
         Site::Local => {
             src.push_str("\nFUNC main() AS Integer\n");
-            src.push_str(&format!("  MUT x AS {}\n", case.decl));
+            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
             for line in &case.setup {
-                src.push_str(&format!("  {line}\n"));
+                src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
             }
             src.push_str(&format!("  LET before AS {} = x\n", case.ty()));
             src.push_str(&format!("  io::print({})\n", case.check));
@@ -245,9 +269,9 @@ fn result_program(case: &Case, site: Site) -> String {
     match site {
         Site::Local => {
             src.push_str("\nFUNC main() AS Integer\n");
-            src.push_str(&format!("  MUT x AS {}\n", case.decl));
+            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
             for line in &case.setup {
-                src.push_str(&format!("  {line}\n"));
+                src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
             }
             src.push_str(&format!("  LET e0 AS {ty} = x\n"));
             for (k, statement) in case.statements.iter().enumerate() {
@@ -273,6 +297,91 @@ fn result_program(case: &Case, site: Site) -> String {
         }
     }
     src
+}
+
+/// The `exempt` byte check's program: `x` built at size `m`, then — when
+/// `with_statement` — the line's first statement once. Prints `len(x)`.
+fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> String {
+    let mut src = String::from(PRELUDE);
+    match site {
+        Site::Local => {
+            src.push_str("\nFUNC main() AS Integer\n");
+            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, m)));
+            for line in &case.setup {
+                src.push_str(&format!("  {}\n", sized(line, m)));
+            }
+            if with_statement {
+                src.push_str(&format!("  {}\n", case.statements[0]));
+            }
+            src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
+        }
+    }
+    src
+}
+
+/// Run a program: `(first output line, peak live bytes over every arena)`.
+fn run_peak(name: &str, source: &str) -> Result<(u64, u64), String> {
+    let exe = build_debug(name, source)?;
+    let output = Command::new(&exe)
+        .output()
+        .map_err(|e| format!("run: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        return Err(format!(
+            "program failed:\n{stdout}\n{stderr}\n--- source ---\n{source}"
+        ));
+    }
+    let len = stdout
+        .lines()
+        .next()
+        .and_then(|l| l.trim().parse().ok())
+        .ok_or_else(|| format!("no length printed:\n{stdout}"))?;
+    let mut peak = 0u64;
+    for line in stderr.lines() {
+        if let Some((_, n)) = line
+            .strip_prefix("arena.")
+            .and_then(|rest| rest.split_once(".peak_live_bytes "))
+        {
+            peak += n
+                .trim()
+                .parse::<u64>()
+                .map_err(|e| format!("bad peak_live_bytes line `{line}`: {e}"))?;
+        }
+    }
+    Ok((len, peak))
+}
+
+/// The `exempt` bound: `x` is read, never copied.
+fn exempt_check(index: usize, case: &Case, site: Site, label: &str) -> Result<(), String> {
+    let width: u64 = if case.ty().ends_with("Byte") { 1 } else { 8 };
+    let tag = format!("su{index}_{site:?}_ex").to_lowercase();
+    let mut costs = Vec::new();
+    for m in [EXEMPT_M, 2 * EXEMPT_M] {
+        let (_, without) = run_peak(
+            &format!("{tag}_{m}_base"),
+            &exempt_program(case, site, m, false),
+        )
+        .map_err(|e| format!("{label} (byte check, M={m}): {e}"))?;
+        let (len, with) = run_peak(
+            &format!("{tag}_{m}_stmt"),
+            &exempt_program(case, site, m, true),
+        )
+        .map_err(|e| format!("{label} (byte check, M={m}): {e}"))?;
+        costs.push((with.saturating_sub(without), len));
+    }
+    let ((cost_m, len_m), (cost_2m, len_2m)) = (costs[0], costs[1]);
+    let growth = cost_2m.saturating_sub(cost_m);
+    let bound = EXEMPT_M * width / 2 + 4 * len_2m.saturating_sub(len_m) * width + 1024;
+    if growth >= bound {
+        return Err(format!(
+            "{label}: marked `exempt`, but doubling |x| from {EXEMPT_M} to {} grew the \
+             statement's peak live bytes by {growth} ({cost_m} -> {cost_2m}; result length \
+             {len_m} -> {len_2m}), not under {bound} — a live copy of `x`",
+            2 * EXEMPT_M
+        ));
+    }
+    Ok(())
 }
 
 /// Build `source` with `--debug` and return the executable (the host glibc one on
@@ -377,6 +486,7 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
             "{label}: marked `pending:{letter}`, but {n} more runs allocated only {extra} \
              more blocks ({once} -> {twice}) — it no longer copies; flip the line to `arm`"
         )),
+        Status::Exempt => exempt_check(index, case, site, &label),
         _ => Ok(()),
     }
 }

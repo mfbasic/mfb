@@ -415,9 +415,12 @@ pub(crate) enum SelfUpdate {
     /// In place at every site, by these arm ids (a function may need two, e.g.
     /// `append` single-element and bulk).
     Arm(&'static [ArmId]),
-    /// Not yet in place; names the plan-142 letter that lands it. Letter I deletes
-    /// this variant.
-    Pending(&'static str),
+    /// No copy of `x` exists to avoid: the result is not built from `x`'s block
+    /// (plan-142-E). `proof` cites the lowering that shows `x` is only read.
+    Exempt {
+        reason: &'static str,
+        proof: &'static str,
+    },
 }
 
 /// A program fragment that performs one self-update of `x`, for the matrix test.
@@ -491,19 +494,6 @@ const fn probe_with(
 }
 
 #[cfg(test)]
-const fn pending(
-    function: &'static str,
-    letter: &'static str,
-    probes: &'static [Probe],
-) -> SelfUpdateRow {
-    SelfUpdateRow {
-        function,
-        kind: SelfUpdate::Pending(letter),
-        probes,
-    }
-}
-
-#[cfg(test)]
 const LI: &str = "List OF Integer";
 #[cfg(test)]
 const LF: &str = "List OF Float";
@@ -531,6 +521,25 @@ const KEYLEN: &str = "FUNC keyLen(s AS String) AS Integer\n  RETURN len(s)\nEND 
 const KEYSTR: &str = "FUNC keyStr(n AS Integer) AS String\n  RETURN toString(0 - n)\nEND FUNC\n\n";
 #[cfg(test)]
 const PUSH: &str = "FUNC push(acc AS List OF Integer, n AS Integer) AS List OF Integer\n  RETURN collections::append(acc, n)\nEND FUNC\n\n";
+
+#[cfg(test)]
+const REDUCE_REASON: &str =
+    "The result is built from `initial`, not from `x`: the fold only walks `x`.";
+#[cfg(test)]
+const REDUCE_PROOF: &str = "`lower_collection_reduce_impl` (`builtins/collections/gen_memory.rs`) stores `args[0]` in `reduce_collection` and only walks it (`initialize_collection_loop_slots`, `load_collection_loop_item`); the accumulator starts from `args[1]`.";
+#[cfg(test)]
+const COMPRESS_REASON: &str =
+    "The result is a new byte stream whose length is unrelated to `x`'s; `x` is only read.";
+#[cfg(test)]
+const COMPRESS_PROOF: &str = "`Body::Rewrite` to an MFBASIC helper that reads its `data` parameter only through `len`, `collections::get`/`getOr` and a header-sized `mid` (`helper_deflate_core.rs`, `helper_inflate_core.rs`, `helper_gzip_frame.rs`, `helper_zlib_frame.rs`, `helper_crc32.rs`, `helper_adler32.rs`): no binding of `data`, so no copy.";
+#[cfg(test)]
+const ARGON_REASON: &str = "The result is a derived key; the password is only read.";
+#[cfg(test)]
+const ARGON_PROOF: &str = "`__crypto_argon2H0` hashes `header || password || tail` with `__crypto_blake2b3`, which compresses whole blocks of the password where they lie (`helper_blake2b.rs`); it used to concatenate the password into a buffer (fixed by plan-142-E).";
+#[cfg(test)]
+const SHAKE_REASON: &str = "The result is a derived digest; `data` is only read.";
+#[cfg(test)]
+const SHAKE_PROOF: &str = "`__crypto_keccakSponge` absorbs whole blocks straight from `data` and builds only the final padded block (`helper_keccak_sponge.rs`); it used to copy all of `data` into a padded buffer (fixed by plan-142-E).";
 
 /// Every registry function with a self-update-shaped overload
 /// (`registry::self_update_shaped`), plus the `String` self-concat.
@@ -871,88 +880,118 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         )],
     },
     // --- letter E: exempt, proven copy-free ---
-    pending(
-        "collections::reduce",
-        "E",
-        &[probe_with(
+    SelfUpdateRow {
+        function: "collections::reduce",
+        kind: SelfUpdate::Exempt {
+            reason: REDUCE_REASON,
+            proof: REDUCE_PROOF,
+        },
+        probes: &[probe_with(
             C,
             PUSH,
             LI,
             "[1, 2, 3]",
             "collections::reduce(x, [0], push)",
         )],
-    ),
-    pending(
-        "collections::reduceRight",
-        "E",
-        &[probe_with(
+    },
+    SelfUpdateRow {
+        function: "collections::reduceRight",
+        kind: SelfUpdate::Exempt {
+            reason: REDUCE_REASON,
+            proof: REDUCE_PROOF,
+        },
+        probes: &[probe_with(
             C,
             PUSH,
             LI,
             "[1, 2, 3]",
             "collections::reduceRight(x, [0], push)",
         )],
-    ),
-    pending(
-        "compress::deflate",
-        "E",
-        &[probe(Z, LB, BYTES, "compress::deflate(x, 6)")],
-    ),
-    pending(
-        "compress::inflate",
-        "E",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "compress::deflate",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(Z, LB, BYTES, "compress::deflate(x, 6)")],
+    },
+    SelfUpdateRow {
+        function: "compress::inflate",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(
             Z,
             LB,
             "compress::deflate(encoding::utf8Encode(\"hello\"), 6)",
             "compress::inflate(x, 1048576)",
         )],
-    ),
-    pending(
-        "compress::gzipEncode",
-        "E",
-        &[probe(Z, LB, BYTES, "compress::gzipEncode(x, 6)")],
-    ),
-    pending(
-        "compress::gzipDecode",
-        "E",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "compress::gzipEncode",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(Z, LB, BYTES, "compress::gzipEncode(x, 6)")],
+    },
+    SelfUpdateRow {
+        function: "compress::gzipDecode",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(
             Z,
             LB,
             "compress::gzipEncode(encoding::utf8Encode(\"hello\"), 6)",
             "compress::gzipDecode(x, 1048576, FALSE)",
         )],
-    ),
-    pending(
-        "compress::zlibEncode",
-        "E",
-        &[probe(Z, LB, BYTES, "compress::zlibEncode(x, 6)")],
-    ),
-    pending(
-        "compress::zlibDecode",
-        "E",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "compress::zlibEncode",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(Z, LB, BYTES, "compress::zlibEncode(x, 6)")],
+    },
+    SelfUpdateRow {
+        function: "compress::zlibDecode",
+        kind: SelfUpdate::Exempt {
+            reason: COMPRESS_REASON,
+            proof: COMPRESS_PROOF,
+        },
+        probes: &[probe(
             Z,
             LB,
             "compress::zlibEncode(encoding::utf8Encode(\"hello\"), 6)",
             "compress::zlibDecode(x, 1048576, FALSE)",
         )],
-    ),
-    pending(
-        "crypto::argon2id",
-        "E",
-        &[probe(
+    },
+    SelfUpdateRow {
+        function: "crypto::argon2id",
+        kind: SelfUpdate::Exempt {
+            reason: ARGON_REASON,
+            proof: ARGON_PROOF,
+        },
+        probes: &[probe(
             K,
             LB,
             BYTES,
             "crypto::argon2id(x, encoding::utf8Encode(\"saltsaltsalt\"), 32, 1, 1, 32)",
         )],
-    ),
-    pending(
-        "crypto::shake256",
-        "E",
-        &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
-    ),
+    },
+    SelfUpdateRow {
+        function: "crypto::shake256",
+        kind: SelfUpdate::Exempt {
+            reason: SHAKE_REASON,
+            proof: SHAKE_PROOF,
+        },
+        probes: &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
+    },
 ];
 
 #[cfg(test)]
@@ -1120,11 +1159,10 @@ mod tests {
                 row.function
             );
             assert!(!row.probes.is_empty(), "row {} has no probe", row.function);
-            if let SelfUpdate::Pending(letter) = row.kind {
+            if let SelfUpdate::Exempt { reason, proof } = row.kind {
                 assert!(
-                    ["B", "C", "D", "E"].contains(&letter),
-                    "row {} is pending on `{letter}`, which is not a plan-142 letter that \
-                     lands arms or exemptions",
+                    !reason.trim().is_empty() && !proof.trim().is_empty(),
+                    "row {} is Exempt without a reason and a proof",
                     row.function
                 );
             }
