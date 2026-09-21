@@ -61,8 +61,11 @@ fn resolve_table_call_with_byte_literals(
     target: &str,
     arg_types: &[ParameterType],
     args: &[IrValue],
+    kinds: &dyn builtins::TypeKinds,
 ) -> Option<ParameterType> {
-    if let Some(return_type) = builtins::resolve_call_return_type_typed(target, arg_types, true) {
+    if let Some(return_type) =
+        builtins::resolve_call_return_type_with_kinds(target, arg_types, true, kinds)
+    {
         return Some(return_type);
     }
     let eligible: Vec<usize> = arg_types
@@ -85,11 +88,21 @@ fn resolve_table_call_with_byte_literals(
                 trial[index] = ParameterType::Byte;
             }
         }
-        if let Some(return_type) = builtins::resolve_call_return_type_typed(target, &trial, true) {
+        if let Some(return_type) =
+            builtins::resolve_call_return_type_with_kinds(target, &trial, true, kinds)
+        {
             return Some(return_type);
         }
     }
     None
+}
+
+/// plan-140-A: the built-in resolver's enum oracle over the verifier's `enums`
+/// table, which holds the project's declared enums and the imported packages'.
+impl builtins::TypeKinds for TypeEnv {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t)
+    }
 }
 
 impl TypeEnv {
@@ -206,7 +219,7 @@ impl TypeEnv {
             else {
                 return;
             };
-            crate::codegen::builtins::resolve_call_return_type_typed(target, &arg_types, false)
+            builtins::resolve_call_return_type_with_kinds(target, &arg_types, false, self)
                 .and_then(|t| usable_type(Some(t)))
         };
         let Some(declared) = declared else {
@@ -314,7 +327,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
@@ -365,7 +380,9 @@ impl TypeEnv {
                         return;
                     };
                     let trial = vec![arg_types[0].clone(), predicate_type.clone()];
-                    if builtins::resolve_call_return_type_typed(target, &trial, true).is_none() {
+                    if builtins::resolve_call_return_type_with_kinds(target, &trial, true, self)
+                        .is_none()
+                    {
                         let predicate_type = predicate_type.name();
                         self.emit_argument_mismatch(format!(
                                 "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate_type}), expected {}.",
@@ -381,7 +398,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 self.emit_argument_mismatch(format!(
                     "Call to `{target}` has argument type(s) ({}), expected {}.",
                     arg_type_names(),
@@ -464,7 +483,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 self.emit_argument_mismatch(format!(
                     "Call to `{target}` has argument type(s) ({}), expected {}.",
                     arg_type_names(),
@@ -481,7 +502,7 @@ impl TypeEnv {
                 return;
             }
         }
-        if resolve_table_call_with_byte_literals(target, &arg_types, args).is_none() {
+        if resolve_table_call_with_byte_literals(target, &arg_types, args, self).is_none() {
             self.emit_argument_mismatch(format!(
                 "Call to `{target}` has argument type(s) ({}), expected {}.",
                 arg_type_names(),

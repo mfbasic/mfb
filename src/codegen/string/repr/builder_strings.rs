@@ -785,9 +785,64 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-140-C: `toString(<enum>)` is the member's name as declared. The value
+    /// is the member's 0-based ordinal, so a compare-and-branch chain over the
+    /// members in declaration order selects the name's string data. The last
+    /// member is the fall-through: an enum value is always one of its members,
+    /// so there is no "no match" case. The pre-pass registers these exact names
+    /// (`to_string_enum_members`), both reading `TypeModel::enum_names`.
+    ///
+    /// The selected name is then copied into a fresh arena block and marked
+    /// fresh, like every other `toString` result, rather than handed back as a
+    /// read-only pointer. A read-only result is only safe where every owner
+    /// recognizes it as one: an owning store that did not would take it as its
+    /// own and later free or grow it in place (a bound `toString(<Boolean>)`
+    /// followed by `s = s & "!"` does exactly that, see plan-140-C C-C3).
+    fn lower_enum_to_string(
+        &mut self,
+        value: ValueResult,
+        members: &[String],
+    ) -> Result<ValueResult, String> {
+        let Some((last, earlier)) = members.split_last() else {
+            return Err(format!(
+                "native toString: enum {} has no members",
+                value.type_
+            ));
+        };
+        let result = self.allocate_register();
+        let done = self.label("enum_to_string_done");
+        for (ordinal, member) in earlier.iter().enumerate() {
+            let next = self.label("enum_to_string_next");
+            self.emit(abi::compare_immediate(
+                &value.location,
+                &ordinal.to_string(),
+            ));
+            self.emit(abi::branch_ne(&next));
+            self.emit_load_string_constant(&result, member)?;
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&next));
+        }
+        self.emit_load_string_constant(&result, last)?;
+        self.emit(abi::label(&done));
+        let copied = self.copy_flat_block(&ParameterType::String, &result)?;
+        self.mark_fresh_string(Operand::from(copied.render()));
+        Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(copied.render()),
+            text: format!("toString({})", value.text),
+        })
+    }
+
     pub(crate) fn lower_to_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
+        if args.len() == 1 {
+            if let Some(members) = self.type_model.enum_member_names(&value.type_) {
+                let members = members.to_vec();
+                return self.lower_enum_to_string(value, &members);
+            }
+        }
         // Observation boundary: rendering a `Float` to text makes it
         // user-accessible, so a non-finite arithmetic result must trap here
         // rather than print as "inf"/"nan" (plan-17). `toString`/`toText` are

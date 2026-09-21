@@ -1,0 +1,84 @@
+{
+  "project": "toInt_enum",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 },
+    { "module": "datetime", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Color",
+      "line": 7,
+      "members": [
+      { "name": "Red", "line": 8 },
+      { "name": "Green", "line": 8 },
+      { "name": "Blue", "line": 8 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Swatch",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 12 },
+      { "visibility": null, "name": "hue", "type": "Color", "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" }] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }] }] }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": null, "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "10" } }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "allColors", "type": "List OF Color", "value": { "kind": "list", "values": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "allColors" }, { "kind": "number", "value": "1" }] }] }] }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Swatch", "value": { "kind": "constructor", "type": "Swatch", "arguments": [{ "kind": "string", "value": "sky" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "hue" }] }] }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 34,
+        "expression": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 35 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 36 }
+        ]
+      }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] }] }, "line": 38 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 41 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "allColors" }] } },
+        "line": 42,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "back", "type": "Color", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "allColors" }, { "kind": "identifier", "value": "i" }] }, "line": 43 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "back" }] }, "right": { "kind": "identifier", "value": "i" } }] }] }, "line": 44 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 45 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "datetime.Weekday" }, "member": "Monday" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "datetime.Weekday" }, "member": "Sunday" }] }] }] }, "line": 50 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+      ]
+    }
+    ]
+  }
+  ]
+}

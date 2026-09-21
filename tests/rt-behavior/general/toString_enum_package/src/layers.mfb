@@ -1,0 +1,4 @@
+' The second source file: a PUBLIC enum `main.mfb` converts with `toString`.
+PUBLIC ENUM Layer
+  Ground, Liquid, Surface, Gas
+END ENUM

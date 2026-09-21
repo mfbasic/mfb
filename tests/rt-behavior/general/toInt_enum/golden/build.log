@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/general/toInt_enum
+Wrote AST to tests/rt-behavior/general/toInt_enum/toInt_enum.ast
+Wrote IR to tests/rt-behavior/general/toInt_enum/toInt_enum.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/toInt_enum
+Wrote executable to tests/rt-behavior/general/toInt_enum/build/toInt_enum.out
+[exit 0]
+$ tests/rt-behavior/general/toInt_enum/build/toInt_enum.out
+0
+1
+2
+12
+1
+2
+1
+TRUE
+TRUE
+TRUE
+0
+6
+[exit 0]

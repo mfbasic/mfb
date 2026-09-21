@@ -3955,8 +3955,14 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                let resolved =
-                    builtins::resolve_call_return_type_typed(&canonical_callee, &arg_types, false);
+                // plan-140-B: with the type index as the enum oracle, so
+                // `toInt(<enum>)` types as `Integer`.
+                let resolved = builtins::resolve_call_return_type_with_kinds(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                    context.type_index,
+                );
                 // A package-provided override of an overridable general builtin
                 // (`toString(net::Url)` → the package's renderer, plan-01-overload
                 // §B.2) yields the builtin's conventional result type — the same
@@ -4955,12 +4961,25 @@ fn lower_expression_with_expected(
             // (plan-01-overload.md §B.2 / Phase 6), e.g. `toString(net::Url)` ->
             // `#net_urlToString`. User overrides need no routing here — the
             // monomorphizer already rewrote them to a concrete symbol (Phase 5).
+            // plan-140-C: the §18.3 gap-fill rule applies here too — the
+            // built-in stays authoritative for a type it accepts, so an enum
+            // argument (which `toString` accepts) never routes to a package
+            // helper that merely shares its bare type name (`color`'s `Color`).
             let package_override =
                 if crate::codegen::builtins::general::is_overridable(&canonical_callee) {
                     arguments
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
+                        .filter(|type_| {
+                            builtins::resolve_call_return_type_with_kinds(
+                                &canonical_callee,
+                                std::slice::from_ref(type_),
+                                false,
+                                context.type_index,
+                            )
+                            .is_none()
+                        })
                         .and_then(|type_| {
                             builtins::general_override_target(&canonical_callee, &type_)
                         })
@@ -5837,6 +5856,18 @@ struct TypeIndex {
     variants: HashMap<ParameterType, ParameterType>,
     variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
     variant_fields: HashMap<ParameterType, Vec<IrField>>,
+}
+
+/// plan-140-B: the built-in resolver's enum oracle over the declared and
+/// imported enums. A qualified built-in spelling falls back to its bare leaf.
+impl builtins::TypeKinds for TypeIndex {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t) || {
+            let name = t.name();
+            let bare = builtins::builtin_qualified_bare_leaf(&name);
+            bare != name.as_ref() && self.enums.contains_key(&ParameterType::declared(bare))
+        }
+    }
 }
 
 impl TypeIndex {

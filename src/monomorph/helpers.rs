@@ -454,6 +454,30 @@ pub(super) fn collect_imported_records(
         .collect()
 }
 
+/// The ENUM types exported by imported packages, keyed by the bare declared
+/// nominal exactly as [`collect_imported_records`] keys a record (plan-140-A).
+pub(super) fn collect_imported_enums(
+    project_dir: &Path,
+    source: &HirProject,
+) -> HashSet<ParameterType> {
+    let packages = source
+        .files
+        .iter()
+        .flat_map(|file| file.import_bindings())
+        .map(|(_, package)| package)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|package| {
+            crate::manifest::package::resolved_package_file(project_dir, &package)
+        })
+        .collect::<Vec<_>>();
+    crate::manifest::package::imported_type_defs_from_files(&packages)
+        .into_iter()
+        .filter(|def| matches!(def.kind, crate::ir::ImportedTypeKind::Enum))
+        .map(|def| ParameterType::declared(&def.name))
+        .collect()
+}
+
 pub(super) fn collect_imported_overloads(
     project_dir: &Path,
     source: &HirProject,

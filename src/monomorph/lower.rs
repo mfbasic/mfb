@@ -25,6 +25,21 @@ fn strip_qualifier_prefixes(input: &str, qualifier: &str) -> String {
     out
 }
 
+/// plan-140-A: the built-in resolver's enum oracle at the gap-fill dispatch check.
+/// Answers from the declaration's KIND — a source enum in `concrete_types`, or an
+/// imported package's — never from "is a declared type".
+impl crate::codegen::builtins::TypeKinds for Monomorphizer<'_> {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        match self.concrete_types.get(t) {
+            Some(type_decl) => matches!(type_decl.kind, TypeDeclKind::Enum),
+            None => {
+                self.imported_enums.contains(t)
+                    || self.imported_enums.contains(&self.normalize_type(t))
+            }
+        }
+    }
+}
+
 impl<'a> Monomorphizer<'a> {
     pub(super) fn new(project_dir: &'a Path, source: &'a HirProject) -> Self {
         let mut type_templates = HashMap::new();
@@ -131,6 +146,7 @@ impl<'a> Monomorphizer<'a> {
             function_templates,
             concrete_types,
             imported_records: collect_imported_records(project_dir, source),
+            imported_enums: collect_imported_enums(project_dir, source),
             concrete_functions,
             function_overloads,
             overload_names,
@@ -981,8 +997,13 @@ impl<'a> Monomorphizer<'a> {
         // registry aggregate resolves it exactly as `general::resolve_call` did
         // (plan-72-BB). plan-106-A: through the TYPED entry (plan-104-C's
         // `resolve_call_return_type_typed`), so no type is rendered here.
-        if crate::codegen::builtins::resolve_call_return_type_typed(name, arg_types, false)
-            .is_some()
+        // plan-140-A: with this monomorphizer as the enum oracle, so a built-in
+        // that supports enums is authoritative for them here too, while a record
+        // override keeps its gap-fill dispatch.
+        if crate::codegen::builtins::resolve_call_return_type_with_kinds(
+            name, arg_types, false, self,
+        )
+        .is_some()
         {
             return None;
         }

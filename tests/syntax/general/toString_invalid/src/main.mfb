@@ -4,5 +4,12 @@ FUNC main AS Integer
   LET wrongPrecisionType AS String = toString(1.25, "2")
   LET precisionForInteger AS String = toString(1, TRUE)
   LET tooMany AS String = toString(1.25, 2, 3)
+  LET enumWithPrecision AS String = toString(Color.Red, 2)
   RETURN 0
 END FUNC
+
+' plan-140-C: an enum converts, but the precision form stays
+' `Float`/`Fixed`/`Money`-only.
+ENUM Color
+  Red, Green, Blue
+END ENUM

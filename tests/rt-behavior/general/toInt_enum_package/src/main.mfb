@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT enum_pkg_tiny
+
+' plan-140-B: `toInt` of an enum from a second source file and of an enum
+' exported by a package, both the member's 0-based declaration index.
+FUNC main AS Integer
+  io::print(toString(toInt(Layer.Ground)))
+  io::print(toString(toInt(Layer.Gas)))
+  io::print(toString(toInt(enum_pkg_tiny::Suit.Clubs)))
+  io::print(toString(toInt(enum_pkg_tiny::Suit.Spades)))
+  LET s AS enum_pkg_tiny::Suit = enum_pkg_tiny::favorite()
+  io::print(toString(toInt(s)))
+  io::print(toString(enum_pkg_tiny::rank(enum_pkg_tiny::Suit.Diamonds)))
+  RETURN 0
+END FUNC

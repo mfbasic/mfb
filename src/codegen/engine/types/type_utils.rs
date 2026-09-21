@@ -14,7 +14,100 @@ use std::collections::HashMap;
 /// `static_nir_value_type` so a module-level walk can type `c.radius` the same
 /// way the builder does. Without it a `MemberAccess` operand types as `None` and
 /// every predicate built on this seam silently under-approximates (bug-363).
-pub(crate) type FieldTypes = HashMap<(String, String), ParameterType>;
+///
+/// plan-140-B: it also carries every enum's member names in declaration order,
+/// so the same walks can tell an enum from any other declared type — the one
+/// kind fact the built-in resolver needs ([`builtins::TypeKinds`]). The string
+/// pre-pass fills it from the builder's own `TypeModel`
+/// ([`FieldTypes::with_enums_of`]), so the two cannot disagree about which types
+/// are enums.
+#[derive(Clone, Default)]
+pub(crate) struct FieldTypes {
+    fields: HashMap<(String, String), ParameterType>,
+    enums: HashMap<ParameterType, Vec<String>>,
+    /// plan-140-C: each module function's declared return, so the enum
+    /// `toString` predicate can type a user call's result (a NIR `Call`
+    /// carries none). Read by [`to_string_enum_members`] only.
+    function_returns: HashMap<String, ParameterType>,
+}
+
+impl FieldTypes {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn insert(&mut self, key: (String, String), type_: ParameterType) {
+        self.fields.insert(key, type_);
+    }
+
+    pub(crate) fn get(&self, key: &(String, String)) -> Option<&ParameterType> {
+        self.fields.get(key)
+    }
+
+    /// Record an enum's member names, in declaration order.
+    pub(crate) fn insert_enum(&mut self, type_: ParameterType, members: Vec<String>) {
+        self.enums.insert(type_, members);
+    }
+
+    /// Every enum `model` knows — the module's own, the imported packages', and
+    /// the bare aliases of built-in ones — with members ordered by ordinal.
+    pub(crate) fn with_enums_of(mut self, model: &TypeModel) -> Self {
+        self.enums.extend(
+            model
+                .enum_names
+                .iter()
+                .map(|(type_, names)| (type_.clone(), names.clone())),
+        );
+        self
+    }
+
+    /// Record each module function's declared return type (plan-140-C).
+    pub(crate) fn with_function_returns(mut self, module: &NirModule) -> Self {
+        self.function_returns.extend(
+            module
+                .functions
+                .iter()
+                .map(|function| (function.name.clone(), function.returns.clone())),
+        );
+        self
+    }
+}
+
+/// plan-140-C: the member names a `toString(<value>)` needs as string data, in
+/// declaration order, when `value` is enum-typed — `None` for any other
+/// argument. The string pre-pass registers exactly these names, so it must type
+/// the argument at least as well as the builder does: an `Enum.Member` literal
+/// first (the builder resolves `Local(T).member` as an enum member before
+/// anything else), then a static type, then a user function's declared return.
+pub(crate) fn to_string_enum_members<'a>(
+    value: &NirValue,
+    types: &HashMap<String, ParameterType>,
+    fields: &'a FieldTypes,
+) -> Option<&'a [String]> {
+    if let NirValue::MemberAccess { target, member } = value {
+        if let NirValue::Local(type_name) = target.as_ref() {
+            if let Some(members) = fields.enums.get(&ParameterType::declared(type_name)) {
+                if members.contains(member) {
+                    return Some(members);
+                }
+            }
+        }
+    }
+    let type_ =
+        static_type_name_for_fold_with_types(value, types, fields).or_else(|| match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+                fields.function_returns.get(target).cloned()
+            }
+            _ => None,
+        })?;
+    fields.enums.get(&type_).map(Vec::as_slice)
+}
+
+impl builtins::TypeKinds for FieldTypes {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t)
+    }
+}
 
 pub(crate) fn static_nir_value_type(
     value: &NirValue,
