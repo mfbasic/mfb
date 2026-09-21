@@ -492,7 +492,10 @@ impl CodeBuilder<'_> {
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
-                        name, type_, value, ..
+                        mutable,
+                        name,
+                        type_,
+                        value,
                     } => {
                         let stack_offset = self.allocate_stack_object(name, 8);
                         // A non-escaping `MUT` by-ref capture: the env slot holds a
@@ -503,6 +506,16 @@ impl CodeBuilder<'_> {
                         // and frees the value).
                         let by_ref_capture_slot =
                             matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
+                        // A by-value capture of a flat value is read straight out of
+                        // the closure env: the env owns the copy made when the closure
+                        // was created, it outlives this call, and the binding is
+                        // immutable. Copying it here cost one block per call
+                        // (`rt_lambda_capture_not_copied_per_call`). Like a by-ref
+                        // capture, the binding owns nothing.
+                        let borrowed_capture = !*mutable
+                            && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
+                            && self.is_freeable_flat_value(type_);
+                        let aliases_capture = by_ref_capture_slot || borrowed_capture;
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
                         // it, so every read must deref.
@@ -597,7 +610,7 @@ impl CodeBuilder<'_> {
                         let borrowed_graph_view =
                             self.owns_graph(type_) && self.store_is_borrowed_view();
                         let owns_freeable_value = !aliases_union_variant
-                            && !by_ref_capture_slot
+                            && !aliases_capture
                             && !runtime_managed
                             && !promote_vector
                             && !is_borrow_get
@@ -623,7 +636,7 @@ impl CodeBuilder<'_> {
                                 Some(NirValue::CallResult { .. }),
                             ) if !owns_freeable_value
                                 && !aliases_union_variant
-                                && !by_ref_capture_slot
+                                && !aliases_capture
                                 && !runtime_managed
                                 && !promote_vector =>
                             {
@@ -786,7 +799,7 @@ impl CodeBuilder<'_> {
                             // `materialize_owned_element` return the aliasing element
                             // pointer instead of copying it. Scoped to this one
                             // initializer.
-                            let result = if aliases_union_variant || by_ref_capture_slot {
+                            let result = if aliases_union_variant || aliases_capture {
                                 self.lower_value(value)?
                             } else if is_borrow_get {
                                 // bug-592: ARM, do not set — `lower_value` turns the
@@ -887,8 +900,9 @@ impl CodeBuilder<'_> {
                             if !Self::thread_value_is_fresh_handle(value.as_ref()) {
                                 self.emit_thread_owner_increment(stack_offset);
                             }
-                        } else if aliases_union_variant || by_ref_capture_slot {
-                            // Non-owning — no cleanup (the parent binding frees it).
+                        } else if aliases_union_variant || aliases_capture {
+                            // Non-owning — no cleanup (the parent binding or the
+                            // closure env frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
                             &resource_owner
                         {
