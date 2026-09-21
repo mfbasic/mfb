@@ -5,8 +5,72 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/runtime/rt_global_argument_reassigned_by_callee.rs (to be added, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_global_argument_reassigned_by_callee.rs
+
+## STATUS: FIXED (9317e6eac)
+
+Fixed as designed, at the operand-snapshot seam rather than in
+`emit_prepared_call_args_hooked`: `push_operand_snapshot_frame` now also marks a
+call argument rooted in a global `g` (`global_root`: the global, or a field /
+variant / `Result` payload read out of it) when the call itself can reach a
+`StoreGlobal` of `g`, and `snapshot_aliased_operand` deep-copies it into a
+statement-scope temporary. Because every argument path (user calls,
+`abi_inline` bodies, self-lowering builtins) lowers through `lower_value`, one
+hook covers the user-call, HOF-callback and FUNC-value rows alike.
+
+The reachability walk is new and shared: `engine/value/store_reach.rs`
+(`StoreLeaf::{StateAssign, Global}`). It follows module functions, follows a
+`FunctionRef`/`LAMBDA` handed to a builtin into its lifted body, treats any other
+value in a registry-`FUNC` parameter position as opaque, and assumes every other
+target (FUNC binding, foreign import, unknown name) reaches.
+
+**Deviation — G25 is not byte-for-byte identical.** Phase 2 asked to keep G25
+unchanged; G25 now uses the shared walk, which differs in two directions: an
+unresolved call target inside a callee body (e.g. a `FUNC` value read out of a
+record or list) now counts as reaching — the old walk looked the name up in the
+*caller's* locals and answered "no", a fail-open hole — and a literal callback to
+a builtin HOF is followed instead of making the whole call opaque. The G25 suites
+(`codegen_inplace_append_call_result`, `rt_res_state_inplace_mutation`,
+`rt_operand_snapshot`) pass and no golden moved.
+
+**Blast-radius rows:** the `get`-borrow row is closed — the gate in
+`function_lowering.rs` admits only a `NirValue::Local` container, so a global is
+never borrowed that way; `clobber(collections::get(gg, 0))` was measured to
+already receive a copy. A `String` global was an additional silent case (the
+parameter read as empty, no crash) and is in the test.
+
+Validation, all measured in the `worktree-B-665` worktree after merging main
+(2db51876b) into it:
+
+- `scripts/artifact-gate.sh target/release/mfb all` → `1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`. No golden moved:
+  no committed fixture passes a global to a callee that writes it, or loops over a
+  global its body writes, so there was nothing to regenerate.
+- `cargo test --no-fail-fast -- --skip artifact_gate_all` → 202 test binaries, every one `test result: ok` — 5898 passed, 0 failed, 6 ignored.
+- `scripts/test-accept.sh target/debug/mfb target/accept-actual` → `acceptance tests passed (1499 test(s) ran)`
+
+**Found along the way, fixed in the same branch (none caused by this fix):**
+
+1. plan-94: a `--app` program using the mouse but not `canvas::` failed to BUILD on
+   macOS, Linux and Windows (`relocation target _mfb_rt_canvas_graphics is not a
+   data object or defined symbol`) — the pixel-surface mouse code named the canvas
+   graphics state unconditionally. Gated on `uses_canvas`; new test
+   `a_mouse_app_without_canvas_builds_on_every_app_backend`. That build failure
+   had masked three stale plan-94-A assertions in `codegen_mouse_arena_region`,
+   corrected line-only with proof in the commit (`MOUSE_STATE_SLOTS` is 9 since
+   plan-94-B; the AArch64 frame grows in 16-byte steps; plan-94-B/C add
+   mouse-only data objects beyond the mode word).
+2. plan-94: `shared_lowering_names_no_physical_register` (raw `x1`…`x19`,
+   `d0`…`d3` in `mouse_view.rs`) and `builtins_no_hand_picked_vreg` (the stdin
+   mouse pump's `%v900`…`%v906`, minted beside a fresh `Vregs::new()` in each
+   half). Neutral tokens / the caller's own `Vregs`; `app-mouse-surface`'s four
+   `.app.ncodesum` goldens unchanged, `rt_native_term_runtime` 16/16.
+   Items 1–2 reproduced at main tip 2db51876b in a detached worktree.
+3. plan-140: `no_type_strings` over budget (five new `ParameterType::declared`
+   sites on enum names) — converted to `ParameterType::named`, value-identical
+   for an identifier. Attributed by `git log -S` to 2c33f5e66, efbbf57d5,
+   f5c029b00; this branch adds no `declared(` site.
+
 
 A module-level collection `g` passed as an argument to a FUNC/SUB that
 reassigns `g` crashes the program (`Error: 7-701-0001 Allocation failed.`) or
@@ -138,40 +202,40 @@ Rejected:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_global_argument_reassigned_by_callee.rs` (plus its
+- [x] Add `tests/runtime/rt_global_argument_reassigned_by_callee.rs` (plus its
       `[[test]]` stanza in `Cargo.toml`, checked by `tests/guards/test_targets_registered.rs`):
       the reproduction above (expects the three lines), the `forEach` callback
       variant, and the `FUNC`-value variant. Confirm each fails today.
-- [ ] Settle the `get`-borrow row of the blast radius (read
+- [x] Settle the `get`-borrow row of the blast radius (read
       `function_lowering.rs:411-416`; if a global container can be admitted, add
       a case to the test).
 
 Acceptance: `cargo test --test rt_global_argument_reassigned_by_callee` → every
 case fails with the crash/garbage recorded above (est. 3 min).
-Commit: —
+Commit: aa9f2a816
 
 ### Phase 2 — the fix
 
-- [ ] Generalize the G25 walker in `inplace_dest.rs` to take the leaf predicate
+- [x] Generalize the G25 walker in `inplace_dest.rs` to take the leaf predicate
       (`StateAssign` for G25, `StoreGlobal { name }` here); keep G25's behavior
       identical.
-- [ ] In `emit_prepared_call_args_hooked` (and the builtin-call argument path
+- [x] In `emit_prepared_call_args_hooked` (and the builtin-call argument path
       used by `abi_inline` lowerings with callbacks), lower an argument owned when
       it reads a global the call can reach a write of.
 
 Acceptance: `cargo test --test rt_global_argument_reassigned_by_callee` → all
 pass; `cargo test --test codegen_inplace_append_call_result` (G25 cases) still
 passes (est. 5 min).
-Commit: —
+Commit: 9317e6eac
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate any `.ncode` goldens the new copies shift; each diff must be a
+- [x] Regenerate any `.ncode` goldens the new copies shift; each diff must be a
       call whose argument is a global written by the callee.
-- [ ] Full suite: `cargo test` and `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+- [x] Full suite: `cargo test` and `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
 Acceptance: both green; every golden delta is a call site of that shape.
-Commit: —
+Commit: 8860a6bb4 (spec); fallout c4aa2aa79 (plan-94), 7b8924932 (plan-140); fmt cc183f682
 
 ## Validation Plan
 

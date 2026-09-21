@@ -5,8 +5,35 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/runtime/rt_for_each_over_reassigned_global.rs (to be added, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_for_each_over_reassigned_global.rs
+
+## STATUS: FIXED (9317e6eac)
+
+Landed together with bug-665 (the Open Decision: its generalized walker,
+`engine/value/store_reach.rs`, is the one this uses). `lower_for_each` marks a
+global-rooted iterable for the operand snapshot when `ops_reach_store(body,
+StoreLeaf::Global(g))`; the copy is a statement-scope temporary, so the end of
+the `FOR EACH` statement frees it on every exit edge — fall-through, `EXIT FOR`
+and `RETURN` are all measured flat by the test's `--debug` `live_bytes` check,
+which goes red (264224 → 528224 B at 500/1000) when the free is removed.
+
+Beyond the doc's three rows, `Map` and `Set` globals (the entry-table arms of
+`lower_for_each`) crashed the same way and are fixed and tested. The local-source
+contrast was re-measured: a `MUT` local and a local record field already visit
+the entry value. `mfb spec language control-flow` now states the guarantee.
+
+Validation, all measured in the `worktree-B-665` worktree after merging main
+(2db51876b) into it:
+
+- `scripts/artifact-gate.sh target/release/mfb all` → `1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`. No golden moved:
+  no committed fixture passes a global to a callee that writes it, or loops over a
+  global its body writes, so there was nothing to regenerate.
+- `cargo test --no-fail-fast -- --skip artifact_gate_all` → 202 test binaries, every one `test result: ok` — 5898 passed, 0 failed, 6 ignored.
+- `scripts/test-accept.sh target/debug/mfb target/accept-actual` → `acceptance tests passed (1499 test(s) ran)`
+
+Fallout found on the way: see bug-665's STATUS block.
+
 
 `FOR EACH v IN g` over a module-level collection `g`, with a statement in the
 body (or in a function the body calls) that reassigns `g`, crashes on the next
@@ -96,30 +123,30 @@ list at runtime.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Add `tests/runtime/rt_for_each_over_reassigned_global.rs` (+ `[[test]]`
+- [x] Add `tests/runtime/rt_for_each_over_reassigned_global.rs` (+ `[[test]]`
       stanza): the reproduction, the called-function variant, the record-field
       variant. Confirm each fails today.
 
 Acceptance: `cargo test --test rt_for_each_over_reassigned_global` → every case
 fails as recorded (est. 3 min).
-Commit: —
+Commit: aa9f2a816
 
 ### Phase 2 — the fix
 
-- [ ] `lower_for_each`: owned iterable when the body can reach a write of the
+- [x] `lower_for_each`: owned iterable when the body can reach a write of the
       global; free it at loop exit (both the normal exit and `EXIT FOR`).
 
 Acceptance: `cargo test --test rt_for_each_over_reassigned_global` → all pass (est. 3 min).
-Commit: —
+Commit: 9317e6eac
 
 ### Phase 3 — full validation
 
-- [ ] Regenerate goldens the new copy shifts (each diff must be a loop over a
+- [x] Regenerate goldens the new copy shifts (each diff must be a loop over a
       global its body writes); `cargo test`;
       `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
-Acceptance: green; golden deltas are only such loops.
-Commit: —
+Acceptance: green; golden deltas are only such loops (none moved).
+Commit: 8860a6bb4 (spec) — validation recorded in STATUS
 
 ## Validation Plan
 
