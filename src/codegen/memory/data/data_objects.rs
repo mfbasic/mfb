@@ -127,7 +127,9 @@ pub(crate) fn string_symbols(module: &NirModule, type_model: &TypeModel) -> Hash
     // type a `MemberAccess` (bug-363, bug-366), and the builder's own enum table
     // (plan-140-B), so a walk tells an enum from any other declared type exactly
     // as the lowering will.
-    let fields = module_field_types(module).with_enums_of(type_model);
+    let fields = module_field_types(module)
+        .with_enums_of(type_model)
+        .with_function_returns(module);
     if module_uses_type_name(module) {
         collect_type_name_values(module, &mut values);
     }
@@ -1245,6 +1247,21 @@ fn collect_string_values_from_value(
 ) {
     if let Some(value) = static_string_value_with_constants(value, constants, types, fields) {
         push_string_value(values, value);
+    }
+    // plan-140-C: `toString(<enum>)` loads one of the enum's member names, so
+    // each must exist as string data. Registered only for an enum a program
+    // actually passes to `toString`.
+    if let NirValue::Call { target, args, .. }
+    | NirValue::CallResult { target, args, .. }
+    | NirValue::RuntimeCall { target, args, .. } = value
+    {
+        if target == "toString" && args.len() == 1 {
+            if let Some(members) = to_string_enum_members(&args[0], types, fields) {
+                for member in members {
+                    push_string_value(values, member.clone());
+                }
+            }
+        }
     }
     if let NirValue::Call { target, args, .. }
     | NirValue::CallResult { target, args, .. }

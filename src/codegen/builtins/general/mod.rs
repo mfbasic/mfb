@@ -261,7 +261,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         LEN => Some("String, List OF T, Set OF T, or Map OF K TO V"),
         TYPE_NAME => Some("T"),
         TO_STRING => Some(
-            "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte",
+            "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum",
         ),
         TO_INT => Some("String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum"),
         TO_FLOAT => Some("String, Integer, Fixed, or Money"),
@@ -333,7 +333,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 }
 
 /// `kinds` (plan-140-A) tells an enum from any other declared type: `toInt`
-/// accepts any enum (plan-140-B).
+/// (plan-140-B) and `toString` (plan-140-C) accept any enum.
 pub(crate) fn resolve_call(
     name: &str,
     arg_types: &[ParameterType],
@@ -374,7 +374,8 @@ pub(crate) fn resolve_call(
         }
         TO_STRING => {
             // 2-arg `(Float|Fixed|Money, Byte)` precision form, or 1-arg over the nine
-            // scalars plus `List OF Byte`. Both yield `String`.
+            // scalars plus `List OF Byte` and any enum (the member's name,
+            // plan-140-C). Both yield `String`.
             let two_arg = arg_types.len() == 2
                 && matches!(
                     arg_types[0],
@@ -393,7 +394,8 @@ pub(crate) fn resolve_call(
                         | ParameterType::Byte
                 ) || arg_types[0].is_named("Scalar")
                     || arg_types[0].is_named("AttributedString")
-                    || arg_types[0] == ParameterType::list_of(ParameterType::Byte));
+                    || arg_types[0] == ParameterType::list_of(ParameterType::Byte)
+                    || kinds.is_enum(&arg_types[0]));
             if two_arg || one_arg {
                 ResolvedCall {
                     return_type: ParameterType::String,
@@ -1043,10 +1045,24 @@ mod tests {
         assert_eq!(rt_kinds(TO_INT, &["Shape"], &ColorIsAnEnum), None);
     }
 
-    /// plan-140-A's seam reaches no built-in but `toInt` yet: every other case
-    /// resolves the same under an always-true and an always-false oracle.
+    /// plan-140-C: `toString` accepts one enum argument, and only when the
+    /// oracle says it is one; the precision form stays `Float`/`Fixed`/`Money`.
     #[test]
-    fn only_to_int_consults_the_kind_oracle() {
+    fn resolve_to_string_enum() {
+        assert_eq!(
+            rt_kinds(TO_STRING, &["Color"], &ColorIsAnEnum),
+            Some("String".to_string())
+        );
+        assert_eq!(rt_kinds(TO_STRING, &["Color"], &NoTypeKinds), None);
+        assert_eq!(rt_kinds(TO_STRING, &["Color", "Byte"], &ColorIsAnEnum), None);
+        assert_eq!(rt_kinds(TO_STRING, &["Shape"], &ColorIsAnEnum), None);
+    }
+
+    /// plan-140-A's seam reaches no built-in but `toInt` and `toString`: every
+    /// other case resolves the same under an always-true and an always-false
+    /// oracle.
+    #[test]
+    fn only_to_int_and_to_string_consult_the_kind_oracle() {
         let cases: &[&[&str]] = &[
             &["String"],
             &["Integer"],
@@ -1056,7 +1072,7 @@ mod tests {
             &["Float", "Byte"],
             &["Color", "Byte"],
         ];
-        for name in [TO_STRING, TO_FLOAT, TO_BYTE, LEN, TYPE_NAME] {
+        for name in [TO_FLOAT, TO_FIXED, TO_BYTE, TO_MONEY, TO_SCALAR, LEN, TYPE_NAME] {
             for args in cases {
                 let with = |kinds: &dyn TypeKinds| {
                     resolve_call(name, &types(args), kinds).map(|r| r.return_type)

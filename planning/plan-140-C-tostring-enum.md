@@ -226,26 +226,38 @@ Acceptance: §2 has no UNVERIFIED row; the new fixtures fail for the right reaso
   hijacked by the `color` override (§2), and the precedence fixture fails its
   build with `NIR call target '#color_toString' does not resolve`. That is a
   failure for a real reason this plan must fix (C-C1), so it counts as RED.
-Commit: —
+Commit: 3d6e78d3f
 
 ### Phase 2 — Resolve, register names, lower
 
-- [ ] `src/codegen/builtins/general/mod.rs`: the `TO_STRING` arm accepts one
+- [x] `src/codegen/builtins/general/mod.rs`: the `TO_STRING` arm accepts one
       enum argument via `kinds.is_enum`; `expected_arguments(TO_STRING)` gains
       `", or an enum"`. Unit tests: enum oracle → `String`; non-enum oracle →
-      `None`; `(Color, Byte)` → `None`.
-- [ ] One shared predicate, `to_string_needs_enum_names(arg_type, enum
+      `None`; `(Color, Byte)` → `None`. (`resolve_to_string_enum`;
+      `cargo test --bin mfb codegen::builtins::general` → 29 passed.)
+- [x] One shared predicate, `to_string_needs_enum_names(arg_type, enum
       table) -> Option<&[member names]>`, used by both the pre-pass and the
-      lowering.
-- [ ] `src/codegen/memory/data/data_objects.rs`: register the member names
+      lowering. (Landed as `type_utils::to_string_enum_members` for the
+      pre-pass's "which argument" question, over ONE member-order table,
+      `TypeModel.enum_names`, that the lowering reads directly
+      (`enum_member_names`) and the pre-pass receives via
+      `FieldTypes::with_enums_of` — C-C4.)
+- [x] `src/codegen/memory/data/data_objects.rs`: register the member names
       for each enum-typed `toString` argument, via the predicate.
-- [ ] `src/codegen/string/repr/builder_strings.rs:788`: the enum
+- [x] `src/codegen/string/repr/builder_strings.rs:788`: the enum
       compare-and-branch chain, before the numeric spill; `origin: None`.
-- [ ] `src/ir/lower.rs` package-override routing (C-C1): route a general
+      (`lower_enum_to_string`; returns a fresh marked copy of the selected
+      name, not the read-only pointer — C-C3.)
+- [x] `src/ir/lower.rs` package-override routing (C-C1): route a general
       built-in call to a package override helper only when the built-in,
       given the `TypeIndex` kind oracle, rejects the argument types.
-- [ ] Update the 4 goldens that quote the `toString` expected list: the one
+      (`func_override_tostring_enum_precedence` prints `(3,4 Green)`, `Blue`,
+      `42`; the IR keeps `toString` on the built-in for `Color`.)
+- [x] Update the 4 goldens that quote the `toString` expected list: the one
       line each, hand-edited to the new string, and nothing else in those files.
+      (`toString_invalid` in Phase 1; the other three here: 4 lines in 3
+      files, since `color_to_string_unrelated_record_invalid` quotes it twice
+      — C-C5.)
 
 Acceptance: the Phase 1 fixtures and every existing `toString` fixture pass.
   Check: `cargo build --release && scripts/test-accept.sh target/release/mfb target/accept-actual 'toString*' 'func_override_tostring*' 'func_override_visibility' 'func_override_no_hijack_valid' 'color_to_string*' 'resource-state-bare-param-read-invalid' 'local-address-field-binding-without-net-import'`
@@ -254,6 +266,10 @@ Acceptance: the Phase 1 fixtures and every existing `toString` fixture pass.
   the 4 goldens above and the new fixtures (est. 10–20 min; the byte-identity
   promise for programs without an enum `toString` covers the whole corpus, so
   nothing smaller proves it).
+  Result: `acceptance tests passed (12 test(s) ran)`, with the three new
+  fixtures run. Whole corpus: `artifact-gate [all]: 1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`. The only goldens this plan
+  changed (4 expected-list goldens, hand-edited) now match, and every other
+  golden is byte-identical.
 Commit: —
 
 ### Phase 3 — Docs and spec
@@ -321,7 +337,39 @@ Commit: —
   match hijacks any user type named `Color`/`Url`/`Float2`/… passed to
   `toString` (see §2). C-C1 fixes the enum case, where the built-in is
   authoritative. A user *record* named `Color` still misroutes, and that
-  belongs to its own bug document.
+  belongs to its own bug document: filed as
+  `bugs/bug-668-user-type-named-like-package-override-is-hijacked.md`.
+- **C-C3 (Phase 2, ownership):** §3 step 3 and "Where the risk concentrates"
+  assumed a read-only result is safe "exactly as a literal" under in-place
+  append. That is false. A literal is safe only because `static_string_value`
+  recognizes it and the owning bind copies it. A `toString` call result gets no
+  such copy, and `MUT label = toString(<enum>)` then `label = label & "!"`
+  SIGBUSed (exit 138): the in-place append's regrow `arena_free`d read-only
+  data. The same crash exists today for `toString(<Boolean>)` on main (filed
+  as `bugs/bug-667-bound-tostring-boolean-self-append-sigbus.md`).
+  `lower_enum_to_string` therefore selects the name's string data, then
+  returns a `copy_flat_block` copy marked with `mark_fresh_string`, like the
+  `AttributedString` arm. The result is an ordinary fresh `String`, and no
+  second ownership predicate can disagree with the lowering. The string data
+  is still registered only for enums passed to `toString` (it is the copy
+  source), so non-goal 4 stands.
+- **C-C4 (Phase 2, pre-pass typing):** the pre-pass's static typing did not type
+  `Enum.Member` itself (`Local(T).member`), and NIR calls carry no result type.
+  The first build of `toString_enum_package` failed with
+  `native code string literal 'Ground' has no data object`. In `toString_enum`
+  the same miss was masked because `toString(c)` in the `FOR EACH` had
+  already registered every `Color` name. `to_string_enum_members` now mirrors
+  the builder's order: an `Enum.Member` literal first (as `lower_value`'s
+  `MemberAccess` arm does), then the static type, then a module function's
+  declared return (`FieldTypes::with_function_returns`).
+- **C-C5 (goldens):** the §2 population counts FILES (4). The expected-list
+  string occurs on 5 lines: `color_to_string_unrelated_record_invalid` has two
+  mismatch diagnostics. Each quoted line was hand-edited and nothing else.
+- **C-C6 (fixture):** the plan's inline-`TRAP` case on `toString(<enum>)` draws
+  the `TYPE_INLINE_TRAP_DEAD_HANDLER` advisory, which is correct per spec §8
+  rule 11 (`toString` is infallible for every argument but `List OF Byte`). The
+  hand-written `build.log` golden carries that warning in both build steps. It
+  shows directly that the call cannot fail.
 
 ## Summary
 

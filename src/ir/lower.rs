@@ -4961,12 +4961,25 @@ fn lower_expression_with_expected(
             // (plan-01-overload.md §B.2 / Phase 6), e.g. `toString(net::Url)` ->
             // `#net_urlToString`. User overrides need no routing here — the
             // monomorphizer already rewrote them to a concrete symbol (Phase 5).
+            // plan-140-C: the §18.3 gap-fill rule applies here too — the
+            // built-in stays authoritative for a type it accepts, so an enum
+            // argument (which `toString` accepts) never routes to a package
+            // helper that merely shares its bare type name (`color`'s `Color`).
             let package_override =
                 if crate::codegen::builtins::general::is_overridable(&canonical_callee) {
                     arguments
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
+                        .filter(|type_| {
+                            builtins::resolve_call_return_type_with_kinds(
+                                &canonical_callee,
+                                std::slice::from_ref(type_),
+                                false,
+                                context.type_index,
+                            )
+                            .is_none()
+                        })
                         .and_then(|type_| {
                             builtins::general_override_target(&canonical_callee, &type_)
                         })

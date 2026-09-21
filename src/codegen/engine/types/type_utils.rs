@@ -25,6 +25,10 @@ use std::collections::HashMap;
 pub(crate) struct FieldTypes {
     fields: HashMap<(String, String), ParameterType>,
     enums: HashMap<ParameterType, Vec<String>>,
+    /// plan-140-C: each module function's declared return, so the enum
+    /// `toString` predicate can type a user call's result (a NIR `Call`
+    /// carries none). Read by [`to_string_enum_members`] only.
+    function_returns: HashMap<String, ParameterType>,
 }
 
 impl FieldTypes {
@@ -48,20 +52,52 @@ impl FieldTypes {
     /// Every enum `model` knows — the module's own, the imported packages', and
     /// the bare aliases of built-in ones — with members ordered by ordinal.
     pub(crate) fn with_enums_of(mut self, model: &TypeModel) -> Self {
-        let mut ordered: HashMap<ParameterType, Vec<(usize, String)>> = HashMap::new();
-        for ((type_, member), ordinal) in &model.enum_members {
-            ordered
-                .entry(type_.clone())
-                .or_default()
-                .push((*ordinal, member.clone()));
-        }
-        for (type_, mut members) in ordered {
-            members.sort();
-            self.enums
-                .insert(type_, members.into_iter().map(|(_, member)| member).collect());
-        }
+        self.enums
+            .extend(model.enum_names.iter().map(|(type_, names)| (type_.clone(), names.clone())));
         self
     }
+
+    /// Record each module function's declared return type (plan-140-C).
+    pub(crate) fn with_function_returns(mut self, module: &NirModule) -> Self {
+        self.function_returns.extend(
+            module
+                .functions
+                .iter()
+                .map(|function| (function.name.clone(), function.returns.clone())),
+        );
+        self
+    }
+}
+
+/// plan-140-C: the member names a `toString(<value>)` needs as string data, in
+/// declaration order, when `value` is enum-typed — `None` for any other
+/// argument. The string pre-pass registers exactly these names, so it must type
+/// the argument at least as well as the builder does: an `Enum.Member` literal
+/// first (the builder resolves `Local(T).member` as an enum member before
+/// anything else), then a static type, then a user function's declared return.
+pub(crate) fn to_string_enum_members<'a>(
+    value: &NirValue,
+    types: &HashMap<String, ParameterType>,
+    fields: &'a FieldTypes,
+) -> Option<&'a [String]> {
+    if let NirValue::MemberAccess { target, member } = value {
+        if let NirValue::Local(type_name) = target.as_ref() {
+            if let Some(members) = fields.enums.get(&ParameterType::declared(type_name)) {
+                if members.contains(member) {
+                    return Some(members);
+                }
+            }
+        }
+    }
+    let type_ = static_type_name_for_fold_with_types(value, types, fields).or_else(|| {
+        match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+                fields.function_returns.get(target).cloned()
+            }
+            _ => None,
+        }
+    })?;
+    fields.enums.get(&type_).map(Vec::as_slice)
 }
 
 impl builtins::TypeKinds for FieldTypes {

@@ -241,6 +241,7 @@ impl TypeModel {
     pub(crate) fn empty() -> Self {
         Self {
             enum_members: HashMap::new(),
+            enum_names: HashMap::new(),
             record_fields: HashMap::new(),
             union_names: HashSet::new(),
             union_variants: HashMap::new(),
@@ -254,11 +255,34 @@ impl TypeModel {
         }
     }
 
-    /// plan-140-A: whether `t` is a declared `ENUM` — some `enum_members` key has
-    /// it as its type half. Every enum declares at least one member, so no enum
-    /// is missed.
+    /// plan-140-A: whether `t` is a declared `ENUM`. Every enum declares at least
+    /// one member, so every enum has an `enum_names` entry.
     pub(crate) fn is_enum_type(&self, t: &ParameterType) -> bool {
-        self.enum_members.keys().any(|(type_, _)| type_ == t)
+        self.enum_names.contains_key(t)
+    }
+
+    /// plan-140-C: an enum's member names in declaration order, or `None` for a
+    /// non-enum.
+    pub(crate) fn enum_member_names(&self, t: &ParameterType) -> Option<&[String]> {
+        self.enum_names.get(t).map(Vec::as_slice)
+    }
+
+    /// Derive `enum_names` from `enum_members` (the ordinal is the order).
+    fn compute_enum_names(&mut self) {
+        let mut ordered: HashMap<ParameterType, Vec<(usize, String)>> = HashMap::new();
+        for ((type_, member), ordinal) in &self.enum_members {
+            ordered
+                .entry(type_.clone())
+                .or_default()
+                .push((*ordinal, member.clone()));
+        }
+        self.enum_names = ordered
+            .into_iter()
+            .map(|(type_, mut members)| {
+                members.sort();
+                (type_, members.into_iter().map(|(_, member)| member).collect())
+            })
+            .collect();
     }
 
     pub(crate) fn from_module(module: &NirModule) -> Result<Self, String> {
@@ -455,6 +479,8 @@ impl TypeModel {
         // assigned by `finish`, once, after every table is populated (bug-80).
         Ok(Self {
             enum_members,
+            // Derived by `finish` (plan-140-C).
+            enum_names: HashMap::new(),
             record_fields,
             union_names,
             union_variants,
@@ -683,6 +709,8 @@ impl TypeModel {
         self.alias_bare_builtin_type_names();
         self.register_builtin_record_layouts();
         self.assert_type_keys_are_bijective();
+        // After the bare aliases above, so a bare built-in enum spelling resolves.
+        self.compute_enum_names();
     }
 
     /// Fill in every builtin record's layout under its package-qualified key

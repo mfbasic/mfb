@@ -994,6 +994,11 @@ pub(crate) struct TypeModel {
     /// plan-111-C: keyed by `(enum TYPE, member name)`. The member name is a
     /// member, not a type, so it stays a `String`.
     pub(crate) enum_members: HashMap<(ParameterType, String), usize>,
+    /// plan-140-C: each enum's member names in declaration (ordinal) order,
+    /// derived from `enum_members` once the model is finished. The ONE ordering
+    /// both sides of `toString(<enum>)` read — the string pre-pass registers
+    /// these names and `lower_enum_to_string` loads them.
+    pub(crate) enum_names: HashMap<ParameterType, Vec<String>>,
     /// plan-111-C: keyed by the record TYPE. The `String` in the value is a
     /// FIELD name.
     pub(crate) record_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
