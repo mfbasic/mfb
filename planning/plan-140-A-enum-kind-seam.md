@@ -125,10 +125,20 @@ three kinds of site:
 - **Codegen knows enum-ness:** `TypeModel.enum_members` is keyed by
   `(enum type, member)`. A type is an enum iff some key has it as its first half.
   Read (`builder/mod.rs:996`). There is no direct `is_enum` helper yet.
-- **UNVERIFIED:** that `ir::verify`'s `type_decl_info` carries the declaration
-  *kind* (read so far only for its owner file, `values.rs:696`). Task in Phase 1.
-- **UNVERIFIED:** which enum source `monomorph::lower` has at `:984` (1 enum
-  reference in the file, not yet read). Task in Phase 1.
+- **`ir::verify`'s `type_decl_info` does NOT carry the kind** — it is
+  `HashMap<ParameterType, (file, visibility)>` (`verify/mod.rs:796`). The
+  verifier's enum source is `TypeEnv.enums: HashMap<ParameterType,
+  HashSet<String>>` (`verify/mod.rs:719`), filled from `project.types` with
+  `kind == "enum"` (`:850`) **and** from imported `.mfp` types with
+  `ImportedTypeKind::Enum` (`:201`). Read (Phase 1).
+- **`monomorph::lower` has no enum table.** Its one enum reference
+  (`lower.rs:1589`) is a template-kind match. The declarations it holds are
+  `Monomorphizer.concrete_types` / `type_templates`
+  (`HashMap<ParameterType, HirTypeDecl>`, `monomorph/mod.rs:34`, `:38`),
+  whose `kind` is `TypeDeclKind::Enum` for a source enum (injected builtin
+  package sources included). Imported `.mfp` enums are absent: only
+  `imported_records` is kept (`helpers.rs:423`, filtered to `Record`). Read
+  (Phase 1).
 
 ## 3. Design Overview
 
@@ -160,8 +170,8 @@ passing an adapter over the declarations they already hold:
 | Site kind | Files | Oracle source |
 |---|---|---|
 | Acceptance, source | `ir/shape.rs` | `self.types[t].is_enum` |
-| Acceptance, package | `ir/verify/compat.rs` | `type_decl_info` kind (Phase 1 verifies it carries one) |
-| Dispatch | `monomorph/lower.rs:984` | monomorph's type declarations (Phase 1 locates them) |
+| Acceptance, package | `ir/verify/compat.rs` | `TypeEnv.enums.contains_key(t)` (`verify/mod.rs:719`; covers imported enums) |
+| Dispatch | `monomorph/lower.rs:984` | `Monomorphizer.concrete_types[t].kind == TypeDeclKind::Enum`, plus a new `imported_enums: HashSet<ParameterType>` collected beside `imported_records` (`helpers.rs:423`) from `ImportedTypeKind::Enum` defs, looked up raw and through `normalize_type` as `record_fields` does |
 | Lowering | codegen `CodeBuilder` | `TypeModel` (a new `is_enum_type` helper over `enum_members`) |
 
 **The typing sites are left on `NoTypeKinds`.** For `toInt` the answer is
@@ -208,17 +218,20 @@ Rejected alternatives:
 
 Read-only; settles the two UNVERIFIED rows so Phase 2's tasks name real fields.
 
-- [ ] Read `src/ir/verify/` for `type_decl_info`'s value type; record in §2
+- [x] Read `src/ir/verify/` for `type_decl_info`'s value type; record in §2
       whether it carries the declaration kind, and if not, which verifier field
       does (e.g. the IR type table's `kind`).
-- [ ] Read `src/monomorph/lower.rs` around `resolve_general_builtin_override`
+- [x] Read `src/monomorph/lower.rs` around `resolve_general_builtin_override`
       (`:984`) and its one enum reference; record which structure answers "is
       type T an enum" there.
-- [ ] Update §3's oracle-source table with both answers (file:symbol).
+- [x] Update §3's oracle-source table with both answers (file:symbol).
+      Check: `grep -c '^- \*\*UNVERIFIED' planning/plan-140-A-enum-kind-seam.md` → 0.
 
 Acceptance: §2 has no UNVERIFIED row and §3's table names a concrete symbol per
 site.
-  Check: `grep -c UNVERIFIED planning/plan-140-A-enum-kind-seam.md` → 0 (est. 1 min).
+  Check: `grep -c '^- \*\*UNVERIFIED' planning/plan-140-A-enum-kind-seam.md` → 0 (est. 1 min).
+  (Corrected, A-C4: the bare-word grep counts this check line itself and never
+  reaches 0; the anchored form counts §2's rows.)
 Commit: —
 
 ### Phase 2 — The seam, wired, behavior-neutral
@@ -277,6 +290,21 @@ Commit: —
   a second parameter.
 
 ## Corrections
+
+- **A-C1 (Phase 1):** §2 assumed `type_decl_info` might carry the declaration
+  kind; it carries only `(file, visibility)` (`verify/mod.rs:796`). The
+  verifier adapter reads `TypeEnv.enums` instead. §3's table corrected.
+- **A-C2 (Phase 1):** monomorph has no imported-enum table; §3 adds
+  `imported_enums` so an imported `.mfp` enum is not a false negative at the
+  dispatch site (a false negative would let a user override over that enum
+  shadow the built-in in plan-140-B).
+- **A-C3 (Phase 2 scope):** `ir/verify/compat.rs:209` is a return-type
+  reconciliation check, not acceptance, but it lives on `TypeEnv` beside the
+  oracle, so it is wired too (all 8 compat calls take the oracle). With
+  `NoTypeKinds` it would silently skip the annotation check for `toInt(enum)`.
+- **A-C4 (Phase 1 check):** `grep -c UNVERIFIED` matches the Phase 1 text and
+  its own check line (4 hits with §2 clean); anchored to §2's row form
+  (`^- **UNVERIFIED`) → 0.
 
 ## Summary
 
