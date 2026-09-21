@@ -53,7 +53,7 @@ Verified 2026-09-21: `cargo test --bin mfb self_update` → `4 passed`;
 `cargo test --test inplace_self_update_census` → `1 passed`;
 `cargo test --test rt_inplace_self_update` → `test result: ok. 1 passed; 0 failed`
 (679.52s, 254 case/site pairs — the `&` line at S2 included).
-Commit: —
+Commit: 1f01b7590
 
 ### Phase 2 — Docs
 
@@ -95,18 +95,35 @@ Commit: —
 Acceptance: `cargo test --bin mfb spec` → pass; `scripts/man-census.sh --memory-scope`
 → 0 unclassified hits (est. 10 min).
 Verified 2026-09-21: `test result: ok. 43 passed`; `unclassified memory-vocabulary hits: 0`.
-Commit: —
+Commit: 1f01b7590
 
 ### Phase 3 — Full gate (run once)
 
-- [ ] `cargo test` (the full-suite gate, `.ai/testing-gates.md:423`).
-- [ ] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
-- [ ] Re-run plan-141's `/tmp/inplace_probe` timing program; record local vs global
+- [x] `cargo test` (the full-suite gate, `.ai/testing-gates.md:423`).
+      At `77a9255b1`, `cargo test --no-fail-fast` → `exit 0`, 215 test targets, none
+      failed (the `--bin mfb` target: `4286 passed; 0 failed; 1 ignored`). The first
+      run, at `1f01b7590`, failed three targets' worth of work: `no_type_strings`
+      (a type-spelling compare in plan-142-C's sort, fixed in `fd2a249cb`) and
+      `codegen_inplace_remove_at_insert` (Correction F4, `872f432f2`).
+- [x] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
+      At `77a9255b1` (a copy of that `target/release/mfb`): `artifact-gate [all]: 1473
+      tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`. The run before it
+      found the four `app-mouse-surface` sums plan-142-H Phase 4 re-baselined.
+- [x] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
+      At `77a9255b1` (a copy of that `target/debug/mfb`, so the concurrent
+      `cargo test` could not rebuild it mid-run): `acceptance tests passed (1499
+      test(s) ran)`.
+- [x] Re-run plan-141's `/tmp/inplace_probe` timing program; record local vs global
       ns/op for `List` and `Map` `set` beside plan-141's numbers.
+      Final release build (`1f01b7590`), run while the full gate was also running:
+      `List` set local 7 / global 8 ns/op (plan-141: 36 / 22,198); `Map` set local
+      32 / global 50 ns/op (plan-141: global 468,418). The pre-plan binary on the
+      same machine measured global `List` 21,298 and global `Map` 465,549
+      (plan-142-H). Records remain out of scope (global record last field 70,099).
 
 Acceptance: all three commands green; timings recorded (est. 60 min — the full
 gate, required once by `.ai/testing-gates.md`).
+Verified 2026-09-21 at `77a9255b1`: all three green (above); timings recorded.
 Commit: —
 
 ## Corrections

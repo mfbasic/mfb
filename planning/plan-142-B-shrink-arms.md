@@ -158,7 +158,7 @@ Acceptance: `cargo test --bin mfb compact_in_place` → pass (est. 3 min).
 Verified 2026-09-21: `test result: ok. 3 passed; 0 failed` (after correcting the
 first run's own assertion: the range labels are `compact_k2_range_{wloop,btail,done}`,
 never a bare `compact_k2_range`).
-Commit: —
+Commit: a70924e35
 
 ### Phase 3 — The five arms
 

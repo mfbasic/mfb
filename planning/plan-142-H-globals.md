@@ -185,7 +185,7 @@ Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual` green
 is known to cover them).
 Verified 2026-09-21 at `1f01b7590` (run as plan-142-I's full gate, on a copy of
 that `target/debug/mfb`): `acceptance tests passed (1499 test(s) ran)`.
-Commit: —
+Commit: 77a9255b1
 
 ## Validation Plan
 
