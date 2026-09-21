@@ -1132,13 +1132,14 @@ pub(crate) fn lower_function(
             stack_offset,
         });
     }
+    // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2),
+    // and never given a string capacity shadow (below).
+    collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
     builder.prescan_string_self_appends(&function.body);
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
     builder.prescan_self_update_scratch(&function.body);
-    // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
-    collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.

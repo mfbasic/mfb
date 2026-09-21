@@ -2276,8 +2276,13 @@ impl CodeBuilder<'_> {
         for op in ops {
             match op {
                 NirOp::Assign { name, value } => {
+                    // A local captured by reference gets none: a callback can
+                    // replace its buffer through the reference without seeing this
+                    // frame's shadow, which would then claim spare bytes the new
+                    // buffer does not have (`rt_byref_string_capture_capacity`).
                     if string_self_append_operands(value, name).is_some()
                         && !self.string_capacity_slots.contains_key(name)
+                        && !self.address_taken_locals.contains(name)
                     {
                         let slot = self.allocate_stack_object(&format!("strcap_{name}"), 8);
                         self.string_capacity_slots.insert(name.clone(), slot);

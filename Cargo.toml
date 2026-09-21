@@ -500,6 +500,10 @@ name = "rt_for_each_self_update"
 path = "tests/runtime/rt_for_each_self_update.rs"
 
 [[test]]
+name = "rt_byref_string_capture_capacity"
+path = "tests/runtime/rt_byref_string_capture_capacity.rs"
+
+[[test]]
 name = "test_targets_registered"
 path = "tests/guards/test_targets_registered.rs"
 
