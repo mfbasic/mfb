@@ -31,11 +31,13 @@ missing position is an error:
 `set` does not change its argument in either overload. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
 the update only through what it does with that return value. Assigning straight
-back to the same local variable — `c = collections::set(c, k, v)` — is the cheap
-shape: it updates the collection in place rather than rebuilding it. Writing
-through something reached another way (a parameter, a module-level `MUT`, or the
-collection a `FOR EACH` is walking) copies the whole collection on every write,
-which turns a write-heavy loop quadratic. The result is the same either way.
+back to the same variable — `c = collections::set(c, k, v)` — is the cheap shape
+wherever that variable lives (a local, a module-level `MUT`, a `MUT` a `forEach`
+lambda captures, or a collection that a `FOR EACH` over it is walking, which walks
+a copy taken once when the loop starts): it updates the collection in place
+rather than rebuilding it. Assigning the result anywhere else —
+`d = collections::set(c, k, v)` — builds a new collection. The result is the same
+either way.
 
 `set` can fail, because of the list overload's range check, so an inline `TRAP`
 on a `set` call compiles and catches that failure. A rejected index changes

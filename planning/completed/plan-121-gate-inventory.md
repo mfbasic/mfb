@@ -1,5 +1,7 @@
 # plan-121 gate inventory — the decline conditions of every in-place arm
 
+> **History.** The current source of truth is `src/codegen/collection/assign/self_update.rs` (the arms, `SELF_UPDATE_TABLE`, the census) and `inplace_dest.rs` (the gates) — plan-142. This inventory is not maintained.
+
 Produced by plan-121-A Phase 1. This file is the **specification** that
 plan-121-A Phase 2's `InPlaceGate` implements: a condition listed here must be
 enforced by the seam, because a gate weaker in the seam than in the arm it

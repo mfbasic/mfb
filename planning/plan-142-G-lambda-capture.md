@@ -77,7 +77,7 @@ fallback leaks; G turns the leak into a free, so the rule must be in place first
 
 Acceptance: `cargo test --test rt_lambda_capture_self_update` → pass (est. 3 min).
 Verified 2026-09-21 (with Phase 2): `test result: ok. 2 passed; 0 failed`.
-Commit: —
+Commit: 8ae96e91b
 
 ### Phase 2 — `InPlaceDest::Ref` and S9
 
@@ -111,7 +111,7 @@ Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 4 
 `cargo test --test rt_inplace_self_update` → `test result: ok. 1 passed; 0 failed`
 (518.08s; 190 case/site pairs — 64 at S1, 63 at S7, 63 at S9);
 `cargo test --test rt_lambda_capture_self_update` → `test result: ok. 2 passed`.
-Commit: —
+Commit: 8ae96e91b
 
 ### Phase 3 — Expected outputs
 
@@ -127,11 +127,13 @@ Verified 2026-09-21: `scripts/test-accept.sh target/debug/mfb target/accept-actu
 'rt-behavior/functions/*' 'rt-error/functions/*' 'rt-behavior/collections/*'
 'rt-behavior/closures/*' 'rt-behavior/lambda*'` → `acceptance tests passed (93 test(s)
 ran)`.
-Commit: —
+Commit: 8ae96e91b
 
 ## Validation Plan
 
 - Tests: `rt_lambda_capture_self_update`; matrix + harness at S9.
+- Per-letter unit gate (2026-09-21, at `8ae96e91b`): `cargo test --bin mfb` →
+  `test result: ok. 4286 passed; 0 failed; 1 ignored` (2116.07s).
 
 ## Corrections
 

@@ -104,7 +104,7 @@ matrix runs every arm at S2.
 
 Acceptance: `cargo test --test rt_global_self_update` → pass (est. 3 min).
 Verified 2026-09-21: `test result: ok. 1 passed; 0 failed` (all eight cases).
-Commit: —
+Commit: 02692cd64
 
 ### Phase 2 — `InPlaceDest::Global` and S2 for collections
 
@@ -135,7 +135,7 @@ in Phase 3); `cargo test --test rt_global_self_update` → `test result: ok. 1 p
 Recorded (not a gate), `/tmp/inplace_probe`, ns/op before → after: global `List` set
 21298 → 9 (local 8), global `Map` set 465549 → 50 (local 36); the matrix shows the
 `set` arm's marker at S2 for both overloads (plan-141's `c_setL_S2`/`c_setM_S2`).
-Commit: —
+Commit: 02692cd64
 
 ### Phase 3 — Global `String` concat
 
@@ -154,7 +154,7 @@ Acceptance: `cargo test --test rt_inplace_self_update` → the `concat` S2 row f
 Verified 2026-09-21: `MFB_SELF_UPDATE_FILTER='&' cargo test --test rt_inplace_self_update`
 → `test result: ok. 1 passed` (the `&` line at S1 and S2); `cargo test --bin mfb
 self_update` → `4 passed` with the `&` probe at S2.
-Commit: —
+Commit: 02692cd64
 
 ### Phase 4 — Expected outputs
 

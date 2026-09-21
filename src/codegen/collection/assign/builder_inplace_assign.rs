@@ -15,12 +15,12 @@ impl CodeBuilder<'_> {
     ///
     /// Soundness: under MFBASIC value semantics every binding owns its buffer and
     /// copy-insertion deep-copies any aliasing assignment, so the local's buffer
-    /// has no live alias. `FOR EACH` snapshots the buffer pointer and count at
-    /// loop entry, and in-place append only writes *beyond* that snapshot count
-    /// without moving existing entries or payloads, so iteration is unaffected.
-    /// Reference (`by_ref`) locals are excluded — their slot holds a pointer to
-    /// the parent slot, not the buffer — and bulk `append(list, otherList)` is
-    /// excluded (the item must be a single element).
+    /// has no live alias. A `FOR EACH` over the local whose body writes it walks
+    /// a copy made at loop entry (plan-142-F), and one that borrows it declines
+    /// (`G7`), because a grow frees the block the loop holds. A reference
+    /// (`by_ref`) local is reached through `InPlaceDest::Ref` (plan-142-G), and
+    /// bulk `append(list, otherList)` is the next arm (the item must be a single
+    /// element).
     pub(crate) fn try_inplace_append_assign(
         &mut self,
         site: &SelfUpdateSite<'_>,

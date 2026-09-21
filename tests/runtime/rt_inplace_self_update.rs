@@ -9,12 +9,10 @@
 //! **The measure.** A copying lowering allocates a fresh block per statement, so
 //! the extra `N` runs allocate at least `N` more blocks. An in-place lowering
 //! allocates only when the collection outgrows its capacity (geometric growth), so
-//! the extra `N` runs allocate a handful. The two bounds:
+//! the extra `N` runs allocate a handful. The two bounds — and the only two
+//! statuses a line may have (plan-142-I; any other is rejected):
 //!
 //! * `arm` — `count(2N) - count(N) < N / 8`.
-//! * `pending:<letter>` — `count(2N) - count(N) >= N`: the line still copies. A
-//!   letter that lands the arm must flip its line, so an improvement that nobody
-//!   recorded fails here too.
 //! * `exempt` — the result is a new value by definition (plan-142-E), so the
 //!   bound is on *live bytes*, and says `x` is read, never copied. A copy of `x`
 //!   has to be live while `x` still is (the assignment has not happened), so it
@@ -133,7 +131,6 @@ END FUNC
 enum Status {
     Arm,
     Exempt,
-    Pending(String),
 }
 
 #[derive(Clone, Debug)]
@@ -172,10 +169,10 @@ fn cases() -> Vec<Case> {
             let status = match cols[1] {
                 "arm" => Status::Arm,
                 "exempt" => Status::Exempt,
-                s => match s.strip_prefix("pending:") {
-                    Some(letter) if !letter.is_empty() => Status::Pending(letter.to_string()),
-                    _ => panic!("cases.tsv: unknown status `{s}` in: {line}"),
-                },
+                s => panic!(
+                    "cases.tsv: status `{s}` is neither `arm` nor `exempt` in: {line} — a \
+                     self-update needs an in-place arm or a proven exemption"
+                ),
             };
             let mut setup = cols[2].split(" ; ").map(str::to_string);
             let decl = setup.next().unwrap_or_default();
@@ -579,12 +576,8 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
             "{label}: marked `arm`, but {n} more runs allocated {extra} more blocks \
              ({once} at N={n}, {twice} at 2N) — the statement copies"
         )),
-        Status::Pending(letter) if extra < n => Err(format!(
-            "{label}: marked `pending:{letter}`, but {n} more runs allocated only {extra} \
-             more blocks ({once} -> {twice}) — it no longer copies; flip the line to `arm`"
-        )),
         Status::Exempt => exempt_check(index, case, site, &label),
-        _ => Ok(()),
+        Status::Arm => Ok(()),
     }
 }
 

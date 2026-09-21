@@ -489,6 +489,31 @@ missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 types); any other key type falls back to a generic linear scan over the live
 lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
+### Self-updates
+
+A self-update — `x = f(x, …)` of a `List`, `Map` or `Set` for a builtin `f`, and
+`s = s & t` of a `String` — mutates `x`'s own block instead of building a new
+value, wherever `x` is bound: a function local, a module-level global, a local
+inside a `FOR EACH` over itself, or a `MUT` captured by reference in a
+`collections::forEach` lambda. The operation's result and every other value are
+exactly what the copying form would give; the difference is that no second copy
+of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+
+- **Failure atomicity.** Every error the operation can raise — a callback's, an
+  index or domain error, `ErrOutOfMemory` — is raised before `x` is written, so a
+  failed self-update leaves `x` unchanged.
+- **Snapshots stay snapshots.** A `FOR EACH` over `x` whose body writes `x` walks
+  the value `x` held when the loop began (a copy made once at entry); a call
+  handed `x` while a callee or callback can write it receives the value at the
+  call. [[src/codegen/engine/control/builder_control.rs:lower_for_each]]
+- **No per-statement allocation.** State an operation needs per element lives in a
+  per-function scratch block, grown geometrically; a lambda borrows the scratch of
+  the function that created it. A global `String`'s spare capacity is kept in a
+  hidden global beside it. [[src/codegen/collection/assign/self_update.rs:add_global_string_capacities]]
+- **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
+  codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
+  result is a new value.
+
 ### `append`
 
 `List` `append` has two paths:
@@ -507,9 +532,8 @@ lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
 `collections::set(name, index/key, item)` on a uniquely-owned `MUT` local (the
 `name = collections::set(name, …)` self-assignment idiom) mutates the live buffer
-in place, like `append`. It is excluded while the binding is an active `FOR EACH`
-iterable — an overwrite of an existing entry is observable to the snapshotting
-iterator, unlike a beyond-`count` append, so that case takes the value path.
+in place, like `append`. Inside a `FOR EACH` over the binding the loop walks its
+own copy (see *Self-updates*), so the overwrite is not observable to it.
 [[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload is the **same size**

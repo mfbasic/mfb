@@ -6,7 +6,7 @@ Invariants and hard-won lessons for the MFB compiler's native collection codegen
 
 Collection mutation codegen is rewritten for amortized-O(1) append.
 
-- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
+- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias); a `FOR EACH` whose body writes its iterable walks a copy (see "In-place mutation" below). transform/filter use the same helper on their private accumulator.
 - **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). Construction stores aliased until plan-134-E: a constructor argument and the in-place list/map arms' item operand were lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stored `xs`'s own block (SIGSEGV at the next `get`). They now go through `lower_value_stored`. Adding a drop for the class before every owner held a distinct graph would have double-freed. plan-134-G added the owner drops (`owns_graph`) only after that, and plan-134-H the in-place element drops (`emit_drop_list_element` / `emit_drop_entry_value`) — see bug-536 shape C. The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
 - **GOTCHA — a fixed-width payload's data capacity is NOT an independent counter** (bug-621). For a fixed-width list element (`list_element_is_fixed_width`) or a map entry whose key and value are both fixed-width, every in-place grow sets `dataCapacity = newCapacity × stride` (`emit_fixed_width_data_capacity`), still clamped to at least the bytes needed. Stepping data on its own step — even on the grows the *count* triggered — froze the reservation at ≈19 bytes per slot whatever the width: a 16 MiB append-built `List OF Byte` peaked at 982 MB RSS, byte-identical to a `List OF Integer`. Only variable-width payloads (whose data need is independent of the count) keep the independent data step. A new grow arm must make the same split; `tests/runtime/rt_list_append_growth_bounds.rs` pins each existing arm against the rule.
@@ -16,53 +16,77 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
 
 
-## In-place mutation: one seam, one gate inventory (plan-121-A)
+## In-place mutation: one table, four sites (plan-121-A, plan-142)
 
-`x = OP(x, …)` on a uniquely-owned collection is lowered as a mutation of the
-live buffer whenever nothing else can observe that buffer. The recognisers are
-the `try_inplace_*` family, dispatched at
-`src/codegen/engine/control/builder_control.rs:879-909` (plain local + record
-field) and `:1050`/`:1056` (`RES … STATE`), each falling through to the general
-copying reassignment when it declines. **Declining is always correct** — in-place
-is an implementation strategy the program cannot observe, so an arm that is not
-sure must fall through.
+`x = OP(x, …)` — a *self-update* of a `List`/`Map`/`Set` (and `s = s & t` on a
+`String`) — mutates `x`'s own block instead of building a new one, at every
+binding site that can hold one: a function local (S1), a module-level global
+(S2), a local inside a `FOR EACH` over itself (S7), and a `MUT` captured by
+reference in a `collections::forEach` lambda (S9). The seam is
+`src/codegen/collection/assign/self_update.rs`:
 
-The part every arm repeats — resolve the destination slot, prove unique
-ownership, run the aliasing gates — lives in
-`src/codegen/collection/assign/inplace_dest.rs`:
+* `SELF_UPDATE_ARMS` — the dispatch list, `(ArmId, fn)`. The `NirOp::Assign` and
+  `NirOp::StoreGlobal` lowerings in `engine/control/builder_control.rs` build a
+  `SelfUpdateSite` and call `try_inplace_self_update`, which tries each arm; the
+  first to accept lowers the statement, and if none does the statement takes the
+  general copying reassignment. **Declining is always correct** — in-place is an
+  implementation strategy the program cannot observe, so an arm that is not sure
+  must decline, having emitted nothing.
+* `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
+  function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
+  from `x`'s block, and `proof` cites the lowering that shows `x` is only read).
+  **There is no third kind.** A new builtin with a self-update form needs a row, or
+  `self_update_census_covers_every_registry_overload` fails naming it; and it needs
+  a line in `tests/runtime/inplace_self_update/cases.tsv`, or
+  `tests/guards/inplace_self_update_census.rs` fails naming it. The matrix test
+  (`every_arm_row_fires_at_every_enabled_site`) compiles every `Arm` row's probe at
+  every site and requires its marker; `tests/runtime/rt_inplace_self_update.rs`
+  requires every line's allocation count to stay flat in `N` at every site.
+* **Failure atomicity.** Every error an arm can raise — a callback's, an index or
+  domain error, `ErrOutOfMemory` from a grow — is raised before its first write,
+  so a failed self-update leaves `x` exactly as it was
+  (`tests/runtime/rt_inplace_failure_atomic.rs`). Per-element state lives in the
+  function's self-update scratch (`emit_reserve_self_update_scratch`), not in a
+  per-statement allocation.
 
-* `InPlaceDest` — `Direct { slot }` for a plain local (the slot holds the
-  collection block pointer; a realloc repoints it) vs
-  `Inlined { block_slot, field_index, write_back }` for a record or `STATE`
-  field (the collection lives *inside* the owning record's block, so a realloc
-  grows the **record** block). `write_back` is `Some` only for `STATE`, whose
-  block pointer is shared with the resource record and must be republished
-  through `RESOURCE_OFFSET_STATE` after the mutation (§15).
-* `InPlaceGate` — the proof obligations, with `admits_with` a pure predicate over
-  a borrowed `LiveIterables` view so the decline conditions are unit-testable
-  without building a whole `CodeBuilder`.
+Where the destination lives is `InPlaceDest`
+(`src/codegen/collection/assign/inplace_dest.rs`):
 
-**Read `planning/plan-121-gate-inventory.md` before adding an arm.** It lists all
-23 decline conditions (`G1`–`G23`), the 2 post-lowering assertions that are hard
-`Err`s rather than declines, the 4 emission obligations, and — the part that
-bites — a footnote justifying every asymmetry between arms, including which
-guards are load-bearing only as a *side effect* of the element-type check and so
-re-open a hole if that check is widened.
+* `Direct { slot }` — a local; the slot holds the block pointer and a realloc
+  repoints it.
+* `Inlined { block_slot, field_index, write_back }` — a record or `STATE` field; the
+  collection lives *inside* the owning record's block, so a realloc grows the
+  **record** block. `write_back` is `Some` only for `STATE`, whose block pointer is
+  shared with the resource record and is republished through
+  `RESOURCE_OFFSET_STATE` after the mutation (§15).
+* `Ref { ref_slot, block_slot }` (S9) and `Global { name, block_slot }` (S2) — the
+  arm works on a frame copy of the block pointer (read through the reference, or
+  out of the global), and `close_inplace_dest` stores it back.
 
-Two rules from it that are easy to get wrong:
+`InPlaceGate` holds the aliasing proofs, with `admits_with` a pure predicate over a
+borrowed `LiveIterables` view so the decline conditions are unit-testable. The
+`G*` names are plan-121's (`planning/completed/plan-121-gate-inventory.md` is that
+plan's history; the code and its comments are the current list). Rules that are
+easy to get wrong:
 
-* **`O-order-1`: every gate runs before the first `lower_value`.** No arm may
-  lower a value and then decline — that emits dead code and leaks a stack slot,
-  and because vreg/stack-slot allocation order is observable in the emitted
-  bytes, it also breaks byte-identity for every unrelated fixture in the
-  function.
-* **`FOR EACH` permits an append but not a shift.** A loop snapshots the buffer
-  pointer and count at entry. An `append` writes only *beyond* that snapshot, so
-  it may proceed (until it reallocs — hence the guard). An `insert`, `removeAt`,
-  `prepend` or entry-compacting delete rewrites entries *below* the snapshot,
-  which a live iterator can observe, so those must decline whenever any
-  `FOR EACH` walks the collection. `append`'s permissive reasoning does not
-  transfer.
+* **`O-order-1`: every gate runs before the first `lower_value`.** An arm that
+  lowers a value and then declines emits dead code and leaks a stack slot, and
+  because vreg/stack-slot allocation order is observable in the emitted bytes, it
+  also breaks byte-identity for every unrelated fixture in the function.
+* **Nothing may still read the block an arm rewrites.** A live `FOR EACH` holds the
+  block pointer and count, so a loop whose body writes its iterable local walks a
+  copy made once at entry (`lower_for_each`, plan-142-F) and the body's
+  self-updates are free; `G7` still declines under a loop that borrows (a
+  graph-typed local the copy cannot take). A call argument rooted at a local that
+  a sibling closure captures by reference (`forEach(acc, LAMBDA … acc = …)`) is
+  likewise a snapshot (`operand_snapshot.rs`), as a global argument whose callee
+  can store to it is (bug-665). At S2, `G-global-operand` declines when an operand
+  — or the call itself, through a callback — can store to the global.
+* **A `String`'s capacity shadow must describe the live buffer.** The concat arm
+  keeps `s`'s spare bytes in a frame slot (a global's in a hidden `$strcap$g`
+  global), and every other store to `s` resets it. A by-ref-captured `String` gets
+  no shadow at all: a callback could replace the buffer without seeing it
+  (`rt_byref_string_capture_capacity`).
 * **There is a SECOND aliasing surface, and only payload-relocating ops hit it.**
   The `FOR EACH` rule above is about what an *iterator* sees; it is not the whole
   question. Ask also: **what else holds a reference into the bytes this operation
