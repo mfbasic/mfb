@@ -492,6 +492,10 @@ name = "rt_merge_fast_path_frees"
 path = "tests/runtime/rt_merge_fast_path_frees.rs"
 
 [[test]]
+name = "rt_reduce_collection_accumulator_frees"
+path = "tests/runtime/rt_reduce_collection_accumulator_frees.rs"
+
+[[test]]
 name = "test_targets_registered"
 path = "tests/guards/test_targets_registered.rs"
 
