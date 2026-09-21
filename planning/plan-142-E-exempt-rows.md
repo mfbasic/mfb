@@ -47,6 +47,10 @@ References: plan-142-A §3 and Open Decision 3.
 
 ### Phase 1 — Read and prove
 
+- [ ] Add the `SelfUpdate::Exempt { reason, proof }` variant to
+      `src/codegen/collection/assign/self_update.rs` (plan-142-A Correction A3: it
+      was left out of A because no row constructed it), and have
+      `self_update_table_has_no_stale_rows` require a non-empty `reason` and `proof`.
 - [ ] For each of the 11, read the lowering (and, for `Rewrite` bodies, the called
       MFBASIC function's use of its parameter) and record the line that proves `x`
       is only read. Where a copy is found, fix it and add a regression case.

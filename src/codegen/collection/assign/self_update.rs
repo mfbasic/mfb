@@ -87,7 +87,9 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
         b.try_inplace_remove_key_assign(s, v)
     }),
     (ArmId::Prepend, |b, s, v| b.try_inplace_prepend_assign(s, v)),
-    (ArmId::RemoveAt, |b, s, v| b.try_inplace_remove_at_assign(s, v)),
+    (ArmId::RemoveAt, |b, s, v| {
+        b.try_inplace_remove_at_assign(s, v)
+    }),
     (ArmId::Insert, |b, s, v| b.try_inplace_insert_assign(s, v)),
     (ArmId::SetRemove, |b, s, v| {
         b.try_inplace_set_remove_assign(s, v)
@@ -110,5 +112,651 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(false)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The table. It exists for the census guards below — the dispatch reads
+// `SELF_UPDATE_ARMS` only — so it is compiled for tests.
+// ---------------------------------------------------------------------------
+
+/// How a self-update-shaped function avoids copying `x`.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) enum SelfUpdate {
+    /// In place at every site, by these arm ids (a function may need two, e.g.
+    /// `append` single-element and bulk).
+    Arm(&'static [ArmId]),
+    /// Not yet in place; names the plan-142 letter that lands it. Letter I deletes
+    /// this variant.
+    Pending(&'static str),
+}
+
+/// A program fragment that performs one self-update of `x`, for the matrix test.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct Probe {
+    /// Packages the fragment needs besides `io`.
+    pub(crate) imports: &'static [&'static str],
+    /// Top-level helper `FUNC`s the call refers to (callbacks), or empty.
+    pub(crate) helpers: &'static str,
+    /// `x`'s declared type.
+    pub(crate) ty: &'static str,
+    /// `x`'s initial value.
+    pub(crate) init: &'static str,
+    /// The right-hand side of `x = …`.
+    pub(crate) call: &'static str,
+}
+
+/// One row: a self-update-shaped function and how it is served.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct SelfUpdateRow {
+    /// `pkg::name` of a registry function, or an operator spelling (`&`) for an
+    /// operator self-update, which has no registry entry.
+    pub(crate) function: &'static str,
+    pub(crate) kind: SelfUpdate,
+    /// Fragments exercising the row; together they must fire every arm it names.
+    pub(crate) probes: &'static [Probe],
+}
+
+#[cfg(test)]
+const C: &[&str] = &["collections"];
+#[cfg(test)]
+const M: &[&str] = &["math"];
+#[cfg(test)]
+const Z: &[&str] = &["compress", "encoding"];
+#[cfg(test)]
+const K: &[&str] = &["crypto", "encoding"];
+
+#[cfg(test)]
+const fn probe(
+    imports: &'static [&'static str],
+    ty: &'static str,
+    init: &'static str,
+    call: &'static str,
+) -> Probe {
+    Probe {
+        imports,
+        helpers: "",
+        ty,
+        init,
+        call,
+    }
+}
+
+#[cfg(test)]
+const fn probe_with(
+    imports: &'static [&'static str],
+    helpers: &'static str,
+    ty: &'static str,
+    init: &'static str,
+    call: &'static str,
+) -> Probe {
+    Probe {
+        imports,
+        helpers,
+        ty,
+        init,
+        call,
+    }
+}
+
+#[cfg(test)]
+const fn pending(
+    function: &'static str,
+    letter: &'static str,
+    probes: &'static [Probe],
+) -> SelfUpdateRow {
+    SelfUpdateRow {
+        function,
+        kind: SelfUpdate::Pending(letter),
+        probes,
+    }
+}
+
+#[cfg(test)]
+const LI: &str = "List OF Integer";
+#[cfg(test)]
+const LF: &str = "List OF Float";
+#[cfg(test)]
+const LB: &str = "List OF Byte";
+#[cfg(test)]
+const SI: &str = "Set OF Integer";
+#[cfg(test)]
+const MSI: &str = "Map OF String TO Integer";
+#[cfg(test)]
+const FLOATS: &str = "[0.1, 0.2, 0.3]";
+#[cfg(test)]
+const BYTES: &str = "encoding::utf8Encode(\"hello, hello, hello\")";
+#[cfg(test)]
+const IS_POSITIVE: &str = "FUNC isPositive(n AS Integer) AS Boolean\n  RETURN n > 0\nEND FUNC\n\n";
+#[cfg(test)]
+const NEGATED: &str = "FUNC negated(n AS Integer) AS Integer\n  RETURN 0 - n\nEND FUNC\n\n";
+#[cfg(test)]
+const PUSH: &str = "FUNC push(acc AS List OF Integer, n AS Integer) AS List OF Integer\n  RETURN collections::append(acc, n)\nEND FUNC\n\n";
+
+/// Every registry function with a self-update-shaped overload
+/// (`registry::self_update_shaped`), plus the `String` self-concat.
+#[cfg(test)]
+pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
+    // --- in place today (site S1) ---
+    SelfUpdateRow {
+        function: "collections::append",
+        kind: SelfUpdate::Arm(&[ArmId::Append, ArmId::BulkAppend]),
+        probes: &[
+            probe(C, LI, "[1, 2, 3]", "collections::append(x, 4)"),
+            probe(C, LI, "[1, 2, 3]", "collections::append(x, [4, 5])"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "collections::set",
+        kind: SelfUpdate::Arm(&[ArmId::Set]),
+        probes: &[
+            probe(C, LI, "[1, 2, 3]", "collections::set(x, 0, 9)"),
+            probe(
+                C,
+                MSI,
+                "Map OF String TO Integer { \"a\" := 1 }",
+                "collections::set(x, \"b\", 2)",
+            ),
+        ],
+    },
+    SelfUpdateRow {
+        function: "collections::add",
+        kind: SelfUpdate::Arm(&[ArmId::SetAdd]),
+        probes: &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::add(x, 3)",
+        )],
+    },
+    SelfUpdateRow {
+        function: "collections::remove",
+        kind: SelfUpdate::Arm(&[ArmId::SetRemove]),
+        probes: &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::remove(x, 1)",
+        )],
+    },
+    SelfUpdateRow {
+        function: "collections::removeKey",
+        kind: SelfUpdate::Arm(&[ArmId::RemoveKey]),
+        probes: &[probe(
+            C,
+            MSI,
+            "Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }",
+            "collections::removeKey(x, \"a\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "collections::prepend",
+        kind: SelfUpdate::Arm(&[ArmId::Prepend]),
+        probes: &[probe(C, LI, "[1, 2, 3]", "collections::prepend(x, 0)")],
+    },
+    SelfUpdateRow {
+        function: "collections::removeAt",
+        kind: SelfUpdate::Arm(&[ArmId::RemoveAt]),
+        probes: &[probe(
+            C,
+            LI,
+            "[1, 2, 3, 4, 5]",
+            "collections::removeAt(x, 0)",
+        )],
+    },
+    SelfUpdateRow {
+        function: "collections::insert",
+        kind: SelfUpdate::Arm(&[ArmId::Insert]),
+        probes: &[probe(C, LI, "[1, 2, 3]", "collections::insert(x, 1, 7)")],
+    },
+    SelfUpdateRow {
+        function: "&",
+        kind: SelfUpdate::Arm(&[ArmId::Concat]),
+        probes: &[probe(&[], "String", "\"a\"", "x & \"b\"")],
+    },
+    // --- letter B: shrink / compact ---
+    pending(
+        "collections::filter",
+        "B",
+        &[probe_with(
+            C,
+            IS_POSITIVE,
+            LI,
+            "[1, -2, 3]",
+            "collections::filter(x, isPositive)",
+        )],
+    ),
+    pending(
+        "collections::take",
+        "B",
+        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::take(x, 4)")],
+    ),
+    pending(
+        "collections::drop",
+        "B",
+        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::drop(x, 1)")],
+    ),
+    pending(
+        "collections::mid",
+        "B",
+        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::mid(x, 0, 4)")],
+    ),
+    pending(
+        "collections::distinct",
+        "B",
+        &[probe(C, LI, "[1, 1, 2]", "collections::distinct(x)")],
+    ),
+    // --- letter C: element rewrite / reorder ---
+    pending(
+        "collections::replace",
+        "C",
+        &[probe(C, LI, "[1, 2, 1]", "collections::replace(x, 1, 5)")],
+    ),
+    pending(
+        "collections::transform",
+        "C",
+        &[probe_with(
+            C,
+            NEGATED,
+            LI,
+            "[1, 2, 3]",
+            "collections::transform(x, negated)",
+        )],
+    ),
+    pending(
+        "collections::sort",
+        "C",
+        &[probe(C, LI, "[3, 1, 2]", "collections::sort(x)")],
+    ),
+    pending(
+        "collections::sortBy",
+        "C",
+        &[probe_with(
+            C,
+            NEGATED,
+            LI,
+            "[3, 1, 2]",
+            "collections::sortBy(x, negated)",
+        )],
+    ),
+    pending("math::abs", "C", &[probe(M, LF, FLOATS, "math::abs(x)")]),
+    pending("math::acos", "C", &[probe(M, LF, FLOATS, "math::acos(x)")]),
+    pending("math::asin", "C", &[probe(M, LF, FLOATS, "math::asin(x)")]),
+    pending("math::atan", "C", &[probe(M, LF, FLOATS, "math::atan(x)")]),
+    pending(
+        "math::atan2",
+        "C",
+        &[probe(M, LF, FLOATS, "math::atan2(x, [1.0, 1.0, 1.0])")],
+    ),
+    pending(
+        "math::clamp",
+        "C",
+        &[probe(M, LF, FLOATS, "math::clamp(x, 0.0, 0.25)")],
+    ),
+    pending("math::cos", "C", &[probe(M, LF, FLOATS, "math::cos(x)")]),
+    pending("math::exp", "C", &[probe(M, LF, FLOATS, "math::exp(x)")]),
+    pending("math::log", "C", &[probe(M, LF, FLOATS, "math::log(x)")]),
+    pending(
+        "math::log10",
+        "C",
+        &[probe(M, LF, FLOATS, "math::log10(x)")],
+    ),
+    pending(
+        "math::max",
+        "C",
+        &[probe(M, LF, FLOATS, "math::max(x, [0.5, 0.0, 0.5])")],
+    ),
+    pending(
+        "math::min",
+        "C",
+        &[probe(M, LF, FLOATS, "math::min(x, [0.5, 0.0, 0.5])")],
+    ),
+    pending(
+        "math::pow",
+        "C",
+        &[probe(M, LF, FLOATS, "math::pow(x, [1.0, 2.0, 1.0])")],
+    ),
+    pending("math::sin", "C", &[probe(M, LF, FLOATS, "math::sin(x)")]),
+    pending("math::sqrt", "C", &[probe(M, LF, FLOATS, "math::sqrt(x)")]),
+    pending("math::tan", "C", &[probe(M, LF, FLOATS, "math::tan(x)")]),
+    // --- letter D: Set algebra and Map ---
+    pending(
+        "collections::union",
+        "D",
+        &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::union(x, Set OF Integer { 2, 3 })",
+        )],
+    ),
+    pending(
+        "collections::intersection",
+        "D",
+        &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::intersection(x, Set OF Integer { 2, 3 })",
+        )],
+    ),
+    pending(
+        "collections::difference",
+        "D",
+        &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::difference(x, Set OF Integer { 2, 3 })",
+        )],
+    ),
+    pending(
+        "collections::symmetricDifference",
+        "D",
+        &[probe(
+            C,
+            SI,
+            "Set OF Integer { 1, 2 }",
+            "collections::symmetricDifference(x, Set OF Integer { 2, 3 })",
+        )],
+    ),
+    pending(
+        "collections::merge",
+        "D",
+        &[probe(
+            C,
+            MSI,
+            "Map OF String TO Integer { \"a\" := 1 }",
+            "collections::merge(x, Map OF String TO Integer { \"b\" := 2 }, TRUE)",
+        )],
+    ),
+    pending(
+        "collections::mapValues",
+        "D",
+        &[probe_with(
+            C,
+            NEGATED,
+            MSI,
+            "Map OF String TO Integer { \"a\" := 1 }",
+            "collections::mapValues(x, negated)",
+        )],
+    ),
+    // --- letter E: exempt, proven copy-free ---
+    pending(
+        "collections::reduce",
+        "E",
+        &[probe_with(
+            C,
+            PUSH,
+            LI,
+            "[1, 2, 3]",
+            "collections::reduce(x, [0], push)",
+        )],
+    ),
+    pending(
+        "collections::reduceRight",
+        "E",
+        &[probe_with(
+            C,
+            PUSH,
+            LI,
+            "[1, 2, 3]",
+            "collections::reduceRight(x, [0], push)",
+        )],
+    ),
+    pending(
+        "compress::deflate",
+        "E",
+        &[probe(Z, LB, BYTES, "compress::deflate(x, 6)")],
+    ),
+    pending(
+        "compress::inflate",
+        "E",
+        &[probe(
+            Z,
+            LB,
+            "compress::deflate(encoding::utf8Encode(\"hello\"), 6)",
+            "compress::inflate(x, 1048576)",
+        )],
+    ),
+    pending(
+        "compress::gzipEncode",
+        "E",
+        &[probe(Z, LB, BYTES, "compress::gzipEncode(x, 6)")],
+    ),
+    pending(
+        "compress::gzipDecode",
+        "E",
+        &[probe(
+            Z,
+            LB,
+            "compress::gzipEncode(encoding::utf8Encode(\"hello\"), 6)",
+            "compress::gzipDecode(x, 1048576, FALSE)",
+        )],
+    ),
+    pending(
+        "compress::zlibEncode",
+        "E",
+        &[probe(Z, LB, BYTES, "compress::zlibEncode(x, 6)")],
+    ),
+    pending(
+        "compress::zlibDecode",
+        "E",
+        &[probe(
+            Z,
+            LB,
+            "compress::zlibEncode(encoding::utf8Encode(\"hello\"), 6)",
+            "compress::zlibDecode(x, 1048576, FALSE)",
+        )],
+    ),
+    pending(
+        "crypto::argon2id",
+        "E",
+        &[probe(
+            K,
+            LB,
+            BYTES,
+            "crypto::argon2id(x, encoding::utf8Encode(\"saltsaltsalt\"), 32, 1, 1, 32)",
+        )],
+    ),
+    pending(
+        "crypto::shake256",
+        "E",
+        &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
+    ),
+];
+
+#[cfg(test)]
+impl ArmId {
+    /// The stack-slot type names only this arm allocates (plan-141 Appendix C:
+    /// each occurs exactly once in `src/`). The slot's presence in a function
+    /// proves the arm fired there. `Set` has one per collection kind.
+    pub(crate) fn markers(self) -> &'static [&'static str] {
+        match self {
+            ArmId::Append => &["inplace_append_item"],
+            ArmId::BulkAppend => &["inplace_bulk_append_rhs"],
+            ArmId::SetAdd => &["inplace_set_add_item"],
+            ArmId::Set => &["inplace_set_index", "inplace_set_key"],
+            ArmId::RemoveKey => &["inplace_remove_key"],
+            ArmId::Prepend => &["inplace_prepend_item"],
+            ArmId::RemoveAt => &["inplace_remove_at_index"],
+            ArmId::Insert => &["inplace_insert_index"],
+            ArmId::SetRemove => &["inplace_set_remove_item"],
+            ArmId::Concat => &["concat_self_right"],
+        }
+    }
+}
+
+/// The binding sites the matrix test compiles every arm probe at. F, G and H
+/// each append theirs.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Site {
+    /// S1 — a `MUT` local in a function body.
+    Local,
+}
+
+#[cfg(test)]
+pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local];
+
+#[cfg(test)]
+impl Probe {
+    /// The whole program performing this probe's self-update at `site`, in `main`.
+    pub(crate) fn source(&self, site: Site) -> String {
+        let mut src = String::from("IMPORT io\n");
+        for import in self.imports {
+            src.push_str(&format!("IMPORT {import}\n"));
+        }
+        src.push('\n');
+        src.push_str(self.helpers);
+        match site {
+            Site::Local => src.push_str(&format!(
+                "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR i = 1 TO 3\n    \
+                 x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
+        }
+        src
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::codegen::registry::{registry, self_update_shaped};
+    use crate::target::NativeBuildMode::Console;
+    use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+
+    /// Operator self-updates: rows with no registry function behind them.
+    const OPERATORS: &[&str] = &["&"];
+
+    /// Every function with at least one self-update-shaped overload, as `pkg::name`.
+    fn shaped_functions() -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for package in registry().packages() {
+            for function in package.functions() {
+                if function.implementations.iter().any(self_update_shaped) {
+                    out.insert(format!("{}::{}", package.import_name(), function.name));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn self_update_census_covers_every_registry_overload() {
+        let rows: BTreeSet<&str> = SELF_UPDATE_TABLE.iter().map(|r| r.function).collect();
+        let missing: Vec<String> = shaped_functions()
+            .into_iter()
+            .filter(|f| !rows.contains(f.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "self-update-shaped builtin(s) with no SELF_UPDATE_TABLE row — add an `Arm` \
+             (an in-place lowering) or an `Exempt` with its proof: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn self_update_table_has_no_stale_rows() {
+        let shaped = shaped_functions();
+        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(
+            arms.len(),
+            SELF_UPDATE_ARMS.len(),
+            "an arm id appears twice in SELF_UPDATE_ARMS"
+        );
+        let mut seen = BTreeSet::new();
+        let mut referenced = BTreeSet::new();
+        for row in SELF_UPDATE_TABLE {
+            assert!(seen.insert(row.function), "duplicate row {}", row.function);
+            assert!(
+                shaped.contains(row.function) || OPERATORS.contains(&row.function),
+                "row {} names no registry function with a self-update-shaped overload",
+                row.function
+            );
+            assert!(!row.probes.is_empty(), "row {} has no probe", row.function);
+            if let SelfUpdate::Pending(letter) = row.kind {
+                assert!(
+                    ["B", "C", "D", "E"].contains(&letter),
+                    "row {} is pending on `{letter}`, which is not a plan-142 letter that \
+                     lands arms or exemptions",
+                    row.function
+                );
+            }
+            if let SelfUpdate::Arm(ids) = row.kind {
+                assert!(!ids.is_empty(), "row {} lists no arm", row.function);
+                for id in ids {
+                    assert!(
+                        arms.contains(id),
+                        "row {} names {id:?}, which is not in SELF_UPDATE_ARMS",
+                        row.function
+                    );
+                    referenced.insert(*id);
+                }
+            }
+        }
+        let unreferenced: Vec<&ArmId> = arms.difference(&referenced).collect();
+        assert!(
+            unreferenced.is_empty(),
+            "SELF_UPDATE_ARMS entries no row names: {unreferenced:?}"
+        );
+    }
+
+    #[test]
+    fn every_arm_row_fires_at_every_enabled_site() {
+        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _)| *id).collect();
+        let mut failures = Vec::new();
+        for row in SELF_UPDATE_TABLE {
+            let SelfUpdate::Arm(ids) = row.kind else {
+                continue;
+            };
+            for &site in ENABLED_SITES {
+                let mut fired = BTreeSet::new();
+                for probe in row.probes {
+                    let src = probe.source(site);
+                    let code = code_for_src_cached(&src, CodeTarget::LinuxX86_64, Console);
+                    let main = code_function(code, "main");
+                    let hit: Vec<ArmId> = ids
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            main.stack_slots
+                                .iter()
+                                .any(|slot| id.markers().contains(&slot.type_.as_str()))
+                        })
+                        .collect();
+                    if hit.is_empty() {
+                        failures.push(format!(
+                            "{} at {site:?}: `x = {}` fired none of {ids:?}",
+                            row.function, probe.call
+                        ));
+                    }
+                    fired.extend(hit);
+                }
+                for id in ids {
+                    if !fired.contains(id) {
+                        failures.push(format!(
+                            "{} at {site:?}: no probe fired {id:?}",
+                            row.function
+                        ));
+                    }
+                    if !arms.contains(id) {
+                        failures.push(format!(
+                            "{} at {site:?}: {id:?} is not dispatched (not in SELF_UPDATE_ARMS)",
+                            row.function
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

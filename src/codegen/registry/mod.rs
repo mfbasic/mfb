@@ -2911,7 +2911,10 @@ pub(crate) fn self_update_shaped(imp: &Implementation) -> bool {
     matches!(
         resolve_bound(strip_res(&first.ty), &bindings),
         ParameterType::ListOf(_) | ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
-    ) || matches!(resolve_bound(strip_res(&first.ty), &bindings), ParameterType::Var(_))
+    ) || matches!(
+        resolve_bound(strip_res(&first.ty), &bindings),
+        ParameterType::Var(_)
+    )
 }
 
 #[cfg(test)]
@@ -2987,12 +2990,18 @@ fn types_coincide(
         (ParameterType::UserOf(n1, a1), ParameterType::UserOf(n2, a2)) => {
             n1 == n2
                 && a1.len() == a2.len()
-                && a1.iter().zip(a2).all(|(x, y)| types_coincide(x, y, bindings))
+                && a1
+                    .iter()
+                    .zip(a2)
+                    .all(|(x, y)| types_coincide(x, y, bindings))
         }
         (ParameterType::Func(p1, r1, i1), ParameterType::Func(p2, r2, i2)) => {
             i1 == i2
                 && p1.len() == p2.len()
-                && p1.iter().zip(p2).all(|(x, y)| types_coincide(x, y, bindings))
+                && p1
+                    .iter()
+                    .zip(p2)
+                    .all(|(x, y)| types_coincide(x, y, bindings))
                 && types_coincide(r1, r2, bindings)
         }
         (x, y) => x == y,

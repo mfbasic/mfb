@@ -342,27 +342,39 @@ Acceptance: codegen is unchanged.
   Verified 2026-09-21: `cargo build --release && cargo test --test golden` →
   `artifact-gate [all]: 1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`,
   `test result: ok. 1 passed`.
-Commit: —
+Commit: d28a16f4c
 
 ### Phase 3 — The table and the unit guards
 
-- [ ] Fill `SELF_UPDATE_TABLE` with one row per function from Phase 1's list:
+- [x] Fill `SELF_UPDATE_TABLE` with one row per function from Phase 1's list:
       the 10 arm-backed as `Arm`; `filter take drop mid distinct` →
       `Pending("B")`; `replace transform sort sortBy` + the 16 `math` functions →
       `Pending("C")`; `union intersection difference symmetricDifference merge mapValues`
       → `Pending("D")`; `reduce reduceRight` + 6 `compress` + 3 `crypto` →
       `Pending("E")`; plus any Phase 1 additions. Each row carries its `probe` snippet.
-- [ ] Add `self_update_census_covers_every_registry_overload` and
+      (50 rows: 49 registry functions — 25 `collections`, 16 `math`, 6 `compress`,
+      2 `crypto` — plus an operator row `&` → `Arm([Concat])`; see Correction A2.
+      Phase 1 added none.)
+- [x] Add `self_update_census_covers_every_registry_overload` and
       `self_update_table_has_no_stale_rows` to `self_update.rs`.
-- [ ] Add `every_arm_row_fires_at_every_enabled_site` with `ENABLED_SITES = [S1]`,
+- [x] Add `every_arm_row_fires_at_every_enabled_site` with `ENABLED_SITES = [S1]`,
       and per-arm marker slot names on `ArmId` (plan-141 Appendix C lists them).
-- [ ] RED proof per `.ai/testing-gates.md:809`: temporarily delete one row
+- [x] RED proof per `.ai/testing-gates.md:809`: temporarily delete one row
       (`collections::take`) → the census test fails naming it; temporarily remove
       one arm from `SELF_UPDATE_ARMS` → the matrix and stale-row tests fail.
       Restore both.
+      Row deleted → `self_update_census_covers_every_registry_overload ... FAILED`:
+      `self-update-shaped builtin(s) with no SELF_UPDATE_TABLE row … ["collections::take"]`.
+      `RemoveAt` removed from `SELF_UPDATE_ARMS` → `self_update_table_has_no_stale_rows
+      ... FAILED` (`row collections::removeAt names RemoveAt, which is not in
+      SELF_UPDATE_ARMS`) and `every_arm_row_fires_at_every_enabled_site ... FAILED`
+      (`x = collections::removeAt(x, 0)` fired none of [RemoveAt]). Both restored
+      from a backup copy; re-run green.
 
 Acceptance: `cargo test --bin mfb self_update` → 3 tests pass; both RED
 experiments recorded here with their failure lines (est. 5 min).
+Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 3 passed;
+0 failed`, no warnings.
 Commit: —
 
 ### Phase 4 — The black-box guard and the runtime harness
@@ -431,6 +443,21 @@ Commit: —
   it. `self_update_shaped` runs a small two-sided unifier (`types_coincide`, with an
   occurs check) over one binding map instead. Measured result unchanged in kind: 4
   generic-only overloads, all in `collections`.
+- **A2 (Phase 3): the table's shape.** (a) `SELF_UPDATE_ARMS` holds `Concat`, but
+  `s = s & t` is an operator with no registry function, so the "every row names a
+  registry function" rule would forbid the row that references it. The table has
+  an operator row `&`, and the stale-row test admits exactly the spellings in its
+  `OPERATORS` list. (b) The plan gave each row one `probe`; `append` (two arms)
+  and `set` (List and Map forms) need two, so a row carries `probes: &[Probe]`,
+  and the matrix asserts each probe fires one of the row's arms and the probes
+  together fire all of them. `ArmId::markers()` returns a list because the `set`
+  arm has one marker per collection kind (`inplace_set_index`, `inplace_set_key`).
+  (c) `SELF_UPDATE_TABLE`, `SelfUpdate`, `Probe`, `markers` and `ENABLED_SITES` are
+  `#[cfg(test)]`: the dispatch reads `SELF_UPDATE_ARMS` only, so the table's sole
+  consumers are the guards.
+- **A3 (Phase 3): `SelfUpdate::Exempt` arrives with letter E.** No row is `Exempt`
+  before letter E, so the variant was never constructed and warned as dead code.
+  It is added in E Phase 1 together with its first rows (task added there).
 
 ## Summary
 
