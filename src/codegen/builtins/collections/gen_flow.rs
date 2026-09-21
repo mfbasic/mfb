@@ -25,14 +25,19 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
+    /// The exit a builtin's loop takes when a user callback it called fails: free
+    /// `cleanup` (the member's partial result), then route the callee's error like
+    /// any failed call. Under an inline `TRAP` that is the capture point; otherwise
+    /// it is [`Self::emit_call_error_exit`] — the enclosing function-level `TRAP`,
+    /// or a return to the caller that frees the live scope first.
+    ///
+    /// The second case used to be a bare `ret`: the function's `TRAP` never ran,
+    /// its locals were never freed, and the partial result leaked
+    /// (`tests/runtime/rt_callback_failure_reaches_trap.rs`).
     pub(crate) fn emit_callback_failure_exit(
         &mut self,
         cleanup: Option<(usize, ParameterType)>,
     ) -> Result<(), String> {
-        let Some(label) = self.raw_result_capture_label() else {
-            self.emit(abi::return_());
-            return Ok(());
-        };
         if let Some((block_slot, type_)) = cleanup {
             let regs = [
                 RESULT_TAG_REGISTER,
@@ -59,7 +64,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
             }
         }
-        self.emit(abi::branch(&label));
+        match self.raw_result_capture_label() {
+            Some(label) => self.emit(abi::branch(&label)),
+            None => self.emit_call_error_exit()?,
+        }
         Ok(())
     }
 
