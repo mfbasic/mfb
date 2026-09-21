@@ -218,12 +218,10 @@ fn emit_pump_prologue(
 
     ctx.instructions.push(abi::label(pump_head));
     emit_load_mouse_mode(ctx, v);
-    ctx.instructions
-        .push(abi::compare_immediate(&v.mode, "0"));
+    ctx.instructions.push(abi::compare_immediate(&v.mode, "0"));
     ctx.instructions.push(abi::branch_eq(&no_drain));
     mouse_decode::emit_drain_pending(&v.have, &v.out_byte, pump.state_offset, ctx, vregs);
-    ctx.instructions
-        .push(abi::compare_immediate(&v.have, "0"));
+    ctx.instructions.push(abi::compare_immediate(&v.have, "0"));
     ctx.instructions.push(abi::branch_eq(&no_drain));
     // A replayed byte looks exactly like a freshly read one to the caller: it lands
     // in the same slot, and the synthesized count of 1 reproduces the read's own
@@ -256,8 +254,7 @@ fn emit_pump_epilogue(
     ctx.instructions
         .push(abi::move_register(&v.saved_count, abi::return_register()));
     emit_load_mouse_mode(ctx, v);
-    ctx.instructions
-        .push(abi::compare_immediate(&v.mode, "0"));
+    ctx.instructions.push(abi::compare_immediate(&v.mode, "0"));
     ctx.instructions.push(abi::branch_eq(&deliver));
     // EOF and errors are the caller's to interpret, not the decoder's: a 0 or
     // negative count means no byte was read, so there is nothing to decode.

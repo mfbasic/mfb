@@ -143,8 +143,12 @@ impl Walk<'_, '_, '_> {
             NirValue::FunctionRef { name, .. } | NirValue::Closure { name, .. } => {
                 self.callback_reaches(name)
             }
-            _ => callback_positions.as_ref().is_none_or(|positions| positions.contains(&index))
-                && !self.is_plainly_not_a_function(arg),
+            _ => {
+                callback_positions
+                    .as_ref()
+                    .is_none_or(|positions| positions.contains(&index))
+                    && !self.is_plainly_not_a_function(arg)
+            }
         })
     }
 
