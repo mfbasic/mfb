@@ -124,7 +124,7 @@ Commit: 1f01b7590
 Acceptance: all three commands green; timings recorded (est. 60 min — the full
 gate, required once by `.ai/testing-gates.md`).
 Verified 2026-09-21 at `77a9255b1`: all three green (above); timings recorded.
-Commit: —
+Commit: f2fb43cc7
 
 ## Corrections
 
