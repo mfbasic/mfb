@@ -17,7 +17,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 | `len(value)` | 1 | `Integer` | `String`, `List OF T`, `Map OF K TO V` |
 | `typeName(value)` | 1 | `String` | any `T` (never reads the value) |
 | `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Money`/`Boolean`/`String`/`Byte`/`Scalar`/`List OF Byte`; optional `Byte` precision for `Float`/`Fixed`/`Money` |
-| `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`; optional `Integer` `base` (2–36) for `String` radix parsing |
+| `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`, any enum (the member's 0-based declaration index; infallible); optional `Integer` `base` (2–36) for `String` radix parsing |
 | `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed`, `Money` |
 | `toFixed(value)` | 1 | `Fixed` | `String`, `Integer`, `Float`, `Money` |
 | `toByte(value)` | 1 | `Byte` | `Integer`, `Money`, `Scalar` |
@@ -120,11 +120,14 @@ Fallible built-ins (`fs::openFile`, `toInt`, `collections::get`, …) can fail a
 
 ## 18.3 Overriding general built-ins
 
-The **general (unqualified) built-ins** — `toString`, `len`, `typeName`, the `to*` conversions (`toInt`, `toFloat`, `toFixed`, `toByte`), and the `is*` predicates (`isNumeric`, `isEven`, `isOdd`, `isPositive`, `isNegative`, `isZero`, `isEmpty`, `isNotEmpty`) — are **overridable**: a program or package may declare, e.g., `FUNC toString(value AS Point) AS String` or `FUNC len(value AS Grid) AS Integer`, and a plain `toString(p)` / `len(g)` call binds to that declaration when its argument types match. Resolution is **gap-fill**: the scalar/collection built-in stays authoritative for the types it already supports (a user overload can never shadow `toString(42)`), and an override is consulted only when the built-in rejects the argument types. The override is selected by argument type like any overload. `error` is **not** overridable — it is a reserved primitive that builds the read-only `Error` record (`FUNC error(…)` is a `SYMBOL_RESERVED_BUILTIN_NAME` error).
+The **general (unqualified) built-ins** — `toString`, `len`, `typeName`, the `to*` conversions (`toInt`, `toFloat`, `toFixed`, `toByte`), and the `is*` predicates (`isNumeric`, `isEven`, `isOdd`, `isPositive`, `isNegative`, `isZero`, `isEmpty`, `isNotEmpty`) — are **overridable**: a program or package may declare, e.g., `FUNC toString(value AS Point) AS String` or `FUNC len(value AS Grid) AS Integer`, and a plain `toString(p)` / `len(g)` call binds to that declaration when its argument types match. Resolution is **gap-fill**: the scalar/collection built-in stays authoritative for the types it already supports (a user overload can never shadow `toString(42)`), and an override is consulted only when the built-in rejects the argument types. The override is selected by argument type like any overload. Enums are among the types the built-in `toInt` supports, so a `toInt` override over an enum is never selected. `error` is **not** overridable — it is a reserved primitive that builds the read-only `Error` record (`FUNC error(…)` is a `SYMBOL_RESERVED_BUILTIN_NAME` error).
 
 Implementation: every general name except `error` is overridable; [[src/codegen/builtins/general/mod.rs:is_overridable]] the gap-fill routing consults a user
 override **only** when the built-in's own resolution rejects the argument
 types, so a user overload can never shadow a type the built-in already handles. [[src/monomorph/lower.rs:resolve_general_builtin_override]]
+`toInt` accepts an enum argument through the resolver's kind oracle, [[src/codegen/builtins/general/mod.rs:resolve_call]]
+and lowers it to a register move of the value, which already is the member's
+0-based declaration index. [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]
 The reserved check covers exactly the set `{ error }`,
 enforced when the resolver inserts a function. [[src/codegen/builtins/general/mod.rs:reserved_builtin_name]] [[src/resolver/mod.rs:insert_function]]
 

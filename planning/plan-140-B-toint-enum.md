@@ -237,24 +237,24 @@ Acceptance: the Phase 1 fixtures pass.
   listed as run). Whole corpus: `artifact-gate [all]: 1470 tests, 1645
   build(s), 2072 golden(s) checked, 0 diff(s)` — no golden outside this
   plan's changed (`toInt_invalid` was hand-edited in Phase 1).
-Commit: —
+Commit: efbbf57d5
 
 ### Phase 3 — Docs and spec
 
-- [ ] `src/codegen/builtins/general/func_to_int.rs`: DESC gains a short
+- [x] `src/codegen/builtins/general/func_to_int.rs`: DESC gains a short
       paragraph. From an enum value, `toInt` returns the member's position in
       its `ENUM` declaration, counting from 0; it never fails; reordering the
       members changes the numbers. EX gains an enum example with its printed
       output. Say "you get the position" and never "ordinal"/"tag"
       (`.ai/man-content.md` bans compiler vocabulary). The `value` parameter's
       description mentions enums.
-- [ ] `src/docs/spec/language/18_builtin-functions.md:20`: add "any enum (the
+- [x] `src/docs/spec/language/18_builtin-functions.md:20`: add "any enum (the
       member's 0-based declaration index; infallible)" to the `toInt` row, and
       in the `:123` override paragraph note that enums are among the types the
       built-in supports, so a `toInt` override over an enum is never selected.
       Cite `[[src/codegen/builtins/general/mod.rs:resolve_call]]` and
       `[[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]`.
-- [ ] `src/docs/spec/language/04_types.md` §4.5: one sentence that a member's
+- [x] `src/docs/spec/language/04_types.md` §4.5: one sentence that a member's
       `toInt` is its declaration index, pointing at §18.
 
 Acceptance: the man page renders and its examples run; the spec builds and its
@@ -264,6 +264,13 @@ citations resolve.
   Check: `cargo test --bin mfb spec && scripts/spec-census.sh --citations` →
   pass, 0 dangling (est. 3 min).
   Check: `scripts/man-census.sh --memory-scope` → 0 unclassified hits (est. 1 min).
+  Result: `man-run-examples.sh general --run` → `examples: 35 built: 35 ran:
+  35 not run: 0 failed: 0`; `toInt example 3` prints `0`, `2`, `TRUE` as
+  documented. `cargo test --bin mfb spec` → 43 passed; `spec-census.sh
+  --citations` → MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0.
+  `MFB=./target/release/mfb scripts/man-census.sh --memory-scope` →
+  `unclassified memory-vocabulary hits: 0`. (The §4.5 sentence points at
+  §18.1, where the `toInt` row lives; the plan's "§18" is that section.)
 Commit: —
 
 ## Validation Plan

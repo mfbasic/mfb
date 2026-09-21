@@ -25,9 +25,16 @@ From a **`Float`** or a `Fixed` it **truncates toward zero**: `toInt(1.9)` is
 `1` and `toInt(-1.9)` is `-1`. It does not round. When you want the nearest
 integer, round first with `math::round`.
 
+From an **enum** value you get the member's position in its `ENUM`
+declaration, counting from 0: the first member is `0`, the next `1`, and so on.
+This never fails. The numbers follow the order the members are written in, so
+reordering the members of an `ENUM` changes them. To go back from a number to
+a member, keep the members in a `List` and read it with `collections::get`.
+
 A value too large for a 64-bit `Integer` raises `ErrOverflow`.
 
-`toInt` is one of the fallible conversions, so its result auto-propagates like
+`toInt` is one of the fallible conversions (except from an enum, which cannot
+fail), so its result auto-propagates like
 any other call: on bad input it routes to your `TRAP`, or fails to your caller.
 It never returns a sentinel such as `-1` or `0` to mean "could not convert"."#;
 
@@ -72,6 +79,33 @@ prints:
 
 ```
 toInt raised 77050003
+```
+
+An enum member's position, and back again through a list:
+
+```
+IMPORT io
+IMPORT collections
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+SUB main()
+  io::print(toString(toInt(Color.Red)))
+  io::print(toString(toInt(Color.Blue)))
+  LET allColors AS List OF Color = [Color.Red, Color.Green, Color.Blue]
+  LET back AS Color = collections::get(allColors, 1)
+  io::print(toString(back = Color.Green))
+END SUB
+```
+
+prints:
+
+```
+0
+2
+TRUE
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -84,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             req(
                 "value",
                 ParameterType::String,
-                "The text or number to convert. Text is parsed; a `Float` or `Fixed` truncates toward zero.",
+                "The text, number, or enum value to convert. Text is parsed; a `Float` or `Fixed` truncates toward zero; an enum value gives its member's position in the `ENUM`, counting from 0.",
             ),
             opt(
                 "base",

@@ -362,6 +362,8 @@ END MATCH
 
 The `.` token is used for both enum member access and record field access. `EnumType.Member` is resolved from a type name on the left; `value.field` is resolved from a value expression on the left.
 
+A member's `toInt` is its 0-based declaration index: `toInt(Color.Red)` is `0` and `toInt(Color.Blue)` is `2` (§18.1).
+
 ## 4.6 `Nothing`
 
 `Nothing` is the unit type. It has one value, written `NOTHING`. It is used for
