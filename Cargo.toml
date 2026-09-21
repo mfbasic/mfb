@@ -468,6 +468,14 @@ name = "no_type_strings"
 path = "tests/guards/no_type_strings.rs"
 
 [[test]]
+name = "inplace_self_update_census"
+path = "tests/guards/inplace_self_update_census.rs"
+
+[[test]]
+name = "rt_inplace_self_update"
+path = "tests/runtime/rt_inplace_self_update.rs"
+
+[[test]]
 name = "test_targets_registered"
 path = "tests/guards/test_targets_registered.rs"
 

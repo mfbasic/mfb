@@ -375,18 +375,24 @@ Acceptance: `cargo test --bin mfb self_update` → 3 tests pass; both RED
 experiments recorded here with their failure lines (est. 5 min).
 Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 3 passed;
 0 failed`, no warnings.
-Commit: —
+Commit: 2b9881782
 
 ### Phase 4 — The black-box guard and the runtime harness
 
-- [ ] Add `tests/guards/inplace_self_update_census.rs` (+ `[[test]]` stanza): the
+- [x] Add `tests/guards/inplace_self_update_census.rs` (+ `[[test]]` stanza): the
       Appendix census in Rust over `mfb man` (the binary under test), asserting
       each self-update-shaped signature appears in
-      `tests/runtime/inplace_self_update/cases.tsv`.
-- [ ] Add `tests/runtime/inplace_self_update/cases.tsv`: columns
+      `tests/runtime/inplace_self_update/cases.tsv`. It also fails on a `cases.tsv`
+      signature `mfb man` no longer documents, and it unifies type variables (with
+      an occurs check), so it sees the 4 generic-only overloads the Appendix's
+      literal rule misses — Correction A5. It reads 63 shaped signatures.
+- [x] Add `tests/runtime/inplace_self_update/cases.tsv`: columns
       `signature \t status(arm|exempt|pending:<letter>) \t setup \t statement \t check`
-      — one line per overload from Phase 1.
-- [ ] Add `tests/runtime/rt_inplace_self_update.rs` (+ stanza): for each `arm`
+      — one line per overload from Phase 1. 63 overload lines (13 `arm`, 5
+      `pending:B`, 27+4 `pending:C`, 6 `pending:D`, 13 `pending:E`) plus one
+      operator line (`&`, `arm`); an optional 6th column overrides `N` (the
+      `Argon2Profile.Minimum` line runs 20: each call costs 19 MiB × 2 passes).
+- [x] Add `tests/runtime/rt_inplace_self_update.rs` (+ stanza): for each `arm`
       line and each enabled site (S1 now), build a program running the statement
       `N = 2000` and `2N` times under `mfb build --debug`, parse
       `perf.mfb_alloc.count`, and assert `count(2N) - count(N) < N / 8`; also run a
@@ -394,12 +400,21 @@ Commit: —
       `pending:<letter>` lines are asserted to **still copy**
       (`count(2N) - count(N) >= N`), so a letter that lands an arm must flip its
       line — a silent improvement fails too. `exempt` lines run the value check only.
-- [ ] RED proof: change one `arm` line to a function that copies (e.g. point
+      (Counts `arena.<k>.alloc_calls`, not `perf.mfb_alloc.count` — Correction A4.
+      `MFB_SELF_UPDATE_FILTER=<substring>` narrows a run to matching lines.)
+- [x] RED proof: change one `arm` line to a function that copies (e.g. point
       `append`'s case at a statement that uses `collections::take`) → the alloc
       assertion fails; restore.
+      `append`'s line given `x = collections::append(x, 4) ; x = collections::take(x, 3)`
+      → `marked \`arm\`, but 2000 more runs allocated 4000 more blocks (4167 at
+      N=2000, 8167 at 2N) — the statement copies`; `test result: FAILED`. Restored
+      from a backup copy.
 
 Acceptance: `cargo test --test inplace_self_update_census --test rt_inplace_self_update`
 → pass (est. 8 min: ~63 cases × 2 builds; no smaller check measures allocation).
+Verified 2026-09-21: `inplace_self_update_census` → `test result: ok. 1 passed`
+(2.99s); `rt_inplace_self_update` → `test result: ok. 1 passed` (144.60s, 64 lines ×
+S1).
 Commit: —
 
 ## Validation Plan
@@ -458,6 +473,29 @@ Commit: —
 - **A3 (Phase 3): `SelfUpdate::Exempt` arrives with letter E.** No row is `Exempt`
   before letter E, so the variant was never constructed and warned as dead code.
   It is added in E Phase 1 together with its first rows (task added there).
+- **A4 (Phase 4): `perf.mfb_alloc.count` is not an allocation counter.** It counts
+  the perf log's samples, and the log stops recording when full: the compress and
+  crypto lines read `349024` blocks at both N and 2N (first harness run). The
+  harness sums the debug report's `arena.<k>.alloc_calls` instead — an exact
+  per-arena counter (`2002` for 2000 copying `take` calls, same as the perf
+  count below the cap).
+- **A5 (Phase 4): `cases.tsv` shape and the census rule.** The Appendix census only
+  sees literal `first == return` signatures; the black-box guard also unifies type
+  variables (with an occurs check — without one it wrongly admits `get`, `getOr`,
+  `chunks`, `flatten`, `window`, measured on the first run), so it finds all 63.
+  A statement that cannot repeat 4000 times on its own (`acos`, `exp`, `take`, …)
+  is written as a pair with a restoring statement (` ; `-separated, e.g.
+  `x = math::acos(x) ; x = math::clamp(x, 0.1, 0.3)`). The check column holds no
+  expected value: the program prints it before and after the loop and the two must
+  match. The `String` self-concat gets an operator line (`&`), which the census
+  skips because `mfb man` has no page for it.
+- **A6 (Phase 4, affects B–D): the `arm` bound counts every allocation, so an arm
+  may not allocate per statement.** The harness asserts `count(2N) - count(N) <
+  N/8` over `alloc_calls`, which a per-statement scratch block (B's filter bitmap
+  "arena scratch, freed at statement end", C's sort permutation, D's marks) would
+  break just as a copy does. The criterion stands (it is the plan's definition of
+  "in place, no copy"); B–D's designs are corrected to keep scratch out of the
+  arena — see plan-142-B Correction B1.
 
 ## Summary
 
