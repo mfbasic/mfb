@@ -3145,7 +3145,7 @@ impl CodeBuilder<'_> {
     /// aligned end of the packed payloads; the old block is freed. Payload bytes
     /// are copied verbatim, so a pointer edge inside one keeps its target, exactly
     /// as the verbatim grow this replaces did.
-    fn emit_repack_list_data(
+    pub(crate) fn emit_repack_list_data(
         &mut self,
         buffer_slot: usize,
         extra_slot: usize,

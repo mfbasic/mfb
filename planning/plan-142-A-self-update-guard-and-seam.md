@@ -427,6 +427,8 @@ Commit: b3a429698
 - Doc sync: none in this letter (letter I).
 - Per-phase gate: `.ai/testing-gates.md:10` — `cargo test --bin mfb` plus the
   scoped checks above. The full gate runs once, in letter I.
+  Run for letter A (2026-09-21, at `b3a429698`): `cargo test --bin mfb` →
+  `test result: ok. 4280 passed; 0 failed; 1 ignored` (1750.83s).
 
 ## Open Decisions
 

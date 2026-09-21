@@ -21,6 +21,8 @@
 
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::engine::builder::*;
+use crate::codegen::error::constants::*;
+use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
@@ -48,6 +50,16 @@ pub(crate) enum ArmId {
     SetRemove,
     /// `s = s & t` on a `String`.
     Concat,
+    /// `xs = filter(xs, predicate)` (plan-142-B).
+    Filter,
+    /// `xs = take(xs, n)` (plan-142-B).
+    Take,
+    /// `xs = drop(xs, n)` (plan-142-B).
+    Drop,
+    /// `xs = mid(xs, start, n)` (plan-142-B).
+    Mid,
+    /// `xs = distinct(xs)` (plan-142-B).
+    Distinct,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -95,6 +107,13 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
         b.try_inplace_set_remove_assign(s, v)
     }),
     (ArmId::Concat, |b, s, v| b.try_inplace_concat_assign(s, v)),
+    (ArmId::Filter, |b, s, v| b.try_inplace_filter_assign(s, v)),
+    (ArmId::Take, |b, s, v| b.try_inplace_take_assign(s, v)),
+    (ArmId::Drop, |b, s, v| b.try_inplace_drop_assign(s, v)),
+    (ArmId::Mid, |b, s, v| b.try_inplace_mid_assign(s, v)),
+    (ArmId::Distinct, |b, s, v| {
+        b.try_inplace_distinct_assign(s, v)
+    }),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -141,6 +160,168 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(false)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The self-update scratch (plan-142-B Correction B1).
+// ---------------------------------------------------------------------------
+
+/// Builtins whose in-place arm keeps per-element state in the function's
+/// self-update scratch. A function holding a self-update of one of these gets the
+/// scratch slot (`prescan_self_update_scratch`).
+pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct"];
+
+/// Whether `ops` (recursively) holds `x = f(x, …)` for an `f` in [`SCRATCH_ARMS`].
+fn ops_need_self_update_scratch(ops: &[NirOp]) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Assign { name, value } => value_needs_self_update_scratch(name, value),
+        NirOp::If {
+            then_body,
+            else_body,
+            ..
+        } => ops_need_self_update_scratch(then_body) || ops_need_self_update_scratch(else_body),
+        NirOp::Match { cases, .. } => cases
+            .iter()
+            .any(|case| ops_need_self_update_scratch(&case.body)),
+        NirOp::While { body, .. }
+        | NirOp::For { body, .. }
+        | NirOp::DoUntil { body, .. }
+        | NirOp::ForEach { body, .. }
+        | NirOp::Trap { body, .. } => ops_need_self_update_scratch(body),
+        _ => false,
+    })
+}
+
+fn value_needs_self_update_scratch(name: &str, value: &NirValue) -> bool {
+    let NirValue::Call { target, args, .. } = value else {
+        return false;
+    };
+    matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name)
+        && self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+}
+
+impl CodeBuilder<'_> {
+    /// Give this function a self-update scratch slot if its body holds a
+    /// self-update whose arm needs one. The slot is registered as a function-level
+    /// owned `List OF Integer`, so the ordinary scope drop frees it on every exit
+    /// (with the null guard and prologue zeroing that drop brings). A function
+    /// without such a statement is untouched.
+    pub(crate) fn prescan_self_update_scratch(&mut self, ops: &[NirOp]) {
+        if self.self_update_scratch.is_some() || !ops_need_self_update_scratch(ops) {
+            return;
+        }
+        let slot = self.allocate_stack_object("su_scratch", 8);
+        self.self_update_scratch = Some(slot);
+        self.active_cleanups
+            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                type_: ParameterType::list_of(ParameterType::Integer),
+                stack_offset: slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            }));
+    }
+
+    /// Make the self-update scratch hold at least the byte count in `need_slot`,
+    /// and return a fresh frame slot holding the address of its first byte. The
+    /// bytes' contents are unspecified. Grows to twice the request (at least 64
+    /// bytes), so a loop over similar sizes allocates it once.
+    ///
+    /// `Err` when the function has no scratch slot: an arm that needs one must
+    /// check `self_update_scratch` in its gates, before it emits anything.
+    pub(crate) fn emit_reserve_self_update_scratch(
+        &mut self,
+        need_slot: usize,
+    ) -> Result<usize, String> {
+        let scratch_slot = self
+            .self_update_scratch
+            .ok_or("native self-update scratch requested in a function without one")?;
+        let list_type = ParameterType::list_of(ParameterType::Integer);
+        let layout = CollectionTypeLayout::from_type(&list_type)
+            .ok_or("native self-update scratch has no List OF Integer layout")?;
+        let block = self.temporary_vreg();
+        let cap = self.temporary_vreg();
+        let need = self.temporary_vreg();
+        let size = self.temporary_vreg();
+        let mask = self.temporary_vreg();
+        let newcap_slot = self.allocate_stack_object("su_scratch_newcap", 8);
+        let data_slot = self.allocate_stack_object("su_scratch_data", 8);
+        let grow = self.label("su_scratch_grow");
+        let no_free = self.label("su_scratch_no_free");
+        let alloc_ok = self.label("su_scratch_alloc_ok");
+        let ready = self.label("su_scratch_ready");
+
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_eq(&grow));
+        self.emit(abi::load_u64(&cap, &block, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(&need, abi::stack_pointer(), need_slot));
+        self.emit(abi::compare_registers(&need, &cap));
+        self.emit(abi::branch_hi(&grow));
+        self.emit(abi::branch(&ready));
+
+        // newCapacity = align8(2 * need + 64).
+        self.emit(abi::label(&grow));
+        self.emit(abi::load_u64(&need, abi::stack_pointer(), need_slot));
+        self.emit(abi::add_registers(&size, &need, &need));
+        self.emit(abi::add_immediate(&size, &size, 64 + 7));
+        self.emit(abi::move_immediate(&mask, "Integer", &(!7u64).to_string()));
+        self.emit(abi::and_registers(&size, &size, &mask));
+        self.emit(abi::store_u64(&size, abi::stack_pointer(), newcap_slot));
+        // Free the old block (its contents are scratch), sized as the drop sizes
+        // it: HEADER + dataCapacity (a `List OF Integer` has no entry table).
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_eq(&no_free));
+        self.emit(abi::load_u64(&cap, &block, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::add_immediate(
+            abi::c_arg(1),
+            &cap,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            scratch_slot,
+        ));
+        self.emit(abi::label(&no_free));
+        let size = self.temporary_vreg();
+        self.emit(abi::load_u64(&size, abi::stack_pointer(), newcap_slot));
+        self.emit(abi::add_immediate(
+            abi::c_arg(0),
+            &size,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            scratch_slot,
+        ));
+        let nb = self.temporary_vreg();
+        let zero = self.temporary_vreg();
+        let count_cap = self.temporary_vreg();
+        let dcap = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), scratch_slot));
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::load_u64(&dcap, abi::stack_pointer(), newcap_slot));
+        self.emit(abi::shift_right_immediate(&count_cap, &dcap, 3));
+        self.emit_write_collection_header_full(&layout, &nb, &zero, &count_cap, &zero, &dcap);
+
+        self.emit(abi::label(&ready));
+        let block = self.temporary_vreg();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
+        self.emit(abi::add_immediate(&block, &block, COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), data_slot));
+        Ok(data_slot)
     }
 }
 
@@ -347,37 +528,37 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[probe(&[], "String", "\"a\"", "x & \"b\"")],
     },
     // --- letter B: shrink / compact ---
-    pending(
-        "collections::filter",
-        "B",
-        &[probe_with(
+    SelfUpdateRow {
+        function: "collections::filter",
+        kind: SelfUpdate::Arm(&[ArmId::Filter]),
+        probes: &[probe_with(
             C,
             IS_POSITIVE,
             LI,
             "[1, -2, 3]",
             "collections::filter(x, isPositive)",
         )],
-    ),
-    pending(
-        "collections::take",
-        "B",
-        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::take(x, 4)")],
-    ),
-    pending(
-        "collections::drop",
-        "B",
-        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::drop(x, 1)")],
-    ),
-    pending(
-        "collections::mid",
-        "B",
-        &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::mid(x, 0, 4)")],
-    ),
-    pending(
-        "collections::distinct",
-        "B",
-        &[probe(C, LI, "[1, 1, 2]", "collections::distinct(x)")],
-    ),
+    },
+    SelfUpdateRow {
+        function: "collections::take",
+        kind: SelfUpdate::Arm(&[ArmId::Take]),
+        probes: &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::take(x, 4)")],
+    },
+    SelfUpdateRow {
+        function: "collections::drop",
+        kind: SelfUpdate::Arm(&[ArmId::Drop]),
+        probes: &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::drop(x, 1)")],
+    },
+    SelfUpdateRow {
+        function: "collections::mid",
+        kind: SelfUpdate::Arm(&[ArmId::Mid]),
+        probes: &[probe(C, LI, "[1, 2, 3, 4, 5]", "collections::mid(x, 0, 4)")],
+    },
+    SelfUpdateRow {
+        function: "collections::distinct",
+        kind: SelfUpdate::Arm(&[ArmId::Distinct]),
+        probes: &[probe(C, LI, "[1, 1, 2]", "collections::distinct(x)")],
+    },
     // --- letter C: element rewrite / reorder ---
     pending(
         "collections::replace",
@@ -615,6 +796,11 @@ impl ArmId {
             ArmId::Insert => &["inplace_insert_index"],
             ArmId::SetRemove => &["inplace_set_remove_item"],
             ArmId::Concat => &["concat_self_right"],
+            ArmId::Filter => &["inplace_filter_action"],
+            ArmId::Take => &["inplace_take_count"],
+            ArmId::Drop => &["inplace_drop_count"],
+            ArmId::Mid => &["inplace_mid_start"],
+            ArmId::Distinct => &["inplace_distinct_count"],
         }
     }
 }
@@ -689,9 +875,18 @@ mod tests {
         assert_eq!(self_update_builtin("collections.mid"), Some("mid"));
         assert_eq!(self_update_builtin("collections.append"), Some("append"));
         // `Body::Mfb` members arrive as their internalized monomorph.
-        assert_eq!(self_update_builtin("#collections_take$Integer"), Some("take"));
-        assert_eq!(self_update_builtin("#collections_take$String"), Some("take"));
-        assert_eq!(self_update_builtin("#collections_drop$Integer"), Some("drop"));
+        assert_eq!(
+            self_update_builtin("#collections_take$Integer"),
+            Some("take")
+        );
+        assert_eq!(
+            self_update_builtin("#collections_take$String"),
+            Some("take")
+        );
+        assert_eq!(
+            self_update_builtin("#collections_drop$Integer"),
+            Some("drop")
+        );
         assert_eq!(
             self_update_builtin("#collections_distinct$Integer"),
             Some("distinct")

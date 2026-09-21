@@ -135,42 +135,84 @@ Acceptance: both answers recorded here with their evidence;
 `cargo test --bin mfb self_update_builtin` → pass (est. 10 min).
 Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 4 passed`
 (includes `self_update_builtin_names_every_spelling`).
-Commit: —
+Commit: 0f6e69a36
 
 ### Phase 2 — The compaction primitive
 
-- [ ] `lower_list_compact_in_place` (bitmap and range forms) in `list_mutate.rs`,
+- [x] `lower_list_compact_in_place` (bitmap and range forms) in `list_mutate.rs`,
       for fixed-width (kind-2) and entry-based lists, freeing dropped graphs.
-- [ ] Unit codegen test in `src/codegen/builtins/tests/inplace.rs` for both forms.
+      Landed in its own file, `src/codegen/collection/list/list_compact.rs`
+      (`KeepSource::{Marks, Range}`); marks are one byte per element, not bits
+      (Correction B6). Entry lists probe payload order first (Correction B3); the
+      out-of-order path reuses `emit_repack_list_data`, now `pub(crate)`.
+- [x] Unit codegen test in `src/codegen/builtins/tests/inplace.rs` for both forms.
+      In a sibling file, `src/codegen/builtins/tests/inplace_compact.rs`: range form
+      on a fixed-width list is one block move (`compact_k2_range_*`, no loop, no
+      probe); marks form walks the elements (`compact_k2_loop`); both forms on an
+      entry list emit the order probe and both paths (`compact_probe_loop`,
+      `compact_ord_loop`, `compact_dis_loop`, `compact_dis_repack`). The primitive
+      has no entry point but the arms, so the tests drive it through them and
+      Phases 2–3 land in one commit (Correction B6).
 
 Acceptance: `cargo test --bin mfb compact_in_place` → pass (est. 3 min).
+Verified 2026-09-21: `test result: ok. 3 passed; 0 failed` (after correcting the
+first run's own assertion: the range labels are `compact_k2_range_{wloop,btail,done}`,
+never a bare `compact_k2_range`).
 Commit: —
 
 ### Phase 3 — The five arms
 
-- [ ] `take`, `drop`, `mid` arms (range form, arguments validated first).
-- [ ] `filter` arm (two passes, bitmap).
-- [ ] `distinct` arm (index hash, bitmap).
-- [ ] Flip the five table rows to `Arm`, add them to `SELF_UPDATE_ARMS`, flip their
-      `cases.tsv` lines to `arm`.
-- [ ] `tests/runtime/rt_inplace_failure_atomic.rs` (+ stanza): `filter` with a
+- [x] `take`, `drop`, `mid` arms (range form, arguments validated first).
+      `src/codegen/collection/assign/builder_inplace_shrink.rs`. `take`/`drop` clamp
+      (they are total — `mfb man collections take`); `mid` repeats
+      `lower_list_mid`'s five checks in its order and raises the same
+      `collections.mid` `ErrIndexOutOfRange` before compacting.
+- [x] `filter` arm (two passes, bitmap). Pass 1 stores each verdict in the
+      function's self-update scratch (Correction B1); a failing predicate routes
+      through `emit_callback_failure_exit` with `x` untouched.
+- [x] `distinct` arm (index hash, bitmap). No hash: the copying body's own
+      algorithm and equality (Correction B2).
+- [x] Flip the five table rows to `Arm`, add them to `SELF_UPDATE_ARMS`, flip their
+      `cases.tsv` lines to `arm`. `resolve_self_update` now matches through
+      `self_update_builtin`, so `#collections_take$T` reaches the arm. Differential
+      probe (each arm vs the copying call on a copy, over `Integer`, in-order
+      `String`, an out-of-order `String` list built with `prepend`/`insert`/`set`, a
+      record with a `String` field, and a 500-iteration append/filter/drop loop):
+      27/27 `ok`, `arena.0.alloc_calls 2884` = `free_calls 2884`, `live_bytes 0`;
+      its `--ncode` shows every self-update in `main` took its arm (marker counts
+      5 filter, 5 take, 7 drop, 4 mid, 3 distinct = the source's).
+- [x] `tests/runtime/rt_inplace_failure_atomic.rs` (+ stanza): `filter` with a
       predicate that fails on the 3rd element, `take`/`mid` with an invalid count,
       each inside a function-level `TRAP` whose handler prints `x`: prints the
-      original list.
+      original list. `take` has no invalid count (Correction B5), so the cases are
+      `filter` (Integer and String lists) and `mid` with a negative count, a range
+      past the end, and a negative start: `test result: ok. 1 passed`.
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_self_update --test rt_inplace_failure_atomic`
 → pass; the five `cases.tsv` lines are `arm` (est. 10 min).
+Verified 2026-09-21: `self_update` → `4 passed` (the matrix fires all five new arms at
+S1); `rt_inplace_failure_atomic` → `1 passed`; `rt_inplace_self_update` → `1 passed`
+(141s, all 64 lines; `grep -c 'pending:B' cases.tsv` → 0). Full artifact-gate with
+the arms: `2078 golden(s) checked, 0 diff(s)` — no committed fixture self-updates
+one of the five.
 Commit: —
 
 ### Phase 4 — Expected outputs
 
-- [ ] `examples/network-client/src/main.mfb` self-updates one of these (measured:
+- [x] `examples/network-client/src/main.mfb` self-updates one of these (measured:
       `rg -lP "(\w+) = collections::(filter|take|drop|mid|distinct)\(\1\b" tests examples --glob '*.mfb'`
       → 1 file). If a committed golden covers it, regenerate it; the diff must be
       the arm replacing the copy. Run `scripts/test-accept.sh target/debug/mfb target/accept-actual`
       on the collections fixtures.
+      No committed golden covers it: `examples/network-client` holds only
+      `project.json` and `src/` (the artifact gate sweeps `tests/`), and the full
+      gate above is 0 diffs. Built with the new compiler (`--ncode`), both
+      `buf = collections::drop(buf, nl + 1)` statements take the arm (`runTcp` and
+      `runTls` each carry one `inplace_drop_count` slot).
 
 Acceptance: acceptance run green on `tests/rt-behavior/collections` (est. 10 min).
+Verified 2026-09-21: `scripts/test-accept.sh <debug mfb> <dir> 'rt-behavior/collections/*'`
+→ `acceptance tests passed (65 test(s) ran)`.
 Commit: —
 
 ## Validation Plan
@@ -212,6 +254,22 @@ Commit: —
   (`emit_repack_list_data`'s contract); when the dead bytes then exceed the live
   ones, the same repack runs, so a loop of shrinks cannot grow the block without
   bound, and the repack is paid for by at least as many bytes dropped.
+- **B4 (Phase 3): a pre-existing bug in the copying path, fixed first.** Writing the
+  `filter` arm's failure exit, `emit_callback_failure_exit` turned out to emit a
+  bare `ret` when no inline-`TRAP` capture was active: a callback failing inside
+  `filter`/`transform`/`forEach`/`reduce`/`sortBy`/`mapValues`/`findLastIndex`
+  skipped the enclosing function-level `TRAP` and the scope's frees. Fixed in its
+  own commit (`0157f7b80`, with `tests/runtime/rt_callback_failure_reaches_trap.rs`,
+  RED on all seven before the fix) — the arm's failure path relies on it.
+- **B5 (Phase 3): `take` cannot fail.** The atomicity task named "`take`/`mid` with
+  an invalid count", but `take` and `drop` are total — every count clamps
+  (`mfb man collections take`: "every `Integer` value of `count` is accepted and no
+  index is ever rejected"). Only `mid` raises; its three failing shapes are the
+  cases, with `filter`'s callback failure.
+- **B6 (Phase 2): marks are bytes, and Phases 2–3 land together.** One byte per
+  element instead of one bit: n bytes of reused scratch, and no bit arithmetic on
+  every test. The primitive's only callers are the arms, so its unit test drives it
+  through them and cannot land before them.
 
 ## Summary
 

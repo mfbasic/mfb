@@ -42,6 +42,7 @@ mod fixture_projects;
 mod harness;
 mod imported_types;
 mod inplace;
+mod inplace_compact;
 mod inplace_fields;
 mod link;
 mod link_out_widths;

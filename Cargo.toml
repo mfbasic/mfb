@@ -480,6 +480,10 @@ name = "rt_callback_failure_reaches_trap"
 path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
 
 [[test]]
+name = "rt_inplace_failure_atomic"
+path = "tests/runtime/rt_inplace_failure_atomic.rs"
+
+[[test]]
 name = "test_targets_registered"
 path = "tests/guards/test_targets_registered.rs"
 

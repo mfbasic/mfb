@@ -442,6 +442,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// form, so the spare is invisible outside the buffer. Reset to 0 on any
     /// non-self-append bind/assign of the local and zeroed at function entry.
     pub(crate) string_capacity_slots: HashMap<String, usize>,
+    /// plan-142-B: the frame slot of this function's self-update scratch — a
+    /// `List OF Integer` block the in-place arms use as raw bytes (per-element
+    /// marks, results) so that no arm allocates per statement. `Some` only when
+    /// the body holds a self-update that may need it
+    /// (`prescan_self_update_scratch`); zeroed at entry, grown on demand, freed at
+    /// every exit by a function-level cleanup.
+    pub(crate) self_update_scratch: Option<usize>,
     /// For backends whose `RegisterModel::math_pool_base` is `None` (no free
     /// physical to pin, e.g. x86), the per-kernel virtual register holding the
     /// SIMD math constant-pool base, keyed by the function symbol it was minted
@@ -636,6 +643,7 @@ impl<'a> CodeBuilder<'a> {
             for_each_iterable_state_fields: Vec::new(),
             for_each_iterable_record_fields: Vec::new(),
             string_capacity_slots: HashMap::new(),
+            self_update_scratch: None,
             math_pool_base_vreg: None,
             vector_natives: HashMap::new(),
             next_vector_native: 0,

@@ -231,8 +231,10 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return None;
         };
-        // `G3`/`G4`.
-        if crate::codegen::builtins::native_builtin_target(target) != Some(builtin)
+        // `G3`/`G4` — every post-lowering spelling of the builtin (a `Body::Mfb`
+        // member arrives as its `#collections_X$T` monomorph, plan-142-B).
+        if crate::codegen::collection::assign::self_update::self_update_builtin(target)
+            != Some(builtin)
             || args.len() != arity
         {
             return None;

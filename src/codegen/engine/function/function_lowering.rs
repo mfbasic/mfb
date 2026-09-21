@@ -1012,6 +1012,7 @@ pub(crate) fn lower_function(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
@@ -1105,6 +1106,8 @@ pub(crate) fn lower_function(
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
     builder.prescan_string_self_appends(&function.body);
+    // plan-142-B: the scratch block the in-place shrink arms keep marks in.
+    builder.prescan_self_update_scratch(&function.body);
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
@@ -1506,6 +1509,7 @@ pub(crate) fn lower_abi_function_helper(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
@@ -1675,6 +1679,7 @@ pub(crate) fn lower_thread_copy_function(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,

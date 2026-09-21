@@ -306,10 +306,11 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
 fn every_self_update_case_meets_its_allocation_bound() {
     let mut cases = cases();
     assert!(!cases.is_empty(), "cases.tsv has no case");
-    // `MFB_SELF_UPDATE_FILTER=<substring>` runs only the lines whose signature
-    // contains it — for iterating on one arm; the full run is the gate.
+    // `MFB_SELF_UPDATE_FILTER=<substring>[|<substring>…]` runs only the lines whose
+    // signature contains one of them — for iterating on an arm; the full run is
+    // the gate.
     if let Ok(filter) = std::env::var("MFB_SELF_UPDATE_FILTER") {
-        cases.retain(|c| c.signature.contains(&filter));
+        cases.retain(|c| filter.split('|').any(|part| c.signature.contains(part)));
         assert!(
             !cases.is_empty(),
             "MFB_SELF_UPDATE_FILTER={filter} matches no case"
