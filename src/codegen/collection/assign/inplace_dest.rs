@@ -72,6 +72,11 @@ pub(crate) enum InPlaceDest {
     /// were a plain local, and [`CodeBuilder::close_inplace_dest`] stores the
     /// (possibly reallocated) pointer back through the reference.
     Ref { ref_slot: usize, block_slot: usize },
+    /// A module-level global (plan-142-H, site S2): the block pointer lives in the
+    /// global's slot. [`CodeBuilder::open_inplace_ref_dest`] loads it into
+    /// `block_slot`, the arm mutates it there, and
+    /// [`CodeBuilder::close_inplace_dest`] stores it back into the global.
+    Global { name: String, block_slot: usize },
 }
 
 impl InPlaceDest {
@@ -81,9 +86,9 @@ impl InPlaceDest {
     pub(crate) fn block_slot(&self) -> usize {
         match self {
             InPlaceDest::Direct { slot } => *slot,
-            InPlaceDest::Inlined { block_slot, .. } | InPlaceDest::Ref { block_slot, .. } => {
-                *block_slot
-            }
+            InPlaceDest::Inlined { block_slot, .. }
+            | InPlaceDest::Ref { block_slot, .. }
+            | InPlaceDest::Global { block_slot, .. } => *block_slot,
         }
     }
 }
@@ -251,11 +256,29 @@ impl CodeBuilder<'_> {
         // `G5`/`G6` — the mutated collection must be exactly the binding being
         // assigned. `name = append(other, x)` installs a fresh value and must
         // take the copying path.
-        let NirValue::Local(arg0) = &args[0] else {
+        if !site.is_self(&args[0]) {
             return None;
-        };
-        if arg0 != site.name {
-            return None;
+        }
+        // `G-global-operand` (plan-142-H) — a global's block is reachable from any
+        // function, so nothing the statement runs may store to it: not an operand
+        // (`g = append(g, f())` with `f` writing `g`) and not the call itself (a
+        // callback writing `g` while the arm walks it). Either would reallocate or
+        // free the block under the arm; the copying path keeps bug-496's snapshot
+        // semantics instead.
+        if let InPlaceDest::Global { name, .. } = &site.dest {
+            let leaf = crate::codegen::engine::value::store_reach::StoreLeaf::Global(name);
+            // A `Body::Mfb` member arrives as its `#collections_X$T` monomorph, whose
+            // body calls the callback through a `FUNC` parameter — opaque to the
+            // walk. Asked as the builtin it is, the walk follows the callback itself.
+            let reach_target = match target.strip_prefix("#collections_") {
+                Some(_) => format!("collections.{builtin}"),
+                None => target.clone(),
+            };
+            if self.values_reach_store(&args[1..], leaf)
+                || self.call_reaches_store(&reach_target, args, leaf)
+            {
+                return None;
+            }
         }
         // `G1`/`G7`/`G10`. A by-ref local reached through a `Ref` destination has
         // discharged `G1`: the arm works on the parent's block, not the slot.
@@ -611,21 +634,28 @@ impl CodeBuilder<'_> {
         Ok(slot)
     }
 
-    /// Open a [`InPlaceDest::Ref`]: copy the parent binding's block pointer, read
-    /// through the reference in `ref_slot`, into the working `block_slot`.
-    pub(crate) fn open_inplace_ref_dest(&mut self, dest: &InPlaceDest) {
-        let InPlaceDest::Ref {
-            ref_slot,
-            block_slot,
-        } = dest
-        else {
-            return;
+    /// Open a [`InPlaceDest::Ref`] or [`InPlaceDest::Global`]: copy the block
+    /// pointer — read through the reference in `ref_slot`, or out of the global —
+    /// into the working `block_slot`.
+    pub(crate) fn open_inplace_ref_dest(&mut self, dest: &InPlaceDest) -> Result<(), String> {
+        let (holder, block_slot) = match dest {
+            InPlaceDest::Ref {
+                ref_slot,
+                block_slot,
+            } => {
+                let parent = self.allocate_register();
+                self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
+                (parent.render(), *block_slot)
+            }
+            InPlaceDest::Global { name, block_slot } => {
+                (self.load_global_address(name)?, *block_slot)
+            }
+            InPlaceDest::Direct { .. } | InPlaceDest::Inlined { .. } => return Ok(()),
         };
-        let parent = self.allocate_register();
-        self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
         let block = self.allocate_register();
-        self.emit(abi::load_u64(&block, &parent, 0));
-        self.emit(abi::store_u64(&block, abi::stack_pointer(), *block_slot));
+        self.emit(abi::load_u64(&block, holder.as_str(), 0));
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
+        Ok(())
     }
 
     /// Discharge obligation `O4`: publish a reallocated `STATE` block pointer
@@ -644,6 +674,15 @@ impl CodeBuilder<'_> {
             let parent = self.allocate_register();
             self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
             self.emit(abi::store_u64(&block, &parent, 0));
+            return Ok(());
+        }
+        if let InPlaceDest::Global { name, block_slot } = dest {
+            // The arm's `arena_*` calls clobber the caller-saved registers, so the
+            // global's address is derived here, after it (as `StoreGlobal` does).
+            let block = self.allocate_register();
+            self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
+            let address = self.load_global_address(name)?;
+            self.emit(abi::store_u64(&block, address.as_str(), 0));
             return Ok(());
         }
         let InPlaceDest::Inlined {

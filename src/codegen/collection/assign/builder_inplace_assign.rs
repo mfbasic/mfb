@@ -2,7 +2,7 @@
 use crate::codegen::collection::assign::inplace_dest::*;
 use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::control::{nir_value_reads_local, string_self_append_operands};
+use crate::codegen::engine::control::string_self_append_operands_of;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -1372,10 +1372,8 @@ impl CodeBuilder<'_> {
         // Exclude the self-alias `append(name, name)`: the grow path frees the old
         // buffer, so a RHS pointing at the same buffer would read freed memory. The
         // value path rebuilds correctly from both operands read up front.
-        if let NirValue::Local(arg1) = &args[1] {
-            if arg1 == name {
-                return Ok(false);
-            }
+        if site.is_self(&args[1]) {
+            return Ok(false);
         }
         let list_type = target.collection_type.clone();
         let Some(element_type) =
@@ -1606,7 +1604,8 @@ impl CodeBuilder<'_> {
     /// The shadow never escapes: any copy/return/transfer reads only `len` bytes,
     /// freezing the value to the canonical tight `[len][bytes][NUL]` form (D9). A
     /// `String` can never be a `FOR EACH` iterable, so this needs no iterator gate.
-    /// Returns `true` when handled.
+    /// A global's shadow is a hidden global (plan-142-H), worked on through a
+    /// frame slot. Returns `true` when handled.
     pub(crate) fn try_inplace_concat_assign(
         &mut self,
         site: &SelfUpdateSite<'_>,
@@ -1619,26 +1618,61 @@ impl CodeBuilder<'_> {
         }
         let stack_offset = site.dest.block_slot();
         // Only fire for a name we pre-allocated a capacity shadow for (a self-append
-        // target discovered by the prescan); the shadow is reset on every other
-        // bind/assign so it always reflects the live buffer's spare bytes.
-        let Some(&shadow_slot) = self.string_capacity_slots.get(name) else {
-            return Ok(false);
+        // target discovered by the prescan — for a global, the hidden global
+        // `add_global_string_capacities` declared); the shadow is reset on every
+        // other bind/assign so it always reflects the live buffer's spare bytes.
+        let shadow_global = match &site.dest {
+            InPlaceDest::Global { name, .. } => match self.global_string_capacity(name) {
+                Some(shadow) => Some(shadow),
+                None => return Ok(false),
+            },
+            _ => None,
         };
-        let Some(operands) = string_self_append_operands(value, name) else {
+        let frame_shadow = self.string_capacity_slots.get(name).copied();
+        if shadow_global.is_none() && frame_shadow.is_none() {
+            return Ok(false);
+        }
+        let Some(operands) = string_self_append_operands_of(value, &|root| site.is_self(root))
+        else {
             return Ok(false);
         };
         // If the target reappears in a later operand (`s = s & x & s`), lowering
         // operands in sequence would re-read the already-mutated buffer and append
         // the extended value (bug-143). Fall back to the out-of-place concat path,
         // which reads every operand from the original value.
-        if operands
-            .iter()
-            .any(|operand| nir_value_reads_local(operand, name))
-        {
+        if operands.iter().any(|operand| site.read_by(operand)) {
             return Ok(false);
         }
+        // `G-global-operand` — an operand that stores to the global would replace
+        // the buffer under the append (and leave the shadow describing the old one).
+        if let InPlaceDest::Global { name, .. } = &site.dest {
+            let leaf = crate::codegen::engine::value::store_reach::StoreLeaf::Global(name);
+            if operands
+                .iter()
+                .any(|operand| self.values_reach_store(std::slice::from_ref(*operand), leaf))
+            {
+                return Ok(false);
+            }
+        }
+        let shadow_slot = match &shadow_global {
+            Some(shadow) => {
+                let slot = self.allocate_stack_object("concat_global_strcap", 8);
+                let address = self.load_global_address(shadow)?;
+                let spare = self.allocate_register();
+                self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+                slot
+            }
+            None => frame_shadow.ok_or("native self-append lost its capacity shadow")?,
+        };
         for operand in operands {
             self.lower_string_self_append_one(stack_offset, shadow_slot, operand)?;
+        }
+        if let Some(shadow) = &shadow_global {
+            let spare = self.allocate_register();
+            self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot));
+            let address = self.load_global_address(shadow)?;
+            self.emit(abi::store_u64(&spare, address.as_str(), 0));
         }
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;

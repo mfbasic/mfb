@@ -213,17 +213,36 @@ enum Site {
     /// an *idle* twin whose `one` is empty — the same closures, no statement run —
     /// and the bound is on the difference.
     Lambda,
+    /// S2 — a module-level `MUT x` (plan-142-H): the program's body runs in
+    /// `SUB run1()`, which `main` calls.
+    Global,
 }
 
-const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda];
+const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
 
 impl Site {
     /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`, and
     /// a by-ref `String` has no capacity shadow to append into (plan-142-G
-    /// Correction G1).
+    /// Correction G1). A global's lives in a hidden global (plan-142-H).
     fn applies(self, case: &Case) -> bool {
-        matches!(self, Site::Local) || case.ty() != "String"
+        matches!(self, Site::Local | Site::Global) || case.ty() != "String"
     }
+}
+
+/// The whole program: `x` declared as `decl` — a `main` local, or at S2 a
+/// module-level global with `body` in a `SUB` — and `body` (main-body lines).
+fn frame(site: Site, decl: &str, body: &str) -> String {
+    let mut src = String::from(PRELUDE);
+    match site {
+        Site::Global => src.push_str(&format!(
+            "\nMUT x AS {decl}\n\nSUB run1()\n{body}END SUB\n\n\
+             FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
+        )),
+        _ => src.push_str(&format!(
+            "\nFUNC main() AS Integer\n  MUT x AS {decl}\n{body}  RETURN 0\nEND FUNC\n"
+        )),
+    }
+    src
 }
 
 /// The main-body lines running `body` (already indented for its position) at
@@ -232,7 +251,7 @@ impl Site {
 /// else empty (the idle twin).
 fn at_site(site: Site, body: &str, live: bool) -> String {
     match site {
-        Site::Local => body.to_string(),
+        Site::Local | Site::Global => body.to_string(),
         Site::Lambda => {
             let one = if live { "[0]" } else { "[]" };
             let mut out = format!("  LET one AS List OF Integer = {one}\n");
@@ -265,9 +284,7 @@ fn sized(text: &str, m: u64) -> String {
 }
 
 fn program(case: &Case, site: Site, n: u64, live: bool) -> String {
-    let mut src = String::from(PRELUDE);
-    src.push_str("\nFUNC main() AS Integer\n");
-    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
+    let mut src = String::new();
     for line in &case.setup {
         src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
     }
@@ -280,8 +297,8 @@ fn program(case: &Case, site: Site, n: u64, live: bool) -> String {
     body.push_str("  NEXT\n");
     src.push_str(&at_site(site, &body, live));
     src.push_str(&format!("  io::print({})\n", case.check));
-    src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
-    src
+    src.push_str("  io::print(toString(len(x)))\n");
+    frame(site, &sized(&case.decl, VALUE_M), &src)
 }
 
 /// Replace every whole-word `from` in `text` (outside string literals) by `to`.
@@ -317,9 +334,7 @@ fn replace_ident(text: &str, from: &str, to: &str) -> String {
 /// the allocation bound says the arm ran, this says it computed the right value.
 fn result_program(case: &Case, site: Site) -> String {
     let ty = case.ty();
-    let mut src = String::from(PRELUDE);
-    src.push_str("\nFUNC main() AS Integer\n");
-    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
+    let mut src = String::new();
     for line in &case.setup {
         src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
     }
@@ -345,8 +360,7 @@ fn result_program(case: &Case, site: Site) -> String {
         "  io::print({})\n",
         replace_ident(&case.check, "before", &last)
     ));
-    src.push_str("  RETURN 0\nEND FUNC\n");
-    src
+    frame(site, &sized(&case.decl, VALUE_M), &src)
 }
 
 /// The `exempt` byte check's program: `x` built at size `m`, then — when
@@ -357,14 +371,12 @@ fn result_program(case: &Case, site: Site) -> String {
 /// copy of `x` and the difference is the statement alone. At S9 both hold the
 /// `forEach` and its closure; only the live one's `one` has an element.
 fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> String {
-    let mut src = String::from(PRELUDE);
-    src.push_str("\nFUNC main() AS Integer\n");
-    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, m)));
+    let mut src = String::new();
     for line in &case.setup {
         src.push_str(&format!("  {}\n", sized(line, m)));
     }
     match site {
-        Site::Local => {
+        Site::Local | Site::Global => {
             if with_statement {
                 src.push_str(&format!("  {}\n", case.statements[0]));
             }
@@ -388,8 +400,8 @@ fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> Stri
             ));
         }
     }
-    src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
-    src
+    src.push_str("  io::print(toString(len(x)))\n");
+    frame(site, &sized(&case.decl, m), &src)
 }
 
 /// Run a program: `(first output line, peak live bytes over every arena)`.

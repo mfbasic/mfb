@@ -610,7 +610,7 @@ impl CodeBuilder<'_> {
     ) -> Option<(SelfUpdateTarget<'v>, ParameterType, bool)> {
         let target = self.resolve_self_update(site, value, builtin, 2)?;
         let element_type = typed_set_element_type(&target.collection_type).cloned()?;
-        let alias = matches!(&target.args[1], NirValue::Local(other) if other == site.name);
+        let alias = site.is_self(&target.args[1]);
         Some((target, element_type, alias))
     }
 
@@ -803,7 +803,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let dest = target.dest.block_slot();
-        let alias = matches!(&target.args[1], NirValue::Local(other) if other == site.name);
+        let alias = site.is_self(&target.args[1]);
         // Source order: the other map, then preferB.
         let other = if alias {
             None

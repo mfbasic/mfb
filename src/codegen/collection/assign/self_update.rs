@@ -102,6 +102,44 @@ pub(crate) struct SelfUpdateSite<'a> {
     pub(crate) by_ref: bool,
 }
 
+impl SelfUpdateSite<'_> {
+    /// Whether `value` is this binding itself: the local, or — for a global
+    /// destination — the global.
+    pub(crate) fn is_self(&self, value: &NirValue) -> bool {
+        match (&self.dest, value) {
+            (InPlaceDest::Global { .. }, NirValue::Global { name, .. }) => name == self.name,
+            (InPlaceDest::Global { .. }, _) => false,
+            (_, NirValue::Local(name)) => name == self.name,
+            _ => false,
+        }
+    }
+
+    /// Whether evaluating `value` reads this binding anywhere inside it.
+    pub(crate) fn read_by(&self, value: &NirValue) -> bool {
+        if !matches!(self.dest, InPlaceDest::Global { .. }) {
+            return crate::codegen::engine::control::nir_value_reads_local(value, self.name);
+        }
+        struct Finder<'n> {
+            name: &'n str,
+            found: bool,
+        }
+        impl NirVisitor for Finder<'_> {
+            fn visit_value(&mut self, value: &NirValue) {
+                if matches!(value, NirValue::Global { name, .. } if name == self.name) {
+                    self.found = true;
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder {
+            name: self.name,
+            found: false,
+        };
+        finder.visit_value(value);
+        finder.found
+    }
+}
+
 /// An arm: `Ok(true)` when it lowered the statement in place, `Ok(false)` to
 /// decline (having emitted nothing).
 pub(crate) type ArmFn =
@@ -198,9 +236,9 @@ impl CodeBuilder<'_> {
         site: &SelfUpdateSite<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
-        // A `Ref` destination works on a copy of the parent's block pointer: load
-        // it before any arm reads the slot, publish it back once one has run.
-        self.open_inplace_ref_dest(&site.dest);
+        // A `Ref` or `Global` destination works on a copy of the block pointer:
+        // load it before any arm reads the slot, publish it back once one has run.
+        self.open_inplace_ref_dest(&site.dest)?;
         for (_, arm) in SELF_UPDATE_ARMS {
             if arm(self, site, value)? {
                 self.close_inplace_dest(&site.dest)?;
@@ -218,6 +256,94 @@ pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
     matches!(value, NirValue::Call { target, args, .. }
         if self_update_builtin(target).is_some()
             && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name))
+}
+
+/// [`is_self_update_call`] for the module-level global `name` (plan-142-H).
+pub(crate) fn is_global_self_update_call(value: &NirValue, name: &str) -> bool {
+    matches!(value, NirValue::Call { target, args, .. }
+        if self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name))
+}
+
+// ---------------------------------------------------------------------------
+// A global `String`'s capacity shadow (plan-142-H Open Decision 1).
+// ---------------------------------------------------------------------------
+
+/// The hidden global holding the spare capacity of the global `String` `name`'s
+/// self-append buffer. `$` keeps it out of every user namespace.
+fn global_string_capacity_name(name: &str) -> String {
+    format!("$strcap${name}")
+}
+
+/// Declare a hidden `Integer` global beside every global `String` that is the
+/// target of a self-append (`gs = gs & t`) anywhere in `module`: the concat arm
+/// keeps the buffer's spare capacity there, as it keeps a local's in a frame
+/// slot. Every other store to the global frees with it and resets it to 0
+/// (`StoreGlobal`), and the global's own initializer is such a store, so it starts
+/// at 0. Runs after the optimizer, which would otherwise drop storage no NIR op
+/// names.
+pub(crate) fn add_global_string_capacities(module: &mut NirModule) {
+    struct Finder<'m> {
+        strings: &'m std::collections::HashSet<String>,
+        found: std::collections::BTreeSet<String>,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::StoreGlobal {
+                name,
+                value: Some(value),
+                ..
+            } = op
+            {
+                if self.strings.contains(name)
+                    && crate::codegen::engine::control::string_self_append_operands_of(
+                        value,
+                        &|root| matches!(root, NirValue::Global { name: g, .. } if g == name),
+                    )
+                    .is_some()
+                {
+                    self.found.insert(name.clone());
+                }
+            }
+            crate::target::shared::nir::visit::walk_op(self, op);
+        }
+    }
+    let strings: std::collections::HashSet<String> = module
+        .globals
+        .iter()
+        .filter(|global| global.type_ == ParameterType::String)
+        .map(|global| global.name.clone())
+        .collect();
+    let mut finder = Finder {
+        strings: &strings,
+        found: std::collections::BTreeSet::new(),
+    };
+    for function in &module.functions {
+        finder.visit_ops(&function.body);
+    }
+    for name in finder.found {
+        let hidden = global_string_capacity_name(&name);
+        if module.globals.iter().any(|global| global.name == hidden) {
+            continue;
+        }
+        module.globals.push(NirGlobal {
+            symbol: crate::target::shared::nir::global_symbol(&module.project, &hidden),
+            name: hidden,
+            visibility: "private".to_string(),
+            mutable: true,
+            type_: ParameterType::Integer,
+            value: None,
+        });
+    }
+}
+
+impl CodeBuilder<'_> {
+    /// The hidden global holding the global `String` `name`'s self-append
+    /// capacity, when `add_global_string_capacities` declared one.
+    pub(crate) fn global_string_capacity(&self, name: &str) -> Option<String> {
+        let hidden = global_string_capacity_name(name);
+        self.globals.contains_key(&hidden).then_some(hidden)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +376,14 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
                 return false;
             };
             matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name) && wanted(target)
+        }
+        NirOp::StoreGlobal {
+            name,
+            value: Some(NirValue::Call { target, args, .. }),
+            ..
+        } => {
+            matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
+                && wanted(target)
         }
         NirOp::If {
             then_body,
@@ -1161,10 +1295,12 @@ pub(crate) enum Site {
     /// `String` has no capacity shadow to append into (Correction G1), so the `&`
     /// row has no S9.
     Lambda,
+    /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
+    Global,
 }
 
 #[cfg(test)]
-pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda];
+pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
 
 #[cfg(test)]
 impl Site {
@@ -1173,6 +1309,7 @@ impl Site {
         match self {
             Site::Local | Site::ForEach => name == "main",
             Site::Lambda => name.starts_with("$lambda"),
+            Site::Global => name == "run1",
         }
     }
 }
@@ -1204,6 +1341,14 @@ impl Probe {
             Site::ForEach => src.push_str(&format!(
                 "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR EACH each1 IN x\n    \
                  x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
+            Site::Global => src.push_str(&format!(
+                "MUT x AS {ty} = {init}\n\nSUB run1()\n  FOR i = 1 TO 3\n    x = {call}\n  \
+                 NEXT\nEND SUB\n\nFUNC main() AS Integer\n  run1()\n  \
+                 io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
                 ty = self.ty,
                 init = self.init,
                 call = self.call,

@@ -1,6 +1,8 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
-use crate::codegen::collection::assign::self_update::{is_self_update_call, SelfUpdateSite};
+use crate::codegen::collection::assign::self_update::{
+    is_global_self_update_call, is_self_update_call, SelfUpdateSite,
+};
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
@@ -1078,6 +1080,30 @@ impl CodeBuilder<'_> {
                         } else {
                             type_.clone()
                         };
+                        // plan-142-H (site S2): `g = f(g, …)` mutates the global's own
+                        // block when an arm recognises `f`, exactly as for a local.
+                        if let Some(value) = value {
+                            if is_global_self_update_call(value, name)
+                                || string_self_append_operands_of(value, &|root| {
+                                    matches!(root, NirValue::Global { name: g, .. } if g == name)
+                                })
+                                .is_some()
+                            {
+                                let site = SelfUpdateSite {
+                                    name,
+                                    type_: global.type_.clone(),
+                                    dest: InPlaceDest::Global {
+                                        name: name.clone(),
+                                        block_slot: self
+                                            .allocate_stack_object("su_global_block", 8),
+                                    },
+                                    by_ref: false,
+                                };
+                                if self.try_inplace_self_update(&site, value)? {
+                                    return Ok(());
+                                }
+                            }
+                        }
                         // A global outlives every scope, so it must own its value
                         // independently: deep-copy an aliasing source so freeing a
                         // local never dangles the global (plan-02 Phase 8).
@@ -1108,6 +1134,10 @@ impl CodeBuilder<'_> {
                         // call). `lower_value_owned` deep-copied any aliasing source,
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
+                        // plan-142-H: a global `String` the concat arm grows keeps its
+                        // capacity in a hidden global; this store frees the block it
+                        // describes and installs a tight one, so it resets it.
+                        let capacity_global = self.global_string_capacity(name);
                         if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type)
                         {
                             let new_slot = self.allocate_stack_object("store_global_new", 8);
@@ -1121,13 +1151,22 @@ impl CodeBuilder<'_> {
                             let old_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&old_ptr, &address, 0));
                             self.emit(abi::store_u64(&old_ptr, abi::stack_pointer(), old_slot));
+                            let capacity_slot = match &capacity_global {
+                                Some(shadow) => {
+                                    let slot = self.allocate_stack_object("store_global_strcap", 8);
+                                    let address = self.load_global_address(shadow)?;
+                                    let spare = self.allocate_register();
+                                    self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                                    self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+                                    Some(slot)
+                                }
+                                None => None,
+                            };
                             self.emit_owned_value_drop(&OwnedValueCleanup {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
                                 closure_captures: None,
-                                // A global has no frame-local capacity shadow: the
-                                // self-append arm only ever fires on a `MUT` local.
-                                capacity_slot: None,
+                                capacity_slot,
                                 loop_alias_slot: None,
                                 result_wrapper: None,
                             })?;
@@ -1141,6 +1180,10 @@ impl CodeBuilder<'_> {
                             };
                             let address = self.load_global_address(name)?;
                             self.store_value_at(&stored, &address, 0);
+                            if let Some(shadow) = &capacity_global {
+                                let address = self.load_global_address(shadow)?;
+                                self.emit(abi::store_u64(abi::ZERO, address.as_str(), 0));
+                            }
                         } else {
                             let address = self.load_global_address(name)?;
                             self.store_value_at(&result, &address, 0);
@@ -2923,6 +2966,18 @@ pub(crate) fn string_self_append_operands<'v>(
     value: &'v NirValue,
     name: &str,
 ) -> Option<Vec<&'v NirValue>> {
+    string_self_append_operands_of(
+        value,
+        &|root| matches!(root, NirValue::Local(local) if local == name),
+    )
+}
+
+/// [`string_self_append_operands`] for a chain whose leftmost operand satisfies
+/// `is_self` — the local, or a global (plan-142-H).
+pub(crate) fn string_self_append_operands_of<'v>(
+    value: &'v NirValue,
+    is_self: &dyn Fn(&NirValue) -> bool,
+) -> Option<Vec<&'v NirValue>> {
     let NirValue::Binary {
         op, left, right, ..
     } = value
@@ -2936,7 +2991,7 @@ pub(crate) fn string_self_append_operands<'v>(
     let mut cursor = left.as_ref();
     loop {
         match cursor {
-            NirValue::Local(local) if local == name => {
+            root if is_self(root) => {
                 operands.reverse();
                 return Some(operands);
             }

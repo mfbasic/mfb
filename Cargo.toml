@@ -512,6 +512,10 @@ name = "rt_lambda_capture_not_copied_per_call"
 path = "tests/runtime/rt_lambda_capture_not_copied_per_call.rs"
 
 [[test]]
+name = "rt_global_self_update"
+path = "tests/runtime/rt_global_self_update.rs"
+
+[[test]]
 name = "rt_user_global_vs_builtin_locals"
 path = "tests/runtime/rt_user_global_vs_builtin_locals.rs"
 
