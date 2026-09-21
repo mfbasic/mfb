@@ -1,0 +1,129 @@
+' dijkstra — Dijkstra.c's dijkstraScan (oracle/src/brogue/Dijkstra.c).
+'
+' The C code keeps every cell in one array of pdsLink records threaded into a
+' sorted doubly-linked list through left/right pointers, with a `front`
+' sentinel ahead of the first cell. Here the record fields are parallel lists
+' indexed like the C array (cell (x, y) is link x + DCOLS * y, not the grid's
+' column-major order), a pointer is a link index, NULL is -1, and the front
+' sentinel is link DCOLS * DROWS. The pointer arithmetic `head + dx + DCOLS*dy`
+' and its range check against the array carry over as index arithmetic.
+'
+' The list order decides which of two equal-distance cells is expanded first,
+' and that order is observable in nothing but performance: every cell still
+' settles at its shortest distance. It is kept exact anyway, so the port does
+' the same work in the same order as the oracle.
+
+IMPORT collections
+
+' Dijkstra.c `dijkstraScan`: relax distanceMap over costMap and return it.
+' Cells on the map edge are always PDS_OBSTRUCTION; a cost <= 0 is impassable,
+' and diagonal steps are refused around a PDS_OBSTRUCTION corner.
+PUBLIC FUNC dijkstraScan(distanceMap AS List OF Integer, costMap AS List OF Integer, useDiagonals AS Boolean) AS List OF Integer
+  LET cellCount = DCOLS * DROWS
+  LET front = cellCount
+  LET maxDistance = 30000
+  MUT distance AS List OF Integer = []
+  MUT cost AS List OF Integer = []
+  MUT leftLink AS List OF Integer = []
+  MUT rightLink AS List OF Integer = []
+  FOR k = 0 TO cellCount
+    distance = collections::append(distance, 0)
+    cost = collections::append(cost, 0)
+    leftLink = collections::append(leftLink, -1)
+    rightLink = collections::append(rightLink, -1)
+  NEXT
+
+  ' pdsBatchInput.
+  MUT left AS Integer = -1
+  MUT right AS Integer = -1
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      LET link = i + DCOLS * j
+      distance = collections::set(distance, link, gridAt(distanceMap, i, j))
+      MUT c AS Integer = 0
+      IF i = 0 OR j = 0 OR i = DCOLS - 1 OR j = DROWS - 1 THEN
+        c = PDS_OBSTRUCTION
+      ELSE
+        c = gridAt(costMap, i, j)
+      END IF
+      cost = collections::set(cost, link, c)
+      IF c > 0 AND collections::get(distance, link) < maxDistance THEN
+        LET d = collections::get(distance, link)
+        IF right = -1 THEN
+          left = front
+          right = collections::get(rightLink, front)
+        ELSEIF collections::get(distance, right) > d THEN
+          left = front
+          right = collections::get(rightLink, front)
+        END IF
+        DO WHILE right <> -1
+          IF collections::get(distance, right) >= d THEN EXIT DO
+          left = right
+          right = collections::get(rightLink, right)
+        LOOP
+        rightLink = collections::set(rightLink, link, right)
+        leftLink = collections::set(leftLink, link, left)
+        rightLink = collections::set(rightLink, left, link)
+        IF right <> -1 THEN leftLink = collections::set(leftLink, right, link)
+        left = link
+      ELSE
+        rightLink = collections::set(rightLink, link, -1)
+        leftLink = collections::set(leftLink, link, -1)
+      END IF
+    NEXT
+  NEXT
+
+  ' pdsUpdate.
+  MUT dirs AS Integer = 4
+  IF useDiagonals THEN dirs = 8
+  MUT head AS Integer = collections::get(rightLink, front)
+  rightLink = collections::set(rightLink, front, -1)
+  DO WHILE head <> -1
+    FOR dir = 0 TO dirs - 1
+      LET link = head + nbDx(dir) + DCOLS * nbDy(dir)
+      IF link < 0 OR link >= cellCount THEN CONTINUE FOR
+      IF collections::get(cost, link) < 0 THEN CONTINUE FOR
+      IF dir >= 4 THEN
+        LET way1 = head + nbDx(dir)
+        LET way2 = head + DCOLS * nbDy(dir)
+        IF collections::get(cost, way1) = PDS_OBSTRUCTION OR collections::get(cost, way2) = PDS_OBSTRUCTION THEN CONTINUE FOR
+      END IF
+      LET candidate = collections::get(distance, head) + collections::get(cost, link)
+      IF candidate < collections::get(distance, link) THEN
+        distance = collections::set(distance, link, candidate)
+
+        ' Unlink the touched cell, then reinsert it after head in order.
+        LET oldLeft = collections::get(leftLink, link)
+        LET oldRight = collections::get(rightLink, link)
+        IF oldRight <> -1 THEN leftLink = collections::set(leftLink, oldRight, oldLeft)
+        IF oldLeft <> -1 THEN rightLink = collections::set(rightLink, oldLeft, oldRight)
+
+        MUT l AS Integer = head
+        MUT r AS Integer = collections::get(rightLink, head)
+        DO WHILE r <> -1
+          IF collections::get(distance, r) >= candidate THEN EXIT DO
+          l = r
+          r = collections::get(rightLink, r)
+        LOOP
+        rightLink = collections::set(rightLink, l, link)
+        rightLink = collections::set(rightLink, link, r)
+        leftLink = collections::set(leftLink, link, l)
+        IF r <> -1 THEN leftLink = collections::set(leftLink, r, link)
+      END IF
+    NEXT
+
+    LET nextHead = collections::get(rightLink, head)
+    leftLink = collections::set(leftLink, head, -1)
+    rightLink = collections::set(rightLink, head, -1)
+    head = nextHead
+  LOOP
+
+  ' pdsBatchOutput.
+  MUT result AS List OF Integer = distanceMap
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      result = collections::set(result, gi(i, j), collections::get(distance, i + DCOLS * j))
+    NEXT
+  NEXT
+  RETURN result
+END FUNC

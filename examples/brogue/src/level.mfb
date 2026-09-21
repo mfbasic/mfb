@@ -1,0 +1,140 @@
+' level — the map being generated (Brogue's `pmap`) and the terrain queries
+' over it (oracle/src/brogue/Globals.c, Architect.c, Movement.c).
+'
+' Each C `pcell` field the generator touches is one module-level list with an
+' entry per cell, indexed like the grids (gi(x, y)); the four terrain layers
+' share one list, four entries per cell. The display-memory fields
+' (rememberedTerrain and the like) are not modelled: nothing in terrain
+' generation reads them.
+
+IMPORT bits
+IMPORT collections
+
+' The depth being generated (Brogue's `rogue.depthLevel`).
+MUT currentDepth AS Integer = 1
+
+MUT pmapLayers AS List OF Integer = []
+MUT pmapFlags AS List OF Integer = []
+MUT pmapVolume AS List OF Integer = []
+MUT pmapMachineNumber AS List OF Integer = []
+
+PUBLIC FUNC depthLevel() AS Integer
+  RETURN currentDepth
+END FUNC
+
+PUBLIC SUB setDepthLevel(depth AS Integer)
+  currentDepth = depth
+END SUB
+
+FUNC layerIndex(x AS Integer, y AS Integer, layer AS Integer) AS Integer
+  RETURN gi(x, y) * NUMBER_TERRAIN_LAYERS + layer
+END FUNC
+
+' Architect.c `clearLevel`: granite everywhere, nothing in the other layers.
+PUBLIC SUB clearLevel()
+  MUT layers AS List OF Integer = []
+  MUT zeros AS List OF Integer = []
+  FOR k = 0 TO DCOLS * DROWS - 1
+    layers = collections::append(layers, GRANITE)
+    layers = collections::append(layers, NOTHING_TILE)
+    layers = collections::append(layers, NOTHING_TILE)
+    layers = collections::append(layers, NOTHING_TILE)
+    zeros = collections::append(zeros, 0)
+  NEXT
+  pmapLayers = layers
+  pmapFlags = zeros
+  pmapVolume = zeros
+  pmapMachineNumber = zeros
+END SUB
+
+PUBLIC FUNC layerAt(x AS Integer, y AS Integer, layer AS Integer) AS Integer
+  RETURN collections::get(pmapLayers, layerIndex(x, y, layer))
+END FUNC
+
+PUBLIC SUB setLayer(x AS Integer, y AS Integer, layer AS Integer, tile AS Integer)
+  pmapLayers = collections::set(pmapLayers, layerIndex(x, y, layer), tile)
+END SUB
+
+PUBLIC FUNC cellFlagsAt(x AS Integer, y AS Integer) AS Integer
+  RETURN collections::get(pmapFlags, gi(x, y))
+END FUNC
+
+PUBLIC SUB addCellFlags(x AS Integer, y AS Integer, flags AS Integer)
+  pmapFlags = collections::set(pmapFlags, gi(x, y), bits::bor(cellFlagsAt(x, y), flags))
+END SUB
+
+PUBLIC FUNC volumeAt(x AS Integer, y AS Integer) AS Integer
+  RETURN collections::get(pmapVolume, gi(x, y))
+END FUNC
+
+PUBLIC SUB setVolume(x AS Integer, y AS Integer, volume AS Integer)
+  pmapVolume = collections::set(pmapVolume, gi(x, y), volume)
+END SUB
+
+PUBLIC FUNC machineNumberAt(x AS Integer, y AS Integer) AS Integer
+  RETURN collections::get(pmapMachineNumber, gi(x, y))
+END FUNC
+
+PUBLIC FUNC tileInfo(tile AS Integer) AS FloorTileType
+  RETURN collections::get(tileCatalog, tile)
+END FUNC
+
+PUBLIC FUNC hasFlag(flags AS Integer, mask AS Integer) AS Boolean
+  RETURN bits::band(flags, mask) <> 0
+END FUNC
+
+' Globals.c `terrainFlags`: the union of the four layers' terrain flags.
+PUBLIC FUNC terrainFlags(x AS Integer, y AS Integer) AS Integer
+  LET base = layerIndex(x, y, 0)
+  MUT flags AS Integer = 0
+  FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+    flags = bits::bor(flags, tileInfo(collections::get(pmapLayers, base + layer)).flags)
+  NEXT
+  RETURN flags
+END FUNC
+
+' Globals.c `terrainMechFlags`: the union of the four layers' mechanical flags.
+PUBLIC FUNC terrainMechFlags(x AS Integer, y AS Integer) AS Integer
+  LET base = layerIndex(x, y, 0)
+  MUT flags AS Integer = 0
+  FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+    flags = bits::bor(flags, tileInfo(collections::get(pmapLayers, base + layer)).mechFlags)
+  NEXT
+  RETURN flags
+END FUNC
+
+PUBLIC FUNC cellHasTerrainFlag(x AS Integer, y AS Integer, mask AS Integer) AS Boolean
+  RETURN hasFlag(terrainFlags(x, y), mask)
+END FUNC
+
+PUBLIC FUNC cellHasTMFlag(x AS Integer, y AS Integer, mask AS Integer) AS Boolean
+  RETURN hasFlag(terrainMechFlags(x, y), mask)
+END FUNC
+
+PUBLIC FUNC cellHasTerrainType(x AS Integer, y AS Integer, terrain AS Integer) AS Boolean
+  RETURN layerAt(x, y, DUNGEON) = terrain OR layerAt(x, y, LIQUID) = terrain OR layerAt(x, y, SURFACE) = terrain OR layerAt(x, y, GAS) = terrain
+END FUNC
+
+' Architect.c `cellIsPassableOrDoor`.
+PUBLIC FUNC cellIsPassableOrDoor(x AS Integer, y AS Integer) AS Boolean
+  IF NOT cellHasTerrainFlag(x, y, T_PATHING_BLOCKER) THEN RETURN TRUE
+  RETURN cellHasTMFlag(x, y, bits::bor(bits::bor(TM_IS_SECRET, TM_PROMOTES_WITH_KEY), TM_CONNECTS_LEVEL)) AND cellHasTerrainFlag(x, y, T_OBSTRUCTS_PASSABILITY)
+END FUNC
+
+' Movement.c `highestPriorityLayer`: the layer whose non-empty tile has the
+' lowest drawPriority number (the first such layer on a tie).
+PUBLIC FUNC highestPriorityLayer(x AS Integer, y AS Integer, skipGas AS Boolean) AS Integer
+  MUT bestPriority AS Integer = 10000
+  MUT best AS Integer = 0
+  FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+    IF layer = GAS AND skipGas THEN CONTINUE FOR
+    LET tile = layerAt(x, y, layer)
+    IF tile <> 0 THEN
+      IF tileInfo(tile).drawPriority < bestPriority THEN
+        bestPriority = tileInfo(tile).drawPriority
+        best = layer
+      END IF
+    END IF
+  NEXT
+  RETURN best
+END FUNC

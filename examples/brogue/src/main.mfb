@@ -2,7 +2,8 @@
 ' original C source in oracle/ (see README.md).
 '
 ' Usage:
-'   brogue.out rng <seed> <count>   print the RNG stream check/rng_dump.c prints
+'   brogue.out rng <seed> <count>        print the RNG stream check/rng_dump.c prints
+'   brogue.out dig <levelSeed> <depth>   print the terrain stages check/terrain_dump.c prints
 
 IMPORT bits
 IMPORT collections
@@ -11,6 +12,79 @@ IMPORT os
 
 SUB usage()
   io::printError("usage: brogue rng <seed> <count>")
+  io::printError("       brogue dig <levelSeed> <depth>")
+END SUB
+
+SUB dumpGrid(stage AS String, grid AS List OF Integer)
+  io::print("stage " & stage & " grid rng=" & toString(randomNumbersGenerated()))
+  FOR j = 0 TO DROWS - 1
+    MUT line AS String = toString(gridAt(grid, 0, j))
+    FOR i = 1 TO DCOLS - 1
+      line = line & " " & toString(gridAt(grid, i, j))
+    NEXT
+    io::print(line)
+  NEXT
+END SUB
+
+SUB dumpMap(stage AS String)
+  io::print("stage " & stage & " map rng=" & toString(randomNumbersGenerated()))
+  LET layerNames = ["dungeon", "liquid", "gas", "surface"]
+  FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+    io::print("layer " & collections::get(layerNames, layer))
+    FOR j = 0 TO DROWS - 1
+      MUT line AS String = toString(layerAt(0, j, layer))
+      FOR i = 1 TO DCOLS - 1
+        line = line & " " & toString(layerAt(i, j, layer))
+      NEXT
+      io::print(line)
+    NEXT
+  NEXT
+  io::print("flags")
+  FOR j = 0 TO DROWS - 1
+    MUT line AS String = toString(cellFlagsAt(0, j))
+    FOR i = 1 TO DCOLS - 1
+      line = line & " " & toString(cellFlagsAt(i, j))
+    NEXT
+    io::print(line)
+  NEXT
+  io::print("volume")
+  FOR j = 0 TO DROWS - 1
+    MUT line AS String = toString(volumeAt(0, j))
+    FOR i = 1 TO DCOLS - 1
+      line = line & " " & toString(volumeAt(i, j))
+    NEXT
+    io::print(line)
+  NEXT
+END SUB
+
+' The terrain half of Architect.c `digDungeon` (everything before
+' addMachines), dumping after each step exactly where check/terrain_dump.c
+' does.
+SUB dumpDig(levelSeed AS Integer, depth AS Integer)
+  setDepthLevel(depth)
+  setStream(Stream.Substantive)
+  setRandomNumbersGenerated(0)
+  LET ignored = seedRandomGenerator(levelSeed)
+
+  clearLevel()
+  MUT grid AS List OF Integer = carveDungeon()
+  dumpGrid("carve", grid)
+  grid = addLoops(grid, 20)
+  dumpGrid("loops", grid)
+  applyCarvedGrid(grid)
+  finishWalls(FALSE)
+  dumpMap("walls")
+
+  LET lakeMap = designLakes()
+  dumpGrid("lakes", lakeMap)
+  fillLakes(lakeMap)
+  dumpMap("filled")
+
+  runAutogenerators()
+  dumpMap("autogen")
+
+  removeDiagonalOpenings()
+  dumpMap("diagonals")
 END SUB
 
 ' The same mixed call script as check/rng_dump.c, line for line.
@@ -54,6 +128,10 @@ FUNC main() AS Integer
   LET args = os::args()
   IF len(args) = 3 AND collections::get(args, 0) = "rng" THEN
     dumpRng(toInt(collections::get(args, 1)), toInt(collections::get(args, 2)))
+    RETURN 0
+  END IF
+  IF len(args) = 3 AND collections::get(args, 0) = "dig" THEN
+    dumpDig(toInt(collections::get(args, 1)), toInt(collections::get(args, 2)))
     RETURN 0
   END IF
   usage()

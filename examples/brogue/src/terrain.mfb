@@ -1,0 +1,622 @@
+' terrain — the map-building steps of oracle/src/brogue/Architect.c that run
+' after the rooms are carved: walls, lakes, dungeon features, autogenerators
+' and diagonal clean-up.
+'
+' No creatures or items exist yet at this point of generation. Where the C code
+' reacts to one (a creature standing in a feature, a message the player could
+' see), the port fails with ErrUnsupported rather than guessing; the oracle
+' never takes those paths while generating terrain.
+
+IMPORT bits
+IMPORT collections
+IMPORT errorCode
+IMPORT math
+
+' The liquids one lake is filled with (Architect.c `liquidType` outputs).
+TYPE LiquidChoice
+  deep AS Integer
+  shallow AS Integer
+  shallowWidth AS Integer
+END TYPE
+
+' The flood fillLake writes into: the lake cells still unfilled, and the
+' cells filled so far (the wreath's seed).
+TYPE LakeFill
+  unfilledLakeMap AS List OF Integer
+  wreathMap AS List OF Integer
+END TYPE
+
+FUNC unsupported(what AS String) AS Error
+  RETURN error(errorCode::ErrUnsupported, what & " needs creatures, which this terrain port does not model")
+END FUNC
+
+' The carved grid as terrain: floor, and a door (60%, above the deepest level)
+' or floor at each door site. From Architect.c `digDungeon`.
+PUBLIC SUB applyCarvedGrid(grid AS List OF Integer)
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      LET v = gridAt(grid, i, j)
+      IF v = 1 THEN
+        setLayer(i, j, DUNGEON, FLOOR)
+      ELSEIF v = 2 THEN
+        IF randPercent(60) AND depthLevel() < deepestLevel THEN
+          setLayer(i, j, DUNGEON, DOOR)
+        ELSE
+          setLayer(i, j, DUNGEON, FLOOR)
+        END IF
+      END IF
+    NEXT
+  NEXT
+END SUB
+
+' Whether (x, y) is exposed: on the map, and not both vision- and
+' passability-blocking.
+FUNC exposes(x AS Integer, y AS Integer) AS Boolean
+  IF NOT coordinatesAreInMap(x, y) THEN RETURN FALSE
+  RETURN NOT cellHasTerrainFlag(x, y, T_OBSTRUCTS_VISION) OR NOT cellHasTerrainFlag(x, y, T_OBSTRUCTS_PASSABILITY)
+END FUNC
+
+' Architect.c `finishWalls`: exposed granite becomes wall, unexposed wall
+' becomes granite. The scan reads the map as it changes, as in C.
+PUBLIC SUB finishWalls(includingDiagonals AS Boolean)
+  MUT dirCount AS Integer = 4
+  IF includingDiagonals THEN dirCount = 8
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      LET tile = layerAt(i, j, DUNGEON)
+      IF tile = GRANITE THEN
+        FOR dir = 0 TO dirCount - 1
+          IF exposes(i + nbDx(dir), j + nbDy(dir)) THEN
+            setLayer(i, j, DUNGEON, WALL)
+            EXIT FOR
+          END IF
+        NEXT
+      ELSEIF tile = WALL THEN
+        MUT foundExposure AS Boolean = FALSE
+        FOR dir = 0 TO dirCount - 1
+          IF exposes(i + nbDx(dir), j + nbDy(dir)) THEN
+            foundExposure = TRUE
+            EXIT FOR
+          END IF
+        NEXT
+        IF NOT foundExposure THEN setLayer(i, j, DUNGEON, GRANITE)
+      END IF
+    NEXT
+  NEXT
+END SUB
+
+' Architect.c `liquidType`: lava, water, chasm or brimstone, by depth.
+FUNC liquidType() AS LiquidChoice
+  MUT randMin AS Integer = 0
+  IF depthLevel() < minimumLavaLevel THEN randMin = 1
+  MUT randMax AS Integer = 3
+  IF depthLevel() < minimumBrimstoneLevel THEN randMax = 2
+  MUT choice AS Integer = randRange(randMin, randMax)
+  IF depthLevel() = deepestLevel THEN choice = 1
+  IF choice = 0 THEN RETURN LiquidChoice[deep := LAVA, shallow := NOTHING_TILE, shallowWidth := 0]
+  IF choice = 1 THEN RETURN LiquidChoice[deep := DEEP_WATER, shallow := SHALLOW_WATER, shallowWidth := 2]
+  IF choice = 2 THEN RETURN LiquidChoice[deep := CHASM, shallow := CHASM_EDGE, shallowWidth := 1]
+  RETURN LiquidChoice[deep := INERT_BRIMSTONE, shallow := OBSIDIAN, shallowWidth := 2]
+END FUNC
+
+' Architect.c `fillLake`: fill the lake at (x, y) with liquid, reaching every
+' unfilled lake cell within scanWidth of a filled one.
+FUNC fillLake(x AS Integer, y AS Integer, liquid AS Integer, scanWidth AS Integer, start AS LakeFill) AS LakeFill
+  MUT unfilled AS List OF Integer = start.unfilledLakeMap
+  MUT wreath AS List OF Integer = start.wreathMap
+  MUT stack AS List OF Integer = [gi(x, y)]
+  DO WHILE len(stack) > 0
+    LET cell = collections::get(stack, len(stack) - 1)
+    stack = collections::removeAt(stack, len(stack) - 1)
+    LET cx = cell / DROWS
+    LET cy = cell MOD DROWS
+    FOR i = cx - scanWidth TO cx + scanWidth
+      FOR j = cy - scanWidth TO cy + scanWidth
+        IF coordinatesAreInMap(i, j) THEN
+          IF gridAt(unfilled, i, j) <> 0 THEN
+            unfilled = collections::set(unfilled, gi(i, j), 0)
+            setLayer(i, j, LIQUID, liquid)
+            wreath = collections::set(wreath, gi(i, j), 1)
+            stack = collections::append(stack, gi(i, j))
+          END IF
+        END IF
+      NEXT
+    NEXT
+  LOOP
+  RETURN LakeFill[unfilledLakeMap := unfilled, wreathMap := wreath]
+END FUNC
+
+' Architect.c `lakeDisruptsPassability`: whether placing the lake blob (grid,
+' offset by dungeonToGrid) would cut some dry passable cell off from the rest.
+' The map does not change during the test, so its passability is read once.
+FUNC lakeDisruptsPassability(grid AS List OF Integer, lakeMap AS List OF Integer, dungeonToGridX AS Integer, dungeonToGridY AS Integer) AS Boolean
+  MUT dry AS List OF Boolean = []
+  MUT crossable AS List OF Boolean = []
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      LET blocked = cellHasTerrainFlag(i, j, T_PATHING_BLOCKER)
+      MUT inLake AS Boolean = gridAt(lakeMap, i, j) <> 0
+      IF NOT inLake AND coordinatesAreInMap(i + dungeonToGridX, j + dungeonToGridY) THEN
+        inLake = gridAt(grid, i + dungeonToGridX, j + dungeonToGridY) <> 0
+      END IF
+      dry = collections::append(dry, NOT blocked AND NOT inLake)
+      crossable = collections::append(crossable, (NOT blocked OR cellHasTMFlag(i, j, TM_CONNECTS_LEVEL)) AND NOT inLake)
+    NEXT
+  NEXT
+
+  MUT start AS Integer = -1
+  FOR k = 0 TO DCOLS * DROWS - 1
+    IF collections::get(dry, k) THEN
+      start = k
+      EXIT FOR
+    END IF
+  NEXT
+  IF start = -1 THEN FAIL error(errorCode::ErrInvalidArgument, "lakeDisruptsPassability: no dry cell to start from")
+
+  MUT flooded AS List OF Boolean = []
+  FOR k = 0 TO DCOLS * DROWS - 1
+    flooded = collections::append(flooded, FALSE)
+  NEXT
+  flooded = collections::set(flooded, start, TRUE)
+  MUT stack AS List OF Integer = [start]
+  DO WHILE len(stack) > 0
+    LET cell = collections::get(stack, len(stack) - 1)
+    stack = collections::removeAt(stack, len(stack) - 1)
+    FOR dir = 0 TO 3
+      LET newX = cell / DROWS + nbDx(dir)
+      LET newY = cell MOD DROWS + nbDy(dir)
+      IF coordinatesAreInMap(newX, newY) THEN
+        LET n = gi(newX, newY)
+        IF NOT collections::get(flooded, n) AND collections::get(crossable, n) THEN
+          flooded = collections::set(flooded, n, TRUE)
+          stack = collections::append(stack, n)
+        END IF
+      END IF
+    NEXT
+  LOOP
+
+  FOR k = 0 TO DCOLS * DROWS - 1
+    IF collections::get(dry, k) AND NOT collections::get(flooded, k) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Architect.c `designLakes`: blob lakes of shrinking size, each placed where
+' it keeps the level connected (up to 20 tries), marked on the returned lake
+' map and floored over on the dungeon layer.
+PUBLIC FUNC designLakes() AS List OF Integer
+  MUT lakeMap AS List OF Integer = filledGrid(0)
+  MUT lakeMaxHeight AS Integer = 15
+  MUT lakeMaxWidth AS Integer = 30
+  DO WHILE lakeMaxHeight >= 10
+    LET blob = createBlobOnGrid(5, 4, 4, lakeMaxWidth, lakeMaxHeight, 55, "ffffftttt", "ffffttttt")
+    FOR k = 1 TO 20
+      LET x = randRange(1 - blob.minX, DCOLS - blob.width - blob.minX - 2)
+      LET y = randRange(1 - blob.minY, DROWS - blob.height - blob.minY - 2)
+      IF NOT lakeDisruptsPassability(blob.grid, lakeMap, -x, -y) THEN
+        FOR i = 0 TO blob.width - 1
+          FOR j = 0 TO blob.height - 1
+            IF gridAt(blob.grid, i + blob.minX, j + blob.minY) <> 0 THEN
+              lakeMap = collections::set(lakeMap, gi(i + blob.minX + x, j + blob.minY + y), 1)
+              setLayer(i + blob.minX + x, j + blob.minY + y, DUNGEON, FLOOR)
+            END IF
+          NEXT
+        NEXT
+        EXIT FOR
+      END IF
+    NEXT
+    lakeMaxHeight = lakeMaxHeight - 1
+    lakeMaxWidth = lakeMaxWidth - 2
+  LOOP
+  RETURN lakeMap
+END FUNC
+
+' Architect.c `createWreath`: ring every wreath cell with shallowLiquid out to
+' wreathWidth, where the liquid layer is empty; doors it covers become floor.
+SUB createWreath(shallowLiquid AS Integer, wreathWidth AS Integer, wreathMap AS List OF Integer)
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      IF gridAt(wreathMap, i, j) <> 0 THEN
+        FOR k = i - wreathWidth TO i + wreathWidth
+          FOR l = j - wreathWidth TO j + wreathWidth
+            IF coordinatesAreInMap(k, l) THEN
+              IF layerAt(k, l, LIQUID) = NOTHING_TILE AND (i - k) * (i - k) + (j - l) * (j - l) <= wreathWidth * wreathWidth THEN
+                setLayer(k, l, LIQUID, shallowLiquid)
+                IF layerAt(k, l, DUNGEON) = DOOR THEN setLayer(k, l, DUNGEON, FLOOR)
+              END IF
+            END IF
+          NEXT
+        NEXT
+      END IF
+    NEXT
+  NEXT
+END SUB
+
+' Architect.c `fillLakes`: give each lake its own liquid and shallow wreath.
+PUBLIC SUB fillLakes(source AS List OF Integer)
+  MUT lakeMap AS List OF Integer = source
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      IF gridAt(lakeMap, i, j) <> 0 THEN
+        LET liquid = liquidType()
+        LET filled = fillLake(i, j, liquid.deep, 4, LakeFill[unfilledLakeMap := lakeMap, wreathMap := filledGrid(0)])
+        lakeMap = filled.unfilledLakeMap
+        createWreath(liquid.shallow, liquid.shallowWidth, filled.wreathMap)
+      END IF
+    NEXT
+  NEXT
+END SUB
+
+' Architect.c `levelIsDisconnectedWithBlockingMap`: whether filling
+' blockingMap would split the passable level into pieces. With countRegionSize
+' the answer is the size of the smallest piece cut off, else 1; 0 means it
+' would not disconnect anything.
+PUBLIC FUNC levelIsDisconnectedWithBlockingMap(blockingMap AS List OF Integer, countRegionSize AS Boolean) AS Integer
+  MUT passable AS List OF Boolean = []
+  MUT zoneMap AS List OF Integer = []
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      passable = collections::append(passable, cellIsPassableOrDoor(i, j))
+      zoneMap = collections::append(zoneMap, 0)
+    NEXT
+  NEXT
+  MUT zoneSizes AS List OF Integer = []
+  MUT smallestQualifyingZoneSize AS Integer = 10000
+
+  ' Map out the zones with the blocking area blocked.
+  FOR i = 1 TO DCOLS - 2
+    FOR j = 1 TO DROWS - 2
+      LET c = gi(i, j)
+      IF collections::get(passable, c) AND collections::get(zoneMap, c) = 0 AND collections::get(blockingMap, c) = 0 THEN
+        FOR dir = 0 TO 3
+          IF gridAt(blockingMap, i + nbDx(dir), j + nbDy(dir)) <> 0 THEN
+            LET label = len(zoneSizes) + 1
+            ' connectCell with the blocking map in force.
+            zoneMap = collections::set(zoneMap, c, label)
+            MUT size AS Integer = 1
+            MUT stack AS List OF Integer = [c]
+            DO WHILE len(stack) > 0
+              LET cell = collections::get(stack, len(stack) - 1)
+              stack = collections::removeAt(stack, len(stack) - 1)
+              FOR d2 = 0 TO 3
+                LET newX = cell / DROWS + nbDx(d2)
+                LET newY = cell MOD DROWS + nbDy(d2)
+                IF coordinatesAreInMap(newX, newY) THEN
+                  LET n = gi(newX, newY)
+                  IF collections::get(zoneMap, n) = 0 AND collections::get(blockingMap, n) = 0 AND collections::get(passable, n) THEN
+                    zoneMap = collections::set(zoneMap, n, label)
+                    size = size + 1
+                    stack = collections::append(stack, n)
+                  END IF
+                END IF
+              NEXT
+            LOOP
+            zoneSizes = collections::append(zoneSizes, size)
+            EXIT FOR
+          END IF
+        NEXT
+      END IF
+    NEXT
+  NEXT
+
+  ' Expand the zones into the blocking area.
+  FOR i = 1 TO DCOLS - 2
+    FOR j = 1 TO DROWS - 2
+      LET c = gi(i, j)
+      IF collections::get(blockingMap, c) <> 0 AND collections::get(zoneMap, c) = 0 AND collections::get(passable, c) THEN
+        FOR dir = 0 TO 3
+          LET borderingZone = gridAt(zoneMap, i + nbDx(dir), j + nbDy(dir))
+          IF borderingZone <> 0 THEN
+            ' connectCell with no blocking map.
+            zoneMap = collections::set(zoneMap, c, borderingZone)
+            MUT stack AS List OF Integer = [c]
+            DO WHILE len(stack) > 0
+              LET cell = collections::get(stack, len(stack) - 1)
+              stack = collections::removeAt(stack, len(stack) - 1)
+              FOR d2 = 0 TO 3
+                LET newX = cell / DROWS + nbDx(d2)
+                LET newY = cell MOD DROWS + nbDy(d2)
+                IF coordinatesAreInMap(newX, newY) THEN
+                  LET n = gi(newX, newY)
+                  IF collections::get(zoneMap, n) = 0 AND collections::get(passable, n) THEN
+                    zoneMap = collections::set(zoneMap, n, borderingZone)
+                    stack = collections::append(stack, n)
+                  END IF
+                END IF
+              NEXT
+            LOOP
+            EXIT FOR
+          END IF
+        NEXT
+      END IF
+    NEXT
+  NEXT
+
+  ' Figure out which zones touch.
+  FOR i = 1 TO DCOLS - 2
+    FOR j = 1 TO DROWS - 2
+      LET zone = gridAt(zoneMap, i, j)
+      IF zone <> 0 THEN
+        FOR dir = 0 TO 3
+          LET borderingZone = gridAt(zoneMap, i + nbDx(dir), j + nbDy(dir))
+          IF zone <> borderingZone AND borderingZone <> 0 THEN
+            IF NOT countRegionSize THEN RETURN 1
+            smallestQualifyingZoneSize = math::min(smallestQualifyingZoneSize, collections::get(zoneSizes, zone - 1))
+            smallestQualifyingZoneSize = math::min(smallestQualifyingZoneSize, collections::get(zoneSizes, borderingZone - 1))
+            EXIT FOR
+          END IF
+        NEXT
+      END IF
+    NEXT
+  NEXT
+  IF smallestQualifyingZoneSize < 10000 THEN RETURN smallestQualifyingZoneSize
+  RETURN 0
+END FUNC
+
+' Architect.c `spawnMapDF`: grow a spawn map outward from (x, y) one
+' generation at a time, each neighbour joining with startProb percent chance,
+' the chance falling by probDec per generation.
+FUNC spawnMapDF(x AS Integer, y AS Integer, propagationTerrain AS Integer, requirePropTerrain AS Boolean, startProbability AS Integer, probDec AS Integer) AS List OF Integer
+  MUT spawnMap AS List OF Integer = collections::set(filledGrid(0), gi(x, y), 1)
+  MUT t AS Integer = 1
+  MUT startProb AS Integer = startProbability
+  MUT madeChange AS Boolean = TRUE
+  DO WHILE madeChange AND startProb > 0
+    madeChange = FALSE
+    t = t + 1
+    FOR i = 0 TO DCOLS - 1
+      FOR j = 0 TO DROWS - 1
+        IF gridAt(spawnMap, i, j) = t - 1 THEN
+          FOR dir = 0 TO 3
+            LET x2 = i + nbDx(dir)
+            LET y2 = j + nbDy(dir)
+            IF coordinatesAreInMap(x2, y2) THEN
+              LET onPropTerrain = propagationTerrain > 0 AND cellHasTerrainType(x2, y2, propagationTerrain)
+              IF (NOT requirePropTerrain OR onPropTerrain) AND (NOT cellHasTerrainFlag(x2, y2, T_OBSTRUCTS_SURFACE_EFFECTS) OR onPropTerrain) THEN
+                IF randPercent(startProb) THEN
+                  spawnMap = collections::set(spawnMap, gi(x2, y2), t)
+                  madeChange = TRUE
+                END IF
+              END IF
+            END IF
+          NEXT
+        END IF
+      NEXT
+    NEXT
+    startProb = startProb - probDec
+    IF t > 100 THEN
+      FOR k = 0 TO DCOLS * DROWS - 1
+        LET v = collections::get(spawnMap, k)
+        IF v = t THEN
+          spawnMap = collections::set(spawnMap, k, 2)
+        ELSEIF v > 0 THEN
+          spawnMap = collections::set(spawnMap, k, 1)
+        END IF
+      NEXT
+      t = 2
+    END IF
+  LOOP
+  IF requirePropTerrain AND NOT cellHasTerrainType(x, y, propagationTerrain) THEN
+    spawnMap = collections::set(spawnMap, gi(x, y), 0)
+  END IF
+  RETURN spawnMap
+END FUNC
+
+' Architect.c `fillSpawnMap`, without its display refresh (terrain generation
+' never refreshes): paint surfaceTileType into layer wherever the spawn map is
+' set and the terrain there gives way, and clear the spawn map where it does
+' not, so it records what was built.
+FUNC fillSpawnMap(layer AS Integer, surfaceTileType AS Integer, source AS List OF Integer, blockedByOtherLayers AS Boolean, superpriority AS Boolean) AS List OF Integer
+  MUT spawnMap AS List OF Integer = source
+  LET surface = tileInfo(surfaceTileType)
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      MUT build AS Boolean = gridAt(spawnMap, i, j) <> 0 AND layerAt(i, j, layer) <> surfaceTileType
+      IF build THEN build = superpriority OR tileInfo(layerAt(i, j, layer)).drawPriority >= surface.drawPriority
+      IF build THEN build = NOT (layer = SURFACE AND cellHasTerrainFlag(i, j, T_OBSTRUCTS_SURFACE_EFFECTS))
+      IF build THEN build = NOT (hasFlag(surface.flags, T_OBSTRUCTS_VISION) AND cellHasTerrainFlag(i, j, T_IS_DF_TRAP))
+      IF build AND blockedByOtherLayers THEN
+        build = tileInfo(layerAt(i, j, highestPriorityLayer(i, j, TRUE))).drawPriority >= surface.drawPriority
+      END IF
+      IF build THEN
+        IF hasFlag(surface.flags, T_IS_FIRE) AND NOT hasFlag(tileInfo(layerAt(i, j, layer)).flags, T_IS_FIRE) THEN
+          addCellFlags(i, j, CAUGHT_FIRE_THIS_TURN)
+        END IF
+        setLayer(i, j, layer, surfaceTileType)
+      ELSE
+        spawnMap = collections::set(spawnMap, gi(i, j), 0)
+      END IF
+    NEXT
+  NEXT
+  RETURN spawnMap
+END FUNC
+
+' Architect.c `evacuateCreatures`: move creatures out of the blocking map.
+' None exist during terrain generation; one would need the creature model.
+SUB evacuateCreatures(blockingMap AS List OF Integer)
+  FOR k = 0 TO DCOLS * DROWS - 1
+    IF collections::get(blockingMap, k) <> 0 AND hasFlag(cellFlagsAt(k / DROWS, k MOD DROWS), bits::bor(HAS_MONSTER, HAS_PLAYER)) THEN
+      FAIL unsupported("evacuating a creature from a dungeon feature")
+    END IF
+  NEXT
+END SUB
+
+' Architect.c `spawnDungeonFeature` with refreshCell off, as in terrain
+' generation: spawn dungeon feature featIndex at (x, y) and its subsequent
+' features. Returns FALSE only when abortIfBlocking stopped it from cutting the
+' level in two.
+PUBLIC FUNC spawnDungeonFeature(x AS Integer, y AS Integer, featIndex AS Integer, abortIfBlocking AS Boolean) AS Boolean
+  LET feat = collections::get(dungeonFeatureCatalog, featIndex)
+  IF hasFlag(feat.flags, DFF_RESURRECT_ALLY) THEN FAIL unsupported("DFF_RESURRECT_ALLY")
+  IF feat.hasDescription AND hasFlag(cellFlagsAt(x, y), ANY_KIND_OF_VISIBLE) THEN
+    FAIL unsupported("a dungeon feature message the player can see")
+  END IF
+
+  MUT blockingMap AS List OF Integer = filledGrid(0)
+  MUT blocking AS Boolean = FALSE
+  IF abortIfBlocking AND NOT hasFlag(feat.flags, DFF_PERMIT_BLOCKING) THEN
+    blocking = hasFlag(tileInfo(feat.tile).flags, T_PATHING_BLOCKER) OR hasFlag(feat.flags, DFF_TREAT_AS_BLOCKING)
+  END IF
+
+  MUT succeeded AS Boolean = FALSE
+  IF feat.tile <> 0 THEN
+    IF feat.layer = GAS THEN
+      setVolume(x, y, volumeAt(x, y) + feat.startProbability)
+      setLayer(x, y, GAS, feat.tile)
+      succeeded = TRUE
+    ELSE
+      blockingMap = spawnMapDF(x, y, feat.propagationTerrain, feat.propagationTerrain <> 0, feat.startProbability, feat.probabilityDecrement)
+      MUT allowed AS Boolean = NOT blocking
+      IF NOT allowed THEN allowed = levelIsDisconnectedWithBlockingMap(blockingMap, FALSE) = 0
+      IF allowed THEN
+        IF hasFlag(feat.flags, DFF_EVACUATE_CREATURES_FIRST) THEN evacuateCreatures(blockingMap)
+        blockingMap = fillSpawnMap(feat.layer, feat.tile, blockingMap, hasFlag(feat.flags, DFF_BLOCKED_BY_OTHER_LAYERS), hasFlag(feat.flags, DFF_SUPERPRIORITY))
+        succeeded = TRUE
+      END IF
+    END IF
+  ELSE
+    blockingMap = collections::set(blockingMap, gi(x, y), 1)
+    succeeded = TRUE
+    IF hasFlag(feat.flags, DFF_EVACUATE_CREATURES_FIRST) THEN evacuateCreatures(blockingMap)
+  END IF
+
+  IF succeeded AND hasFlag(feat.flags, bits::bor(DFF_CLEAR_LOWER_PRIORITY_TERRAIN, DFF_CLEAR_OTHER_TERRAIN)) THEN
+    FOR i = 0 TO DCOLS - 1
+      FOR j = 0 TO DROWS - 1
+        IF gridAt(blockingMap, i, j) <> 0 THEN
+          FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+            IF layer <> feat.layer AND layer <> GAS THEN
+              IF hasFlag(feat.flags, DFF_CLEAR_LOWER_PRIORITY_TERRAIN) THEN
+                IF tileInfo(layerAt(i, j, layer)).drawPriority <= tileInfo(feat.tile).drawPriority THEN CONTINUE FOR
+              END IF
+              IF layer = DUNGEON THEN
+                setLayer(i, j, layer, FLOOR)
+              ELSE
+                setLayer(i, j, layer, NOTHING_TILE)
+              END IF
+            END IF
+          NEXT
+        END IF
+      NEXT
+    NEXT
+  END IF
+
+  IF succeeded AND hasFlag(feat.flags, DFF_AGGRAVATES_MONSTERS) AND feat.effectRadius <> 0 THEN
+    FAIL unsupported("DFF_AGGRAVATES_MONSTERS")
+  END IF
+
+  IF succeeded AND feat.subsequentDF <> 0 THEN
+    IF hasFlag(feat.flags, DFF_SUBSEQ_EVERYWHERE) THEN
+      FOR i = 0 TO DCOLS - 1
+        FOR j = 0 TO DROWS - 1
+          IF gridAt(blockingMap, i, j) <> 0 THEN
+            LET ignored = spawnDungeonFeature(i, j, feat.subsequentDF, abortIfBlocking)
+          END IF
+        NEXT
+      NEXT
+    ELSE
+      LET ignored = spawnDungeonFeature(x, y, feat.subsequentDF, abortIfBlocking)
+    END IF
+  END IF
+  ' DFF_ACTIVATE_DORMANT_MONSTER wakes dormant monsters in the feature; during
+  ' terrain generation the dormant list is empty, so there is nothing to wake.
+  RETURN succeeded
+END FUNC
+
+' Architect.c `randomMatchingLocation`: up to 500 random tries for a cell whose
+' dungeon and liquid layers match (or which holds terrainType, if >= 0) and
+' holds nothing else of note. INVALID_POS when every try fails.
+PUBLIC FUNC randomMatchingLocation(dungeonType AS Integer, liquidType AS Integer, terrainType AS Integer) AS Pos
+  MUT failsafeCount AS Integer = 0
+  MUT x AS Integer = 0
+  MUT y AS Integer = 0
+  MUT rejected AS Boolean = FALSE
+  DO
+    failsafeCount = failsafeCount + 1
+    x = randRange(0, DCOLS - 1)
+    y = randRange(0, DROWS - 1)
+    rejected = terrainType >= 0 AND NOT cellHasTerrainType(x, y, terrainType)
+    IF NOT rejected AND terrainType < 0 THEN
+      rejected = (dungeonType >= 0 AND layerAt(x, y, DUNGEON) <> dungeonType) OR (liquidType >= 0 AND layerAt(x, y, LIQUID) <> liquidType)
+    END IF
+    IF NOT rejected THEN
+      rejected = hasFlag(cellFlagsAt(x, y), bits::bor(bits::bor(bits::bor(HAS_PLAYER, HAS_MONSTER), bits::bor(HAS_STAIRS, HAS_ITEM)), IS_IN_MACHINE))
+    END IF
+    IF NOT rejected AND terrainType < 0 THEN
+      rejected = NOT hasFlag(tileInfo(dungeonType).flags, T_OBSTRUCTS_ITEMS) AND cellHasTerrainFlag(x, y, T_OBSTRUCTS_ITEMS)
+    END IF
+  LOOP UNTIL NOT (failsafeCount < 500 AND rejected)
+  IF failsafeCount >= 500 THEN RETURN invalidPos()
+  RETURN Pos[x := x, y := y]
+END FUNC
+
+' Architect.c `runAutogenerators(false)`: scatter the non-machine terrain
+' features (grass, rubble, bones and the like) by depth.
+PUBLIC SUB runAutogenerators()
+  FOR ag = 1 TO numberAutogenerators - 1
+    LET gen = collections::get(autoGeneratorCatalog, ag)
+    IF gen.machine > 0 THEN CONTINUE FOR
+    IF depthLevel() < gen.minDepth OR depthLevel() > gen.maxDepth THEN CONTINUE FOR
+
+    MUT count AS Integer = math::min((gen.minNumberIntercept + depthLevel() * gen.minNumberSlope) / 100, gen.maxNumber)
+    DO WHILE randPercent(gen.frequency) AND count < gen.maxNumber
+      count = count + 1
+    LOOP
+
+    FOR i = 1 TO count
+      LET loc = randomMatchingLocation(gen.requiredDungeonFoundationType, gen.requiredLiquidFoundationType, -1)
+      IF loc.x <> -1 THEN
+        IF gen.DFType <> 0 THEN
+          LET ignored = spawnDungeonFeature(loc.x, loc.y, gen.DFType, TRUE)
+        END IF
+        IF gen.terrain <> 0 THEN
+          IF tileInfo(layerAt(loc.x, loc.y, gen.layer)).drawPriority >= tileInfo(gen.terrain).drawPriority THEN
+            LET grid = collections::set(filledGrid(0), gi(loc.x, loc.y), 1)
+            MUT build AS Boolean = NOT hasFlag(tileInfo(gen.terrain).flags, T_PATHING_BLOCKER)
+            IF NOT build THEN build = levelIsDisconnectedWithBlockingMap(grid, FALSE) = 0
+            IF build THEN setLayer(loc.x, loc.y, gen.layer, gen.terrain)
+          END IF
+        END IF
+      END IF
+    NEXT
+  NEXT
+END SUB
+
+' Architect.c `removeDiagonalOpenings`: wherever two open cells touch only
+' diagonally between two diagonal-blocking walls, knock out one of the walls.
+PUBLIC SUB removeDiagonalOpenings()
+  MUT diagonalCornerRemoved AS Boolean = TRUE
+  DO WHILE diagonalCornerRemoved
+    diagonalCornerRemoved = FALSE
+    FOR i = 0 TO DCOLS - 2
+      FOR j = 0 TO DROWS - 2
+        FOR k = 0 TO 1
+          LET open1 = NOT hasFlag(tileInfo(layerAt(i + k, j, DUNGEON)).flags, T_OBSTRUCTS_PASSABILITY)
+          LET wallFlags1 = tileInfo(layerAt(i + (1 - k), j, DUNGEON)).flags
+          LET wallFlags2 = tileInfo(layerAt(i + k, j + 1, DUNGEON)).flags
+          LET open2 = NOT hasFlag(tileInfo(layerAt(i + (1 - k), j + 1, DUNGEON)).flags, T_OBSTRUCTS_PASSABILITY)
+          IF open1 AND hasFlag(wallFlags1, T_OBSTRUCTS_PASSABILITY) AND hasFlag(wallFlags1, T_OBSTRUCTS_DIAGONAL_MOVEMENT) AND hasFlag(wallFlags2, T_OBSTRUCTS_PASSABILITY) AND hasFlag(wallFlags2, T_OBSTRUCTS_DIAGONAL_MOVEMENT) AND open2 THEN
+            MUT x1 AS Integer = 0
+            MUT x2 AS Integer = 0
+            MUT y1 AS Integer = 0
+            IF randPercent(50) THEN
+              x1 = i + (1 - k)
+              x2 = i + k
+              y1 = j
+            ELSE
+              x1 = i + k
+              x2 = i + (1 - k)
+              y1 = j + 1
+            END IF
+            IF NOT hasFlag(cellFlagsAt(x1, y1), HAS_MONSTER) AND machineNumberAt(x1, y1) = 0 THEN
+              diagonalCornerRemoved = TRUE
+              FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
+                setLayer(x1, y1, layer, layerAt(x2, y1, layer))
+              NEXT
+            END IF
+          END IF
+        NEXT
+      NEXT
+    NEXT
+  LOOP
+END SUB
