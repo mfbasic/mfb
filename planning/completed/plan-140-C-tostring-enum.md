@@ -300,7 +300,7 @@ citations resolve.
   `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0
   (the new citation of `type_utils.rs:to_string_enum_members` resolves).
   `man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`.
-Commit: —
+Commit: 74b84c368
 
 ## Validation Plan
 
