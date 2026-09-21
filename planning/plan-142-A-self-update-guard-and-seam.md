@@ -62,10 +62,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-141 is complete and archived | `ls planning/completed/plan-141-mut-inplace-audit.md planning/plan-141-findings/inplace-audit.md` → both exist | MET (2026-09-20) |
-| bug-665 fixed: a global passed to a function that reassigns it no longer dangles | `ls bugs/completed/bug-665-*.md` → exists, **and** `cargo test --test rt_global_argument_reassigned_by_callee` → pass | NOT MET (2026-09-20: `bugs/bug-665-global-passed-to-a-writer-dangles.md` open; repro crashes `7-701-0001`) |
-| bug-666 fixed: `FOR EACH` over a global the body reassigns no longer reads freed memory | `ls bugs/completed/bug-666-*.md` → exists, **and** `cargo test --test rt_for_each_over_reassigned_global` → pass | NOT MET (2026-09-20: `bugs/bug-666-for-each-over-a-reassigned-global.md` open; repro crashes after 1 iteration) |
-| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-20) |
+| plan-141 is complete and archived | `ls planning/completed/plan-141-mut-inplace-audit.md planning/plan-141-findings/inplace-audit.md` → both exist | MET (2026-09-21, re-run by /follow-plan in the P-142 worktree: both files listed) |
+| bug-665 fixed: a global passed to a function that reassigns it no longer dangles | `ls bugs/completed/bug-665-*.md` → exists, **and** `cargo test --test rt_global_argument_reassigned_by_callee` → pass | MET (2026-09-21: `bugs/completed/bug-665-global-passed-to-a-writer-dangles.md` exists; `test result: ok. 7 passed; 0 failed`) |
+| bug-666 fixed: `FOR EACH` over a global the body reassigns no longer reads freed memory | `ls bugs/completed/bug-666-*.md` → exists, **and** `cargo test --test rt_for_each_over_reassigned_global` → pass | MET (2026-09-21: `bugs/completed/bug-666-for-each-over-a-reassigned-global.md` exists; `test result: ok. 6 passed; 0 failed`) |
+| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-21: built in the worktree, `cargo build --release` exit 0) |
 
 Why the two bugs gate the whole plan, not just letter H: letter H makes a
 global's block be mutated in place, which is sound only if nothing else holds a
@@ -143,7 +143,8 @@ Everything below is written against the world where these hold.
 | Overloads whose first parameter is `List`/`Map`/`Set` and whose return type is the same type, literally | 59: `collections` 23, `math` 27, `compress` 6, `crypto` 3 | same script → per-package `uniq -c` |
 | …of which have an arm today | 10 overloads (`append`×2, `set`×2, `insert`, `prepend`, `removeAt`, `add`, `remove`, `removeKey`) | plan-141 findings §1: rows with S1 = `y` → 10 |
 | `collections` self-updatable only when type parameters coincide | 4: `transform` (U=T), `mapValues` (U=V), `reduce`, `reduceRight` (U = List OF T) | plan-141 findings §1 + Correction 2 |
-| Generic-only self-update overloads **outside** `collections` | UNMEASURED | the literal rule cannot see them; Phase 1's unit census measures them with `unify` before any other task |
+| Self-update-shaped overloads, all packages (unit census) | 63 = 59 literal + 4 generic-only | Phase 1's temporary `print_self_update_shaped` over `registry::self_update_shaped` → `literal 59 generic 4 total 63` |
+| Generic-only self-update overloads **outside** `collections` | 0 | same run: the 4 generic-only rows are `collections::mapValues`, `transform`, `reduce`, `reduceRight` — no other package |
 | `math` functions behind the 27 overloads | 16: `abs acos asin atan atan2 clamp cos exp log log10 max min pow sin sqrt tan` | `grep '^math::' allpkg.txt \| cut -d'(' -f1 \| sort -u \| wc -l` → 16 |
 | In-place arms (`fn try_inplace_*`, non-`STATE`) | 19 | plan-141 findings Appendix B.3 |
 
@@ -281,21 +282,35 @@ Rejected alternatives:
 
 ### Phase 1 — Measure the generic-only population
 
-- [ ] Add `pub(crate) fn self_update_shaped(imp: &Implementation) -> bool` to
+- [x] Add `pub(crate) fn self_update_shaped(imp: &Implementation) -> bool` to
       `src/codegen/registry/mod.rs` (next to `unify`, `:2643`): true when
       `params[0].ty` is, or can be instantiated to, a `List`/`Map`/`Set` and
-      `return_type` unifies with it under one substitution.
-- [ ] A temporary `#[test] fn print_self_update_shaped()` that prints every
+      `return_type` unifies with it under one substitution. (Landed after
+      `substitute`; it runs its own two-sided unifier `types_coincide`, since `unify`
+      is pattern-vs-concrete — see Correction A1. `#[cfg(test)]`: the census is its
+      only consumer.)
+- [x] A temporary `#[test] fn print_self_update_shaped()` that prints every
       qualified name + signature it returns true for. Record the list and its
       count in this plan's Measured populations (replacing UNMEASURED), split into
       literal vs generic-only. If the generic-only set outside `collections` is
       non-empty, add those functions to the letter that owns their kind (or E if
       exempt) before continuing, and re-check that letter's effort.
-- [ ] Delete the temporary test.
+      Result (`cargo test --bin mfb print_self_update_shaped -- --nocapture`):
+      `literal 59 generic 4 total 63`. Literal: `collections` 23, `math` 27,
+      `compress` 6, `crypto` 3. Generic-only: `collections::mapValues`,
+      `transform`, `reduce`, `reduceRight` — the 4 already known; none outside
+      `collections`, so no letter gains scope.
+- [x] Delete the temporary test. (`grep -n print_self_update src/codegen/registry/mod.rs` → empty.)
 
 Acceptance: `cargo test --bin mfb print_self_update_shaped -- --nocapture` →
 prints ≥ 63 rows (59 literal + the 4 known `collections` generic-only), and the
 literal subset equals the Appendix census's 59 exactly (est. 3 min).
+Verified 2026-09-21: 63 rows (59 + 4). The Appendix script re-run on the worktree's
+`target/release/mfb` prints `packages 42 overloads 828` and 59 hits; `diff` against
+the unit census's 59 literal rows (after rendering `Arg0` as the first parameter's
+type) differs only in two rendering artifacts of the comparison script — the nested
+`FUNC(T) AS Boolean` in `filter`'s signature and `crypto.Argon2Profile` vs
+`crypto::Argon2Profile` — so the two sets name the same 59 overloads.
 Commit: —
 
 ### Phase 2 — Table-driven dispatch, byte-identical
@@ -401,6 +416,14 @@ Commit: —
    DECISION: `Exempt` with a proof
 
 ## Corrections
+
+- **A1 (Phase 1): `unify` cannot answer the self-update question.** The plan said
+  `self_update_shaped` would use the registry's `unify`. `unify(pattern, concrete)`
+  binds variables on the pattern side only and treats the concrete side as fixed,
+  so `transform(List OF T, …) AS List OF U` (both sides generic) cannot be asked of
+  it. `self_update_shaped` runs a small two-sided unifier (`types_coincide`, with an
+  occurs check) over one binding map instead. Measured result unchanged in kind: 4
+  generic-only overloads, all in `collections`.
 
 ## Summary
 

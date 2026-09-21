@@ -2880,6 +2880,125 @@ fn substitute(
     })
 }
 
+/// Whether an overload has a **self-update form** `x = f(x, …)` for a collection `x`
+/// (plan-142-A): its first parameter is, or can be instantiated to, a `List`, `Map`
+/// or `Set`, and its return type can equal that first parameter under one
+/// substitution of the signature's type variables. An `Arg(n)` return echoes
+/// parameter `n`'s type. The census in `collection::assign::self_update` requires a
+/// `SELF_UPDATE_TABLE` row for every function with such an overload.
+///
+/// Unlike [`unify`], both sides are patterns here — `transform(List OF T, …) AS
+/// List OF U` is self-update-shaped because `U` can be `T` — so this runs its own
+/// two-sided unification over one binding map.
+///
+/// Test-only: its one consumer is the census test; the compiler never asks it.
+#[cfg(test)]
+pub(crate) fn self_update_shaped(imp: &Implementation) -> bool {
+    let Some(first) = imp.params.first() else {
+        return false;
+    };
+    let ret = match &imp.return_type {
+        ParameterType::Arg(n) => match imp.params.get(*n) {
+            Some(p) => &p.ty,
+            None => return false,
+        },
+        other => other,
+    };
+    let mut bindings = BTreeMap::new();
+    if !types_coincide(&first.ty, ret, &mut bindings) {
+        return false;
+    }
+    matches!(
+        resolve_bound(strip_res(&first.ty), &bindings),
+        ParameterType::ListOf(_) | ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
+    ) || matches!(resolve_bound(strip_res(&first.ty), &bindings), ParameterType::Var(_))
+}
+
+#[cfg(test)]
+fn strip_res(ty: &ParameterType) -> &ParameterType {
+    match ty {
+        ParameterType::Res(inner) => strip_res(inner),
+        other => other,
+    }
+}
+
+#[cfg(test)]
+/// Follow `Var` bindings until an unbound variable or a non-variable type.
+fn resolve_bound<'a>(
+    ty: &'a ParameterType,
+    bindings: &'a BTreeMap<Symbol, ParameterType>,
+) -> &'a ParameterType {
+    let mut ty = ty;
+    while let ParameterType::Var(name) = ty {
+        match bindings.get(name) {
+            Some(bound) => ty = strip_res(bound),
+            None => break,
+        }
+    }
+    ty
+}
+
+#[cfg(test)]
+fn occurs(name: Symbol, ty: &ParameterType, bindings: &BTreeMap<Symbol, ParameterType>) -> bool {
+    match resolve_bound(strip_res(ty), bindings) {
+        ParameterType::Var(other) => *other == name,
+        ParameterType::ListOf(e) | ParameterType::SetOf(e) | ParameterType::ResultOf(e) => {
+            occurs(name, e, bindings)
+        }
+        ParameterType::MapOf(k, v) | ParameterType::MapEntryOf(k, v) => {
+            occurs(name, k, bindings) || occurs(name, v, bindings)
+        }
+        ParameterType::UserOf(_, args) => args.iter().any(|a| occurs(name, a, bindings)),
+        ParameterType::Func(params, ret, _) => {
+            params.iter().any(|p| occurs(name, p, bindings)) || occurs(name, ret, bindings)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+/// Two-sided unification: can `a` and `b` (either may hold type variables) be made
+/// equal by one substitution? Records the substitution in `bindings`.
+fn types_coincide(
+    a: &ParameterType,
+    b: &ParameterType,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
+) -> bool {
+    let a = resolve_bound(strip_res(a), bindings).clone();
+    let b = resolve_bound(strip_res(b), bindings).clone();
+    match (&a, &b) {
+        (ParameterType::Var(x), ParameterType::Var(y)) if x == y => true,
+        (ParameterType::Var(x), other) | (other, ParameterType::Var(x)) => {
+            if occurs(*x, other, bindings) {
+                return false;
+            }
+            bindings.insert(*x, other.clone());
+            true
+        }
+        (ParameterType::ListOf(x), ParameterType::ListOf(y))
+        | (ParameterType::SetOf(x), ParameterType::SetOf(y))
+        | (ParameterType::ResultOf(x), ParameterType::ResultOf(y)) => {
+            types_coincide(x, y, bindings)
+        }
+        (ParameterType::MapOf(k1, v1), ParameterType::MapOf(k2, v2))
+        | (ParameterType::MapEntryOf(k1, v1), ParameterType::MapEntryOf(k2, v2)) => {
+            types_coincide(k1, k2, bindings) && types_coincide(v1, v2, bindings)
+        }
+        (ParameterType::UserOf(n1, a1), ParameterType::UserOf(n2, a2)) => {
+            n1 == n2
+                && a1.len() == a2.len()
+                && a1.iter().zip(a2).all(|(x, y)| types_coincide(x, y, bindings))
+        }
+        (ParameterType::Func(p1, r1, i1), ParameterType::Func(p2, r2, i2)) => {
+            i1 == i2
+                && p1.len() == p2.len()
+                && p1.iter().zip(p2).all(|(x, y)| types_coincide(x, y, bindings))
+                && types_coincide(r1, r2, bindings)
+        }
+        (x, y) => x == y,
+    }
+}
+
 /// Whether a type mentions any [`ParameterType::Var`] — i.e. it is generic and has no
 /// single static nominal type independent of a call's arguments.
 pub(crate) fn contains_var(ty: &ParameterType) -> bool {
