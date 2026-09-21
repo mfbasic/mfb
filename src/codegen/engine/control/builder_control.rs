@@ -4,6 +4,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::value::store_reach::{global_root, StoreLeaf};
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -2451,7 +2452,21 @@ impl CodeBuilder<'_> {
         let cursor = self.temporary_vreg();
         let payload_off = self.temporary_vreg();
         let payload_len = self.temporary_vreg();
-        let iterable_value = self.lower_value(iterable)?;
+        // bug-666: a global iterable lowers to the global's live block, which a
+        // `StoreGlobal` in the body (or in anything it calls) frees mid-loop. When
+        // the body can reach one, walk a copy instead: the operand snapshot makes
+        // it a statement-scope temporary, so the end of this `FOR EACH` statement
+        // frees it on every exit edge. A body that only reads keeps borrowing.
+        let snapshot_mark = self.operand_snapshot_wanted.len();
+        if let Some(global) = global_root(iterable) {
+            if self.ops_reach_store(body, StoreLeaf::Global(global)) {
+                self.operand_snapshot_wanted
+                    .push(iterable as *const NirValue as usize);
+            }
+        }
+        let iterable_value = self.lower_value(iterable);
+        self.operand_snapshot_wanted.truncate(snapshot_mark);
+        let iterable_value = iterable_value?;
         if !typed_is_collection_type(&iterable_value.type_) {
             return Err(format!(
                 "native code FOR EACH target '{}' is not a collection",

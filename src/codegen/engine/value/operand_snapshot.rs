@@ -35,9 +35,17 @@
 //!   value, or any call handed a FUNC value (a higher-order builtin invoking a
 //!   callback). A pure native builtin (`len`, `toString`, `collections.get`) can
 //!   reassign nothing, so `GS & toString(n)` stays copy-free.
+//!
+//! bug-665 adds the case with no later sibling at all: a call argument read out
+//! of a global `g` that the CALL ITSELF can reassign (`clobber(g)`, or
+//! `forEach(g, cb)` whose callback does). The callee's parameter borrows `g`'s
+//! block, so it is snapshotted the same way — but only when the call can reach a
+//! `StoreGlobal` of `g` (`store_reach.rs`), not merely run user code, so a
+//! read-only `f(g)` stays copy-free.
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::value::store_reach::{global_root, StoreLeaf};
 use crate::target::shared::abi;
 use crate::target::shared::nir::visit::{walk_value, NirVisitor};
 use crate::target::shared::nir::*;
@@ -50,6 +58,7 @@ impl CodeBuilder<'_> {
     /// lowering finishes.
     pub(crate) fn push_operand_snapshot_frame(&mut self, value: &NirValue) -> usize {
         let mark = self.operand_snapshot_wanted.len();
+        self.want_arguments_the_call_can_free(value);
         let operands: Vec<&NirValue> = match value {
             NirValue::Call { args, .. }
             | NirValue::CallResult { args, .. }
@@ -135,6 +144,31 @@ impl CodeBuilder<'_> {
             }
         }
         mark
+    }
+
+    /// bug-665: an argument read out of a module-level global `g` is a borrow of
+    /// `g`'s block, and the CALL ITSELF may reassign `g` — freeing that block
+    /// while the callee's parameter still reads it. There is no later sibling
+    /// here (a lone `f(g)` is enough), so this is the call-as-its-own-operand
+    /// case the sibling rule above cannot see. Only a call that can actually
+    /// reach a `StoreGlobal` of `g` pays for the copy (`store_reach.rs`), so
+    /// `len(g)` and a read-only `f(g)` keep borrowing.
+    fn want_arguments_the_call_can_free(&mut self, value: &NirValue) {
+        let (NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. }) = value
+        else {
+            return;
+        };
+        for arg in args {
+            let Some(global) = global_root(arg) else {
+                continue;
+            };
+            if self.call_reaches_store(target, args, StoreLeaf::Global(global)) {
+                self.operand_snapshot_wanted
+                    .push(arg as *const NirValue as usize);
+            }
+        }
     }
 
     /// If `value` was recorded by `push_operand_snapshot_frame`, deep-copy its
