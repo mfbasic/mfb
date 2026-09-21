@@ -200,25 +200,33 @@ last field) and for a `List`, `Map`, `Set` and scalar field type.
 Acceptance: every overload has a row.
   Check: `grep -c '^| `collections::' planning/plan-141-findings/inplace-audit.md`
   → 58 (est. 1 min). **Ran: 58.**
-Commit: —
+Commit: 79a85fefa
 
 ### Phase 2 — Map the lowering paths
 
-- [ ] Confirm every assignment to a module-level `MUT` lowers through
+- [x] Confirm every assignment to a module-level `MUT` lowers through
       `NirOp::StoreGlobal` (`builder_control.rs:1060`) and that no
       `try_inplace_*` is reachable from it: grep every caller of each
-      `try_inplace_*` and record them in the findings appendix.
-- [ ] List all 27 non-`STATE` arms in `builder_inplace_assign.rs` with the
+      `try_inplace_*` and record them in the findings appendix. — Appendix B.1/B.2:
+      `src/ir/lower.rs:1270`/`:2159` pick `IrOp::Assign` vs `IrOp::AssignGlobal`
+      on `locals.contains_key`; `nir/lower.rs:328` → `StoreGlobal`; the caller grep
+      finds arms only under `NirOp::Assign` (`bc:1166–1263`) and `NirOp::StateAssign`
+      (`bc:1440`, `:1449`); global localization is not shipped
+      (`optimizer/opt1/plans/globals.rs:43-48`).
+- [x] List all ~~27~~ **19** non-`STATE` arms in `builder_inplace_assign.rs` with the
       function(s) and shape each recognises (`native_builtin_target` name,
-      arity, `Call` vs `WithUpdate`), and the path that dispatches it.
-- [ ] Record, per arm, the ordered gate list it checks (read
+      arity, `Call` vs `WithUpdate`), and the path that dispatches it. — Appendix
+      B.3 (count corrected: Correction 1).
+- [x] Record, per arm, the ordered gate list it checks (read
       `inplace_dest.rs:InPlaceGate::admits_with` and each arm's own checks).
-      Note every difference from `plan-121-gate-inventory.md`'s matrix.
+      Note every difference from `plan-121-gate-inventory.md`'s matrix. — Appendix
+      B.3 "ordered gates" column and B.4 (8 differences, incl. G17 widened to any
+      inlined field, G24 lifted, new G26).
 
-Acceptance: every one of the 30 recognisers is listed as audited (27) or
-excluded as `STATE` (3), each with its dispatch site.
+Acceptance: every one of the 30 recognisers is listed as audited (~~27~~ 19) or
+excluded as `STATE` (~~3~~ 11), each with its dispatch site.
   Check: `grep -cE '^\| try_inplace_' planning/plan-141-findings/inplace-audit.md`
-  → 30 (est. 1 min).
+  → 30 (est. 1 min). **Ran: 30.**
 Commit: —
 
 ### Phase 3 — Fill the collections table
