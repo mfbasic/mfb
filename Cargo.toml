@@ -591,6 +591,10 @@ name = "rt_error_value_copies"
 path = "tests/runtime/rt_error_value_copies.rs"
 
 [[test]]
+name = "rt_for_each_over_reassigned_global"
+path = "tests/runtime/rt_for_each_over_reassigned_global.rs"
+
+[[test]]
 name = "rt_foreign_type_reexport"
 path = "tests/runtime/rt_foreign_type_reexport.rs"
 
@@ -613,6 +617,10 @@ path = "tests/runtime/rt_fs_temp_and_atomic_write.rs"
 [[test]]
 name = "rt_fs_temp_directory_clamp"
 path = "tests/runtime/rt_fs_temp_directory_clamp.rs"
+
+[[test]]
+name = "rt_global_argument_reassigned_by_callee"
+path = "tests/runtime/rt_global_argument_reassigned_by_callee.rs"
 
 [[test]]
 name = "rt_gtk_term_utf8_grid"
