@@ -227,21 +227,31 @@ Acceptance: every one of the 30 recognisers is listed as audited (~~27~~ 19) or
 excluded as `STATE` (~~3~~ 11), each with its dispatch site.
   Check: `grep -cE '^\| try_inplace_' planning/plan-141-findings/inplace-audit.md`
   → 30 (est. 1 min). **Ran: 30.**
-Commit: —
+Commit: cd5245ddc
 
 ### Phase 3 — Fill the collections table
 
-- [ ] For each of the 34 collection-returning overloads, fill S1–S7 with the
-      verdict and the first declining gate, per §3.
-- [ ] For each generic-only function (11), record whether the self-update form
-      type-checks when the type parameters coincide, and its verdict.
-- [ ] One `--ncode` probe per distinct verdict (not per cell), in
+- [x] For each of the 34 collection-returning overloads, fill S1–S7 with the
+      verdict and the first declining gate, per §3. — also the 2 `reduce*`
+      overloads (Correction 2) and a new column S9 (Correction 3). 10 overloads have
+      arms (y at S1 and S4 only); 17 have no arm; 9 cannot type-check.
+- [x] For each generic-only function (11), record whether the self-update form
+      type-checks when the type parameters coincide, and its verdict. — 2 type-check
+      (`transform` U=T, `mapValues` U=V; plus `reduce`/`reduceRight` U=List OF T):
+      n (no arm). 9 do not: `mfb build gen` → 9 × `error[2-203-0008
+      TYPE_ASSIGNMENT_MISMATCH]` (Appendix C.3).
+- [x] One `--ncode` probe per distinct verdict (not per cell), in
       `/tmp/plan-141-probes/`; record the grep line that confirms it next to
-      the verdict.
+      the verdict. — one build covered every cell (206 SUBs, Appendix C.2), plus
+      `gen` (C.3). Every row's evidence names its probe SUBs; the marker lines are
+      in C.2. Reading vs dump: 0 disagreements.
+- [x] Add §1b for the two Open Decisions (String self-concat and scalar
+      self-update rows; the S8 nested-collection row). — probes `x_concat_*`,
+      `x_int_*`, `x_grid_S8` (Appendix C.4).
 
 Acceptance: no empty cell in the collections table.
   Check: `grep -E '^\| `collections::' planning/plan-141-findings/inplace-audit.md | grep -cE '\|\s*\|'`
-  → 0 (est. 1 min).
+  → 0 (est. 1 min). **Ran: 0.**
 Commit: —
 
 ### Phase 4 — Fill the record table and summarise
@@ -297,6 +307,24 @@ Commit: —
    List/Set/Map" rule counted them as non-collection. Their rows are audited like
    `transform`'s: 22 overloads pre-filled `n/a`, 36 audited
    (34 + these 2). The measured counts in §2 still hold for the rule they state.
+3. **A binding site the plan did not list: S9, a `MUT` captured by a
+   non-escaping `LAMBDA`.** `collections::forEach(xs, LAMBDA(v AS Integer) -> acc
+   = collections::append(acc, v))` is a real, documented idiom
+   (`tests/rt-error/functions/lambda-mut-foreach-valid`). Inside the lambda the
+   capture is a `by_ref` local (`src/ir/lower.rs:5167`), which every arm declines
+   (G1). Added as a column of §1 and §1b; probes `c_*_S9`.
+4. **§5's S3/S4 definition is not the code's.** S4 is "the last *inlined*
+   field", not "the last collection field": a `String`, nested-record, data-union
+   or `Result` field declared after the collection field also blocks it (G17,
+   `builder_collection_layout.rs:3152`). Probe `r3_list_then_string` → rebuild;
+   `r3_list_then_int` → in place. The findings file states the code's definition.
+5. **§2 "Record-field in place requires the field to be the last-inlined `List`
+   field"** is out of date: since plan-121-C the record arms cover `Map` and `Set`
+   fields too (`removeKey`, `set`, `add`, `remove`), and `insert`/`prepend`/`removeAt`
+   on a `List`. The last-inlined requirement stands for all of them.
+6. **Open Decisions resolved to the recommended options** (this skill does not
+   negotiate scope): String self-concat and scalar self-update each get a row, and
+   the nested-collection shape gets a row as S8, all in findings §1b.
 
 ## Summary
 
