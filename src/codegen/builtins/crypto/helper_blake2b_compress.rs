@@ -17,13 +17,13 @@ IMPORT bits
 IMPORT collections
 
 ' The BLAKE2b compression function F (RFC 7693 section 3.2): mix the 128-byte block
-' at `off` into the chain `h`, with `t` bytes counted so far and `last` set on the
+' at `base` of `src` into the chain `h`, with `t` bytes counted so far and `last` set on the
 ' final block. The high half of the 128-bit counter is always zero here.
-FUNC __crypto_blake2bCompress(h AS List OF Integer, blk AS List OF Byte, t AS Integer, last AS Boolean) AS List OF Integer
+FUNC __crypto_blake2bCompress(h AS List OF Integer, src AS List OF Byte, base AS Integer, t AS Integer, last AS Boolean) AS List OF Integer
   MUT m AS List OF Integer = []
   MUT i AS Integer = 0
   WHILE i < 16
-    m = collections::append(m, __crypto_leLane(blk, i * 8))
+    m = collections::append(m, __crypto_leLane(src, base + i * 8))
     i = i + 1
   END WHILE
   MUT v AS List OF Integer = []
