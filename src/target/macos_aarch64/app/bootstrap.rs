@@ -1360,8 +1360,9 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
     // plan-94-C: the eleven pixel-coordinate mouse IMPs, before registration for
-    // the same reason `TermView`'s are.
-    if uses_mouse {
+    // the same reason `TermView`'s are. Only a canvas program has them: they read
+    // the canvas graphics state, which exists only then (`emit_mouse_imps`).
+    if uses_mouse && uses_canvas {
         mouse_view::emit_install_mouse_imps(
             &mut asm,
             abi::LOCAL[2],

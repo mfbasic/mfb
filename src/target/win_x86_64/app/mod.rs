@@ -1554,6 +1554,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     if uses_mouse {
         mouse::emit_mouse_arms(
             from,
+            uses_canvas,
             FRAME,
             H1,
             H2,

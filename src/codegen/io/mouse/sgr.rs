@@ -30,6 +30,7 @@
 //! what lets a canvas backend put a 1920-pixel x through the identical path a
 //! terminal's 80-column one takes.
 
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::abi;
 
@@ -52,21 +53,21 @@ pub(crate) const SGR_SCRATCH_BYTES: usize = 32;
 /// All seven are dead on return and none is live across a call — the formatter
 /// makes none. Named by role rather than numbered so a caller reading its own
 /// register budget can see what each is for.
-pub(crate) struct SgrScratch<'a> {
+pub(crate) struct SgrScratch {
     /// The value being divided down, digit by digit.
-    pub(crate) value: &'a str,
+    pub(crate) value: Operand,
     /// Holds the constant 10.
-    pub(crate) ten: &'a str,
+    pub(crate) ten: Operand,
     /// The quotient of each division step.
-    pub(crate) quotient: &'a str,
+    pub(crate) quotient: Operand,
     /// One digit's byte.
-    pub(crate) digit: &'a str,
+    pub(crate) digit: Operand,
     /// How many digits the current field has produced.
-    pub(crate) count: &'a str,
+    pub(crate) count: Operand,
     /// A computed byte address.
-    pub(crate) addr: &'a str,
+    pub(crate) addr: Operand,
     /// The base of the reversed-digit scratch area.
-    pub(crate) scratch_base: &'a str,
+    pub(crate) scratch_base: Operand,
 }
 
 /// Append `value_reg` to `buf` at `cursor` as unsigned decimal, advancing
@@ -79,9 +80,9 @@ pub(crate) struct SgrScratch<'a> {
 #[allow(clippy::too_many_arguments)]
 fn emit_decimal(
     label_base: &str,
-    value_reg: &str,
-    buf: &str,
-    cursor: &str,
+    value_reg: &Operand,
+    buf: &Operand,
+    cursor: &Operand,
     scratch_offset: usize,
     s: &SgrScratch,
     ins: &mut Vec<CodeInstruction>,
@@ -91,31 +92,31 @@ fn emit_decimal(
     let copy_done = format!("{label_base}_copy_done");
 
     ins.extend([
-        abi::move_register(s.value, value_reg),
-        abi::move_immediate(s.ten, "Integer", "10"),
-        abi::move_immediate(s.count, "Integer", "0"),
-        abi::add_immediate(s.scratch_base, abi::stack_pointer(), scratch_offset),
+        abi::move_register(&s.value, value_reg),
+        abi::move_immediate(&s.ten, "Integer", "10"),
+        abi::move_immediate(&s.count, "Integer", "0"),
+        abi::add_immediate(&s.scratch_base, abi::stack_pointer(), scratch_offset),
         // A do-while, so a value of 0 still produces one digit rather than an
         // empty field — `ESC[<0;1;1M` is a real report and `ESC[<;1;1M` is not.
         abi::label(&split),
-        abi::unsigned_divide_registers(s.quotient, s.value, s.ten),
-        abi::multiply_subtract_registers(s.digit, s.quotient, s.ten, s.value),
-        abi::add_immediate(s.digit, s.digit, 48),
-        abi::add_registers(s.addr, s.scratch_base, s.count),
-        abi::store_u8(s.digit, s.addr, 0),
-        abi::add_immediate(s.count, s.count, 1),
-        abi::move_register(s.value, s.quotient),
-        abi::compare_immediate(s.value, "0"),
+        abi::unsigned_divide_registers(&s.quotient, &s.value, &s.ten),
+        abi::multiply_subtract_registers(&s.digit, &s.quotient, &s.ten, &s.value),
+        abi::add_immediate(&s.digit, &s.digit, 48),
+        abi::add_registers(&s.addr, &s.scratch_base, &s.count),
+        abi::store_u8(&s.digit, &s.addr, 0),
+        abi::add_immediate(&s.count, &s.count, 1),
+        abi::move_register(&s.value, &s.quotient),
+        abi::compare_immediate(&s.value, "0"),
         abi::branch_ne(&split),
         // Copy back to front into the report buffer.
         abi::label(&copy),
-        abi::compare_immediate(s.count, "0"),
+        abi::compare_immediate(&s.count, "0"),
         abi::branch_eq(&copy_done),
-        abi::subtract_immediate(s.count, s.count, 1),
-        abi::add_registers(s.addr, s.scratch_base, s.count),
-        abi::load_u8(s.digit, s.addr, 0),
-        abi::add_registers(s.addr, buf, cursor),
-        abi::store_u8(s.digit, s.addr, 0),
+        abi::subtract_immediate(&s.count, &s.count, 1),
+        abi::add_registers(&s.addr, &s.scratch_base, &s.count),
+        abi::load_u8(&s.digit, &s.addr, 0),
+        abi::add_registers(&s.addr, buf, cursor),
+        abi::store_u8(&s.digit, &s.addr, 0),
         abi::add_immediate(cursor, cursor, 1),
         abi::branch(&copy),
         abi::label(&copy_done),
@@ -125,33 +126,33 @@ fn emit_decimal(
 /// Append one literal byte.
 fn emit_literal(
     byte: u64,
-    buf: &str,
-    cursor: &str,
+    buf: &Operand,
+    cursor: &Operand,
     s: &SgrScratch,
     ins: &mut Vec<CodeInstruction>,
 ) {
     ins.extend([
-        abi::move_immediate(s.digit, "Integer", &byte.to_string()),
-        abi::add_registers(s.addr, buf, cursor),
-        abi::store_u8(s.digit, s.addr, 0),
+        abi::move_immediate(&s.digit, "Integer", &byte.to_string()),
+        abi::add_registers(&s.addr, buf, cursor),
+        abi::store_u8(&s.digit, &s.addr, 0),
         abi::add_immediate(cursor, cursor, 1),
     ]);
 }
 
 /// The registers describing the report to format. All hold plain integers.
-pub(crate) struct SgrReport<'a> {
+pub(crate) struct SgrReport {
     /// The SGR button/motion/modifier code — the `b` field. The caller composes
     /// it from the native event: low two bits the button, bit 5 motion, bits 2/3/4
     /// shift/alt/ctrl, or 64/65 for the wheel.
-    pub(crate) button_code: &'a str,
+    pub(crate) button_code: Operand,
     /// The **one-based** horizontal coordinate: a column in cells, or an x in
     /// pixels.
-    pub(crate) x: &'a str,
+    pub(crate) x: Operand,
     /// The **one-based** vertical coordinate.
-    pub(crate) y: &'a str,
+    pub(crate) y: Operand,
     /// The terminator byte: `77` (`'M'`, a press) or `109` (`'m'`, a release).
     /// Motion and wheel reports use `'M'`.
-    pub(crate) terminator: &'a str,
+    pub(crate) terminator: Operand,
 }
 
 /// Format the report into the buffer at `buf`, leaving its length in `out_len`.
@@ -163,8 +164,8 @@ pub(crate) struct SgrReport<'a> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_format_report(
     report: &SgrReport,
-    buf: &str,
-    out_len: &str,
+    buf: &Operand,
+    out_len: &Operand,
     scratch_offset: usize,
     label_base: &str,
     s: &SgrScratch,
@@ -177,7 +178,7 @@ pub(crate) fn emit_format_report(
     emit_literal(b'<' as u64, buf, cursor, s, ins);
     emit_decimal(
         &format!("{label_base}_b"),
-        report.button_code,
+        &report.button_code,
         buf,
         cursor,
         scratch_offset,
@@ -187,7 +188,7 @@ pub(crate) fn emit_format_report(
     emit_literal(b';' as u64, buf, cursor, s, ins);
     emit_decimal(
         &format!("{label_base}_x"),
-        report.x,
+        &report.x,
         buf,
         cursor,
         scratch_offset,
@@ -197,7 +198,7 @@ pub(crate) fn emit_format_report(
     emit_literal(b';' as u64, buf, cursor, s, ins);
     emit_decimal(
         &format!("{label_base}_y"),
-        report.y,
+        &report.y,
         buf,
         cursor,
         scratch_offset,
@@ -207,8 +208,8 @@ pub(crate) fn emit_format_report(
     // The terminator is a register, not a literal, because press and release
     // differ only here and every caller has it as a value already.
     ins.extend([
-        abi::add_registers(s.addr, buf, cursor),
-        abi::store_u8(report.terminator, s.addr, 0),
+        abi::add_registers(&s.addr, buf, cursor),
+        abi::store_u8(&report.terminator, &s.addr, 0),
         abi::add_immediate(cursor, cursor, 1),
     ]);
 }

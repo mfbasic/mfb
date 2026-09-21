@@ -272,7 +272,7 @@ pub(crate) fn lower_read_line_family(
         &read_resume,
         &input_error,
         &invalid_context,
-        mouse_pump,
+        mouse_pump.map(|pump| (pump, &mut vregs)),
     )?;
     let read_eof = format!("{symbol}_read_eof");
     let multi_start = format!("{symbol}_multi_start");

@@ -620,7 +620,7 @@ pub(crate) fn emit_app_program_entry(
             mouse::GtkMouseKind::Motion,
             mouse::GtkMouseKind::Scroll,
         ] {
-            functions.push(mouse::emit_mouse_handler(kind)?);
+            functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
         }
     }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
@@ -708,7 +708,7 @@ pub(crate) fn emit_app_program_entry_x86(
             mouse::GtkMouseKind::Motion,
             mouse::GtkMouseKind::Scroll,
         ] {
-            functions.push(mouse::emit_mouse_handler(kind)?);
+            functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
         }
     }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`

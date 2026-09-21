@@ -114,7 +114,10 @@ const FRAME: usize = {
 /// motion  (self, x, y, user)            x,y in d0/d1, no n_press
 /// scroll  (self, dx, dy, user)          DELTAS in d0/d1, not a position
 /// ```
-pub(super) fn emit_mouse_handler(kind: GtkMouseKind) -> Result<CodeFunction, String> {
+pub(super) fn emit_mouse_handler(
+    kind: GtkMouseKind,
+    uses_canvas: bool,
+) -> Result<CodeFunction, String> {
     let symbol = match kind {
         GtkMouseKind::Press => MOUSE_PRESSED_SYMBOL,
         GtkMouseKind::Release => MOUSE_RELEASED_SYMBOL,
@@ -168,7 +171,7 @@ pub(super) fn emit_mouse_handler(kind: GtkMouseKind) -> Result<CodeFunction, Str
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_X));
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_Y));
     } else {
-        emit_translate_and_convert(&mut asm, done)?;
+        emit_translate_and_convert(&mut asm, done, uses_canvas)?;
         emit_button_code(&mut asm, kind);
     }
     emit_modifiers(&mut asm);
@@ -176,13 +179,13 @@ pub(super) fn emit_mouse_handler(kind: GtkMouseKind) -> Result<CodeFunction, Str
     // --- Format and write ---------------------------------------------------
     {
         let scratch = SgrScratch {
-            value: abi::SCRATCH[0],
-            ten: abi::SCRATCH[1],
-            quotient: abi::SCRATCH[2],
-            digit: abi::SCRATCH[3],
-            count: abi::SCRATCH[4],
-            addr: abi::SCRATCH[5],
-            scratch_base: abi::SCRATCH[6],
+            value: abi::SCRATCH[0].into(),
+            ten: abi::SCRATCH[1].into(),
+            quotient: abi::SCRATCH[2].into(),
+            digit: abi::SCRATCH[3].into(),
+            count: abi::SCRATCH[4].into(),
+            addr: abi::SCRATCH[5].into(),
+            scratch_base: abi::SCRATCH[6].into(),
         };
         asm.push(abi::add_immediate(
             abi::SCRATCH[7],
@@ -206,13 +209,13 @@ pub(super) fn emit_mouse_handler(kind: GtkMouseKind) -> Result<CodeFunction, Str
         asm.push(abi::add_immediate(abi::SCRATCH[10], abi::SCRATCH[10], 1));
         emit_format_report(
             &SgrReport {
-                button_code: abi::SCRATCH[8],
-                x: abi::SCRATCH[9],
-                y: abi::SCRATCH[10],
-                terminator: abi::SCRATCH[11],
+                button_code: abi::SCRATCH[8].into(),
+                x: abi::SCRATCH[9].into(),
+                y: abi::SCRATCH[10].into(),
+                terminator: abi::SCRATCH[11].into(),
             },
-            abi::SCRATCH[7],
-            abi::SCRATCH[12],
+            &abi::SCRATCH[7].into(),
+            &abi::SCRATCH[12].into(),
             OFF_SCRATCH,
             symbol,
             &scratch,
@@ -259,7 +262,7 @@ pub(super) fn emit_mouse_handler(kind: GtkMouseKind) -> Result<CodeFunction, Str
 
 /// Translate the window-relative point into the live child area and convert it to
 /// surface coordinates, or branch to `done` if it lands outside.
-fn emit_translate_and_convert(asm: &mut Asm, done: &str) -> Result<(), String> {
+fn emit_translate_and_convert(asm: &mut Asm, done: &str, uses_canvas: bool) -> Result<(), String> {
     let cells = "mouse_cells";
     let have_area = "mouse_have_area";
     let convert_pixels = "mouse_pixels";
@@ -365,39 +368,46 @@ fn emit_translate_and_convert(asm: &mut Asm, done: &str) -> Result<(), String> {
     // is top-left like `canvas::Point`'s, so there is no flip. Clamp-check against
     // the published surface extent, which is what the program draws against.
     asm.push(abi::label(convert_pixels));
-    asm.push(abi::load_double(
-        abi::FP_SCRATCH[0],
-        abi::stack_pointer(),
-        OFF_X,
-    ));
-    asm.push(abi::load_double(
-        abi::FP_SCRATCH[1],
-        abi::stack_pointer(),
-        OFF_Y,
-    ));
-    asm.push(abi::float_floor_to_signed_x(
-        abi::SCRATCH[2],
-        abi::FP_SCRATCH[0],
-    ));
-    asm.push(abi::float_floor_to_signed_x(
-        abi::SCRATCH[3],
-        abi::FP_SCRATCH[1],
-    ));
-    asm.push(abi::store_u64(abi::SCRATCH[2], abi::stack_pointer(), OFF_X));
-    asm.push(abi::store_u64(abi::SCRATCH[3], abi::stack_pointer(), OFF_Y));
-    asm.local_address(abi::SCRATCH[6], GRAPHICS_STATE_SYMBOL);
-    asm.push(abi::load_u64(
-        abi::SCRATCH[4],
-        abi::SCRATCH[6],
-        GRAPHICS_OFFSET_WIDTH,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[5],
-        abi::SCRATCH[6],
-        GRAPHICS_OFFSET_HEIGHT,
-    ));
-    emit_range_check(asm, abi::SCRATCH[2], abi::SCRATCH[4], done, "x");
-    emit_range_check(asm, abi::SCRATCH[3], abi::SCRATCH[5], done, "y");
+    // The pixel surface's extent lives in the canvas graphics state, a data object
+    // only a program that uses `canvas::` has. Without it there is no pixel surface
+    // to report a position on (and naming the symbol would fail the build).
+    if uses_canvas {
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_X,
+        ));
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_Y,
+        ));
+        asm.push(abi::float_floor_to_signed_x(
+            abi::SCRATCH[2],
+            abi::FP_SCRATCH[0],
+        ));
+        asm.push(abi::float_floor_to_signed_x(
+            abi::SCRATCH[3],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u64(abi::SCRATCH[2], abi::stack_pointer(), OFF_X));
+        asm.push(abi::store_u64(abi::SCRATCH[3], abi::stack_pointer(), OFF_Y));
+        asm.local_address(abi::SCRATCH[6], GRAPHICS_STATE_SYMBOL);
+        asm.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::SCRATCH[6],
+            GRAPHICS_OFFSET_WIDTH,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[5],
+            abi::SCRATCH[6],
+            GRAPHICS_OFFSET_HEIGHT,
+        ));
+        emit_range_check(asm, abi::SCRATCH[2], abi::SCRATCH[4], done, "x");
+        emit_range_check(asm, abi::SCRATCH[3], abi::SCRATCH[5], done, "y");
+    } else {
+        asm.push(abi::branch(done));
+    }
     asm.push(abi::label("mouse_converted"));
     Ok(())
 }

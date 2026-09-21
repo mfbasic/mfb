@@ -43,8 +43,9 @@ use serde_json::Value;
 
 /// Slots in the mouse-state region — mirrors `MOUSE_STATE_SLOTS`
 /// (`src/codegen/error/constants/error_constants.rs`): ring pointer, head, tail,
-/// parse length, then the 32-byte partial-sequence buffer.
-const MOUSE_STATE_SLOTS: usize = 8;
+/// parse length, drain position (added by plan-94-B), then the 32-byte
+/// partial-sequence buffer.
+const MOUSE_STATE_SLOTS: usize = 9;
 
 /// Uses `term::` and `app::`, so BOTH the term-state region and the
 /// presentation-mode word are reserved — the arrangement a mouse region has to
@@ -189,10 +190,14 @@ fn mouse_region_is_appended_and_moves_no_existing_arena_offset() {
         MOUSE_STATE_SLOTS,
         "expected exactly MOUSE_STATE_SLOTS new zero-initialized slots"
     );
-    assert_eq!(
-        mouse_frame - plain_frame,
-        MOUSE_STATE_SLOTS * 8,
-        "entry frame should grow by exactly the mouse region's size"
+    // AArch64 keeps `sp` 16-byte aligned, so the frame can only grow in 16-byte
+    // steps: by the region's size rounded up to that alignment, and no more.
+    let growth = mouse_frame - plain_frame;
+    assert!(
+        growth % 16 == 0 && growth >= MOUSE_STATE_SLOTS * 8 && growth < MOUSE_STATE_SLOTS * 8 + 16,
+        "entry frame should grow by exactly the mouse region's size, rounded to the \
+         16-byte stack alignment: grew {growth} for a {}-byte region",
+        MOUSE_STATE_SLOTS * 8
     );
 
     // And they are genuinely past everything, not merely equal in count.
@@ -209,9 +214,40 @@ fn mouse_mode_word_is_emitted_only_for_a_mouse_program() {
         Vec::<String>::new(),
         "a program that never mentions the mouse must not carry the mode word"
     );
-    assert_eq!(
-        mouse_mode_globals(WITH_MOUSE, "mouse_global_mouse"),
-        vec!["_mfb_rt_mouse_mode".to_string()],
+    // plan-94-B/C add further mouse-only objects (the tracking escapes, the AppKit
+    // selectors); the claim is that the mode word is among them.
+    assert!(
+        mouse_mode_globals(WITH_MOUSE, "mouse_global_mouse")
+            .contains(&"_mfb_rt_mouse_mode".to_string()),
         "a mouse program must carry the process-global mode word (plan-94-A §4.4b)"
     );
+}
+
+/// A mouse app that never imports `canvas` must BUILD on every app backend. The
+/// pixel-surface mouse code reads the canvas graphics state, a data object only a
+/// canvas program emits; before the gate each backend named it unconditionally and
+/// the build failed with "relocation target `_mfb_rt_canvas_graphics` is not a data
+/// object or defined symbol" — for `WITH_MOUSE` itself, which uses only `term::`.
+#[test]
+fn a_mouse_app_without_canvas_builds_on_every_app_backend() {
+    let project = temp_project("mouse_no_canvas", WITH_MOUSE);
+    for target in [
+        "macos-aarch64",
+        "linux-x86_64",
+        "linux-aarch64",
+        "windows-x86_64",
+    ] {
+        let output = std::process::Command::new(common::mfb_exe())
+            .args(["build", "-ncode", "-app", "-target", target])
+            .arg(&project)
+            .output()
+            .expect("run mfb build -ncode -app");
+        assert!(
+            output.status.success(),
+            "{target}: a term-only mouse app failed to build:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
 }

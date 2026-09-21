@@ -115,6 +115,7 @@ pub(super) const MOUSE_FRAME_EXTRA: usize = {
 /// chain ends where the existing dispatch continues.
 pub(super) fn emit_mouse_arms(
     from: &str,
+    uses_canvas: bool,
     base: usize,
     msg_slot: usize,
     wparam_slot: usize,
@@ -161,6 +162,7 @@ pub(super) fn emit_mouse_arms(
 
         emit_coordinates(
             from,
+            uses_canvas,
             arm,
             tag,
             lparam_slot,
@@ -211,6 +213,7 @@ pub(super) fn emit_mouse_arms(
 #[allow(clippy::too_many_arguments)]
 fn emit_coordinates(
     from: &str,
+    uses_canvas: bool,
     arm: Arm,
     tag: &str,
     lparam_slot: usize,
@@ -360,35 +363,42 @@ fn emit_coordinates(
     // Pixels (mode 2): the client point already is the surface point, and Win32's
     // client origin is top-left like `canvas::Point`'s — so no flip, unlike macOS.
     ins.push(abi::label(&pixels));
-    load_addr(abi::SCRATCH[4], GRAPHICS_STATE_SYMBOL, from, ins, rel);
-    ins.push(abi::load_u64(
-        abi::SCRATCH[2],
-        abi::SCRATCH[4],
-        GRAPHICS_OFFSET_WIDTH,
-    ));
-    ins.push(abi::load_u64(
-        abi::SCRATCH[3],
-        abi::SCRATCH[4],
-        GRAPHICS_OFFSET_HEIGHT,
-    ));
-    emit_range_check(
-        from,
-        tag,
-        "px",
-        abi::SCRATCH[0],
-        abi::SCRATCH[2],
-        &done,
-        ins,
-    );
-    emit_range_check(
-        from,
-        tag,
-        "py",
-        abi::SCRATCH[1],
-        abi::SCRATCH[3],
-        &done,
-        ins,
-    );
+    // The pixel surface's extent lives in the canvas graphics state, a data object
+    // only a program that uses `canvas::` has. Without it there is no pixel surface
+    // to report a position on (and naming the symbol would fail the build).
+    if uses_canvas {
+        load_addr(abi::SCRATCH[4], GRAPHICS_STATE_SYMBOL, from, ins, rel);
+        ins.push(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::SCRATCH[4],
+            GRAPHICS_OFFSET_WIDTH,
+        ));
+        ins.push(abi::load_u64(
+            abi::SCRATCH[3],
+            abi::SCRATCH[4],
+            GRAPHICS_OFFSET_HEIGHT,
+        ));
+        emit_range_check(
+            from,
+            tag,
+            "px",
+            abi::SCRATCH[0],
+            abi::SCRATCH[2],
+            &done,
+            ins,
+        );
+        emit_range_check(
+            from,
+            tag,
+            "py",
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+            &done,
+            ins,
+        );
+    } else {
+        ins.push(abi::branch(&done));
+    }
     ins.push(abi::label(&converted));
 }
 
@@ -627,13 +637,13 @@ fn emit_format_and_write(
     rel: &mut Vec<CodeRelocation>,
 ) {
     let scratch = SgrScratch {
-        value: abi::SCRATCH[0],
-        ten: abi::SCRATCH[1],
-        quotient: abi::SCRATCH[2],
-        digit: abi::SCRATCH[3],
-        count: abi::SCRATCH[4],
-        addr: abi::SCRATCH[5],
-        scratch_base: abi::SCRATCH[6],
+        value: abi::SCRATCH[0].into(),
+        ten: abi::SCRATCH[1].into(),
+        quotient: abi::SCRATCH[2].into(),
+        digit: abi::SCRATCH[3].into(),
+        count: abi::SCRATCH[4].into(),
+        addr: abi::SCRATCH[5].into(),
+        scratch_base: abi::SCRATCH[6].into(),
     };
     ins.push(abi::add_immediate(
         abi::SCRATCH[7],
@@ -657,13 +667,13 @@ fn emit_format_and_write(
     ins.push(abi::add_immediate(abi::SCRATCH[10], abi::SCRATCH[10], 1));
     emit_format_report(
         &SgrReport {
-            button_code: abi::SCRATCH[8],
-            x: abi::SCRATCH[9],
-            y: abi::SCRATCH[10],
-            terminator: abi::SCRATCH[11],
+            button_code: abi::SCRATCH[8].into(),
+            x: abi::SCRATCH[9].into(),
+            y: abi::SCRATCH[10].into(),
+            terminator: abi::SCRATCH[11].into(),
         },
-        abi::SCRATCH[7],
-        abi::SCRATCH[12],
+        &abi::SCRATCH[7].into(),
+        &abi::SCRATCH[12].into(),
         off_scratch,
         &format!("{from}_{tag}"),
         &scratch,

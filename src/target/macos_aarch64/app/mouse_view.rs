@@ -154,9 +154,9 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
     // First act, and cheap on purpose: an un-enabled program pays one load and a
     // compare per motion event, which is the cost of registering the IMPs
     // unconditionally.
-    asm.local_address("x9", MOUSE_MODE_SYMBOL);
-    asm.push(abi::load_u64("x9", "x9", 0));
-    asm.push(abi::compare_immediate("x9", imp.surface.mode_value()));
+    asm.local_address(abi::SCRATCH[0], MOUSE_MODE_SYMBOL);
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], imp.surface.mode_value()));
     asm.push(abi::branch_ne(&done));
 
     // --- 2. Locate ----------------------------------------------------------
@@ -170,20 +170,20 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
         OFF_EVENT,
     ));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::store_double("d0", abi::stack_pointer(), OFF_POINT_X));
-    asm.push(abi::store_double("d1", abi::stack_pointer(), OFF_POINT_Y));
+    asm.push(abi::store_double(abi::FP_SCRATCH[0], abi::stack_pointer(), OFF_POINT_X));
+    asm.push(abi::store_double(abi::FP_SCRATCH[1], abi::stack_pointer(), OFF_POINT_Y));
 
     // `[self convertPoint:loc fromView:nil]` — the point goes back in d0/d1 and
     // `nil` (the window's own space) in the third integer argument.
     asm.load_selector(SEL_CONVERT_POINT_FROM_VIEW.0);
-    asm.push(abi::load_double("d0", abi::stack_pointer(), OFF_POINT_X));
-    asm.push(abi::load_double("d1", abi::stack_pointer(), OFF_POINT_Y));
+    asm.push(abi::load_double(abi::FP_SCRATCH[0], abi::stack_pointer(), OFF_POINT_X));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], abi::stack_pointer(), OFF_POINT_Y));
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OFF_SELF));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // No Y-flip: both views are `isFlipped`, so this is already top-left origin.
-    asm.push(abi::store_double("d0", abi::stack_pointer(), OFF_POINT_X));
-    asm.push(abi::store_double("d1", abi::stack_pointer(), OFF_POINT_Y));
+    asm.push(abi::store_double(abi::FP_SCRATCH[0], abi::stack_pointer(), OFF_POINT_X));
+    asm.push(abi::store_double(abi::FP_SCRATCH[1], abi::stack_pointer(), OFF_POINT_Y));
 
     // --- 3. Convert to surface coordinates ----------------------------------
     emit_to_surface_coords(&mut asm, imp, &done);
@@ -201,39 +201,39 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
     // coordinates are all parked on the stack across the ObjC calls above.
     {
         let scratch = SgrScratch {
-            value: "x9",
-            ten: "x10",
-            quotient: "x11",
-            digit: "x12",
-            count: "x13",
-            addr: "x14",
-            scratch_base: "x15",
+            value: abi::SCRATCH[0].into(),
+            ten: abi::SCRATCH[1].into(),
+            quotient: abi::SCRATCH[2].into(),
+            digit: abi::SCRATCH[3].into(),
+            count: abi::SCRATCH[4].into(),
+            addr: abi::SCRATCH[5].into(),
+            scratch_base: abi::SCRATCH[6].into(),
         };
         // The report's own fields go in registers the formatter does not touch.
-        asm.push(abi::add_immediate("x2", abi::stack_pointer(), OFF_REPORT));
-        asm.push(abi::load_u64("x3", abi::stack_pointer(), OFF_CODE));
-        asm.push(abi::load_u64("x4", abi::stack_pointer(), OFF_X));
-        asm.push(abi::load_u64("x5", abi::stack_pointer(), OFF_Y));
-        asm.push(abi::load_u64("x6", abi::stack_pointer(), OFF_TERMINATOR));
+        asm.push(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), OFF_REPORT));
+        asm.push(abi::load_u64(abi::c_arg(3), abi::stack_pointer(), OFF_CODE));
+        asm.push(abi::load_u64(abi::c_arg(4), abi::stack_pointer(), OFF_X));
+        asm.push(abi::load_u64(abi::c_arg(5), abi::stack_pointer(), OFF_Y));
+        asm.push(abi::load_u64(abi::c_arg(6), abi::stack_pointer(), OFF_TERMINATOR));
         // One-based on the wire, in both units, exactly as a terminal sends.
-        asm.push(abi::add_immediate("x4", "x4", 1));
-        asm.push(abi::add_immediate("x5", "x5", 1));
+        asm.push(abi::add_immediate(abi::c_arg(4), abi::c_arg(4), 1));
+        asm.push(abi::add_immediate(abi::c_arg(5), abi::c_arg(5), 1));
         emit_format_report(
             &SgrReport {
-                button_code: "x3",
-                x: "x4",
-                y: "x5",
-                terminator: "x6",
+                button_code: abi::c_arg(3),
+                x: abi::c_arg(4),
+                y: abi::c_arg(5),
+                terminator: abi::c_arg(6),
             },
-            "x2",
-            "x7",
+            &abi::c_arg(2),
+            &abi::c_arg(7),
             OFF_SCRATCH,
             sym,
             &scratch,
             &mut asm.ins,
         );
         // The length lands where the x coordinate was; x is dead once formatted.
-        asm.push(abi::store_u64("x7", abi::stack_pointer(), OFF_X));
+        asm.push(abi::store_u64(abi::c_arg(7), abi::stack_pointer(), OFF_X));
     }
 
     // write(pipeFd, report, len). The pipe write end is O_NONBLOCK (bug-114), so
@@ -285,32 +285,32 @@ fn emit_to_surface_coords(asm: &mut Asm, imp: &MouseImp, done: &str) {
             // null TVSTATE means the grid was never built, so there are no cells
             // to report a position in.
             asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OFF_SELF));
-            asm.local_address("x1", TVSTATE_ASSOC_KEY);
+            asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
             asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
             asm.push(abi::compare_immediate(abi::c_return(0), "0"));
             asm.push(abi::branch_eq(done));
-            asm.push(abi::move_register("x19", abi::c_return(0)));
+            asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
             // col = floor(x / cellW), row = floor(y / cellH). `floor` and not a
             // truncating convert: a negative coordinate (a drag that left the
             // window) must land outside the grid so the clamp below rejects it,
             // and truncation would map -0.5 onto column 0.
-            asm.push(abi::load_double("d2", "x19", TV_CELL_W_OFFSET));
-            asm.push(abi::load_double("d3", "x19", TV_CELL_H_OFFSET));
-            asm.push(abi::load_double("d0", abi::stack_pointer(), OFF_POINT_X));
-            asm.push(abi::load_double("d1", abi::stack_pointer(), OFF_POINT_Y));
-            asm.push(abi::float_divide_d("d0", "d0", "d2"));
-            asm.push(abi::float_divide_d("d1", "d1", "d3"));
-            asm.push(abi::float_floor_to_signed_x("x9", "d0"));
-            asm.push(abi::float_floor_to_signed_x("x10", "d1"));
-            asm.push(abi::store_u64("x9", abi::stack_pointer(), OFF_X));
-            asm.push(abi::store_u64("x10", abi::stack_pointer(), OFF_Y));
+            asm.push(abi::load_double(abi::FP_SCRATCH[2], abi::LOCAL[0], TV_CELL_W_OFFSET));
+            asm.push(abi::load_double(abi::FP_SCRATCH[3], abi::LOCAL[0], TV_CELL_H_OFFSET));
+            asm.push(abi::load_double(abi::FP_SCRATCH[0], abi::stack_pointer(), OFF_POINT_X));
+            asm.push(abi::load_double(abi::FP_SCRATCH[1], abi::stack_pointer(), OFF_POINT_Y));
+            asm.push(abi::float_divide_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[2]));
+            asm.push(abi::float_divide_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[3]));
+            asm.push(abi::float_floor_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[0]));
+            asm.push(abi::float_floor_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]));
+            asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_X));
+            asm.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_Y));
             // Reject anything off the grid rather than clamping it. A click on the
             // window chrome is not a click on cell (0,0), and reporting it as one
             // would put a phantom event under the user's first row.
-            asm.push(abi::load_u64("x11", "x19", TV_COLS_OFFSET));
-            asm.push(abi::load_u64("x12", "x19", TV_ROWS_OFFSET));
-            emit_range_check(asm, sym, "x9", "x11", done, "col");
-            emit_range_check(asm, sym, "x10", "x12", done, "row");
+            asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[0], TV_COLS_OFFSET));
+            asm.push(abi::load_u64(abi::SCRATCH[3], abi::LOCAL[0], TV_ROWS_OFFSET));
+            emit_range_check(asm, sym, abi::SCRATCH[0], abi::SCRATCH[2], done, "col");
+            emit_range_check(asm, sym, abi::SCRATCH[1], abi::SCRATCH[3], done, "row");
         }
         MouseSurface::Pixels => {
             // No cell divide: the view-space point already IS the surface point,
@@ -322,22 +322,22 @@ fn emit_to_surface_coords(asm: &mut Asm, imp: &MouseImp, done: &str) {
             // top-left with Y increasing downward — the origin every `DrawItem`
             // and every hit test uses. Without the flip a click near the top of
             // the window would be reported near the bottom of the scene.
-            asm.local_address("x19", GRAPHICS_STATE_SYMBOL);
-            asm.push(abi::load_u64("x11", "x19", GRAPHICS_OFFSET_WIDTH));
-            asm.push(abi::load_u64("x12", "x19", GRAPHICS_OFFSET_HEIGHT));
-            asm.push(abi::load_double("d0", abi::stack_pointer(), OFF_POINT_X));
-            asm.push(abi::load_double("d1", abi::stack_pointer(), OFF_POINT_Y));
+            asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+            asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[0], GRAPHICS_OFFSET_WIDTH));
+            asm.push(abi::load_u64(abi::SCRATCH[3], abi::LOCAL[0], GRAPHICS_OFFSET_HEIGHT));
+            asm.push(abi::load_double(abi::FP_SCRATCH[0], abi::stack_pointer(), OFF_POINT_X));
+            asm.push(abi::load_double(abi::FP_SCRATCH[1], abi::stack_pointer(), OFF_POINT_Y));
             // y = height - y. The published extent rather than the view's bounds:
             // it is what the program draws against, and `setFrameSize:` keeps the
             // two in step (plan-98-D Phase 3).
-            asm.push(abi::signed_convert_to_float_d("d2", "x12"));
-            asm.push(abi::float_subtract_d("d1", "d2", "d1"));
-            asm.push(abi::float_floor_to_signed_x("x9", "d0"));
-            asm.push(abi::float_floor_to_signed_x("x10", "d1"));
-            asm.push(abi::store_u64("x9", abi::stack_pointer(), OFF_X));
-            asm.push(abi::store_u64("x10", abi::stack_pointer(), OFF_Y));
-            emit_range_check(asm, sym, "x9", "x11", done, "x");
-            emit_range_check(asm, sym, "x10", "x12", done, "y");
+            asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[3]));
+            asm.push(abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[2], abi::FP_SCRATCH[1]));
+            asm.push(abi::float_floor_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[0]));
+            asm.push(abi::float_floor_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]));
+            asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_X));
+            asm.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_Y));
+            emit_range_check(asm, sym, abi::SCRATCH[0], abi::SCRATCH[2], done, "x");
+            emit_range_check(asm, sym, abi::SCRATCH[1], abi::SCRATCH[3], done, "y");
         }
     }
 }
@@ -366,21 +366,21 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
     match imp.action {
         MouseAction::Press | MouseAction::Release => {
             asm.push(abi::move_immediate(
-                "x9",
+                abi::SCRATCH[0],
                 "Integer",
                 &imp.button.to_string(),
             ));
         }
         MouseAction::Drag => {
             asm.push(abi::move_immediate(
-                "x9",
+                abi::SCRATCH[0],
                 "Integer",
                 &(imp.button | SGR_MOTION).to_string(),
             ));
         }
         MouseAction::Move => {
             asm.push(abi::move_immediate(
-                "x9",
+                abi::SCRATCH[0],
                 "Integer",
                 &(SGR_NO_BUTTON | SGR_MOTION).to_string(),
             ));
@@ -398,25 +398,25 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
                 OFF_EVENT,
             ));
             asm.call_external("_objc_msgSend", LIB_OBJC);
-            asm.push(abi::float_compare_zero_d("d0"));
+            asm.push(abi::float_compare_zero_d(abi::FP_SCRATCH[0]));
             asm.push(abi::branch_eq(done));
             asm.push(abi::branch_gt(&up));
             asm.push(abi::move_immediate(
-                "x9",
+                abi::SCRATCH[0],
                 "Integer",
                 &SGR_WHEEL_DOWN.to_string(),
             ));
             asm.push(abi::branch(&set));
             asm.push(abi::label(&up));
             asm.push(abi::move_immediate(
-                "x9",
+                abi::SCRATCH[0],
                 "Integer",
                 &SGR_WHEEL_UP.to_string(),
             ));
             asm.push(abi::label(&set));
         }
     }
-    asm.push(abi::store_u64("x9", abi::stack_pointer(), OFF_CODE));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_CODE));
 
     // Modifiers. The wheel carries them too — a shift-scroll is a real gesture —
     // so this is unconditional.
@@ -427,23 +427,23 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
         OFF_EVENT,
     ));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x19", abi::c_return(0)));
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), OFF_CODE));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_CODE));
     for (ns_bit, sgr_bit, tag) in [
         (NS_SHIFT, SGR_SHIFT, "shift"),
         (NS_OPTION, SGR_ALT, "alt"),
         (NS_CONTROL, SGR_CTRL, "ctrl"),
     ] {
         let skip = format!("{sym}_mod_{tag}");
-        asm.push(abi::move_immediate("x10", "Integer", &ns_bit.to_string()));
-        asm.push(abi::and_registers("x11", "x19", "x10"));
-        asm.push(abi::compare_immediate("x11", "0"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", &ns_bit.to_string()));
+        asm.push(abi::and_registers(abi::SCRATCH[2], abi::LOCAL[0], abi::SCRATCH[1]));
+        asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
         asm.push(abi::branch_eq(&skip));
-        asm.push(abi::move_immediate("x10", "Integer", &sgr_bit.to_string()));
-        asm.push(abi::or_registers("x9", "x9", "x10"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", &sgr_bit.to_string()));
+        asm.push(abi::or_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]));
         asm.push(abi::label(&skip));
     }
-    asm.push(abi::store_u64("x9", abi::stack_pointer(), OFF_CODE));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_CODE));
 
     // `'m'` marks a release and `'M'` everything else — the one place the wire
     // distinguishes them, since the button code cannot.
@@ -453,11 +453,11 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
         b'M'
     };
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &terminator.to_string(),
     ));
-    asm.push(abi::store_u64("x9", abi::stack_pointer(), OFF_TERMINATOR));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_TERMINATOR));
 }
 
 /// `write(pipeWriteFd, sp + buf_offset, [sp + len_offset])`.
@@ -466,12 +466,12 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
 /// an associated object on `NSApp` under `PIPE_ASSOC_KEY`. Reusing it is the
 /// whole point of the injection design — the backend needs no channel of its own.
 fn emit_pipe_write(asm: &mut Asm, buf_offset: usize, len_offset: usize) {
-    asm.external_data("x19", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.push(abi::move_register(abi::c_arg(0), "x19"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0))); // write fd
     asm.push(abi::add_immediate(
@@ -583,10 +583,19 @@ pub(super) fn mouse_imps(surface: MouseSurface) -> Vec<MouseImp> {
     ]
 }
 
-/// Emit every mouse IMP for both views.
-pub(super) fn emit_mouse_imps() -> Vec<CodeFunction> {
-    [MouseSurface::Cells, MouseSurface::Pixels]
-        .into_iter()
+/// Emit every mouse IMP for the views this program can present. The pixel IMPs
+/// read the canvas graphics state (`_mfb_rt_canvas_graphics`), a data object that
+/// exists only in a program that uses `canvas::` — so a mouse program without it
+/// gets only `TermView`'s cell IMPs, or its build names an undefined symbol.
+pub(super) fn emit_mouse_imps(uses_canvas: bool) -> Vec<CodeFunction> {
+    let surfaces: &[MouseSurface] = if uses_canvas {
+        &[MouseSurface::Cells, MouseSurface::Pixels]
+    } else {
+        &[MouseSurface::Cells]
+    };
+    surfaces
+        .iter()
+        .copied()
         .flat_map(|surface| {
             mouse_imps(surface)
                 .into_iter()
@@ -605,8 +614,8 @@ pub(super) fn emit_install_mouse_imps(
     let class_reg = class_reg.into();
     for imp in mouse_imps(surface) {
         asm.load_selector(imp.selector.0);
-        asm.local_address("x2", imp.symbol);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.local_address(abi::c_arg(2), imp.symbol);
+        asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), &class_reg));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }

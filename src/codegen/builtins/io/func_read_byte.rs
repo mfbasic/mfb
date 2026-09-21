@@ -10,6 +10,7 @@ use super::gen_read_family::{emit_stdin_byte_read, MousePump};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
 use crate::codegen::io::terminal::*;
@@ -154,6 +155,7 @@ pub(crate) fn lower_read_byte(
     )?;
     // plan-15: read the byte from the stdin broadcast log. EINTR/blocking are
     // handled inside `_mfb_rt_stdin_next_byte`; a 0-byte return is EOF.
+    let mut vregs = Vregs::new();
     emit_stdin_byte_read(
         &mut EmitCtx {
             symbol,
@@ -168,7 +170,7 @@ pub(crate) fn lower_read_byte(
         &read_resume,
         &input_error,
         &invalid_context,
-        mouse_pump,
+        mouse_pump.map(|pump| (pump, &mut vregs)),
     )?;
     instructions.extend([
         abi::branch_eq(&eof),

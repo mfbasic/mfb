@@ -867,7 +867,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     // which is itself emitted only then, so installing them unconditionally would
     // leave every other app binary naming an undefined symbol.
     if spec.uses_mouse {
-        functions.extend(mouse_view::emit_mouse_imps());
+        functions.extend(mouse_view::emit_mouse_imps(spec.uses_canvas));
     }
     // plan-62-C Phase 2: the runtime `setMode` reconcile helpers are emitted only
     // for a program that can change mode (its static default is `None`, i.e. it
