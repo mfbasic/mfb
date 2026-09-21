@@ -415,7 +415,7 @@ Acceptance: `cargo test --test inplace_self_update_census --test rt_inplace_self
 Verified 2026-09-21: `inplace_self_update_census` → `test result: ok. 1 passed`
 (2.99s); `rt_inplace_self_update` → `test result: ok. 1 passed` (144.60s, 64 lines ×
 S1).
-Commit: —
+Commit: b3a429698
 
 ## Validation Plan
 

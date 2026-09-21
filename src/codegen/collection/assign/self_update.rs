@@ -97,6 +97,35 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
     (ArmId::Concat, |b, s, v| b.try_inplace_concat_assign(s, v)),
 ];
 
+/// The bare builtin name a self-update's call target names, for every spelling a
+/// call has after lowering (plan-142-B):
+///
+/// * a native member — `collections.append` → `append` (and `strings.mid` →
+///   `mid`: the arm's collection-type gate tells the two apart), exactly
+///   [`native_builtin_target`](crate::codegen::builtins::native_builtin_target);
+/// * a `Body::Mfb` member's monomorph — `#collections_take$Integer` → `take` (the
+///   injected `__collections_take OF T`, internalized and mangled per instance;
+///   `native_builtin_target` answers `None` for it);
+/// * the unmonomorphized qualified spelling of such a member —
+///   `collections.take` → `take`.
+///
+/// `None` for anything that is not a `collections` builtin.
+pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
+    if let Some(bare) = crate::codegen::builtins::native_builtin_target(target) {
+        return Some(bare);
+    }
+    let member = match target.strip_prefix("#collections_") {
+        Some(rest) => rest.split('$').next()?,
+        None => target.strip_prefix("collections.")?,
+    };
+    crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "collections")?
+        .function(member)
+        .map(|function| function.name)
+}
+
 impl CodeBuilder<'_> {
     /// Lower `site.name = value` in place if any arm recognises it. `false` =
     /// every arm declined and nothing was emitted; the caller takes the copying
@@ -648,6 +677,32 @@ mod tests {
             }
         }
         out
+    }
+
+    /// plan-142-B Phase 1: every spelling a shrink self-update's call target has
+    /// after lowering (recorded from a `--nir` build in plan-142-B) resolves to its
+    /// bare name, and nothing else does.
+    #[test]
+    fn self_update_builtin_names_every_spelling() {
+        // `Body::abi_inline` / `Body::Intrinsic` members keep the qualified name.
+        assert_eq!(self_update_builtin("collections.filter"), Some("filter"));
+        assert_eq!(self_update_builtin("collections.mid"), Some("mid"));
+        assert_eq!(self_update_builtin("collections.append"), Some("append"));
+        // `Body::Mfb` members arrive as their internalized monomorph.
+        assert_eq!(self_update_builtin("#collections_take$Integer"), Some("take"));
+        assert_eq!(self_update_builtin("#collections_take$String"), Some("take"));
+        assert_eq!(self_update_builtin("#collections_drop$Integer"), Some("drop"));
+        assert_eq!(
+            self_update_builtin("#collections_distinct$Integer"),
+            Some("distinct")
+        );
+        // … or, before monomorphization, qualified.
+        assert_eq!(self_update_builtin("collections.take"), Some("take"));
+        // Not a collections builtin.
+        assert_eq!(self_update_builtin("#collections_nope$Integer"), None);
+        assert_eq!(self_update_builtin("#json_parse"), None);
+        assert_eq!(self_update_builtin("take"), None);
+        assert_eq!(self_update_builtin("userFunction$Integer"), None);
     }
 
     #[test]
