@@ -449,6 +449,12 @@ pub(crate) struct CodeBuilder<'a> {
     /// (`prescan_self_update_scratch`); zeroed at entry, grown on demand, freed at
     /// every exit by a function-level cleanup.
     pub(crate) self_update_scratch: Option<usize>,
+    /// plan-142-G: in a lambda that borrows its creator's scratch
+    /// (`scratch_closure_captures`), the closure-env word holding the address of
+    /// the creator's scratch slot. `self_update_scratch` is then a working copy
+    /// that `emit_reserve_self_update_scratch` loads from and publishes back
+    /// through that address, and the lambda frees nothing: the creator owns it.
+    pub(crate) self_update_scratch_env: Option<usize>,
     /// plan-142-C: set by the in-place `math` arm around its call to the member's
     /// lowering; `emit_alloc_result_list` takes it and returns the self-update
     /// scratch instead of allocating the result list.
@@ -648,6 +654,7 @@ impl<'a> CodeBuilder<'a> {
             for_each_iterable_record_fields: Vec::new(),
             string_capacity_slots: HashMap::new(),
             self_update_scratch: None,
+            self_update_scratch_env: None,
             simd_result_into: None,
             math_pool_base_vreg: None,
             vector_natives: HashMap::new(),

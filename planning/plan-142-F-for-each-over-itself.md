@@ -111,7 +111,7 @@ Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 4 
 (incl. `every_arm_row_fires_at_every_enabled_site`); `cargo test --test
 rt_inplace_self_update` → `test result: ok. 1 passed; 0 failed` (296.00s; 127
 case/site pairs: 64 at S1, 63 at S7).
-Commit: —
+Commit: a0e65b4a7
 
 ### Phase 3 — Expected outputs
 
@@ -131,11 +131,13 @@ Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual` green
 on `tests/rt-behavior/collections` (est. 10 min).
 Verified 2026-09-21: `scripts/test-accept.sh target/debug/mfb target/accept-actual
 'rt-behavior/collections/*'` → `acceptance tests passed (65 test(s) ran)`.
-Commit: —
+Commit: a0e65b4a7
 
 ## Validation Plan
 
 - Tests: `rt_for_each_self_update`; matrix and harness at S7; bug142 fixture.
+- Artifact gate at `a0e65b4a7`: `scripts/artifact-gate.sh <debug mfb> all` →
+  `1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`.
 
 ## Open Decisions
 

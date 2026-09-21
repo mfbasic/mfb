@@ -504,6 +504,10 @@ name = "rt_byref_string_capture_capacity"
 path = "tests/runtime/rt_byref_string_capture_capacity.rs"
 
 [[test]]
+name = "rt_lambda_capture_self_update"
+path = "tests/runtime/rt_lambda_capture_self_update.rs"
+
+[[test]]
 name = "rt_lambda_capture_not_copied_per_call"
 path = "tests/runtime/rt_lambda_capture_not_copied_per_call.rs"
 

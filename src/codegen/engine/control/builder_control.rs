@@ -1,12 +1,12 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
-use crate::codegen::collection::assign::self_update::SelfUpdateSite;
+use crate::codegen::collection::assign::self_update::{is_self_update_call, SelfUpdateSite};
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::value::store_reach::{global_root, StoreLeaf};
+use crate::codegen::engine::value::store_reach::{global_root, local_root, StoreLeaf};
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -1047,11 +1047,8 @@ impl CodeBuilder<'_> {
                             // now (Local captures from `self.locals`); a capture that
                             // is a by-value scalar/float or of unknown type is left
                             // (a safe leak, never a wild free).
-                            if let Some(NirValue::Closure { captures, .. }) = value {
-                                let capture_types = captures
-                                    .iter()
-                                    .map(|capture| self.capture_free_type(capture))
-                                    .collect();
+                            if let Some(NirValue::Closure { name, captures, .. }) = value {
+                                let capture_types = self.closure_env_free_types(name, captures);
                                 self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                     OwnedValueCleanup {
                                         type_: type_.clone(),
@@ -1180,11 +1177,21 @@ impl CodeBuilder<'_> {
                         // mutates the live block in place when an arm of
                         // `SELF_UPDATE_ARMS` recognises `f` (plan-142-A, site S1):
                         // the arm updates the slot, so skip the general
-                        // reassignment path entirely.
+                        // reassignment path entirely. A by-ref capture (S9,
+                        // plan-142-G) mutates the parent's block through the
+                        // reference.
+                        let dest = if by_ref && is_self_update_call(value, name) {
+                            InPlaceDest::Ref {
+                                ref_slot: stack_offset,
+                                block_slot: self.allocate_stack_object("su_ref_block", 8),
+                            }
+                        } else {
+                            InPlaceDest::Direct { slot: stack_offset }
+                        };
                         let site = SelfUpdateSite {
                             name,
                             type_: local_type,
-                            dest: InPlaceDest::Direct { slot: stack_offset },
+                            dest,
                             by_ref,
                         };
                         if !self.try_inplace_self_update(&site, value)?
@@ -1280,6 +1287,41 @@ impl CodeBuilder<'_> {
                                     owner_flag_slot: self.trap_owner_flags.get(name).copied(),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
+                                Some(slot)
+                            } else if by_ref && self.is_freeable_flat_value(&result.type_) {
+                                // plan-142-G: a reference local's reassignment frees the
+                                // parent binding's previous block, read through the
+                                // reference, exactly as the owner's own reassignment
+                                // below would; it leaked before. Nothing in the parent
+                                // still walks that block: a `forEach` over it walks a
+                                // snapshot, and so does a `FOR EACH` whose body passes
+                                // the binding by reference (operand_snapshot.rs).
+                                let old_slot = self.allocate_stack_object("reassign_ref_old", 8);
+                                let parent = self.allocate_register();
+                                self.emit(abi::load_u64(
+                                    &parent,
+                                    abi::stack_pointer(),
+                                    stack_offset,
+                                ));
+                                let old = self.allocate_register();
+                                self.emit(abi::load_u64(&old, &parent, 0));
+                                self.emit(abi::store_u64(&old, abi::stack_pointer(), old_slot));
+                                let slot = self.allocate_stack_object("reassign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                // The owner of a by-ref-captured `String` keeps no
+                                // capacity shadow, so its block is tight.
+                                self.emit_owned_value_drop(&OwnedValueCleanup {
+                                    type_: result.type_.clone(),
+                                    stack_offset: old_slot,
+                                    closure_captures: None,
+                                    capacity_slot: None,
+                                    loop_alias_slot: None,
+                                    result_wrapper: None,
+                                })?;
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
@@ -2457,7 +2499,17 @@ impl CodeBuilder<'_> {
             }
             _ => false,
         };
-        if owns_local_iterable {
+        // plan-142-G: `FOR EACH v IN r.items` whose body hands `r` to a callback by
+        // reference — the callback's reassignment of `r` frees `r`'s old block, and
+        // with it the field the loop walks. (A direct `r = …` in the body keeps
+        // the old block alive instead: `for_each_iterable_record_fields`.)
+        let owns_field_iterable = !matches!(iterable, NirValue::Local(_))
+            && local_root(iterable).is_some_and(|root| {
+                let mut captured = std::collections::HashSet::new();
+                collect_address_taken_locals(body, &mut captured);
+                captured.contains(root)
+            });
+        if owns_local_iterable || owns_field_iterable {
             self.operand_snapshot_wanted
                 .push(iterable as *const NirValue as usize);
         }

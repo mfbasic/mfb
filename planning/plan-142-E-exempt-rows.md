@@ -108,6 +108,8 @@ Commit: 2567f1809
 ## Validation Plan
 
 - Tests: `exempt` rows in the harness; unit census.
+- Per-letter unit gate (2026-09-21, at `2567f1809`): `cargo test --bin mfb` →
+  `test result: ok. 4286 passed; 0 failed; 1 ignored` (1766.88s).
 
 ## Open Decisions
 

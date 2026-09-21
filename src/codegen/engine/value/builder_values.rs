@@ -1611,6 +1611,22 @@ impl CodeBuilder<'_> {
     /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
     /// block, and a by-value scalar/float is stored inline; freeing either would
     /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
+    /// The free type of every word of the env of a closure over `lambda` with
+    /// `captures`: one per capture, plus the borrowed-scratch address a lambda
+    /// that borrows its creator's scratch carries past them (never freed).
+    pub(crate) fn closure_env_free_types(
+        &self,
+        lambda: &str,
+        captures: &[NirValue],
+    ) -> Vec<ParameterType> {
+        let mut types: Vec<ParameterType> =
+            captures.iter().map(|c| self.capture_free_type(c)).collect();
+        if self.scratch_closure_captures(lambda).is_some() {
+            types.push(ParameterType::Integer);
+        }
+        types
+    }
+
     pub(crate) fn capture_free_type(&self, capture: &NirValue) -> ParameterType {
         match capture {
             NirValue::Local(name) => self
@@ -1868,13 +1884,30 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     function_slot,
                 ));
+                // plan-142-G: a lambda that borrows this frame's self-update
+                // scratch finds its slot's address one word past the captures. The
+                // prescan gave this frame a scratch of its own for it; a frame that
+                // only borrows one cannot lend it on.
+                let borrowed_scratch = match self.scratch_closure_captures(name) {
+                    None => None,
+                    Some(_) => match (self.self_update_scratch, self.self_update_scratch_env) {
+                        (Some(slot), None) => Some(slot),
+                        _ => {
+                            return Err(format!(
+                                "native closure `{name}` borrows a self-update scratch its \
+                                 creator does not own"
+                            ))
+                        }
+                    },
+                };
                 let env_slot = if captures.is_empty() {
                     None
                 } else {
                     let env_register = self.allocate_register();
                     let env_slot = self.allocate_stack_object("closure_env", 8);
                     let alloc_ok = self.label("closure_env_alloc_ok");
-                    let env_size = (captures.len() * 8).to_string();
+                    let env_words = captures.len() + usize::from(borrowed_scratch.is_some());
+                    let env_size = (env_words * 8).to_string();
                     self.emit(abi::move_immediate(
                         abi::return_register(),
                         "Integer",
@@ -1908,6 +1941,17 @@ impl CodeBuilder<'_> {
                         let env_register = self.allocate_register();
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
+                    }
+                    if let Some(scratch_slot) = borrowed_scratch {
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(
+                            &holder,
+                            abi::stack_pointer(),
+                            scratch_slot,
+                        ));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        self.emit(abi::store_u64(&holder, &env_register, captures.len() * 8));
                     }
                     Some(env_slot)
                 };
@@ -1962,8 +2006,7 @@ impl CodeBuilder<'_> {
                 // free it — so a program without such a call emits not one extra
                 // instruction here.
                 if self.closure_temp_wanted && !captures.is_empty() {
-                    let capture_types: Vec<ParameterType> =
-                        captures.iter().map(|c| self.capture_free_type(c)).collect();
+                    let capture_types = self.closure_env_free_types(name, captures);
                     let slot = self.allocate_stack_object("closure_temp", 8);
                     self.emit(abi::store_u64(
                         &closure_register,

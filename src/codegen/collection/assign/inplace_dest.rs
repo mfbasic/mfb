@@ -66,15 +66,24 @@ pub(crate) enum InPlaceDest {
         /// record local has no second holder and carries `None`.
         write_back: Option<StateWriteBack>,
     },
+    /// A by-ref capture (plan-142-G, site S9): `ref_slot` holds the address of the
+    /// parent binding's slot. [`CodeBuilder::open_inplace_ref_dest`] loads the
+    /// parent's block pointer into `block_slot`, the arm mutates it there as if it
+    /// were a plain local, and [`CodeBuilder::close_inplace_dest`] stores the
+    /// (possibly reallocated) pointer back through the reference.
+    Ref { ref_slot: usize, block_slot: usize },
 }
 
 impl InPlaceDest {
     /// The slot the lowering helper repoints on a realloc — the collection block
-    /// for a plain local, the owning record block for an inlined field.
+    /// for a plain local or a reference's working copy, the owning record block
+    /// for an inlined field.
     pub(crate) fn block_slot(&self) -> usize {
         match self {
             InPlaceDest::Direct { slot } => *slot,
-            InPlaceDest::Inlined { block_slot, .. } => *block_slot,
+            InPlaceDest::Inlined { block_slot, .. } | InPlaceDest::Ref { block_slot, .. } => {
+                *block_slot
+            }
         }
     }
 }
@@ -248,9 +257,10 @@ impl CodeBuilder<'_> {
         if arg0 != site.name {
             return None;
         }
-        // `G1`/`G7`/`G10`.
+        // `G1`/`G7`/`G10`. A by-ref local reached through a `Ref` destination has
+        // discharged `G1`: the arm works on the parent's block, not the slot.
         if !(InPlaceGate {
-            by_ref: site.by_ref,
+            by_ref: site.by_ref && !matches!(site.dest, InPlaceDest::Ref { .. }),
             for_each_local: Some(site.name),
             layout_of: Some(&site.type_),
             ..InPlaceGate::default()
@@ -601,11 +611,41 @@ impl CodeBuilder<'_> {
         Ok(slot)
     }
 
+    /// Open a [`InPlaceDest::Ref`]: copy the parent binding's block pointer, read
+    /// through the reference in `ref_slot`, into the working `block_slot`.
+    pub(crate) fn open_inplace_ref_dest(&mut self, dest: &InPlaceDest) {
+        let InPlaceDest::Ref {
+            ref_slot,
+            block_slot,
+        } = dest
+        else {
+            return;
+        };
+        let parent = self.allocate_register();
+        self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, &parent, 0));
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), *block_slot));
+    }
+
     /// Discharge obligation `O4`: publish a reallocated `STATE` block pointer
     /// through the resource's shared STATE slot, so the owner and every alias
-    /// observe the grown block (§15). A no-op for a plain local or a record
-    /// field, neither of which has a second holder.
+    /// observe the grown block (§15); for a [`InPlaceDest::Ref`], store the
+    /// working block pointer back into the parent binding's slot. A no-op for a
+    /// plain local or a record field, neither of which has a second holder.
     pub(crate) fn close_inplace_dest(&mut self, dest: &InPlaceDest) -> Result<(), String> {
+        if let InPlaceDest::Ref {
+            ref_slot,
+            block_slot,
+        } = dest
+        {
+            let block = self.allocate_register();
+            self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
+            let parent = self.allocate_register();
+            self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
+            self.emit(abi::store_u64(&block, &parent, 0));
+            return Ok(());
+        }
         let InPlaceDest::Inlined {
             block_slot,
             write_back: Some(write_back),

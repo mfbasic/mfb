@@ -60,6 +60,19 @@ pub(crate) fn global_root(value: &NirValue) -> Option<&str> {
     }
 }
 
+/// The local whose block `value` lowers to a pointer into — the local itself or a
+/// field / payload read out of it, as [`global_root`] for a global.
+pub(crate) fn local_root(value: &NirValue) -> Option<&str> {
+    match value {
+        NirValue::Local(name) => Some(name),
+        NirValue::MemberAccess { target, .. }
+        | NirValue::UnionExtract { value: target, .. }
+        | NirValue::ResultValue { value: target }
+        | NirValue::ResultError { value: target } => local_root(target),
+        _ => None,
+    }
+}
+
 impl CodeBuilder<'_> {
     /// Whether evaluating any of `values` can reach `leaf`. A value is an
     /// expression, so it can hold no store op of its own — only its calls can.

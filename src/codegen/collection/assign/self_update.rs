@@ -23,6 +23,7 @@ use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::nir::visit::{walk_value, NirVisitor};
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
@@ -197,13 +198,26 @@ impl CodeBuilder<'_> {
         site: &SelfUpdateSite<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
+        // A `Ref` destination works on a copy of the parent's block pointer: load
+        // it before any arm reads the slot, publish it back once one has run.
+        self.open_inplace_ref_dest(&site.dest);
         for (_, arm) in SELF_UPDATE_ARMS {
             if arm(self, site, value)? {
+                self.close_inplace_dest(&site.dest)?;
                 return Ok(true);
             }
         }
         Ok(false)
     }
+}
+
+/// Whether `value` is shaped `f(name, …)` for a builtin with a self-update arm —
+/// the test for giving a by-ref local's statement a `Ref` destination (plan-142-G)
+/// before any slot is allocated for it.
+pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
+    matches!(value, NirValue::Call { target, args, .. }
+        if self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name))
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +268,31 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
     })
 }
 
+/// Whether `ops` create a closure whose lambda borrows its creator's scratch
+/// (`scratch_closure_captures`).
+fn ops_create_scratch_closure(builder: &CodeBuilder<'_>, ops: &[NirOp]) -> bool {
+    struct Finder<'b, 'a> {
+        builder: &'b CodeBuilder<'a>,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_, '_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Closure { name, captures, .. } = value {
+                if !captures.is_empty() && self.builder.function_needs_scratch(name) {
+                    self.found = true;
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder {
+        builder,
+        found: false,
+    };
+    finder.visit_ops(ops);
+    finder.found
+}
+
 /// Whether a self-update of `target` has an arm that keeps state in the
 /// function's self-update scratch.
 fn target_needs_self_update_scratch(target: &str) -> bool {
@@ -278,14 +317,66 @@ pub(crate) fn module_self_updates_with_replace(module: &NirModule) -> bool {
 }
 
 impl CodeBuilder<'_> {
+    /// Whether the module function `name`'s body holds a self-update whose arm
+    /// needs the scratch.
+    pub(crate) fn function_needs_scratch(&self, name: &str) -> bool {
+        self.functions.get(name).is_some_and(|function| {
+            ops_hold_self_update(&function.body, &target_needs_self_update_scratch)
+        })
+    }
+
+    /// plan-142-G: a lambda holding a scratch self-update (the self-update of a
+    /// by-ref capture, site S9) runs once per element of the `forEach` that calls
+    /// it, so a scratch of its own would be allocated once per element. It
+    /// borrows its creator's instead: the closure env carries one word past its
+    /// captures — the address of the creator's scratch slot. `Some(index of that
+    /// word)` for such a lambda, found from the `Closure` node that creates it.
+    pub(crate) fn scratch_closure_captures(&self, lambda: &str) -> Option<usize> {
+        if !self.function_needs_scratch(lambda) {
+            return None;
+        }
+        struct Finder<'n> {
+            lambda: &'n str,
+            captures: Option<usize>,
+        }
+        impl NirVisitor for Finder<'_> {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { name, captures, .. } = value {
+                    if name == self.lambda && !captures.is_empty() {
+                        self.captures = Some(captures.len());
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder {
+            lambda,
+            captures: None,
+        };
+        for function in self.functions.values() {
+            finder.visit_ops(&function.body);
+        }
+        finder.captures
+    }
+
     /// Give this function a self-update scratch slot if its body holds a
-    /// self-update whose arm needs one. The slot is registered as a function-level
+    /// self-update whose arm needs one, or creates a closure that borrows it
+    /// (`scratch_closure_captures`). The slot is registered as a function-level
     /// owned `List OF Integer`, so the ordinary scope drop frees it on every exit
-    /// (with the null guard and prologue zeroing that drop brings). A function
-    /// without such a statement is untouched.
-    pub(crate) fn prescan_self_update_scratch(&mut self, ops: &[NirOp]) {
-        if self.self_update_scratch.is_some()
-            || !ops_hold_self_update(ops, &target_needs_self_update_scratch)
+    /// (with the null guard and prologue zeroing that drop brings). A lambda that
+    /// borrows its creator's scratch gets a working slot and no cleanup. A
+    /// function without such a statement is untouched.
+    pub(crate) fn prescan_self_update_scratch(&mut self, function: &str, ops: &[NirOp]) {
+        if self.self_update_scratch.is_some() {
+            return;
+        }
+        if let Some(index) = self.scratch_closure_captures(function) {
+            self.self_update_scratch = Some(self.allocate_stack_object("su_scratch", 8));
+            self.self_update_scratch_env = Some(index);
+            return;
+        }
+        if !ops_hold_self_update(ops, &target_needs_self_update_scratch)
+            && !ops_create_scratch_closure(self, ops)
         {
             return;
         }
@@ -331,6 +422,13 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("su_scratch_alloc_ok");
         let ready = self.label("su_scratch_ready");
 
+        // A borrowed scratch: take the creator's current block as the working copy.
+        if let Some(index) = self.self_update_scratch_env {
+            let holder = self.temporary_vreg();
+            self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+            self.emit(abi::load_u64(&block, &holder, 0));
+            self.emit(abi::store_u64(&block, abi::stack_pointer(), scratch_slot));
+        }
         self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&grow));
@@ -366,6 +464,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             scratch_slot,
         ));
+        // The creator must never see the freed block, even if the alloc below
+        // raises: its drop would free it again.
+        self.emit_publish_borrowed_scratch(scratch_slot);
         self.emit(abi::label(&no_free));
         let size = self.temporary_vreg();
         self.emit(abi::load_u64(&size, abi::stack_pointer(), newcap_slot));
@@ -393,6 +494,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&dcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::shift_right_immediate(&count_cap, &dcap, 3));
         self.emit_write_collection_header_full(&layout, &nb, &zero, &count_cap, &zero, &dcap);
+        self.emit_publish_borrowed_scratch(scratch_slot);
 
         self.emit(abi::label(&ready));
         let block = self.temporary_vreg();
@@ -400,6 +502,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&block, &block, COLLECTION_HEADER_SIZE));
         self.emit(abi::store_u64(&block, abi::stack_pointer(), data_slot));
         Ok(data_slot)
+    }
+
+    /// In a lambda borrowing its creator's scratch, store the working copy in
+    /// `scratch_slot` back into the creator's slot. Nothing otherwise.
+    fn emit_publish_borrowed_scratch(&mut self, scratch_slot: usize) {
+        let Some(index) = self.self_update_scratch_env else {
+            return;
+        };
+        let block = self.temporary_vreg();
+        let holder = self.temporary_vreg();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
+        self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+        self.emit(abi::store_u64(&block, &holder, 0));
     }
 }
 
@@ -1041,10 +1156,26 @@ pub(crate) enum Site {
     /// S7 — a `MUT` local inside a `FOR EACH` over itself (plan-142-F). A `String`
     /// is not a collection, so no `FOR EACH` walks one: the `&` row has no S7.
     ForEach,
+    /// S9 — a `MUT` captured by reference in a `collections::forEach` lambda
+    /// (plan-142-G). The self-update lowers in the lifted lambda. A by-ref
+    /// `String` has no capacity shadow to append into (Correction G1), so the `&`
+    /// row has no S9.
+    Lambda,
 }
 
 #[cfg(test)]
-pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach];
+pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda];
+
+#[cfg(test)]
+impl Site {
+    /// Whether the self-update at this site lowers in the function `name`.
+    pub(crate) fn lowers_in(self, name: &str) -> bool {
+        match self {
+            Site::Local | Site::ForEach => name == "main",
+            Site::Lambda => name.starts_with("$lambda"),
+        }
+    }
+}
 
 #[cfg(test)]
 impl Probe {
@@ -1054,6 +1185,10 @@ impl Probe {
         let mut src = String::from("IMPORT io\n");
         for import in self.imports {
             src.push_str(&format!("IMPORT {import}\n"));
+        }
+        // S9 calls `collections::forEach`.
+        if matches!(site, Site::Lambda) && !self.imports.contains(&"collections") {
+            src.push_str("IMPORT collections\n");
         }
         src.push('\n');
         src.push_str(self.helpers);
@@ -1065,10 +1200,19 @@ impl Probe {
                 init = self.init,
                 call = self.call,
             )),
-            Site::ForEach if self.ty == "String" => return None,
+            Site::ForEach | Site::Lambda if self.ty == "String" => return None,
             Site::ForEach => src.push_str(&format!(
                 "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR EACH each1 IN x\n    \
                  x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
+            Site::Lambda => src.push_str(&format!(
+                "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  \
+                 LET one AS List OF Integer = [0]\n  FOR i = 1 TO 3\n    \
+                 collections::forEach(one, LAMBDA(each1 AS Integer) -> x = {call})\n  \
+                 NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
                 ty = self.ty,
                 init = self.init,
                 call = self.call,
@@ -1085,7 +1229,7 @@ mod tests {
     use super::*;
     use crate::codegen::registry::{registry, self_update_shaped};
     use crate::target::NativeBuildMode::Console;
-    use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+    use crate::testutil::{code_for_src_cached, CodeTarget};
 
     /// Operator self-updates: rows with no registry function behind them.
     const OPERATORS: &[&str] = &["&"];
@@ -1212,13 +1356,14 @@ mod tests {
                         continue;
                     };
                     let code = code_for_src_cached(&src, CodeTarget::LinuxX86_64, Console);
-                    let main = code_function(code, "main");
                     let hit: Vec<ArmId> = ids
                         .iter()
                         .copied()
                         .filter(|id| {
-                            main.stack_slots
+                            code.functions
                                 .iter()
+                                .filter(|function| site.lowers_in(&function.name))
+                                .flat_map(|function| &function.stack_slots)
                                 .any(|slot| id.markers().contains(&slot.type_.as_str()))
                         })
                         .collect();

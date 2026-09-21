@@ -1041,6 +1041,7 @@ pub(crate) fn lower_function(
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         self_update_scratch: None,
+        self_update_scratch_env: None,
         simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
@@ -1139,7 +1140,7 @@ pub(crate) fn lower_function(
     // target so bind/assign sites can reset it and the prologue can zero it.
     builder.prescan_string_self_appends(&function.body);
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
-    builder.prescan_self_update_scratch(&function.body);
+    builder.prescan_self_update_scratch(&function.name, &function.body);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.
@@ -1540,6 +1541,7 @@ pub(crate) fn lower_abi_function_helper(
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         self_update_scratch: None,
+        self_update_scratch_env: None,
         simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
@@ -1711,6 +1713,7 @@ pub(crate) fn lower_thread_copy_function(
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         self_update_scratch: None,
+        self_update_scratch_env: None,
         simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),

@@ -42,10 +42,15 @@
 //! block, so it is snapshotted the same way — but only when the call can reach a
 //! `StoreGlobal` of `g` (`store_reach.rs`), not merely run user code, so a
 //! read-only `f(g)` stays copy-free.
+//!
+//! plan-142-G adds its local analogue: `forEach(acc, LAMBDA … acc = …)`, a local
+//! argument that a sibling closure captures by reference. The callback can
+//! reassign `acc` — in place, freeing or growing its block — while argument 0
+//! still borrows that block.
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::value::store_reach::{global_root, StoreLeaf};
+use crate::codegen::engine::value::store_reach::{global_root, local_root, StoreLeaf};
 use crate::target::shared::abi;
 use crate::target::shared::nir::visit::{walk_value, NirVisitor};
 use crate::target::shared::nir::*;
@@ -161,6 +166,21 @@ impl CodeBuilder<'_> {
             return;
         };
         for arg in args {
+            // plan-142-G: the local analogue — `forEach(acc, LAMBDA … acc = …)`. A
+            // sibling argument capturing `acc` by reference hands the callee a way
+            // to reassign it while an argument read out of `acc` (`acc` itself,
+            // `acc.items`) still borrows its block, so the call walks a snapshot,
+            // freed with the statement.
+            if let Some(name) = local_root(arg) {
+                if args
+                    .iter()
+                    .any(|other| closure_captures_by_ref(other, name))
+                {
+                    self.operand_snapshot_wanted
+                        .push(arg as *const NirValue as usize);
+                }
+                continue;
+            }
             let Some(global) = global_root(arg) else {
                 continue;
             };
@@ -317,4 +337,12 @@ impl CodeBuilder<'_> {
             NirValue::FunctionRef { .. } | NirValue::Closure { .. }
         ) || matches!(self.static_type_name(value), Some(ParameterType::Func(..)))
     }
+}
+
+/// Whether `value` is a closure capturing the local `name` by reference.
+fn closure_captures_by_ref(value: &NirValue, name: &str) -> bool {
+    matches!(value, NirValue::Closure { captures, .. }
+    if captures.iter().any(|capture| {
+        matches!(capture, NirValue::LocalRef { name: captured, .. } if captured == name)
+    }))
 }

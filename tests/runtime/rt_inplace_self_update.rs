@@ -206,22 +206,47 @@ enum Site {
     /// is empty when the loop starts would never run its statements, so the program
     /// fails instead (`RETURN 3`).
     ForEach,
+    /// S9 — a `MUT` captured by reference in a `collections::forEach` lambda
+    /// (plan-142-G): each statement is its own `forEach(one, LAMBDA(each1 AS
+    /// Integer) -> x = …)`, `one` a one-element list, so the statements interleave
+    /// exactly as at S1. Every such call allocates its closure, so each program has
+    /// an *idle* twin whose `one` is empty — the same closures, no statement run —
+    /// and the bound is on the difference.
+    Lambda,
 }
 
-const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach];
+const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda];
 
 impl Site {
-    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`.
+    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`, and
+    /// a by-ref `String` has no capacity shadow to append into (plan-142-G
+    /// Correction G1).
     fn applies(self, case: &Case) -> bool {
-        !matches!(self, Site::ForEach) || case.ty() != "String"
+        matches!(self, Site::Local) || case.ty() != "String"
     }
 }
 
 /// The main-body lines running `body` (already indented for its position) at
-/// `site`: at S1 as-is, at S7 inside a `FOR EACH` over `x`'s first element.
-fn at_site(site: Site, body: &str) -> String {
+/// `site`: at S1 as-is, at S7 inside a `FOR EACH` over `x`'s first element, at S9
+/// with every `x = …` line in a `forEach` lambda over `one` — `[0]` when `live`,
+/// else empty (the idle twin).
+fn at_site(site: Site, body: &str, live: bool) -> String {
     match site {
         Site::Local => body.to_string(),
+        Site::Lambda => {
+            let one = if live { "[0]" } else { "[]" };
+            let mut out = format!("  LET one AS List OF Integer = {one}\n");
+            for line in body.lines() {
+                let indent = &line[..line.len() - line.trim_start().len()];
+                match line.trim_start().strip_prefix("x = ") {
+                    Some(rhs) => out.push_str(&format!(
+                        "{indent}collections::forEach(one, LAMBDA(each1 AS Integer) -> x = {rhs})\n"
+                    )),
+                    None => out.push_str(&format!("{line}\n")),
+                }
+            }
+            out
+        }
         Site::ForEach => {
             let mut out = String::from("  MUT ran AS Boolean = FALSE\n  FOR EACH each1 IN x\n");
             for line in body.lines() {
@@ -239,7 +264,7 @@ fn sized(text: &str, m: u64) -> String {
     text.replace("{M}", &m.to_string())
 }
 
-fn program(case: &Case, site: Site, n: u64) -> String {
+fn program(case: &Case, site: Site, n: u64, live: bool) -> String {
     let mut src = String::from(PRELUDE);
     src.push_str("\nFUNC main() AS Integer\n");
     src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
@@ -253,7 +278,7 @@ fn program(case: &Case, site: Site, n: u64) -> String {
         body.push_str(&format!("    {statement}\n"));
     }
     body.push_str("  NEXT\n");
-    src.push_str(&at_site(site, &body));
+    src.push_str(&at_site(site, &body, live));
     src.push_str(&format!("  io::print({})\n", case.check));
     src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
     src
@@ -310,7 +335,7 @@ fn result_program(case: &Case, site: Site) -> String {
     for statement in &case.statements {
         body.push_str(&format!("  {statement}\n"));
     }
-    src.push_str(&at_site(site, &body));
+    src.push_str(&at_site(site, &body, true));
     let last = format!("e{}", case.statements.len());
     src.push_str(&format!(
         "  io::print({})\n",
@@ -329,7 +354,8 @@ fn result_program(case: &Case, site: Site) -> String {
 ///
 /// At S7 both programs hold the statement inside the `FOR EACH`, behind a guard
 /// only the run decides (`len(x) >= 0` or `< 0`), so both take the loop's entry
-/// copy of `x` and the difference is the statement alone.
+/// copy of `x` and the difference is the statement alone. At S9 both hold the
+/// `forEach` and its closure; only the live one's `one` has an element.
 fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> String {
     let mut src = String::from(PRELUDE);
     src.push_str("\nFUNC main() AS Integer\n");
@@ -351,6 +377,14 @@ fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> Stri
                     "  IF len(x) {guard} 0 THEN\n    {}\n  END IF\n",
                     case.statements[0]
                 ),
+                true,
+            ));
+        }
+        Site::Lambda => {
+            src.push_str(&at_site(
+                site,
+                &format!("  {}\n", case.statements[0]),
+                with_statement,
             ));
         }
     }
@@ -498,10 +532,22 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
     let label = format!("{} at {site:?}", case.signature);
     let n = case.n;
     let tag = format!("su{index}_{site:?}").to_lowercase();
-    let (b1, a1, once) = run(&format!("{tag}_n"), &program(case, site, n))
+    let (b1, a1, mut once) = run(&format!("{tag}_n"), &program(case, site, n, true))
         .map_err(|e| format!("{label} (N={n}): {e}"))?;
-    let (b2, a2, twice) = run(&format!("{tag}_2n"), &program(case, site, 2 * n))
+    let (b2, a2, mut twice) = run(&format!("{tag}_2n"), &program(case, site, 2 * n, true))
         .map_err(|e| format!("{label} (N={}): {e}", 2 * n))?;
+    if matches!(site, Site::Lambda) {
+        // The idle twins: the closures alone.
+        let (_, _, idle_once) = run(&format!("{tag}_n_idle"), &program(case, site, n, false))
+            .map_err(|e| format!("{label} (idle, N={n}): {e}"))?;
+        let (_, _, idle_twice) = run(
+            &format!("{tag}_2n_idle"),
+            &program(case, site, 2 * n, false),
+        )
+        .map_err(|e| format!("{label} (idle, N={}): {e}", 2 * n))?;
+        once = once.saturating_sub(idle_once);
+        twice = twice.saturating_sub(idle_twice);
+    }
     if b1 != a1 || b2 != a2 {
         return Err(format!(
             "{label}: the copy `before` changed across the self-updates \
