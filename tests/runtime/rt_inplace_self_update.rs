@@ -200,9 +200,39 @@ fn cases() -> Vec<Case> {
 enum Site {
     /// S1 — a `MUT` local in a function body.
     Local,
+    /// S7 — a `MUT` local inside a `FOR EACH` over itself (plan-142-F): the
+    /// statements run inside the loop's first visit, which then `EXIT FOR`s, so the
+    /// loop's one entry copy of `x` is taken once whatever `N` is. A line whose `x`
+    /// is empty when the loop starts would never run its statements, so the program
+    /// fails instead (`RETURN 3`).
+    ForEach,
 }
 
-const ENABLED_SITES: &[Site] = &[Site::Local];
+const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach];
+
+impl Site {
+    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`.
+    fn applies(self, case: &Case) -> bool {
+        !matches!(self, Site::ForEach) || case.ty() != "String"
+    }
+}
+
+/// The main-body lines running `body` (already indented for its position) at
+/// `site`: at S1 as-is, at S7 inside a `FOR EACH` over `x`'s first element.
+fn at_site(site: Site, body: &str) -> String {
+    match site {
+        Site::Local => body.to_string(),
+        Site::ForEach => {
+            let mut out = String::from("  MUT ran AS Boolean = FALSE\n  FOR EACH each1 IN x\n");
+            for line in body.lines() {
+                out.push_str(&format!("  {line}\n"));
+            }
+            out.push_str("    ran = TRUE\n    EXIT FOR\n  NEXT\n");
+            out.push_str("  IF NOT ran THEN\n    RETURN 3\n  END IF\n");
+            out
+        }
+    }
+}
 
 /// `text` with `{M}` replaced by `m`.
 fn sized(text: &str, m: u64) -> String {
@@ -211,24 +241,21 @@ fn sized(text: &str, m: u64) -> String {
 
 fn program(case: &Case, site: Site, n: u64) -> String {
     let mut src = String::from(PRELUDE);
-    match site {
-        Site::Local => {
-            src.push_str("\nFUNC main() AS Integer\n");
-            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
-            for line in &case.setup {
-                src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
-            }
-            src.push_str(&format!("  LET before AS {} = x\n", case.ty()));
-            src.push_str(&format!("  io::print({})\n", case.check));
-            src.push_str(&format!("  FOR i = 1 TO {n}\n"));
-            for statement in &case.statements {
-                src.push_str(&format!("    {statement}\n"));
-            }
-            src.push_str("  NEXT\n");
-            src.push_str(&format!("  io::print({})\n", case.check));
-            src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
-        }
+    src.push_str("\nFUNC main() AS Integer\n");
+    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
+    for line in &case.setup {
+        src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
     }
+    src.push_str(&format!("  LET before AS {} = x\n", case.ty()));
+    src.push_str(&format!("  io::print({})\n", case.check));
+    let mut body = format!("  FOR i = 1 TO {n}\n");
+    for statement in &case.statements {
+        body.push_str(&format!("    {statement}\n"));
+    }
+    body.push_str("  NEXT\n");
+    src.push_str(&at_site(site, &body));
+    src.push_str(&format!("  io::print({})\n", case.check));
+    src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
     src
 }
 
@@ -266,56 +293,68 @@ fn replace_ident(text: &str, from: &str, to: &str) -> String {
 fn result_program(case: &Case, site: Site) -> String {
     let ty = case.ty();
     let mut src = String::from(PRELUDE);
-    match site {
-        Site::Local => {
-            src.push_str("\nFUNC main() AS Integer\n");
-            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
-            for line in &case.setup {
-                src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
-            }
-            src.push_str(&format!("  LET e0 AS {ty} = x\n"));
-            for (k, statement) in case.statements.iter().enumerate() {
-                let rhs = statement.strip_prefix("x = ").unwrap_or_else(|| {
-                    panic!("{}: statement `{statement}` is not `x = …`", case.signature)
-                });
-                let rhs = replace_ident(rhs, "x", &format!("e{k}"));
-                src.push_str(&format!("  LET e{} AS {ty} = {rhs}\n", k + 1));
-            }
-            for statement in &case.statements {
-                src.push_str(&format!("  {statement}\n"));
-            }
-            let last = format!("e{}", case.statements.len());
-            src.push_str(&format!(
-                "  io::print({})\n",
-                replace_ident(&case.check, "before", "x")
-            ));
-            src.push_str(&format!(
-                "  io::print({})\n",
-                replace_ident(&case.check, "before", &last)
-            ));
-            src.push_str("  RETURN 0\nEND FUNC\n");
-        }
+    src.push_str("\nFUNC main() AS Integer\n");
+    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, VALUE_M)));
+    for line in &case.setup {
+        src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
     }
+    src.push_str(&format!("  LET e0 AS {ty} = x\n"));
+    for (k, statement) in case.statements.iter().enumerate() {
+        let rhs = statement.strip_prefix("x = ").unwrap_or_else(|| {
+            panic!("{}: statement `{statement}` is not `x = …`", case.signature)
+        });
+        let rhs = replace_ident(rhs, "x", &format!("e{k}"));
+        src.push_str(&format!("  LET e{} AS {ty} = {rhs}\n", k + 1));
+    }
+    let mut body = String::new();
+    for statement in &case.statements {
+        body.push_str(&format!("  {statement}\n"));
+    }
+    src.push_str(&at_site(site, &body));
+    let last = format!("e{}", case.statements.len());
+    src.push_str(&format!(
+        "  io::print({})\n",
+        replace_ident(&case.check, "before", "x")
+    ));
+    src.push_str(&format!(
+        "  io::print({})\n",
+        replace_ident(&case.check, "before", &last)
+    ));
+    src.push_str("  RETURN 0\nEND FUNC\n");
     src
 }
 
 /// The `exempt` byte check's program: `x` built at size `m`, then — when
 /// `with_statement` — the line's first statement once. Prints `len(x)`.
+///
+/// At S7 both programs hold the statement inside the `FOR EACH`, behind a guard
+/// only the run decides (`len(x) >= 0` or `< 0`), so both take the loop's entry
+/// copy of `x` and the difference is the statement alone.
 fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> String {
     let mut src = String::from(PRELUDE);
+    src.push_str("\nFUNC main() AS Integer\n");
+    src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, m)));
+    for line in &case.setup {
+        src.push_str(&format!("  {}\n", sized(line, m)));
+    }
     match site {
         Site::Local => {
-            src.push_str("\nFUNC main() AS Integer\n");
-            src.push_str(&format!("  MUT x AS {}\n", sized(&case.decl, m)));
-            for line in &case.setup {
-                src.push_str(&format!("  {}\n", sized(line, m)));
-            }
             if with_statement {
                 src.push_str(&format!("  {}\n", case.statements[0]));
             }
-            src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
+        }
+        Site::ForEach => {
+            let guard = if with_statement { ">=" } else { "<" };
+            src.push_str(&at_site(
+                site,
+                &format!(
+                    "  IF len(x) {guard} 0 THEN\n    {}\n  END IF\n",
+                    case.statements[0]
+                ),
+            ));
         }
     }
+    src.push_str("  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n");
     src
 }
 
@@ -508,8 +547,14 @@ fn every_self_update_case_meets_its_allocation_bound() {
     let work: Vec<(usize, Case, Site)> = cases
         .iter()
         .enumerate()
-        .flat_map(|(i, c)| ENABLED_SITES.iter().map(move |s| (i, c.clone(), *s)))
+        .flat_map(|(i, c)| {
+            ENABLED_SITES
+                .iter()
+                .filter(|s| s.applies(c))
+                .map(move |s| (i, c.clone(), *s))
+        })
         .collect();
+    let pairs = work.len();
     let queue = Mutex::new(work);
     let failures = Mutex::new(Vec::new());
     let workers = std::thread::available_parallelism()
@@ -533,7 +578,7 @@ fn every_self_update_case_meets_its_allocation_bound() {
         failures.is_empty(),
         "{} of {} case/site pair(s) failed:\n\n{}",
         failures.len(),
-        cases.len() * ENABLED_SITES.len(),
+        pairs,
         failures.join("\n\n")
     );
 }

@@ -1038,15 +1038,19 @@ impl ArmId {
 pub(crate) enum Site {
     /// S1 — a `MUT` local in a function body.
     Local,
+    /// S7 — a `MUT` local inside a `FOR EACH` over itself (plan-142-F). A `String`
+    /// is not a collection, so no `FOR EACH` walks one: the `&` row has no S7.
+    ForEach,
 }
 
 #[cfg(test)]
-pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local];
+pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach];
 
 #[cfg(test)]
 impl Probe {
-    /// The whole program performing this probe's self-update at `site`, in `main`.
-    pub(crate) fn source(&self, site: Site) -> String {
+    /// The whole program performing this probe's self-update at `site`, in `main`;
+    /// `None` when `site` has no form for the probe's type.
+    pub(crate) fn source(&self, site: Site) -> Option<String> {
         let mut src = String::from("IMPORT io\n");
         for import in self.imports {
             src.push_str(&format!("IMPORT {import}\n"));
@@ -1061,8 +1065,16 @@ impl Probe {
                 init = self.init,
                 call = self.call,
             )),
+            Site::ForEach if self.ty == "String" => return None,
+            Site::ForEach => src.push_str(&format!(
+                "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR EACH each1 IN x\n    \
+                 x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
         }
-        src
+        Some(src)
     }
 }
 
@@ -1196,7 +1208,9 @@ mod tests {
             for &site in ENABLED_SITES {
                 let mut fired = BTreeSet::new();
                 for probe in row.probes {
-                    let src = probe.source(site);
+                    let Some(src) = probe.source(site) else {
+                        continue;
+                    };
                     let code = code_for_src_cached(&src, CodeTarget::LinuxX86_64, Console);
                     let main = code_function(code, "main");
                     let hit: Vec<ArmId> = ids
@@ -1215,6 +1229,9 @@ mod tests {
                         ));
                     }
                     fired.extend(hit);
+                }
+                if row.probes.iter().all(|probe| probe.source(site).is_none()) {
+                    continue;
                 }
                 for id in ids {
                     if !fired.contains(id) {

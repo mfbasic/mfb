@@ -87,26 +87,50 @@ Risk: the loop-exit free on every exit edge (`EXIT FOR`, `RETURN` from inside,
 
 Acceptance: `cargo test --test rt_for_each_self_update` → pass (est. 5 min).
 Verified 2026-09-21: `test result: ok. 1 passed; 0 failed` (2.49s).
-Commit: —
+Commit: 2d8a3db26
 
 ### Phase 2 — Enable S7
 
-- [ ] Add S7 to `ENABLED_SITES` and to the harness site templates.
+- [x] Add S7 to `ENABLED_SITES` and to the harness site templates.
+      `Site::ForEach` in both. The matrix probe is `FOR EACH each1 IN x` / `x = <call>`
+      / `NEXT`. The harness runs the line's `N`-iteration loop inside the `FOR EACH`'s
+      first visit and then `EXIT FOR`s, so the entry copy is taken once at any `N`;
+      a program whose loop never ran returns 3 (a failed run) rather than passing
+      vacuously. The `exempt` check at S7 keeps the statement inside the loop in
+      both programs behind a run-time guard (`len(x) >= 0` / `< 0`), so both take the
+      entry copy and the difference is the statement alone. The `&` row has no S7:
+      a `String` is not a collection (Correction F3). RED with the pre-F binary on
+      five lines: "collections::append(value AS List OF T, item AS T) … at ForEach:
+      marked `arm`, but 2000 more runs allocated 4000 more blocks (4167 at N=2000,
+      8167 at 2N)" (likewise `append(List)`, `removeAt`, `sort`, `union`); S1 and the
+      `shake256` exempt line pass on both.
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_self_update`
 → pass at S1 and S7 for every `Arm` row (est. 15 min: the harness doubles).
+Verified 2026-09-21: `cargo test --bin mfb self_update` → `test result: ok. 4 passed`
+(incl. `every_arm_row_fires_at_every_enabled_site`); `cargo test --test
+rt_inplace_self_update` → `test result: ok. 1 passed; 0 failed` (296.00s; 127
+case/site pairs: 64 at S1, 63 at S7).
 Commit: —
 
 ### Phase 3 — Expected outputs
 
-- [ ] Fixtures with a self-update inside a `FOR EACH` over the same binding —
+- [x] Fixtures with a self-update inside a `FOR EACH` over the same binding —
       measure with `rg -lP 'FOR EACH \w+ IN (\w+)\n(?:.*\n)*?\s*\1 = ' -U tests examples --glob '*.mfb'`
       and record the count here; regenerate any committed golden among them (the
       diff must be the loop's entry copy + arms replacing per-iteration copies).
       `tests/rt-behavior/collections/bug142_foreach_inplace_append` must still pass.
+      Measured: **10 files** — 6 under `tests/rt-behavior/collections`
+      (incl. `bug142_foreach_inplace_append`), `tests/rt-behavior/resources/res-rebind-alias-runtime`,
+      and 3 under `examples/browser`. Their goldens are `.ast`/`.ir`/`.run`/`build.log`
+      only — none records native code — so none regenerates; the `.run` outputs must
+      hold, and do (acceptance below; the resources fixture:
+      `acceptance tests passed (1 test(s) ran)`).
 
 Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual` green
 on `tests/rt-behavior/collections` (est. 10 min).
+Verified 2026-09-21: `scripts/test-accept.sh target/debug/mfb target/accept-actual
+'rt-behavior/collections/*'` → `acceptance tests passed (65 test(s) ran)`.
 Commit: —
 
 ## Validation Plan
@@ -131,6 +155,11 @@ Commit: —
   `EXIT FOR` and `RETURN`. F routes the written-local case through it rather than
   adding a second copy-and-free; the `EXIT FOR`/`RETURN`/nested cases prove the
   edges.
+- **F3 (Phase 2): the `&` row has no S7.** §1 says every `Arm` row fires at S7, but
+  `FOR EACH` walks collections only (`lower_for_each`: "native code FOR EACH target
+  '…' is not a collection"), and `x` in the `&` row is a `String`. `Probe::source`
+  returns `None` for it at S7 and the harness's `Site::applies` skips it; every
+  collection `Arm` row fires at S7.
 
 ## Summary
 
