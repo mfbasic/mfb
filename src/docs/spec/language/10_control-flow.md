@@ -23,6 +23,8 @@ A counted `FOR` loop variable takes the numeric type promoted across the start, 
 
 `FOR EACH` accepts `List OF T` and `Map OF K TO V` sources (any other source type is `TYPE_FOR_EACH_REQUIRES_COLLECTION`). A list loop binds the loop variable as `T`. A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V` (any other field access is `TYPE_UNKNOWN_FIELD`). Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
 
+A `FOR EACH` visits exactly the elements its source held at loop entry. Reassigning the source in the body, directly or in a function the body calls, does not change what the loop visits; the source binding holds the new value after the loop. This applies when the source is a local, a module-level `MUT`, or a field of one. For a module-level source, native lowering iterates a copy taken at loop entry, and only when the body can reach a reassignment of that global. [[src/codegen/engine/control/builder_control.rs:lower_for_each]] [[src/codegen/engine/value/store_reach.rs:ops_reach_store]]
+
 The accepted `DO`/`LOOP` shapes are closed to exactly two: pre-test `DO WHILE <cond> ... LOOP` and post-test `DO ... LOOP UNTIL <cond>`. There is no bare `DO ... LOOP`, no `DO UNTIL`, and no `LOOP WHILE`.
 
 `EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop whose

@@ -30,6 +30,8 @@ Reassigning a `MUT` first drops the old value in the binding, then initializes t
 
 Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource pointer as described in §15.
 
+This includes a module-level `MUT` passed to a function that reassigns it, directly or through anything it calls (including a callback a built-in invokes): the parameter keeps the value the global had at the call. Native lowering passes a global argument without copying; it copies one into a statement-scope temporary only when the call can reach a reassignment of that global, and assumes it can when a callee's body is not visible. [[src/codegen/engine/value/operand_snapshot.rs:want_arguments_the_call_can_free]] [[src/codegen/engine/value/store_reach.rs:call_reaches_store]]
+
 Returning a value moves it into the caller's return slot. Returning a local collection is valid because ownership leaves the callee before local scope cleanup. Returning a `MUT` collection freezes the mutable buffer into an immutable owned collection value. Returning a non-copyable local value moves it; the callee does not drop that moved-from binding.
 
 A default argument is evaluated on each call that omits the argument, with its names resolved where the function is declared — never in the caller's scope (`mfb spec language functions`) — and is then passed under the same rules as explicit arguments.
