@@ -1,6 +1,7 @@
 # plan-30-A: iOS Simulator build target (foundation)
 
-Last updated: 2026-07-07
+Last updated: 2026-09-20 (validity review: design still holds; code anchors refreshed
+against the current tree — targets are now a registry of `NativeBackend`s, not an enum)
 Overall Effort: huge (>3d)   <!-- the whole plan-30 feature: iOS + hand-rolled Swift async ABI + StoreKit 2 -->
 Effort: medium (1h–2h)
 
@@ -31,7 +32,7 @@ Split by effort; each letter is an independently-landable small/medium plan.
 - **30-B — iOS `.app` bundle + install.** iOS bundle layout (flat, no `Contents/`), iOS `Info.plist` keys, `xcrun simctl install`/`launch` path. Depends on A.
 - **30-C — UIKit app runtime backend.** `UIApplicationMain` + a runtime-registered app-delegate class (`objc_allocateClassPair`/`class_addMethod`, hand-emitted), `UIWindow`/`UIViewController`/`UITextView`, worker pthread — sibling to `src/target/macos_aarch64/app/`. Reuses `performSelectorOnMainThread:` for worker→UI. Depends on A, B.
 - **30-D — Swift async ABI bridge (the hard research spike).** Hand-emit the swiftcc async calling convention for a *fixed* call set: async-frame alloc (`swift_task_alloc`/`swift_task_dealloc`), continuation + executor hop (`swift_task_switch`), a top-level task to drive it, plus swiftcc value/metadata/ARC plumbing. Every sequence reverse-engineered from and byte-validated against the `swiftc` **development-time oracle** (the shipped `mfb` invokes no external compiler). Depends on A (needs a runnable iOS process to prove against). This is where the correctness risk concentrates.
-- **30-E — `iap::` package over StoreKit 2.** `iap::products`/`iap::purchase`/`iap::observe` calling `Product.products(for:)`, `Product.purchase(options:)`, `Transaction.updates`/`finish()` through the D bridge, bridged to the worker thread over the existing inbound/outbound resource channel (`THREAD_OFFSET_RESOURCE_INBOUND_QUEUE`=104 / `OUTBOUND`=112, `src/target/shared/code/runtime_helpers.rs:26`). Verified transactions come from SK2's `VerificationResult.verified` (JWS) — no separate receipt-server. Depends on C, D.
+- **30-E — `iap::` package over StoreKit 2.** `iap::products`/`iap::purchase`/`iap::observe` calling `Product.products(for:)`, `Product.purchase(options:)`, `Transaction.updates`/`finish()` through the D bridge, bridged to the worker thread over the existing inbound/outbound resource channel (`THREAD_OFFSET_RESOURCE_INBOUND_QUEUE`=104 / `OUTBOUND`=112, `src/codegen/runtime/thread/runtime_helpers.rs:32`). Verified transactions come from SK2's `VerificationResult.verified` (JWS) — no separate receipt-server. Depends on C, D.
 
 Evidence the D/E surface is bounded (measured against iPhoneSimulator SDK 26.2,
 Swift 6.2): the entire concurrency-runtime surface for fetch-products + purchase +
@@ -66,19 +67,25 @@ observe is **three** entry points (`swift_task_alloc`, `swift_task_dealloc`,
 
 ## 2. Current State
 
-- Targets: `BuildTarget` at `src/target.rs:16`; backends registered at
-  `src/target.rs:155` (`macos_aarch64`, `linux_aarch64`, x86_64 Linux). No iOS
-  target, no simulator notion.
+- Targets: `BuildTarget` is now a **struct** `{ os, arch }` (`src/target.rs:22`),
+  not an enum; backends are `NativeBackend` impls registered in the
+  `NATIVE_BACKENDS` list (`src/target.rs:215` — `macos_aarch64`, `linux_aarch64`,
+  `linux_x86_64`, `linux_riscv64`, `win_x86_64`, per plan-47). Registering a
+  backend automatically widens the `os` vocabulary for native-library locators
+  (plan-46). No iOS target, no simulator notion.
 - Mach-O platform is a **constant**: `build_version()` at
-  `src/os/macos/link/commands.rs:315` emits `LC_BUILD_VERSION` (cmd `0x32`, size 32)
+  `src/os/macos/link/commands.rs:423` emits `LC_BUILD_VERSION` (cmd `0x32`, size 32)
   with `platform = 1` (`PLATFORM_MACOS`), `minos = 11 << 16` (11.0), `sdk = 0`,
-  `ntools = 1`. The load-command-plan mirror is `src/os/macos/object.rs:317`.
-- Mach-O header: `src/os/macos/link/macho.rs:63` — magic `0xfeedfacf`, cputype
+  `ntools = 1`. The load-command plan's entry is the `LC_BUILD_VERSION`
+  `LoadEntryPlan` (name `"macos"`) at `src/os/macos/object.rs:248`.
+- Mach-O header: `src/os/macos/link/macho.rs:84` — magic `0xfeedfacf`, cputype
   `0x0100000c` (`CPU_TYPE_ARM64`), filetype `2` (`MH_EXECUTE`). arm64 already the
   only macOS arch; the iOS-simulator arch is *also* arm64, so the header is reusable.
-- Dylib install-name whitelist: `dylib_for_library()` at `src/os/macos/object.rs:616`
-  (mirror `src/os/macos/link/mod.rs:294`) — a fixed name→path table; anything absent
-  is a hard error.
+- Dylib install-name whitelist: `dylib_for_library()` at `src/os/macos/object.rs:550`
+  (linker-side match at `src/os/macos/link/mod.rs:295`) — a fixed name→path table;
+  anything absent is a hard error. The table has grown since this plan was written
+  (AudioToolbox/CoreAudio plan-33-B; Metal/QuartzCore/CoreGraphics plan-98; libz) —
+  the per-target parameterization must cover the whole current table.
 - Ad-hoc code signing already exists: `LC_CODE_SIGNATURE` / `mfb_sign_segment` in
   `src/os/macos/link/macho.rs` (~line 100) and `src/os/macos/object.rs`.
 - Precedent to mirror: the target is a thin variant of `macos_aarch64` — same
@@ -111,24 +118,27 @@ byte against an Apple-toolchain oracle rather than reasoning from docs.
 
 ### 4.1 Target descriptor & platform parameters
 
-Add an `ios-sim-aarch64` variant to `BuildTarget` (`src/target.rs:16`) and register
-its backend (`src/target.rs:155`). Because instruction selection is identical to
-`macos_aarch64`, the backend delegates to the macOS backend for everything except:
+Add an iOS-simulator `NativeBackend` (a new `os` token, arch `aarch64`) and register
+it in `NATIVE_BACKENDS` (`src/target.rs:215`); `BuildTarget` is a `{ os, arch }`
+struct (`src/target.rs:22`), so no enum change exists anymore — registration alone
+makes the target selectable (and widens the plan-46 locator `os` vocabulary).
+Because instruction selection is identical to `macos_aarch64`, the backend
+delegates to the macOS backend for everything except:
 
 - a `mach_platform()` accessor → `1` (macOS) vs `7` (iOS simulator);
 - a `min_os_version()` accessor → the target's minimum OS (see Open Decisions);
 - an `sdk_root()` accessor → `xcrun --sdk iphonesimulator --show-sdk-path` result,
   threaded to dylib resolution.
 
-`build_version()` (`src/os/macos/link/commands.rs:315`) and its plan mirror
-(`src/os/macos/object.rs:317`) take these as parameters instead of literals. The
-macOS caller supplies `(1, 11<<16, 0)` — its current values — so its bytes do not
-move.
+`build_version()` (`src/os/macos/link/commands.rs:423`) and the load-command-plan
+`LC_BUILD_VERSION` entry (`src/os/macos/object.rs:248`) take these as parameters
+instead of literals. The macOS caller supplies `(1, 11<<16, 0)` — its current
+values — so its bytes do not move.
 
 ### 4.2 Simulator dylib resolution
 
-Extend `dylib_for_library()` (`src/os/macos/object.rs:616` + mirror
-`src/os/macos/link/mod.rs:294`) to select install-names per target. Method: build an
+Extend `dylib_for_library()` (`src/os/macos/object.rs:550` + the linker-side match
+at `src/os/macos/link/mod.rs:295`) to select install-names per target. Method: build an
 oracle (`clang -target arm64-apple-ios18.0-simulator -isysroot <sdk> hello.c`),
 `otool -l` it, and copy the exact `LC_LOAD_DYLIB` `name` strings and the
 `LC_BUILD_VERSION`/`LC_MIN_VERSION` bytes. Encode those as the simulator table.
@@ -156,8 +166,8 @@ copy/transfer, or golden-output change.
 Adds the target and turns the two hardcoded platform constants into target-derived
 parameters, with the macOS path proven byte-identical.
 
-- [ ] Add `ios-sim-aarch64` to `BuildTarget` and register the delegating backend (`src/target.rs:16`, `src/target.rs:155`).
-- [ ] Thread `mach_platform()` / `min_os_version()` into `build_version()` and its plan mirror (`src/os/macos/link/commands.rs:315`, `src/os/macos/object.rs:317`); macOS passes its current `(1, 11<<16)`.
+- [ ] Add the `ios-sim-aarch64` delegating `NativeBackend` and register it in `NATIVE_BACKENDS` (`src/target.rs:215`; `BuildTarget` struct at `src/target.rs:22`).
+- [ ] Thread `mach_platform()` / `min_os_version()` into `build_version()` and the plan's `LC_BUILD_VERSION` entry (`src/os/macos/link/commands.rs:423`, `src/os/macos/object.rs:248`); macOS passes its current `(1, 11<<16)`.
 - [ ] Regression guard: assert the macOS target's emitted Mach-O is byte-identical to a pre-change golden for a representative program (artifact-gate path, `scripts/artifact-gate.sh`).
 - [ ] Tests: target-selection unit coverage (the new target is listed/selectable; unknown-target still errors).
 
@@ -171,7 +181,7 @@ Commit: —
 Makes the emitted image linkable/loadable inside the simulator, pinned to an oracle.
 
 - [ ] Produce an oracle binary (`clang -target arm64-apple-ios18.0-simulator -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path)`) and record its `LC_LOAD_DYLIB` names + build-version bytes.
-- [ ] Add the simulator install-name table and SDK-root resolution to `dylib_for_library()` and its mirror (`src/os/macos/object.rs:616`, `src/os/macos/link/mod.rs:294`).
+- [ ] Add the simulator install-name table and SDK-root resolution to `dylib_for_library()` and the linker-side match (`src/os/macos/object.rs:550`, `src/os/macos/link/mod.rs:295`), covering the full current table (incl. the plan-33-B audio and plan-98 Metal/QuartzCore/CoreGraphics entries).
 - [ ] Ad-hoc sign the simulator image via the existing `mfb_sign_segment` path; confirm `codesign -v` passes.
 
 Acceptance: `otool -l` of the mfb-emitted binary matches the oracle's load-command
