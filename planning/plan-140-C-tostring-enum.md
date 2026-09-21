@@ -42,7 +42,7 @@ See plan-140-A §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-140-B complete (archived) | `ls planning/completed/plan-140-B-*` → one file | NOT MET |
+| plan-140-B complete (archived) | `ls planning/completed/plan-140-B-*` → one file | MET (2026-09-20: `planning/completed/plan-140-B-toint-enum.md`; B's whole-corpus gate at its end: 2072 goldens, 0 diffs) |
 
 If plan-140-B is not complete, this sub-plan cannot start, full stop.
 
@@ -101,11 +101,29 @@ If plan-140-B is not complete, this sub-plan cannot start, full stop.
 - **Member order is available in codegen.** `TypeModel.enum_members` maps
   `(enum type, member name)` → ordinal (`builder/mod.rs:996`). Sorting one
   enum's entries by ordinal yields the declared order (read `validation.rs:288`).
-- **UNVERIFIED:** that the data-object pre-pass (`data_objects.rs`) can see an
-  enum's member names and whether a `toString` argument is enum-typed. The
-  `typeName` fold there types arguments with `static_type_name_for_fold_with_types`
-  over `types`/`fields` maps, which carry types but not enum membership. Task in
-  Phase 1.
+- **The pre-pass can see enum member names** (resolved in Phase 1, via
+  plan-140-B Correction B-C3): `FieldTypes` now carries every enum's members
+  in declaration order, filled from the builder's `TypeModel`
+  (`FieldTypes::with_enums_of`, `type_utils.rs`), and `string_symbols` receives
+  that model (`builder/mod.rs` builds it first). Local, imported-package and
+  built-in-package enums are all in `TypeModel.enum_members`.
+- **Whether a `toString` argument is enum-typed** is answered by
+  `static_type_name_for_fold_with_types` over `types`/`fields` for constants,
+  locals, fields, list reads and built-in calls. It does **not** type a call to
+  a user function (a NIR `Call` carries no result type, and the pre-pass has no
+  function-return table), so `toString(favorite())` needs one more route: the
+  module's function return types (`NirModule.functions[*].returns`). Read
+  (`data_objects.rs:1388–1445`, `nir/mod.rs:298`). Phase 2's predicate adds it.
+- **A user type named like a built-in package's override type is hijacked.**
+  `registry::general_override_target` (`registry/mod.rs:2429`) also matches the
+  descriptor's BARE `arg_type`, so a user `ENUM Color` (or `TYPE Color`) passed
+  to `toString` routes to the `color` package's `#color_toString` in
+  `ir/lower.rs:4965`, which does not resolve in a program that never imports
+  `color` (measured on main's binary with a user `TYPE Color`:
+  `error: NIR call target '#color_toString' does not resolve`). Pre-existing
+  and wider than enums (bug filed, see Corrections C-C2). For this plan the
+  routing must obey the gap-fill rule: an argument the built-in accepts never
+  routes to a package override.
 
 ## 3. Design Overview
 
@@ -168,32 +186,46 @@ Rejected alternatives:
 
 ### Phase 1 — Locate the pre-pass's enum facts; failing fixtures
 
-- [ ] Read `src/codegen/memory/data/data_objects.rs` around the `typeName`
+- [x] Read `src/codegen/memory/data/data_objects.rs` around the `typeName`
       fold (`:1363`, `:1510`, `:1649`) and record in §2 how the pre-pass can
       learn (a) that a `toString` argument is enum-typed and (b) that enum's
       member names in order. If it has no route, the task is to pass the
       `TypeModel`'s enum table into the pre-pass; name the exact signature.
-- [ ] `tests/rt-behavior/general/toString_enum/`: a user `ENUM Color Red, Green,
+      (Done in plan-140-B: `string_symbols(module, &TypeModel)`; §2 updated.)
+- [x] `tests/rt-behavior/general/toString_enum/`: a user `ENUM Color Red, Green,
       Blue`. Print `toString` of each member; `toString` of a runtime value read
       from a `List OF Color` and from a record field; `MUT s = toString(c)` then
       `s = s & "!"` (in-place append on the result); `toString(c)` as a
       `Map OF String TO Integer` key; inside an inline `TRAP` (must not trap);
       a built-in package enum (name it after reading the registry).
-      `golden/*.run` hand-written.
-- [ ] `tests/rt-behavior/general/toString_enum_package/`: a `PUBLIC` enum from
+      `golden/*.run` hand-written. (Built-in enum: `datetime::Weekday`. Also a
+      user function's enum result, `toString(favorite())`, per §2.)
+- [x] `tests/rt-behavior/general/toString_enum_package/`: a `PUBLIC` enum from
       a second source file and one from a local package fixture.
-- [ ] `tests/rt-behavior/functions/func_override_tostring_enum_precedence/`: a
+- [x] `tests/rt-behavior/functions/func_override_tostring_enum_precedence/`: a
       record override `FUNC toString(p AS Point)` and an enum in one program;
       both dispatch correctly.
-- [ ] `tests/syntax/general/toString_invalid/src/main.mfb`: add
+- [x] `tests/syntax/general/toString_invalid/src/main.mfb`: add
       `toString(Color.Red, 2)` (the precision form rejects an enum). Hand-edit
       the golden.
 
 Acceptance: §2 has no UNVERIFIED row; the new fixtures fail for the right reason.
-  Check: `grep -c UNVERIFIED planning/plan-140-C-tostring-enum.md` → 0 (1 min).
+  Check: `grep -c '^- \*\*UNVERIFIED' planning/plan-140-C-tostring-enum.md` → 0 (1 min).
+  (Anchored to §2's row form, as plan-140-A's A-C4: the bare word also
+  matches this check line.)
   Check: `scripts/test-accept.sh target/release/mfb target/accept-actual 'toString_enum*' 'func_override_tostring_enum_precedence' 'toString_invalid'`
   → rt-behavior fixtures fail with `TYPE_CALL_ARGUMENT_MISMATCH` on the
   `toString(<enum>)` lines (est. 2 min).
+  Result: `grep -c '^- \*\*UNVERIFIED' planning/plan-140-C-tostring-enum.md` → 0.
+  `test-accept … 'toString_enum*' 'func_override_tostring_enum_precedence'
+  'toString_invalid'` → `4 test(s) ran`, all mismatched: `toString_invalid`
+  on the expected-overloads string only; `toString_enum` with
+  `TYPE_CALL_ARGUMENT_MISMATCH` at `main.mfb:55`/`:56`
+  (`datetime.Weekday`); `toString_enum_package` with it at the package's
+  `lib.mfb:11` (`Suit`). The user `Color` lines were NOT rejected: they were
+  hijacked by the `color` override (§2), and the precedence fixture fails its
+  build with `NIR call target '#color_toString' does not resolve`. That is a
+  failure for a real reason this plan must fix (C-C1), so it counts as RED.
 Commit: —
 
 ### Phase 2 — Resolve, register names, lower
@@ -209,6 +241,9 @@ Commit: —
       for each enum-typed `toString` argument, via the predicate.
 - [ ] `src/codegen/string/repr/builder_strings.rs:788`: the enum
       compare-and-branch chain, before the numeric spill; `origin: None`.
+- [ ] `src/ir/lower.rs` package-override routing (C-C1): route a general
+      built-in call to a package override helper only when the built-in,
+      given the `TypeIndex` kind oracle, rejects the argument types.
 - [ ] Update the 4 goldens that quote the `toString` expected list: the one
       line each, hand-edited to the new string, and nothing else in those files.
 
@@ -273,6 +308,20 @@ Commit: —
   census is 0 (user and registry).
 
 ## Corrections
+
+- **C-C1 (Phase 1):** the fixtures exposed `ir/lower.rs`'s package-override
+  routing (`package_override`, around `:4965`). It routes a general built-in
+  call by the argument's type to a package helper without asking whether the
+  built-in accepts that type. Phase 2 gains a task: route to a package
+  override only when the built-in (with the `TypeIndex` kind oracle) rejects
+  the arguments, which is the §18.3 gap-fill rule. Only an enum argument
+  changes: no registered override type is one the built-in accepts
+  (`color.Color`, `net.Url`, vector records).
+- **C-C2 (bug found, outside scope):** `general_override_target`'s bare-name
+  match hijacks any user type named `Color`/`Url`/`Float2`/… passed to
+  `toString` (see §2). C-C1 fixes the enum case, where the built-in is
+  authoritative. A user *record* named `Color` still misroutes, and that
+  belongs to its own bug document.
 
 ## Summary
 

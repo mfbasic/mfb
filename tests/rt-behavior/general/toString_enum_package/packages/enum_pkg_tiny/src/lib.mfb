@@ -1,0 +1,12 @@
+EXPORT ENUM Suit
+  Clubs, Diamonds, Hearts, Spades
+END ENUM
+
+EXPORT FUNC favorite() AS Suit
+  RETURN Suit.Hearts
+END FUNC
+
+' `toString` inside the package, so the package's own IR carries the call.
+EXPORT FUNC label(s AS Suit) AS String
+  RETURN "suit " & toString(s)
+END FUNC

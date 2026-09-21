@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT enum_pkg_tiny
+
+' plan-140-C: `toString` of an enum from a second source file and of an enum
+' exported by a package, both the member's bare name.
+FUNC main AS Integer
+  io::print(toString(Layer.Ground))
+  io::print(toString(Layer.Gas))
+  io::print(toString(enum_pkg_tiny::Suit.Clubs))
+  io::print(toString(enum_pkg_tiny::Suit.Spades))
+  LET s AS enum_pkg_tiny::Suit = enum_pkg_tiny::favorite()
+  io::print(toString(s))
+  io::print(toString(enum_pkg_tiny::favorite()))
+  io::print(enum_pkg_tiny::label(enum_pkg_tiny::Suit.Diamonds))
+  RETURN 0
+END FUNC
