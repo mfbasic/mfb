@@ -14,7 +14,7 @@ tests/syntax/general/toInt_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_
    3 |   LET wrongType AS Integer = toInt(TRUE)
      | ^
 tests/syntax/general/toInt_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `toInt` has argument type(s) (Boolean), expected String[, Integer], Byte, Float, Fixed, Money, or Scalar.
+               Call to `toInt` has argument type(s) (Boolean), expected String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum.
    1 | FUNC main AS Integer
    2 |   LET missing AS Integer = toInt()
    3 |   LET wrongType AS Integer = toInt(TRUE)
@@ -26,7 +26,7 @@ tests/syntax/general/toInt_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_
    4 |   LET wrongBaseType AS Integer = toInt("1", "2")
      | ^
 tests/syntax/general/toInt_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `toInt` has argument type(s) (String, String), expected String[, Integer], Byte, Float, Fixed, Money, or Scalar.
+               Call to `toInt` has argument type(s) (String, String), expected String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum.
    2 |   LET missing AS Integer = toInt()
    3 |   LET wrongType AS Integer = toInt(TRUE)
    4 |   LET wrongBaseType AS Integer = toInt("1", "2")
@@ -45,4 +45,28 @@ tests/syntax/general/toInt_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARI
      | ^
 tests/syntax/general/toInt_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   4 |   LET wrongBaseType AS Integer = toInt("1", "2")
+   5 |   LET tooMany AS Integer = toInt("1", 2, 3)
+   6 |   LET enumWithBase AS Integer = toInt(Color.Red, 16)
+     | ^
+tests/syntax/general/toInt_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toInt` has argument type(s) (Color, Integer), expected String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum.
+   4 |   LET wrongBaseType AS Integer = toInt("1", "2")
+   5 |   LET tooMany AS Integer = toInt("1", 2, 3)
+   6 |   LET enumWithBase AS Integer = toInt(Color.Red, 16)
+     | ^
+tests/syntax/general/toInt_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `enumWithBase` does not have a known type.
+  23 | 
+  24 | FUNC shapeNumber(s AS Shape) AS Integer
+  25 |   RETURN toInt(s)
+     | ^
+tests/syntax/general/toInt_invalid/src/main.mfb:25 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toInt` has argument type(s) (Shape), expected String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum.
+  23 | 
+  24 | FUNC shapeNumber(s AS Shape) AS Integer
+  25 |   RETURN toInt(s)
+     | ^
+tests/syntax/general/toInt_invalid/src/main.mfb:25 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
 [exit 1]

@@ -40,7 +40,7 @@ See plan-140-A §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-140-A complete (archived) | `ls planning/completed/plan-140-A-*` → one file | NOT MET |
+| plan-140-A complete (archived) | `ls planning/completed/plan-140-A-*` → one file | MET (2026-09-20: `planning/completed/plan-140-A-enum-kind-seam.md`; A's build + gate rows re-measured at A's end: 0 diffs) |
 
 If plan-140-A is not complete, this sub-plan cannot start, full stop.
 
@@ -164,7 +164,7 @@ Rejected alternatives:
 Lands RED fixtures, so every later phase has a runtime check. The goldens are
 authored by hand from the specification, not captured from a build.
 
-- [ ] `tests/rt-behavior/general/toInt_enum/` (project.json per
+- [x] `tests/rt-behavior/general/toInt_enum/` (project.json per
       `func_override_toint_user`'s): a user `ENUM Color Red, Green, Blue`;
       prints `toInt` of each member (`0`, `1`, `2`). It also covers:
       `LET n = toInt(c)` for an inferred binding; `toInt` of a value read back
@@ -172,15 +172,16 @@ authored by hand from the specification, not captured from a build.
       `TRAP` (must not trap); Integer → enum through a `List OF Color` lookup
       round-tripping every member; and `toInt(app::Mode.<member>)` or another
       built-in package enum (name it after reading the registry).
-      `golden/*.run` hand-written.
-- [ ] `tests/rt-behavior/general/toInt_enum_package/`: an enum declared
+      `golden/*.run` hand-written. (Built-in enum: `datetime::Weekday`,
+      Monday..Sunday → 0..6, `datetime/mod.rs:405`.)
+- [x] `tests/rt-behavior/general/toInt_enum_package/`: an enum declared
       `PUBLIC` in a second source file and one imported from a local package
       fixture (mirror an existing package fixture under
       `tests/rt-behavior/packages/`), proving the package-IR path.
-- [ ] `tests/rt-behavior/functions/func_override_toint_enum_precedence/`: a
+- [x] `tests/rt-behavior/functions/func_override_toint_enum_precedence/`: a
       record override `FUNC toInt(m AS Cash)` **and** an enum in one program;
       `toInt(cash)` → the override's value, `toInt(Color.Blue)` → `2`.
-- [ ] `tests/syntax/general/toInt_invalid/src/main.mfb`: add
+- [x] `tests/syntax/general/toInt_invalid/src/main.mfb`: add
       `toInt(Color.Red, 16)` (the `base` form stays `String`-only) and a
       union-typed argument (a `UNION` is not an enum). Hand-edit the
       golden's expected lines.
@@ -190,6 +191,10 @@ Acceptance: the new fixtures fail for the right reason.
   → the rt-behavior fixtures fail with `TYPE_CALL_ARGUMENT_MISMATCH` on the
   `toInt(<enum>)` lines; `toInt_invalid` differs only on the new lines and on
   the expected-overloads string (est. 2 min).
+  Result: `4 mismatch(es) (4 test(s) ran)`; every rt-behavior failure is
+  `TYPE_CALL_ARGUMENT_MISMATCH` on a `toInt(<enum>)` line (`Color`,
+  `datetime.Weekday`, the package's `Suit` at `lib.mfb:11`); `toInt_invalid`
+  differs only in the expected-overloads string.
 Commit: —
 
 ### Phase 2 — Resolve, type, lower, and mark infallible

@@ -3,5 +3,24 @@ FUNC main AS Integer
   LET wrongType AS Integer = toInt(TRUE)
   LET wrongBaseType AS Integer = toInt("1", "2")
   LET tooMany AS Integer = toInt("1", 2, 3)
+  LET enumWithBase AS Integer = toInt(Color.Red, 16)
   RETURN 0
+END FUNC
+
+' plan-140-B: an enum converts, but the `base` form stays `String`-only, and a
+' UNION is not an enum.
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+TYPE Point
+  x AS Integer
+END TYPE
+
+UNION Shape
+  Point
+END UNION
+
+FUNC shapeNumber(s AS Shape) AS Integer
+  RETURN toInt(s)
 END FUNC

@@ -274,7 +274,7 @@ Acceptance: every program compiles to byte-identical output.
   `resolve_call_does_not_consult_the_kind_oracle_yet`). Doc sync:
   `cargo test --bin mfb spec` → 43 passed; `spec-census.sh --citations` →
   MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0.
-Commit: —
+Commit: 2c33f5e66
 
 ## Validation Plan
 

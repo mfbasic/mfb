@@ -1,0 +1,12 @@
+EXPORT ENUM Suit
+  Clubs, Diamonds, Hearts, Spades
+END ENUM
+
+EXPORT FUNC favorite() AS Suit
+  RETURN Suit.Hearts
+END FUNC
+
+' `toInt` inside the package, so the package's own IR carries the call.
+EXPORT FUNC rank(s AS Suit) AS Integer
+  RETURN toInt(s) * 10
+END FUNC
