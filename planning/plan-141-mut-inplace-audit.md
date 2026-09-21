@@ -252,20 +252,27 @@ Commit: cd5245ddc
 Acceptance: no empty cell in the collections table.
   Check: `grep -E '^\| `collections::' planning/plan-141-findings/inplace-audit.md | grep -cE '\|\s*\|'`
   → 0 (est. 1 min). **Ran: 0.**
-Commit: —
+Commit: 002f58f6d
 
 ### Phase 4 — Fill the record table and summarise
 
-- [ ] Fill R1–R6 × field type × S3–S6, with `--ncode` confirmation per distinct
+- [x] Fill R1–R6 × field type × S3–S6, with `--ncode` confirmation per distinct
       verdict. R6 cites `src/rules/table.rs:187` and a probe build's
-      diagnostic.
-- [ ] Write the summary: per-site `y`/`n`/`n/a` counts, the deciding gates, and
-      every reading/dump disagreement.
+      diagnostic. — 22 rows; probes `r1_*`…`r5_*` (Appendix C.4, 32 SUBs, every
+      verdict matched); R6: `mfb build r6` → `error[1-102-0013
+      MFB_PARSE_RECORD_FIELD_ASSIGNMENT]` (C.5).
+- [x] Write the summary: per-site `y`/`n`/`n/a` counts, the deciding gates, and
+      every reading/dump disagreement. — findings §3: 7 findings, 0 disagreements,
+      4 `.ai/collections.md` contradictions, 2 leak observations for the follow-up.
 
 Acceptance: no empty cell in the record table; the summary counts add up to the
 table.
   Check: `grep -cE '\|\s*\|' <record table section>` → 0, and the summary
   total = cells in the two tables (count by hand from the file; est. 5 min).
+  **Ran:** `sed -n '/^## 2. Record updates/,/^## 3. Summary/p' … | grep -cE '\|\s*\|'`
+  → 0. Counts: computed by `summary.py` from the tables instead of by hand
+  (Appendix C.7) — §1 58 × 8 = 464, §2 22 × 4 = 88, total 552 = the per-site
+  columns' sum; §1b adds 3 × 8 = 24.
 Commit: —
 
 ## Validation Plan
@@ -280,7 +287,9 @@ Commit: —
   `plan-121-gate-inventory.md`, list it in the summary for the follow-up plan to
   correct. This plan edits neither.
 - Final gate: `git status --short` shows only `planning/plan-141-*` paths
-  changed (est. 1 min).
+  changed (est. 1 min). **Ran** before the Phase 4 commit: ` M
+  planning/plan-141-findings/inplace-audit.md`, ` M planning/plan-141-mut-inplace-audit.md`;
+  `git diff --stat main -- . ':!planning'` → empty.
 
 ## Open Decisions
 
@@ -325,6 +334,14 @@ Commit: —
 6. **Open Decisions resolved to the recommended options** (this skill does not
    negotiate scope): String self-concat and scalar self-update each get a row, and
    the nested-collection shape gets a row as S8, all in findings §1b.
+7. **Probe scope.** Phase 3 asked for one probe per distinct verdict. One
+   generated build covered every cell instead (206 SUBs, one `mfb build --ncode`,
+   seconds), so no verdict rests on a representative. Same check, same tool.
+8. **Finish-step CI command swapped for a scoped check.** The branch changes no
+   code (`git diff --stat main -- . ':!planning'` → empty), so the project's full
+   build-and-test run cannot see any of it; it would test `main`'s code again,
+   for well over 10 minutes. The scoped check that catches the same mistake — an
+   accidental non-`planning/` edit — is that diff, recorded under Validation Plan.
 
 ## Summary
 

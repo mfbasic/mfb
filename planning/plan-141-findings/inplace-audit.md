@@ -123,37 +123,203 @@ Decision asked for.
 | form | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S9 | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | String self-concat `s = s & t` (and `s = s & a & b …`) | y | n (StoreGlobal) | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | n/a (a `String` is not a `FOR EACH` iterable) | n (G1) | S1 `try_inplace_concat_assign` (`bia:1714`): G1 → G19 (a capacity shadow slot, allocated by `prescan_string_self_appends`, `bc:2317`) → G20 (the value is a left-associated `&` chain starting at `s`) → G21 (`s` is not read again in a later operand: `s = s & x & s` is n (G21)). Probes: `x_concat_S1` ARM=concat; `x_concat_S2` GLOBAL=y, ARM=-; `x_concat_S3`/`_S4` (`r = WITH r { s := r.s & t }`) WITH=y, ARM=- — the concat arm matches only a plain local and no record arm handles a `String` field; `x_concat_S9` ARM=- (its lambda `$lambda0` also ARM=-). |
-| Scalar self-update `i = i + k` (`Integer`, `Float`, `Boolean`, `Fixed`, …) | y | y | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (a scalar is not a `FOR EACH` iterable) | y | A scalar has no block: S1 stores the new value into the local's slot (`bc:1396–1400`), S9 stores through the reference pointer (`bc:1386`), and S2's `StoreGlobal` takes the non-freeable branch (`bc:1130–1133`): a plain store to the global, no copy and no free. Probes `x_int_S1`, `x_int_S2` (no `store_global_*` slots — the old-block free is skipped). A scalar **field** of a record is §2's R1: the whole record is rebuilt. |
+| Scalar self-update `i = i + k` (`Integer`, `Float`, `Boolean`, `Fixed`, …) | y | y | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | n/a (a scalar is not a `FOR EACH` iterable) | y | A scalar has no block: S1 stores the new value into the local's slot (`bc:1396–1400`), S9 stores through the reference pointer (`bc:1386`), and S2's `StoreGlobal` takes the non-freeable branch (`bc:1130–1133`): a plain store to the global, no copy and no free. Probes `x_int_S1`, `x_int_S2` (no `store_global_*` slots — the old-block free is skipped). A scalar **field** of a record is §2's R1: the whole record is rebuilt. |
 | S8 nested collection `grid = set(grid, i, set(get(grid, i), j, v))` on `List OF List OF T` | y (outer) / n (row) | n (StoreGlobal) | n (G17) | n (G26) | n (StoreGlobal) | n (G17) | n (G7) | n (G1) | S1: the **outer** `set` is `try_inplace_set_assign` (probe `x_grid_S8` ARM=set(List)); a `List` element is variable-width, so `lower_list_set_in_place` takes its resize branch. The **inner** `set(get(grid, i), j, v)` is a call argument, not a binding: no arm can match it (G5 needs `args[0]` to be a bare `Local`), so it lowers out of place and copies the whole row into a fresh block every write. S4: `record_field_set` declines a `List` field whose element (`List OF T`) is not fixed-width (G26, `bia:658`). |
 
 ## 2. Record updates
 
+Columns are §"Binding sites". For a **scalar** field (R1, R4 scalar), S3 = the
+field is not the record's last field and S4 = it is the last (probes `ScFirst` /
+`ScLast`): position cannot matter, since no arm handles a scalar field, and the
+probes confirm it does not. For **R5**, S3/S4 = the nested record is not-last /
+last in its parent and S6 = one more level of nesting. R3's per-operation verdicts
+are §1's S3–S6 columns; its cells here summarise them by field type.
+
 | form | field type | S3 | S4 | S5 | S6 | evidence |
 |---|---|---|---|---|---|---|
-| R1 `r = WITH r { f := <new scalar> }` | Integer | | | | | |
-| R1 `r = WITH r { f := <new scalar> }` | Float | | | | | |
-| R1 `r = WITH r { f := <new scalar> }` | Boolean | | | | | |
-| R1 `r = WITH r { f := <new scalar> }` | String | | | | | |
-| R2 `r = WITH r { f := <new value not derived from r.f> }` | List | | | | | |
-| R2 `r = WITH r { f := <new value not derived from r.f> }` | Map | | | | | |
-| R2 `r = WITH r { f := <new value not derived from r.f> }` | Set | | | | | |
-| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | List | | | | | |
-| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | Map | | | | | |
-| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | Set | | | | | |
-| R4 `r = WITH r { f := …, g := … }` | List | | | | | |
-| R4 `r = WITH r { f := …, g := … }` | Map | | | | | |
-| R4 `r = WITH r { f := …, g := … }` | Set | | | | | |
-| R4 `r = WITH r { f := …, g := … }` | scalar | | | | | |
-| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | List | | | | | |
-| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | Map | | | | | |
-| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | Set | | | | | |
-| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | scalar | | | | | |
-| R6 `r.prop = value` | List | | | | | |
-| R6 `r.prop = value` | Map | | | | | |
-| R6 `r.prop = value` | Set | | | | | |
-| R6 `r.prop = value` | scalar | | | | | |
+| R1 `r = WITH r { f := <new scalar> }` | Integer | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | No recogniser handles a non-`STATE` scalar field: every `record_field_*` arm goes through `resolve_inplace_record_field`, whose G17 (`record_collection_last_inlined`, `bc:302`) refuses a field that is not a `List`/`Map`/`Set`. The statement lowers `lower_with_update` (`builder_value_semantics.rs:703`): every field is gathered and a new record block is built, then the old one is freed. (The `STATE` twin, `try_inplace_state_scalar_assign` `bc:139`, does store a scalar field in place — the same shape on a record local has no arm.) Probes `r1_int_S3` (field first), `r1_int_S4` (field last), `r1_int_S5`, `r1_int_S6`: all WITH=y, ARM=-; `r1_int_S5` GLOBAL=y. |
+| R1 `r = WITH r { f := <new scalar> }` | Float | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | No recogniser handles a non-`STATE` scalar field: every `record_field_*` arm goes through `resolve_inplace_record_field`, whose G17 (`record_collection_last_inlined`, `bc:302`) refuses a field that is not a `List`/`Map`/`Set`. The statement lowers `lower_with_update` (`builder_value_semantics.rs:703`): every field is gathered and a new record block is built, then the old one is freed. (The `STATE` twin, `try_inplace_state_scalar_assign` `bc:139`, does store a scalar field in place — the same shape on a record local has no arm.) Probe `r1_float_S3`: WITH=y, ARM=-. S4–S6 by the same code path as `Integer` (the decline does not depend on the scalar kind). |
+| R1 `r = WITH r { f := <new scalar> }` | Boolean | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | No recogniser handles a non-`STATE` scalar field: every `record_field_*` arm goes through `resolve_inplace_record_field`, whose G17 (`record_collection_last_inlined`, `bc:302`) refuses a field that is not a `List`/`Map`/`Set`. The statement lowers `lower_with_update` (`builder_value_semantics.rs:703`): every field is gathered and a new record block is built, then the old one is freed. (The `STATE` twin, `try_inplace_state_scalar_assign` `bc:139`, does store a scalar field in place — the same shape on a record local has no arm.) Probe `r1_bool_S3`: WITH=y, ARM=-. S4–S6 as `Integer`. |
+| R1 `r = WITH r { f := <new scalar> }` | String | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | No recogniser handles a non-`STATE` scalar field: every `record_field_*` arm goes through `resolve_inplace_record_field`, whose G17 (`record_collection_last_inlined`, `bc:302`) refuses a field that is not a `List`/`Map`/`Set`. The statement lowers `lower_with_update` (`builder_value_semantics.rs:703`): every field is gathered and a new record block is built, then the old one is freed. (The `STATE` twin, `try_inplace_state_scalar_assign` `bc:139`, does store a scalar field in place — the same shape on a record local has no arm.) A `String` field is inlined, so it also makes an earlier collection field not-last. The self-concat form `WITH r { s := r.s & t }` is also n (§1b). Probes `r1_string_S3`, `r1_string_S4`, `x_concat_S3`, `x_concat_S4`: WITH=y, ARM=-. |
+| R2 `r = WITH r { f := <new value not derived from r.f> }` | List | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | A replacement is not a self-update of the field, and no arm recognises one: at S4 the record container passes G17 and then `inplace_call_args` declines at G2 (a literal is not a `Call`) or G3 (a user/other call is not the arm's builtin), `inplace_dest.rs:403`. At S3/S6 G17 declines first. The whole record is rebuilt. Probes `r2_list_S3`, `r2_list_S4`, `r2_list_S5`: WITH=y, ARM=-. |
+| R2 `r = WITH r { f := <new value not derived from r.f> }` | Map | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | As R2 List. Probe `r2_map_S4` (`WITH r { mb := mkMap() }`): WITH=y, ARM=-. |
+| R2 `r = WITH r { f := <new value not derived from r.f> }` | Set | n (no arm) | n (no arm) | n (StoreGlobal) | n (no arm) | As R2 List. Probe `r2_set_S4` (`WITH r { sb := collections::toSet([k]) }`): WITH=y, ARM=-. |
+| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | List | n (G17) | y for `append` (both), `insert`, `prepend`, `removeAt`, `set` (fixed-width T); n (G26) for `set` on variable-width T; n (no arm) for the other 12 List self-updates | n (StoreGlobal) | n (G17) | Per-operation cells are §1's S3–S6 columns. Arms: `record_field_append` (`bia:92`), `…_insert`/`…_prepend` → `…_splice` (`bia:1291`), `…_remove_at` (`bia:413`), `…_set` (`bia:629`). Operand gates at S4: G18 (`WITH r { b := append(r.a, x) }` is n — the source is another field), G12 (`append(r.b, r.b)` is n), G11. A live `FOR EACH v IN r.xs` over the field is n (G15): probe `r3_loop_live_field` WITH=y. Probes `c_*_S3/S4/S6`, `r3_list_then_int` (y), `r3_list_then_string` (n, G17), `r3_names_set` (n, G26), `r3_names_append` (y). |
+| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | Map | n (G17) | y for `set`, `removeKey`; n (no arm) for `merge`, `mapValues` | n (StoreGlobal) | n (G17) | Arms `record_field_set` Map branch (`bia:709`, grows the record through `InlineGrow`) and `record_field_remove_key` (`bia:348`). Probes `c_setM_S4`, `c_removeKey_S4` (arm fired), `c_setM_S3`, `r3_map_S3` (WITH=y), `c_merge_S4`, `c_mapValues_S4` (ARM=-). |
+| R3 `r = WITH r { f := collections::<op>(r.f, …) }` | Set | n (G17) | y for `add`, `remove`; n (no arm) for `union`, `intersection`, `difference`, `symmetricDifference` | n (StoreGlobal) | n (G17) | Arms `record_field_set_add` (`bia:538`) and `record_field_set_remove` (`bia:472`). Probes `c_add_S4`, `c_remove_S4` (arm fired), `c_union_S4` etc. (ARM=-). |
+| R4 `r = WITH r { f := …, g := … }` | List | n (G14) | n (G14) | n (StoreGlobal) | n (G17) | `resolve_inplace_record_field` declines a `WITH` with more than one update (G14, `inplace_dest.rs:301`), before G17. This holds even when only one of the updates is a collection: `WITH r { xs := append(r.xs, k), n := k }` rebuilds the whole record (probe `r4_list_one_collection` WITH=y). Probe `r4_list` (two `append`s): WITH=y, ARM=-. S6: the outer `WITH` has one update (`inner`), which G17 declines. |
+| R4 `r = WITH r { f := …, g := … }` | Map | n (G14) | n (G14) | n (StoreGlobal) | n (G17) | As R4 List: G14 is checked before the field kind (`inplace_dest.rs:301`), so it declines identically. Distinct verdict probed by `r4_list`. |
+| R4 `r = WITH r { f := …, g := … }` | Set | n (G14) | n (G14) | n (StoreGlobal) | n (G17) | As R4 Map. |
+| R4 `r = WITH r { f := …, g := … }` | scalar | n (G14) | n (G14) | n (StoreGlobal) | n (G17) | G14 declines first; even with one field no arm would handle a scalar (R1). Probe `r4_scalar` (`WITH r { i := k, j := k }`): WITH=y, ARM=-. |
+| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | List | n (G17) | n (G17) | n (StoreGlobal) | n (G17) | Columns for R5: S3/S4 = the nested record `inner` is not-last/last in the outer record; S6 = one more level of nesting. The outer `WITH` updates `inner`, which is a record, not a collection, so `record_collection_last_inlined` returns `None` (`bc:302`) whatever the inner update is. Probes `c_append1_S6` (inner last), `r5_set_S3` (inner first): WITH=y, ARM=-. |
+| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | Map | n (G17) | n (G17) | n (StoreGlobal) | n (G17) | As R5 List. Probes `c_setM_S6`, `c_removeKey_S6`: WITH=y, ARM=-. |
+| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | Set | n (G17) | n (G17) | n (StoreGlobal) | n (G17) | As R5 List. Probes `r5_set_S3`, `c_add_S6`: WITH=y, ARM=-. |
+| R5 `r = WITH r { inner := WITH r.inner { f := … } }` | scalar | n (G17) | n (G17) | n (StoreGlobal) | n (G17) | As R5 List; the inner field being a scalar changes nothing. Probe `r1_int_S6`: WITH=y, ARM=-. |
+| R6 `r.prop = value` | List | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | `r.prop = value` is rejected by the parser: `error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported` (rule at `src/rules/table.rs:187`; probe `r6`, Appendix C.5). `mfb man variable`: "WITH is the only way to update its fields". Only a `RES … STATE` field has this form. |
+| R6 `r.prop = value` | Map | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | `r.prop = value` is rejected by the parser: `error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported` (rule at `src/rules/table.rs:187`; probe `r6`, Appendix C.5). `mfb man variable`: "WITH is the only way to update its fields". Only a `RES … STATE` field has this form. |
+| R6 `r.prop = value` | Set | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | `r.prop = value` is rejected by the parser: `error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported` (rule at `src/rules/table.rs:187`; probe `r6`, Appendix C.5). `mfb man variable`: "WITH is the only way to update its fields". Only a `RES … STATE` field has this form. |
+| R6 `r.prop = value` | scalar | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | n/a (not expressible) | `r.prop = value` is rejected by the parser: `error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported` (rule at `src/rules/table.rs:187`; probe `r6`, Appendix C.5). `mfb man variable`: "WITH is the only way to update its fields". Only a `RES … STATE` field has this form. |
 
 ## 3. Summary
+
+### 3.1 What the compiler does, in one paragraph
+
+A `MUT` self-update is in place only when **all** of these hold: the binding is a
+**function local** (never a module-level `MUT`); the statement is
+`x = collections::<op>(x, …)` with `<op>` one of the **10 overloads that have an
+arm** — `append` (both), `set` (both), `insert`, `prepend`, `removeAt`, `add`,
+`remove`, `removeKey`; no `FOR EACH` is walking `x`; and `x` is not a lambda's
+by-ref capture. Or the statement is `r = WITH r { f := <op>(r.f, …) }` on a
+function-local record with **exactly one** updated field, `f` a collection field
+with **no inlined field (`String`, record, union, `Result`, collection) declared
+after it**, no `FOR EACH` walking `r.f`, and (for `set` on a `List`) a
+fixed-width element type. Or it is a `String` local's `s = s & …`, or a scalar
+local. Every other self-update rebuilds: the collection is copied into a fresh
+block, or the whole record is re-laid-out.
+
+### 3.2 Findings, most consequential first
+
+1. **Module-level `MUT` is never updated in place.** Every S2/S5 cell is
+   `n (StoreGlobal)` (77 cells) except the scalar global (1 `y`).
+   `NirOp::StoreGlobal` (`bc:1060`) has no recogniser dispatch, for
+   collections, records, and `String` alike (Appendix B.1). Each write to a global
+   collection copies the whole collection, then frees the old block. This is the
+   Brogue timing gap (global `List` set 22,198 ns vs 36 ns local; global `Map` set
+   468,418 ns): the code path, not a slow in-place path. Only a scalar global is
+   updated without a copy, because a scalar has no block.
+2. **17 self-updatable overloads have no arm in any container**: `filter`,
+   `take`, `drop`, `mid`, `replace`, `sort`, `sortBy`, `distinct`, `transform`,
+   `reduce`, `reduceRight`, `union`, `intersection`, `difference`,
+   `symmetricDifference`, `merge`, `mapValues`. Even on a plain local they build a
+   fresh collection (a source-generic call, a fast path, or an inline lowering)
+   and free the old one. Of the 132 `n (no arm)` cells, 102 are these 17 rows at
+   the six non-global sites; the other 30 are record forms with no arm (R1 12, R2 9,
+   R3's non-arm operations 3, §1b's `String`/scalar record fields 6).
+3. **Records: one field, last, collection, local.** 44 cells decline at G17 —
+   any field with an inlined field after it (S3), and **every nested record**
+   (S6, R5), because the outer `WITH` updates a record-typed field. A `String`
+   field declared after a `List` is enough (probe `r3_list_then_string`).
+   Updating two fields in one `WITH` declines at G14, **even when the second is a
+   scalar counter** (`WITH r { xs := append(r.xs, k), n := k }`, probe
+   `r4_list_one_collection`). This is the Brogue record-field timing gap (70,231 ns
+   on a non-last list field).
+4. **A scalar or `String` field of a record is never updated in place** (R1: 16
+   cells, all n). No record arm handles a non-collection field. The `STATE`
+   container has exactly this arm (`try_inplace_state_scalar_assign`, `bc:139`);
+   the record-local container does not.
+5. **Loop-live and lambda-captured bindings decline** — G7 (11 cells) and G1 (12
+   cells). Under a live `FOR EACH`, `append` declines like every other arm (see
+   3.4, contradiction 3).
+6. **G26 (new name)**: `r = WITH r { names := set(r.names, i, s) }` on a
+   `List OF String` (or any variable-width element) field rebuilds the record,
+   although the plain-local `set` resizes in place for the same element type
+   (probes `r3_names_set` n, `x_setString_S1` y).
+7. **S8, the 2-D grid** `grid = set(grid, i, set(get(grid, i), j, v))`: the outer
+   write is in place, but the inner row update is a call argument that no arm can
+   see (G5), so **every cell write copies its whole row**.
+
+### 3.3 Reading vs `--ncode`
+
+Every verdict was probed (Appendix C: 206 + 32 SUBs, plus the 9-error `gen` build
+and the `r6` parse error). **0 disagreements** between the code reading and the
+dump.
+
+### 3.4 Contradictions with the docs (for the follow-up plan to correct)
+
+`.ai/collections.md` §"In-place mutation: one seam, one gate inventory":
+
+1. `:21-22` — "`x = OP(x, …)` on a uniquely-owned collection is lowered as a
+   mutation of the live buffer whenever nothing else can observe that buffer."
+   True only for the 10 arm-backed overloads on a function local (finding 2), and
+   never for a global (finding 1).
+2. `:24-25` — dispatch at `builder_control.rs:879-909` and `:1050`/`:1056`. Now
+   `:1166–1263` and `:1440`/`:1449`.
+3. `:59-65` — "An `append` writes only *beyond* that snapshot, so it may proceed
+   (until it reallocs — hence the guard)." The code declines **every** `append`
+   under a live `FOR EACH` over the binding (G7 in `resolve_inplace_plain_local`,
+   `inplace_dest.rs:253`; `bulk_append` `bia:1433`); probes `c_append1_S7`,
+   `c_appendL_S7` → rebuild. The same claim is in `bia:17-19`'s doc comment.
+4. `:46` — "all 23 decline conditions (`G1`–`G23`)". The inventory has G24
+   (since lifted), the code has G25 (`STATE`) and an unnamed variable-width gate
+   (G26 here).
+
+`planning/plan-121-gate-inventory.md`: the eight differences in Appendix B.4
+(population 10 → 30, stale dispatch lines, G17 widened to any inlined field and
+any collection kind, G24 lifted, G26 missing, G25 missing, container gate order,
+`set` resize branch).
+
+### 3.5 Observed while reading, not part of the verdicts
+
+These are not in-place questions, so they carry no verdict; they are recorded so
+the follow-up plan does not rediscover them.
+
+- **S9 fallback may leak.** For a `by_ref` local the fallback reassignment writes
+  the fresh block through the reference (`bc:1386`) but skips the old-block free
+  (`bc:1309`, `!by_ref && …`). Whether the parent frees the overwritten block
+  elsewhere was not traced.
+- **S7 fallback leaks by design.** Under a live `FOR EACH` over the binding the
+  fallback deliberately does not free the old block (`bc:1312–1318`, bug-430), so
+  a self-update inside such a loop leaks one block per iteration in addition to
+  copying.
+
+### 3.6 Counts
+
+Cells are counted from the tables by `summary.py` (Appendix C.7). `mixed` = a
+cell whose verdict depends on the operation or element type (e.g. `set` on a
+record `List` field: `y` for fixed-width `T`, `n (G26)` otherwise).
+
+**§1 collections** — 58 rows × 8 sites = 464 cells.
+
+| site | y | mixed | n | n/a | total |
+|---|---|---|---|---|---|
+| S1 | 10 | 0 | 17 | 31 | 58 |
+| S2 | 0 | 0 | 27 | 31 | 58 |
+| S3 | 0 | 0 | 27 | 31 | 58 |
+| S4 | 9 | 1 | 17 | 31 | 58 |
+| S5 | 0 | 0 | 27 | 31 | 58 |
+| S6 | 0 | 0 | 27 | 31 | 58 |
+| S7 | 0 | 0 | 27 | 31 | 58 |
+| S9 | 0 | 0 | 27 | 31 | 58 |
+| **all** | **19** | **1** | **196** | **248** | **464** |
+
+**§1b beyond collections** — 3 rows × 8 sites = 24 cells.
+
+| site | y | mixed | n | n/a | total |
+|---|---|---|---|---|---|
+| S1 | 2 | 1 | 0 | 0 | 3 |
+| S2 | 1 | 0 | 2 | 0 | 3 |
+| S3 | 0 | 0 | 3 | 0 | 3 |
+| S4 | 0 | 0 | 3 | 0 | 3 |
+| S5 | 0 | 0 | 3 | 0 | 3 |
+| S6 | 0 | 0 | 3 | 0 | 3 |
+| S7 | 0 | 0 | 1 | 2 | 3 |
+| S9 | 1 | 0 | 2 | 0 | 3 |
+| **all** | **4** | **1** | **17** | **2** | **24** |
+
+**§2 record updates** — 22 rows × 4 sites = 88 cells.
+
+| site | y | mixed | n | n/a | total |
+|---|---|---|---|---|---|
+| S3 | 0 | 0 | 18 | 4 | 22 |
+| S4 | 0 | 3 | 15 | 4 | 22 |
+| S5 | 0 | 0 | 18 | 4 | 22 |
+| S6 | 0 | 0 | 18 | 4 | 22 |
+| **all** | **0** | **3** | **69** | **16** | **88** |
+
+The two tables the plan names (§1 and §2) hold 552 cells; §1b adds 24. Each total above is the row count times the site count, and every cell falls in exactly one column.
+
+**Deciding gates.** One count per `n` verdict inside a cell (a `mixed` cell contributes each of its `n` gates once). Sites per gate:
+
+| deciding gate | cells | which |
+|---|---|---|
+| no arm | 132 | S1: 17, S3: 26, S4: 29, S6: 26, S7: 17, S9: 17 |
+| StoreGlobal | 77 | S2: 29, S5: 48 |
+| G17 | 44 | S3: 18, S4: 4, S6: 22 |
+| G1 | 12 | S9: 12 |
+| G7 | 11 | S7: 11 |
+| G14 | 8 | S3: 4, S4: 4 |
+| G26 | 3 | S4: 3 |
+
 
 ## Appendix A — census script
 
@@ -1157,6 +1323,116 @@ $lambda0: ARM=- GLOBAL=- WITH=- CALLS=-
 ```
 
 which is rule `1-102-0013` at `src/rules/table.rs:185–190`.
+
+### C.7 `summary.py` — the §3.6 counts
+
+Parses the three tables in this file and classifies each cell as `y`, `n`, `n/a` or `mixed`; each `n (…)` gate inside a cell adds one to that gate's count.
+
+```python
+"""Compute §3 Summary counts from the findings file's tables and write §3."""
+import re
+from collections import Counter, defaultdict
+
+F = ("/Users/justinzaun/Development/mfb/.claude/worktrees/P-141/"
+     "planning/plan-141-findings/inplace-audit.md")
+text = open(F).read()
+
+
+def section(start, end):
+    return text[text.index(start):text.index(end)]
+
+
+def rows(sec, prefix):
+    out = []
+    for line in sec.split("\n"):
+        if line.startswith(prefix):
+            cells = [c.strip() for c in re.split(r"(?<!\\)\|", line)[1:-1]]
+            out.append(cells)
+    return out
+
+
+def kind(cell):
+    has_y = cell.startswith("y") or " y " in cell or "/ y" in cell
+    has_n = bool(re.search(r"(^|[;/] ?)n \(", cell)) or cell.startswith("n (")
+    if cell.startswith("n/a"):
+        return "n/a"
+    if has_y and has_n:
+        return "mixed"
+    if has_y:
+        return "y"
+    if has_n:
+        return "n"
+    raise ValueError(cell)
+
+
+def gates(cell):
+    return re.findall(r"n \((G\d+|no arm|StoreGlobal)", cell)
+
+
+tables = {
+    "§1 collections": (rows(section("## 1. Collections", "### 1b."), "| `collections::"),
+                       ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S9"], 1),
+    "§1b beyond collections": ([r for r in rows(section("### 1b.", "## 2. Record updates"), "| ")
+                                if r[0] != "form"],
+                               ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S9"], 1),
+    "§2 record updates": (rows(section("## 2. Record updates", "## 3. Summary"), "| R"),
+                          ["S3", "S4", "S5", "S6"], 2),
+}
+
+report = []
+gate_cells = defaultdict(list)
+grand = Counter()
+two_table_cells = 0
+for name, (rs, sites, first) in tables.items():
+    per_site = {s: Counter() for s in sites}
+    for r in rs:
+        label = r[0] if first == 1 else f"{r[0][:2]} {r[1]}"
+        for i, s in enumerate(sites):
+            cell = r[first + i]
+            k = kind(cell)
+            per_site[s][k] += 1
+            for g in gates(cell):
+                gate_cells[g].append(f"{label.split('(')[0].strip('`')}@{s}")
+    total = Counter()
+    for c in per_site.values():
+        total.update(c)
+    grand.update(total)
+    ncells = sum(total.values())
+    if name != "§1b beyond collections":
+        two_table_cells += ncells
+    report.append((name, len(rs), sites, per_site, total, ncells))
+
+lines = []
+for name, nrows, sites, per_site, total, ncells in report:
+    lines.append(f"**{name}** — {nrows} rows × {len(sites)} sites = {ncells} cells.\n")
+    lines.append("| site | y | mixed | n | n/a | total |")
+    lines.append("|---|---|---|---|---|---|")
+    for s in sites:
+        c = per_site[s]
+        lines.append(f"| {s} | {c['y']} | {c['mixed']} | {c['n']} | {c['n/a']} | {sum(c.values())} |")
+    lines.append(f"| **all** | **{total['y']}** | **{total['mixed']}** | **{total['n']}** | "
+                 f"**{total['n/a']}** | **{sum(total.values())}** |")
+    lines.append("")
+counts_md = "\n".join(lines)
+
+gate_md = ["| deciding gate | cells | which |", "|---|---|---|"]
+for g, cells in sorted(gate_cells.items(), key=lambda kv: -len(kv[1])):
+    by_site = Counter(c.split("@")[1] for c in cells)
+    which = ", ".join(f"{s}: {n}" for s, n in sorted(by_site.items()))
+    gate_md.append(f"| {g} | {len(cells)} | {which} |")
+gate_md = "\n".join(gate_md)
+
+print(counts_md)
+print(gate_md)
+print("two-table cells", two_table_cells, "grand", sum(grand.values()))
+open("/tmp/plan-141-probes/summary_counts.md", "w").write(
+    counts_md + "\n" + f"The two tables the plan names (§1 and §2) hold "
+    f"{two_table_cells} cells; §1b adds "
+    f"{sum(grand.values()) - two_table_cells}. Each total above is the row count "
+    f"times the site count, and every cell falls in exactly one column.\n\n"
+    "**Deciding gates.** One count per `n` verdict inside a cell (a `mixed` cell "
+    "contributes each of its `n` gates once). Sites per gate:\n\n" + gate_md + "\n")
+```
 
 ### C.6 Reading vs dump
 
