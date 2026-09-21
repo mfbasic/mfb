@@ -484,6 +484,10 @@ name = "rt_inplace_failure_atomic"
 path = "tests/runtime/rt_inplace_failure_atomic.rs"
 
 [[test]]
+name = "rt_inplace_sort"
+path = "tests/runtime/rt_inplace_sort.rs"
+
+[[test]]
 name = "test_targets_registered"
 path = "tests/guards/test_targets_registered.rs"
 

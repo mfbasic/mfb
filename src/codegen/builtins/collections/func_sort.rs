@@ -482,7 +482,7 @@ impl CodeBuilder<'_> {
     /// unsigned; a proper prefix is the smaller string; equal keys fall to
     /// `ge_label` (take the left run, preserving stability). No calls, so the many
     /// scratch registers here survive the whole compare.
-    fn emit_index_string_less_branch(
+    pub(crate) fn emit_index_string_less_branch(
         &mut self,
         coll_slot: usize,
         its: &VirtualRegister,

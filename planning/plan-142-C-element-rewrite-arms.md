@@ -118,31 +118,64 @@ Acceptance: same command → pass (est. 10 min).
 Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` filtered to
 `replace`/`transform` → `1 passed` (bound, `before` and result checks);
 `rt_inplace_failure_atomic` → `1 passed`.
-Commit: —
+Commit: 692adba6a
 
 ### Phase 3 — `sort` and `sortBy`
 
-- [ ] Permutation-apply primitive `lower_list_permute_in_place` (entry and
+- [x] Permutation-apply primitive `lower_list_permute_in_place` (entry and
       fixed-width forms) in `list_mutate.rs` + a unit test that sorts lists of
       `Integer`, `String` and a record type and compares with the copying result.
-- [ ] `sort` and `sortBy` arms (all element types the copying path accepts; the
+      In its own file, `src/codegen/collection/list/list_permute.rs`: one
+      cycle-following pass over `block + HEADER + k * stride` (fixed-width lanes or
+      40-byte entries alike), one element of temp, bit 63 of the permutation word
+      as the visited mark. The comparison test is a runtime one (a unit test cannot
+      run the result): `tests/runtime/rt_inplace_sort.rs` — `Integer`, `Float`,
+      `Byte`, `String` elements; `sortBy` over `Integer`/`Float`/`String` keys, a
+      key function returning its own argument, a record with equal keys
+      (stability), an out-of-order list, one element, and `append`/`filter`/`drop`
+      on the permuted payloads — 14/14 equal to the copying result, arena
+      `alloc_calls` = `free_calls`, `live_bytes 0`. The codegen shape is pinned by
+      `permute_in_place_reorders_lanes_and_entries_without_a_gather`
+      (`src/codegen/builtins/tests/inplace_compact.rs`).
+- [x] `sort` and `sortBy` arms (all element types the copying path accepts; the
       non-fast-path element types reuse the source-generic comparison through the
-      permutation step).
-- [ ] Rows, `cases.tsv`, atomicity case for a failing `keyFn`.
+      permutation step). `src/codegen/collection/assign/builder_inplace_sort.rs`.
+      The merge is the copying lowerings' own bottom-up stable merge (take the right
+      head only when strictly less), over index words in the self-update scratch,
+      with every loop variable in a slot so a comparison may call. Comparators: the
+      native `String` byte compare (`emit_index_string_less_branch`, now
+      `pub(crate)`), a signed word compare for `Integer`/`Fixed`/`Money`, and for
+      every other ordered type and every `sortBy` key the `<` operator itself,
+      lowered over two hidden locals — the generic body's comparison. `sortBy` calls
+      `keyFn` for every element before reordering (Correction C5).
+- [x] Rows, `cases.tsv`, atomicity case for a failing `keyFn`. The matrix rows carry
+      `String`, `Float` and `Byte` probes for `sort` and `String`-element /
+      `String`-key probes for `sortBy`, so each comparator path compiles.
 
 Acceptance: `cargo test --bin mfb permute_in_place self_update && cargo test --test rt_inplace_self_update --test rt_inplace_failure_atomic`
 → pass (est. 12 min).
+Verified 2026-09-21 (two filters are two runs — `cargo test` takes one name filter,
+Correction C6): `cargo test --bin mfb permute_in_place` → `1 passed`; `cargo test --bin
+mfb self_update` → `4 passed`; `rt_inplace_self_update` filtered to `sort`/`sortBy` →
+`1 passed`; `rt_inplace_failure_atomic` → `1 passed` (incl. a failing `keyFn`);
+`rt_inplace_sort` → `1 passed`. `grep -c pending:C cases.tsv` → 0.
 Commit: —
 
 ### Phase 4 — Expected outputs
 
-- [ ] Measured: `rg -lP '(\w+) = math::\w+\(\1\b' tests examples --glob '*.mfb'`
+- [x] Measured: `rg -lP '(\w+) = math::\w+\(\1\b' tests examples --glob '*.mfb'`
       → 2 files (`examples/brogue/src/terrain.mfb`, `examples/brogue/src/rooms.mfb`);
       `rg -lP "(\w+) = collections::(replace|transform|sort|sortBy)\(\1\b" …` → 0.
       Rebuild `examples/brogue` and confirm its output is unchanged against its
-      oracle check.
+      oracle check. The four brogue hits (`terrain.mfb:344-345`, `rooms.mfb:260-261`)
+      are scalar `Integer` self-updates (`math::min`, `math::clamp`), which the arm
+      declines (no collection layout, `G10`) — so no brogue codegen moves.
 
 Acceptance: `examples/brogue`'s own check passes (est. 5 min).
+Verified 2026-09-21: `MFB=<new release mfb> examples/brogue/check/check-terrain.sh 8 1`
+→ `all 320 (level seed, depth) pairs match (125s, 12 jobs)`.
+Full artifact-gate with every C arm: `2078 golden(s) checked, 0 diff(s)` — no
+committed fixture self-updates a `math`/`replace`/`transform`/`sort`/`sortBy` list.
 Commit: —
 
 ## Validation Plan
@@ -183,6 +216,18 @@ Commit: —
   `module_self_updates_with_replace` — only a module whose codegen the arm changes
   anyway, so no other module's data section moves. (`transform` was already on the
   message's list.)
+- **C5 (Phase 3): the merge is the copying one, not a new sort.** §3 said "keep the
+  existing permutation computation"; the native fast path only covers `String` and
+  signed 8-byte elements (`sort_fast_path`), and everything else — `Float`, `Byte`,
+  `Scalar`, and every `sortBy` shape the fast path declines — sorts through the
+  `__collections_sort`/`__collections_sortBy` source generics. Both are the same
+  stable bottom-up merge, so the arm runs that merge itself over index words, and
+  compares with the generic body's own `<` (lowered on two hidden locals) wherever
+  the fast path has no native compare. Same algorithm and comparison ⇒ same result,
+  including for an order that is not a strict weak ordering.
+- **C6 (Phase 3): `cargo test` takes one name filter.** The acceptance line
+  `cargo test --bin mfb permute_in_place self_update` passes two; they were run as
+  two commands (both recorded above).
 
 ## Summary
 

@@ -49,6 +49,13 @@ FUNC growFailOnC(s AS String) AS String
   RETURN s & \"-grown-well-past-its-old-length\"
 END FUNC
 
+FUNC keyFailOnThree(n AS Integer) AS Integer
+  IF n = 3 THEN
+    FAIL error(77050002, \"three\")
+  END IF
+  RETURN 0 - n
+END FUNC
+
 FUNC showInts(xs AS List OF Integer) AS String
   MUT out AS String = \"\"
   FOR EACH v IN xs
@@ -131,6 +138,13 @@ const CASES: &[(&str, &str, &str, &str, &str)] = &[
         "x = collections::transform(x, growFailOnC)",
         "showStrs",
         "a,b,c,d,",
+    ),
+    (
+        "sortBy key function fails (plan-142-C)",
+        "MUT x AS List OF Integer = [4, 1, 3, 2]",
+        "x = collections::sortBy(x, keyFailOnThree)",
+        "showInts",
+        "4,1,3,2,",
     ),
     (
         "mid with a negative start",

@@ -115,3 +115,28 @@ fn compact_in_place_on_an_entry_list_probes_the_payload_order() {
         );
     }
 }
+
+/// plan-142-C: `sort`/`sortBy` apply their index permutation in place — one
+/// cycle-following pass over the fixed-width lanes or the entry table — instead of
+/// gathering a new list.
+#[test]
+fn permute_in_place_reorders_lanes_and_entries_without_a_gather() {
+    for (element, init) in [("Integer", "[3, 1, 2]"), ("String", "[\"b\", \"a\"]")] {
+        let stems = label_stems(&program(element, init, "", "x = collections::sort(x)"));
+        for label in [
+            "permute_outer",
+            "permute_cycle",
+            "permute_close",
+            "inplace_sort_merge",
+        ] {
+            assert!(
+                stems.contains(label),
+                "`sort` on a List OF {element} must permute in place (`{label}`): {stems:?}"
+            );
+        }
+        assert!(
+            !stems.iter().any(|stem| stem.starts_with("sort_gather")),
+            "the in-place sort must not gather a fresh list: {stems:?}"
+        );
+    }
+}

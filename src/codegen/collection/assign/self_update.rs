@@ -66,6 +66,10 @@ pub(crate) enum ArmId {
     Replace,
     /// `xs = transform(xs, f)` with `f` returning the element type (plan-142-C).
     Transform,
+    /// `xs = sort(xs)` (plan-142-C).
+    Sort,
+    /// `xs = sortBy(xs, keyFn)` (plan-142-C).
+    SortBy,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -125,6 +129,8 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
     (ArmId::Transform, |b, s, v| {
         b.try_inplace_transform_assign(s, v)
     }),
+    (ArmId::Sort, |b, s, v| b.try_inplace_sort_assign(s, v)),
+    (ArmId::SortBy, |b, s, v| b.try_inplace_sort_by_assign(s, v)),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -181,7 +187,7 @@ impl CodeBuilder<'_> {
 /// Builtins whose in-place arm keeps per-element state in the function's
 /// self-update scratch. A function holding a self-update of one of these gets the
 /// scratch slot (`prescan_self_update_scratch`).
-pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct", "transform"];
+pub(crate) const SCRATCH_ARMS: &[&str] = &["filter", "distinct", "transform", "sort", "sortBy"];
 
 /// Whether `ops` (recursively) hold a self-update `x = f(x, …)` whose call target
 /// satisfies `wanted`.
@@ -482,6 +488,10 @@ const IS_POSITIVE: &str = "FUNC isPositive(n AS Integer) AS Boolean\n  RETURN n 
 #[cfg(test)]
 const NEGATED: &str = "FUNC negated(n AS Integer) AS Integer\n  RETURN 0 - n\nEND FUNC\n\n";
 #[cfg(test)]
+const KEYLEN: &str = "FUNC keyLen(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\n";
+#[cfg(test)]
+const KEYSTR: &str = "FUNC keyStr(n AS Integer) AS String\n  RETURN toString(0 - n)\nEND FUNC\n\n";
+#[cfg(test)]
 const PUSH: &str = "FUNC push(acc AS List OF Integer, n AS Integer) AS List OF Integer\n  RETURN collections::append(acc, n)\nEND FUNC\n\n";
 
 /// Every registry function with a self-update-shaped overload
@@ -614,22 +624,47 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
             "collections::transform(x, negated)",
         )],
     },
-    pending(
-        "collections::sort",
-        "C",
-        &[probe(C, LI, "[3, 1, 2]", "collections::sort(x)")],
-    ),
-    pending(
-        "collections::sortBy",
-        "C",
-        &[probe_with(
-            C,
-            NEGATED,
-            LI,
-            "[3, 1, 2]",
-            "collections::sortBy(x, negated)",
-        )],
-    ),
+    SelfUpdateRow {
+        function: "collections::sort",
+        kind: SelfUpdate::Arm(&[ArmId::Sort]),
+        probes: &[
+            probe(C, LI, "[3, 1, 2]", "collections::sort(x)"),
+            probe(
+                C,
+                "List OF String",
+                "[\"b\", \"a\"]",
+                "collections::sort(x)",
+            ),
+            probe(C, LF, FLOATS, "collections::sort(x)"),
+            probe(
+                C,
+                "List OF Byte",
+                "[toByte(3), toByte(1)]",
+                "collections::sort(x)",
+            ),
+        ],
+    },
+    SelfUpdateRow {
+        function: "collections::sortBy",
+        kind: SelfUpdate::Arm(&[ArmId::SortBy]),
+        probes: &[
+            probe_with(
+                C,
+                NEGATED,
+                LI,
+                "[3, 1, 2]",
+                "collections::sortBy(x, negated)",
+            ),
+            probe_with(
+                C,
+                KEYLEN,
+                "List OF String",
+                "[\"bb\", \"a\"]",
+                "collections::sortBy(x, keyLen)",
+            ),
+            probe_with(C, KEYSTR, LI, "[3, 1, 2]", "collections::sortBy(x, keyStr)"),
+        ],
+    },
     SelfUpdateRow {
         function: "math::abs",
         kind: SelfUpdate::Arm(&[ArmId::Math]),
@@ -907,6 +942,8 @@ impl ArmId {
             ArmId::Math => &["inplace_math_result"],
             ArmId::Replace => &["inplace_replace_old"],
             ArmId::Transform => &["inplace_transform_action"],
+            ArmId::Sort => &["inplace_sort_count"],
+            ArmId::SortBy => &["inplace_sortby_action"],
         }
     }
 }

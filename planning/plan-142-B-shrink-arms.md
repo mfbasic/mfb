@@ -221,6 +221,8 @@ Commit: a70924e35
   the matrix unit test.
 - Runtime proof: alloc count flat in `N` for each (the harness).
 - Doc sync: none here (letter I).
+- Per-letter unit gate (2026-09-21, at `a70924e35`): `cargo test --bin mfb` →
+  `test result: ok. 4284 passed; 0 failed; 1 ignored` (1698.28s).
 
 ## Corrections
 

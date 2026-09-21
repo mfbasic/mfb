@@ -2,3 +2,4 @@
 
 pub(crate) mod list_compact;
 pub(crate) mod list_mutate;
+pub(crate) mod list_permute;
