@@ -273,7 +273,7 @@ table.
   → 0. Counts: computed by `summary.py` from the tables instead of by hand
   (Appendix C.7) — §1 58 × 8 = 464, §2 22 × 4 = 88, total 552 = the per-site
   columns' sum; §1b adds 3 × 8 = 24.
-Commit: —
+Commit: 1f1ccf5fe
 
 ## Validation Plan
 
