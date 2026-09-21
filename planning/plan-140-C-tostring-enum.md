@@ -270,21 +270,21 @@ Acceptance: the Phase 1 fixtures and every existing `toString` fixture pass.
   fixtures run. Whole corpus: `artifact-gate [all]: 1473 tests, 1648 build(s), 2078 golden(s) checked, 0 diff(s)`. The only goldens this plan
   changed (4 expected-list goldens, hand-edited) now match, and every other
   golden is byte-identical.
-Commit: —
+Commit: f5c029b00
 
 ### Phase 3 — Docs and spec
 
-- [ ] `src/codegen/builtins/general/func_to_string.rs`: DESC gains a short
+- [x] `src/codegen/builtins/general/func_to_string.rs`: DESC gains a short
       paragraph: from an enum value, `toString` gives the member's name as
       written in the `ENUM`, without the type name, and never fails. EX gains
       an enum example with its output. Use no compiler vocabulary
       (`.ai/man-content.md`).
-- [ ] `src/docs/spec/language/18_builtin-functions.md`: the `toString` row
+- [x] `src/docs/spec/language/18_builtin-functions.md`: the `toString` row
       lists "any enum (the bare member name; infallible)". The override
       paragraph (`:123`) extends plan-140-B's sentence to `toString`. Cite
       `[[src/codegen/string/repr/builder_strings.rs:lower_to_string]]` and the
       shared predicate.
-- [ ] `src/docs/spec/language/04_types.md` §4.5: extend plan-140-B's sentence:
+- [x] `src/docs/spec/language/04_types.md` §4.5: extend plan-140-B's sentence:
       a member's `toString` is its name.
 
 Acceptance: the man page renders and its examples run; the spec builds and its
@@ -294,6 +294,12 @@ citations resolve.
   Check: `cargo test --bin mfb spec && scripts/spec-census.sh --citations` →
   pass, 0 dangling (est. 3 min).
   Check: `scripts/man-census.sh --memory-scope` → 0 unclassified hits (1 min).
+  Result: `man-run-examples.sh general --run` → `examples: 36 built: 36 ran:
+  36 not run: 0 failed: 0`; `toString example 3` prints `Green`,
+  `Color.Green` as documented. `cargo test --bin mfb spec` → 43 passed;
+  `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0
+  (the new citation of `type_utils.rs:to_string_enum_members` resolves).
+  `man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`.
 Commit: —
 
 ## Validation Plan
