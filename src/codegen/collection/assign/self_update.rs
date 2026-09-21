@@ -60,6 +60,8 @@ pub(crate) enum ArmId {
     Mid,
     /// `xs = distinct(xs)` (plan-142-B).
     Distinct,
+    /// `xs = math::f(xs, …)` for the 16 element-wise `math` functions (plan-142-C).
+    Math,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -114,6 +116,7 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
     (ArmId::Distinct, |b, s, v| {
         b.try_inplace_distinct_assign(s, v)
     }),
+    (ArmId::Math, |b, s, v| b.try_inplace_math_assign(s, v)),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -198,7 +201,11 @@ fn value_needs_self_update_scratch(name: &str, value: &NirValue) -> bool {
         return false;
     };
     matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name)
-        && self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+        && (self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+            || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
+                target,
+            )
+            .is_some())
 }
 
 impl CodeBuilder<'_> {
@@ -430,6 +437,10 @@ const LI: &str = "List OF Integer";
 #[cfg(test)]
 const LF: &str = "List OF Float";
 #[cfg(test)]
+const LX: &str = "List OF Fixed";
+#[cfg(test)]
+const FIXEDS: &str = "[1.5F, 2.25F, 0.5F]";
+#[cfg(test)]
 const LB: &str = "List OF Byte";
 #[cfg(test)]
 const SI: &str = "Set OF Integer";
@@ -592,46 +603,111 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
             "collections::sortBy(x, negated)",
         )],
     ),
-    pending("math::abs", "C", &[probe(M, LF, FLOATS, "math::abs(x)")]),
-    pending("math::acos", "C", &[probe(M, LF, FLOATS, "math::acos(x)")]),
-    pending("math::asin", "C", &[probe(M, LF, FLOATS, "math::asin(x)")]),
-    pending("math::atan", "C", &[probe(M, LF, FLOATS, "math::atan(x)")]),
-    pending(
-        "math::atan2",
-        "C",
-        &[probe(M, LF, FLOATS, "math::atan2(x, [1.0, 1.0, 1.0])")],
-    ),
-    pending(
-        "math::clamp",
-        "C",
-        &[probe(M, LF, FLOATS, "math::clamp(x, 0.0, 0.25)")],
-    ),
-    pending("math::cos", "C", &[probe(M, LF, FLOATS, "math::cos(x)")]),
-    pending("math::exp", "C", &[probe(M, LF, FLOATS, "math::exp(x)")]),
-    pending("math::log", "C", &[probe(M, LF, FLOATS, "math::log(x)")]),
-    pending(
-        "math::log10",
-        "C",
-        &[probe(M, LF, FLOATS, "math::log10(x)")],
-    ),
-    pending(
-        "math::max",
-        "C",
-        &[probe(M, LF, FLOATS, "math::max(x, [0.5, 0.0, 0.5])")],
-    ),
-    pending(
-        "math::min",
-        "C",
-        &[probe(M, LF, FLOATS, "math::min(x, [0.5, 0.0, 0.5])")],
-    ),
-    pending(
-        "math::pow",
-        "C",
-        &[probe(M, LF, FLOATS, "math::pow(x, [1.0, 2.0, 1.0])")],
-    ),
-    pending("math::sin", "C", &[probe(M, LF, FLOATS, "math::sin(x)")]),
-    pending("math::sqrt", "C", &[probe(M, LF, FLOATS, "math::sqrt(x)")]),
-    pending("math::tan", "C", &[probe(M, LF, FLOATS, "math::tan(x)")]),
+    SelfUpdateRow {
+        function: "math::abs",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::abs(x)"),
+            probe(M, LI, "[1, -2, 3]", "math::abs(x)"),
+            probe(M, LX, FIXEDS, "math::abs(x)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::acos",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::acos(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::asin",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::asin(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::atan",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::atan(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::atan2",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::atan2(x, [1.0, 1.0, 1.0])")],
+    },
+    SelfUpdateRow {
+        function: "math::clamp",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::clamp(x, 0.0, 0.25)"),
+            probe(M, LI, "[1, -2, 3]", "math::clamp(x, -1, 2)"),
+            probe(M, LX, FIXEDS, "math::clamp(x, 0.5F, 2.0F)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::cos",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::cos(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::exp",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::exp(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::log",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::log(x)"),
+            probe(M, LX, FIXEDS, "math::log(x)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::log10",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::log10(x)"),
+            probe(M, LX, FIXEDS, "math::log10(x)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::max",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::max(x, [0.5, 0.0, 0.5])"),
+            probe(M, LI, "[1, -2, 3]", "math::max(x, [2, 2, 2])"),
+            probe(M, LX, FIXEDS, "math::max(x, [1.0F, 1.0F, 1.0F])"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::min",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::min(x, [0.5, 0.0, 0.5])"),
+            probe(M, LI, "[1, -2, 3]", "math::min(x, [2, 2, 2])"),
+            probe(M, LX, FIXEDS, "math::min(x, [1.0F, 1.0F, 1.0F])"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::pow",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::pow(x, [1.0, 2.0, 1.0])")],
+    },
+    SelfUpdateRow {
+        function: "math::sin",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::sin(x)")],
+    },
+    SelfUpdateRow {
+        function: "math::sqrt",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[
+            probe(M, LF, FLOATS, "math::sqrt(x)"),
+            probe(M, LX, FIXEDS, "math::sqrt(x)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "math::tan",
+        kind: SelfUpdate::Arm(&[ArmId::Math]),
+        probes: &[probe(M, LF, FLOATS, "math::tan(x)")],
+    },
     // --- letter D: Set algebra and Map ---
     pending(
         "collections::union",
@@ -801,6 +877,7 @@ impl ArmId {
             ArmId::Drop => &["inplace_drop_count"],
             ArmId::Mid => &["inplace_mid_start"],
             ArmId::Distinct => &["inplace_distinct_count"],
+            ArmId::Math => &["inplace_math_result"],
         }
     }
 }

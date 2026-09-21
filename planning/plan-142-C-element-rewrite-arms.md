@@ -69,13 +69,28 @@ and the `math` domain pre-pass matching today's error order exactly.
 
 ### Phase 1 — `math` element-wise
 
-- [ ] One shared arm `math_elementwise` covering the 16 functions' list
+- [x] One shared arm `math_elementwise` covering the 16 functions' list
       overloads (pre-pass, then overwrite), dispatched by `self_update_builtin`.
-- [ ] Flip the 16 rows and 27 `cases.tsv` lines; add `sqrt`-negative and
-      `log`-zero atomicity cases to `rt_inplace_failure_atomic`.
+      `try_inplace_math_assign` (`collection/assign/builder_inplace_rewrite.rs`,
+      `ArmId::Math`). No per-function pre-pass was written: every `math` array
+      driver (all 8, `grep -rn emit_alloc_result_list src/codegen`) reduces its
+      error mask and raises *after* its loop, and allocates its result through
+      `emit_alloc_result_list`. The arm arms `simd_result_into`, which makes that
+      function hand back the self-update scratch instead of allocating; the member's
+      own lowering then writes its lanes there, and the arm copies them over `x`
+      only after the lowering returned without raising (Correction C1). Matches
+      `math.<f>` directly (`math_self_update_function`).
+- [x] Flip the 16 rows and 27 `cases.tsv` lines; add `sqrt`-negative and
+      `log`-zero atomicity cases to `rt_inplace_failure_atomic`. The math rows carry
+      an `Integer` and a `Fixed` probe beside the `Float` one wherever the overload
+      exists, so the matrix test compiles every overload's driver through the
+      redirect (an unconsumed redirect is a hard `Err`).
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test rt_inplace_self_update --test rt_inplace_failure_atomic`
 → pass (est. 10 min).
+Verified 2026-09-21: `self_update` → `4 passed`; `rt_inplace_self_update` (all 64 lines,
+with the new result check) → `1 passed` (197.89s); `rt_inplace_failure_atomic` → `1
+passed` (incl. `math::sqrt` over a negative element and `math::log` over zero).
 Commit: —
 
 ### Phase 2 — `replace` and `transform`
@@ -117,6 +132,23 @@ Commit: —
 - Runtime proof: harness alloc counts; brogue output unchanged.
 
 ## Corrections
+
+- **C1 (Phase 1): no domain pre-pass — the kernels' results go through scratch.** §3
+  planned a pre-pass per function repeating each domain check. Every `math` array
+  driver already accumulates a per-lane error mask and raises once, after its loop,
+  so writing its lanes straight into `x` would clobber `x` before a later lane's
+  error surfaced — but writing them anywhere *else* first is atomic for free. The
+  arm redirects the member's result allocation into the self-update scratch
+  (plan-142-B Correction B1) through the one allocation function all eight drivers
+  share, and copies the lanes into `x` after the lowering returns. No kernel is
+  duplicated, and a domain error provably precedes the copy.
+- **C2 (Phase 1, affects every letter): the harness now checks results.** The
+  allocation bound proves an arm ran and the `before` check proves it did not alias;
+  neither proves it computed the right value. `rt_inplace_self_update` gains a third
+  program per case: the statements once on `x`, and the same through chained `LET`s
+  (not self-updates, so the copying lowering), rendered and compared. RED: with the
+  math arm's copy-back removed, `math::sqrt(value AS List OF Float)` fails with
+  "the self-update computed `0.10,0.20,0.30,`, the copying call `0.32,0.45,0.55,`".
 
 ## Summary
 

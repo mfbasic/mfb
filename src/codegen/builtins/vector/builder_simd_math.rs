@@ -121,12 +121,38 @@ impl CodeBuilder<'_> {
     /// freshly-allocated result-list base register. `label_prefix` names the
     /// per-site `*_alloc_ok` label so the `.ncode`/`.mir` goldens keep their exact
     /// label strings (e.g. `simd`, `simd_bin`, `pow_arr`).
+    ///
+    /// **plan-142-C:** when the in-place `math` arm has set `simd_result_into`, the
+    /// result goes to the function's self-update scratch instead (grown to
+    /// `count * 8` bytes), and that block's base is returned: the kernel writes its
+    /// lanes there, and the arm copies them into the self-updated list only after
+    /// the kernel's error check has passed, so a failing lane leaves the list
+    /// untouched. The flag is taken here, so exactly one driver consumes it.
     pub(crate) fn emit_alloc_result_list(
         &mut self,
         count: impl Into<Operand>,
         type_code: &str,
         label_prefix: &str,
     ) -> Result<VirtualRegister, String> {
+        if self.simd_result_into.take().is_some() {
+            let need_slot = self.allocate_stack_object("simd_into_need", 8);
+            let need = self.temporary_vreg();
+            self.emit(abi::move_register(&need, count));
+            self.emit(abi::shift_left_immediate(&need, &need, 3));
+            self.emit(abi::store_u64(&need, abi::stack_pointer(), need_slot));
+            self.emit_reserve_self_update_scratch(need_slot)?;
+            let scratch_slot = self
+                .self_update_scratch
+                .ok_or("native in-place math result has no self-update scratch")?;
+            self.reset_temporary_registers();
+            let result_base = self.allocate_register();
+            self.emit(abi::load_u64(
+                &result_base,
+                abi::stack_pointer(),
+                scratch_slot,
+            ));
+            return Ok(result_base);
+        }
         // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
         self.emit(abi::move_register(abi::c_arg(0), count));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", type_code));

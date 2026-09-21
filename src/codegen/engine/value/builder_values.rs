@@ -3124,7 +3124,10 @@ impl CodeBuilder<'_> {
     /// the exact spill/reset/reload the former `bits::gen_two_integers` did by hand,
     /// now owned by the dispatch so every multi-arg `AbiInline` body gets
     /// non-aliasing operands (and byte-identically to the pre-migration bodies).
-    fn lower_abi_inline_args(&mut self, args: &[NirValue]) -> Result<Vec<ValueResult>, String> {
+    pub(crate) fn lower_abi_inline_args(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<Vec<ValueResult>, String> {
         if args.len() <= 1 {
             let mut values = Vec::with_capacity(args.len());
             for arg in args {

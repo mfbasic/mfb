@@ -22,6 +22,11 @@
 //! line's check expression over `before`, runs the loop, and prints it again: the
 //! two must match. An arm that wrote through to a copy would change `before`.
 //!
+//! **The result.** A third program runs the statements once on `x` and computes
+//! the same result through chained `LET`s (not self-updates, so the copying
+//! lowering); the renderings must agree — the bound says the arm ran, this says it
+//! computed the right value.
+//!
 //! The census that keeps `cases.tsv` complete is
 //! `tests/guards/inplace_self_update_census.rs`.
 
@@ -203,6 +208,73 @@ fn program(case: &Case, site: Site, n: u64) -> String {
     src
 }
 
+/// Replace every whole-word `from` in `text` (outside string literals) by `to`.
+fn replace_ident(text: &str, from: &str, to: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        let c = bytes[i] as char;
+        if c == '"' {
+            in_string = !in_string;
+        }
+        let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        if !in_string
+            && text[i..].starts_with(from)
+            && (i == 0 || !word(bytes[i - 1]))
+            && bytes.get(i + from.len()).is_none_or(|b| !word(*b))
+        {
+            out.push_str(to);
+            i += from.len();
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// The result check: run the statements once on `x` at `site` and, alongside,
+/// compute the same result through chained `LET`s — `LET e1 = f(e0)` is not a
+/// self-update, so it takes the copying lowering. The two renderings must agree:
+/// the allocation bound says the arm ran, this says it computed the right value.
+fn result_program(case: &Case, site: Site) -> String {
+    let ty = case.ty();
+    let mut src = String::from(PRELUDE);
+    match site {
+        Site::Local => {
+            src.push_str("\nFUNC main() AS Integer\n");
+            src.push_str(&format!("  MUT x AS {}\n", case.decl));
+            for line in &case.setup {
+                src.push_str(&format!("  {line}\n"));
+            }
+            src.push_str(&format!("  LET e0 AS {ty} = x\n"));
+            for (k, statement) in case.statements.iter().enumerate() {
+                let rhs = statement.strip_prefix("x = ").unwrap_or_else(|| {
+                    panic!("{}: statement `{statement}` is not `x = …`", case.signature)
+                });
+                let rhs = replace_ident(rhs, "x", &format!("e{k}"));
+                src.push_str(&format!("  LET e{} AS {ty} = {rhs}\n", k + 1));
+            }
+            for statement in &case.statements {
+                src.push_str(&format!("  {statement}\n"));
+            }
+            let last = format!("e{}", case.statements.len());
+            src.push_str(&format!(
+                "  io::print({})\n",
+                replace_ident(&case.check, "before", "x")
+            ));
+            src.push_str(&format!(
+                "  io::print({})\n",
+                replace_ident(&case.check, "before", &last)
+            ));
+            src.push_str("  RETURN 0\nEND FUNC\n");
+        }
+    }
+    src
+}
+
 /// Build `source` with `--debug` and return the executable (the host glibc one on
 /// Linux).
 fn build_debug(name: &str, source: &str) -> Result<PathBuf, String> {
@@ -286,6 +358,13 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
         return Err(format!(
             "{label}: the copy `before` changed across the self-updates \
              (N: `{b1}` -> `{a1}`; 2N: `{b2}` -> `{a2}`) — an arm wrote through an alias"
+        ));
+    }
+    let (in_place, copied, _) = run(&format!("{tag}_res"), &result_program(case, site))
+        .map_err(|e| format!("{label} (result check): {e}"))?;
+    if in_place != copied {
+        return Err(format!(
+            "{label}: the self-update computed `{in_place}`, the copying call `{copied}`"
         ));
     }
     let extra = twice.saturating_sub(once);

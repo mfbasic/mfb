@@ -19,6 +19,7 @@ use std::process::Command;
 const HELPERS: &str = "\
 IMPORT collections
 IMPORT io
+IMPORT math
 
 FUNC failOnThree(n AS Integer) AS Boolean
   IF n = 3 THEN
@@ -35,6 +36,14 @@ FUNC failOnThreeStr(s AS String) AS Boolean
 END FUNC
 
 FUNC showInts(xs AS List OF Integer) AS String
+  MUT out AS String = \"\"
+  FOR EACH v IN xs
+    out = out & toString(v) & \",\"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC showFloats(xs AS List OF Float) AS String
   MUT out AS String = \"\"
   FOR EACH v IN xs
     out = out & toString(v) & \",\"
@@ -80,6 +89,20 @@ const CASES: &[(&str, &str, &str, &str, &str)] = &[
         "x = collections::mid(x, 2, 5)",
         "showStrs",
         "a,b,c,",
+    ),
+    (
+        "math::sqrt over a negative element (plan-142-C)",
+        "MUT x AS List OF Float = [4.0, 9.0, -1.0, 16.0]",
+        "x = math::sqrt(x)",
+        "showFloats",
+        "4.00,9.00,-1.00,16.00,",
+    ),
+    (
+        "math::log over a zero element (plan-142-C)",
+        "MUT x AS List OF Float = [1.0, 0.0, 2.0]",
+        "x = math::log(x)",
+        "showFloats",
+        "1.00,0.00,2.00,",
     ),
     (
         "mid with a negative start",

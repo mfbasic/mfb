@@ -195,7 +195,7 @@ S1); `rt_inplace_failure_atomic` → `1 passed`; `rt_inplace_self_update` → `1
 (141s, all 64 lines; `grep -c 'pending:B' cases.tsv` → 0). Full artifact-gate with
 the arms: `2078 golden(s) checked, 0 diff(s)` — no committed fixture self-updates
 one of the five.
-Commit: —
+Commit: a70924e35
 
 ### Phase 4 — Expected outputs
 
@@ -213,7 +213,7 @@ Commit: —
 Acceptance: acceptance run green on `tests/rt-behavior/collections` (est. 10 min).
 Verified 2026-09-21: `scripts/test-accept.sh <debug mfb> <dir> 'rt-behavior/collections/*'`
 → `acceptance tests passed (65 test(s) ran)`.
-Commit: —
+Commit: a70924e35
 
 ## Validation Plan
 

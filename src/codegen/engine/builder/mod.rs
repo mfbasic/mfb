@@ -449,6 +449,10 @@ pub(crate) struct CodeBuilder<'a> {
     /// (`prescan_self_update_scratch`); zeroed at entry, grown on demand, freed at
     /// every exit by a function-level cleanup.
     pub(crate) self_update_scratch: Option<usize>,
+    /// plan-142-C: set by the in-place `math` arm around its call to the member's
+    /// lowering; `emit_alloc_result_list` takes it and returns the self-update
+    /// scratch instead of allocating the result list.
+    pub(crate) simd_result_into: Option<()>,
     /// For backends whose `RegisterModel::math_pool_base` is `None` (no free
     /// physical to pin, e.g. x86), the per-kernel virtual register holding the
     /// SIMD math constant-pool base, keyed by the function symbol it was minted
@@ -644,6 +648,7 @@ impl<'a> CodeBuilder<'a> {
             for_each_iterable_record_fields: Vec::new(),
             string_capacity_slots: HashMap::new(),
             self_update_scratch: None,
+            simd_result_into: None,
             math_pool_base_vreg: None,
             vector_natives: HashMap::new(),
             next_vector_native: 0,
