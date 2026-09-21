@@ -652,6 +652,34 @@ fn collect_assigned_locals(ops: &[NirOp], out: &mut HashSet<String>) {
     Collector { out }.visit_ops(ops);
 }
 
+/// plan-142-F: whether `ops` can write the local `name` — an `Assign` to it, or a
+/// by-reference capture of it (`LocalRef`, a `MUT` captured by a lambda) through
+/// which a callback may assign it. Anywhere in `ops`, nested blocks included.
+pub(crate) fn ops_write_local(ops: &[NirOp], name: &str) -> bool {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Finder<'a> {
+        name: &'a str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::Assign { name, .. } if name == self.name) {
+                self.found = true;
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            if matches!(value, NirValue::LocalRef { name, .. } if name == self.name) {
+                self.found = true;
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder { name, found: false };
+    finder.visit_ops(ops);
+    finder.found
+}
+
 /// Mark every local read in a *materializing* position — anything other than a
 /// member read of the local or a direct argument to an inlined vector op.
 fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {

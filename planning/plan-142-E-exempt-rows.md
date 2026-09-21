@@ -84,7 +84,7 @@ References: plan-142-A §3 and Open Decision 3.
 Acceptance: `cargo test --bin mfb self_update` → pass with 0 `Pending("E")` rows (est. 3 min).
 Verified 2026-09-21: `test result: ok. 4 passed`, no warnings; `Pending` no longer
 exists.
-Commit: —
+Commit: 04fbb45f6 (the two copies), 2567f1809 (the rows)
 
 ### Phase 2 — Runtime proof
 
@@ -103,7 +103,7 @@ Commit: —
 Acceptance: `cargo test --test rt_inplace_self_update` → pass (est. 8 min).
 Verified 2026-09-21: `test result: ok. 1 passed; 0 failed` (263.55s), 53 `arm` and
 11 `exempt` lines, 0 `pending`.
-Commit: —
+Commit: 2567f1809
 
 ## Validation Plan
 

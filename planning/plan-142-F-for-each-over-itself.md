@@ -61,15 +61,32 @@ Risk: the loop-exit free on every exit edge (`EXIT FOR`, `RETURN` from inside,
 
 ### Phase 1 — Owned iterable when the body writes it
 
-- [ ] Body scan (`NirOp::Assign` to the iterable's name, including nested blocks;
-      by-ref `forEach` captures of it).
-- [ ] Owned iterable + exit-edge frees in `lower_for_each`; skip the
-      `for_each_iterable_locals` push for this loop.
-- [ ] Runtime cases (`tests/runtime/rt_for_each_self_update.rs` + stanza): snapshot
+- [x] Body scan (`NirOp::Assign` to the iterable's name, including nested blocks;
+      by-ref `forEach` captures of it). `ops_write_local`
+      (`engine/function/function_lowering.rs`): an `Assign` to the name or a
+      `LocalRef` of it (the by-ref capture) anywhere under the body, through the
+      exhaustive `NirVisitor` seam.
+- [x] Owned iterable + exit-edge frees in `lower_for_each`; skip the
+      `for_each_iterable_locals` push for this loop. The copy is bug-666's operand
+      snapshot (`operand_snapshot.rs`), already used for a global iterable the body
+      can store: `lower_value` deep-copies the iterable into a statement-scope
+      temporary, which the `FOR EACH` statement's pending-temp drain frees on every
+      exit edge — no new exit-edge code (Correction F2). Gated on
+      `is_freeable_flat_value` (a graph-typed local, which the snapshot cannot copy,
+      keeps borrowing and keeps the G7 exclusion).
+- [x] Runtime cases (`tests/runtime/rt_for_each_self_update.rs` + stanza): snapshot
       visit order for append/removeAt/sort/filter; `EXIT FOR` and `RETURN` from the
       body; `perf.mfb_free.count` equals `perf.mfb_alloc.count` for the loop's blocks.
+      Ten programs: append, removeAt, sort+prepend, filter, `List OF String`, a Map,
+      a Set, `EXIT FOR`, `RETURN` from the body, and nested loops over the same
+      binding. The balance is `arena.0.alloc_calls == free_calls` and
+      `live_bytes == 0` (Correction F1). RED with the pre-F binary
+      (`MFB_TEST_EXE=<5bbca2a25 build>`): all ten print the right elements and all
+      ten leak — e.g. "append: … 21 allocated / 18 freed / 224 B live",
+      "nested: … 24 allocated / 18 freed / 480 B live".
 
 Acceptance: `cargo test --test rt_for_each_self_update` → pass (est. 5 min).
+Verified 2026-09-21: `test result: ok. 1 passed; 0 failed` (2.49s).
 Commit: —
 
 ### Phase 2 — Enable S7
@@ -102,6 +119,18 @@ Commit: —
    self-updates the iterable (the design above). Copy-on-first-write is not built.
 
 ## Corrections
+
+- **F1 (Phase 1): the balance is the arena's counters.** `perf.mfb_alloc.count` is
+  capped (plan-142-A Correction A4); the case reads `arena.0.alloc_calls`,
+  `free_calls` and `live_bytes`, which `--debug` builds print uncapped — the same
+  counters `rt_reduce_collection_accumulator_frees` uses.
+- **F2 (Phase 1): the copy already existed.** §3 asks for a private copy and a
+  free on every exit edge. bug-666 built exactly that for a global iterable
+  (`operand_snapshot_wanted` in `lower_for_each`): the snapshot is a
+  statement-scope pending temp, freed by the statement's drain on the normal exit,
+  `EXIT FOR` and `RETURN`. F routes the written-local case through it rather than
+  adding a second copy-and-free; the `EXIT FOR`/`RETURN`/nested cases prove the
+  edges.
 
 ## Summary
 

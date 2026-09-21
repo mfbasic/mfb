@@ -2424,6 +2424,24 @@ impl CodeBuilder<'_> {
                     .push(iterable as *const NirValue as usize);
             }
         }
+        // plan-142-F: likewise a local the body writes. Walking the binding's own
+        // block would forbid every in-place self-update in the body (the loop holds
+        // its pointer and count), so the loop walks a copy made once here — its
+        // entry-time snapshot, freed with the statement — and the binding is free
+        // to be mutated in place. A body that never writes it keeps borrowing.
+        let owns_local_iterable = match iterable {
+            NirValue::Local(local_name) => {
+                self.locals
+                    .get(local_name)
+                    .is_some_and(|local| self.is_freeable_flat_value(&local.type_))
+                    && ops_write_local(body, local_name)
+            }
+            _ => false,
+        };
+        if owns_local_iterable {
+            self.operand_snapshot_wanted
+                .push(iterable as *const NirValue as usize);
+        }
         let iterable_value = self.lower_value(iterable);
         self.operand_snapshot_wanted.truncate(snapshot_mark);
         let iterable_value = iterable_value?;
@@ -2474,11 +2492,13 @@ impl CodeBuilder<'_> {
         // snapshots and re-reads each step; record it so an in-place `set`/`prepend`
         // that overwrites an existing entry (observable to this iterator) is
         // excluded for the binding inside the loop body (plan-02 §4.1, D1).
-        let pushed_iterable = if let NirValue::Local(local_name) = iterable {
-            self.for_each_iterable_locals.push(local_name.clone());
-            true
-        } else {
-            false
+        // A loop walking its own copy (plan-142-F) observes nothing of the binding.
+        let pushed_iterable = match iterable {
+            NirValue::Local(local_name) if !owns_local_iterable => {
+                self.for_each_iterable_locals.push(local_name.clone());
+                true
+            }
+            _ => false,
         };
         // bug-430: `FOR EACH x IN resource.state.field` snapshots an ALIAS into the
         // STATE collection's inlined buffer, so record it — an in-place
