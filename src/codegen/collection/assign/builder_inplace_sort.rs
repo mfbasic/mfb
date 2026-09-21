@@ -62,7 +62,7 @@ fn is_ordered(type_: &ParameterType) -> bool {
             | ParameterType::Money
             | ParameterType::Byte
             | ParameterType::String
-    ) || type_.name() == "Scalar"
+    ) || type_.is_named("Scalar")
 }
 
 const HIDDEN_RIGHT: &str = "$su_sort_right";
