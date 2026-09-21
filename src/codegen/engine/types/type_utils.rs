@@ -52,8 +52,12 @@ impl FieldTypes {
     /// Every enum `model` knows — the module's own, the imported packages', and
     /// the bare aliases of built-in ones — with members ordered by ordinal.
     pub(crate) fn with_enums_of(mut self, model: &TypeModel) -> Self {
-        self.enums
-            .extend(model.enum_names.iter().map(|(type_, names)| (type_.clone(), names.clone())));
+        self.enums.extend(
+            model
+                .enum_names
+                .iter()
+                .map(|(type_, names)| (type_.clone(), names.clone())),
+        );
         self
     }
 
@@ -89,14 +93,13 @@ pub(crate) fn to_string_enum_members<'a>(
             }
         }
     }
-    let type_ = static_type_name_for_fold_with_types(value, types, fields).or_else(|| {
-        match value {
+    let type_ =
+        static_type_name_for_fold_with_types(value, types, fields).or_else(|| match value {
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
                 fields.function_returns.get(target).cloned()
             }
             _ => None,
-        }
-    })?;
+        })?;
     fields.enums.get(&type_).map(Vec::as_slice)
 }
 

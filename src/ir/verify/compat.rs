@@ -327,7 +327,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
@@ -378,7 +380,9 @@ impl TypeEnv {
                         return;
                     };
                     let trial = vec![arg_types[0].clone(), predicate_type.clone()];
-                    if builtins::resolve_call_return_type_with_kinds(target, &trial, true, self).is_none() {
+                    if builtins::resolve_call_return_type_with_kinds(target, &trial, true, self)
+                        .is_none()
+                    {
                         let predicate_type = predicate_type.name();
                         self.emit_argument_mismatch(format!(
                                 "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate_type}), expected {}.",
@@ -394,7 +398,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 self.emit_argument_mismatch(format!(
                     "Call to `{target}` has argument type(s) ({}), expected {}.",
                     arg_type_names(),
@@ -477,7 +483,9 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(target, &arg_types, true, self)
+                .is_none()
+            {
                 self.emit_argument_mismatch(format!(
                     "Call to `{target}` has argument type(s) ({}), expected {}.",
                     arg_type_names(),

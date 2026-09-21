@@ -280,7 +280,10 @@ impl TypeModel {
             .into_iter()
             .map(|(type_, mut members)| {
                 members.sort();
-                (type_, members.into_iter().map(|(_, member)| member).collect())
+                (
+                    type_,
+                    members.into_iter().map(|(_, member)| member).collect(),
+                )
             })
             .collect();
     }

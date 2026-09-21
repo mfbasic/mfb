@@ -804,13 +804,19 @@ impl CodeBuilder<'_> {
         members: &[String],
     ) -> Result<ValueResult, String> {
         let Some((last, earlier)) = members.split_last() else {
-            return Err(format!("native toString: enum {} has no members", value.type_));
+            return Err(format!(
+                "native toString: enum {} has no members",
+                value.type_
+            ));
         };
         let result = self.allocate_register();
         let done = self.label("enum_to_string_done");
         for (ordinal, member) in earlier.iter().enumerate() {
             let next = self.label("enum_to_string_next");
-            self.emit(abi::compare_immediate(&value.location, &ordinal.to_string()));
+            self.emit(abi::compare_immediate(
+                &value.location,
+                &ordinal.to_string(),
+            ));
             self.emit(abi::branch_ne(&next));
             self.emit_load_string_constant(&result, member)?;
             self.emit(abi::branch(&done));

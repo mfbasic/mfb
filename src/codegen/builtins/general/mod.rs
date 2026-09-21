@@ -33,10 +33,10 @@
 //! cases it back to `None`, reproducing the legacy diagnostic exactly.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::{NoTypeKinds, TypeKinds};
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
-use crate::codegen::builtins::{NoTypeKinds, TypeKinds};
 use crate::types::ParameterType;
 
 // One file per member, holding its descriptor AND its man-page prose — the same
@@ -1041,7 +1041,10 @@ mod tests {
             Some("Integer".to_string())
         );
         assert_eq!(rt_kinds(TO_INT, &["Color"], &NoTypeKinds), None);
-        assert_eq!(rt_kinds(TO_INT, &["Color", "Integer"], &ColorIsAnEnum), None);
+        assert_eq!(
+            rt_kinds(TO_INT, &["Color", "Integer"], &ColorIsAnEnum),
+            None
+        );
         assert_eq!(rt_kinds(TO_INT, &["Shape"], &ColorIsAnEnum), None);
     }
 
@@ -1054,7 +1057,10 @@ mod tests {
             Some("String".to_string())
         );
         assert_eq!(rt_kinds(TO_STRING, &["Color"], &NoTypeKinds), None);
-        assert_eq!(rt_kinds(TO_STRING, &["Color", "Byte"], &ColorIsAnEnum), None);
+        assert_eq!(
+            rt_kinds(TO_STRING, &["Color", "Byte"], &ColorIsAnEnum),
+            None
+        );
         assert_eq!(rt_kinds(TO_STRING, &["Shape"], &ColorIsAnEnum), None);
     }
 
@@ -1072,7 +1078,9 @@ mod tests {
             &["Float", "Byte"],
             &["Color", "Byte"],
         ];
-        for name in [TO_FLOAT, TO_FIXED, TO_BYTE, TO_MONEY, TO_SCALAR, LEN, TYPE_NAME] {
+        for name in [
+            TO_FLOAT, TO_FIXED, TO_BYTE, TO_MONEY, TO_SCALAR, LEN, TYPE_NAME,
+        ] {
             for args in cases {
                 let with = |kinds: &dyn TypeKinds| {
                     resolve_call(name, &types(args), kinds).map(|r| r.return_type)
@@ -1145,7 +1153,10 @@ mod tests {
             resolve_return_type(TO_MONEY, &types(&["Integer"]), &NoTypeKinds),
             Some(ParameterType::Money)
         );
-        assert_eq!(resolve_return_type("nope", &types(&["Integer"]), &NoTypeKinds), None);
+        assert_eq!(
+            resolve_return_type("nope", &types(&["Integer"]), &NoTypeKinds),
+            None
+        );
     }
 
     #[test]
