@@ -162,6 +162,14 @@ Commit: a0e65b4a7
   '…' is not a collection"), and `x` in the `&` row is a `String`. `Probe::source`
   returns `None` for it at S7 and the harness's `Site::applies` skips it; every
   collection `Arm` row fires at S7.
+- **F4 (found by plan-142-I's full `cargo test`): three codegen tests asserted the
+  old mechanism.** `tests/codegen/codegen_inplace_remove_at_insert.rs` required
+  `insert`, `removeAt` and Set `remove` to *decline* under a `FOR EACH` over the
+  same binding (plan-121-B). They protect "the loop never sees the shift", which
+  F keeps by giving the loop its own copy (Open Decision 1, resolved by the user;
+  `rt_for_each_self_update`'s `remove_at` case visits `1 2 3`). Only the disproved
+  assertion changed: each now requires the loop's `operand_snapshot` slot and the
+  arm's label; `G7` itself is still pinned by `inplace_dest.rs`'s unit tests.
 
 ## Summary
 
