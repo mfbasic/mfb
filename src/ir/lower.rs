@@ -3955,8 +3955,14 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                let resolved =
-                    builtins::resolve_call_return_type_typed(&canonical_callee, &arg_types, false);
+                // plan-140-B: with the type index as the enum oracle, so
+                // `toInt(<enum>)` types as `Integer`.
+                let resolved = builtins::resolve_call_return_type_with_kinds(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                    context.type_index,
+                );
                 // A package-provided override of an overridable general builtin
                 // (`toString(net::Url)` → the package's renderer, plan-01-overload
                 // §B.2) yields the builtin's conventional result type — the same
@@ -5837,6 +5843,18 @@ struct TypeIndex {
     variants: HashMap<ParameterType, ParameterType>,
     variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
     variant_fields: HashMap<ParameterType, Vec<IrField>>,
+}
+
+/// plan-140-B: the built-in resolver's enum oracle over the declared and
+/// imported enums. A qualified built-in spelling falls back to its bare leaf.
+impl builtins::TypeKinds for TypeIndex {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t) || {
+            let name = t.name();
+            let bare = builtins::builtin_qualified_bare_leaf(&name);
+            bare != name.as_ref() && self.enums.contains_key(&ParameterType::declared(bare))
+        }
+    }
 }
 
 impl TypeIndex {

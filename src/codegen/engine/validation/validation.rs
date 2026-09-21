@@ -229,6 +229,14 @@ impl CodeFunction {
 /// any including union, so a variant included at divergent positions in two unions
 /// dispatches consistently (bug-80; replaced the earlier positional scheme + its
 /// `check_union_variant_tag` rejection).
+/// plan-140-B: codegen's built-in resolver oracle — `TypeModel` knows every
+/// enum the module declares or imports.
+impl crate::codegen::builtins::TypeKinds for TypeModel {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.is_enum_type(t)
+    }
+}
+
 impl TypeModel {
     pub(crate) fn empty() -> Self {
         Self {

@@ -121,11 +121,13 @@ fn err_msg(name: &str) -> String {
         .to_string()
 }
 
-pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
+pub(crate) fn string_symbols(module: &NirModule, type_model: &TypeModel) -> HashMap<String, String> {
     let mut values = Vec::new();
     // The module's record / union-variant field types, so every walk below can
-    // type a `MemberAccess` (bug-363, bug-366).
-    let fields = module_field_types(module);
+    // type a `MemberAccess` (bug-363, bug-366), and the builder's own enum table
+    // (plan-140-B), so a walk tells an enum from any other declared type exactly
+    // as the lowering will.
+    let fields = module_field_types(module).with_enums_of(type_model);
     if module_uses_type_name(module) {
         collect_type_name_values(module, &mut values);
     }

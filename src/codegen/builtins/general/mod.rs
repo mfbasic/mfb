@@ -263,7 +263,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         TO_STRING => Some(
             "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte",
         ),
-        TO_INT => Some("String[, Integer], Byte, Float, Fixed, Money, or Scalar"),
+        TO_INT => Some("String[, Integer], Byte, Float, Fixed, Money, Scalar, or an enum"),
         TO_FLOAT => Some("String, Integer, Fixed, or Money"),
         TO_FIXED => Some("String, Integer, Float, or Money"),
         TO_BYTE => Some("Integer, Money, or Scalar"),
@@ -332,12 +332,12 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     crate::codegen::registry::registry().arity(&format!("general.{name}"))
 }
 
-/// `_kinds` (plan-140-A) tells an enum from any other declared type; no arm
-/// consults it yet.
+/// `kinds` (plan-140-A) tells an enum from any other declared type: `toInt`
+/// accepts any enum (plan-140-B).
 pub(crate) fn resolve_call(
     name: &str,
     arg_types: &[ParameterType],
-    _kinds: &dyn TypeKinds,
+    kinds: &dyn TypeKinds,
 ) -> Option<ResolvedCall> {
     let resolved = match name {
         ERROR => {
@@ -403,8 +403,8 @@ pub(crate) fn resolve_call(
             }
         }
         TO_INT => {
-            // 1-arg: parse base-10 (String) or numeric narrowing (Byte/Float/Fixed).
-            // 2-arg: `toInt(text AS String, base AS Integer)` parses `text` in
+            // 1-arg: parse base-10 (String), numeric narrowing (Byte/Float/Fixed),
+            // or an enum's 0-based declaration index (plan-140-B). 2-arg: `toInt(text AS String, base AS Integer)` parses `text` in
             // `base` (plan-02-cleanup §5). The optional `base` is a second arity,
             // not a user-level default parameter, since `toInt` is overloaded.
             if exact_one_of(
@@ -418,6 +418,7 @@ pub(crate) fn resolve_call(
                     ParameterType::named("Scalar"),
                 ],
             ) || exact(arg_types, &[ParameterType::String, ParameterType::Integer])
+                || (arg_types.len() == 1 && kinds.is_enum(&arg_types[0]))
             {
                 ResolvedCall {
                     return_type: ParameterType::Integer,
@@ -1017,33 +1018,45 @@ mod tests {
         }
     }
 
-    /// plan-140-A: the seam is plumbed but no arm consults it yet, so every
-    /// `toInt`/`toString` case resolves the same under an always-true and an
-    /// always-false oracle — a declared type (`Color`) included.
+    /// An oracle that knows exactly one enum, `Color`.
+    struct ColorIsAnEnum;
+    impl TypeKinds for ColorIsAnEnum {
+        fn is_enum(&self, t: &ParameterType) -> bool {
+            t.is_named("Color")
+        }
+    }
+
+    fn rt_kinds(name: &str, args: &[&str], kinds: &dyn TypeKinds) -> Option<String> {
+        resolve_call(name, &types(args), kinds).map(|r| r.return_type.name().into_owned())
+    }
+
+    /// plan-140-B: `toInt` accepts one enum argument, and only when the oracle
+    /// says it is one; the `base` form stays `String`-only.
     #[test]
-    fn resolve_call_does_not_consult_the_kind_oracle_yet() {
+    fn resolve_to_int_enum() {
+        assert_eq!(
+            rt_kinds(TO_INT, &["Color"], &ColorIsAnEnum),
+            Some("Integer".to_string())
+        );
+        assert_eq!(rt_kinds(TO_INT, &["Color"], &NoTypeKinds), None);
+        assert_eq!(rt_kinds(TO_INT, &["Color", "Integer"], &ColorIsAnEnum), None);
+        assert_eq!(rt_kinds(TO_INT, &["Shape"], &ColorIsAnEnum), None);
+    }
+
+    /// plan-140-A's seam reaches no built-in but `toInt` yet: every other case
+    /// resolves the same under an always-true and an always-false oracle.
+    #[test]
+    fn only_to_int_consults_the_kind_oracle() {
         let cases: &[&[&str]] = &[
             &["String"],
-            &["Byte"],
-            &["Float"],
-            &["Fixed"],
-            &["Money"],
-            &["Scalar"],
             &["Integer"],
             &["Boolean"],
             &["List OF Byte"],
-            &["List OF Integer"],
             &["Color"],
-            &["String", "Integer"],
-            &["Integer", "Integer"],
             &["Float", "Byte"],
-            &["Fixed", "Byte"],
-            &["Integer", "Byte"],
-            &["Float", "Integer"],
-            &["Color", "Integer"],
             &["Color", "Byte"],
         ];
-        for name in [TO_INT, TO_STRING] {
+        for name in [TO_STRING, TO_FLOAT, TO_BYTE, LEN, TYPE_NAME] {
             for args in cases {
                 let with = |kinds: &dyn TypeKinds| {
                     resolve_call(name, &types(args), kinds).map(|r| r.return_type)

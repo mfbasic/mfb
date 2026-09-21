@@ -1165,7 +1165,13 @@ pub(crate) fn lower_module_for_platform(
     // each a row: without them their cost lands in this stage's self time, which
     // is exactly the "where did the rest of the minute go" gap the profiler
     // exists to close.
-    let string_symbols = crate::trace::timed("string symbols", || string_symbols(module));
+    // plan-140-B: the type model is built before the string pre-pass, which reads
+    // its enum table (the two must agree on which types are enums).
+    let type_model = crate::trace::timed("type model", || {
+        TypeModel::from_module_and_packages(module, packages)
+    })?;
+    let string_symbols =
+        crate::trace::timed("string symbols", || string_symbols(module, &type_model));
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
@@ -1410,9 +1416,6 @@ pub(crate) fn lower_module_for_platform(
             platform.family(),
         ));
     }
-    let type_model = crate::trace::timed("type model", || {
-        TypeModel::from_module_and_packages(module, packages)
-    })?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's
     // registered close op resolves it through `resolve_closer_symbol`, so the
     // scope-drop call site and the thunk's own "am I a close op?" test cannot

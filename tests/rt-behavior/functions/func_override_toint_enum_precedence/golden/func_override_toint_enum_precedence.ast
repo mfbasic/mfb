@@ -1,0 +1,64 @@
+{
+  "project": "func_override_toint_enum_precedence",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cash",
+      "line": 5,
+      "fields": [
+      { "visibility": null, "name": "cents", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Color",
+      "line": 9,
+      "members": [
+      { "name": "Red", "line": 10 },
+      { "name": "Green", "line": 10 },
+      { "name": "Blue", "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "toInt",
+      "line": 13,
+      "params": [
+      { "name": "m", "type": "Cash", "default": null, "line": 13 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "m" }, "member": "cents" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Cash", "value": { "kind": "constructor", "type": "Cash", "arguments": [{ "kind": "number", "value": "1995" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "m" }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }] }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "7" }] }] }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

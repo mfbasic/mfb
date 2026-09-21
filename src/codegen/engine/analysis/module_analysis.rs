@@ -332,6 +332,12 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
                     }
                 }
             }
+            "enum" => {
+                fields.insert_enum(
+                    ParameterType::declared(&type_.name),
+                    type_.members.iter().map(|member| member.name.clone()).collect(),
+                );
+            }
             _ => {}
         }
     }
@@ -1104,12 +1110,15 @@ pub(crate) fn value_may_return_invalid_format(
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
-            // `toInt(Byte)` and `toInt(Scalar)` are infallible width-preserving
-            // moves; every other 1-arg form can fail.
+            // `toInt(Byte)`, `toInt(Scalar)` and `toInt(<enum>)` (plan-140-B) are
+            // infallible width-preserving moves; every other 1-arg form can fail.
             "toInt" if args.len() == 1 => {
                 let arg_type = static_type_name_with_types(&args[0], types, fields);
                 !matches!(arg_type, Some(ParameterType::Byte))
                     && arg_type.as_ref() != Some(&scalar_type())
+                    && !arg_type.is_some_and(|type_| {
+                        crate::codegen::builtins::TypeKinds::is_enum(fields, &type_)
+                    })
             }
             // The 2-arg `toInt(text, base)` form parses a String in a runtime
             // base; it FAILs `77050003` on an empty string, an out-of-range

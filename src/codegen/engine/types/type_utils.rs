@@ -14,7 +14,61 @@ use std::collections::HashMap;
 /// `static_nir_value_type` so a module-level walk can type `c.radius` the same
 /// way the builder does. Without it a `MemberAccess` operand types as `None` and
 /// every predicate built on this seam silently under-approximates (bug-363).
-pub(crate) type FieldTypes = HashMap<(String, String), ParameterType>;
+///
+/// plan-140-B: it also carries every enum's member names in declaration order,
+/// so the same walks can tell an enum from any other declared type — the one
+/// kind fact the built-in resolver needs ([`builtins::TypeKinds`]). The string
+/// pre-pass fills it from the builder's own `TypeModel`
+/// ([`FieldTypes::with_enums_of`]), so the two cannot disagree about which types
+/// are enums.
+#[derive(Clone, Default)]
+pub(crate) struct FieldTypes {
+    fields: HashMap<(String, String), ParameterType>,
+    enums: HashMap<ParameterType, Vec<String>>,
+}
+
+impl FieldTypes {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn insert(&mut self, key: (String, String), type_: ParameterType) {
+        self.fields.insert(key, type_);
+    }
+
+    pub(crate) fn get(&self, key: &(String, String)) -> Option<&ParameterType> {
+        self.fields.get(key)
+    }
+
+    /// Record an enum's member names, in declaration order.
+    pub(crate) fn insert_enum(&mut self, type_: ParameterType, members: Vec<String>) {
+        self.enums.insert(type_, members);
+    }
+
+    /// Every enum `model` knows — the module's own, the imported packages', and
+    /// the bare aliases of built-in ones — with members ordered by ordinal.
+    pub(crate) fn with_enums_of(mut self, model: &TypeModel) -> Self {
+        let mut ordered: HashMap<ParameterType, Vec<(usize, String)>> = HashMap::new();
+        for ((type_, member), ordinal) in &model.enum_members {
+            ordered
+                .entry(type_.clone())
+                .or_default()
+                .push((*ordinal, member.clone()));
+        }
+        for (type_, mut members) in ordered {
+            members.sort();
+            self.enums
+                .insert(type_, members.into_iter().map(|(_, member)| member).collect());
+        }
+        self
+    }
+}
+
+impl builtins::TypeKinds for FieldTypes {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t)
+    }
+}
 
 pub(crate) fn static_nir_value_type(
     value: &NirValue,

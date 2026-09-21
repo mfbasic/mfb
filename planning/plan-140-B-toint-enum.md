@@ -195,31 +195,48 @@ Acceptance: the new fixtures fail for the right reason.
   `TYPE_CALL_ARGUMENT_MISMATCH` on a `toInt(<enum>)` line (`Color`,
   `datetime.Weekday`, the package's `Suit` at `lib.mfb:11`); `toInt_invalid`
   differs only in the expected-overloads string.
-Commit: —
+Commit: 643866b0e
 
 ### Phase 2 — Resolve, type, lower, and mark infallible
 
-- [ ] `src/codegen/builtins/general/mod.rs:397`: `TO_INT` accepts one enum
+- [x] `src/codegen/builtins/general/mod.rs:397`: `TO_INT` accepts one enum
       argument via `kinds.is_enum`; `expected_arguments(TO_INT)` (`:265`) gains
       `", or an enum"`; unit tests: `rt_kinds(TO_INT, &["Color"], enum_oracle)`
       → `Integer`, same with a non-enum oracle → `None`, and
-      `(Color, Integer)` → `None`.
-- [ ] Typing fallback in the `NoTypeKinds` sites the Phase 1 fixture shows
+      `(Color, Integer)` → `None`. (`resolve_to_int_enum`, plus
+      `only_to_int_consults_the_kind_oracle`, which replaces plan-140-A's
+      `..._does_not_consult_the_kind_oracle_yet` — see B-C2;
+      `cargo test --bin mfb codegen::builtins::general` → 28 passed.)
+- [x] Typing fallback in the `NoTypeKinds` sites the Phase 1 fixture shows
       untyped (start with `ir/lower.rs:3959`): on `None` for an `is_general_call`
       name, fall back to `general::nominal_return_type`. List each site touched
-      in the commit message.
-- [ ] `src/codegen/engine/convert/builder_conversions.rs:24`: the move branch
+      in the commit message. (Only `ir/lower.rs:3959` needed it, measured:
+      with it on `NoTypeKinds` the `toInt_enum` build fails at `main.mfb:18`
+      `TYPE_CALL_ARGUMENT_MISMATCH` on the enclosing `toString(toInt(..))`; with
+      it wired every fixture passes. Wired through a `TypeIndex` oracle, not the
+      nominal fallback — B-C1.)
+- [x] `src/codegen/engine/convert/builder_conversions.rs:24`: the move branch
       also takes an enum-typed value (`self.type_model.is_enum_type`).
-- [ ] `src/codegen/engine/value/builder_values.rs:2280`: the inline-TRAP raw
+- [x] ~~`src/codegen/engine/value/builder_values.rs:2280`: the inline-TRAP raw
       path treats `toInt(<enum>)` as infallible, whatever `toInt(Byte)` does
-      there.
-- [ ] `src/codegen/engine/analysis/module_analysis.rs:1109`: the 1-arg `toInt`
-      verdict is infallible for an enum argument.
+      there.~~ — moot: that path calls `lower_inline_conversion_raw` →
+      `lower_to_int` (`builder_values.rs:3018`), which now takes the move
+      branch for an enum exactly as for `Byte`, so no error exit exists to
+      capture. Evidence: `toInt_enum`'s `toInt(Color.Green) TRAP(e)` prints `1`
+      and never `trapped` (`.run` golden line 7, passing).
+- [x] `src/codegen/engine/analysis/module_analysis.rs:1109`: the 1-arg `toInt`
+      verdict is infallible for an enum argument. (Enum source: `FieldTypes`
+      now carries the enum table, filled from the builder's `TypeModel`, which
+      is built before the string pre-pass — B-C3.)
 
 Acceptance: the Phase 1 fixtures pass.
   Check: `cargo build --release && scripts/test-accept.sh target/release/mfb target/accept-actual 'toInt*' 'func_override_toint*' 'bug155_toInt_named_args' 'scalar-conversions-rt' 'codegen-conversion-edges-rt'`
   → all pass (est. 3 min; the listed fixtures are every existing `toInt`
   fixture plus the new ones, per `grep -rl toInt tests/rt-behavior/general/*/src/main.mfb`).
+  Result: `acceptance tests passed (13 test(s) ran)` (the three new fixtures
+  listed as run). Whole corpus: `artifact-gate [all]: 1470 tests, 1645
+  build(s), 2072 golden(s) checked, 0 diff(s)` — no golden outside this
+  plan's changed (`toInt_invalid` was hand-edited in Phase 1).
 Commit: —
 
 ### Phase 3 — Docs and spec
@@ -285,6 +302,29 @@ Commit: —
   only, which would leave `Byte`/`Scalar` inconsistent with enums.
 
 ## Corrections
+
+- **B-C1 (Phase 2, typing):** §3 step 2 proposed the name-keyed
+  `nominal_return_type` fallback at `ir/lower.rs:3959`. That would also type an
+  INVALID call (`toInt(TRUE)`) as `Integer` and drop the
+  `TYPE_UNKNOWN_VALUE` follow-on the `toInt_invalid` golden pins. The site
+  instead passes `ir::lower`'s `TypeIndex` (which holds declared and imported
+  enums) as the kind oracle: exact, and no invalid call changes. No other
+  typing site needed a change (Phase 2 task line has the measurement).
+- **B-C2 (tests):** plan-140-A's unit test pinned "no arm consults the oracle
+  yet", a property B ends by design. It is replaced by
+  `resolve_to_int_enum` plus `only_to_int_consults_the_kind_oracle`, which keeps
+  A's guarantee for every other built-in.
+- **B-C3 (Phase 2, fallibility census):** §3 step 4 left the census's enum
+  source open. `module_analysis::value_may_return_invalid_format` only sees the
+  string pre-pass's `types`/`fields`, and that pre-pass ran before the
+  `TypeModel` existed. `FieldTypes` became a struct that also carries each
+  enum's members in declaration order (`FieldTypes::with_enums_of`), and
+  `builder/mod.rs` now builds the type model first and hands it to
+  `string_symbols`. plan-140-C's pre-pass reads the same table, which settles
+  its UNVERIFIED row.
+- **B-C4 (Final gate):** the per-letter full `test-accept.sh` run is
+  consolidated into plan-140's single end-of-plan run (plan-140-C's final
+  gate). The whole-corpus artifact gate above already ran on B's tree.
 
 ## Summary
 
