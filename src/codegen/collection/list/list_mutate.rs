@@ -875,10 +875,15 @@ impl CodeBuilder<'_> {
     /// (possibly new) record pointer; the caller propagates it to the canonical
     /// owner (a resource STATE slot or the local's slot). Emits an
     /// `append_inplace_realloc` label on the grow path.
+    ///
+    /// plan-145-F: `summed_offset` is a frame slot already holding the field's
+    /// offset from the record block (a nested path's summed offset,
+    /// `emit_path_field_offset`); `None` reads it from `8 * field_index`.
     pub(crate) fn lower_inline_list_append_in_place(
         &mut self,
         record_slot: usize,
         field_index: usize,
+        summed_offset: Option<usize>,
         list_type: &ParameterType,
         element_type: &ParameterType,
         item_slot: usize,
@@ -913,8 +918,13 @@ impl CodeBuilder<'_> {
         // fieldOffset: the sub-block's block-relative start. Invariant across the
         // realloc (the prefix is copied verbatim), so read it once.
         let field_off_slot = self.allocate_stack_object("inline_append_foff", 8);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+        match summed_offset {
+            Some(slot) => self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), slot)),
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
+                self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+            }
+        }
         self.emit(abi::store_u64(
             &scratch9,
             abi::stack_pointer(),
@@ -1417,10 +1427,13 @@ impl CodeBuilder<'_> {
     /// The caller guarantees `self` is uniquely owned and `rhs` is a distinct
     /// buffer (the self-alias `append(x, x)` takes the value path at the gate).
     /// Emits an `append_inplace_realloc` label on the grow path.
+    /// plan-145-F: `summed_offset` as for
+    /// [`Self::lower_inline_list_append_in_place`].
     pub(crate) fn lower_inline_list_bulk_append_in_place(
         &mut self,
         record_slot: usize,
         field_index: usize,
+        summed_offset: Option<usize>,
         list_type: &ParameterType,
         element_type: &ParameterType,
         rhs_slot: usize,
@@ -1446,8 +1459,13 @@ impl CodeBuilder<'_> {
 
         // fieldOffset: sub-block start; invariant across realloc (prefix verbatim).
         let field_off_slot = self.allocate_stack_object("inline_bulk_foff", 8);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+        match summed_offset {
+            Some(slot) => self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), slot)),
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
+                self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+            }
+        }
         self.emit(abi::store_u64(
             &scratch9,
             abi::stack_pointer(),

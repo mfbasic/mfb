@@ -106,9 +106,22 @@ pub(crate) struct SelfUpdateSite<'a> {
     pub(crate) field: Option<FieldSite<'a>>,
 }
 
+/// plan-145-F: one outer level of a nested field path — `inner` in `o.inner.b`:
+/// the level's field, its position in its record, and that record's type.
+#[derive(Clone)]
+pub(crate) struct FieldLevel<'a> {
+    pub(crate) field: &'a str,
+    pub(crate) field_index: usize,
+    pub(crate) record_type: ParameterType,
+}
+
 /// plan-145-B: which field of which owner a field site updates.
 pub(crate) struct FieldSite<'a> {
     pub(crate) container: FieldContainer<'a>,
+    /// plan-145-F: the inlined record fields from the owner down to the updated
+    /// field's record, outermost first — empty for a field of the owner itself
+    /// (`r.f`), `[inner]` for `o.inner.f`.
+    pub(crate) path: Vec<FieldLevel<'a>>,
     /// The updated field's name.
     pub(crate) field: &'a str,
     /// Its position in the owner record's fields (the slot the record's block
@@ -116,6 +129,14 @@ pub(crate) struct FieldSite<'a> {
     pub(crate) field_index: usize,
     /// The owner record's type.
     pub(crate) record_type: ParameterType,
+}
+
+impl FieldSite<'_> {
+    /// plan-145-F: the path's field indices, outermost first
+    /// (`InPlaceDest::Inlined::path`).
+    pub(crate) fn path_indices(&self) -> Vec<usize> {
+        self.path.iter().map(|level| level.field_index).collect()
+    }
 }
 
 /// plan-145-B: who owns the field's block.
@@ -132,23 +153,7 @@ impl SelfUpdateSite<'_> {
     /// destination — the global; for a field site, the field (`G18`).
     pub(crate) fn is_self(&self, value: &NirValue) -> bool {
         if let Some(field) = &self.field {
-            let NirValue::MemberAccess { target, member } = value else {
-                return false;
-            };
-            if member != field.field {
-                return false;
-            }
-            return match field.container {
-                FieldContainer::Record { local } => {
-                    matches!(target.as_ref(), NirValue::Local(n) if n == local)
-                }
-                FieldContainer::State { resource } => matches!(
-                    target.as_ref(),
-                    NirValue::MemberAccess { target: inner, member: state }
-                        if state == "state"
-                            && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
-                ),
-            };
+            return field_place_is(value, field.container, &field.path, field.field);
         }
         match (&self.dest, value) {
             (InPlaceDest::Global { .. }, NirValue::Global { name, .. }) => name == self.name,
@@ -183,6 +188,39 @@ impl SelfUpdateSite<'_> {
         };
         finder.visit_value(value);
         finder.found
+    }
+}
+
+/// Whether `value` is the owner itself: the record local, or the handle's
+/// `.state`.
+pub(crate) fn field_owner_is(value: &NirValue, container: FieldContainer<'_>) -> bool {
+    match container {
+        FieldContainer::Record { local } => matches!(value, NirValue::Local(n) if n == local),
+        FieldContainer::State { resource } => matches!(
+            value,
+            NirValue::MemberAccess { target, member }
+                if member == "state"
+                    && matches!(target.as_ref(), NirValue::Local(n) if n == resource)
+        ),
+    }
+}
+
+/// plan-145-F: whether `value` reads exactly the place `<owner>.<path…>.field`.
+pub(crate) fn field_place_is(
+    value: &NirValue,
+    container: FieldContainer<'_>,
+    path: &[FieldLevel<'_>],
+    field: &str,
+) -> bool {
+    let NirValue::MemberAccess { target, member } = value else {
+        return false;
+    };
+    if member != field {
+        return false;
+    }
+    match path.split_last() {
+        Some((last, rest)) => field_place_is(target, container, rest, last.field),
+        None => field_owner_is(target, container),
     }
 }
 
@@ -579,19 +617,28 @@ fn with_holds_field_self_update(value: &NirValue, wanted: &dyn Fn(&str) -> bool)
     else {
         return false;
     };
-    updates.iter().any(|update| {
-        let NirValue::Call { target, args, .. } = &update.value else {
-            return false;
-        };
-        matches!(
-            args.first(),
-            Some(NirValue::MemberAccess { target: inner, member })
-                if *member == update.field && same_field_owner(inner, owner)
-        ) && wanted(target)
+    updates.iter().any(|update| match &update.value {
+        NirValue::Call { target, args, .. } => {
+            matches!(
+                args.first(),
+                Some(NirValue::MemberAccess { target: inner, member })
+                    if *member == update.field && same_field_owner(inner, owner)
+            ) && wanted(target)
+        }
+        // plan-145-F: `inner := WITH <owner>.inner { f := g(<owner>.inner.f, …) }`.
+        NirValue::WithUpdate { target: nested, .. } => {
+            matches!(
+                nested.as_ref(),
+                NirValue::MemberAccess { target: inner, member }
+                    if *member == update.field && same_field_owner(inner, owner)
+            ) && with_holds_field_self_update(&update.value, wanted)
+        }
+        _ => false,
     })
 }
 
-/// Whether two field owners name the same place: the local `r`, or `h.state`.
+/// Whether two field owners name the same place: the local `r`, `h.state`, or
+/// (plan-145-F) a field path under either, `o.inner`.
 fn same_field_owner(a: &NirValue, b: &NirValue) -> bool {
     match (a, b) {
         (NirValue::Local(x), NirValue::Local(y)) => x == y,
@@ -604,7 +651,7 @@ fn same_field_owner(a: &NirValue, b: &NirValue) -> bool {
                 target: y,
                 member: my,
             },
-        ) => mx == "state" && my == "state" && same_field_owner(x, y),
+        ) => mx == my && same_field_owner(x, y),
         _ => false,
     }
 }
@@ -1786,37 +1833,11 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 /// lands a pair early, without removing its entry, fails. Letter I deletes this.
 #[cfg(test)]
 pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
-    const NESTED: &[&str] = &["S6", "T6"];
     const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // Nested paths (F), the global record (G), the loop and the capture (H):
+        // The global record (G), the loop and the capture (H):
         // every collection arm.
-        (ArmId::Append, NESTED, 'F'),
-        (ArmId::BulkAppend, NESTED, 'F'),
-        (ArmId::SetAdd, NESTED, 'F'),
-        (ArmId::Insert, NESTED, 'F'),
-        (ArmId::Prepend, NESTED, 'F'),
-        (ArmId::Set, NESTED, 'F'),
-        (ArmId::RemoveKey, NESTED, 'F'),
-        (ArmId::RemoveAt, NESTED, 'F'),
-        (ArmId::SetRemove, NESTED, 'F'),
-        (ArmId::Filter, NESTED, 'F'),
-        (ArmId::Take, NESTED, 'F'),
-        (ArmId::Drop, NESTED, 'F'),
-        (ArmId::Mid, NESTED, 'F'),
-        (ArmId::Distinct, NESTED, 'F'),
-        (ArmId::Math, NESTED, 'F'),
-        (ArmId::Replace, NESTED, 'F'),
-        (ArmId::Transform, NESTED, 'F'),
-        (ArmId::Sort, NESTED, 'F'),
-        (ArmId::SortBy, NESTED, 'F'),
-        (ArmId::Union, NESTED, 'F'),
-        (ArmId::Intersection, NESTED, 'F'),
-        (ArmId::Difference, NESTED, 'F'),
-        (ArmId::SymmetricDifference, NESTED, 'F'),
-        (ArmId::Merge, NESTED, 'F'),
-        (ArmId::MapValues, NESTED, 'F'),
         (ArmId::Append, GLOBAL, 'G'),
         (ArmId::BulkAppend, GLOBAL, 'G'),
         (ArmId::SetAdd, GLOBAL, 'G'),

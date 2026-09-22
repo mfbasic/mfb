@@ -35,6 +35,7 @@
 
 use crate::codegen::collection::assign::self_update::{FieldContainer, SelfUpdateSite};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::typed_is_collection_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -61,6 +62,11 @@ pub(crate) enum InPlaceDest {
     Inlined {
         block_slot: usize,
         field_index: usize,
+        /// plan-145-F: the field indices of the inlined records from the block
+        /// down to the field's record (`FieldSite::path`); empty for a field of
+        /// the block's own record. The field's block-relative offset is the sum
+        /// of the offsets stored along the path.
+        path: Vec<usize>,
         /// `RES … STATE` only: that block pointer is *shared* with the resource
         /// record, so after the mutation the (possibly new) pointer must be
         /// published back through the resource's STATE slot (§15). A plain
@@ -86,6 +92,8 @@ pub(crate) enum InPlaceDest {
     StateField {
         resource: String,
         field_index: usize,
+        /// plan-145-F: as `Inlined::path`.
+        path: Vec<usize>,
     },
 }
 
@@ -449,13 +457,53 @@ impl CodeBuilder<'_> {
             || (self.field_is_last_inlined(site) && !operands.iter().any(|v| site.read_by(v)))
     }
 
+    /// plan-145-F: `offset` = the block-relative offset of field `field_index`
+    /// of the record reached from the block at `base` along `path` — the sum of
+    /// the offsets stored at each level (every inlined record's offsets are
+    /// relative to its own block, which begins at its parent's offset). For an
+    /// empty path it is the one load `record_ptr + 8 * field_index` it always was.
+    pub(crate) fn emit_path_field_offset(
+        &mut self,
+        base: &VirtualRegister,
+        offset: &VirtualRegister,
+        path: &[usize],
+        field_index: usize,
+    ) {
+        let Some((first, rest)) = path.split_first() else {
+            self.emit(abi::load_u64(offset, base, 8 * field_index));
+            return;
+        };
+        self.emit(abi::load_u64(offset, base, 8 * *first));
+        for index in rest.iter().copied().chain(std::iter::once(field_index)) {
+            let level = self.allocate_register();
+            let next = self.allocate_register();
+            self.emit(abi::add_registers(&level, base, offset));
+            self.emit(abi::load_u64(&next, &level, 8 * index));
+            self.emit(abi::add_registers(offset, offset, &next));
+        }
+    }
+
     /// plan-145-D: whether a field site's field is its owner's last inlined field
     /// (`G17`) — required before a route that can reallocate grows it: a grow of a
     /// middle sub-block would shift the next sibling and its stored offset.
+    ///
+    /// plan-145-F: for a nested path every level must be last-inlined too, so the
+    /// grown field ends the OUTER block and nothing after any level shifts.
     pub(crate) fn field_is_last_inlined(&self, site: &SelfUpdateSite<'_>) -> bool {
         site.field.as_ref().is_some_and(|field| {
             self.record_collection_last_inlined(&field.record_type, field.field)
                 .is_some_and(|(index, _)| index == field.field_index)
+                && field.path.iter().all(|level| {
+                    self.type_model
+                        .record_fields
+                        .get(&level.record_type)
+                        .is_some_and(|fields| {
+                            !fields
+                                .iter()
+                                .skip(level.field_index + 1)
+                                .any(|(_, ft)| self.record_field_is_inlined(ft))
+                        })
+                })
         })
     }
 
@@ -484,7 +532,8 @@ impl CodeBuilder<'_> {
             InPlaceDest::StateField {
                 resource,
                 field_index,
-            } => self.open_inplace_state_dest(resource, *field_index),
+                path,
+            } => self.open_inplace_state_dest(resource, *field_index, path.clone()),
             _ => Ok(dest.clone()),
         }
     }
@@ -500,6 +549,7 @@ impl CodeBuilder<'_> {
         &mut self,
         resource: &str,
         field_index: usize,
+        path: Vec<usize>,
     ) -> Result<InPlaceDest, String> {
         let local = self
             .locals
@@ -517,6 +567,7 @@ impl CodeBuilder<'_> {
         Ok(InPlaceDest::Inlined {
             block_slot,
             field_index,
+            path,
             write_back: Some(StateWriteBack {
                 resource_slot,
                 resource_type,
@@ -550,6 +601,7 @@ impl CodeBuilder<'_> {
         let InPlaceDest::Inlined {
             block_slot,
             field_index,
+            path,
             ..
         } = dest
         else {
@@ -558,10 +610,18 @@ impl CodeBuilder<'_> {
                  destination, got a plain local slot"
             ));
         };
+        // plan-145-F: a nested field's offset is summed along its path, once,
+        // before the grow (the prefix copy keeps every stored offset valid).
+        let summed_offset = if path.is_empty() {
+            None
+        } else {
+            Some(self.open_inplace_inlined_field_offset(dest)?)
+        };
         if bulk {
             self.lower_inline_list_bulk_append_in_place(
                 *block_slot,
                 *field_index,
+                summed_offset,
                 field_type,
                 element_type,
                 rhs_slot,
@@ -570,6 +630,7 @@ impl CodeBuilder<'_> {
             self.lower_inline_list_append_in_place(
                 *block_slot,
                 *field_index,
+                summed_offset,
                 field_type,
                 element_type,
                 rhs_slot,
@@ -629,6 +690,7 @@ impl CodeBuilder<'_> {
         let InPlaceDest::Inlined {
             block_slot,
             field_index,
+            path,
             ..
         } = dest
         else {
@@ -641,7 +703,7 @@ impl CodeBuilder<'_> {
         let base = self.allocate_register();
         let offset = self.allocate_register();
         self.emit(abi::load_u64(&base, abi::stack_pointer(), *block_slot));
-        self.emit(abi::load_u64(&offset, &base, 8 * *field_index));
+        self.emit_path_field_offset(&base, &offset, path, *field_index);
         let slot = self.allocate_stack_object("inplace_inlined_field_off", 8);
         self.emit(abi::store_u64(&offset, abi::stack_pointer(), slot));
         Ok(slot)
@@ -654,6 +716,7 @@ impl CodeBuilder<'_> {
         let InPlaceDest::Inlined {
             block_slot,
             field_index,
+            path,
             ..
         } = dest
         else {
@@ -667,7 +730,7 @@ impl CodeBuilder<'_> {
         let offset = self.allocate_register();
         // record pointer, then the field's block-relative offset beside it.
         self.emit(abi::load_u64(&base, abi::stack_pointer(), *block_slot));
-        self.emit(abi::load_u64(&offset, &base, 8 * *field_index));
+        self.emit_path_field_offset(&base, &offset, path, *field_index);
         self.emit(abi::add_registers(&base, &base, &offset));
         let slot = self.allocate_stack_object("inplace_inlined_subblock", 8);
         self.emit(abi::store_u64(&base, abi::stack_pointer(), slot));

@@ -1,7 +1,8 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::collection::assign::self_update::{
-    is_global_self_update_call, is_self_update_call, FieldContainer, FieldSite, SelfUpdateSite,
+    field_owner_is, field_place_is, is_global_self_update_call, is_self_update_call,
+    FieldContainer, FieldLevel, FieldSite, SelfUpdateSite,
 };
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
@@ -64,6 +65,25 @@ pub(crate) enum TransferTemps {
     /// heap that is about to be torn down whole, and the escaping value is the
     /// exit code — a scalar with no block.
     ProcessTerminates,
+}
+
+/// plan-145-F: how `try_inplace_scalar_fields` writes one updated field.
+enum FieldStoreKind {
+    /// A scalar, stored in its slot.
+    Scalar,
+    /// A pointer field (plan-145-C): the new owned pointee is stored, the old one
+    /// dropped.
+    Pointer(ParameterType),
+    /// A fixed-size inlined record: its bytes are copied over the sub-block.
+    Overwrite(ParameterType),
+}
+
+/// plan-145-F: a fixed-size inlined field's new value, spilled before any store.
+enum FieldOverwrite {
+    /// A register-native vector's lanes, one slot each, in field order.
+    Lanes(Vec<usize>),
+    /// An owned block (freed after the copy) and its byte size.
+    Block { slot: usize, size_slot: usize },
 }
 
 impl CodeBuilder<'_> {
@@ -141,9 +161,17 @@ impl CodeBuilder<'_> {
     ///   first (it may read the old one), then the old pointee is dropped exactly
     ///   as the record's scope exit would drop it, and the new pointer stored.
     ///
-    /// An inlined field (the slot holds a block-relative offset into the trailing
-    /// data region) cannot be overwritten at a fixed slot, so any update of one
-    /// declines to the field seam or the rebuild.
+    /// * (plan-145-F) an inlined record field of compile-time fixed size
+    ///   (`record_field_is_inlined_fixed`: `vector::*`, `color::Color`, the
+    ///   `datetime` types, a user record of scalars): the new value's bytes are
+    ///   copied over the field's sub-block, which is exactly the size of any value
+    ///   of the type, so nothing moves. A register-native vector's lanes are stored
+    ///   straight into the sub-block's slots; any other value is taken owned (the
+    ///   statement's temp, or a copy of a borrowed source — it may be a view into
+    ///   this very owner), copied, and freed.
+    ///
+    /// Any other inlined field (a collection, a `String`, a record whose size
+    /// depends on its value) declines to the field seam or the rebuild.
     ///
     /// Every new value is computed first, in source order (matching `WITH`, so a
     /// field that reads another field's old value sees it), spilled, and only then
@@ -156,35 +184,17 @@ impl CodeBuilder<'_> {
         owner: FieldContainer<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
-        else {
-            return Ok(false);
-        };
         // `G13` — the update must rebuild THIS owner's current value, not install
-        // some other record.
-        let owns = match owner {
-            FieldContainer::Record { local } => {
-                matches!(target.as_ref(), NirValue::Local(name) if name == local)
-            }
-            FieldContainer::State { resource } => matches!(
-                target.as_ref(),
-                NirValue::MemberAccess { target: inner, member }
-                    if member == "state"
-                        && matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
-            ),
-        };
-        if !owns {
-            return Ok(false);
-        }
-        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+        // some other record. plan-145-F: through a nested path, each level's.
+        let Some((path, type_, updates)) = self.peel_field_path(owner, value) else {
             return Ok(false);
         };
-        // Every updated field must live in its own slot: a scalar, or (plan-145-C)
-        // a pointer field.
+        let path: Vec<usize> = path.iter().map(|level| level.field_index).collect();
+        let Some(fields) = self.type_model.record_fields.get(&type_).cloned() else {
+            return Ok(false);
+        };
+        // Every updated field must live in its own slot — a scalar, or (plan-145-C)
+        // a pointer field — or be (plan-145-F) a fixed-size inlined record.
         let mut indices = Vec::with_capacity(updates.len());
         for update in updates {
             let Some((index, (_, field_type))) = fields
@@ -194,11 +204,17 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(field_type) {
-                return Ok(false);
-            }
-            let pointer = self.record_field_is_pointer(field_type);
-            indices.push((index, pointer.then(|| field_type.clone())));
+            let kind = if self.record_field_is_inlined(field_type) {
+                if !self.record_field_is_inlined_fixed(field_type) {
+                    return Ok(false);
+                }
+                FieldStoreKind::Overwrite(field_type.clone())
+            } else if self.record_field_is_pointer(field_type) {
+                FieldStoreKind::Pointer(field_type.clone())
+            } else {
+                FieldStoreKind::Scalar
+            };
+            indices.push((index, kind));
         }
         if indices.is_empty() {
             return Ok(false);
@@ -232,7 +248,17 @@ impl CodeBuilder<'_> {
         // field that reads another field's old value sees it), spilling each to a
         // slot; then store them into the existing block.
         let mut stores = Vec::with_capacity(updates.len());
-        for (update, (index, pointer)) in updates.iter().zip(indices) {
+        let mut overwrites = Vec::new();
+        for (update, (index, kind)) in updates.iter().zip(indices) {
+            let pointer = match kind {
+                FieldStoreKind::Scalar => None,
+                FieldStoreKind::Pointer(field_type) => Some(field_type),
+                FieldStoreKind::Overwrite(field_type) => {
+                    let spilled = self.spill_field_overwrite(&update.value, &field_type)?;
+                    overwrites.push((index, field_type, spilled));
+                    continue;
+                }
+            };
             let value = if pointer.is_some() {
                 // The record owns the pointee it stores, exactly as `WITH` does.
                 self.lower_value_stored_field(&update.value)?
@@ -261,7 +287,7 @@ impl CodeBuilder<'_> {
             let Some(field_type) = pointer else {
                 continue;
             };
-            let block = self.emit_field_owner_block(owner)?;
+            let block = self.emit_field_record_block(owner, &path)?;
             let old = self.allocate_register();
             self.emit(abi::load_u64(&old, &block, 8 * index));
             let old_slot = self.allocate_stack_object("record_field_replaced", 8);
@@ -276,11 +302,49 @@ impl CodeBuilder<'_> {
             })?;
         }
         // One load of the block pointer serves every store: nothing below moves it.
-        let block = self.emit_field_owner_block(owner)?;
+        let block = self.emit_field_record_block(owner, &path)?;
         for (index, slot, _) in stores {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
             self.emit(abi::store_u64(&value, &block, 8 * index));
+        }
+        // plan-145-F: the fixed-size overwrites. The copy loop calls nothing, so
+        // the block pointer loaded above is still live; each owned source is freed
+        // only after every copy (a later one may not read it, but the frees call
+        // the arena, which clobbers the block register).
+        for (index, _, spilled) in &overwrites {
+            let sub = self.allocate_register();
+            self.emit(abi::load_u64(&sub, &block, 8 * index));
+            self.emit(abi::add_registers(&sub, &block, &sub));
+            match spilled {
+                FieldOverwrite::Lanes(lanes) => {
+                    for (lane, slot) in lanes.iter().enumerate() {
+                        let value = self.allocate_register();
+                        self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
+                        self.emit(abi::store_u64(&value, &sub, 8 * lane));
+                    }
+                }
+                FieldOverwrite::Block { slot, size_slot } => {
+                    let src = self.allocate_register();
+                    let len = self.allocate_register();
+                    let scratch = self.allocate_register();
+                    self.emit(abi::load_u64(&src, abi::stack_pointer(), *slot));
+                    self.emit(abi::load_u64(&len, abi::stack_pointer(), *size_slot));
+                    self.emit_block_copy_advance(&sub, &src, &len, &scratch, "field_overwrite");
+                }
+            }
+        }
+        for (_, field_type, spilled) in overwrites {
+            if let FieldOverwrite::Block { slot, .. } = spilled {
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: field_type,
+                    stack_offset: slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
+            }
         }
         if let FieldContainer::Record { local } = owner {
             if let Some(local) = self.locals.get_mut(local) {
@@ -288,6 +352,81 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(true)
+    }
+
+    /// plan-145-F: evaluate a fixed-size inlined field's new value and spill it —
+    /// a register-native vector as its lanes, anything else as an OWNED block and
+    /// its byte size (read before any store, while the source is intact). A
+    /// borrowed source (a local, a field — possibly of this very owner, as in a
+    /// swap `WITH r { v := r.w, w := r.v }`) is copied first, so no store can
+    /// change a value another update still has to write.
+    fn spill_field_overwrite(
+        &mut self,
+        value: &NirValue,
+        field_type: &ParameterType,
+    ) -> Result<FieldOverwrite, String> {
+        let lowered = self.lower_value(value)?;
+        if let Some(lanes) = self.vector_native_lanes(&lowered) {
+            let mut slots = Vec::with_capacity(lanes.len());
+            for lane in lanes {
+                let lane = self.materialize_float(lane)?;
+                let slot = self.allocate_stack_object("record_field_overwrite_lane", 8);
+                self.emit(abi::store_u64(&lane.location, abi::stack_pointer(), slot));
+                slots.push(slot);
+            }
+            return Ok(FieldOverwrite::Lanes(slots));
+        }
+        let owned = if self.value_needs_owning_copy(value) {
+            self.copy_flat_block(field_type, &lowered.location)?
+                .render()
+        } else {
+            // A fresh block: the statement registered it as a temp; this store
+            // frees it itself, after the copy.
+            self.claim_pending_temp(&lowered);
+            lowered.location.render()
+        };
+        let slot = self.allocate_stack_object("record_field_overwrite", 8);
+        self.emit(abi::store_u64(owned.as_str(), abi::stack_pointer(), slot));
+        let size_slot = self.allocate_stack_object("record_field_overwrite_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot(field_type, slot, size_slot)?;
+        Ok(FieldOverwrite::Block { slot, size_slot })
+    }
+
+    /// plan-145-F: an inlined record whose byte size is fixed at compile time —
+    /// every field a scalar, or itself such a record (the census's
+    /// `FieldKindClass::InlinedFixed`). Any value of the type fills exactly its
+    /// sub-block, so a new one can be copied over the old where it lies.
+    pub(crate) fn record_field_is_inlined_fixed(&self, type_: &ParameterType) -> bool {
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
+            return false;
+        };
+        fields.iter().all(|(_, field)| {
+            if self.record_field_is_inlined(field) {
+                !typed_is_collection_type(field) && self.record_field_is_inlined_fixed(field)
+            } else {
+                !self.record_field_is_pointer(field)
+            }
+        })
+    }
+
+    /// plan-145-F: the block of the record a field store writes — the owner's
+    /// block, then down `path` (each level's stored offset added). An empty path
+    /// is `emit_field_owner_block`, unchanged.
+    fn emit_field_record_block(
+        &mut self,
+        owner: FieldContainer<'_>,
+        path: &[usize],
+    ) -> Result<String, String> {
+        let block = self.emit_field_owner_block(owner)?;
+        let mut base = block;
+        for index in path {
+            let offset = self.allocate_register();
+            let inner = self.allocate_register();
+            self.emit(abi::load_u64(&offset, base.as_str(), 8 * index));
+            self.emit(abi::add_registers(&inner, base.as_str(), &offset));
+            base = inner.render();
+        }
+        Ok(base)
     }
 
     /// The owner's block pointer, loaded into a register: a record local's slot,
@@ -427,6 +566,7 @@ impl CodeBuilder<'_> {
                 InPlaceDest::Inlined {
                     block_slot: block_slot.ok_or("native mixed WITH: no record slot")?,
                     field_index: arm_index,
+                    path: Vec::new(),
                     write_back: None,
                 },
             ),
@@ -435,6 +575,7 @@ impl CodeBuilder<'_> {
                 InPlaceDest::StateField {
                     resource: resource.to_string(),
                     field_index: arm_index,
+                    path: Vec::new(),
                 },
             ),
         };
@@ -445,6 +586,7 @@ impl CodeBuilder<'_> {
             by_ref,
             field: Some(FieldSite {
                 container,
+                path: Vec::new(),
                 field: updates[arm_position].field.as_str(),
                 field_index: arm_index,
                 record_type: type_.clone(),
@@ -638,11 +780,48 @@ impl CodeBuilder<'_> {
     /// is a `WithUpdate`, `G13` its target is this owner (the local, or the
     /// handle's `.state`), `G14` exactly one field is updated — a second would be
     /// dropped when the arm elides the rebuild. Emits nothing.
+    ///
+    /// plan-145-F: a nested path — `o = WITH o { inner := WITH o.inner { f :=
+    /// op(o.inner.f, …) } }` — peels each level whose update is itself a
+    /// single-update `WITH` over that level's own place (`G13`/`G14` per level)
+    /// into `FieldSite::path`.
     fn field_self_update_site<'s>(
         &self,
         container: FieldContainer<'s>,
         value: &'s NirValue,
     ) -> Option<(FieldSite<'s>, ParameterType, &'s NirValue)> {
+        let (path, record_type, updates) = self.peel_field_path(container, value)?;
+        if updates.len() != 1 {
+            return None;
+        }
+        let update = &updates[0];
+        let fields = self.type_model.record_fields.get(&record_type)?;
+        let field_index = fields.iter().position(|(name, _)| *name == update.field)?;
+        let field_type = fields[field_index].1.clone();
+        Some((
+            FieldSite {
+                container,
+                path,
+                field: update.field.as_str(),
+                field_index,
+                record_type,
+            },
+            field_type,
+            &update.value,
+        ))
+    }
+
+    /// plan-145-F: the record a field `WITH` finally updates, and how it is
+    /// reached. `value` must be a `WITH` over the owner (`G13`); while its only
+    /// update is an inlined record field whose value is again a single-update
+    /// `WITH` over that field's own place, descend. Returns the levels passed
+    /// (outermost first), the innermost `WITH`'s record type, and its updates.
+    /// Emits nothing.
+    pub(crate) fn peel_field_path<'s>(
+        &self,
+        container: FieldContainer<'s>,
+        value: &'s NirValue,
+    ) -> Option<(Vec<FieldLevel<'s>>, ParameterType, &'s [NirRecordUpdate])> {
         let NirValue::WithUpdate {
             type_,
             target,
@@ -651,34 +830,48 @@ impl CodeBuilder<'_> {
         else {
             return None;
         };
-        let owner = match container {
-            FieldContainer::Record { local } => {
-                matches!(target.as_ref(), NirValue::Local(n) if n == local)
-            }
-            FieldContainer::State { resource } => matches!(
-                target.as_ref(),
-                NirValue::MemberAccess { target: inner, member }
-                    if member == "state"
-                        && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
-            ),
-        };
-        if !owner || updates.len() != 1 {
+        if !field_owner_is(target, container) {
             return None;
         }
-        let update = &updates[0];
-        let fields = self.type_model.record_fields.get(type_)?;
-        let field_index = fields.iter().position(|(name, _)| *name == update.field)?;
-        let field_type = fields[field_index].1.clone();
-        Some((
-            FieldSite {
-                container,
+        let mut path = Vec::new();
+        let mut record_type = type_.clone();
+        let mut updates: &[NirRecordUpdate] = updates;
+        loop {
+            let [update] = updates else {
+                break;
+            };
+            let NirValue::WithUpdate {
+                type_: inner_type,
+                target: inner_target,
+                updates: inner_updates,
+            } = &update.value
+            else {
+                break;
+            };
+            let Some(fields) = self.type_model.record_fields.get(&record_type) else {
+                break;
+            };
+            let Some(field_index) = fields.iter().position(|(name, _)| *name == update.field)
+            else {
+                break;
+            };
+            let field_type = &fields[field_index].1;
+            if !self.record_field_is_inlined(field_type)
+                || typed_is_collection_type(field_type)
+                || *field_type != *inner_type
+                || !field_place_is(inner_target, container, &path, update.field.as_str())
+            {
+                break;
+            }
+            path.push(FieldLevel {
                 field: update.field.as_str(),
                 field_index,
-                record_type: type_.clone(),
-            },
-            field_type,
-            &update.value,
-        ))
+                record_type: record_type.clone(),
+            });
+            record_type = inner_type.clone();
+            updates = inner_updates;
+        }
+        Some((path, record_type, updates))
     }
 
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
@@ -1496,6 +1689,7 @@ impl CodeBuilder<'_> {
                                         dest: InPlaceDest::Inlined {
                                             block_slot: stack_offset,
                                             field_index: field.field_index,
+                                            path: field.path_indices(),
                                             write_back: None,
                                         },
                                         by_ref,
@@ -1753,6 +1947,7 @@ impl CodeBuilder<'_> {
                                 dest: InPlaceDest::StateField {
                                     resource: resource.clone(),
                                     field_index: field.field_index,
+                                    path: field.path_indices(),
                                 },
                                 by_ref: false,
                                 field: Some(field),
@@ -1822,7 +2017,13 @@ impl CodeBuilder<'_> {
                                 && !self.for_each_iterable_locals.iter().any(|n| n == resource)
                         });
                         // plan-134-E: the replacement is stored into the resource.
-                        let result = self.lower_value_stored_field(value)?;
+                        // bug-678: the resource keeps the POINTER, so it must own the
+                        // block — an aliasing source (`h.state = r`) is copied, exactly
+                        // as a binding's reassignment copies one. The field store
+                        // (`lower_value_stored_field`) returned `r`'s own block, which
+                        // `r` and the resource then both freed, and which an in-place
+                        // update of `r` changed under the resource.
+                        let result = self.lower_value_owned(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
                         let result = self.vector_value_as_block(result)?;

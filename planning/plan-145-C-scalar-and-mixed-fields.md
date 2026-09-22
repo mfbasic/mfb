@@ -280,6 +280,18 @@ Commit: `831e85027`
   error; the `STATE` half of the test takes `h` as a `RES` parameter, which is not
   closed, and its caller reads it again.
 
+- **C5 — `rt_res_state_inplace_mutation` was not re-run at C, and one of its
+  tests encoded the old `G14`.** `a_second_updated_state_field_declines_to_the_rebuild`
+  (plan-121-D) asserted that a two-field `WITH` over `.state` takes no arm, because
+  a sibling's value would be dropped; C's mixed `WITH` takes the arm and stores the
+  sibling, so the test failed from `831e85027` on (`MFB_TEST_EXE=<C compiler> cargo
+  test --test rt_res_state_inplace_mutation` → 1 failed). Found at plan-145-F. The
+  protected behavior (the sibling's value lands) holds and is checked at run time by
+  `rt_inplace_field_mixed`; the assertion was corrected to the mixed contract (the
+  arm plus `mixed_with_scalar`, no `state_assign_value`) and renamed
+  `a_second_updated_state_field_is_stored_beside_the_arm`. It fails on main's
+  compiler (no mixed `WITH`) and passes now.
+
 ## Summary
 
 Layer 1 becomes a routine for both containers, a pointer field is replaced in its

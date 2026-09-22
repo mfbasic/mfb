@@ -464,11 +464,16 @@ fn variable_width_list_set_on_a_state_field_declines() {
     );
 }
 
-/// DECLINE. `G14` -- a `WITH` that updates a SECOND field cannot elide the
-/// record rebuild, because the arm returning `true` is what drops the rebuild,
-/// and the sibling's new value would go with it. A wrong answer, not a slow one.
+/// `G14`, as plan-145-C relaxed it -- a `WITH` that updates a SECOND field may
+/// elide the record rebuild only if the sibling's new value is still written:
+/// the arm returning `true` is what drops the rebuild, and the sibling's value
+/// would go with it (a wrong answer, not a slow one). plan-121-D declined every
+/// such `WITH`; plan-145-C's mixed `WITH` (`try_inplace_mixed_with`) takes the arm
+/// AND stores the scalar sibling, evaluated first (`mixed_with_scalar`), so the
+/// shape must now show both. `tests/runtime/rt_inplace_field_mixed.rs` checks the
+/// sibling's value lands at run time.
 #[test]
-fn a_second_updated_state_field_declines_to_the_rebuild() {
+fn a_second_updated_state_field_is_stored_beside_the_arm() {
     let plan = ncode(
         "p121d_state_two_fields",
         "IMPORT fs\n\
@@ -486,12 +491,16 @@ fn a_second_updated_state_field_declines_to_the_rebuild() {
          END FUNC\n",
     );
     assert_eq!(
-        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_remove_key"),
+        stack_slot_count(&plan, "_mfb_fn_mutate", "mixed_with_scalar"),
+        1,
+        "plan-145-C: a two-field `WITH` over `.state` whose second update is a scalar \
+         takes the arm only together with the sibling's store; without it the \
+         sibling's new value is silently dropped."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
         0,
-        "plan-121-D: a two-field `WITH` over `.state` must NOT take any in-place \
-         arm. `G14` (`updates.len() == 1`) is what makes eliding the rebuild sound; \
-         match a second updated field and that field's new value is silently \
-         dropped."
+        "plan-145-C: the mixed `WITH` is in place, so no whole-payload rebuild."
     );
 }
 

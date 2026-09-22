@@ -496,6 +496,10 @@ name = "rt_reduce_collection_accumulator_frees"
 path = "tests/runtime/rt_reduce_collection_accumulator_frees.rs"
 
 [[test]]
+name = "rt_inplace_field_nested"
+path = "tests/runtime/rt_inplace_field_nested.rs"
+
+[[test]]
 name = "rt_transform_block_result_frees"
 path = "tests/runtime/rt_transform_block_result_frees.rs"
 

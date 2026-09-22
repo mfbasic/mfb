@@ -27,12 +27,13 @@ field lists with the same rules:
 and its expectation per site from the plan-145 letter that lands it
 (plan-145-A §"plan-145 as a whole", Open Decisions 1, 3 and 4):
 
-  Scalar           S3 S4 S10 T1-T5 T8 -> arm (plan-145-C; Layer 1 at T),
-                   S5 -> copy:G, S6 T6 -> copy:F, S9 -> copy:H
-  Pointer          S3 S4 S10 T1-T5 T8 -> arm (plan-145-C), S5 -> copy:G,
-                   S6 T6 -> copy:F, S9 -> copy:H; `json::Json` is no STATE type ->
+  Scalar           S3 S4 S6 S10 T1-T6 T8 -> arm (plan-145-C; Layer 1 at T;
+                   plan-145-F the nested path), S5 -> copy:G, S9 -> copy:H
+  Pointer          S3 S4 S6 S10 T1-T6 T8 -> arm (plan-145-C, -F), S5 -> copy:G,
+                   S9 -> copy:H; `json::Json` is no STATE type ->
                    na at T sites
-  InlinedFixed     every site -> copy:F, except S5 -> copy:G and S9 -> copy:H
+  InlinedFixed     S3 S4 S6 S10 T1-T6 T8 -> arm (plan-145-F's overwrite and nested
+                   path), S5 -> copy:G, S9 -> copy:H
   InlinedVariable  rebuild:size-varies (Open Decision 3)
   String kinds     deferred:string (Open Decision 1)
 
@@ -190,12 +191,9 @@ def expects(klass, state_ok=True, buildable=True):
             out[s] = "copy:G"
         elif s == "S9":
             out[s] = "copy:H"
-        elif s in ("S6", "T6"):
-            out[s] = "copy:F"
-        elif klass == "InlinedFixed":
-            out[s] = "copy:F"
-        elif klass in ("Scalar", "Pointer"):
-            # plan-145-C: stored in the owner's slot (`try_inplace_scalar_fields`).
+        elif klass in ("Scalar", "Pointer", "InlinedFixed"):
+            # plan-145-C: stored in the owner's slot; plan-145-F: a fixed-size
+            # inlined record copied over its sub-block (`try_inplace_scalar_fields`).
             out[s] = "arm"
     return " ".join(f"{s}={out[s]}" for s in SITES)
 

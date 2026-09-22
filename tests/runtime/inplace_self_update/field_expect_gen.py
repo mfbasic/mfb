@@ -66,7 +66,7 @@ EXISTING_GROW = {"add", "append", "insert", "prepend"}
 ORDER = "BCDEFGH"
 # The plan-145 letters that have landed: a pair whose closing letter is here is
 # `arm`, not `copy:<letter>`. A letter adds itself when it flips its lines.
-LANDED = {"B", "C", "D", "E"}
+LANDED = {"B", "C", "D", "E", "F"}
 
 
 def later(a, b):

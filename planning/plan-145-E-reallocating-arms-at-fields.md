@@ -110,7 +110,7 @@ differential probe is the test.
 
 Acceptance: list recorded (est. 15 min).
 Recorded above.
-Commit: recorded with Phase 3 (below)
+Commit: `728210c39` (with Phase 3)
 
 ### Phase 2: `InlineGrow` through the repack
 
@@ -127,7 +127,7 @@ Commit: recorded with Phase 3 (below)
 
 Acceptance: `cargo test --bin mfb inline_repack` → pass (est. 5 min).
 `cargo test --bin mfb inline_repack` → "1 passed".
-Commit: recorded with Phase 3 (below)
+Commit: `728210c39` (with Phase 3)
 
 ### Phase 3: The arms
 
@@ -167,8 +167,8 @@ Acceptance: `cargo test --bin mfb self_update` passes, and
 `MFB_SELF_UPDATE_SITES=S4,T2,T4,T8 cargo test --test rt_inplace_self_update` passes
 (est. 15 min).
 - `cargo test --bin mfb self_update` → "6 passed".
-- The four-site harness (`MFB_SELF_UPDATE_SITES=S4,T2,T4,T8`, run with S10,T5) is recorded in the next commit.
-Commit: `(recorded in the next commit)`
+- `MFB_TEST_EXE=target/release/mfb MFB_SELF_UPDATE_SITES=S4,T2,T4,T8,S10,T5 cargo test --test rt_inplace_self_update` → "2 passed" (2139.94 s): every line and kind at the four sites and the mixed ones, the 18 flipped lines included.
+Commit: `728210c39`
 
 ## Validation Plan
 
