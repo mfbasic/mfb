@@ -427,6 +427,37 @@ re-uploading rather than by asking the program to redraw.
 An RGBA8 image is exactly `width * height * 4` bytes; any other length is
 `ErrBadPixelCount`. An image cannot be resized, only re-filled.
 
+## A loaded font is always one standalone face
+
+`canvas::loadFont` accepts a TrueType Collection (`ttcf`, a `.ttc` file) as well as
+a plain sfnt. A collection is a header, a face count, and one table-directory offset
+per face; each face's table offsets count from the start of the *file*. The loader
+does not teach the renderer about collections. It copies the chosen face out into a
+standalone sfnt — the face's own header, one record per table with its offset
+rebased, the tables padded to four bytes — and stamps the resource around that.
+[[src/codegen/builtins/canvas/func_load_font.rs:COLLECTION]]
+
+So everything past the load reads the table directory at byte `0`
+(`__canvas_fontTable`), and neither the `Font` record, the graphics thread's font
+table, nor any glyph helper knows collections exist. A plain `.ttf` is its own single
+face at directory `0` and is handed on byte-for-byte, so its pixels are unchanged. The
+TrueType-outline and `unitsPerEm` checks run on the extracted face, so a collection of
+CFF faces is refused exactly as an `OTTO` file is.
+
+`loadFont(path)` takes face 0. `loadFont(path, face)` walks every face for one whose
+`name` table nameID 6 (PostScript name) equals `face`, then again for nameID 4 (full
+name); no match is `ErrNotFound`, since the file itself is a good font.
+[[src/codegen/builtins/canvas/func_load_font.rs:LOAD_FONT_NAMED]] Names are read
+preferring the Windows Unicode record in US English, then any Windows Unicode record,
+then Mac Roman; a malformed string reads as `""` rather than failing, so one bad
+record cannot stop a search that another face would satisfy.
+[[src/codegen/builtins/canvas/helper_font_name.rs:FACE_NAME]]
+
+A collection claiming more than 4096 faces is treated as holding none, and a face
+whose directory or tables run past the end of the file is dropped or refused with
+`ErrBadFontFile` — the bug-509 rule that a hostile header costs a comparison, not a
+loop or an out-of-bounds read.
+
 ## Mode gating
 
 Every `canvas::` call that touches the surface requires `Mode.Canvas` and raises

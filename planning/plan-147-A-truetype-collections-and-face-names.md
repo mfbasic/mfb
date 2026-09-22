@@ -273,25 +273,37 @@ The primitives B/C/D feed: read a face's names; load a face by name.
 Acceptance: a named face of a collection loads and is the right face.
   Check: `cargo test --test rt_canvas_font` → all pass incl. the new cases (est. 3 min).
   **Observed: `test result: ok. 24 passed; 0 failed` (174.82 s).**
-Commit: —
+Commit: dd72640c5
 
 ### Phase 3 — Goldens and docs sync
 
-- [ ] Regenerate only the canvas-importing fixture goldens that diff, after proving each
+- [x] Regenerate only the canvas-importing fixture goldens that diff, after proving each
       diff is the new helper bodies (inspect `app_mouse_surface.ir` for the added
       `__canvas_sfntFaces`/`__canvas_extractFace`/`__canvas_faceName` functions and
       nothing else) — per AGENTS.md, answer the four questions in the commit message.
-- [ ] `src/docs/spec/app/06_canvas.md`: add a *Fonts* paragraph — collections load face
-      0 through `loadFont`, faces are extracted to a standalone sfnt at load
-      (`[[src/codegen/builtins/canvas/func_load_font.rs:LOAD_FONT]]`).
-- [ ] `mfb man canvas loadFont` renders the new "What this build reads" paragraph;
-      `scripts/man-census.sh --memory-scope` → 0 unclassified.
+      Observed: the `.ir` function-name diff is exactly `#canvas_extractFace`,
+      `faceName`, `faceTable`, `isCollection`, `loadFontBytes`, `loadFontNamed`,
+      `sfntFaces` (+ `beBytes32`) added, nothing removed; `.ast` unchanged; `.ir`, macOS
+      `.app.nir`/`.app.nplan` and the four `.app.ncodesum` regenerated with
+      artifact-gate's own build commands. The other canvas fixtures carry only
+      `build.log` goldens: `scripts/test-accept.sh ./target/debug/mfb /tmp/p147_accept
+      'canvas*'` → 4 passed; `'app*'` → 4 passed.
+- [x] `src/docs/spec/app/06_canvas.md`: new section *A loaded font is always one
+      standalone face* — collections, extraction, `loadFont(path, face)` resolution,
+      name-record preference, bounds; cites `COLLECTION`, `LOAD_FONT_NAMED`,
+      `FACE_NAME`. Check: `bash scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`.
+- [x] `mfb man canvas loadFont` renders the new "What this build reads" paragraph and
+      both overloads; `scripts/man-census.sh --memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: goldens reflect only the added helpers; man and spec say collections load.
   Check: `cargo test --test acceptance app_mouse_surface` (or the fixture's golden test
   name, `rg -n app_mouse_surface tests/*.rs`) → pass (est. 5 min);
   `cargo test --bin mfb spec` → pass (est. 3 min).
-Commit: —
+  **Observed:** goldens re-verified by the same build commands → 8/8 `same`;
+  `cargo test --bin mfb spec` → `43 passed; 0 failed`. (The golden check named
+  `cargo test --test acceptance app_mouse_surface` does not exist — see Corrections.)
+Commit: (next commit)
 
 ## Validation Plan
 
@@ -328,6 +340,13 @@ Commit: —
   `ErrBadFontFile`. Knock-on: `systemFaces` is internal too, so B/C/D cannot test it
   directly either — the public `listSystemFonts`/`loadSystemFont` move from E into B
   (see plan-147-B/E Corrections).
+- **Phase 3's golden check named a test target that does not exist.** The
+  `app-mouse-surface` native goldens are read only by `scripts/artifact-gate.sh`
+  (`tests/gate/golden.rs`, whose one test runs the *full* gate — too big for a phase
+  check) and its `.ir`/`.ast` by `scripts/test-accept.sh`. The scoped substitute: the
+  fixture rebuilt with artifact-gate's exact commands (`/tmp/p147_regen_app.sh`, 8/8
+  `same`) plus `test-accept.sh … 'app*'` and `'canvas*'`. The full gate still runs once
+  in plan-147-E.
 - MFBASIC note: `next` is a keyword (FOR … NEXT); the offset cursor in
   `__canvas_extractFace` is named `cursor`.
 
