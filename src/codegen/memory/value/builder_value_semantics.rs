@@ -1394,6 +1394,19 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => {
+                // bug-671: a call to a module function has its declared return
+                // type. Builtin resolution alone left `typeName(pick(1))` unfoldable,
+                // a build error on valid source. A callable local of the same name
+                // shadows the function, as at the call itself (bug-569).
+                if let Some(local) = self.locals.get(target.as_str()) {
+                    return match &local.type_ {
+                        ParameterType::Func(_, returns, _) => Some((**returns).clone()),
+                        _ => None,
+                    };
+                }
+                if let Some(function) = self.functions.get(target.as_str()) {
+                    return Some(function.returns.clone());
+                }
                 let arg_types = args
                     .iter()
                     .map(|arg| self.static_type_name_for_fold(arg))

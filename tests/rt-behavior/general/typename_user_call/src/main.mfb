@@ -1,0 +1,48 @@
+IMPORT io
+
+' bug-671: `typeName` of a call to a user FUNC failed to compile ("native code
+' cannot determine typeName argument type"): the fold knew builtin return types
+' but not a module function's declared one. `typeName` never reads its argument,
+' so the call is not evaluated - `noisy` prints nothing.
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC pick(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC label(n AS Integer) AS String
+  RETURN toString(n)
+END FUNC
+
+FUNC origin() AS Point
+  RETURN Point[x := 0, y := 0]
+END FUNC
+
+FUNC noisy() AS Float
+  io::print("noisy ran")
+  RETURN 1.5
+END FUNC
+
+' A callable parameter named like a top-level FUNC answers with its own type.
+FUNC viaParam(pick AS FUNC(Integer) AS Boolean) AS String
+  RETURN typeName(pick(1))
+END FUNC
+
+FUNC isOne(n AS Integer) AS Boolean
+  RETURN n = 1
+END FUNC
+
+FUNC main() AS Integer
+  io::print(typeName(pick(1)))
+  io::print(typeName(label(2)))
+  io::print(typeName(origin()))
+  io::print(typeName(noisy()))
+  LET t AS String = typeName(pick(3))
+  io::print(t)
+  io::print(viaParam(isOne))
+  RETURN 0
+END FUNC

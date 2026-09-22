@@ -1,0 +1,126 @@
+{
+  "project": "typename_user_call",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 8,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 9 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pick",
+      "line": 13,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 13 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "label",
+      "line": 17,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 17 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "origin",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Point",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "0" } }] }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "noisy",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "noisy ran" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "1.5" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaParam",
+      "line": 31,
+      "params": [
+      { "name": "pick", "type": "FUNC(Integer) AS Boolean", "default": null, "line": 31 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "isOne",
+      "line": 35,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 35 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 36 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "1" }] }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "label", "arguments": [{ "kind": "number", "value": "2" }] }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "origin", "arguments": [] }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "noisy", "arguments": [] }] }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "3" }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "viaParam", "arguments": [{ "kind": "identifier", "value": "isOne" }] }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
+      ]
+    }
+    ]
+  }
+  ]
+}
