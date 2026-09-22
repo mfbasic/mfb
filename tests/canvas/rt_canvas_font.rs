@@ -1570,10 +1570,10 @@ fn a_display_sized_glyph_is_well_inside_the_raster_cap() {
 fn collection(faces: &[Vec<u8>]) -> Vec<u8> {
     let header_len = 12 + 4 * faces.len();
     let mut bases = Vec::new();
-    let mut at = (header_len + 3) / 4 * 4;
+    let mut at = header_len.div_ceil(4) * 4;
     for face in faces {
         bases.push(at);
-        at += (face.len() + 3) / 4 * 4;
+        at += face.len().div_ceil(4) * 4;
     }
     let mut out = Vec::new();
     out.extend(b"ttcf");
@@ -1705,7 +1705,7 @@ fn with_table(font: &[u8], tag: &[u8; 4], data: Vec<u8>) -> Vec<u8> {
         })
         .collect();
     tables.push((*tag, data));
-    tables.sort_by(|a, b| a.0.cmp(&b.0));
+    tables.sort_by_key(|table| table.0);
     let mut out = font[..4].to_vec();
     out.extend((tables.len() as u16).to_be_bytes());
     out.extend([0u8; 6]);
@@ -1715,11 +1715,11 @@ fn with_table(font: &[u8], tag: &[u8; 4], data: Vec<u8>) -> Vec<u8> {
         out.extend(0u32.to_be_bytes());
         out.extend((offset as u32).to_be_bytes());
         out.extend((data.len() as u32).to_be_bytes());
-        offset += (data.len() + 3) / 4 * 4;
+        offset += data.len().div_ceil(4) * 4;
     }
     for (_, data) in &tables {
         out.extend(data);
-        out.resize((out.len() + 3) / 4 * 4, 0);
+        out.resize(out.len().div_ceil(4) * 4, 0);
     }
     out
 }
