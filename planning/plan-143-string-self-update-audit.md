@@ -1,6 +1,6 @@
 # plan-143: Audit which `String` self-updates the compiler performs in place
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 Effort: medium (1h–2h)
 
 A research spike that **changes no code**, the `String` counterpart of plan-141.
@@ -240,7 +240,7 @@ Commit: f8619c3d1
 Acceptance: summary counts equal the table's cell count.
   Check: the appendix's count script prints the same total as rows × sites (est. 3 min).
   Measured: `python3 table.py count` → `rows §1 63  §2 4  sites 4  cells 268  rows×sites 268`.
-Commit: —
+Commit: 14742456c
 
 ## Validation Plan
 
@@ -249,14 +249,17 @@ Commit: —
 - Runtime proof: n/a; `--ncode` cross-checks instead.
 - Doc sync: none; contradictions are listed for the fix plan.
 - Final gate: `git status --short` shows only `planning/plan-143-*` paths changed
-  (est. 1 min).
+  (est. 1 min). Measured 2026-09-21: `git status --short` → empty (all committed);
+  `git diff --stat main` → 2 files, both `planning/plan-143-*`.
 
 ## Open Decisions
 
-- **Include `AttributedString`?** Recommended: yes (4 overloads), since a
+- **Include `AttributedString`?** (Taken: the recommended option — 4 `astrings`
+  rows plus the 19 Tier-B `strings::` overloads, Correction 1.) Recommended: yes (4 overloads), since a
   `MUT a AS AttributedString` self-update is the same question; alternative:
   `String` only.
-- **`not-derived` rows in the fix plan's guard.** Recommended: record them here as
+- **`not-derived` rows in the fix plan's guard.** (Taken: the recommended option;
+  5 rows, findings §3.4 and F4.) Recommended: record them here as
   the `Exempt` analogue, so the fix plan's census can list them with a proof that
   `s` is only read; alternative: leave them out of the audit table.
 
