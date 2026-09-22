@@ -2436,15 +2436,25 @@ pub(crate) fn general_override_target(
     // `parse`<->`name` round trip — the old form compared the same two
     // spellings.
     let spelled = arg_type.name();
-    // bug-480 Phase 4b: the argument now arrives package-qualified (`vector.Float2`),
+    // bug-480 Phase 4b: the argument arrives package-qualified (`vector.Float2`),
     // while the descriptor row still spells the bare member id it declares
-    // (`Float2`) -- `arg_type` is a `&'static str` and stays one. Compare against
-    // the owning package's qualified spelling as well, so `toString(vector::abs(v))`
-    // still finds `__vector_float2ToString` instead of falling through to the
-    // general builtin and reporting the vector type as un-stringable.
+    // (`Float2`) -- `arg_type` is a `&'static str` and stays one. So the comparison
+    // qualifies the ROW, and `toString(vector::abs(v))` finds
+    // `__vector_toString_float2` instead of falling through to the general builtin
+    // and reporting the vector type as un-stringable.
+    //
+    // The match is on the package's own type IDENTITY, never on a bare spelling
+    // (bug-668). A bare `Color`/`Url`/`Float2` is necessarily a USER type: since
+    // bug-480 Phase 4b a built-in value type's declared identity IS the qualified
+    // name, so a consumer writing the bare leaf gets SYMBOL_UNKNOWN_TYPE, and the
+    // injected companions are qualified by the parser (`qualify_own_builtin_type`).
+    // While the bare arm stood, a user `TYPE Color` matched the `color` row: the
+    // call type-checked and the build then died with `NIR call target
+    // '#color_toString' does not resolve`, because the program never imported
+    // `color`. A user type the built-in rejects is a TYPE_CALL_ARGUMENT_MISMATCH,
+    // exactly as a `TYPE Colour` already was.
     let overrides_arg_type = |package: &RegistryPackage, o: &RegistryOverride| {
-        o.arg_type == spelled
-            || format!("{}.{}", package.import_name(), o.arg_type) == spelled.as_ref()
+        format!("{}.{}", package.import_name(), o.arg_type) == spelled.as_ref()
     };
     registry().packages().iter().find_map(|package| {
         package
@@ -5328,10 +5338,21 @@ mod tests {
             general_override_target("toString", &crate::types::ParameterType::parse("Nope")),
             None
         );
-        // The migrated `vector` package DOES own `toString(Float3)` now (add_override).
+        // The migrated `vector` package DOES own `toString(vector.Float3)` now
+        // (add_override) — keyed by that package-qualified identity.
+        assert_eq!(
+            general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("vector.Float3")
+            ),
+            Some("__vector_toString_float3")
+        );
+        // bug-668: and NOT by the bare leaf, which only a user `TYPE Float3` can
+        // spell. Matching it hijacked the call to `__vector_toString_float3` in a
+        // program that never imported `vector`.
         assert_eq!(
             general_override_target("toString", &crate::types::ParameterType::parse("Float3")),
-            Some("__vector_toString_float3")
+            None
         );
 
         // A malformed (unqualified) name never panics.
