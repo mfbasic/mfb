@@ -126,24 +126,34 @@ impl CodeBuilder<'_> {
         result
     }
 
-    /// bug-424 Layer 1: recognize `s.state.field = <value>` where every updated
-    /// field is a fixed-width scalar stored inline in its record slot, and store
-    /// each new value in place at its field offset in the *existing* STATE block
-    /// — no whole-record rebuild, so no re-copy of any other (possibly large,
-    /// inlined `List`/`String`) field. `src/ast/stmt.rs` desugars the single-field
-    /// form to a single-field `WITH` update over `s.state`, so this matches a
-    /// `WithUpdate` whose target is exactly this resource's `state`.
+    /// bug-424 Layer 1, generalized by plan-145-C: store the updated fields of a
+    /// `WITH` over a record local (`owner` `Record`) or over a `RES … STATE`
+    /// handle's payload (`State`) in place, when every updated field is stored in
+    /// its own slot — no whole-record rebuild, so no re-copy of any other
+    /// (possibly large, inlined) field.
     ///
-    /// Only plain scalars are eligible: an inlined field (`String`, a flat
-    /// collection, a nested record — the slot holds a block-relative offset into
-    /// the trailing data region) or a pointer composite cannot be overwritten at a
-    /// fixed slot without relaying the block out, so those fall through to the
-    /// whole-record replace (`NirOp::StateAssign`) and Layer 2. The store goes
-    /// through the resource record's shared STATE pointer, so it stays visible to
-    /// the owner and every alias (§15). Returns `true` when handled in place.
-    fn try_inplace_state_scalar_assign(
+    /// Two field kinds qualify:
+    ///
+    /// * a **scalar** (`!record_field_is_inlined && !record_field_is_pointer`): the
+    ///   new value is stored over the old at `8 * index`;
+    /// * a **pointer** field (`record_field_is_pointer`, not inlined — a
+    ///   `json::Json`, or a record holding one): the new value is built owned
+    ///   first (it may read the old one), then the old pointee is dropped exactly
+    ///   as the record's scope exit would drop it, and the new pointer stored.
+    ///
+    /// An inlined field (the slot holds a block-relative offset into the trailing
+    /// data region) cannot be overwritten at a fixed slot, so any update of one
+    /// declines to the field seam or the rebuild.
+    ///
+    /// Every new value is computed first, in source order (matching `WITH`, so a
+    /// field that reads another field's old value sees it), spilled, and only then
+    /// stored — so a failing value leaves the owner unchanged. `STATE`: the store
+    /// goes through the resource record's shared STATE pointer, visible to the
+    /// owner and every alias (§15), and `G25` applies. A record: `G1` declines a
+    /// by-ref capture (plan-145-H). Returns `true` when handled in place.
+    fn try_inplace_scalar_fields(
         &mut self,
-        resource: &str,
+        owner: FieldContainer<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
         let NirValue::WithUpdate {
@@ -154,26 +164,27 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // The update must rebuild THIS resource's current state (`resource.state`),
-        // not install some other record as the new state.
-        let NirValue::MemberAccess {
-            target: inner,
-            member,
-        } = target.as_ref()
-        else {
-            return Ok(false);
+        // `G13` — the update must rebuild THIS owner's current value, not install
+        // some other record.
+        let owns = match owner {
+            FieldContainer::Record { local } => {
+                matches!(target.as_ref(), NirValue::Local(name) if name == local)
+            }
+            FieldContainer::State { resource } => matches!(
+                target.as_ref(),
+                NirValue::MemberAccess { target: inner, member }
+                    if member == "state"
+                        && matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
+            ),
         };
-        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
-        {
+        if !owns {
             return Ok(false);
         }
         let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
             return Ok(false);
         };
-        // Every updated field must be a plain inline scalar. A `String`/collection/
-        // nested field is inlined (a block-relative offset) or a pointer composite;
-        // overwriting it at a fixed slot would corrupt the block or leak the old
-        // allocation, so bail to the whole-record replace.
+        // Every updated field must live in its own slot: a scalar, or (plan-145-C)
+        // a pointer field.
         let mut indices = Vec::with_capacity(updates.len());
         for update in updates {
             let Some((index, (_, field_type))) = fields
@@ -183,62 +194,384 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(field_type) || self.record_field_is_pointer(field_type)
-            {
+            if self.record_field_is_inlined(field_type) {
                 return Ok(false);
             }
-            indices.push(index);
+            let pointer = self.record_field_is_pointer(field_type);
+            indices.push((index, pointer.then(|| field_type.clone())));
         }
         if indices.is_empty() {
             return Ok(false);
         }
-        // `G25` (bug-487) — an operand that can reach a `STATE` assignment writes
-        // this same block while the arm holds it. This arm re-loads the STATE
-        // pointer *after* the operands, so it cannot dangle the way the growing
-        // collection arms did, but the divergence is the same one: a nested write
-        // to a field this statement does not update survives here, while the
-        // whole-state `WITH` this statement is shorthand for (§15) builds its
-        // record from a read taken before the operands ran and so discards it.
-        // Falling through to that replace is what makes the two agree.
-        if updates.iter().any(|update| {
-            self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(&update.value))
-        }) {
-            return Ok(false);
+        match owner {
+            // `G1` — a by-ref capture's slot holds the parent's slot address.
+            FieldContainer::Record { local } => {
+                if self.locals.get(local).is_none_or(|l| l.by_ref) {
+                    return Ok(false);
+                }
+            }
+            // `G25` (bug-487) — an operand that can reach a `STATE` assignment writes
+            // this same block while the arm holds it. This arm re-loads the STATE
+            // pointer *after* the operands, so it cannot dangle the way the growing
+            // collection arms did, but the divergence is the same one: a nested write
+            // to a field this statement does not update survives here, while the
+            // whole-state `WITH` this statement is shorthand for (§15) builds its
+            // record from a read taken before the operands ran and so discards it.
+            // Falling through to that replace is what makes the two agree.
+            FieldContainer::State { .. } => {
+                if updates.iter().any(|update| {
+                    self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(
+                        &update.value,
+                    ))
+                }) {
+                    return Ok(false);
+                }
+            }
         }
         // Eligible. Compute every new value first (source order, matching WITH so a
         // field that reads another field's old value sees it), spilling each to a
-        // slot; then store them into the existing STATE block.
+        // slot; then store them into the existing block.
         let mut stores = Vec::with_capacity(updates.len());
-        for (update, index) in updates.iter().zip(indices) {
-            let value = self.lower_value(&update.value)?;
+        for (update, (index, pointer)) in updates.iter().zip(indices) {
+            let value = if pointer.is_some() {
+                // The record owns the pointee it stores, exactly as `WITH` does.
+                self.lower_value_stored_field(&update.value)?
+            } else {
+                self.lower_value(&update.value)?
+            };
             // Observation boundary: a `Float` field must be finite (plan-17).
             self.observe_float(&update.value, &value)?;
             // Materialize a `d`-native float to its GP bit pattern before the spill
             // (plan-01), matching how `lower_with_update` gathers field values.
             let value = self.materialize_value(value)?;
-            let slot = self.allocate_stack_object("state_field_inplace", 8);
+            let slot = self.allocate_stack_object(
+                match owner {
+                    FieldContainer::State { .. } => "state_field_inplace",
+                    FieldContainer::Record { .. } => "record_field_inplace",
+                },
+                8,
+            );
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            stores.push((index, slot));
+            stores.push((index, slot, pointer));
         }
-        // Load the shared STATE record pointer from the resource record. A scalar
-        // store never moves the block, so one load serves every field store.
-        let local = self
-            .locals
-            .get(resource)
-            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
-        let stack_offset = local.stack_offset;
-        let resource_type = local.type_.clone();
-        let block = self.allocate_register();
-        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
-        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
-        let state_ptr = self.allocate_register();
-        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
-        for (index, slot) in stores {
+        // Drop the pointees the stores displace. Each drop calls the arena, which
+        // clobbers the caller-saved registers, so the block pointer is loaded only
+        // after every one of them.
+        for (index, _, pointer) in &stores {
+            let Some(field_type) = pointer else {
+                continue;
+            };
+            let block = self.emit_field_owner_block(owner)?;
+            let old = self.allocate_register();
+            self.emit(abi::load_u64(&old, &block, 8 * index));
+            let old_slot = self.allocate_stack_object("record_field_replaced", 8);
+            self.emit(abi::store_u64(&old, abi::stack_pointer(), old_slot));
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: field_type.clone(),
+                stack_offset: old_slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+        }
+        // One load of the block pointer serves every store: nothing below moves it.
+        let block = self.emit_field_owner_block(owner)?;
+        for (index, slot, _) in stores {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
-            self.emit(abi::store_u64(&value, &state_ptr, 8 * index));
+            self.emit(abi::store_u64(&value, &block, 8 * index));
+        }
+        if let FieldContainer::Record { local } = owner {
+            if let Some(local) = self.locals.get_mut(local) {
+                local.constant = None;
+            }
         }
         Ok(true)
+    }
+
+    /// The owner's block pointer, loaded into a register: a record local's slot,
+    /// or the `RES` handle's STATE pointer out of its resource record.
+    fn emit_field_owner_block(&mut self, owner: FieldContainer<'_>) -> Result<String, String> {
+        match owner {
+            FieldContainer::Record { local } => {
+                let slot = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("native code field store unknown local '{local}'"))?
+                    .stack_offset;
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+                Ok(block.render())
+            }
+            FieldContainer::State { resource } => {
+                let local = self.locals.get(resource).ok_or_else(|| {
+                    format!("native code state assignment unknown local '{resource}'")
+                })?;
+                let stack_offset = local.stack_offset;
+                let resource_type = local.type_.clone();
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+                let record = self.emit_resource_record_ptr(&block, &resource_type)?;
+                let state_ptr = self.allocate_register();
+                self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+                Ok(state_ptr.render())
+            }
+        }
+    }
+
+    /// plan-145-C: a mixed `WITH` — one update of a collection field that a seam arm
+    /// serves, the rest scalar fields (`r = WITH r { xs := append(r.xs, k), n := k
+    /// }`) — mutated in place: the arm mutates its field, then the scalars are
+    /// stored in their slots. `G14` (one update) is relaxed exactly this far.
+    ///
+    /// `WITH` evaluates its updates in source order, every one reading the OLD
+    /// record, and a failure leaves the record unchanged. The scalar values are
+    /// therefore computed BEFORE the arm mutates anything — at its first emission
+    /// (`open_inplace_dest`, via `field_pre_emit`) — which keeps both rules:
+    ///
+    /// * a scalar written BEFORE the arm's update in source order runs before the
+    ///   arm's operands anyway;
+    /// * one written AFTER it runs earlier than source order, which is only
+    ///   unobservable when it has no effect (`nir_value_is_effect_free`) and when it
+    ///   and the arm cannot both fail with different errors: it cannot fail
+    ///   (`nir_value_cannot_fail`), or the arm's operands and the arm itself cannot.
+    ///   Anything else declines to the rebuild.
+    ///
+    /// A pointer field is not admitted here (its new value would be built before an
+    /// arm that can still fail, and leak on that path); the slot-only `WITH` is
+    /// `try_inplace_scalar_fields`'s. `STATE`: `G25` applies to every update.
+    fn try_inplace_mixed_with(
+        &mut self,
+        container: FieldContainer<'_>,
+        value: &NirValue,
+        block_slot: Option<usize>,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        if updates.len() < 2 || !Self::with_target_is_owner(container, target) {
+            return Ok(false);
+        }
+        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+            return Ok(false);
+        };
+        let mut arm = None;
+        let mut scalars = Vec::with_capacity(updates.len() - 1);
+        for (position, update) in updates.iter().enumerate() {
+            let Some(index) = fields.iter().position(|(name, _)| *name == update.field) else {
+                return Ok(false);
+            };
+            let field_type = &fields[index].1;
+            if self.record_field_is_inlined(field_type) {
+                if !typed_is_collection_type(field_type) || arm.is_some() {
+                    return Ok(false);
+                }
+                arm = Some((position, index, field_type.clone()));
+            } else if self.record_field_is_pointer(field_type) {
+                return Ok(false);
+            } else {
+                scalars.push((position, index, &update.value));
+            }
+        }
+        let Some((arm_position, arm_index, arm_type)) = arm else {
+            return Ok(false);
+        };
+        if scalars.is_empty() {
+            return Ok(false);
+        }
+        let arm_value = &updates[arm_position].value;
+        let arm_clean = match arm_value {
+            NirValue::Call { target, args, .. } => {
+                !Self::field_arm_may_raise(target, &arm_type)
+                    && args.iter().skip(1).all(|arg| {
+                        self.nir_value_is_effect_free(arg) && self.nir_value_cannot_fail(arg)
+                    })
+            }
+            _ => false,
+        };
+        for (position, _, value) in &scalars {
+            if *position > arm_position
+                && (!self.nir_value_is_effect_free(value)
+                    || !(arm_clean || self.nir_value_cannot_fail(value)))
+            {
+                return Ok(false);
+            }
+        }
+        if let FieldContainer::State { .. } = container {
+            if updates.iter().any(|update| {
+                self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(
+                    &update.value,
+                ))
+            }) {
+                return Ok(false);
+            }
+        }
+        let (name, dest) = match container {
+            FieldContainer::Record { local } => (
+                local,
+                InPlaceDest::Inlined {
+                    block_slot: block_slot.ok_or("native mixed WITH: no record slot")?,
+                    field_index: arm_index,
+                    write_back: None,
+                },
+            ),
+            FieldContainer::State { resource } => (
+                resource,
+                InPlaceDest::StateField {
+                    resource: resource.to_string(),
+                    field_index: arm_index,
+                },
+            ),
+        };
+        let site = SelfUpdateSite {
+            name,
+            type_: arm_type,
+            dest,
+            by_ref,
+            field: Some(FieldSite {
+                container,
+                field: updates[arm_position].field.as_str(),
+                field_index: arm_index,
+                record_type: type_.clone(),
+            }),
+        };
+        self.field_pre_emit = Some(
+            scalars
+                .iter()
+                .map(|(_, index, value)| (*index, (*value).clone()))
+                .collect(),
+        );
+        let accepted = self.try_inplace_self_update(&site, arm_value)?;
+        self.field_pre_emit = None;
+        let slots = self.field_pre_emitted.take();
+        if !accepted {
+            return Ok(false);
+        }
+        let slots = slots.ok_or("native mixed WITH: the arm ran without evaluating its scalars")?;
+        // The arm may have moved the block (a grow); load it after.
+        let block = self.emit_field_owner_block(container)?;
+        for (index, slot) in slots {
+            let value = self.allocate_register();
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
+            self.emit(abi::store_u64(&value, &block, 8 * index));
+        }
+        Ok(true)
+    }
+
+    /// `G13` for a `WITH`: its target is the owner — the record local itself, or
+    /// the handle's `.state`.
+    fn with_target_is_owner(container: FieldContainer<'_>, target: &NirValue) -> bool {
+        match container {
+            FieldContainer::Record { local } => {
+                matches!(target, NirValue::Local(n) if n == local)
+            }
+            FieldContainer::State { resource } => matches!(
+                target,
+                NirValue::MemberAccess { target: inner, member }
+                    if member == "state"
+                        && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
+            ),
+        }
+    }
+
+    /// plan-145-C: whether the field arm for `target` can raise beyond its
+    /// operands — an index out of range. Only the operations known not to are
+    /// `false`; anything else answers `true`.
+    fn field_arm_may_raise(target: &str, field_type: &ParameterType) -> bool {
+        match crate::codegen::collection::assign::self_update::self_update_builtin(target) {
+            Some("append" | "add" | "prepend" | "removeKey" | "remove") => false,
+            // `set` raises on a `List` index, never on a `Map` key.
+            Some("set") => typed_list_element_type(field_type).is_some(),
+            _ => true,
+        }
+    }
+
+    /// plan-145-C: `value` has no observable effect: it reads locals, globals and
+    /// fields, computes on them, and calls only built-ins that cannot fail (the
+    /// pure queries of `inline_builtin_is_infallible`). A user function might
+    /// print, so any other call has an effect.
+    pub(crate) fn nir_value_is_effect_free(&self, value: &NirValue) -> bool {
+        match value {
+            NirValue::Const { .. }
+            | NirValue::Local(_)
+            | NirValue::Global { .. }
+            | NirValue::Capture { .. }
+            | NirValue::LocalRef { .. } => true,
+            NirValue::MemberAccess { target, .. } => self.nir_value_is_effect_free(target),
+            NirValue::Binary { left, right, .. } => {
+                self.nir_value_is_effect_free(left) && self.nir_value_is_effect_free(right)
+            }
+            NirValue::Unary { operand, .. } => self.nir_value_is_effect_free(operand),
+            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
+                self.nir_call_is_infallible_builtin(value)
+            }
+            _ => false,
+        }
+    }
+
+    /// plan-145-C: `value` cannot raise: reads, comparisons and logic over values
+    /// that cannot raise, and infallible built-ins. Arithmetic can overflow and a
+    /// negation can too (the minimum `Integer`), so neither qualifies.
+    pub(crate) fn nir_value_cannot_fail(&self, value: &NirValue) -> bool {
+        use crate::operators::{BinaryOp, UnaryOp};
+        match value {
+            NirValue::Const { .. }
+            | NirValue::Local(_)
+            | NirValue::Global { .. }
+            | NirValue::Capture { .. }
+            | NirValue::LocalRef { .. } => true,
+            NirValue::MemberAccess { target, .. } => self.nir_value_cannot_fail(target),
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
+                matches!(
+                    op,
+                    BinaryOp::Equal
+                        | BinaryOp::NotEqual
+                        | BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                        | BinaryOp::And
+                        | BinaryOp::Or
+                ) && self.nir_value_cannot_fail(left)
+                    && self.nir_value_cannot_fail(right)
+            }
+            NirValue::Unary { op, operand, .. } => {
+                *op == UnaryOp::Not && self.nir_value_cannot_fail(operand)
+            }
+            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
+                self.nir_call_is_infallible_builtin(value)
+            }
+            _ => false,
+        }
+    }
+
+    /// A call to a built-in that cannot fail, over arguments that cannot fail and
+    /// whose types are known (the census is keyed on them — `toString` of a `List
+    /// OF Byte` decodes UTF-8 and can fail).
+    fn nir_call_is_infallible_builtin(&self, value: &NirValue) -> bool {
+        let (NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }) =
+            value
+        else {
+            return false;
+        };
+        let Some(arg_types) = args
+            .iter()
+            .map(|arg| self.static_item_type(arg))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        crate::codegen::builtins::inline_builtin_is_infallible(target, &arg_types)
+            && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
     }
 
     /// If `field` is a **collection** field of `record_type` that is inlined AND
@@ -1163,13 +1496,26 @@ impl CodeBuilder<'_> {
                                     update,
                                 )
                             });
+                        // plan-145-C: a `WITH` whose every update is a scalar or a
+                        // pointer field is stored field by field in the record's
+                        // own block (the `STATE` Layer 1 routine, for a local).
                         let in_place = self.try_inplace_self_update(&site, value)?
+                            || self.try_inplace_scalar_fields(
+                                FieldContainer::Record { local: name },
+                                value,
+                            )?
                             || match &field_site {
                                 Some((site, update)) => {
                                     self.try_inplace_self_update(site, update)?
                                 }
                                 None => false,
-                            };
+                            }
+                            || self.try_inplace_mixed_with(
+                                FieldContainer::Record { local: name },
+                                value,
+                                Some(stack_offset),
+                                by_ref,
+                            )?;
                         if !in_place {
                             // Reassignment installs a fresh independent block; the old
                             // block remains owned by this binding's scope-drop free
@@ -1381,7 +1727,9 @@ impl CodeBuilder<'_> {
                         // bug-424 Layer 1: a scalar `s.state.field = v` mutates the
                         // existing STATE block in place; only a whole-record replace
                         // (or a not-yet-in-place inlined field) falls through here.
-                        if self.try_inplace_state_scalar_assign(resource, value)? {
+                        if self
+                            .try_inplace_scalar_fields(FieldContainer::State { resource }, value)?
+                        {
                             return Ok(());
                         }
                         // bug-430 Layer 2, plan-145-B: `s.state.f = op(s.state.f, …)`
@@ -1404,6 +1752,16 @@ impl CodeBuilder<'_> {
                             if self.try_inplace_self_update(&site, update)? {
                                 return Ok(());
                             }
+                        }
+                        // plan-145-C: a collection field and scalar fields in one
+                        // `WITH` over the payload.
+                        if self.try_inplace_mixed_with(
+                            FieldContainer::State { resource },
+                            value,
+                            None,
+                            false,
+                        )? {
+                            return Ok(());
                         }
                         // Replace the resource's `STATE` payload: store the new
                         // record pointer into the resource record's state slot.

@@ -366,6 +366,26 @@ impl CodeBuilder<'_> {
     /// Emits for a `STATE` field. Must run after every gate (`O-order-1`) and
     /// before the mutated operand is lowered (`O-order-4`).
     pub(crate) fn open_inplace_dest(&mut self, dest: &InPlaceDest) -> Result<InPlaceDest, String> {
+        // plan-145-C: a mixed `WITH`'s scalar values, evaluated here — the first
+        // thing the arm emits, after every gate — so they run before the arm's
+        // operands and its mutation, and an arm that declines never emits them.
+        if let Some(values) = self.field_pre_emit.take() {
+            let mut slots = Vec::with_capacity(values.len());
+            for (index, value) in &values {
+                let lowered = self.lower_value(value)?;
+                // Observation boundary: a `Float` field must be finite (plan-17).
+                self.observe_float(value, &lowered)?;
+                let lowered = self.materialize_value(lowered)?;
+                let slot = self.allocate_stack_object("mixed_with_scalar", 8);
+                self.emit(abi::store_u64(
+                    &lowered.location,
+                    abi::stack_pointer(),
+                    slot,
+                ));
+                slots.push((*index, slot));
+            }
+            self.field_pre_emitted = Some(slots);
+        }
         match dest {
             InPlaceDest::StateField {
                 resource,

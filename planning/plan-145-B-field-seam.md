@@ -177,7 +177,7 @@ Rejected:
       `toString`). No `#collections_*$T`.
 
 Acceptance: output recorded; every target is `collections.<op>` (est. 5 min).
-Commit: recorded with Phase 2 (below)
+Commit: `e5a8b1a9d` (with Phase 2)
 
 ### Phase 2: Field sites through the seam
 
@@ -220,13 +220,16 @@ golden` wraps). A direct `.ncode` diff over a probe running all 17 absorbed shap
 parameter) → `cmp` identical between the pre-B and the B compiler. `cargo test
 --bin mfb self_update` → 6 passed; `cargo test --test codegen_inplace_record_field
 --test rt_res_state_inplace_mutation` → 10 passed, 24 passed.
-Commit: (recorded in the next commit)
+Commit: `e5a8b1a9d`
 
 ## Validation Plan
 
 - Byte-identity: the artifact gate (Phase 2).
 - Behavior: `rt_inplace_self_update` with `MFB_SELF_UPDATE_SITES=S4,T2,T4,T8`.
   No line changes status (est. 8 min: 79 lines × 4 sites at 2.7 s).
+  **Result:** `MFB_TEST_EXE=<B mfb> MFB_SELF_UPDATE_SITES=S4,T2,T4,T8 cargo test
+  --test rt_inplace_self_update` → ok (exit 0): every line and kind kept its
+  expectation at the four sites.
 - Per-letter unit gate: `cargo test --bin mfb`.
 
 ## Corrections

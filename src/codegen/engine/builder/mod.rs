@@ -455,6 +455,16 @@ pub(crate) struct CodeBuilder<'a> {
     /// that `emit_reserve_self_update_scratch` loads from and publishes back
     /// through that address, and the lambda frees nothing: the creator owns it.
     pub(crate) self_update_scratch_env: Option<usize>,
+    /// plan-145-C: the scalar updates of a mixed `WITH` (one collection field served
+    /// by a seam arm, the rest scalars) — `(field index, new value)` in source
+    /// order. The arm's field route evaluates and spills them in
+    /// `open_inplace_dest`, its first emission, after every gate: so an arm that
+    /// declines emits none of them, and the values are computed before the arm
+    /// mutates anything. `try_inplace_mixed_with` then stores them.
+    pub(crate) field_pre_emit: Option<Vec<(usize, NirValue)>>,
+    /// plan-145-C: `(field index, slot)` for each `field_pre_emit` value, once the
+    /// field route has spilled them.
+    pub(crate) field_pre_emitted: Option<Vec<(usize, usize)>>,
     /// plan-142-C: set by the in-place `math` arm around its call to the member's
     /// lowering; `emit_alloc_result_list` takes it and returns the self-update
     /// scratch instead of allocating the result list.
@@ -655,6 +665,8 @@ impl<'a> CodeBuilder<'a> {
             string_capacity_slots: HashMap::new(),
             self_update_scratch: None,
             self_update_scratch_env: None,
+            field_pre_emit: None,
+            field_pre_emitted: None,
             simd_result_into: None,
             math_pool_base_vreg: None,
             vector_natives: HashMap::new(),

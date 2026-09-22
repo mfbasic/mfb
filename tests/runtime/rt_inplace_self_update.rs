@@ -774,10 +774,10 @@ impl FieldSite {
             S4 | S7 | S9 => format!("r = WITH r {{ b := {v} }}"),
             S5 => format!("gR = WITH gR {{ b := {v} }}"),
             S6 => format!("o = WITH o {{ inner := WITH o.inner {{ b := {v} }} }}"),
-            S10 => format!("r = WITH r {{ b := {v}, n := r.n + 1 }}"),
+            S10 => format!("r = WITH r {{ b := {v}, n := k }}"),
             T1 | T3 => format!("h.state.a = {v}"),
             T2 | T4 | T7 | T8 => format!("h.state.b = {v}"),
-            T5 => format!("h.state = WITH h.state {{ b := {v}, n := h.state.n + 1 }}"),
+            T5 => format!("h.state = WITH h.state {{ b := {v}, n := k }}"),
             T6 => format!("h.state.inner = WITH h.state.inner {{ b := {v} }}"),
         }
     }
@@ -1149,6 +1149,10 @@ fn field_prologue(fc: &FieldCase, site: FieldSite) -> String {
         src.push_str(&format!("  {}\n", sized(line, VALUE_M)));
     }
     src.push_str(site.owner_init());
+    // S10/T5's second update is `n := k`, a local read (plan-144's site legend).
+    if matches!(site, FieldSite::S10 | FieldSite::T5) {
+        src.push_str("  LET k AS Integer = 7\n");
+    }
     src
 }
 

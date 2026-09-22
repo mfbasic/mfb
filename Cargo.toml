@@ -907,6 +907,10 @@ name = "rt_res_state_inplace_mutation"
 path = "tests/runtime/rt_res_state_inplace_mutation.rs"
 
 [[test]]
+name = "rt_inplace_field_mixed"
+path = "tests/runtime/rt_inplace_field_mixed.rs"
+
+[[test]]
 name = "rt_scope_drop_leaks"
 path = "tests/runtime/rt_scope_drop_leaks.rs"
 

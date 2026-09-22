@@ -27,10 +27,11 @@ field lists with the same rules:
 and its expectation per site from the plan-145 letter that lands it
 (plan-145-A §"plan-145 as a whole", Open Decisions 1, 3 and 4):
 
-  Scalar           S3 S4 S10 -> copy:C, S5 -> copy:G, S6 T6 -> copy:F, S9 -> copy:H,
-                   T1-T5 T8 -> arm (Layer 1 today)
-  Pointer          S3 S4 S10 T1-T5 T8 -> copy:C, S5 -> copy:G, S6 T6 -> copy:F,
-                   S9 -> copy:H; `json::Json` is no STATE type -> na at T sites
+  Scalar           S3 S4 S10 T1-T5 T8 -> arm (plan-145-C; Layer 1 at T),
+                   S5 -> copy:G, S6 T6 -> copy:F, S9 -> copy:H
+  Pointer          S3 S4 S10 T1-T5 T8 -> arm (plan-145-C), S5 -> copy:G,
+                   S6 T6 -> copy:F, S9 -> copy:H; `json::Json` is no STATE type ->
+                   na at T sites
   InlinedFixed     every site -> copy:F, except S5 -> copy:G and S9 -> copy:H
   InlinedVariable  rebuild:size-varies (Open Decision 3)
   String kinds     deferred:string (Open Decision 1)
@@ -193,10 +194,9 @@ def expects(klass, state_ok=True, buildable=True):
             out[s] = "copy:F"
         elif klass == "InlinedFixed":
             out[s] = "copy:F"
-        elif klass == "Scalar":
-            out[s] = "arm" if s.startswith("T") else "copy:C"
-        elif klass == "Pointer":
-            out[s] = "copy:C"
+        elif klass in ("Scalar", "Pointer"):
+            # plan-145-C: stored in the owner's slot (`try_inplace_scalar_fields`).
+            out[s] = "arm"
     return " ".join(f"{s}={out[s]}" for s in SITES)
 
 

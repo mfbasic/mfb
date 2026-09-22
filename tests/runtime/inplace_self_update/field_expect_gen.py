@@ -64,6 +64,9 @@ REALLOC_NEW = {"union", "symmetricDifference", "merge"}
 EXISTING_GROW = {"add", "append", "insert", "prepend"}
 
 ORDER = "BCDEFGH"
+# The plan-145 letters that have landed: a pair whose closing letter is here is
+# `arm`, not `copy:<letter>`. A letter adds itself when it flips its lines.
+LANDED = {"B", "C"}
 
 
 def later(a, b):
@@ -192,7 +195,7 @@ def main():
                 for k, v in expects:
                     if k == "copy":
                         letter = later(letter, v)
-                out = "copy:" + letter
+                out = "arm" if letter in LANDED else "copy:" + letter
             else:
                 out = "arm"
             print(f"{sig}\t{site}\t{out}")

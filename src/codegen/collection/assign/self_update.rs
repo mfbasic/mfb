@@ -1733,16 +1733,6 @@ pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
     const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // The nine field-capable arms, at a mixed `WITH` (letter C).
-        (ArmId::Append, MIXED, 'C'),
-        (ArmId::BulkAppend, MIXED, 'C'),
-        (ArmId::SetAdd, MIXED, 'C'),
-        (ArmId::Insert, MIXED, 'C'),
-        (ArmId::Prepend, MIXED, 'C'),
-        (ArmId::Set, MIXED, 'C'),
-        (ArmId::RemoveKey, MIXED, 'C'),
-        (ArmId::RemoveAt, MIXED, 'C'),
-        (ArmId::SetRemove, MIXED, 'C'),
         // Cannot-reallocate arms reach a not-last field (Open Decision 2).
         (ArmId::Set, NOT_LAST, 'D'),
         (ArmId::RemoveKey, NOT_LAST, 'D'),
@@ -2025,8 +2015,8 @@ impl Probe {
             Site::S3 => format!("r = WITH r {{ a := {v} }}"),
             Site::S5 => format!("gR = WITH gR {{ b := {v} }}"),
             Site::S6 => format!("o = WITH o {{ inner := WITH o.inner {{ b := {v} }} }}"),
-            Site::S10 => format!("r = WITH r {{ b := {v}, n := r.n + 1 }}"),
-            Site::T5 => format!("h.state = WITH h.state {{ b := {v}, n := h.state.n + 1 }}"),
+            Site::S10 => format!("r = WITH r {{ b := {v}, n := k }}"),
+            Site::T5 => format!("h.state = WITH h.state {{ b := {v}, n := k }}"),
             Site::T6 => format!("h.state.inner = WITH h.state.inner {{ b := {v} }}"),
             Site::T1 | Site::T2 | Site::T3 | Site::T4 | Site::T7 | Site::T8 => {
                 format!("{field} = {v}")
@@ -2053,8 +2043,14 @@ impl Probe {
             ),
             _ => format!("  FOR i = 1 TO 3\n    {statement}\n  NEXT\n"),
         };
+        // S10/T5's second update is `n := k`, a local read (plan-144's site legend).
+        let k = if matches!(site, Site::S10 | Site::T5) {
+            "  LET k AS Integer = 7\n"
+        } else {
+            ""
+        };
         let body = format!(
-            "  MUT x AS {ty} = {init}\n{owner}{looped}  io::print(toString(len({field})))\n",
+            "  MUT x AS {ty} = {init}\n{owner}{k}{looped}  io::print(toString(len({field})))\n",
             init = self.init
         );
         let open = "fs::openFile(\"/dev/null\")";
