@@ -77,6 +77,7 @@ impl NativeBackend for Backend {
                 "canvas.destroyImage",
                 "canvas.imageHandle",
                 "canvas.fontFromBytes",
+                "canvas.systemFontTable",
                 "canvas.destroyFont",
                 "canvas.fontHandle",
                 "canvas.fontBytes",

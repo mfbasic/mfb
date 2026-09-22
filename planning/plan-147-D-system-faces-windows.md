@@ -101,7 +101,11 @@ PostScript name); GDI `EnumFontFamiliesEx` (no file paths).
 - [ ] Check: audio Windows goldens unchanged — `cargo test --test acceptance audio`
       (name via `rg -l 'IMPORT audio' tests/syntax`) → pass (est. 5 min).
 
-### Phase 2 — Emitter, plan, capability, runtime proof
+
+- [ ] Restore the Windows canvas-app build broken since plan-147-B:
+      `mfb build -ncode -target windows-x86_64 --app` of
+      `tests/syntax/app/app-mouse-surface` succeeds and its `.app.ncodesum` golden is
+      regenerated after checking the diff is only the plan-147 members.### Phase 2 — Emitter, plan, capability, runtime proof
 
 - [ ] `gen_system_faces_windows.rs`, plan arm, capability entry; delete the
       no-backend arm.

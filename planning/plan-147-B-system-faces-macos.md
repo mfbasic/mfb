@@ -133,34 +133,51 @@ with `kCTFont*Attribute` keys (needs data-symbol imports from CoreText for no ga
 
 ### Phase 1 — Plumbing and the macOS emitter
 
-- [ ] `src/os/macos/link/mod.rs:dylib_path` and `src/os/macos/object.rs:dylib_for_library`:
-      add `"CoreText"` → `/System/Library/Frameworks/CoreText.framework/CoreText`
-      (same convention as the `CoreFoundation` arm).
-- [ ] Check how `emit_external_call` passes a float argument on macOS; if it has no
+- [x] `src/os/macos/link/mod.rs:dylib_path` and `src/os/macos/object.rs:dylib_for_library`:
+      add `"CoreText"` → `/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText`
+      (versioned — `otool -L` on a binary linking CoreText reports that install name).
+- [x] Check how `emit_external_call` passes a float argument on macOS; if it has no
       float seam, emit `fmov d0, xzr` (via the builder's float move) before the
-      `CTFontCreateWithFontDescriptor` call. Record the finding in Corrections.
-- [ ] `canvas/mod.rs`: `SystemFace` record; `func_system_faces.rs` registration;
-      `gen_system_faces_macos.rs` emitter (§3).
-- [ ] `macos_aarch64/plan.rs:runtime_imports`: a `"canvas.systemFaces"` arm with the
-      CoreText and CoreFoundation functions of §2 plus the arena/allocation imports the
-      record builder needs (copy from the audio devices arm).
-- [ ] `macos_aarch64/mod.rs` capability list: add `"canvas.systemFaces"`.
-- [ ] `registry/mod.rs:CALLER_ARENA_BLOCK_RESULTS`: add the call.
-- [ ] `func_system_fonts.rs`: public `listSystemFonts` and `loadSystemFont` (§1),
-      `Body::mfb`, with a short working `intro`/`desc`/`example` (E polishes the prose
-      against `.ai/man-content.md`).
-- [ ] Tests: new `tests/canvas/rt_canvas_system_fonts.rs` (macOS-gated with
+      `CTFontCreateWithFontDescriptor` call. Finding: no float seam; the emitter writes
+      `abi::float_move_d_from_x(abi::fp_argument_register(0)?, abi::ZERO)`.
+- [x] ~~`canvas/mod.rs`: `SystemFace` record; `func_system_faces.rs`~~ — replaced (see
+      Corrections, one-`String` table): `func_system_fonts.rs` registers the internal
+      `systemFontTable` (`Body::abi_function`, dispatch on `platform.family()`), and
+      `gen_system_fonts_macos.rs` emits the CoreText body.
+- [x] `macos_aarch64/plan.rs:runtime_imports`: a `"canvas.systemFontTable"` arm with the
+      CoreText and CoreFoundation functions plus `_strlen`.
+- [x] `macos_aarch64/mod.rs` capability list: add `"canvas.systemFontTable"`.
+- [x] `registry/mod.rs:CALLER_ARENA_BLOCK_RESULTS`: add the call (`// String`).
+- [x] `func_system_fonts.rs`: public `listSystemFonts` and `loadSystemFont` (§1),
+      `Body::mfb`, with working `intro`/`desc`/`example` (E polishes the prose against
+      `.ai/man-content.md`); the table is split on bytes by `__canvas_systemFontFields`,
+      read once per thread and cached; names sorted and de-duplicated by the companion's
+      own `__canvas_sortedUnique`.
+- [x] Filter private system faces (full name starting with `.`) in the macOS emitter —
+      discovered: see Corrections.
+- [x] Guard test `no_companion_calls_a_source_generic_collections_member`
+      (`codegen::registry` tests) and the `.ai/resources-packages.md` rule — discovered:
+      see Corrections. Check: `cargo test --bin mfb
+      no_companion_calls_a_source_generic_collections_member` → 1 passed; with
+      `collections::sort` temporarily restored in canvas it fails naming
+      `"canvas: collections::sort"`.
+- [x] Tests: new `tests/canvas/rt_canvas_system_fonts.rs` (macOS-gated with
       `#[cfg(target_os = "macos")]`), headless `--app` programs asserting:
-      the list is non-empty, sorted and duplicate-free and contains `Helvetica`;
-      `loadSystemFont(n)` succeeds for **every** listed `n` (this is what catches a
-      named instance or a CFF face slipping through the filters) and prints
-      `system fonts: N loaded: N`; `loadSystemFont("Helvetica")` draws non-empty text;
-      `loadSystemFont("No Such Font")` → 77050004.
+      the list is non-empty, sorted and duplicate-free, holds no private `.` face, and
+      contains `Helvetica` and `Helvetica Bold`; `loadSystemFont(n)` succeeds for
+      **every** listed `n` and prints `system fonts: N loaded: N`; Helvetica Bold
+      measures wider than Helvetica; `loadSystemFont("No Such Font")` → 77050004.
 
 Acceptance: every face listed on this Mac loads; an unknown name is `ErrNotFound`.
   Check: `cargo test --test rt_canvas_system_fonts` → pass; log line
-  `system fonts: N loaded: N` with N = 413 on this machine (est. 4 min; loading every
+  `system fonts: N loaded: N` with N = 563 on this machine (est. 4 min; loading every
   face is the point — a smaller sample would miss a bad face).
+  **Observed:** `cargo test --test rt_canvas_system_fonts -- --nocapture` →
+  `system fonts: 563 loaded: 563`, `test result: ok. 2 passed` (279 s including the
+  harness's release build). macOS app goldens regenerated (diff = exactly the added
+  `#canvas_listSystemFonts`, `loadSystemFont`, `readSystemFontFields`,
+  `systemFontFields`, `sortedUnique`, `#CANVAS_SYSFONT_FIELDS`/`READ`);
+  `test-accept.sh … 'canvas*' 'app*'` → 8 passed.
 Commit: —
 
 ## Validation Plan
@@ -194,6 +211,43 @@ Commit: —
   `SystemFace` / `emit_build_record_list` in B–E means this call now; its
   `CALLER_ARENA_BLOCK_RESULTS` row is `"canvas.systemFontTable", // String`.
 
+- **Non-goal was false: every canvas app, not just a caller, stops building for Linux
+  and Windows until C and D land.** Canvas companion members are always emitted, so
+  `__canvas_listSystemFonts` reaches `canvas.systemFontTable` in an app that never
+  lists fonts: `mfb build -ncode -target linux-x86_64 --app` of `app-mouse-surface` →
+  `error: native backend does not support runtime call 'canvas.systemFontTable'`. This
+  is a feature-branch-only state (nothing merges before plan-147-E); the Linux and
+  Windows `.app.ncodesum` goldens of `app-mouse-surface` are regenerated by C and D, and
+  C/D gain the task of restoring those builds.
+- **The count is 563, not 413, and it differs by process kind.** The CLI probe saw
+  550 faces (413 kept); a headless `--app` binary sees 602 kept faces before the
+  private-face rule, 39 of them `.`-prefixed (`.Al Bayan PUA Bold`) — macOS's private
+  UI faces, which an app process can see and a plain CLI process could not. Added a
+  third filter (full name must not start with `.`, via
+  `CFStringGetCharacterAtIndex`), so the listed count is 602 − 39 = 563 on this Mac
+  (smoke program `/tmp/p147_smoke`: `count 602 dotted 39 loaded 602`, 0 failures,
+  before the filter). The acceptance line asserts properties (every name loads,
+  sorted, unique, none private, Helvetica present), not a copied count.
+- **`strings::split` is not available to canvas's companion source** (its import
+  list, `canvas/mod.rs` `add_imports`, has no `strings`), and adding it would make
+  every canvas app carry `strings`. `__canvas_systemFontFields` splits the table on its
+  UTF-8 bytes with `encoding` (already imported) instead; neither separator can occur
+  inside a multi-byte UTF-8 sequence.
+- **`collections::sort`/`distinct` cannot be called from a companion.** First run:
+  `error: NIR call target '#collections_sort' does not resolve` — but only when the
+  test program did not itself `IMPORT collections` (the smoke program did, and built).
+  The `collections` source is injected in `parse_project` from the program's imports,
+  before companions exist (`codegen::builtins::collections::augmented_project`). Fixing
+  the injection order would add the whole `collections` source to every app of every
+  package whose companion imports it, so instead: the companion sorts with its own
+  merge sort, a registry test now fails any companion that calls a source-generic
+  `collections` member, and `.ai/resources-packages.md` states the rule.
+- **Enumeration cost: 0.58 s per call, so the table is cached per thread.** With the
+  table re-read on every call, loading all 563 faces took 604 s. Timed 20 calls
+  (`/usr/bin/time -l`): `listSystemFonts` 11.52 s, `loadSystemFont("Helvetica")`
+  13.15 s → ~0.58 s is the OS query, ~0.08 s the load. Memory stayed flat at 42–52 MB
+  max RSS, so no per-call leak. After caching: 20 list calls in 2.62 s total. The man
+  pages say a font installed mid-run appears on the next start.
 - **The public members moved here from plan-147-E.** `systemFaces` is `internal_only`,
   and the resolver refuses internal members from test programs
   (`src/resolver/resolution.rs:1700`), so the plan's "tests call `systemFaces` /

@@ -104,6 +104,11 @@ fontconfig).
       (`readelf -d`/object inspection helper already used by Vulkan tests —
       `rg -n 'libvulkan' tests/` names it).
 
+- [ ] Restore the Linux canvas-app build broken since plan-147-B (every canvas app
+      reaches `canvas.systemFontTable`): `mfb build -ncode -target linux-x86_64 --app`
+      and `-target linux-aarch64` of `tests/syntax/app/app-mouse-surface` succeed, and
+      their `.app.ncodesum` goldens are regenerated after checking the diff is only the
+      plan-147 members.
 Acceptance: builds for both app-capable Linux targets, no fontconfig `DT_NEEDED`.
   Check: `cargo test --test rt_canvas_system_fonts linux` → pass (est. 3 min).
 Commit: —
