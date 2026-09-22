@@ -91,21 +91,65 @@ pub(crate) enum ArmId {
 /// destination from here rather than from the frame, which is what lets a new
 /// site reuse every arm.
 pub(crate) struct SelfUpdateSite<'a> {
-    /// The binding's name — the statement is `name = f(name, …)`.
+    /// The binding's name — the statement is `name = f(name, …)`. For a field site
+    /// it is the owner: the record local, or the `RES` handle.
     pub(crate) name: &'a str,
-    /// The binding's declared type.
+    /// The binding's declared type — for a field site, the FIELD's type.
     pub(crate) type_: ParameterType,
     /// Where the binding's block pointer lives.
     pub(crate) dest: InPlaceDest,
     /// `G1` — the local is a by-ref capture whose slot holds a pointer to the
     /// parent's slot, not the block.
     pub(crate) by_ref: bool,
+    /// plan-145-B: `Some` when the self-update is a record or `STATE` FIELD's
+    /// (`r = WITH r { f := op(r.f, …) }`, `h.state.f = op(h.state.f, …)`).
+    pub(crate) field: Option<FieldSite<'a>>,
+}
+
+/// plan-145-B: which field of which owner a field site updates.
+pub(crate) struct FieldSite<'a> {
+    pub(crate) container: FieldContainer<'a>,
+    /// The updated field's name.
+    pub(crate) field: &'a str,
+    /// Its position in the owner record's fields (the slot the record's block
+    /// stores its block-relative offset in).
+    pub(crate) field_index: usize,
+    /// The owner record's type.
+    pub(crate) record_type: ParameterType,
+}
+
+/// plan-145-B: who owns the field's block.
+#[derive(Clone, Copy)]
+pub(crate) enum FieldContainer<'a> {
+    /// A record local, whose frame slot holds the record block pointer.
+    Record { local: &'a str },
+    /// A `RES … STATE` handle, whose resource record holds the payload pointer.
+    State { resource: &'a str },
 }
 
 impl SelfUpdateSite<'_> {
     /// Whether `value` is this binding itself: the local, or — for a global
-    /// destination — the global.
+    /// destination — the global; for a field site, the field (`G18`).
     pub(crate) fn is_self(&self, value: &NirValue) -> bool {
+        if let Some(field) = &self.field {
+            let NirValue::MemberAccess { target, member } = value else {
+                return false;
+            };
+            if member != field.field {
+                return false;
+            }
+            return match field.container {
+                FieldContainer::Record { local } => {
+                    matches!(target.as_ref(), NirValue::Local(n) if n == local)
+                }
+                FieldContainer::State { resource } => matches!(
+                    target.as_ref(),
+                    NirValue::MemberAccess { target: inner, member: state }
+                        if state == "state"
+                            && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
+                ),
+            };
+        }
         match (&self.dest, value) {
             (InPlaceDest::Global { .. }, NirValue::Global { name, .. }) => name == self.name,
             (InPlaceDest::Global { .. }, _) => false,
@@ -114,9 +158,11 @@ impl SelfUpdateSite<'_> {
         }
     }
 
-    /// Whether evaluating `value` reads this binding anywhere inside it.
+    /// Whether evaluating `value` reads this binding anywhere inside it. For a
+    /// field site that is any read of the owner — conservative, and exactly the
+    /// self-alias test the record and `STATE` arms made (`G12`).
     pub(crate) fn read_by(&self, value: &NirValue) -> bool {
-        if !matches!(self.dest, InPlaceDest::Global { .. }) {
+        if self.field.is_some() || !matches!(self.dest, InPlaceDest::Global { .. }) {
             return crate::codegen::engine::control::nir_value_reads_local(value, self.name);
         }
         struct Finder<'n> {
@@ -145,57 +191,153 @@ impl SelfUpdateSite<'_> {
 pub(crate) type ArmFn =
     fn(&mut CodeBuilder<'_>, &SelfUpdateSite<'_>, &NirValue) -> Result<bool, String>;
 
+/// plan-145-B: whether an arm serves a field site, and how. D and E replace
+/// `Existing` with the arm's reallocation class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FieldReach {
+    /// The arm declines every field site.
+    None,
+    /// The arm serves a field site exactly as the record and `STATE` arm it
+    /// absorbed did (plan-121-C/D): the last-inlined field of a local record or
+    /// a `STATE` payload.
+    Existing,
+}
+
 /// The dispatch list. Every arm-backed `SELF_UPDATE_TABLE` row names ids from
 /// here; `self_update_table_has_no_stale_rows` checks both directions.
-pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn)] = &[
+pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     // `append` and `bulk_append` share the builtin name and split on G11
     // (element vs list item type); keep single-element first.
-    (ArmId::Append, |b, s, v| b.try_inplace_append_assign(s, v)),
-    (ArmId::BulkAppend, |b, s, v| {
-        b.try_inplace_bulk_append_assign(s, v)
-    }),
-    (ArmId::SetAdd, |b, s, v| b.try_inplace_set_add_assign(s, v)),
-    (ArmId::Set, |b, s, v| b.try_inplace_set_assign(s, v)),
-    (ArmId::RemoveKey, |b, s, v| {
-        b.try_inplace_remove_key_assign(s, v)
-    }),
-    (ArmId::Prepend, |b, s, v| b.try_inplace_prepend_assign(s, v)),
-    (ArmId::RemoveAt, |b, s, v| {
-        b.try_inplace_remove_at_assign(s, v)
-    }),
-    (ArmId::Insert, |b, s, v| b.try_inplace_insert_assign(s, v)),
-    (ArmId::SetRemove, |b, s, v| {
-        b.try_inplace_set_remove_assign(s, v)
-    }),
-    (ArmId::Concat, |b, s, v| b.try_inplace_concat_assign(s, v)),
-    (ArmId::Filter, |b, s, v| b.try_inplace_filter_assign(s, v)),
-    (ArmId::Take, |b, s, v| b.try_inplace_take_assign(s, v)),
-    (ArmId::Drop, |b, s, v| b.try_inplace_drop_assign(s, v)),
-    (ArmId::Mid, |b, s, v| b.try_inplace_mid_assign(s, v)),
-    (ArmId::Distinct, |b, s, v| {
-        b.try_inplace_distinct_assign(s, v)
-    }),
-    (ArmId::Math, |b, s, v| b.try_inplace_math_assign(s, v)),
-    (ArmId::Replace, |b, s, v| b.try_inplace_replace_assign(s, v)),
-    (ArmId::Transform, |b, s, v| {
-        b.try_inplace_transform_assign(s, v)
-    }),
-    (ArmId::Sort, |b, s, v| b.try_inplace_sort_assign(s, v)),
-    (ArmId::SortBy, |b, s, v| b.try_inplace_sort_by_assign(s, v)),
-    (ArmId::Union, |b, s, v| b.try_inplace_union_assign(s, v)),
-    (ArmId::Intersection, |b, s, v| {
-        b.try_inplace_intersection_assign(s, v)
-    }),
-    (ArmId::Difference, |b, s, v| {
-        b.try_inplace_difference_assign(s, v)
-    }),
-    (ArmId::SymmetricDifference, |b, s, v| {
-        b.try_inplace_symmetric_difference_assign(s, v)
-    }),
-    (ArmId::Merge, |b, s, v| b.try_inplace_merge_assign(s, v)),
-    (ArmId::MapValues, |b, s, v| {
-        b.try_inplace_map_values_assign(s, v)
-    }),
+    (
+        ArmId::Append,
+        |b, s, v| b.try_inplace_append_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::BulkAppend,
+        |b, s, v| b.try_inplace_bulk_append_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::SetAdd,
+        |b, s, v| b.try_inplace_set_add_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::Set,
+        |b, s, v| b.try_inplace_set_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::RemoveKey,
+        |b, s, v| b.try_inplace_remove_key_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::Prepend,
+        |b, s, v| b.try_inplace_prepend_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::RemoveAt,
+        |b, s, v| b.try_inplace_remove_at_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::Insert,
+        |b, s, v| b.try_inplace_insert_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::SetRemove,
+        |b, s, v| b.try_inplace_set_remove_assign(s, v),
+        FieldReach::Existing,
+    ),
+    (
+        ArmId::Concat,
+        |b, s, v| b.try_inplace_concat_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Filter,
+        |b, s, v| b.try_inplace_filter_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Take,
+        |b, s, v| b.try_inplace_take_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Drop,
+        |b, s, v| b.try_inplace_drop_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Mid,
+        |b, s, v| b.try_inplace_mid_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Distinct,
+        |b, s, v| b.try_inplace_distinct_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Math,
+        |b, s, v| b.try_inplace_math_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Replace,
+        |b, s, v| b.try_inplace_replace_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Transform,
+        |b, s, v| b.try_inplace_transform_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Sort,
+        |b, s, v| b.try_inplace_sort_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::SortBy,
+        |b, s, v| b.try_inplace_sort_by_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Union,
+        |b, s, v| b.try_inplace_union_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Intersection,
+        |b, s, v| b.try_inplace_intersection_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Difference,
+        |b, s, v| b.try_inplace_difference_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::SymmetricDifference,
+        |b, s, v| b.try_inplace_symmetric_difference_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::Merge,
+        |b, s, v| b.try_inplace_merge_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::MapValues,
+        |b, s, v| b.try_inplace_map_values_assign(s, v),
+        FieldReach::None,
+    ),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -239,7 +381,11 @@ impl CodeBuilder<'_> {
         // A `Ref` or `Global` destination works on a copy of the block pointer:
         // load it before any arm reads the slot, publish it back once one has run.
         self.open_inplace_ref_dest(&site.dest)?;
-        for (_, arm) in SELF_UPDATE_ARMS {
+        for (_, arm, reach) in SELF_UPDATE_ARMS {
+            // plan-145-B: an arm that serves no field declines a field site.
+            if site.field.is_some() && *reach == FieldReach::None {
+                continue;
+            }
             if arm(self, site, value)? {
                 self.close_inplace_dest(&site.dest)?;
                 return Ok(true);
@@ -1248,17 +1394,62 @@ impl ArmId {
     /// The stack-slot type names only this arm allocates (plan-141 Appendix C:
     /// each occurs exactly once in `src/`). The slot's presence in a function
     /// proves the arm fired there. `Set` has one per collection kind.
+    ///
+    /// plan-145-B: a field-capable arm also lists its field route's slots, one per
+    /// container (`inplace_recfield_*` for a record, `inplace_state_*` for a
+    /// `STATE` payload). The single and bulk `append` share their field slot, as
+    /// `insert` and `prepend` share their item slot: the record and `STATE` arms
+    /// they absorbed did, and the names are in the `.ncode` (byte identity).
     pub(crate) fn markers(self) -> &'static [&'static str] {
         match self {
-            ArmId::Append => &["inplace_append_item"],
-            ArmId::BulkAppend => &["inplace_bulk_append_rhs"],
-            ArmId::SetAdd => &["inplace_set_add_item"],
-            ArmId::Set => &["inplace_set_index", "inplace_set_key"],
-            ArmId::RemoveKey => &["inplace_remove_key"],
-            ArmId::Prepend => &["inplace_prepend_item"],
-            ArmId::RemoveAt => &["inplace_remove_at_index"],
-            ArmId::Insert => &["inplace_insert_index"],
-            ArmId::SetRemove => &["inplace_set_remove_item"],
+            ArmId::Append => &[
+                "inplace_append_item",
+                "inplace_recfield_rhs",
+                "inline_state_rhs",
+            ],
+            ArmId::BulkAppend => &[
+                "inplace_bulk_append_rhs",
+                "inplace_recfield_rhs",
+                "inline_state_rhs",
+            ],
+            ArmId::SetAdd => &[
+                "inplace_set_add_item",
+                "inplace_recfield_add_item",
+                "inplace_state_add_item",
+            ],
+            ArmId::Set => &[
+                "inplace_set_index",
+                "inplace_set_key",
+                "inplace_recfield_set_index",
+                "inplace_recfield_set_key",
+                "inplace_state_set_index",
+                "inplace_state_set_key",
+            ],
+            ArmId::RemoveKey => &[
+                "inplace_remove_key",
+                "inplace_recfield_remove_key",
+                "inplace_state_remove_key",
+            ],
+            ArmId::Prepend => &[
+                "inplace_prepend_item",
+                "inplace_recfield_splice_item",
+                "inplace_state_splice_item",
+            ],
+            ArmId::RemoveAt => &[
+                "inplace_remove_at_index",
+                "inplace_recfield_remove_at_index",
+                "inplace_state_remove_at_index",
+            ],
+            ArmId::Insert => &[
+                "inplace_insert_index",
+                "inplace_recfield_splice_index",
+                "inplace_state_splice_index",
+            ],
+            ArmId::SetRemove => &[
+                "inplace_set_remove_item",
+                "inplace_recfield_set_remove",
+                "inplace_state_set_remove",
+            ],
             ArmId::Concat => &["concat_self_right"],
             ArmId::Filter => &["inplace_filter_action"],
             ArmId::Take => &["inplace_take_count"],
@@ -1542,16 +1733,7 @@ pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
     const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // The record/`STATE` arms that exist today, outside the seam until B.
-        (ArmId::Append, LAST, 'B'),
-        (ArmId::BulkAppend, LAST, 'B'),
-        (ArmId::SetAdd, LAST, 'B'),
-        (ArmId::Insert, LAST, 'B'),
-        (ArmId::Prepend, LAST, 'B'),
-        (ArmId::Set, LAST, 'B'),
-        (ArmId::RemoveKey, LAST, 'B'),
-        (ArmId::RemoveAt, LAST, 'B'),
-        (ArmId::SetRemove, LAST, 'B'),
+        // The nine field-capable arms, at a mixed `WITH` (letter C).
         (ArmId::Append, MIXED, 'C'),
         (ArmId::BulkAppend, MIXED, 'C'),
         (ArmId::SetAdd, MIXED, 'C'),
@@ -2094,7 +2276,7 @@ mod tests {
     #[test]
     fn self_update_table_has_no_stale_rows() {
         let shaped = shaped_functions();
-        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _)| *id).collect();
+        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
         assert_eq!(
             arms.len(),
             SELF_UPDATE_ARMS.len(),
@@ -2138,7 +2320,7 @@ mod tests {
 
     #[test]
     fn every_arm_row_fires_at_every_enabled_site() {
-        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _)| *id).collect();
+        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
         let pending = |id: ArmId, site: Site| {
             FIELD_PENDING
                 .iter()

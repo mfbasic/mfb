@@ -1,7 +1,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::collection::assign::self_update::{
-    is_global_self_update_call, is_self_update_call, SelfUpdateSite,
+    is_global_self_update_call, is_self_update_call, FieldContainer, FieldSite, SelfUpdateSite,
 };
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
@@ -241,40 +241,6 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
-    /// True when `value` reads exactly `<resource>.state.<field>` — the
-    /// self-append source/alias check for bug-430.
-    pub(crate) fn value_is_state_field(
-        &self,
-        value: &NirValue,
-        resource: &str,
-        field: &str,
-    ) -> bool {
-        let NirValue::MemberAccess { target, member } = value else {
-            return false;
-        };
-        if member != field {
-            return false;
-        }
-        let NirValue::MemberAccess {
-            target: inner,
-            member: inner_member,
-        } = target.as_ref()
-        else {
-            return false;
-        };
-        inner_member == "state" && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
-    }
-
-    /// True when `value` reads exactly `<local>.<field>` — the self-append
-    /// source/alias check for a MUT record field grow (bug-430).
-    pub(crate) fn value_is_record_field(&self, value: &NirValue, local: &str, field: &str) -> bool {
-        matches!(
-            value,
-            NirValue::MemberAccess { target, member }
-                if member == field && matches!(target.as_ref(), NirValue::Local(n) if n == local)
-        )
-    }
-
     /// If `field` is a **collection** field of `record_type` that is inlined AND
     /// is the **last inlined field** (no later field is inlined, so growing its
     /// trailing sub-block extends the record block's tail without shifting any
@@ -322,134 +288,56 @@ impl CodeBuilder<'_> {
         Some((index, field_type.clone()))
     }
 
-    /// plan-121-D Phase 1: the **operation dispatch** for a collection held in a
-    /// `RES … STATE` block, the STATE analogue of the `try_inplace_record_field_*`
-    /// chain in `Assign` above.
+    /// plan-145-B: the field site of `value` — `r = WITH r { f := op(r.f, …) }`
+    /// for a record local (`container` `Record`) or `h.state = WITH h.state { f :=
+    /// … }` for a `RES … STATE` handle (`State`; `h.state.f = v` desugars to it) —
+    /// and the update's value, which the seam's arms then match as `op(field, …)`.
     ///
-    /// The split this introduces is between the two questions an in-place arm has
-    /// to answer, which used to be tangled in one function:
-    ///
-    /// * **Which container is this?** — `resolve_inplace_state_field` (the
-    ///   container matcher): the `WITH` shape, `G13` the target is exactly this
-    ///   resource's `.state`, `G14` the single updated field, `G16` no live
-    ///   `FOR EACH` over it, `G17` last-inlined, `G10` the layout. None of that
-    ///   depends on which operation is running, which is exactly why it is shared.
-    /// * **Which operation is this?** — this function, one arm per builtin.
-    ///
-    /// **All seven mutating operations now reach a collection held in a
-    /// `RES … STATE` block in place.** Phase 1 dispatched `append` alone and
-    /// changed no behaviour; Phase 2 added `removeKey`, `add` and `set`; Phase 3
-    /// added `removeAt`, Set `remove`, `insert` and `prepend`.
-    ///
-    /// Order is irrelevant to correctness — each arm re-matches the operation name
-    /// through `resolve_inplace_state_field`, so at most one can accept a given
-    /// statement — but it is kept in phase order so the ledger reads against the
-    /// code.
-    ///
-    /// Returning `false` is always correct: it falls through to the whole-record
-    /// STATE replace below, which is the slow path, never a wrong one.
-    fn try_inplace_state_collection_assign(
-        &mut self,
-        resource: &str,
-        value: &NirValue,
-    ) -> Result<bool, String> {
-        Ok(self.try_inplace_state_collection_append(resource, value)?
-            || self.try_inplace_state_remove_key_assign(resource, value)?
-            || self.try_inplace_state_set_add_assign(resource, value)?
-            || self.try_inplace_state_set_assign(resource, value)?
-            || self.try_inplace_state_remove_at_assign(resource, value)?
-            || self.try_inplace_state_set_remove_assign(resource, value)?
-            || self.try_inplace_state_insert_assign(resource, value)?
-            || self.try_inplace_state_prepend_assign(resource, value)?)
-    }
-
-    /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
-    /// where `coll` is a `List` field that is the last inlined field of the STATE
-    /// record, and grow it IN PLACE inside the existing STATE block (amortized
-    /// O(1) append with geometric headroom) instead of rebuilding the whole
-    /// record and re-inlining the accumulated buffer (the O(n²) path). `x` may be
-    /// a single element (`T`) or a whole list (`List OF T`, concatenation). On a
-    /// realloc the new STATE pointer is written back through the resource's shared
-    /// STATE slot, so the owner and every alias observe the grown block (§15).
-    /// Anything else — a non-last-inlined collection, a whole-state replace, or an
-    /// append whose source is not this same field — returns `false` and falls
-    /// through to the whole-record replace.
-    fn try_inplace_state_collection_append(
-        &mut self,
-        resource: &str,
-        value: &NirValue,
-    ) -> Result<bool, String> {
-        // Container (plan-121-A's shared seam): the `RES … STATE` self-update
-        // `res.state.field = append(res.state.field, …)`, which `src/ast/stmt.rs`
-        // desugars to a single-field `WITH` over `res.state`. Discharges G2 the
-        // shape, G13 the target is exactly this resource's `.state`, G14 the
-        // single updated field, G16 the live `FOR EACH` over this state field
-        // (bug-430; the alias analogue of the `for_each_iterable_locals` guard),
-        // G17 last-inlined, G10 the layout, and G3/G4 the call target and arity.
-        let Some(target) = self.resolve_inplace_state_field(resource, value, "append", 2) else {
-            return Ok(false);
+    /// The site's own gates (the rest are `resolve_self_update`'s): `G2` the value
+    /// is a `WithUpdate`, `G13` its target is this owner (the local, or the
+    /// handle's `.state`), `G14` exactly one field is updated — a second would be
+    /// dropped when the arm elides the rebuild. Emits nothing.
+    fn field_self_update_site<'s>(
+        &self,
+        container: FieldContainer<'s>,
+        value: &'s NirValue,
+    ) -> Option<(FieldSite<'s>, ParameterType, &'s NirValue)> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return None;
         };
-        let field_type = target.field_type.clone();
-        // G9 — `append` mutates a List. (Subsumed by G17; kept for the element
-        // type the lowering needs.)
-        let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
-            return Ok(false);
+        let owner = match container {
+            FieldContainer::Record { local } => {
+                matches!(target.as_ref(), NirValue::Local(n) if n == local)
+            }
+            FieldContainer::State { resource } => matches!(
+                target.as_ref(),
+                NirValue::MemberAccess { target: inner, member }
+                    if member == "state"
+                        && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
+            ),
         };
-        // G18 — the appended-to source must be exactly this same field
-        // (self-append), the invariant that makes an in-place grow sound.
-        if !self.value_is_state_field(&target.args[0], resource, target.field) {
-            return Ok(false);
+        if !owner || updates.len() != 1 {
+            return None;
         }
-        // G11 — single element (item type == element type) vs bulk concatenation
-        // (item type == the whole list type).
-        //
-        // `static_item_type`, not `static_type_name`: the narrow helper's
-        // `NirValue::Call` arm is a hand-written table of a few builtin names and
-        // answers `None` for EVERY user function, so
-        // `f.state.xs = append(f.state.xs, someFunc(x))` fell off this path
-        // entirely — not even reaching the bulk grow — and rebuilt the whole STATE
-        // block per element (O(n²)), while the identical record-field program was
-        // fast. This was the one gate site the widening never reached; see
-        // `planning/plan-121-gate-inventory.md` §"DEFECT FOUND". Reading a
-        // callee's declared `returns` is exactly as static as reading a local's
-        // declared type, and the `field_type` arm below still separates a whole
-        // `List OF T` result from a `T` one, so the widening cannot reclassify a
-        // concatenation as a single element.
-        let bulk = match self.static_item_type(&target.args[1]) {
-            Some(t) if t == element_type => false,
-            Some(t) if t == field_type => true,
-            _ => return Ok(false),
-        };
-        // G12 — exclude the self-alias `append(field, field)`: the grow frees the
-        // old block out from under the RHS copy. Fall back to the value path.
-        if self.value_is_state_field(&target.args[1], resource, target.field) {
-            return Ok(false);
-        }
-
-        // Load the shared STATE record pointer into a slot the grow helper
-        // repoints. Emits, so it runs after every gate (`O-order-1`) and BEFORE
-        // the operand is lowered (`O-order-4`: the operand's own lowering must not
-        // observe a stale STATE pointer).
-        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
-
-        // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value_stored(&target.args[1])?;
-        self.observe_float(&target.args[1], &rhs)?;
-        let rhs = self.materialize_value(rhs)?;
-        let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
-        self.emit(abi::store_u64(
-            &rhs.location,
-            abi::stack_pointer(),
-            rhs_slot,
-        ));
-
-        self.lower_inplace_inlined_list_grow(&dest, bulk, &field_type, &element_type, rhs_slot)?;
-
-        // O4 — publish the (possibly new) STATE pointer back through the
-        // resource's shared STATE slot so the owner and every alias observe the
-        // grown block (§15).
-        self.close_inplace_dest(&dest)?;
-        Ok(true)
+        let update = &updates[0];
+        let fields = self.type_model.record_fields.get(type_)?;
+        let field_index = fields.iter().position(|(name, _)| *name == update.field)?;
+        let field_type = fields[field_index].1.clone();
+        Some((
+            FieldSite {
+                container,
+                field: update.field.as_str(),
+                field_index,
+                record_type: type_.clone(),
+            },
+            field_type,
+            &update.value,
+        ))
     }
 
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
@@ -1098,6 +986,7 @@ impl CodeBuilder<'_> {
                                             .allocate_stack_object("su_global_block", 8),
                                     },
                                     by_ref: false,
+                                    field: None,
                                 };
                                 if self.try_inplace_self_update(&site, value)? {
                                     return Ok(());
@@ -1251,57 +1140,37 @@ impl CodeBuilder<'_> {
                             type_: local_type,
                             dest,
                             by_ref,
+                            field: None,
                         };
-                        if !self.try_inplace_self_update(&site, value)?
-                            && !self.try_inplace_record_field_append(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_remove_key_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_remove_at_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_remove_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_add_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_insert_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_prepend_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                        {
+                        // plan-145-B: `name = WITH name { f := op(name.f, …) }` — a
+                        // self-update of one of the record local's fields — is a
+                        // field site of the same seam.
+                        let field_site = self
+                            .field_self_update_site(FieldContainer::Record { local: name }, value)
+                            .map(|(field, field_type, update)| {
+                                (
+                                    SelfUpdateSite {
+                                        name,
+                                        type_: field_type,
+                                        dest: InPlaceDest::Inlined {
+                                            block_slot: stack_offset,
+                                            field_index: field.field_index,
+                                            write_back: None,
+                                        },
+                                        by_ref,
+                                        field: Some(field),
+                                    },
+                                    update,
+                                )
+                            });
+                        let in_place = self.try_inplace_self_update(&site, value)?
+                            || match &field_site {
+                                Some((site, update)) => {
+                                    self.try_inplace_self_update(site, update)?
+                                }
+                                None => false,
+                            };
+                        if !in_place {
                             // Reassignment installs a fresh independent block; the old
                             // block remains owned by this binding's scope-drop free
                             // (the slot is overwritten with the new owner). Deep-copy
@@ -1515,14 +1384,26 @@ impl CodeBuilder<'_> {
                         if self.try_inplace_state_scalar_assign(resource, value)? {
                             return Ok(());
                         }
-                        // bug-430 Layer 2: a collection field that is the last
-                        // inlined field is mutated in place inside the existing
-                        // STATE block instead of rebuilding the record. plan-121-D
-                        // Phase 1 put the operation dispatch behind one call so
-                        // Phase 2's arms are additive; `append` (amortized O(1)
-                        // grow) is currently the only operation dispatched.
-                        if self.try_inplace_state_collection_assign(resource, value)? {
-                            return Ok(());
+                        // bug-430 Layer 2, plan-145-B: `s.state.f = op(s.state.f, …)`
+                        // on a collection field is a field site of the self-update
+                        // seam; the arm that recognises `op` mutates the field
+                        // inside the existing STATE block and republishes it.
+                        if let Some((field, field_type, update)) =
+                            self.field_self_update_site(FieldContainer::State { resource }, value)
+                        {
+                            let site = SelfUpdateSite {
+                                name: resource,
+                                type_: field_type,
+                                dest: InPlaceDest::StateField {
+                                    resource: resource.clone(),
+                                    field_index: field.field_index,
+                                },
+                                by_ref: false,
+                                field: Some(field),
+                            };
+                            if self.try_inplace_self_update(&site, update)? {
+                                return Ok(());
+                            }
                         }
                         // Replace the resource's `STATE` payload: store the new
                         // record pointer into the resource record's state slot.

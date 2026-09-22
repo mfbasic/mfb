@@ -324,7 +324,7 @@ Rejected alternatives:
       `na:TYPE_FOR_EACH_REQUIRES_COLLECTION`. No `copy:B`: B is byte-identical.
 
 Acceptance: the three results are recorded here with their commands (est. 30 min).
-Commit: (recorded in the next commit; the Phase 1 results land with Phase 2's harness)
+Commit: `6529c1384` (with Phases 2 and 3)
 
 ### Phase 2: Harness field sites
 
@@ -363,7 +363,7 @@ all 960 field pairs); `every_field_kind_meets_its_expectation` "6 of 1185 case/s
 pair(s) failed", all six the `Byte` line at T1–T5/T8 (Correction A16). With the
 `Byte` bound corrected, `MFB_SELF_UPDATE_FILTER='Byte' … every_field_kind` → ok
 (its 15 pairs); no other line changed.
-Commit: (recorded in the next commit)
+Commit: `6529c1384`
 
 ### Phase 3: Unit census and matrix
 
@@ -406,7 +406,7 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_
 → pass; RED results recorded here (est. 10 min).
 `cargo test --bin mfb self_update` → "6 passed" (174.70 s);
 `cargo test --test inplace_self_update_census` → "2 passed".
-Commit: (recorded in the next commit)
+Commit: `6529c1384`
 
 ## Validation Plan
 

@@ -165,31 +165,62 @@ Rejected:
 
 ### Phase 1: Verify the spellings
 
-- [ ] Confirm that none of the 9 field-capable ops reaches codegen as a
+- [x] Confirm that none of the 9 field-capable ops reaches codegen as a
       `#collections_X$T` monomorph. Build one probe calling each on `r.b`, run
       `--nir`, and `grep -oE '"target": ?"[^"]*"'`. Store the output here.
+      Probe: every op on a `List`/`Set`/`Map` record field (`append` both forms,
+      `set` both kinds, `insert`, `prepend`, `removeAt`, `add`, `remove`,
+      `removeKey`). `grep -oE '"target": ?"[^"]*"' jsong.nir | sort | uniq -c` →
+      `1 collections.add`, `2 collections.append`, `1 collections.insert`,
+      `1 collections.prepend`, `1 collections.remove`, `1 collections.removeAt`,
+      `1 collections.removeKey`, `2 collections.set` (plus `io.print`, `len`,
+      `toString`). No `#collections_*$T`.
 
 Acceptance: output recorded; every target is `collections.<op>` (est. 5 min).
-Commit:
+Commit: recorded with Phase 2 (below)
 
 ### Phase 2: Field sites through the seam
 
-- [ ] `FieldSite`, `FieldContainer`, `InPlaceDest::StateField` and
+- [x] `FieldSite`, `FieldContainer`, `InPlaceDest::StateField` and
       `open_inplace_dest`, in `self_update.rs`/`inplace_dest.rs`.
-- [ ] `resolve_self_update`: the container-gate branch above.
-- [ ] `NirOp::Assign` and `NirOp::StateAssign`: build the field site and call
-      the seam (after Layer 1, for `StateAssign`).
-- [ ] Move the 17 bodies into the seam arms, and give each entry a `FieldReach`.
+      `SelfUpdateSite` gained `field: Option<FieldSite>`; `is_self` matches the
+      field (`G18`), `read_by` any read of the owner.
+- [x] `resolve_self_update`: the container-gate branch above (`G1`/`G15`/`G17`/
+      `G10` for a record field; `G16`/`G17`/`G10`/`G25` for a `STATE` field; `G7`
+      for a plain site).
+- [x] `NirOp::Assign` and `NirOp::StateAssign`: build the field site and call
+      the seam (after Layer 1, for `StateAssign`). One builder,
+      `field_self_update_site` (`builder_control.rs`), runs `G2`/`G13`/`G14` for
+      both containers.
+- [x] Move the 17 bodies into the seam arms, and give each entry a `FieldReach`.
       Delete the chains, both container matchers, `inplace_call_args` and the 17
-      functions.
-- [ ] Matrix: remove the `FIELD_PENDING` entries for the 9 ops at S4/T2/T4/T8.
+      functions. The bodies are the `lower_field_*` routes at the end of
+      `builder_inplace_assign.rs`, each taken right after its arm's `G9` and
+      keeping the absorbed arm's extra static gates (`G11`/`G12`) and slot names
+      (Correction B1). Also deleted: `try_inplace_state_collection_assign`/
+      `_append` (bug-430's), `value_is_record_field`/`value_is_state_field` (now
+      `SelfUpdateSite::is_self`), `inplace_dest_block_slot`, `InlinedFieldTarget`.
+      `grep -c 'fn try_inplace_record_field_\|fn try_inplace_state_collection\|fn
+      try_inplace_state_\(remove\|set\|insert\|prepend\|splice\)' src -r` → 0 in
+      every file.
+- [x] Matrix: remove the `FIELD_PENDING` entries for the 9 ops at S4/T2/T4/T8.
+      The nine arms' `markers()` gained their field slot names (Correction B2);
+      `cargo test --bin mfb self_update` → "6 passed" (the matrix now requires the
+      nine to fire at S4, T2, T4 and T8).
 
 Acceptance: codegen is unchanged. `cargo build --release && cargo test --test golden`
 → `0 diff(s)` (est. 20 min: the artifact gate is the only check that sees every
 arm's emission at every committed fixture). Then
 `cargo test --bin mfb self_update && cargo test --test codegen_inplace_record_field --test rt_res_state_inplace_mutation`
 → pass (est. 10 min).
-Commit:
+`scripts/artifact-gate.sh <B's release mfb> all` → "1483 tests, 1658 build(s), 2096
+golden(s) checked, 0 diff(s)" (Correction B3: the same gate `cargo test --test
+golden` wraps). A direct `.ncode` diff over a probe running all 17 absorbed shapes
+(the nine ops on a record field and on a `STATE` field, and two through a `RES`
+parameter) → `cmp` identical between the pre-B and the B compiler. `cargo test
+--bin mfb self_update` → 6 passed; `cargo test --test codegen_inplace_record_field
+--test rt_res_state_inplace_mutation` → 10 passed, 24 passed.
+Commit: (recorded in the next commit)
 
 ## Validation Plan
 
@@ -199,6 +230,24 @@ Commit:
 - Per-letter unit gate: `cargo test --bin mfb`.
 
 ## Corrections
+
+- **B1 — each field route keeps its absorbed arm's static gates.** The seam arms
+  gate less than the record/`STATE` arms did in two places: `prepend` and
+  `insert` have no static item-type check (`G11`), and several arms have no
+  self-alias check (`G12`). A field route that skipped them would accept a
+  statement the old arm declined, which moves bytes. So each `lower_field_*`
+  route re-states the absorbed arm's `G11`/`G12` before it emits, and is entered
+  right after the seam arm's `G9`, before any plain-only gate.
+- **B2 — the matrix markers include the field slots.** The `.ncode` records stack
+  slot names (`grep -o 'inplace_recfield_[a-z_]*' <probe>.ncode` finds them), so
+  byte identity keeps the absorbed arms' names (`inplace_recfield_*`,
+  `inplace_state_*`, `inline_state_rhs`). A seam arm's `markers()` therefore lists
+  them too. Single and bulk `append` share their field slot, as `insert` and
+  `prepend` share their item slot — both did before.
+- **B3 — the gate is `scripts/artifact-gate.sh`.** `cargo test --test golden` is the
+  same gate; the script was run directly, with the B compiler built into a
+  separate target directory so the concurrent plan-145-A harness run kept its
+  binary.
 
 ## Summary
 

@@ -33,7 +33,7 @@
 //! inventory rule `O-order-1`, and it is what makes this refactor provably
 //! neutral — `.ncode`/`.ncodesum` must be byte-identical across it.
 
-use crate::codegen::collection::assign::self_update::SelfUpdateSite;
+use crate::codegen::collection::assign::self_update::{FieldContainer, SelfUpdateSite};
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -77,6 +77,15 @@ pub(crate) enum InPlaceDest {
     /// `block_slot`, the arm mutates it there, and
     /// [`CodeBuilder::close_inplace_dest`] stores it back into the global.
     Global { name: String, block_slot: usize },
+    /// plan-145-B: a `RES … STATE` payload field, NOT yet opened. Resolving a
+    /// field site emits nothing (`O-order-1`), so the STATE pointer load waits for
+    /// the arm: [`CodeBuilder::open_inplace_dest`] turns this into an
+    /// [`InPlaceDest::Inlined`] with a write-back at exactly the point the STATE
+    /// arm loaded it (`O-order-4`).
+    StateField {
+        resource: String,
+        field_index: usize,
+    },
 }
 
 impl InPlaceDest {
@@ -89,7 +98,19 @@ impl InPlaceDest {
             InPlaceDest::Inlined { block_slot, .. }
             | InPlaceDest::Ref { block_slot, .. }
             | InPlaceDest::Global { block_slot, .. } => *block_slot,
+            InPlaceDest::StateField { .. } => {
+                unreachable!("an unopened STATE destination has no block slot: open it first")
+            }
         }
+    }
+
+    /// plan-145-B: whether this destination is a record or `STATE` field's
+    /// inlined sub-block (opened or not), which an arm serves by its field route.
+    pub(crate) fn is_field(&self) -> bool {
+        matches!(
+            self,
+            InPlaceDest::Inlined { .. } | InPlaceDest::StateField { .. }
+        )
     }
 }
 
@@ -211,17 +232,6 @@ pub(crate) struct SelfUpdateTarget<'v> {
     pub(crate) collection_type: ParameterType,
 }
 
-/// A matched inlined-field in-place destination: the record/`STATE` field being
-/// self-updated, and the call that updates it.
-pub(crate) struct InlinedFieldTarget<'v> {
-    pub(crate) field_index: usize,
-    pub(crate) field_type: ParameterType,
-    /// The updated field's name — needed for the `G18`/`G12` field-identity
-    /// checks the caller still owns.
-    pub(crate) field: &'v str,
-    pub(crate) args: &'v [NirValue],
-}
-
 impl CodeBuilder<'_> {
     /// Resolve `name = <op>(name, …)` at a self-update site as an in-place
     /// destination, running the container gates every self-update arm shares:
@@ -280,17 +290,66 @@ impl CodeBuilder<'_> {
                 return None;
             }
         }
-        // `G1`/`G7`/`G10`. A by-ref local reached through a `Ref` destination has
-        // discharged `G1`: the arm works on the parent's block, not the slot.
-        if !(InPlaceGate {
-            by_ref: site.by_ref && !matches!(site.dest, InPlaceDest::Ref { .. }),
-            for_each_local: Some(site.name),
-            layout_of: Some(&site.type_),
-            ..InPlaceGate::default()
-        })
-        .admits(self)
-        {
-            return None;
+        match &site.field {
+            // `G1`/`G7`/`G10`. A by-ref local reached through a `Ref` destination
+            // has discharged `G1`: the arm works on the parent's block, not the slot.
+            None => {
+                if !(InPlaceGate {
+                    by_ref: site.by_ref && !matches!(site.dest, InPlaceDest::Ref { .. }),
+                    for_each_local: Some(site.name),
+                    layout_of: Some(&site.type_),
+                    ..InPlaceGate::default()
+                })
+                .admits(self)
+                {
+                    return None;
+                }
+            }
+            // plan-145-B: the field containers' gates, once for every arm (they
+            // were `resolve_inplace_record_field` / `resolve_inplace_state_field`).
+            Some(field) => {
+                // `G17` — only a *last-inlined* collection field grows without
+                // shifting a later sibling sub-block and the offsets stored into it.
+                let (index, _) =
+                    self.record_collection_last_inlined(&field.record_type, field.field)?;
+                if index != field.field_index {
+                    return None;
+                }
+                match field.container {
+                    // `G1`/`G15`/`G10`.
+                    FieldContainer::Record { local } => {
+                        if !(InPlaceGate {
+                            by_ref: site.by_ref,
+                            for_each_record_field: Some((local, field.field)),
+                            layout_of: Some(&site.type_),
+                            ..InPlaceGate::default()
+                        })
+                        .admits(self)
+                        {
+                            return None;
+                        }
+                    }
+                    // `G16`/`G10`. There is no `G1`: a resource handle is never a
+                    // `by_ref` collection local.
+                    FieldContainer::State { resource } => {
+                        if !(InPlaceGate {
+                            for_each_state_field: Some((resource, field.field)),
+                            layout_of: Some(&site.type_),
+                            ..InPlaceGate::default()
+                        })
+                        .admits(self)
+                        {
+                            return None;
+                        }
+                        // `G25` — an operand that can reach a `STATE` assignment
+                        // would write this same block while the arm holds it
+                        // (bug-487).
+                        if self.inplace_state_operands_reach_a_state_assign(args) {
+                            return None;
+                        }
+                    }
+                }
+            }
         }
         Some(SelfUpdateTarget {
             dest: site.dest.clone(),
@@ -299,154 +358,21 @@ impl CodeBuilder<'_> {
         })
     }
 
-    /// Resolve `local = WITH local { field := <op>(local.field, …) }` — the
-    /// record-field container — running `G1`, `G2` (`WithUpdate` then `Call`),
-    /// `G13` (self-update of this same local), `G14` (exactly one updated field),
-    /// `G15` (no live `FOR EACH` over this field), `G17` (the field is the
-    /// record's last-inlined `List`), `G10`, `G3` and `G4`.
+    /// plan-145-B: open a field destination at the arm's own open point. A
+    /// [`InPlaceDest::StateField`] loads the STATE pointer
+    /// ([`Self::open_inplace_state_dest`]); every other destination is already
+    /// open and is returned as is.
     ///
-    /// `G18` (the appended-to source is this same field), `G11` and `G12` stay
-    /// with the caller, which knows the operation. Emits nothing.
-    pub(crate) fn resolve_inplace_record_field<'v>(
-        &self,
-        name: &str,
-        value: &'v NirValue,
-        by_ref: bool,
-        builtin: &str,
-        arity: usize,
-    ) -> Option<InlinedFieldTarget<'v>> {
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
-        else {
-            return None;
-        };
-        // `G13` — the update must rebuild THIS same local, not install some
-        // other record as the new value.
-        if !matches!(target.as_ref(), NirValue::Local(n) if n == name) {
-            return None;
+    /// Emits for a `STATE` field. Must run after every gate (`O-order-1`) and
+    /// before the mutated operand is lowered (`O-order-4`).
+    pub(crate) fn open_inplace_dest(&mut self, dest: &InPlaceDest) -> Result<InPlaceDest, String> {
+        match dest {
+            InPlaceDest::StateField {
+                resource,
+                field_index,
+            } => self.open_inplace_state_dest(resource, *field_index),
+            _ => Ok(dest.clone()),
         }
-        // `G14` — a second updated field means the whole-record rebuild is not
-        // redundant, so eliding it would drop that field's new value.
-        if updates.len() != 1 {
-            return None;
-        }
-        let update = &updates[0];
-        // `G17` — only a *last-inlined* `List` field grows without shifting a
-        // sibling sub-block and the offsets stored into it.
-        let (field_index, field_type) =
-            self.record_collection_last_inlined(type_, &update.field)?;
-        // `G1`/`G15`/`G10`.
-        if !(InPlaceGate {
-            by_ref,
-            for_each_record_field: Some((name, update.field.as_str())),
-            layout_of: Some(&field_type),
-            ..InPlaceGate::default()
-        })
-        .admits(self)
-        {
-            return None;
-        }
-        let args = self.inplace_call_args(&update.value, builtin, arity)?;
-        Some(InlinedFieldTarget {
-            field_index,
-            field_type,
-            field: update.field.as_str(),
-            args,
-        })
-    }
-
-    /// Resolve `resource.state.field = <op>(resource.state.field, …)` — the
-    /// `RES … STATE` container. `src/ast/stmt.rs` desugars that statement to a
-    /// single-field `WITH` update over `resource.state`, so this matches the same
-    /// `WithUpdate` shape as the record container with `G13` reading the
-    /// resource's `.state` instead of the local itself, and `G16` replacing
-    /// `G15`.
-    ///
-    /// Emits nothing — the STATE pointer load is
-    /// [`Self::open_inplace_state_dest`], which must run *after* this and
-    /// *before* the operand is lowered (inventory rule `O-order-4`).
-    pub(crate) fn resolve_inplace_state_field<'v>(
-        &self,
-        resource: &str,
-        value: &'v NirValue,
-        builtin: &str,
-        arity: usize,
-    ) -> Option<InlinedFieldTarget<'v>> {
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
-        else {
-            return None;
-        };
-        // `G13` — the target must be exactly this resource's `.state`.
-        let NirValue::MemberAccess {
-            target: inner,
-            member,
-        } = target.as_ref()
-        else {
-            return None;
-        };
-        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(n) if n == resource) {
-            return None;
-        }
-        if updates.len() != 1 {
-            return None;
-        }
-        let update = &updates[0];
-        // `G16`/`G17`/`G10`. There is no `G1`: a resource handle is never a
-        // `by_ref` collection local, and the STATE arms are dispatched off
-        // `NirOp::StateAssign`, which carries no `by_ref` flag.
-        if !(InPlaceGate {
-            for_each_state_field: Some((resource, update.field.as_str())),
-            ..InPlaceGate::default()
-        })
-        .admits(self)
-        {
-            return None;
-        }
-        let (field_index, field_type) =
-            self.record_collection_last_inlined(type_, &update.field)?;
-        if CollectionTypeLayout::from_type(&field_type).is_none() {
-            return None;
-        }
-        let args = self.inplace_call_args(&update.value, builtin, arity)?;
-        // `G25` — an operand that can reach a `STATE` assignment would write this
-        // same block while the arm holds it (bug-487). Every STATE arm shares
-        // this matcher, so stating it once here is what keeps the eight of them
-        // from disagreeing.
-        if self.inplace_state_operands_reach_a_state_assign(args) {
-            return None;
-        }
-        Some(InlinedFieldTarget {
-            field_index,
-            field_type,
-            field: update.field.as_str(),
-            args,
-        })
-    }
-
-    /// `G2`/`G3`/`G4` for the value inside a `WITH` update: it must be a direct
-    /// call of the named builtin with the expected arity.
-    fn inplace_call_args<'v>(
-        &self,
-        value: &'v NirValue,
-        builtin: &str,
-        arity: usize,
-    ) -> Option<&'v [NirValue]> {
-        let NirValue::Call { target, args, .. } = value else {
-            return None;
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some(builtin)
-            || args.len() != arity
-        {
-            return None;
-        }
-        Some(args)
     }
 
     /// Materialize a `RES … STATE` destination: load the shared STATE record
@@ -650,7 +576,9 @@ impl CodeBuilder<'_> {
             InPlaceDest::Global { name, block_slot } => {
                 (self.load_global_address(name)?, *block_slot)
             }
-            InPlaceDest::Direct { .. } | InPlaceDest::Inlined { .. } => return Ok(()),
+            InPlaceDest::Direct { .. }
+            | InPlaceDest::Inlined { .. }
+            | InPlaceDest::StateField { .. } => return Ok(()),
         };
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, holder.as_str(), 0));
