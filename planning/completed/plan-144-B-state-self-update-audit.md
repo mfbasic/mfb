@@ -217,7 +217,7 @@ gates, and the replace marker is confirmed on one probe.
   → 11 (est. 1 min).
   Measured 2026-09-21: → `11` (the table is in findings B.6; Correction B5), and the
   replace marker was confirmed on `r102o0_T2`.
-Commit: —
+Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
 
 ### Phase 2: Fill the `STATE` table
 
@@ -249,7 +249,7 @@ Acceptance: no empty cell in §2, and the §2 row count equals §1's.
   Check: `sed -n '/^## 2\./,/^## 3\./p' planning/plan-144-findings/record-state-self-update-audit.md | grep '^| F' | grep -cE '\|\s*\|'`
   → 0, and the same `sed` piped to `grep -c '^| F'` gives the §1 count (est. 1 min).
   Measured 2026-09-21: → `0`, and `326` = the §1 count (`326`).
-Commit: —
+Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
 
 ### Phase 3: Summary for plan-144
 
@@ -290,7 +290,7 @@ Acceptance: the §3.3 total equals the cell count of §1 and §2.
   Check: `python3 <appendix summary.py> planning/plan-144-findings/record-state-self-update-audit.md`
   prints `total == rows*15` (est. 2 min).
   Measured 2026-09-21: → `total == rows*15: 4890 == 326*15 → True`.
-Commit: —
+Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
 
 ## Validation Plan
 
