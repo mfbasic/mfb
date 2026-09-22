@@ -10,7 +10,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_image::{emit_closed_guard, IMAGE_DIRTY, IMAGE_PIXELS};
+use super::gen_image::{emit_closed_guard, IMAGE_PIXELS};
 
 const INTRO: &str = r#"Replace an image's pixels."#;
 
@@ -98,7 +98,8 @@ pub(crate) fn lower_set_bytes(
 
     // Copy into a fresh shadow and swap it in. Replacing the block rather than
     // overwriting in place keeps this correct when the old shadow is still being
-    // read — the backend may be uploading from it on another thread.
+    // read — a frame on the graphics thread may be sampling it — and the new address
+    // is what tells every renderer the content changed (`gen_image.rs`, bug-484).
     let pixels_again = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &pixels_again,
@@ -110,11 +111,6 @@ pub(crate) fn lower_set_bytes(
     let target = builder.temporary_vreg();
     builder.emit(abi::load_u64(&target, abi::stack_pointer(), record_slot));
     builder.emit(abi::store_u64(&fresh, &target, IMAGE_PIXELS));
-    // Mark dirty AFTER the pointer swap, so a reader that sees the dirty flag is
-    // guaranteed to see the new pixels rather than the old ones.
-    let one = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&one, "Integer", "1"));
-    builder.emit(abi::store_u64(&one, &target, IMAGE_DIRTY));
 
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,

@@ -946,9 +946,15 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Picture",
         export: true,
-        description: "An image drawn into a rectangle, scaled to fit it. Named \
-                      `canvas::Picture` rather than `Image` because `Image` is the resource \
-                      type this variant *names* — the two would collide.",
+        description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
+                      the nearest image pixel, with no smoothing, so a small image drawn \
+                      large shows crisp blocks. The paint's fill colour tints the image — \
+                      each channel is multiplied by the fill's — so a white fill draws it \
+                      unchanged and the fill's alpha is how opaque it is; a fill gradient \
+                      is ignored. Stroke, clip, blend and transform work as they do on a \
+                      `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
+                      because `Image` is the resource type this variant *names* — the two \
+                      would collide.",
         props: {
             let mut props = rect_props("The destination rectangle");
             props.insert(

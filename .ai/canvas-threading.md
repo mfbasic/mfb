@@ -5,15 +5,15 @@ code (plan-98-D Phase 1) and binding on plan-98-E/F, which swap the *renderer* b
 this boundary without changing any rule here.
 
 Read this before touching the graphics thread, the scene ring, the resize handshake,
-or the texture free.
+or how an image reaches a frame.
 
 ## 1. The three threads, and what each owns
 
 | Thread | Owns | Never touches |
 |---|---|---|
 | **main** (UI) | the window, the surface/layer, the event pump, resize notifications | the scene, the geometry cache, the pixel buffer |
-| **worker** (language) | the program, the scene arena, `canvas::present`, `canvas::setBytes`, `canvas::destroyImage` | the surface, the pixel buffer, any texture's OS backing |
-| **graphics** | the render loop, the geometry cache, the pixel buffer, texture uploads and frees | the window, the scene *slots it does not hold* |
+| **worker** (language) | the program, the scene arena, `canvas::present`, `canvas::setBytes`, `canvas::destroyImage` | the surface, the pixel buffer, the GPU frame buffers |
+| **graphics** | the render loop, the geometry cache, the pixel buffer, copying a frame's picture texels into its GPU buffer | the window, the scene *slots it does not hold* |
 
 Main and worker already exist (`WORKER_SYMBOL` spawned from the UI-thread
 surface-ready callback on all three platforms). Graphics is the third, spawned the
@@ -97,7 +97,8 @@ retiredLayers + retiredFrame     the block just displaced
 The block a publish replaces may be the one the renderer is copying *right now*.
 Freeing it there is a use-after-free. Waiting until the frame counter has passed
 `retiredFrame` means a frame has **completed** since the retirement, so no render can
-still hold it — the same drain gate §7 specifies for textures, and deliberately so.
+still hold it — the same drain gate plan-98-D once specified for textures in §7
+(which bug-484 found no texture to apply to) and §13 applies to group buffers.
 
 ### Who frees
 
@@ -134,6 +135,11 @@ Exactly five, and **time is not among them** — a static scene costs zero frame
 
 Trigger 5 is conditional on purpose: mutating an image no scene draws changes nothing
 visible, and repainting for it would turn an off-screen buffer update into a frame.
+It is implemented by bug-484: the public `canvas::setBytes` is an MFBASIC wrapper
+(`func_set_bytes.rs`) over the native swap `canvas::setBytesRaw`, and it signals — and
+under `MFB_CANVAS_SYNC` waits — only when the installed items, layers or any group name
+the image. Before that nothing signalled at all, and re-presenting the unchanged scene
+could not stand in for it: the frame skip refuses an identical scene.
 
 ## 5. Resize handshake
 
@@ -159,49 +165,62 @@ drawing part of the picture at each size.
 never reached the renderer still *looks* plausible. The test therefore measures a
 fixed-size shape as a fraction of the window (`test-macapp.sh` Case 3g).
 
-## 6. Dirty-texture upload
+## 6. Image upload — implemented by bug-484 without a texture
 
-1. **Worker**, in `canvas::setBytes`: write the CPU shadow, then set the texture's
-   `dirty` flag (release). Signal a redraw only if the id is in the live scene.
-2. **Graphics**, at frame start: for each dirty texture, upload once and clear the
-   flag (acquire).
+This section was written (plan-98-D) for a texture protocol — a per-image GPU texture,
+a `dirty` flag, upload-once-per-frame — that never got a consumer. bug-484 drew
+`canvas::Picture` with **no texture object at all**, and that is what the rules below
+now describe:
 
-Multiple `setBytes` between two frames **coalesce** to one upload, mirroring the
-scene skip and for the same reason: only the last value was ever going to be seen.
+1. **Worker**, in `canvas::setBytes`: copy the new pixels into a **fresh** block and
+   swap the record's pointer (`IMAGE_PIXELS`) to it. The old block is not freed and
+   not written. Then signal a redraw if the live scene names the image (§4 trigger 5).
+2. **Graphics**, while building a frame: a picture's geometry header captures the
+   block address current at that moment (`__canvas_pictureHeader`). The software
+   renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
+   copy its texels, one packed word each, into the frame buffer's glyph region.
 
-Uploading into a texture a still-in-flight frame is sampling needs a per-texture ring
-or a barrier. That is **plan-98-E/F's problem, not this document's**: the software
-backend has no in-flight frame — the blit completes before the next frame starts —
-so the upload is unconditionally safe here. E/F must revisit this section.
+Why this holds up where the texture design needed care:
 
-## 7. Deferred texture free — the closed flag, not a refcount
+* **Coalescing is inherent.** Each frame reads whatever block is current when it is
+  built, so N `setBytes` between two frames cost N swaps and one read — the last value
+  wins, exactly as the scene skip.
+* **Upload racing a draw cannot happen.** The copy is part of building the frame's
+  own buffer on the graphics thread, from a block nobody writes after publishing it.
+  There is no GPU object that an in-flight frame and a new upload could share, so no
+  per-texture ring or barrier.
+* **The block address is the content generation.** It is in the header, so a
+  `setBytes` changes the header: the geometry cache's confirmation misses, and the
+  damage diff sees a changed item (`__canvas_appendDraw` folds the address into the
+  draw hash, because the worker's published hash predates the swap).
+
+The cost is the per-frame copy of every drawn picture's texels on the GPU paths, and
+that those texels share the glyph region's frame cap — a frame whose pictures and
+glyphs together overflow it is declined to software by both predicates. A texture
+cache would trade that for exactly the protocol above; do it only with a measured scene
+that needs it. The superseded `dirty` and last-drawn-frame record words were removed.
+
+## 7. Closing an image — the closed flag, not a refcount
 
 **There is no refcount.** MFB owns an `Image` through the RES model: scope-drop or
 `canvas::destroyImage` sets `closed@16` (plan-98-B), and that is the whole ownership
-story. What plan-98-D adds is *when the OS-side backing may be released*.
+story.
 
-Two counters, both graphics-private:
-
-* `lastUsedFrame` — stamped on a texture each time a frame **draws** it.
-* `lastCompletedFrame` — advanced once per frame, when that frame's present
-  completes. (Software: when the blit returns. E/F: from the GPU fence or completion
-  handler — the same counter, so the free code is unchanged.)
-
-**The rule:**
-
-> A closed texture's OS backing is freed when
-> **`closed AND lastUsedFrame < lastCompletedFrame`**.
-
-Read as: MFB is done with it (`closed`), *and* no frame that drew it is still
-outstanding (`lastUsedFrame < lastCompletedFrame`).
-
-Supporting rules, each of which the gate depends on:
+plan-98-D wrote this section for a deferred free of a per-image GPU texture, gated on
+`closed AND lastUsedFrame < lastCompletedFrame`. bug-484 drew pictures with no such
+texture (§6), so there is **nothing to free** and no gate: the image's record and its
+pixel blocks are never freed by anyone, and the frame counter comparison has no
+subject. The rules the gate depended on are the ones that remain, and they are now
+the whole mechanism:
 
 * **Close never frees.** `canvas::destroyImage` and scope-drop set the flag and
   nothing else. This is what makes them safe at any instant, from the worker, with no
-  knowledge of what the graphics thread is doing.
-* **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
-  the moment it closes, and the gate is guaranteed to open.
+  knowledge of what the graphics thread is doing — a frame that already captured the
+  pixel block's address keeps drawing from valid memory (R1,
+  `destroying_an_image_mid_frame_lets_the_frame_finish`).
+* **A closed image is skipped in new frames.** A picture's header is built through
+  `canvas::imageShadow`, which answers `0` for a closed image, and `0` builds the empty
+  header (R2).
 * **A directly closed image cannot be named again — and since plan-116-I the compiler
   is what says so.** `canvas::destroyImage`'s parameter is a plain `canvas::Image`, not
   a `RES` one, so passing a resource to it is a **move**: a program that calls
@@ -237,8 +256,8 @@ row names the rule from above that protects it.
 
 | # | Interleaving | Required outcome | Protected by |
 |---|---|---|---|
-| R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
-| R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
+| R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the image and completes normally | §7 "close never frees" |
+| R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the picture (there is no free — bug-484, §7) | §7 skip-in-new-frames |
 | R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
 | R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
@@ -247,9 +266,9 @@ row names the rule from above that protects it.
 | R7 | resize while graphics is mid-render | the in-flight frame completes at the old size; the next is at the new size | §5 clear-at-frame-start |
 | R8 | resize with the worker blocked in `io::input` | repaint happens with zero worker involvement | §5 main↔graphics only |
 | | *(proven on the Vulkan path too: `MFB_CANVAS_RESIZE_W`/`_H` resize while the worker sits in `os::sleep`, and both renderers repaint at the new size)* | | |
-| R9 | N `setBytes` between two frames | one upload, last value wins | §6 coalescing |
+| R9 | N `setBytes` between two frames | one read, last value wins | §6 coalescing |
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
-| R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
+| R11 | `setBytes` → `destroyImage` → frame | the closed image draws nothing; nothing reads past the close | §7 skip-in-new-frames |
 | R12 | program exits while a frame is in flight | no use-after-free of the scene slots or the pixel buffer | shutdown must join graphics before the worker's frame unwinds |
 | R13 | present → `removeGroup` → graphics mid-frame | the in-flight frame completes and still draws the group it had already resolved | §13 retire-then-drain |
 | R14 | the same, then a completed frame, then a present **of an unchanged scene** | the buffer is freed exactly once and `groupBytes=` drops | §13 gate at the top of `present`, not on the publish path |
@@ -277,11 +296,16 @@ ring's `emit_reclaim_retired` sits would never run for it, because that code is 
 the publish label, and a test that changed the scene would pass against that wrong
 placement.
 
-**Rows R1, R2, R9, R10 and R11 are not yet reachable.** They are the texture and
-dirty-upload rows, and there is no texture: `Picture` draws nothing until plan-98-G
-brings the sampler, and `canvas::createImage` allocates nothing outside MFB's own
-resource record. They become testable in plan-98-E, which is where the deferred free
-lands (plan-98-D Correction 13). Every other row is test-proven today.
+**Rows R1, R2, R9, R10 and R11 became reachable with bug-484**, which gave `Picture`
+its first renderer. They were written as the texture and dirty-upload rows; with no
+texture (§6) they are image-read rows, and they are pinned by
+`destroying_an_image_mid_frame_lets_the_frame_finish` (R1),
+`the_frame_after_a_destroy_skips_the_picture` (R2) and
+`set_bytes_then_destroy_then_a_frame_draws_nothing` (R11) in
+`tests/canvas/rt_canvas_graphics_thread.rs`, and
+`set_bytes_twice_between_frames_shows_the_last` (R9) and
+`set_bytes_on_an_undrawn_image_does_not_repaint` (R10) in
+`tests/canvas/rt_canvas_picture.rs`. Every row is now test-proven.
 
 R12 is **not** named by plan-98-D's design; it was found writing this document. The
 scene slots live in the worker's arena and the worker's arena state lives on the

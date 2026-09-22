@@ -148,6 +148,10 @@ source and need no such treatment.
   no draw path exists (bug-484). This letter changes nothing for `Picture`; when
   bug-484 lands the picture path, its blend/clip handling is that fix's design
   load, against the semantics this letter pins.
+  *Closed by bug-484:* a picture's geometry is a rectangle's, re-kinded, so its blend
+  and clip are this letter's rectangle semantics unchanged; only its fill colour (the
+  sampled, tinted image) differs. Pinned by `clip_blend_and_transform_apply_to_a_picture`
+  in `tests/canvas/rt_canvas_picture.rs`.
 - **The blend mode is a per-*pipeline* state on both APIs, not a per-draw one.** Read
   `MTLRenderPipelineDescriptor`'s colour-attachment blend fields (set at
   `metal.rs:38`) and `VkPipelineColorBlendAttachmentState` (baked into
