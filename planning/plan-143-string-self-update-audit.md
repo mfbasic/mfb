@@ -214,22 +214,32 @@ Commit: db25ecfc7
 Acceptance: no empty cell in the table.
   Check: `grep -E '^\| `(strings|astrings|encoding|fs|os|io|net|regex)::' planning/plan-143-findings/string-self-update-audit.md | grep -cE '\|\s*\|'`
   → 0 (est. 1 min). Measured: `0` (and 63 rows).
-Commit: —
+Commit: f8619c3d1
 
 ### Phase 4 — The `&` operator and the summary
 
-- [ ] §2 rows for `s = s & t` and the chain form at S1/S2/S7/S9 (re-verify
-      plan-141 §1b against the code at this commit).
-- [ ] Summary: per-site and per-form counts (counted from the tables by a script
+- [x] §2 rows for `s = s & t` and the chain form at S1/S2/S7/S9 (re-verify
+      plan-141 §1b against the code at this commit). → `y`/`y`/`n/a`/`n (G1)`
+      (probes `o1`, `o2`); plan-141's S2 `n (StoreGlobal)` is stale since
+      plan-142-H. Added rows for `a = a & b` (`AttributedString`, a
+      `#astrings_concat` call: `n (no arm)`) and `s = toString(s)` (F1).
+- [x] Summary: per-site and per-form counts (counted from the tables by a script
       kept in the appendix), the deciding paths, the functions whose form makes an
       in-place fix possible, and every place plan-142's seam would or would not fit
       a `String` arm (a `String` block is not a collection block: no
       `CollectionTypeLayout`, so G10 declines by construction — record it).
-- [ ] List any finding that contradicts `.ai/collections.md`, plan-121-F/G, or the
-      `mfb spec` memory section, for the fix plan to correct.
+      → findings §3.3 (counts, `table.py count`), §3.4 (forms: shrink 22, grow 11,
+      same-len 4, rewrite 21, not-derived 5), §3.5 (seam fit: 3 fits, 6 misfits
+      incl. G10, `self_update_builtin`, the census rule, the shadow, S9, ownership).
+- [x] List any finding that contradicts `.ai/collections.md`, plan-121-F/G, or the
+      `mfb spec` memory section, for the fix plan to correct. → findings §3.6: 4
+      contradictions (spec memory "Self-updates" claims S9 for `&`; bug-667's
+      blast radius; `.ai/codegen-invariants.md`'s gap; plan-141 §1b stale) and none
+      in `.ai/collections.md` or plan-121-F/G.
 
 Acceptance: summary counts equal the table's cell count.
   Check: the appendix's count script prints the same total as rows × sites (est. 3 min).
+  Measured: `python3 table.py count` → `rows §1 63  §2 4  sites 4  cells 268  rows×sites 268`.
 Commit: —
 
 ## Validation Plan

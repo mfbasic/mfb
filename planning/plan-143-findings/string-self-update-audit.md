@@ -95,8 +95,184 @@ always takes the copying path; `n/a` = the form cannot be written (reason given)
 
 | form | S1 | S2 | S7 | S9 | evidence |
 |---|---|---|---|---|---|
+| `s = s & t` on `String` | y | y | n/a (not iterable) | n (G1) | S1 `try_inplace_concat_assign` (`src/codegen/collection/assign/builder_inplace_assign.rs`): G1 → G19 (a frame capacity shadow `strcap_s`, allocated by `prescan_string_self_appends`, `src/codegen/engine/control/builder_control.rs`) → G20 (a left-associated `&` chain rooted at `s`, `string_self_append_operands_of`) → G21 (no later operand reads `s`). S2 (plan-142-H): `StoreGlobal` recognises the chain (`string_self_append_operands_of` with a `Global` root) and builds a `Global` site; the shadow is the hidden global `$strcap$<name>` declared by `add_global_string_capacities` (`src/codegen/collection/assign/self_update.rs`), worked on through the `concat_global_strcap` frame slot, plus G-global-operand (no operand stores to the global). S9: the concat arm's first gate is G1 — `site.by_ref` — because a by-ref `String` has no shadow to append into (`self_update.rs` `Site::Lambda` doc, plan-142-G Correction G1); `is_self_update_call` needs a `Call`, so a `&` chain never gets a `Ref` destination. The lifted lambda does get a dead `strcap_s` slot: `prescan_string_self_appends` checks `address_taken_locals`, which the lambda's by-ref local is not in (observation O2). Probes: `o1_S1` ARM=concat SEAM=- STRCAP=strcap_s GLOBAL=-; `o1_S2` ARM=concat SEAM=su_global_block STRCAP=concat_global_strcap GLOBAL=-; `$lambda63` ARM=- SEAM=- STRCAP=strcap_s GLOBAL=-. |
+| `s = s & t & u` (chain) on `String` | y | y | n/a (not iterable) | n (G1) | As `s = s & t`: G20 accepts the whole left-associated chain and appends each operand in turn (`lower_string_self_append_one` per operand); `s = s & t & s` is n (G21, `bug-143`). Probes: `o2_S1` ARM=concat SEAM=- STRCAP=strcap_s GLOBAL=-; `o2_S2` ARM=concat SEAM=su_global_block STRCAP=concat_global_strcap GLOBAL=-; `$lambda64` ARM=- SEAM=- STRCAP=strcap_s GLOBAL=-. |
+| `a = a & b` on `AttributedString` | n (no arm) | n (no arm) | n/a (not iterable) | n (no arm) | `&` on two `AttributedString`s reaches NIR as a call to `#astrings_concat` (MFBASIC `__astrings_concat`, `builtins/astrings/helper_concat.rs`), not a `Binary` `Concat`, so `string_self_append_operands_of` never matches and `self_update_builtin` answers `None`: no site is built at S2/S9 and every S1 arm declines at G2/G3. Form: grow (the text and spans of `b` appended). Result: a fresh record. Probes (CALLS=`_mfb_ifn_astrings_5Fconcat` in each): `o3_S1` ARM=- SEAM=- STRCAP=- GLOBAL=-; `o3_S2` ARM=- SEAM=- STRCAP=- GLOBAL=y; `$lambda65` ARM=- SEAM=- STRCAP=- GLOBAL=-. |
+| `s = toString(s)` on `String` | n (no arm) | n (no arm) | n/a (not iterable) | n (no arm) | **Memory-safety bug (F1).** `lower_to_string`'s `String` arm (`string/repr/builder_strings.rs`) returns the argument's own block (identity; form `same-len`). `value_needs_owning_copy` (`builder_values.rs`) does not class a `Call` as an aliasing source, so the owning store does not copy it: S1's reassign frees `s`'s old block — the one it then stores; S2's `StoreGlobal` frees the global's block and stores it back; S9's by-ref reassign does the same through the reference. No arm is involved (`toString` is not a `collections`/`strings` native, `self_update_builtin` → `None`). Runtime sweep (Appendix C.3): `o4_S1`/`o4_S2`/`o4_S9` each print the next allocation's bytes and exit 139. Probes: `o4_S1` ARM=- SEAM=- STRCAP=- GLOBAL=-; `o4_S2` ARM=- SEAM=- STRCAP=- GLOBAL=y; `$lambda66` ARM=- SEAM=- STRCAP=- GLOBAL=-. |
 
 ## 3. Summary
+
+### 3.1 What the compiler does, in one paragraph
+
+Of the 67 `String`/`AttributedString` self-update forms (63 package overloads,
+four operator/unqualified forms), exactly one is performed in place: the `String`
+self-concat `s = s & t` (and its left-associated chain), at a function local (S1)
+and — since plan-142-H — at a module-level global (S2). It is still copied inside
+a by-ref lambda capture (S9, G1: a by-ref `String` has no capacity shadow), and
+S7 cannot be written (a `String` is not a `FOR EACH` source). Every builtin
+self-update `s = f(s, …)` rebuilds `s` as a fresh block at every site: no arm of
+`SELF_UPDATE_ARMS` is named for a `String` builtin except `mid`/`replace`, which
+reach the collection arms only through a shared bare name and decline at G10
+because a `String` has no `CollectionTypeLayout`. Only the 22 `Body::abi_inline`/
+`Intrinsic` `String` rows even build a self-update site at S2/S9; the 41 others
+(`Body::mfb`/`Rewrite`/`abi_function` members and the 19 Tier-B
+`AttributedString` rewrites) are invisible to `self_update_builtin`.
+
+### 3.2 Findings, most consequential first
+
+- **F1 — `s = toString(s)` is a use-after-free, at S1, S2 and S9.**
+  `toString(<String>)` is an identity that returns its argument's block
+  (`lower_to_string`'s `String` arm); `value_needs_owning_copy` does not treat a
+  call as an aliasing source, so the reassignment frees `s`'s block and stores
+  the freed pointer. Runtime: `s` then reads the next allocation (probe `tostr`;
+  sweep `o4_S1`/`o4_S2`/`o4_S9`, exit 139). Also any other owning store of
+  `toString(x)` for a `String` `x` (`LET t = toString(s)` then a write to `s`).
+  Fixed under bug-667 (Correction 3).
+- **F2 — no `String` builtin self-update is in place anywhere.** 63 of 63 §1 rows
+  are `n` at S1, S2 and S9. The in-place population for `String` is the one
+  operator row.
+- **F3 — `fs::pathDirName` returns read-only data.** For a path with no directory
+  part it returns `load_string_constant(".")` (and `"/"` for the root) unmarked;
+  the owner's free then writes into rodata: `LET a = fs::pathDirName("abc")`
+  prints `[.]` and dies with SIGBUS (probe `dirname`). Self-update or not. Fixed
+  under bug-667.
+- **F4 — four `not-derived` helpers copy `s`.** `fs::readText`,
+  `fs::canonicalPath`, `os::getEnv`, `os::getEnvOr` copy the argument's bytes into
+  a helper-scratch C string before the host call (freed before return), although
+  a `String` block already ends in a NUL (`mfb spec memory heap-values`). One
+  bounded copy per call, not a leak; `io::input` only reads `s`.
+- **F5 — `a = a & b` on `AttributedString` is not an operator self-update at
+  all** once lowered: it is a call to `#astrings_concat`, rebuilding the record.
+- **F6 — S2/S9 of `addAttribute`/`removeAttribute` copy `s` into the call too**
+  (`operand_snapshot`, the later-operand rule), in addition to the rebuild.
+
+Observations (no verdict depends on them):
+
+- **O1.** For the 22 seam rows, S2 and S9 build a `Global`/`Ref` site and
+  `open_inplace_ref_dest` loads the block pointer into `su_global_block` /
+  `su_ref_block` before any arm runs; when every arm then declines, that load is
+  dead code and the slot is unused.
+- **O2.** A lambda that `&`-appends to a by-ref capture gets a `strcap_<name>`
+  slot from `prescan_string_self_appends` (the lambda's local is not in
+  `address_taken_locals`) that the concat arm never uses (it declines at G1).
+
+### 3.3 Counts
+
+Counted from the tables by `table.py count` (C.5):
+
+```
+rows §1 63  §2 4  sites 4  cells 268  rows×sites 268
+S1 {'n (G10)': 2, 'n (no arm)': 63, 'y': 2}
+S2 {'n (G10)': 2, 'n (no arm)': 63, 'y': 2}
+S7 {'n/a (not iterable)': 67}
+S9 {'n (G1)': 2, 'n (G10)': 2, 'n (no arm)': 63}
+forms {'grow': 11, 'not-derived': 5, 'rewrite': 21, 'same-len': 4, 'shrink': 22}
+```
+
+(`forms` counts the 63 §1 rows. The §2 forms: `s & t` and the chain grow,
+`a & b` grows, `toString(s)` is same-len.)
+
+Deciding paths: 4 `y` cells (concat, S1/S2); 2 × 3 = 6 `n (G10)` (`strings::mid`
+and `strings::replace` on `String`, S1/S2/S9); 2 `n (G1)` (concat at S9); 189
+`n (no arm)`; 67 `n/a`.
+
+### 3.4 Where an in-place form can exist (the form column)
+
+- **shrink — 22 rows** (the natural first target: the result is a window of `s`,
+  so an arm can `memmove` the window to offset 8, store the new length and NUL,
+  and keep the freed tail as spare capacity): `strings::graphemeAt`, `left`,
+  `right`, `mid`, `stripPrefix`, `stripSuffix`, `trim`, `trimStart`, `trimEnd`,
+  `trimChars`; `fs::pathBaseName`, `pathDirName` (after F3), `pathExtension`; and
+  the nine Tier-B `AttributedString` overloads of `left`, `right`, `mid`, `trim`,
+  `trimStart`, `trimEnd`, `trimChars`, `stripPrefix`, `stripSuffix` (text window
+  plus a span remap inside a record).
+- **grow — 11 rows**: `strings::padLeft`, `padRight`, `padLeftToWidth`,
+  `padRightToWidth`, `repeat`, `os::resourcePath`, and the five Tier-B
+  `AttributedString` pad/repeat overloads. Appending growth (`padRight`,
+  `repeat`) is the self-append's shape; prefix growth (`padLeft*`,
+  `resourcePath`) additionally moves `s`'s bytes.
+- **same-len — 4 rows**: `astrings::addAttribute`, `clearAttributes` ×2,
+  `removeAttribute` — the text is unchanged and only the span list inside the
+  `AttributedString` record changes, which is a record-field update (out of this
+  audit's scope, plan §1).
+- **rewrite — 21 rows**: the case maps and `normalizeNfc` (5 + 4 Tier-B; the
+  case maps are same-length on their all-ASCII path, which an arm could do in
+  place), `strings::replace` (+ Tier-B), the eight `encoding` codecs (decoders
+  never grow, encoders never shrink), `fs::pathNormalize`, `net::percentDecode`,
+  `regex::replace`. In place needs a second buffer (the self-update scratch) and
+  a copy back, or a length bound.
+- **not-derived — 5 rows** (`fs::readText`, `fs::canonicalPath`, `io::input`,
+  `os::getEnv`, `os::getEnvOr`): the `Exempt` analogue — there is no copy of `s`
+  to avoid in the rebuild, except F4's scratch copy.
+
+### 3.5 Where plan-142's seam would and would not fit a `String` arm
+
+Fits:
+
+- **`SELF_UPDATE_ARMS` / `SelfUpdateSite` / `InPlaceDest`.** An arm receives the
+  binding's name, type and a destination whose `block_slot` holds `s`'s block
+  pointer for `Direct` (S1), `Global` (S2) and `Ref` (S9) alike — the same shape a
+  `String` arm needs. The concat arm already lives in this list.
+- **G-global-operand** (no operand or callback stores to the global) and the
+  `close_inplace_dest` publish apply to a `String` unchanged.
+- **The self-update scratch** (`emit_reserve_self_update_scratch`, `su`) can serve
+  a `rewrite` arm's second buffer, including the lambda's borrowed scratch.
+
+Does not fit, by construction:
+
+- **G10** declines every `String` and `AttributedString`: `resolve_self_update`
+  gates on `CollectionTypeLayout::from_type`, which has no `String` case. A
+  `String` arm needs its own resolver (the concat arm's inline gates are the
+  model), not `resolve_self_update`/`resolve_shrink`.
+- **`self_update_builtin`** names only `Body::abi_inline`/`Intrinsic` natives and
+  `#collections_*` monomorphs. The `Body::mfb`/`Rewrite`/`abi_function` rows and
+  the `#astrings_*` Tier-B targets never build an S2/S9 site
+  (`is_global_self_update_call`/`is_self_update_call` are false), so an arm for
+  them would fire at S1 only until that function learns their spellings.
+- **The census guard** (`registry::self_update_shaped`, `SELF_UPDATE_TABLE`)
+  counts only overloads whose first parameter is a `List`/`Map`/`Set` (or a type
+  variable). No `String` row is required today — adding a `String` builtin with a
+  self-update form fails no test. Extending the rule to `String` covers the 44
+  literal rows; the 19 Tier-B `AttributedString` overloads are not registry
+  overloads at all (typed by `strings::resolve_return_type` from
+  `TIER_B_TRANSFORMS`), so the census would need that table as a second source.
+- **The capacity shadow** exists only for `&` self-append targets
+  (`prescan_string_self_appends`, `add_global_string_capacities` both key on a `&`
+  chain). A `shrink` or `grow` arm leaves the block at a size `byteLength + 9`
+  no longer describes, so every such target needs a shadow too (B.3 fact 1), and
+  both prescans must learn the new arms' shapes.
+- **S9 for any length-changing `String` arm.** A by-ref `String` gets no shadow
+  on purpose (`rt_byref_string_capture_capacity`: a callback can replace the
+  buffer without seeing the parent's shadow) — the concat arm's G1. A `String`
+  arm at S9 needs a shadow the lambda and its creator share (as the scratch is
+  shared through the closure env), or it must keep the block tight.
+- **Ownership.** Every in-place `String` arm writes into `s`'s block, so it
+  inherits F1, F3 and bug-667: a binding must never hold a block it does not own.
+  Those fixes precede any `String` arm.
+
+### 3.6 Contradictions with the docs (for the fix plan to correct)
+
+1. `mfb spec memory collections` ("Self-updates", `src/docs/spec/memory/05_collections.md`)
+   says `s = s & t` mutates in place "wherever `x` is bound: … or a `MUT` captured
+   by reference in a `collections::forEach` lambda". For a `String` the by-ref
+   capture is copied (S9 `n (G1)`, probe `o1`'s `$lambda63` ARM=-), as
+   `self_update.rs`'s own `Site::Lambda` doc says ("the `&` row has no S9").
+2. `bugs/bug-667-…md` Blast Radius: "Every other `toString` arm — unaffected: each
+   returns a fresh arena block". False for the `String` arm (F1), and it
+   contradicts `.ai/codegen-invariants.md` ("`toString(String)` is the IDENTITY
+   arm — it hands back its own argument. Not fresh."). Correction owned by
+   bug-667.
+3. `.ai/codegen-invariants.md` lists `toString(String)` and `fs::pathDirName` as
+   "not fresh" for the statement-scope free, but nothing says an owning store
+   copies them — and it does not (F1, F3). The fix plan (bug-667) should record
+   that an unmarked producer is also an aliasing source for `lower_value_owned`.
+4. `planning/plan-141-findings/inplace-audit.md` §1b: `s = s & t` S2
+   `n (StoreGlobal)` — stale since plan-142-H (now `y`, probe `o1_S2`
+   ARM=concat). A completed audit; recorded here, not edited.
+5. `.ai/collections.md` (§"In-place mutation": the capacity-shadow and `Ref`/`Global`
+   bullets) and plan-121-F/G: no contradiction found. plan-121-F covers `List OF
+   String` element writes and plan-121-G the `reduce` `String`-accumulator fold;
+   neither claims a `String` builtin self-update is in place.
 
 ## Appendix A — census script
 
@@ -839,3 +1015,318 @@ done
 | `rodata` | does a `MUT` bind of a literal copy it? is `toString(s)` copied at the store? | `bindOnly` carries `flat_copy_result` (copied); `toStr` has no `flat_copy_*` slot (F1); `bindThenConcat` ARM=concat, `globalConcat` ARM=concat + `concat_global_strcap` |
 | `tostr` | does `s = toString(s)` alias freed memory? | yes: prints `XYZWXYZW…` (the next allocation) for `s`, instead of `abcdefgh…` |
 | `dirname` | does `fs::pathDirName("abc")` survive? | no: prints `[.]`, exit 138 (SIGBUS) |
+
+### C.5 `table.py` — the table fill and the §3.3 counts
+
+```python
+"""Fill planning/plan-143-findings/string-self-update-audit.md from the audit data.
+
+  python3 table.py rows      -> the 63 filled §1 rows (replacing census.py's empty ones)
+  python3 table.py ops       -> the §2 rows
+  python3 table.py lowering  -> Appendix B.2 (one row per §1 row)
+  python3 table.py count     -> the §3.3 counts (per site, per form, per verdict)
+
+Verdicts come from reading the code at efdb54bb7 (see Appendix B); the marker
+line each one is checked against is read from /tmp/plan-143-probes/str/markers.txt
+(Appendix C). A cell whose reading and dump disagree raises: the dump wins, so the
+script refuses to print a verdict the dump contradicts.
+"""
+import re
+import sys
+from collections import Counter
+
+ROWS = [re.match(r"\| `([^`]+)`", l).group(1)
+        for l in open("/tmp/plan-143-probes/rows.md") if l.startswith("| `")]
+MARK = {}
+for line in open("/tmp/plan-143-probes/str/markers.txt"):
+    k, v = line.split(": ", 1)
+    MARK[k] = re.sub(r" CALLS=.*", "", v.strip())
+
+BIA = "src/codegen/collection/assign/builder_inplace_assign.rs"
+BC = "src/codegen/engine/control/builder_control.rs"
+SU = "src/codegen/collection/assign/self_update.rs"
+SB = "src/codegen/builtins/strings"
+
+# --- lowering: (body kind, how the result block is made) per function -------
+LOW = {
+    "strings::caseFold": ("`Body::abi_inline` → `gen_case_map::lower_strings_case_map`",
+                          "fresh block: `emit_arena_alloc_call` of `byteLen + 9` on the all-ASCII path, or of the counted mapped length on the Unicode path (`gen_case_map.rs`)"),
+    "strings::lower": None, "strings::upper": None,
+    "strings::graphemeAt": ("`Body::abi_inline` → `func_grapheme_at::lower`",
+                            "fresh block: `emit_materialize_string_from_bytes` of the grapheme's byte span"),
+    "strings::left": ("`Body::abi_inline` → `gen_left_right::lower_strings_left_right`",
+                      "fresh block: computes a `(ptr, len)` window into `value`, then `emit_materialize_string_from_bytes` (`builder_collection_layout.rs`) copies it"),
+    "strings::right": None,
+    "strings::mid": ("`Body::Intrinsic` → `native_builtin_target` = `mid` → `lower_mid` (`collection/search/builder_search.rs`, `String` branch)",
+                     "fresh block: `emit_arena_alloc_call` (`mid_alloc_ok`) and a span copy"),
+    "strings::normalizeNfc": ("`Body::abi_inline` → `func_normalize_nfc::lower`",
+                              "fresh block: `emit_arena_alloc_call` (three sites in `func_normalize_nfc.rs`)"),
+    "strings::padLeft": ("`Body::abi_inline` → `gen_pad::lower_strings_pad`",
+                         "fresh block: `emit_arena_alloc_call` of the padded length (`gen_pad.rs`)"),
+    "strings::padRight": None,
+    "strings::padLeftToWidth": ("`Body::Rewrite(\"__strings_padLeftToWidth\")` → MFBASIC helper (`helper_pad_to_width.rs`)",
+                                "fresh block: the helper builds and `RETURN`s a new `String`"),
+    "strings::padRightToWidth": ("`Body::Rewrite(\"__strings_padRightToWidth\")` → MFBASIC helper (`helper_pad_to_width.rs`)",
+                                 "fresh block: the helper builds and `RETURN`s a new `String`"),
+    "strings::repeat": ("`Body::abi_inline` → `func_repeat::lower`",
+                        "fresh block: `emit_arena_alloc_call` of `len × times + 9`"),
+    "strings::replace": ("`Body::Intrinsic` → `native_builtin_target` = `replace` → `lower_replace` (`string/repr/builder_strings.rs`, `String` branch)",
+                         "fresh block on both arms: `emit_arena_alloc_call` when a match is replaced, `copy_flat_block` of `value` when none is (bug-536 shape B)"),
+    "strings::stripPrefix": ("`Body::abi_inline` → `gen_strip::lower_strings_strip`",
+                             "fresh block: window into `value` (the whole of it when the affix is absent), then `emit_materialize_string_from_bytes`"),
+    "strings::stripSuffix": None,
+    "strings::trim": ("`Body::abi_inline` → `gen_trim::lower_strings_trim`",
+                      "fresh block: `[start, end)` window into `value`, then `emit_materialize_string_from_bytes`"),
+    "strings::trimStart": None, "strings::trimEnd": None,
+    "strings::trimChars": ("`Body::abi_inline` → `func_trim_chars::lower`",
+                           "fresh block: window into `value`, then `emit_materialize_string_from_bytes`"),
+    "encoding::*": ("`Body::mfb` → MFBASIC `__encoding_{f}` body (`builtins/encoding/func_*.rs`)",
+                    "fresh block: the body builds and `RETURN`s a new `String`"),
+    "fs::canonicalPath": ("`Body::abi_function` → `gen_canonical::lower_fs_canonical_path_helper`",
+                          "fresh block copied from the `realpath` `PATH_MAX` scratch buffer; `path` itself is marshalled into a scratch C string `c_path` first (bug-574 scratch, freed at the helper's exit)"),
+    "fs::pathBaseName": ("`Body::abi_inline` → `lower_fs_path_base_name_nl` (`gen_path_builder.rs`)",
+                         "fresh block: `emit_materialize_string_from_bytes` of the last component's span"),
+    "fs::pathDirName": ("`Body::abi_inline` → `lower_fs_path_dir_name_nl` (`gen_path_builder.rs`)",
+                        "fresh block of the directory span (`emit_materialize_string_from_bytes`), **or a read-only constant**: `load_string_constant(\".\")` / `(\"/\")` for a path with no directory part / the root (`gen_path_builder.rs`, labels `dot`, `root`) — see §3.2 finding F3"),
+    "fs::pathExtension": ("`Body::abi_inline` → `lower_fs_path_extension_nl` (`gen_path_builder.rs`)",
+                          "fresh block: `emit_materialize_string_from_bytes` of the extension span"),
+    "fs::pathNormalize": ("`Body::abi_inline` → `lower_fs_path_normalize_nl` (`gen_path_builder.rs`)",
+                          "fresh block: the normalized bytes are assembled and materialized"),
+    "fs::readText": ("`Body::abi_function` → `lower_fs_read_text_path_helper` (`gen_atomic_write.rs`)",
+                     "fresh block holding the file's bytes; `path` is copied into a scratch C path first (`{symbol}_path_copy_loop`)"),
+    "io::input": ("`Body::abi_function` → `lower_read_line_family(with_prompt = true)` (`gen_read_line_family.rs`)",
+                  "fresh block: a grown line buffer copied into the result (`result_copy_loop`); `prompt` is only written to stdout"),
+    "net::percentDecode": ("`Body::mfb` → MFBASIC `__net_percentDecode` → `__net_percentDecodeImpl`",
+                           "fresh block: the body builds and `RETURN`s a new `String`"),
+    "os::getEnv": ("`Body::abi_function` → `gen_env::lower_get_env(with_fallback = false)`",
+                   "fresh block holding the variable's value; `name` is copied into a scratch C string (`marshal_cstring`, bug-574 scratch, freed at `done`)"),
+    "os::getEnvOr": ("`Body::abi_function` → `gen_env::lower_get_env(with_fallback = true)`",
+                     "fresh block holding the value or a copy of `fallback`; `name` is copied into a scratch C string (`marshal_cstring`)"),
+    "os::resourcePath": ("`Body::abi_function` → `lower_resource_path` (`os/func_resource_path.rs`)",
+                         "fresh block: `base + \"/\" + relative` concatenated into an owned arena `String`"),
+    "regex::replace": ("`Body::mfb` → MFBASIC `__regex_replace`",
+                       "fresh block: the body builds and `RETURN`s a new `String`"),
+    "astrings::addAttribute": ("`Body::mfb` → MFBASIC `__astrings_addAttribute`",
+                               "fresh record: `astrings::writeSpans(a, spans)` (`gen_astrings.rs`) builds a new `AttributedString` record with a copy of the text"),
+    "astrings::clearAttributes/1": ("`Body::mfb` → MFBASIC `__astrings_clearAttributes`",
+                                    "fresh record: `astrings::writeSpans(a, [])`"),
+    "astrings::clearAttributes/3": ("`Body::mfb` → MFBASIC `__astrings_clearAttributesRange`",
+                                    "fresh record: `astrings::writeSpans(a, out)`"),
+    "astrings::removeAttribute": ("`Body::mfb` → MFBASIC `__astrings_removeAttribute`",
+                                  "fresh record: `astrings::writeSpans(a, spans)`"),
+    "tierb": ("IR rewrite (`strings::tier_b_transform_impl`, `TIER_B_TRANSFORMS` in `{SB}/mod.rs`) to `Body::mfb` MFBASIC `__astrings_{f}` (`builtins/astrings/helper_*.rs`); the call reaches codegen as `#astrings_{f}`",
+              "fresh record: the helper builds a new text and a remapped span list and assembles a new `AttributedString` (`__astrings_assemble` / `astrings::writeSpans`)"),
+}
+ALIAS = {"strings::lower": "strings::caseFold", "strings::upper": "strings::caseFold",
+         "strings::right": "strings::left", "strings::padRight": "strings::padLeft",
+         "strings::stripSuffix": "strings::stripPrefix", "strings::trimStart": "strings::trim",
+         "strings::trimEnd": "strings::trim"}
+
+# --- form (§4) per function, with the lowering that decides it ------------
+FORM = {
+    "caseFold": ("rewrite", "same length on the all-ASCII path only; the Unicode path counts a mapped length that can differ (`gen_case_map.rs` count loop)"),
+    "lower": ("rewrite", "as `caseFold`"), "upper": ("rewrite", "as `caseFold` (e.g. `ß` → `SS`)"),
+    "graphemeAt": ("shrink", "one grapheme's contiguous byte span of `value`"),
+    "left": ("shrink", "a prefix window of `value`"), "right": ("shrink", "a suffix window"),
+    "mid": ("shrink", "a contiguous span of `value`"),
+    "normalizeNfc": ("rewrite", "composition can shorten or reorder; length changes either way"),
+    "padLeft": ("grow", "pad bytes inserted before `value` (unchanged when already wide enough)"),
+    "padRight": ("grow", "pad bytes appended after `value`"),
+    "padLeftToWidth": ("grow", "pad inserted before `value`"),
+    "padRightToWidth": ("grow", "pad appended after `value`"),
+    "repeat": ("grow", "`value` repeated `times` (`times = 0` gives the empty string)"),
+    "replace": ("rewrite", "each match replaced; longer or shorter"),
+    "stripPrefix": ("shrink", "a suffix window"), "stripSuffix": ("shrink", "a prefix window"),
+    "trim": ("shrink", "an interior window"), "trimStart": ("shrink", "a suffix window"),
+    "trimEnd": ("shrink", "a prefix window"), "trimChars": ("shrink", "an interior window"),
+    "formUrlDecode": ("rewrite", "never longer (`%XX` → 1 byte, `+` → space), but not a subsequence of `value`"),
+    "formUrlEncode": ("rewrite", "never shorter"), "htmlEscape": ("rewrite", "never shorter"),
+    "htmlUnescape": ("rewrite", "never longer"), "percentDecode": ("rewrite", "never longer"),
+    "percentEncode": ("rewrite", "never shorter"),
+    "punycodeDecode": ("rewrite", "label-wise decode"), "punycodeEncode": ("rewrite", "label-wise encode"),
+    "canonicalPath": ("not-derived", "the result is copied from `realpath`'s output buffer (symlinks resolved against the filesystem), not from `path`'s bytes"),
+    "pathBaseName": ("shrink", "the last component's span"),
+    "pathDirName": ("shrink", "the directory span — or a read-only `.`/`/` constant (F3)"),
+    "pathExtension": ("shrink", "the extension span"),
+    "pathNormalize": ("rewrite", "segments removed or collapsed (a subsequence of `path`), or `.`; not a single window"),
+    "readText": ("not-derived", "the file's bytes"),
+    "input": ("not-derived", "a line read from stdin"),
+    "getEnv": ("not-derived", "the variable's value"),
+    "getEnvOr": ("not-derived", "the variable's value, or `fallback`"),
+    "resourcePath": ("grow", "`base + \"/\" + relative`: bytes inserted before `relative`"),
+    "addAttribute": ("same-len", "the text is unchanged; only the span list is rewritten"),
+    "clearAttributes": ("same-len", "the text is unchanged; the span list is emptied or split"),
+    "removeAttribute": ("same-len", "the text is unchanged; only the span list is rewritten"),
+}
+
+MID_REPLACE_S = {"strings::mid", "strings::replace"}
+ABI_INLINE_SEAM = {"strings::caseFold", "strings::graphemeAt", "strings::left", "strings::lower",
+                   "strings::mid", "strings::normalizeNfc", "strings::padLeft", "strings::padRight",
+                   "strings::repeat", "strings::replace", "strings::right", "strings::stripPrefix",
+                   "strings::stripSuffix", "strings::trim", "strings::trimChars", "strings::trimEnd",
+                   "strings::trimStart", "strings::upper", "fs::pathBaseName", "fs::pathDirName",
+                   "fs::pathExtension", "fs::pathNormalize"}
+
+
+def key_of(sig):
+    fq = re.match(r"(\w+::\w+)\(", sig).group(1)
+    astr = "(value AS AttributedString" in sig and fq.startswith("strings::")
+    return fq, astr
+
+
+def lowering(sig):
+    fq, astr = key_of(sig)
+    pkg, name = fq.split("::")
+    if astr:
+        k, a = LOW["tierb"]
+        return k.format(SB=SB, f=name), a
+    if pkg == "encoding":
+        k, a = LOW["encoding::*"]
+        return k.format(f=name), a
+    if name == "clearAttributes":
+        return LOW[f"{fq}/{3 if 'start' in sig else 1}"]
+    return LOW[ALIAS.get(fq, fq)]
+
+
+def expect(site, sig, cid, k):
+    """The reading's prediction for one cell, checked against the dump."""
+    fq, astr = key_of(sig)
+    seam = fq in ABI_INLINE_SEAM and not astr
+    g10 = fq in MID_REPLACE_S and not astr
+    m = MARK[f"{cid}_{site}"] if site != "S9" else MARK[f"$lambda{k}"]
+    arm_ok = "ARM=-" in m
+    if site == "S1":
+        ok = arm_ok and "SEAM=-" in m and "GLOBAL=-" in m
+    elif site == "S2":
+        ok = arm_ok and ("SEAM=su_global_block" in m) == seam and "GLOBAL=y" in m
+    else:
+        ok = arm_ok and ("SEAM=su_ref_block" in m) == seam
+    if not ok:
+        raise SystemExit(f"reading/dump disagree at {cid} {site}: {m}")
+    verdict = "n (G10)" if g10 else "n (no arm)"
+    label = f"$lambda{k}" if site == "S9" else f"{cid}_{site}"
+    return verdict, f"`{label}` {m}"
+
+
+NOT_DERIVED = {
+    "canonicalPath": "`s` is read, and copied once into a helper-scratch C string (`c_path`, freed before return) — a copy, finding F4",
+    "readText": "`s` is read, and copied once into a helper-scratch C path (`{symbol}_path_copy_loop`) — a copy, finding F4",
+    "input": "`s` is only read (written to stdout as the prompt); not copied",
+    "getEnv": "`s` is read, and copied once into a helper-scratch C string (`marshal_cstring`, freed at `done`) — a copy, finding F4",
+    "getEnvOr": "`s` is read, and copied once into a helper-scratch C string (`marshal_cstring`) — a copy, finding F4",
+}
+
+
+def cells(i, sig):
+    cid = f"r{i:02d}"
+    k = i - 1
+    fq, astr = key_of(sig)
+    name = fq.split("::")[1]
+    form, why = FORM[name]
+    if astr:
+        why = f"text as the `String` overload ({why}); the span list is remapped (or dropped, for the case maps and `normalizeNfc`)"
+    s1, m1 = expect("S1", sig, cid, k)
+    s2, m2 = expect("S2", sig, cid, k)
+    s9, m9 = expect("S9", sig, cid, k)
+    s7 = "n/a (not iterable)"
+    kind, alloc = lowering(sig)
+    seam = fq in ABI_INLINE_SEAM and not astr
+    if fq in MID_REPLACE_S and not astr:
+        route = (f"The `{name}` arm (`try_inplace_{name}_assign`, via `resolve_self_update`, "
+                 f"`inplace_dest.rs`) passes G2–G6 and declines at G10: `CollectionTypeLayout::from_type(String)` "
+                 f"is `None` (`validation.rs`); at S9 the `Ref` destination discharges G1 first. "
+                 f"`self_update_builtin(\"strings.{name}\")` = `{name}` because `native_builtin_target` "
+                 f"dequalifies `strings.`/`collections.` `{name}` alike (`builtins/mod.rs`).")
+    elif seam:
+        route = (f"`self_update_builtin` names it (`{name}`, a `Body::abi_inline` bare name via "
+                 f"`native_bare_target`), so S2 builds a `Global` site and S9 a `Ref` site and runs "
+                 f"`SELF_UPDATE_ARMS`; every call arm declines at G3 (no arm is named `{name}`) and the concat arm at G19/G20 (no shadow; not a `&` chain).")
+    else:
+        target = f"#astrings_{name}" if astr else ("a `bl` to the MFBASIC body" if "mfb" in kind or "Rewrite" in kind else "the `abi_function` helper")
+        route = (f"`self_update_builtin` answers `None` for {target if astr else target} "
+                 f"(not a `strings.`/`collections.` native), so S2/S9 never build a self-update "
+                 f"site; S1 runs `SELF_UPDATE_ARMS` and every call arm declines at G3 (the name) and the concat arm at G19/G20; the record-field arms that follow decline at G2 (not a `WITH`).")
+    nd = f" Not-derived: {NOT_DERIVED[name]}." if form == "not-derived" else ""
+    ev = (f"Form: {why}.{nd} {route} Copying path: S1 `lower_value_owned` + free of the old block "
+          f"(`{BC}` `NirOp::Assign`); S2 `StoreGlobal` copying path (`store_global_new`); S9 the "
+          f"by-ref reassign (`reassign_ref_old`). Result: {alloc}. Probes: {m1}; {m2}; {m9}.")
+    return form, s1, s2, s7, s9, ev
+
+
+def rows():
+    out = []
+    for i, sig in enumerate(ROWS, 1):
+        form, s1, s2, s7, s9, ev = cells(i, sig)
+        out.append(f"| `{sig}` | {form} | {s1} | {s2} | {s7} | {s9} | {ev} |")
+    return out
+
+
+OPS = [
+    ("`s = s & t` on `String`", "o1", "y", "y", "n/a (not iterable)", "n (G1)",
+     "S1 `try_inplace_concat_assign` (`{BIA}`): G1 → G19 (a frame capacity shadow `strcap_s`, allocated by `prescan_string_self_appends`, `{BC}`) → G20 (a left-associated `&` chain rooted at `s`, `string_self_append_operands_of`) → G21 (no later operand reads `s`). S2 (plan-142-H): `StoreGlobal` recognises the chain (`string_self_append_operands_of` with a `Global` root) and builds a `Global` site; the shadow is the hidden global `$strcap$<name>` declared by `add_global_string_capacities` (`{SU}`), worked on through the `concat_global_strcap` frame slot, plus G-global-operand (no operand stores to the global). S9: the concat arm's first gate is G1 — `site.by_ref` — because a by-ref `String` has no shadow to append into (`self_update.rs` `Site::Lambda` doc, plan-142-G Correction G1); `is_self_update_call` needs a `Call`, so a `&` chain never gets a `Ref` destination. The lifted lambda does get a dead `strcap_s` slot: `prescan_string_self_appends` checks `address_taken_locals`, which the lambda's by-ref local is not in (observation O2). Probes: {m1}; {m2}; {m9}."),
+    ("`s = s & t & u` (chain) on `String`", "o2", "y", "y", "n/a (not iterable)", "n (G1)",
+     "As `s = s & t`: G20 accepts the whole left-associated chain and appends each operand in turn (`lower_string_self_append_one` per operand); `s = s & t & s` is n (G21, `bug-143`). Probes: {m1}; {m2}; {m9}."),
+    ("`a = a & b` on `AttributedString`", "o3", "n (no arm)", "n (no arm)", "n/a (not iterable)", "n (no arm)",
+     "`&` on two `AttributedString`s reaches NIR as a call to `#astrings_concat` (MFBASIC `__astrings_concat`, `builtins/astrings/helper_concat.rs`), not a `Binary` `Concat`, so `string_self_append_operands_of` never matches and `self_update_builtin` answers `None`: no site is built at S2/S9 and every S1 arm declines at G2/G3. Form: grow (the text and spans of `b` appended). Result: a fresh record. Probes (CALLS=`_mfb_ifn_astrings_5Fconcat` in each): {m1}; {m2}; {m9}."),
+    ("`s = toString(s)` on `String`", "o4", "n (no arm)", "n (no arm)", "n/a (not iterable)", "n (no arm)",
+     "**Memory-safety bug (F1).** `lower_to_string`'s `String` arm (`string/repr/builder_strings.rs`) returns the argument's own block (identity; form `same-len`). `value_needs_owning_copy` (`builder_values.rs`) does not class a `Call` as an aliasing source, so the owning store does not copy it: S1's reassign frees `s`'s old block — the one it then stores; S2's `StoreGlobal` frees the global's block and stores it back; S9's by-ref reassign does the same through the reference. No arm is involved (`toString` is not a `collections`/`strings` native, `self_update_builtin` → `None`). Runtime sweep (Appendix C.3): `o4_S1`/`o4_S2`/`o4_S9` each print the next allocation's bytes and exit 139. Probes: {m1}; {m2}; {m9}."),
+]
+
+
+def ops():
+    out = []
+    for k, (form, cid, s1, s2, s7, s9, ev) in enumerate(OPS):
+        lam = 63 + k
+        ev = ev.format(BIA=BIA, BC=BC, SU=SU,
+                       m1=f"`{cid}_S1` {MARK[cid + '_S1']}",
+                       m2=f"`{cid}_S2` {MARK[cid + '_S2']}",
+                       m9=f"`$lambda{lam}` {MARK['$lambda' + str(lam)]}")
+        out.append(f"| {form} | {s1} | {s2} | {s7} | {s9} | {ev} |")
+    return out
+
+
+def lowering_rows():
+    out = ["| # | function definition | body kind | result block |", "|---|---|---|---|"]
+    for i, sig in enumerate(ROWS, 1):
+        kind, alloc = lowering(sig)
+        out.append(f"| r{i:02d} | `{sig}` | {kind} | {alloc} |")
+    return out
+
+
+def count():
+    doc = open("planning/plan-143-findings/string-self-update-audit.md").read()
+    sec1 = doc[doc.index("## 1. Overloads"):doc.index("## 2.")]
+    sec2 = doc[doc.index("## 2."):doc.index("## 3.")]
+    r1 = [l for l in sec1.splitlines() if re.match(r"^\| `(strings|astrings|encoding|fs|os|io|net|regex)::", l)]
+    r2 = [l for l in sec2.splitlines() if l.startswith("| `")]
+    sites = ["S1", "S2", "S7", "S9"]
+    per_site = {s: Counter() for s in sites}
+    forms = Counter()
+    for l in r1:
+        c = [x.strip() for x in l.split(" | ")]
+        forms[c[1]] += 1
+        for s, v in zip(sites, c[2:6]):
+            per_site[s][v] += 1
+    for l in r2:
+        c = [x.strip() for x in l.split(" | ")]
+        for s, v in zip(sites, c[1:5]):
+            per_site[s][v] += 1
+    total = sum(sum(v.values()) for v in per_site.values())
+    print(f"rows §1 {len(r1)}  §2 {len(r2)}  sites {len(sites)}  cells {total}  "
+          f"rows×sites {(len(r1) + len(r2)) * len(sites)}")
+    for s in sites:
+        print(s, dict(sorted(per_site[s].items())))
+    print("forms", dict(sorted(forms.items())))
+
+
+if __name__ == "__main__":
+    mode = sys.argv[1]
+    if mode == "rows":
+        print("\n".join(rows()))
+    elif mode == "ops":
+        print("\n".join(ops()))
+    elif mode == "lowering":
+        print("\n".join(lowering_rows()))
+    elif mode == "count":
+        count()
+```
