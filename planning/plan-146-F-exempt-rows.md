@@ -494,6 +494,22 @@ F turns 15 rows into proven exemptions. First it removes the copies that would
 make the proofs false: F4's four C-string copies, and any MFBASIC body that seeds
 its output with a copy of its argument, which `htmlEscape` already does.
 
+- **F8 — F4 moved seven pinned rows in `codegen_helper_scratch_release`.** The
+  per-helper `(arena_alloc, arena_free, guarded scratch release)` triples that
+  test pins were written for bug-574's marshal-and-release design. Removing the
+  marshal removes exactly one of each per marshalled argument, which the full
+  gate in H surfaced (`cargo test --test codegen_helper_scratch_release`):
+  `os::getEnv (2,1,1)→(1,0,0)`, `getEnvOr (3,1,1)→(2,0,0)`,
+  `hasEnv (1,1,1)→(0,0,0)`, `setEnv (2,2,2)→(0,0,0)` (it marshalled two),
+  `unsetEnv (1,1,1)→(0,0,0)`, `fs::canonicalPath (3,2,2)→(2,1,1)`,
+  `readText (2,1,1)→(1,0,0)`. Measured by collecting every mismatch in one run
+  rather than the first: no OTHER helper moved, and the drop is one per borrowed
+  argument in each — which is the proof the test was describing the old design
+  and not catching a leak. The invariant it protects is unchanged and now
+  strictly cheaper to hold: there is no scratch to release, and a `free` on a
+  borrowed argument block would be a use-after-free the rows would catch as a
+  `1`. Rows and their two doc comments updated to say so.
+
 **As landed.** F4 is fixed by one mechanism — the host reads the argument
 `String` block's own NUL-terminated bytes at `+8` (`borrow_cstring` for `os`,
 `emit_cstring_nul_scan` plus a `+8` for the two `fs` paths) — so the arena copy,
