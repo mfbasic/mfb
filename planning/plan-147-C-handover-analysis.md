@@ -1,0 +1,222 @@
+# plan-147-C: The hand-over analysis (no callers)
+
+Last updated: 2026-09-21
+Effort: large (3h–1d)
+Depends on: plan-147-B
+
+Before any call changes, this letter adds the two analyses letter D will act on, and
+proves them against hand-derived tables. It emits no code: output is byte-identical
+on every target. This mirrors plan-134-C, which landed `collect_last_use_moves` with
+no callers before letters D/E used it.
+
+- **Caller side, `collect_handover_args`**: the `(op, argument)` pairs where a
+  local's value may be handed to a callee instead of lent.
+- **Callee side, `consumable_params`**: for each user function, the parameters an
+  owned variant would use up (update in place, return, or bind) rather than just
+  read. That decides whether a variant is worth emitting.
+
+References: plan-147-A §2.3 (the conditions below are the rows' "What keeps it"
+column, made exact); `planning/completed/plan-134-C-last-use-move-analysis.md`;
+`src/codegen/engine/analysis/last_use.rs`.
+
+## Prerequisites
+
+See plan-147-A. plan-147-B must be complete: `ls planning/plan-147-B-* 2>/dev/null` →
+no matches.
+
+## 1. Goal
+
+- `collect_handover_args(function, model, callees) -> HandOverArgs` and
+  `consumable_params(function, model) -> ParamSet` exist in
+  `src/codegen/engine/analysis/handover.rs`.
+- A unit table covers every shape in §3.3 and passes. It includes every refusal
+  row that pins a plan-147-A §2.3 condition.
+- Emitted code is byte-identical on every target. Nothing reads the new sets yet.
+- The corpus census row plan-147-A §2.2 left UNMEASURED is filled.
+
+### Non-goals
+
+- Any codegen change, including consumers (letter D).
+- Transitive hand-over through fresh temporaries and through a parameter passed on
+  to another owned variant (letter E). Here a parameter is consumable only by a
+  **direct** consuming use (§3.2).
+- Every plan-147-A non-goal.
+
+## 2. Current State
+
+- `collect_last_use_moves` (`last_use.rs:912`) computes, per op, which places are
+  live after it. It includes `trap_live`, everything any `TRAP` handler reads
+  (`:214`, `:230`). It yields sites only for `Bind`/`Assign`/`StoreGlobal`/`StateAssign`/
+  `Eval`/`Return`/`Fail`/`ExitProgram`, where the place is read exactly once in the op
+  and is not live after it (`:864-882`).
+- `excluded_roots` (`:647-746`) excludes parameters, `LocalRef` (address-taken),
+  closure captures, `FOR`/`FOR EACH` variables, the `TRAP` error name, `STATE`
+  resources, resource-bearing types, locals bound from `Capture`, non-view
+  `UnionExtract` binds, borrow-`get` locals, and any name never bound. `Place`
+  covers locals only, so globals can never be sites.
+- Inline `TRAP`/`RECOVER` is desugared before NIR into `bind $trap_res`,
+  `ResultIsOk` and an `IF` (`optimizer/opt1/recovery.rs:34-37`). A handler that reads
+  `x`, including `RECOVER x`, is an ordinary read after the op, so `x` is live after it.
+  The function-level `TRAP` is `NirOp::Trap{name, body}`, at most one, placed last.
+- Direct user calls: `NirValue::Call` whose target resolves to a user `NirFunction`
+  in the merged module (packages included; `src/target/shared/nir/lower.rs`
+  `merge_packages`). Builtins, `LINK` functions, and calls through function values are
+  other targets. `store_reach.rs` already distinguishes them (it treats indirect and
+  `LINK` calls as reaching everything, `:143-166`).
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Unit-table rows plan-134-C needed for the same kind of analysis | read `rg -c '#\[test\]' src/codegen/engine/analysis/last_use.rs` | run before Phase 1; sets the size of Phase 2's table |
+| Corpus call sites approved by `collect_handover_args` | UNMEASURED — this letter's Phase 3 measures it | Phase 3 |
+
+## 3. Design
+
+### 3.1 Caller: an argument that may be handed over
+
+`collect_handover_args` returns `(op_key, call_path, arg_index)` for every direct
+user call in an op whose argument `arg_index` is `NirValue::Local(x)` and:
+
+- **H1 owned local.** `x` is not in `excluded_roots`: not a parameter, not by-ref
+  or captured, not address-taken, not a `FOR`/`FOR EACH` variable, not a live
+  `FOR EACH` iterable at the op. Letter D widens this for a parameter that the
+  current function itself owns.
+- **H2 type.** `x`'s type is a `List`/`Map`/`Set` or `String`, and
+  `type_contains_resource` is false (row S8).
+- **H3 last use.**
+  - `x` is read exactly once in the whole op, and that read is this argument (row
+    S6: `f(x, x)` is two reads).
+  - `x` is not live after the op. For `Assign{target: x}` the op's own store kills
+    `x`, so "live after" is computed without that store's target. The old value is
+    dead, and the new one is what the rest of the function reads.
+  - `x ∉ trap_live` (row S3: no function-level handler reads it).
+  - Inline `TRAP` handlers are covered by the desugar (§2): a handler read makes `x`
+    live after the op.
+- **H4 not a global.** Structural: `Place` has no globals (row S7).
+- **H5 direct user call.** The target is a user `NirFunction` whose body is in the
+  module. It is not a builtin, not `LINK`, not a call through a function value (row
+  S13), and not an `ISOLATED` thread entry (row S10).
+- **H6 the callee would use it.** `arg_index ∈ consumable_params(callee)` (§3.2). If
+  not, handing over only moves a free from caller to callee, so it is refused.
+
+### 3.2 Callee: a parameter an owned variant consumes
+
+`consumable_params(F)` returns the parameters `p` of `F` such that:
+
+- **P1** `p`'s type is as in H2;
+- **P2** `p` would pass H1 if it were a local: not captured, not address-taken, not
+  a `FOR EACH` variable;
+- **P3** at least one path ends `p`'s life with a **consuming use** at its last use:
+  - `RETURN OP(p, …)` where `OP` is a self-update-shaped builtin
+    (`is_self_update_call`), which is B's S11;
+  - `RETURN p`, which is `plan_returned_move`'s move.
+
+  (`MUT y = p` / `LET y = p` and passing `p` on to another owned variant are E.)
+
+P3 decides only whether a variant is *worth* emitting. Correctness does not depend
+on it: an owned variant frees any owned parameter it does not consume (letter D).
+
+### 3.3 The unit table
+
+One row per shape, as a NIR function built with the same test helpers
+`last_use.rs`'s tests use. Expected `HandOverArgs` or `ParamSet` is written by hand:
+
+| Shape | Expected |
+|---|---|
+| `acc = helper(acc, i)` in a loop, helper consumes `xs` | handed over |
+| `LET y = helper(x, 1)` then print `x` | refused: H3 live after (S2) |
+| inline `TRAP` handler reads `x` | refused: H3 via desugar (S3) |
+| `x = helper(x) TRAP(e) RECOVER x END TRAP` | refused: H3 (S3) |
+| `x = helper(x) TRAP(e) RECOVER other END TRAP` | handed over: the old value is never read |
+| function-level `TRAP` reads `len(x)` | refused: `trap_live` (S3) |
+| `x = pair(x, x)` | refused: H3 two reads (S6) |
+| global argument | refused: structural (S7) |
+| `List OF RES` argument | refused: H2 (S8) |
+| argument captured by a lambda | refused: H1 (S9) |
+| call through `LET f = helper` | refused: H5 (S13) |
+| helper that only reads `xs` (`len(xs)`) | refused: H6 |
+| `x` is a `FOR EACH` iterable live at the op | refused: H1 |
+| `consumable_params`: `RETURN collections::set(xs, i, v)` | `{xs}` |
+| `consumable_params`: `IF n = 0 THEN RETURN xs` / `RETURN len(xs)` | `{xs}`: one path consumes |
+| `consumable_params`: `RETURN len(xs)` only | `{}` |
+
+**Correctness risk:** the `Assign` store-kill in H3. Getting it wrong either way is
+unsafe: treat the target as live and nothing is ever handed over; drop the kill for a
+target the op *also* reads elsewhere and a live value is handed over. The rule is
+exact: kill only the op's own store target, and only after H3's "read exactly
+once" has already passed.
+
+**Rejected:** computing hand-over inside `collect_last_use_moves` as more
+`MoveSites`. Its sites are owning stores and its consumers are stores. A call
+argument is a different consumer with its own callee-dependent condition (H6). A
+separate module keeps plan-134's behaviour byte-identical by construction.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick `- [x]` in the same commit
+> as the work; `- [~]` for partial with one line on what remains; moot tasks are
+> struck through with evidence, never deleted; fill `Commit:` when a phase lands.
+> **An unticked box means NOT DONE.**
+
+### Phase 1 — The analyses
+
+- [ ] Fill the first measured-populations row.
+- [ ] `src/codegen/engine/analysis/handover.rs`: `HandOverArgs`, `ParamSet`,
+      `collect_handover_args`, `consumable_params` (§3.1–§3.2). It reuses `last_use.rs`'s
+      liveness (`ops_in`, `trap_live`, `excluded_roots`); expose them `pub(super)` if
+      they are private.
+- [ ] Register the module in `src/codegen/engine/analysis/mod.rs`. Nothing calls it
+      outside tests.
+
+Acceptance: it builds, and nothing but tests uses it.
+  Check: `cargo build --release && rg -n 'collect_handover_args|consumable_params' src --glob '!**/handover.rs'`
+  → only `analysis/mod.rs` (est. 4 min).
+Commit: —
+
+### Phase 2 — The unit table
+
+- [ ] Every §3.3 row as a `#[test]` in `handover.rs`.
+- [ ] Prove each refusal row can fail. For S2, S3, S6 and S13, temporarily delete
+      the condition, see the row go red, and restore it. Record the four failure lines
+      here.
+
+Acceptance: all rows pass, and the four RED proofs are recorded.
+  Check: `cargo test --bin mfb handover` → all passed (est. 3 min).
+Commit: —
+
+### Phase 3 — Corpus census and neutrality
+
+- [ ] One-off probe (in `/tmp`, not committed): run both analyses over the NIR of
+      `examples/*`, `packages/*` and `benchmark/mfb`. Record approved call sites and
+      consumable parameters per tree in plan-147-A §2.2's UNMEASURED row, with the
+      command.
+- [ ] Byte-identity: nothing reads the sets.
+
+Acceptance: census recorded, and codegen unchanged.
+  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est.
+  1 min). The analysis has no caller, so one package's gate is enough to catch an
+  accidental one.
+Commit: —
+
+## Validation Plan
+
+- Tests: the §3.3 table, with RED proofs for four refusal rows.
+- Coverage check: Phase 1's `rg` shows the module has no non-test caller.
+- Runtime proof: none (no behaviour change).
+- Doc sync: none until F.
+- Final gate: plan-147-F.
+
+## Open Decisions
+
+- Should H6 require P3 on the callee, or hand over whenever H1–H5 hold? **Recommended:
+  require P3.** Otherwise every `len(x)`-style helper gets a variant whose only effect
+  is to move a free.
+
+## Corrections
+
+## Summary
+
+The analysis is where plan-147-A's semantics become code. The one subtle rule
+is the `Assign` store-kill in H3. Everything else is refusal, and refusing is
+always correct.
