@@ -112,6 +112,13 @@ pub fn mangle_private(file_hash: &str, name: &str) -> String {
     format!("{INTERNAL_SIGIL}{file_hash}${name}")
 }
 
+/// Whether `name` belongs to a builtin package's injected source: it carries the
+/// sigil ([`internalize`]) and is not a user file's mangled PRIVATE name
+/// ([`mangle_private`]), the only other sigil form.
+pub fn is_builtin_internal(name: &str) -> bool {
+    strip_sigil(name).is_some_and(|rest| strip_private_hash(rest).is_none())
+}
+
 /// If `rest` (a sigil-stripped name) is a mangled PRIVATE name `<hash>$<plain>`,
 /// return `<plain>`; otherwise `None`.
 fn strip_private_hash(rest: &str) -> Option<&str> {

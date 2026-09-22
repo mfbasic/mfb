@@ -1,0 +1,48 @@
+{
+  "project": "global_init_calls_builtin_tables_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "color", "line": 9 },
+    { "module": "compress", "line": 10 },
+    { "module": "encoding", "line": 11 },
+    { "module": "io", "line": 12 },
+    { "module": "json", "line": 13 },
+    { "module": "regex", "line": 14 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "aaaaaaaaaabbbbbbbbbb" }] }, "line": 16 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "doc", "type": "json.Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[1,[2,{\"k\":3}]]" }] }, "line": 17 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "crc", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "msg" }] }, "line": 18 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "packed", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.deflate", "arguments": [{ "kind": "identifier", "value": "msg" }, { "kind": "number", "value": "9" }] }, "line": 19 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "purple", "type": "color.Color", "value": { "kind": "call", "callee": "color.fromName", "arguments": [{ "kind": "string", "value": "rebeccapurple" }] }, "line": 20 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "matches", "type": "Integer", "value": { "kind": "call", "callee": "regex.count", "arguments": [{ "kind": "string", "value": "a1b22c333" }, { "kind": "string", "value": "[0-9]+" }] }, "line": 21 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "doc" }] }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "docNow", "type": "json.Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[1,[2,{\"k\":3}]]" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "doc" }] }, "right": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "docNow" }] } }] }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "crcNow", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "msg" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "crc" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "crc" }, "right": { "kind": "identifier", "value": "crcNow" } }] } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "unpacked", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "identifier", "value": "packed" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "unpacked" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "purple" }, "member": "red" }] }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "purple" }, "member": "green" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "purple" }, "member": "blue" }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "matchesNow", "type": "Integer", "value": { "kind": "call", "callee": "regex.count", "arguments": [{ "kind": "string", "value": "a1b22c333" }, { "kind": "string", "value": "[0-9]+" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "matches" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "matches" }, "right": { "kind": "identifier", "value": "matchesNow" } }] } }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    }
+    ]
+  }
+  ]
+}

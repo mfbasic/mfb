@@ -1,0 +1,36 @@
+' bug-673: a builtin package's own top-level bindings (json's depth limit,
+' compress's CRC and code tables, color's name table, regex's parse-depth limit)
+' initialize before the program's, so a top-level initializer that calls into
+' the package sees them set. They used to initialize after, and read zero:
+' `json::parse` failed every document as "nested too deeply".
+'
+' Each global is recomputed in `main`, after every initializer has run; the two
+' must agree.
+IMPORT color
+IMPORT compress
+IMPORT encoding
+IMPORT io
+IMPORT json
+IMPORT regex
+
+LET msg AS List OF Byte = encoding::utf8Encode("aaaaaaaaaabbbbbbbbbb")
+MUT doc AS json::Json = json::parse("[1,[2,{\"k\":3}]]")
+LET crc AS Integer = compress::crc32(msg)
+LET packed AS List OF Byte = compress::deflate(msg, 9)
+LET purple AS color::Color = color::fromName("rebeccapurple")
+LET matches AS Integer = regex::count("a1b22c333", "[0-9]+")
+
+FUNC main() AS Integer
+  io::print(json::stringify(doc))
+  LET docNow AS json::Json = json::parse("[1,[2,{\"k\":3}]]")
+  io::print(toString(json::stringify(doc) = json::stringify(docNow)))
+  LET crcNow AS Integer = compress::crc32(msg)
+  io::print(toString(crc) & " " & toString(crc = crcNow))
+  LET unpacked AS List OF Byte = compress::inflate(packed)
+  LET text AS String = encoding::utf8Decode(unpacked)
+  io::print(text)
+  io::print(toString(purple.red) & "," & toString(purple.green) & "," & toString(purple.blue))
+  LET matchesNow AS Integer = regex::count("a1b22c333", "[0-9]+")
+  io::print(toString(matches) & " " & toString(matches = matchesNow))
+  RETURN 0
+END FUNC

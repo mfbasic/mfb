@@ -120,6 +120,8 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     }
     // bug-613: a package's globals initialize before any importer's.
     crate::ir::order_bindings_dependencies_first(&mut merged.bindings, &initializations);
+    // bug-673: and a builtin package's own globals before anything that calls it.
+    crate::ir::order_builtin_bindings_first(&mut merged.bindings);
     define_natively_called_helpers(&mut merged);
     // Semantically verify the fully merged IR before it is lowered to native
     // code (plan-19-ir-semantic-verification.md). `verify_package` re-states the

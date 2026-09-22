@@ -373,6 +373,26 @@ pub fn order_bindings_dependencies_first(
     bindings.extend(remaining.into_iter().flatten());
 }
 
+/// bug-673: a builtin package's own top-level bindings — the tables and limits its
+/// injected source declares, such as json's depth limit or compress's CRC table —
+/// initialize before every other binding. The injected files (`builtins/json.mfb`,
+/// …) are appended after the program's own files, so their bindings came last, and
+/// a program's top-level initializer that called into the package read them as
+/// zero (`MUT doc AS json::Json = json::parse(…)` failed every document as "nested
+/// too deeply"). A builtin binding is named `__…` in its source, so it reaches
+/// here internalized (`#JSON_DEPTH_LIMIT`, `crate::internal_name`) — a name no
+/// program can spell. No builtin binding reads a program's or a manifest
+/// package's, so moving them to the front, in their own order, is always sound;
+/// run it after [`order_bindings_dependencies_first`] so they precede the
+/// packages' too.
+pub fn order_builtin_bindings_first(bindings: &mut Vec<IrBinding>) {
+    let (builtin, rest): (Vec<IrBinding>, Vec<IrBinding>) = std::mem::take(bindings)
+        .into_iter()
+        .partition(|binding| crate::internal_name::is_builtin_internal(&binding.name));
+    bindings.extend(builtin);
+    bindings.extend(rest);
+}
+
 /// Merge a namespaced package `IrProject` into `project`. Functions and globals
 /// are de-duplicated by their (already namespaced) name; types by their
 /// package-qualified name (bug-632), so two packages' same-named types — or a

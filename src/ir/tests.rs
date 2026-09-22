@@ -511,6 +511,54 @@ mod binary_repr_tests {
         );
     }
 
+    // bug-673: a builtin package's internalized bindings (`#JSON_DEPTH_LIMIT`)
+    // move ahead of the manifest packages' and the program's, keeping their own
+    // order; a user file's mangled PRIVATE name (`#<hash>$name`) is the program's
+    // and stays where it was.
+    #[test]
+    fn builtin_bindings_initialize_first() {
+        fn binding(name: &str) -> crate::ir::IrBinding {
+            crate::ir::IrBinding {
+                name: name.to_string(),
+                visibility: "public".to_string(),
+                mutable: false,
+                type_: crate::types::ParameterType::Integer,
+                value: None,
+                loc: crate::ir::IrSourceLoc { line: 1, column: 1 },
+                file: String::new(),
+                explicit_type: true,
+            }
+        }
+        let private = crate::internal_name::mangle_private(
+            &crate::internal_name::file_scope_hash("src/main.mfb"),
+            "secret",
+        );
+        let mut bindings: Vec<_> = [
+            "i.pkg.P",
+            "own1",
+            private.as_str(),
+            "#JSON_DEPTH_LIMIT",
+            "own2",
+            "#COMPRESS_CRC32_TABLES",
+        ]
+        .into_iter()
+        .map(binding)
+        .collect();
+        crate::ir::order_builtin_bindings_first(&mut bindings);
+        let order: Vec<&str> = bindings.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "#JSON_DEPTH_LIMIT",
+                "#COMPRESS_CRC32_TABLES",
+                "i.pkg.P",
+                "own1",
+                private.as_str(),
+                "own2",
+            ]
+        );
+    }
+
     // A stateful link function (`return_state_type`/`bind_state`) rides the
     // optional STATE trailer, and its `BIND IN` block rides the positional
     // record — both must survive the encode/decode round trip (plan-53 / plan-50-E).

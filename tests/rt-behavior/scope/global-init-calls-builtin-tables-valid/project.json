@@ -1,0 +1,10 @@
+{
+  "name": "global_init_calls_builtin_tables_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "A top-level initializer may call a builtin package function that reads the package's own top-level tables, and sees them initialized.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
