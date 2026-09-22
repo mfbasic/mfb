@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: tests/canvas/rt_canvas_metal.rs
 (`every_glyph_of_a_text_run_draws_its_own_bitmap`)
 
@@ -13,6 +13,15 @@ On the Metal canvas renderer, a `canvas::Text` item with more than one distinct
 glyph draws as diagonal hatching. Only the run's last glyph comes out right:
 "LEVEL 01" renders as noise and a clean "1", and "BUGS" as mostly "S". Found
 when the `examples/bugs/canvas` score bar was drawn on the GPU.
+
+## STATUS: FIXED (738a30f9a; goldens in e920ede36)
+
+Shipped as designed. The copy loop is limited to SCRATCH[0..8]; a first cut
+used 10–12, which realise to the draw's callee-saved loop registers, and the
+second text item vanished. Validated: canvas suites 15 binaries / 183 tests,
+`cargo test --bin mfb` 4285, artifact-gate all 2088 goldens / 0 diffs, full
+suite 215 binaries / 5926 passed / 0 failed, and `examples/bugs/canvas` reads
+correctly on the GPU in a real window.
 
 **Correct behavior:** each glyph samples its own cached bitmap, so a GPU text
 run matches the software oracle within `Tolerance::GPU_DEFAULT` in the rows it
@@ -90,18 +99,18 @@ plan-116-H removed, and every glyph pays a command-buffer copy.
 
 - [x] `every_glyph_of_a_text_run_draws_its_own_bitmap`: red as above.
 
-Commit: —
+Commit: 738a30f9a
 
 ### Phase 2 — the fix
 
-- [ ] Region constants, predicate, emitter, shader, and the region-layout unit test.
+- [x] Region constants, predicate, emitter, shader, and the region-layout unit test.
 
-Commit: —
+Commit: 738a30f9a
 
 ### Phase 3 — validation
 
-- [ ] `rt_canvas_metal`, `rt_canvas_font`, `rt_canvas_golden`, and `cargo test --bin mfb`.
-- [ ] Full artifact gate; regenerate canvas/app goldens the helper change moves.
-- [ ] `examples/bugs/canvas` screenshot on the GPU.
+- [x] `rt_canvas_metal`, `rt_canvas_font`, `rt_canvas_golden`, and `cargo test --bin mfb`.
+- [x] Full artifact gate; regenerate canvas/app goldens the helper change moves.
+- [x] `examples/bugs/canvas` screenshot on the GPU.
 
-Commit: —
+Commit: e920ede36
