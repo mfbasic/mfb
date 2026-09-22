@@ -736,6 +736,10 @@ struct TypeEnv {
     /// diagnostic emitted from a nested value is attributed to (matching the AST
     /// checker, which reports at the enclosing statement line).
     current_line: Cell<u32>,
+    /// bug-676: the resources the error route into the function-level `TRAP` has
+    /// already closed, while its handler is being checked — so a read of one is
+    /// reported as that, not as an ordinary move.
+    trap_closed: RefCell<HashSet<String>>,
     /// Project-relative file of the function currently being checked.
     current_file: RefCell<String>,
     /// Declared return type of the function currently being checked (for
@@ -1002,6 +1006,7 @@ impl TypeEnv {
             enums,
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
+            trap_closed: RefCell::new(HashSet::new()),
             current_file: RefCell::new(String::new()),
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),

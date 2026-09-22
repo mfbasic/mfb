@@ -197,10 +197,15 @@ impl TypeEnv {
             collect_local_reads_op(op, &mut reads);
             for name in &reads {
                 if moved.contains(name) {
-                    self.emit(
-                        "TYPE_USE_AFTER_MOVE",
-                        format!("Binding `{name}` was moved and cannot be used again."),
-                    );
+                    let detail = if self.trap_closed.borrow().contains(name) {
+                        format!(
+                            "Resource `{name}` is closed when an error reaches the function's \
+                             TRAP, so the handler cannot use it."
+                        )
+                    } else {
+                        format!("Binding `{name}` was moved and cannot be used again.")
+                    };
+                    self.emit("TYPE_USE_AFTER_MOVE", detail);
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
@@ -400,9 +405,39 @@ impl TypeEnv {
                 }
                 IrOp::While { body, .. }
                 | IrOp::For { body, .. }
-                | IrOp::DoUntil { body, .. }
-                | IrOp::Trap { body, .. } => {
+                | IrOp::DoUntil { body, .. } => {
                     run_branch(body, locals, moved, aliases, contains);
+                }
+                // bug-676: every route into the function-level handler closes the
+                // function's own resources first (`trap_route_cleanups`, codegen:
+                // "trap-shared resources *are* still dropped here"), so inside the
+                // handler each one is used after its close — which read the closed
+                // handle's freed record and crashed. A `RES` parameter and a
+                // `FOR EACH` element are not the function's to close (`non_owning`),
+                // and a thread is closed but readable (bug-622), so neither is
+                // counted.
+                IrOp::Trap { body, .. } => {
+                    let closed: HashSet<String> = locals
+                        .iter()
+                        .filter(|(name, type_)| {
+                            !non_owning.contains(*name)
+                                && self.close_op_for(&resource_base_type(type_)).is_some()
+                        })
+                        .map(|(name, _)| name.clone())
+                        .collect();
+                    let mut handler_moved = moved.clone();
+                    handler_moved.extend(closed.iter().cloned());
+                    let previous = self.trap_closed.replace(closed);
+                    self.check_resource_moves(
+                        body,
+                        &mut locals.clone(),
+                        &mut handler_moved,
+                        owners,
+                        non_owning,
+                        &mut aliases.clone(),
+                        &mut contains.clone(),
+                    );
+                    self.trap_closed.replace(previous);
                 }
                 _ => {}
             }

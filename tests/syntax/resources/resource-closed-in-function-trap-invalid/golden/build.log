@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-closed-in-function-trap-invalid
+  17 | 
+  18 |   TRAP(e)
+  19 |     io::print("trapped hp=" & toString(h.state.hp))
+     | ^
+tests/syntax/resources/resource-closed-in-function-trap-invalid/src/main.mfb:19 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Resource `h` is closed when an error reaches the function's TRAP, so the handler cannot use it.
+[exit 1]

@@ -1,0 +1,26 @@
+IMPORT fs
+IMPORT io
+
+' bug-676: an error routed to a function-level TRAP closes the function's own
+' resources before the handler runs (trap-shared resources are dropped on the
+' route), so a read of one in the handler is a use after close. It used to compile
+' and read the closed handle's freed STATE record: a segfault. It is the same rule
+' as a read after `fs::close(h)`, reported at the handler's read.
+TYPE P
+  hp AS Integer
+END TYPE
+
+FUNC bump(big AS Integer) AS Integer
+  RES h AS fs::File STATE P = fs::openFile("tests/syntax/resources/resource-closed-in-function-trap-invalid/project.json")
+  h.state.hp = h.state.hp + big
+  RETURN 0
+
+  TRAP(e)
+    io::print("trapped hp=" & toString(h.state.hp))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RETURN bump(9223372036854775807)
+END FUNC
