@@ -1,13 +1,42 @@
 # bug-659: `math::exp` on a large-magnitude `Fixed` wraps its argument reduction — overflow and underflow swap, silently
 
-Last updated: 2026-09-19
+Last updated: 2026-09-22
 Effort: small–medium
 Severity: **MEDIUM** — a silently wrong value (`0.00`) where the correct behavior is
 `ErrOverflow`, with no diagnostic. The mirrored case raises where it should return zero.
 Class: Correctness (Fixed transcendental kernel)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction`
+(Phase 1) and `tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap`
+(Phase 2)
+
+**STATUS: FIXED.** Reproduced first and confirmed to fail for the documented
+mechanism, not merely the documented symptom: all five repro lines matched the
+filed output on `main` at `5e58663d9`, and the run took 1.88s — the signature of
+the negative arm of `emit_fixed_scale_by_power_of_two` halving ~1.44e9 times,
+which only a sign-flipped `n` can reach.
+
+The blast-radius audit named `pow` as "very likely" carrying the same swap. It
+does, by a **second, independent** wrap one level up: `pow`'s fractional path is
+`exp(exponent * ln(base))`, and that product is itself an unchecked Q32.32
+multiply. `|ln(base)|` reaches ~22 across the `Fixed` domain, so an exponent past
+~1e8 wrapped it. Measured on `main`: `pow(2e9, 200000000.5)` returned `0.00`
+where the true result overflows, and `pow(1e-9, 200000000.5)` raised
+`ErrOverflow` where the true result underflows to zero. Fixed as Phase 2 with a
+saturating multiply; `exp`'s new gate then reads the correct outcome off the
+preserved sign. The third `emit_fixed_mul` caller (`log10`'s `ln(x) * inv_ln10`
+in `emit_fixed_log`) was audited and cannot wrap: `|ln(x)| <= 22.2` and
+`inv_ln10 < 1`. `emit_fixed_log`'s own reduction is a shift-normalisation with no
+multiply, so it is not implicated.
+
+Deviation from the fix sketch: the sketch proposed guarding `scaled` so `n`
+cannot change sign relative to `x`. The landed fix gates `x` itself instead,
+which is strictly simpler and strictly stronger — it removes the wrap rather
+than repairing its output, so the sign-dispatch hazard in
+`emit_fixed_scale_by_power_of_two` becomes unreachable from `exp` rather than
+merely survivable. `emit_fixed_scale_by_power_of_two`'s unchecked negative arm
+is left as-is: it is correct for every `n` it can now be handed.
 
 `math::exp` on a `Fixed` argument computes `2^n * exp(r)` with `n = round(x / ln2)`
 (`src/codegen/builtins/money/gen_fixed_math.rs:1155` — `emit_fixed_exp`). The `x / ln2`
@@ -118,6 +147,65 @@ argument whose `x / ln2` fits Q32.32, the result is already outside `Fixed` rang
 direction or zero in the other, and the branch can be decided from the SIGN OF `x` rather
 than from the wrapped product. Equivalently, clamp/guard `scaled` so `n` cannot change sign
 relative to `x`. Either way the overflow check must not be skippable by a negative `n`.
+
+## Fix as landed
+
+- [x] **Phase 1 — `emit_fixed_exp` argument gate.** Decide the result from the
+  SIGN OF `x` before the reduction runs, not from the wrapped product. `Fixed`
+  spans just under `[-2^31, 2^31)`, so `exp` overflows above `ln(2^31) = 21.4876`
+  and rounds to zero below `-33*ln2 = -22.8742`; the gate sits at `|x| = 64`,
+  outside both thresholds (no in-range result moves) and far inside the wrap
+  point `2^31*ln2 = 1.4885e9` (the reduction can no longer leave range, since
+  `|64/ln2| < 93`). Above `+64` raise `ErrOverflow`; below `-64` return `0.00`.
+  Test: `tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction`.
+  Commit: `0cd31775f`
+- [x] **Phase 2 — `pow`'s fractional product saturates instead of wrapping.**
+  New `emit_fixed_mul_saturating` tests bits[127:95] of the 128-bit product for
+  sign-extension and clamps to `i64::MAX`/`i64::MIN` on the product's true sign;
+  bit-identical to `emit_fixed_mul` in range. `emit_fixed_pow_general`'s
+  `exponent * ln(base)` uses it, so `exp`'s Phase-1 gate reads the correct
+  outcome off the preserved sign.
+  Test: `tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap`.
+  Commit: `0cd31775f`
+- [x] **Phase 3 — spec.** `mfb spec architecture math-kernels` gained a
+  `Fixed exp and fractional pow` subsection recording the sign-dispatch hazard
+  and both gates; the surrounding `Fixed` kernel sections documented the trig
+  family's contracts but said nothing about this one. The `mfb man math exp`
+  page already stated the correct contract ("a very negative argument gives 0";
+  "ErrOverflow for a Fixed") — it was the compiler that disagreed with it, so no
+  man change was needed.
+  Commit: `0cd31775f`
+
+### Verification
+
+- Original reproduction, all five lines, re-run end to end on macos-aarch64: now
+  `0.00 / 0.00 / RAISED / RAISED / RAISED`, and the runtime fell from 1.88s to
+  0.00s (the multi-billion-iteration halving loop is gone).
+- Every control line in the doc is byte-identical: `exp(21) = 1318815732.25`,
+  `exp(22)`/`exp(30)` raise, `exp(-40)`/`exp(-100)`/`exp(-1e6)` are `0.00`.
+- Dense self-consistency sweep, `x` from `-30.00` to `24.00` in `0.01` steps
+  (5401 points): `exp` is non-decreasing, never negative, and never returns to a
+  finite value after its first raise — 0 violations. The raise threshold lands
+  at exactly 252 points, i.e. `21.49` upward, matching `ln(2^31) = 21.4876`.
+  The `|x| = 64` gate is continuous with that: `exp(63.9)`, `exp(64.0)` and
+  `exp(64.1)` all raise; `exp(-63.9)`, `exp(-64.0)` and `exp(-64.1)` are all
+  `0.00`.
+- **The non-goal is measured, not asserted.** A 29,601-value differential probe
+  run under the pre-fix compiler (a detached worktree at `main`, `4576eef56`)
+  and the fixed one produced **a zero-byte diff**: `exp` over `[-40.00, 22.00]`
+  at `0.01` resolution; `exp(±7e6·k)` for `k = 1..200`, i.e. out to `±1.4e9`,
+  which is inside the old wrap point and so must not move; `pow` with fractional
+  exponents `1.5 / 0.25 / 4.5 / -2.5` over 3000 bases (the new saturating
+  multiply, exercised in range); `pow` with integer exponents `3 / -2` (the
+  untouched exact-multiply path); and `log`/`log10` over 5000 arguments (the
+  third `emit_fixed_mul` caller). Every value printed at `toByte(10)` precision.
+- `scripts/test-accept.sh`: 1513 fixtures, 0 mismatches — no pre-existing golden
+  shifted anywhere in the corpus, including the `Fixed` exp/pow fixtures
+  `func_math_exp_fixed_overflow_rt`, `func_math_pow_fixed_overflow_rt`,
+  `func_math_pow_fixed_domain_rt` and
+  `bug137-fixed-pow-underflow-overflow-rt`.
+- `scripts/spec-census.sh --citations`: 1655 citations, 0 MISS-PATH /
+  MISS-LINE / MISS-SYMBOL.
 
 ## Provenance
 
