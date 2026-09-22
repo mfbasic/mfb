@@ -711,3 +711,86 @@ fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
         );
     }
 }
+
+/// Every `canvas::Picture` path, in one scene (bug-484).
+///
+/// Pictures ride the frame buffer's glyph region, one packed RGBA texel per word, and
+/// each picture's block names its own slice — so the scene carries **several** pictures
+/// and a text run between them: with one picture its slice starts at zero, and a base
+/// that was never written would pass. The text interleaves glyph slices with picture
+/// slices in the same region, which is what proves the two share one cursor.
+///
+/// Beyond that it covers each thing the picture inherits from the rectangle: nearest
+/// scaling of a 2x2 image, the fill tint, a translucent texel, a 90-degree transform, a
+/// clip, a non-Normal blend that also strokes (the split into two instances), a group
+/// offset, and a destination on fractional coordinates for the antialiased edge.
+const PICTURES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET quad AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
+  LET strip AS List OF Byte = [toByte(255), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(128), toByte(0), toByte(255), toByte(255), toByte(255)]
+  RES img AS canvas::Image = canvas::createImage(2, 2, quad)
+  RES thin AS canvas::Image = canvas::createImage(3, 1, strip)
+  RES grouped AS canvas::Image = canvas::createImage(2, 2, quad)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 260.0, paint := canvas::fill(color::rgb(96, 96, 96))]
+  LET plain AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := white]
+  LET label AS canvas::DrawItem = canvas::Text[x := 10.0, y := 240.0, text := "Pictures 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET tinted AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 128, 0))]
+  LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
+  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
+  LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
+  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := canvas::Bounds[x := 420.0, y := 10.0, w := 40.0, h := 80.0] }]
+  LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
+  LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
+  LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
+  canvas::setGroup("pics", [inner])
+  LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
+  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node])
+END SUB
+"#;
+
+/// The Metal backend draws every picture path the same as the software oracle, and
+/// the frame is proven to have been drawn by Metal (bug-484 Phase 3).
+///
+/// Until Phase 3 `__canvas_metalRenderable` declined any scene with a picture, so this
+/// fails on `gpuFrames=0` rather than on pixels — the honesty gate working, not the
+/// backend drawing. Compared on the band the pictures and the text occupy, for the
+/// reason the text-run test crops: they are far less than the whole frame's budget.
+#[test]
+fn every_picture_path_matches_the_software_oracle() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_pictures", PICTURES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not draw the picture scene on Metal: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 260usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) =
+        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
+    {
+        panic!(
+            "the Metal backend draws a picture differently from the software oracle: \
+             {diff}\nA picture showing ANOTHER picture's or a glyph's texels is a slice \
+             base that was not written or a cursor the two kinds do not share; a whole \
+             picture off by one texel column is the nearest-sampling arithmetic."
+        );
+    }
+}

@@ -219,7 +219,22 @@ SUB main()
   LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
   LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops]
   LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gPoly }]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri]
+  ' bug-484: pictures. Their texels ride the glyph region one packed RGBA word each, and
+  ' each block names its own slice -- so there are several, placed AFTER the text so their
+  ' slices start past the glyphs' (a base never written, or a cursor the two kinds do not
+  ' share, reads glyph coverage as colour). Nearest scaling of a 2x2, a translucent texel,
+  ' a tint, a transform, a clip and a fractional destination; all in the free corner
+  ' right of the cap arc and below the ellipse.
+  LET quadPx AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
+  LET stripPx AS List OF Byte = [toByte(255), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(128), toByte(0), toByte(255), toByte(255), toByte(255)]
+  RES quadImg AS canvas::Image = canvas::createImage(2, 2, quadPx)
+  RES stripImg AS canvas::Image = canvas::createImage(3, 1, stripPx)
+  LET picPlain AS canvas::DrawItem = canvas::Picture[x := 705.0, y := 510.0, w := 60.0, h := 60.0, image := quadImg, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET picStrip AS canvas::DrawItem = canvas::Picture[x := 775.0, y := 510.0, w := 90.0, h := 30.0, image := stripImg, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
+  LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
+  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 705.0, y := 578.0, w := 36.0, h := 60.0] }]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can
@@ -337,6 +352,14 @@ esac
 case "$stats" in
   *gpuSelected=TRUE*) pass "MFB_CANVAS_GPU selected the GPU renderer" ;;
   *) fail "MFB_CANVAS_GPU did not select the GPU renderer" ;;
+esac
+# Selected is not taken. `__canvas_vulkanRenderable` declines a scene it cannot draw and
+# the frame falls back to software, and then every comparison below is the oracle against
+# itself and passes. Until bug-484 this scene was never checked for it; the group scene
+# further down always was.
+case "$stats" in
+  *gpuFrames=0*) fail "the main scene produced no GPU frame — the predicate declined it, so every pixel comparison below would be software against itself" ;;
+  *) pass "the main scene reached the GPU (gpuFrames non-zero)" ;;
 esac
 
 compare() {
