@@ -291,6 +291,14 @@ Commit: 14742456c
    the plan's "a copy is a finding" check for `not-derived` rows needed the
    runtime view to be trusted. No code changes here: the fix lands from bug-667's
    own worktree.
+4. **The final gate is the plan's own, not the full CI suite.** The diff against
+   `main` is two Markdown files under `planning/` (the final-gate measurement in
+   Validation Plan), and nothing the build or the test suites run reads
+   `planning/` (`grep -rln 'planning/' tests src --include='*.rs'` → four files,
+   each naming a plan only in a comment). The artifact gate, `test-accept` and
+   `cargo test` would re-measure `main`'s own code, so the named gate (`git status`
+   / `git diff --stat main`) plus `cargo fmt --all -- --check` (exit 0, both
+   workspaces) stands in for them.
 
 ## Summary
 
