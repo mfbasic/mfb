@@ -62,7 +62,7 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_
 → pass; drill lines recorded (est. 25 min: the full harness, now with the `String`
 lines at S1, S2 and S9, is the one check that every expectation holds together).
 Result: recorded with Phase 3's full gate below (`cargo test` runs all three).
-Commit: —
+Commit: d648d0231
 
 ### Phase 2: Docs
 
@@ -106,7 +106,7 @@ Acceptance: `cargo test --bin mfb spec` → pass;
 `scripts/man-census.sh --memory-scope` → 0 unclassified hits (est. 10 min).
 Result: `cargo test --bin mfb spec` → `test result: ok. 43 passed; 0 failed`;
 `scripts/man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`.
-Commit: —
+Commit: d648d0231
 
 ### Phase 3: Full gate (run once)
 

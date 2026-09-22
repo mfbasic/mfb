@@ -149,7 +149,7 @@ Rejected alternatives:
       **Zero**: the full artifact gate after this letter reported `1492 tests, 1667
       build(s), 2112 golden(s) checked, 0 diff(s)`. No committed fixture holds a
       by-ref `String` capture that self-updates, so enabling S9 moved no golden.
-Commit: —
+Commit: c8316aa3d (Phases 1-3 landed as one commit)
 
 ### Phase 2: The shared shadow
 
@@ -177,7 +177,7 @@ Acceptance: `cargo test --test rt_byref_string_capture_capacity` → pass
 (est. 3 min).
 Result: `test result: ok. 1 passed; 0 failed` — the two original cases and the four
 new ones.
-Commit: —
+Commit: c8316aa3d
 
 ### Phase 3: Enable S9
 
@@ -209,7 +209,7 @@ every `String` line (10 filters, `MFB_SELF_UPDATE_SITES=Lambda`) → all `test
 result: ok`; `cargo test --test rt_byref_string_capture_capacity` → `ok`. Golden:
 `1492 tests, 1667 build(s), 2112 golden(s) checked, 0 diff(s)` — no fixture holds
 the shape.
-Commit: —
+Commit: c8316aa3d
 
 ## Validation Plan
 

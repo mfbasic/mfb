@@ -165,7 +165,7 @@ Rejected alternatives:
         (NUL), so **`byteLen(s) + 1` output bytes suffice** and a scratch reserved
         once never needs to grow. The destination must be READABLE as well as
         writable (`pop_scan`, and the "last byte already `/`?" test).
-Commit: —
+Commit: d26f9edd4 (Phases 1-3 landed as one commit)
 
 ### Phase 2: Split at the output, byte-identical
 
@@ -185,7 +185,7 @@ Result: `artifact-gate.sh target/release/mfb strings` → `0 diff(s)` after the 
 map and after `replace`; `… collections` → `0 diff(s)` (the `List` overload shares
 `lower_replace`); `… strings` and `… fs` → `0 diff(s)` after `pathNormalize` and
 `normalizeNfc`. The full gate ran at the end of Phase 3.
-Commit: —
+Commit: d26f9edd4
 
 ### Phase 3: The arm
 
@@ -235,7 +235,7 @@ them. Verified by rebuilding three of the eleven (`csv`, `tls`, `strings`): each
 row in its own source. The 53 `.ncodesum` goldens were regenerated for those 11
 fixtures alone; the gate then reported `1488 tests, 1663 build(s), 2104 golden(s)
 checked, 0 diff(s)`.
-Commit: —
+Commit: d26f9edd4
 
 ## Validation Plan
 
