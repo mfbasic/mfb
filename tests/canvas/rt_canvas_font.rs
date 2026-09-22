@@ -9,9 +9,10 @@
 //! **The fixtures are written by the program under test, not committed.** A twelve-byte
 //! sfnt header is all `loadFont` reads, so the test can build one for each case it
 //! wants and does not need a real font in the repository. That also makes the *negative*
-//! cases exact: `OTTO`, `ttcf` and `wOFF` are each a real thing a program might hand us
-//! and each must be refused by the same rule, which is hard to arrange with borrowed
-//! system fonts and trivial here.
+//! cases exact: `OTTO` and `wOFF` are each a real thing a program might hand us and each
+//! must be refused by the same rule, which is hard to arrange with borrowed system fonts
+//! and trivial here. A `ttcf` collection is read (plan-147-A) — it loads its first face —
+//! so a twelve-byte `ttcf` header, which holds no face at all, is refused for *that*.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -21,7 +22,15 @@ use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
 fn run(name: &str, source: &str) -> Vec<String> {
+    run_files(name, source, &[])
+}
+
+/// As `run`, with `files` written into the project directory before the program runs.
+fn run_files(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<String> {
     let project = common::temp_project(name, source);
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
     let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
@@ -129,7 +138,8 @@ fn load_font_accepts_truetype_outlines_and_refuses_every_other_container() {
 
     // Each rejected container is a real file a program might hand us, and each is
     // refused for its own reason: `OTTO` is CFF outlines (a different curve type),
-    // `ttcf` holds several fonts so "the font" is ambiguous, and `wOFF` is compressed.
+    // `wOFF` is compressed, and this `ttcf` is a collection header that names no face
+    // (a collection that does is read — see `a_collection_loads_its_first_face`).
     for label in ["otto", "ttcf", "woff"] {
         assert_eq!(
             find(label),
@@ -578,8 +588,21 @@ fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
 /// asking from `main` would be asking the worker, whose copies of those globals are
 /// its own and always empty (`.ai/canvas-threading.md` §1).
 fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, String) {
+    render_env_files(name, source, extra, &[])
+}
+
+/// As `render_env`, with `files` written beside `fixture.ttf`.
+fn render_env_files(
+    name: &str,
+    source: &str,
+    extra: &[(&str, &str)],
+    files: &[(&str, Vec<u8>)],
+) -> (Vec<u8>, String) {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
     let frame = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, name);
     let stats = project.join("stats.txt");
@@ -1530,5 +1553,130 @@ fn a_display_sized_glyph_is_well_inside_the_raster_cap() {
         lit_pixels(&run.frame),
         800 * 600,
         "the visible part of the square is solid"
+    );
+}
+
+/// A TrueType Collection holding `faces`, each a standalone sfnt such as
+/// `truetype_fixture` builds (plan-147-A).
+///
+/// A collection is a `ttcf` header, a face count and one offset per face, then the faces
+/// themselves. Each face keeps its own table directory, but the offsets in that directory
+/// count from the start of the *collection* — so every copied face has its records
+/// rebased by where it landed. That rebasing is exactly what the loader has to undo, and
+/// getting it wrong here would make the test agree with a loader that is wrong the same
+/// way; the round-trip test's oracle is the plain file, which shares none of this code.
+fn collection(faces: &[Vec<u8>]) -> Vec<u8> {
+    let header_len = 12 + 4 * faces.len();
+    let mut bases = Vec::new();
+    let mut at = (header_len + 3) / 4 * 4;
+    for face in faces {
+        bases.push(at);
+        at += (face.len() + 3) / 4 * 4;
+    }
+    let mut out = Vec::new();
+    out.extend(b"ttcf");
+    out.extend(0x0001_0000u32.to_be_bytes()); // TTC version 1.0
+    out.extend((faces.len() as u32).to_be_bytes());
+    for base in &bases {
+        out.extend((*base as u32).to_be_bytes());
+    }
+    for (face, base) in faces.iter().zip(&bases) {
+        out.resize(*base, 0);
+        let mut copy = face.clone();
+        let tables = u16::from_be_bytes([copy[4], copy[5]]) as usize;
+        for i in 0..tables {
+            let rec = 12 + i * 16 + 8;
+            let offset = u32::from_be_bytes(copy[rec..rec + 4].try_into().unwrap());
+            copy[rec..rec + 4].copy_from_slice(&(offset + *base as u32).to_be_bytes());
+        }
+        out.extend(copy);
+    }
+    out
+}
+
+const DRAW_A: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("FONTFILE")
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#;
+
+/// A collection's first face draws exactly what the same font drawn from its own file
+/// draws (plan-147-A Phase 1). Exact, because extraction is a byte copy: any difference
+/// at all means a table was rebased to the wrong place.
+#[test]
+fn a_collection_loads_its_first_face() {
+    let ttc = collection(&[minimal_truetype(), truetype_fixture(1000, 2, [0, 0, 500, 500])]);
+    let (want, _) = render_env(
+        "canvas_ttc_oracle",
+        &DRAW_A.replace("FONTFILE", "fixture.ttf"),
+        &[],
+    );
+    let (got, _) = render_env_files(
+        "canvas_ttc_face0",
+        &DRAW_A.replace("FONTFILE", "fixture.ttc"),
+        &[],
+        &[("fixture.ttc", ttc)],
+    );
+    let height = (want.len() / 4 / WIDTH) as u32;
+    let want = Frame::from_rgba(WIDTH as u32, height, want);
+    let got = Frame::from_rgba(WIDTH as u32, height, got);
+    assert!(
+        want.pixels.chunks(4).any(|p| p[0] != 0),
+        "the oracle frame drew no text, so the comparison would be vacuous",
+    );
+    if let Err(diff) = compare_exact(&got, &want) {
+        panic!("face 0 of a collection draws differently from the same font's own file: {diff:?}");
+    }
+}
+
+/// A collection whose face, or one of whose tables, lies past the end of the file is
+/// refused with `ErrBadFontFile` rather than read past the end (plan-147-A Phase 1).
+#[test]
+fn a_collection_that_runs_past_its_end_is_refused() {
+    // One face, offset far beyond the file.
+    let mut past = Vec::new();
+    past.extend(b"ttcf");
+    past.extend(0x0001_0000u32.to_be_bytes());
+    past.extend(1u32.to_be_bytes());
+    past.extend(100_000u32.to_be_bytes());
+    // A real face whose `glyf` record claims far more bytes than the file holds.
+    let mut table = collection(&[minimal_truetype()]);
+    let base = u32::from_be_bytes(table[12..16].try_into().unwrap()) as usize;
+    let glyf_len = base + 12 + 16 + 12; // second record (`glyf`), its length field
+    table[glyf_len..glyf_len + 4].copy_from_slice(&1_000_000u32.to_be_bytes());
+    let lines = run_files(
+        "canvas_ttc_past_end",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB attempt(label AS String, path AS String)
+  RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
+    io::print(label & ": refused " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print(label & ": accepted")
+END SUB
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  attempt("face", "past.ttc")
+  attempt("table", "table.ttc")
+END SUB
+"#,
+        &[("past.ttc", past), ("table.ttc", table)],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            format!("face: refused {ERR_BAD_FONT_FILE}"),
+            format!("table: refused {ERR_BAD_FONT_FILE}"),
+        ],
     );
 }

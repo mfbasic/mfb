@@ -222,15 +222,16 @@ skipped.
 
 `loadFont` loads face 0 of a `.ttc`; plain `.ttf` behavior is unchanged.
 
-- [ ] `func_load_font.rs`: add `__canvas_sfntFaces` and `__canvas_extractFace`
+- [x] `func_load_font.rs`: add `__canvas_sfntFaces` and `__canvas_extractFace`
       (as `RegistryHelper::always`, beside `canvas_isTrueType`), and the shared
       `__canvas_loadFontBytes`; rewrite `LOAD_FONT` to use them.
-- [ ] `func_load_font.rs`: rewrite the `IS_TRUETYPE` doc comment (ttcf is now a
+- [x] `func_load_font.rs`: rewrite the `IS_TRUETYPE` doc comment (ttcf is now a
       container handled before this check, not a refusal) and the `loadFont` `DESC`
       paragraph "What this build reads" to say collections load face 0.
-- [ ] `src/codegen/errorcode/mod.rs` and `src/docs/spec/diagnostics/02_error-codes.md`:
+- [x] `src/codegen/builtins/errorcode/mod.rs` and `src/docs/spec/diagnostics/02_error-codes.md`:
       correct the `ErrBadFontFile` description where it lists `ttcf` as refused.
-- [ ] Tests (`tests/canvas/rt_canvas_font.rs`): a Rust-built two-face `.ttc` wrapping
+      Check: `cargo test --bin mfb table_matches_registry` → 1 passed.
+- [x] Tests (`tests/canvas/rt_canvas_font.rs`): a Rust-built two-face `.ttc` wrapping
       `truetype_fixture()` twice → `loadFont` succeeds and draws a frame
       `compare_exact` to the same text from the plain fixture; a `ttcf` with
       `numFonts = 1` whose face offset points past EOF → refused 77050022; a `ttcf`
@@ -240,7 +241,7 @@ skipped.
 Acceptance: a collection's face 0 draws exactly what the standalone file draws, and
 every malformed collection is refused with `ErrBadFontFile`.
   Check: `cargo test --test rt_canvas_font` → all pass, including the three new cases
-  (est. 3 min).
+  (est. 3 min). **Observed: `test result: ok. 22 passed; 0 failed` (150.55 s).**
 Commit: —
 
 ### Phase 2 — Face names and `loadFontFace`
@@ -301,6 +302,15 @@ Commit: —
 - Face cap for a collection — 4096 (recommended; bounds a hostile header) vs no cap.
 
 ## Corrections
+
+- **The error-code registry lives at `src/codegen/builtins/errorcode/mod.rs`**, not
+  `src/codegen/errorcode/mod.rs` as Phase 1 first said (`grep -rln ErrBadFontFile src/`).
+- **The two past-EOF cases are one test** (`a_collection_that_runs_past_its_end_is_refused`,
+  printing a line per case), and the round-trip is `a_collection_loads_its_first_face`;
+  "three new cases" = those two negatives plus the round-trip. Test helpers `run` and
+  `render_env` gained `run_files` / `render_env_files` variants to drop fixture files.
+- MFBASIC note: `next` is a keyword (FOR … NEXT); the offset cursor in
+  `__canvas_extractFace` is named `cursor`.
 
 ## Summary
 
