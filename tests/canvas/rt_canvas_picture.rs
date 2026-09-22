@@ -422,3 +422,43 @@ fn set_bytes_on_an_undrawn_image_does_not_repaint() {
         "one frame, from the present only: {stats:?}"
     );
 }
+
+/// Two `setBytes` with no frame between them: the frame that follows shows the LAST
+/// (race-matrix row R9).
+///
+/// Not synchronous, so the two swaps can land before the graphics thread wakes; each
+/// frame reads whichever pixel block is current when it is built, so an intermediate
+/// value is at most drawn and then replaced, never the one left on screen.
+#[test]
+fn set_bytes_twice_between_frames_shows_the_last() {
+    let source = scene(&format!(
+        "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+         canvas::present([tile])\n  \
+         canvas::setBytes(img, {})\n  \
+         canvas::setBytes(img, {})\n  \
+         os::sleep(1500)\n",
+        pixels(&[(0, 0, 255, 255)]),
+        pixels(&[(255, 0, 0, 255)]),
+        pixels(&[(0, 255, 0, 255)])
+    ))
+    .replace("IMPORT io", "IMPORT io\nIMPORT os");
+    let project = common::temp_project("canvas_picture_r9", &source);
+    let frame = project.join("frame.rgba");
+    let binary = common::build_app_debug(&project, "canvas_picture_r9");
+    let run = Command::new(&binary)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let pixels = std::fs::read(&frame).expect("dump");
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(pixel(&pixels, 116, 116), GREEN, "the last setBytes wins");
+}
