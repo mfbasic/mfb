@@ -1,0 +1,464 @@
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT term
+
+' Bugs - click the bugs, spare the grass. A mouse-driven game built on the
+' term:: TUI module.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/bugs/tui
+'   ./examples/bugs/tui/build/bugs.out
+'
+' Rules:
+'   Grass sprouts at random. At most level * 10 plants are on the field at
+'   once; when a new one would go over that, the oldest one wilts.
+'
+'   A bug turns up somewhere on the field and stays for 10 / level + 1 seconds
+'   before it scurries off, leaving a sparkle behind. It comes back somewhere
+'   new 5 to 10 seconds later.
+'
+'   Click the bug: +1, and it splats. Click grass: -2. A score below zero ends
+'   the game. Every 15 points is another level.
+'
+'   Each level has its own bug and the plants that bug lives among (see
+'   levelBug and levelPlants). After the tenth level the cycle starts again.
+'
+' Every glyph is an emoji two columns wide, so the field is laid out in
+' two-column slots and a click on either half of a slot hits what is in it.
+'
+' Controls:
+'   mouse click   swat
+'   esc           pause (esc again resumes, q quits)
+'   r             restart
+'   q             quit
+'
+' Resizing the terminal clears the field, because what was on it may no longer
+' fit inside the new border.
+
+TYPE Point
+  row AS Integer
+  column AS Integer
+END TYPE
+
+' Something growing on the field: where it is and which plant it is.
+TYPE Plant
+  spot AS Point
+  glyph AS String
+END TYPE
+
+' A short-lived mark on the field — a splat or a sparkle — and the window it
+' shows for.
+TYPE Effect
+  spot AS Point
+  splat AS Boolean
+  startAt AS Integer
+  untilAt AS Integer
+END TYPE
+
+FUNC splatMs AS Integer
+  RETURN 1000
+END FUNC
+
+' How long the splat shows the impact before it settles into the stain.
+FUNC impactMs AS Integer
+  RETURN 250
+END FUNC
+
+FUNC sparkleMs AS Integer
+  RETURN 500
+END FUNC
+
+' Levels come in a cycle of ten. Each has one bug.
+FUNC themeOf(level AS Integer) AS Integer
+  RETURN (level - 1) MOD 10
+END FUNC
+
+FUNC levelBug(level AS Integer) AS String
+  LET t AS Integer = themeOf(level)
+  IF t = 0 THEN RETURN "🐝"
+  IF t = 1 THEN RETURN "🦋"
+  IF t = 2 THEN RETURN "🪲"
+  IF t = 3 THEN RETURN "🦗"
+  IF t = 4 THEN RETURN "🪰"
+  IF t = 5 THEN RETURN "🦟"
+  IF t = 6 THEN RETURN "🐜"
+  IF t = 7 THEN RETURN "🐞"
+  IF t = 8 THEN RETURN "🪳"
+  RETURN "🦂"
+END FUNC
+
+' The plants each level's bug lives among, one to three of them.
+FUNC levelPlants(level AS Integer) AS List OF String
+  LET t AS Integer = themeOf(level)
+  IF t = 0 THEN RETURN ["🌱", "🌿", "🍀"]  ' bee: a spring meadow
+  IF t = 1 THEN RETURN ["🌿", "🍀", "🌳"]  ' butterfly: a garden edge
+  IF t = 2 THEN RETURN ["🪵", "🍂"]        ' beetle: the forest floor
+  IF t = 3 THEN RETURN ["🌾", "🌿"]        ' cricket: tall grass
+  IF t = 4 THEN RETURN ["🍂", "🍁", "🪵"]  ' fly: autumn litter
+  IF t = 5 THEN RETURN ["🌴", "🌿"]        ' mosquito: the tropics
+  IF t = 6 THEN RETURN ["🌱", "🌾"]        ' ant: a field
+  IF t = 7 THEN RETURN ["🍀", "🌱"]        ' ladybug: clover
+  IF t = 8 THEN RETURN ["🪵", "🍁", "🌲"]  ' cockroach: a woodpile
+  RETURN ["🌵", "🌴"]                      ' scorpion: the desert
+END FUNC
+
+FUNC randomPlant(level AS Integer) AS String
+  LET plants AS List OF String = levelPlants(level)
+  RETURN collections::get(plants, math::rand(0, len(plants) - 1))
+END FUNC
+
+FUNC frameDelayMs AS Integer
+  RETURN 30
+END FUNC
+
+FUNC grassDelayMs AS Integer
+  RETURN math::rand(200, 800)
+END FUNC
+
+FUNC bugReturnDelayMs AS Integer
+  RETURN math::rand(5000, 10000)
+END FUNC
+
+FUNC bugLifetimeMs(level AS Integer) AS Integer
+  RETURN 10000 / level + 1000
+END FUNC
+
+FUNC levelForScore(score AS Integer) AS Integer
+  RETURN score / 15 + 1
+END FUNC
+
+FUNC nowMs AS Integer
+  RETURN datetime::monotonicNanos() / 1000000
+END FUNC
+
+FUNC pointEq(a AS Point, b AS Point) AS Boolean
+  RETURN a.row = b.row AND a.column = b.column
+END FUNC
+
+FUNC indexOfPlant(plants AS List OF Plant, p AS Point) AS Integer
+  FOR i = 0 TO len(plants) - 1
+    IF pointEq(collections::get(plants, i).spot, p) THEN RETURN i
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC effectAt(effects AS List OF Effect, p AS Point) AS Boolean
+  FOR EACH e IN effects
+    IF pointEq(e.spot, p) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The slot a screen cell belongs to. Slots start at column 1, just inside the
+' border, and are two columns wide, so a slot's column is always odd. Row -1
+' means the cell is outside the field.
+FUNC slotAt(row AS Integer, column AS Integer, rows AS Integer, columns AS Integer) AS Point
+  IF row < 1 OR row > rows - 2 OR column < 1 THEN RETURN Point[-1, -1]
+  LET slot AS Point = Point[row, column - (column - 1) MOD 2]
+  ' Its right half must still be inside the border.
+  IF slot.column + 1 > columns - 2 THEN RETURN Point[-1, -1]
+  RETURN slot
+END FUNC
+
+' A random empty slot of the field, or row -1 when a few tries all landed on
+' something (the field is crowded; the caller just skips this spawn).
+FUNC freeSlot(rows AS Integer, columns AS Integer, grass AS List OF Plant, bug AS Point, bugVisible AS Boolean, effects AS List OF Effect) AS Point
+  LET lastSlot AS Integer = (columns - 4) / 2
+  FOR attempt = 1 TO 50
+    LET p AS Point = Point[math::rand(1, rows - 2), 1 + 2 * math::rand(0, lastSlot)]
+    IF indexOfPlant(grass, p) < 0 AND NOT (bugVisible AND pointEq(p, bug)) AND NOT effectAt(effects, p) THEN RETURN p
+  NEXT
+  RETURN Point[-1, -1]
+END FUNC
+
+' Effects still showing at `now`.
+FUNC liveEffects(effects AS List OF Effect, now AS Integer) AS List OF Effect
+  MUT kept AS List OF Effect = []
+  FOR EACH e IN effects
+    IF now < e.untilAt THEN kept = collections::append(kept, e)
+  NEXT
+  RETURN kept
+END FUNC
+
+' The same effects with their windows pushed out by `by` milliseconds — what a
+' pause does to every clock in the game.
+FUNC delayEffects(effects AS List OF Effect, by AS Integer) AS List OF Effect
+  MUT moved AS List OF Effect = []
+  FOR EACH e IN effects
+    moved = collections::append(moved, Effect[e.spot, e.splat, e.startAt + by, e.untilAt + by])
+  NEXT
+  RETURN moved
+END FUNC
+
+FUNC padNumber(n AS Integer, width AS Integer) AS String
+  IF n < 0 THEN RETURN "-" & strings::padLeft(toString(-n), width - 1, "0")
+  RETURN strings::padLeft(toString(n), width, "0")
+END FUNC
+
+SUB drawFrame(rows AS Integer, columns AS Integer, score AS Integer, level AS Integer)
+  term::setBold(FALSE)
+  term::setForeground(color::rgb(120, 180, 220))
+  term::drawBox(term::LineStyle.Light, 0, 0, rows - 1, columns - 1)
+
+  term::setBold(TRUE)
+  term::setForeground(color::rgb(255, 255, 255))
+  LET levelText AS String = "[LEVEL: " & padNumber(level, 2) & "]"
+  LET titleText AS String = "[BUGS]"
+  LET scoreText AS String = "[" & padNumber(score, 3) & "]"
+  term::drawText(0, 2, levelText)
+  term::drawText(0, (columns - len(titleText)) / 2, titleText)
+  term::drawText(0, columns - 2 - len(scoreText), scoreText)
+  term::setBold(FALSE)
+END SUB
+
+SUB drawField(grass AS List OF Plant, bug AS Point, bugGlyph AS String, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer)
+  FOR EACH plant IN grass
+    term::drawText(plant.spot.row, plant.spot.column, plant.glyph)
+  NEXT
+
+  FOR EACH e IN effects
+    IF now >= e.untilAt THEN
+      ' Over; the game loop prunes it on its next tick.
+    ELSEIF NOT e.splat THEN
+      term::drawText(e.spot.row, e.spot.column, "✨")
+    ELSEIF now - e.startAt < impactMs() THEN
+      term::drawText(e.spot.row, e.spot.column, "💥")
+    ELSE
+      term::drawText(e.spot.row, e.spot.column, "🫟")
+    END IF
+  NEXT
+
+  IF bugVisible THEN term::drawText(bug.row, bug.column, bugGlyph)
+END SUB
+
+' A centred box over the field: a bold title and a line of key hints.
+SUB drawBanner(rows AS Integer, columns AS Integer, title AS String, hint AS String, fill AS color::Color)
+  LET width AS Integer = 28
+  LET top AS Integer = rows / 2 - 2
+  LET left AS Integer = (columns - width) / 2
+  term::setForeground(fill)
+  term::fillRect(term::FillStyle.Filled, top, left, top + 4, left + width - 1)
+  term::setBackground(fill)
+  term::setForeground(color::rgb(255, 255, 255))
+  term::setBold(TRUE)
+  term::drawText(top + 1, left + (width - len(title)) / 2, title)
+  term::setBold(FALSE)
+  term::drawText(top + 3, left + (width - len(hint)) / 2, hint)
+  term::setBackground(color::rgb(0, 0, 0))
+END SUB
+
+FUNC getChar AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' One key press. A lone escape byte is the Esc key; an escape followed by more
+' input is a key sequence (an arrow, a function key), which is read off and
+' reported as "" so it does nothing.
+FUNC readKey AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c <> "\u{1B}" THEN RETURN c
+  IF NOT ready(30) THEN RETURN "ESC"
+  DO WHILE ready(0)
+    LET rest AS String = getChar()
+    IF rest = "" THEN RETURN "EOF"
+  LOOP
+  RETURN ""
+END FUNC
+
+FUNC main AS Integer
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("bugs: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+  term::enableMouse(TRUE)
+
+  MUT rows AS Integer = 0
+  MUT columns AS Integer = 0
+  MUT score AS Integer = 0
+  MUT level AS Integer = 1
+  MUT grass AS List OF Plant = []
+  MUT effects AS List OF Effect = []
+  MUT bug AS Point = Point[-1, -1]
+  MUT bugGlyph AS String = levelBug(1)
+  MUT bugVisible AS Boolean = FALSE
+  MUT nextGrassAt AS Integer = 0
+  ' While the bug is visible this is when it leaves; while it is away, when it
+  ' comes back.
+  MUT bugEventAt AS Integer = 0
+  MUT gameOver AS Boolean = FALSE
+  MUT paused AS Boolean = FALSE
+  MUT pausedAt AS Integer = 0
+  MUT restart AS Boolean = TRUE
+  MUT running AS Boolean = TRUE
+
+  DO WHILE running
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+
+    IF size.columns < 32 OR size.rows < 8 THEN
+      term::clear()
+      term::setForeground(color::rgb(255, 255, 255))
+      term::drawText(0, 0, "Make the terminal at least 32x8. q quits.")
+      term::sync()
+      IF ready(100) THEN
+        LET smallKey AS String = readKey()
+        IF smallKey = "q" OR smallKey = "Q" OR smallKey = "ESC" OR smallKey = "EOF" THEN running = FALSE
+      END IF
+      CONTINUE DO
+    END IF
+
+    IF size.rows <> rows OR size.columns <> columns THEN
+      rows = size.rows
+      columns = size.columns
+      grass = []
+      effects = []
+      bugVisible = FALSE
+      ' Measured from the pause if there is one: resuming adds the time spent
+      ' paused to every deadline, so "now" would count that stretch twice.
+      MUT base AS Integer = nowMs()
+      IF paused THEN base = pausedAt
+      bugEventAt = base + bugReturnDelayMs()
+    END IF
+
+    IF restart THEN
+      restart = FALSE
+      score = 0
+      level = 1
+      grass = []
+      effects = []
+      bugVisible = FALSE
+      gameOver = FALSE
+      paused = FALSE
+      nextGrassAt = nowMs() + grassDelayMs()
+      ' The first bug arrives quickly; after that it keeps the 5-10 s rhythm.
+      bugEventAt = nowMs() + math::rand(1000, 3000)
+    END IF
+
+    ' Swats.
+    MUT event AS term::MouseEvent = term::pollMouse()
+    DO WHILE event.kind <> term::MouseKind.None
+      IF NOT gameOver AND NOT paused AND event.kind = term::MouseKind.Down AND event.button = term::MouseButton.Left THEN
+        LET hit AS Point = slotAt(event.row, event.column, rows, columns)
+        LET bladeIndex AS Integer = indexOfPlant(grass, hit)
+        IF hit.row < 0 THEN
+          ' The border, or the sliver past the last whole slot: nothing there.
+        ELSEIF bugVisible AND pointEq(hit, bug) THEN
+          score = score + 1
+          level = math::max(level, levelForScore(score))
+          bugVisible = FALSE
+          LET swatAt AS Integer = nowMs()
+          effects = collections::append(effects, Effect[bug, TRUE, swatAt, swatAt + splatMs()])
+          bugEventAt = swatAt + bugReturnDelayMs()
+        ELSEIF bladeIndex >= 0 THEN
+          score = score - 2
+          grass = collections::removeAt(grass, bladeIndex)
+          IF score < 0 THEN gameOver = TRUE
+        END IF
+      END IF
+      event = term::pollMouse()
+    LOOP
+
+    ' The field grows and the bug comes and goes.
+    IF NOT gameOver AND NOT paused THEN
+      LET now AS Integer = nowMs()
+      effects = liveEffects(effects, now)
+
+      IF now >= nextGrassAt THEN
+        LET blade AS Point = freeSlot(rows, columns, grass, bug, bugVisible, effects)
+        IF blade.row >= 0 THEN
+          grass = collections::append(grass, Plant[blade, randomPlant(level)])
+          DO WHILE len(grass) > level * 10
+            grass = collections::removeAt(grass, 0)
+          LOOP
+        END IF
+        nextGrassAt = now + grassDelayMs()
+      END IF
+
+      IF now >= bugEventAt THEN
+        IF bugVisible THEN
+          ' It got away.
+          bugVisible = FALSE
+          effects = collections::append(effects, Effect[bug, FALSE, now, now + sparkleMs()])
+          bugEventAt = now + bugReturnDelayMs()
+        ELSE
+          LET spot AS Point = freeSlot(rows, columns, grass, bug, FALSE, effects)
+          IF spot.row >= 0 THEN
+            bug = spot
+            bugGlyph = levelBug(level)
+            bugVisible = TRUE
+            bugEventAt = now + bugLifetimeMs(level)
+          END IF
+        END IF
+      END IF
+    END IF
+
+    ' A paused or finished game shows its effects frozen where they were.
+    MUT drawnAt AS Integer = nowMs()
+    IF paused THEN drawnAt = pausedAt
+
+    term::clear()
+    drawFrame(rows, columns, score, level)
+    drawField(grass, bug, bugGlyph, bugVisible, effects, drawnAt)
+    IF gameOver THEN
+      drawBanner(rows, columns, "GAME OVER", "r restart   q quit", color::rgb(235, 50, 50))
+    ELSEIF paused THEN
+      drawBanner(rows, columns, "PAUSED", "esc resume   q quit", color::rgb(60, 90, 160))
+    END IF
+    term::sync()
+
+    IF ready(frameDelayMs()) THEN
+      LET key AS String = readKey()
+      IF key = "q" OR key = "Q" OR key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "ESC" AND gameOver THEN
+        running = FALSE
+      ELSEIF key = "ESC" AND paused THEN
+        ' Push every pending deadline out by the time spent paused, so the
+        ' pause costs the player nothing.
+        LET pausedFor AS Integer = nowMs() - pausedAt
+        nextGrassAt = nextGrassAt + pausedFor
+        bugEventAt = bugEventAt + pausedFor
+        effects = delayEffects(effects, pausedFor)
+        paused = FALSE
+      ELSEIF key = "ESC" THEN
+        paused = TRUE
+        pausedAt = nowMs()
+      ELSEIF key = "r" OR key = "R" THEN
+        restart = TRUE
+      END IF
+    END IF
+  LOOP
+
+  term::enableMouse(FALSE)
+  term::showCursor()
+  term::off()
+  io::print("Bugs swatted. Final score: " & toString(score) & ", level " & toString(level) & ".")
+  RETURN 0
+
+  TRAP(e)
+    term::enableMouse(FALSE)
+    term::showCursor()
+    term::off()
+    io::printError("bugs: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
