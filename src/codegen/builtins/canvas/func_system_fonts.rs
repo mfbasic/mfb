@@ -17,7 +17,8 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const LIST_INTRO: &str = r#"List the full names of the fonts installed on this machine that `canvas` can draw."#;
+const LIST_INTRO: &str =
+    r#"List the full names of the fonts installed on this machine that `canvas` can draw."#;
 
 const LIST_DESC: &str = r#"`listSystemFonts` asks the operating system which fonts are installed and returns
 the full name of each one this build can draw — `"Helvetica"`, `"Helvetica Bold"`,
@@ -247,7 +248,9 @@ pub(crate) fn lower_system_font_table(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     match ctx.platform.family() {
-        PlatformFamily::MacOS => super::gen_system_fonts_macos::emit_system_font_table(builder, ctx)?,
+        PlatformFamily::MacOS => {
+            super::gen_system_fonts_macos::emit_system_font_table(builder, ctx)?
+        }
         PlatformFamily::Linux => {
             super::gen_system_fonts_linux::emit_system_font_table(builder, ctx)?
         }
@@ -268,10 +271,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_systemFontFields",
         SYSTEM_FONT_FIELDS,
     ));
-    pkg.add_helper(RegistryHelper::always(
-        "canvas_sortedUnique",
-        SORTED_UNIQUE,
-    ));
+    pkg.add_helper(RegistryHelper::always("canvas_sortedUnique", SORTED_UNIQUE));
     pkg.add_function(RegistryFunction {
         name: "systemFontTable",
         intro: "The installed fonts this build can draw, as one delimited table.",
@@ -319,7 +319,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrNotFound", "ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
+            errors: vec![
+                "ErrNotFound",
+                "ErrBadFontFile",
+                "ErrPathNotFound",
+                "ErrOutOfMemory",
+            ],
             body: Body::mfb(LOAD_SYSTEM_FONT, "__canvas_loadSystemFont"),
         }],
     });

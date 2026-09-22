@@ -1613,7 +1613,10 @@ END SUB
 /// at all means a table was rebased to the wrong place.
 #[test]
 fn a_collection_loads_its_first_face() {
-    let ttc = collection(&[minimal_truetype(), truetype_fixture(1000, 2, [0, 0, 500, 500])]);
+    let ttc = collection(&[
+        minimal_truetype(),
+        truetype_fixture(1000, 2, [0, 0, 500, 500]),
+    ]);
     let (want, _) = render_env(
         "canvas_ttc_oracle",
         &DRAW_A.replace("FONTFILE", "fixture.ttf"),
@@ -1695,7 +1698,10 @@ fn with_table(font: &[u8], tag: &[u8; 4], data: Vec<u8>) -> Vec<u8> {
             let rec = 12 + i * 16;
             let at = u32::from_be_bytes(font[rec + 8..rec + 12].try_into().unwrap()) as usize;
             let len = u32::from_be_bytes(font[rec + 12..rec + 16].try_into().unwrap()) as usize;
-            (font[rec..rec + 4].try_into().unwrap(), font[at..at + len].to_vec())
+            (
+                font[rec..rec + 4].try_into().unwrap(),
+                font[at..at + len].to_vec(),
+            )
         })
         .collect();
     tables.push((*tag, data));

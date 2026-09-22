@@ -129,7 +129,12 @@ fn get_string(builder: &mut CodeBuilder, slots: &Slots, object: usize, missing: 
 }
 
 /// `strlen` of the C string in `slot`, or 0 when the slot holds NULL, into `length`.
-fn length_of(builder: &mut CodeBuilder, ctx: &AbiCtx, slots: &Slots, slot: usize) -> Result<(), String> {
+fn length_of(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    slots: &Slots,
+    slot: usize,
+) -> Result<(), String> {
     let null = builder.label("canvas_sysfont_len_null");
     let done = builder.label("canvas_sysfont_len_done");
     let value = builder.temporary_vreg();
@@ -141,7 +146,11 @@ fn length_of(builder: &mut CodeBuilder, ctx: &AbiCtx, slots: &Slots, slot: usize
     store_result(builder, slots.length);
     builder.emit(abi::branch(&done));
     builder.emit(abi::label(&null));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.length));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.length,
+    ));
     builder.emit(abi::label(&done));
     Ok(())
 }
@@ -342,7 +351,11 @@ pub(crate) fn emit_system_font_table(
     branch_if_int_result_nonzero(builder, &font_next);
     // not variable
     let not_variable = builder.label("canvas_sysfont_not_variable");
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_int));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_int,
+    ));
     load_arg(builder, 0, slots.font);
     address_arg(builder, 1, slots.objects[4]);
     builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
@@ -356,7 +369,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::label(&not_variable));
     // not a named instance: index >> 16 == 0
     let not_instance = builder.label("canvas_sysfont_not_instance");
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_int));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_int,
+    ));
     load_arg(builder, 0, slots.font);
     address_arg(builder, 1, slots.objects[5]);
     builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
@@ -364,7 +381,11 @@ pub(crate) fn emit_system_font_table(
     call_fc(builder, &slots, GET_INTEGER);
     branch_if_int_result_nonzero(builder, &not_instance);
     let face_index = builder.temporary_vreg();
-    builder.emit(abi::load_u32(&face_index, abi::stack_pointer(), slots.out_int));
+    builder.emit(abi::load_u32(
+        &face_index,
+        abi::stack_pointer(),
+        slots.out_int,
+    ));
     builder.emit(abi::shift_right_immediate(&face_index, &face_index, 16));
     builder.emit(abi::compare_immediate(&face_index, "0"));
     builder.emit(abi::branch_ne(&font_next));
@@ -382,11 +403,23 @@ pub(crate) fn emit_system_font_table(
     let have_post_script = builder.label("canvas_sysfont_have_ps");
     get_string(builder, &slots, 1, &no_post_script);
     let post_script = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&post_script, abi::stack_pointer(), slots.out_string));
-    builder.emit(abi::store_u64(&post_script, abi::stack_pointer(), slots.post_script));
+    builder.emit(abi::load_u64(
+        &post_script,
+        abi::stack_pointer(),
+        slots.out_string,
+    ));
+    builder.emit(abi::store_u64(
+        &post_script,
+        abi::stack_pointer(),
+        slots.post_script,
+    ));
     builder.emit(abi::branch(&have_post_script));
     builder.emit(abi::label(&no_post_script));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.post_script));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.post_script,
+    ));
     builder.emit(abi::label(&have_post_script));
 
     emit_field(builder, ctx, &slots, slots.full, "31")?;

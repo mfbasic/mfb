@@ -374,39 +374,47 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: None,
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "path",
-                desc: "The font file to read.",
-                aliases: &[],
-                ty: ParameterType::String,
-                default: DefaultValue::None,
-            }],
-            return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
-            body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
-        }, Implementation {
-            params: vec![
-                Parameter {
+        implementations: vec![
+            Implementation {
+                params: vec![Parameter {
                     name: "path",
                     desc: "The font file to read.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "face",
-                    desc: "The face to load: its PostScript name (`Helvetica-Bold`) \
+                }],
+                return_type: ParameterType::named(super::FONT_TYPE_ID),
+                errors: vec!["ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
+                body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
+            },
+            Implementation {
+                params: vec![
+                    Parameter {
+                        name: "path",
+                        desc: "The font file to read.",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "face",
+                        desc: "The face to load: its PostScript name (`Helvetica-Bold`) \
                            or its full name (`Helvetica Bold`).",
-                    aliases: &[],
-                    ty: ParameterType::String,
-                    default: DefaultValue::None,
-                },
-            ],
-            return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrBadFontFile", "ErrNotFound", "ErrPathNotFound", "ErrOutOfMemory"],
-            body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
-        }],
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::named(super::FONT_TYPE_ID),
+                errors: vec![
+                    "ErrBadFontFile",
+                    "ErrNotFound",
+                    "ErrPathNotFound",
+                    "ErrOutOfMemory",
+                ],
+                body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
+            },
+        ],
     });
     pkg.add_helper(RegistryHelper::always("canvas_isTrueType", IS_TRUETYPE));
     pkg.add_helper(RegistryHelper::always("canvas_collection", COLLECTION));

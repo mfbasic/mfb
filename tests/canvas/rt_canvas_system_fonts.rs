@@ -90,7 +90,10 @@ fn every_listed_system_font_loads() {
     eprintln!("{tally}");
 
     assert!(!names.is_empty(), "the host lists no fonts at all");
-    assert!(failures.is_empty(), "listed fonts that do not load: {failures:#?}");
+    assert!(
+        failures.is_empty(),
+        "listed fonts that do not load: {failures:#?}"
+    );
     assert_eq!(
         tally,
         &format!("system fonts: {n} loaded: {n}", n = names.len()),
@@ -185,13 +188,19 @@ END SUB
 #[test]
 fn linux_reaches_fontconfig_through_dlopen_not_a_link() {
     for target in ["linux-x86_64", "linux-aarch64"] {
-        let plan = cross_plan(&format!("canvas_sysfont_plan_{}", target.replace('-', "_")), target);
+        let plan = cross_plan(
+            &format!("canvas_sysfont_plan_{}", target.replace('-', "_")),
+            target,
+        );
         assert!(
             !plan.contains("fontconfig"),
             "{target}: the plan names fontconfig as a library to link",
         );
         for symbol in ["\"dlopen\"", "\"dlsym\""] {
-            assert!(plan.contains(symbol), "{target}: the plan does not import {symbol}");
+            assert!(
+                plan.contains(symbol),
+                "{target}: the plan does not import {symbol}"
+            );
         }
     }
 }
@@ -202,7 +211,10 @@ fn linux_reaches_fontconfig_through_dlopen_not_a_link() {
 #[test]
 fn windows_reaches_directwrite_through_its_factory() {
     let plan = cross_plan("canvas_sysfont_plan_windows", "windows-x86_64");
-    assert!(plan.contains("dwrite.dll"), "the plan does not import dwrite.dll");
+    assert!(
+        plan.contains("dwrite.dll"),
+        "the plan does not import dwrite.dll"
+    );
     assert!(
         plan.contains("\"DWriteCreateFactory\""),
         "the plan does not import DWriteCreateFactory",

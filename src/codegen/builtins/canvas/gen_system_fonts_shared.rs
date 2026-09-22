@@ -29,7 +29,11 @@ pub(crate) fn load_arg(builder: &mut CodeBuilder, arg: usize, slot: usize) {
 
 /// C argument `arg` ← the address of stack slot `slot`.
 pub(crate) fn address_arg(builder: &mut CodeBuilder, arg: usize, slot: usize) {
-    builder.emit(abi::add_immediate(abi::c_arg(arg), abi::stack_pointer(), slot));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(arg),
+        abi::stack_pointer(),
+        slot,
+    ));
 }
 
 /// Stack slot `slot` ← the C result.

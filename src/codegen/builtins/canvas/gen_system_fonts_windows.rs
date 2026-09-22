@@ -243,8 +243,16 @@ fn measure_strings(
     builder.emit(abi::compare_immediate(&present, "0"));
     builder.emit(abi::branch_eq(&measured));
     // FindLocaleName(strings, L"en-us", &index, &exists)
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_u32));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_bool));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_u32,
+    ));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_bool,
+    ));
     address_arg(builder, 1, slots.locale);
     address_arg(builder, 2, slots.out_u32);
     address_arg(builder, 3, slots.out_bool);
@@ -257,7 +265,11 @@ fn measure_strings(
     copy_u32(builder, slots.out_u32, index);
     builder.emit(abi::label(&use_first));
     // GetStringLength(strings, index, &length)
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_u32));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_u32,
+    ));
     load_arg(builder, 1, index);
     address_arg(builder, 2, slots.out_u32);
     let hr = com(builder, strings, STRINGS_GET_STRING_LENGTH);
@@ -394,16 +406,32 @@ pub(crate) fn emit_system_font_table(
     let hr = com(builder, slots.factory, FACTORY_GET_SYSTEM_FONT_COLLECTION);
     on_failure(builder, &hr, &finish);
     let count = com(builder, slots.collection, COLLECTION_GET_FONT_FAMILY_COUNT);
-    builder.emit(abi::store_u64(&count, abi::stack_pointer(), slots.family_count));
+    builder.emit(abi::store_u64(
+        &count,
+        abi::stack_pointer(),
+        slots.family_count,
+    ));
 
     // Two passes over the same collection: size, then copy.
     builder.emit(abi::label(&pass_loop));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.family_index));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.family_index,
+    ));
     builder.emit(abi::label(&family_loop));
     let index = builder.temporary_vreg();
     let count = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&index, abi::stack_pointer(), slots.family_index));
-    builder.emit(abi::load_u64(&count, abi::stack_pointer(), slots.family_count));
+    builder.emit(abi::load_u64(
+        &index,
+        abi::stack_pointer(),
+        slots.family_index,
+    ));
+    builder.emit(abi::load_u64(
+        &count,
+        abi::stack_pointer(),
+        slots.family_count,
+    ));
     builder.emit(abi::compare_registers(&index, &count));
     builder.emit(abi::branch_ge(&families_done));
     load_arg(builder, 1, slots.family_index);
@@ -411,14 +439,30 @@ pub(crate) fn emit_system_font_table(
     let hr = com(builder, slots.collection, COLLECTION_GET_FONT_FAMILY);
     on_failure(builder, &hr, &family_next);
     let fonts = com(builder, slots.family, FAMILY_GET_FONT_COUNT);
-    builder.emit(abi::store_u64(&fonts, abi::stack_pointer(), slots.font_count));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.font_index));
+    builder.emit(abi::store_u64(
+        &fonts,
+        abi::stack_pointer(),
+        slots.font_count,
+    ));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.font_index,
+    ));
 
     builder.emit(abi::label(&font_loop));
     let index = builder.temporary_vreg();
     let count = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&index, abi::stack_pointer(), slots.font_index));
-    builder.emit(abi::load_u64(&count, abi::stack_pointer(), slots.font_count));
+    builder.emit(abi::load_u64(
+        &index,
+        abi::stack_pointer(),
+        slots.font_index,
+    ));
+    builder.emit(abi::load_u64(
+        &count,
+        abi::stack_pointer(),
+        slots.font_count,
+    ));
     builder.emit(abi::compare_registers(&index, &count));
     builder.emit(abi::branch_ge(&fonts_done));
     load_arg(builder, 1, slots.font_index);
@@ -433,12 +477,28 @@ pub(crate) fn emit_system_font_table(
     address_arg(builder, 1, slots.face);
     let hr = com(builder, slots.font, FONT_CREATE_FONT_FACE);
     on_failure(builder, &hr, &font_done);
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_bool));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.table_context));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_bool,
+    ));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.table_context,
+    ));
     let context = builder.temporary_vreg();
     let exists = builder.temporary_vreg();
-    builder.emit(abi::add_immediate(&context, abi::stack_pointer(), slots.table_context));
-    builder.emit(abi::add_immediate(&exists, abi::stack_pointer(), slots.out_bool));
+    builder.emit(abi::add_immediate(
+        &context,
+        abi::stack_pointer(),
+        slots.table_context,
+    ));
+    builder.emit(abi::add_immediate(
+        &exists,
+        abi::stack_pointer(),
+        slots.out_bool,
+    ));
     builder.emit(abi::outgoing_stack_arg_store(&context, 0));
     builder.emit(abi::outgoing_stack_arg_store(&exists, 1));
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", TAG_GLYF));
@@ -447,7 +507,11 @@ pub(crate) fn emit_system_font_table(
     let hr = com(builder, slots.face, FACE_TRY_GET_FONT_TABLE);
     on_failure(builder, &hr, &font_done);
     let has_glyf = builder.temporary_vreg();
-    builder.emit(abi::load_u32(&has_glyf, abi::stack_pointer(), slots.out_bool));
+    builder.emit(abi::load_u32(
+        &has_glyf,
+        abi::stack_pointer(),
+        slots.out_bool,
+    ));
     builder.emit(abi::compare_immediate(&has_glyf, "0"));
     builder.emit(abi::branch_eq(&font_done));
     load_arg(builder, 1, slots.table_context);
@@ -463,7 +527,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::branch_ne(&font_done));
     builder.emit(abi::label(&no_face5));
     // The full name is required; the PostScript name may be missing.
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_bool));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_bool,
+    ));
     builder.emit(abi::move_immediate(
         abi::c_arg(1),
         "Integer",
@@ -497,7 +565,11 @@ pub(crate) fn emit_system_font_table(
     address_arg(builder, 2, slots.file);
     let hr = com(builder, slots.face, FACE_GET_FILES);
     on_failure(builder, &hr, &font_done);
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.key_size));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.key_size,
+    ));
     address_arg(builder, 1, slots.key);
     address_arg(builder, 2, slots.key_size);
     let hr = com(builder, slots.file, FILE_GET_REFERENCE_KEY);
@@ -509,25 +581,53 @@ pub(crate) fn emit_system_font_table(
     address_arg(builder, 2, slots.local);
     let hr = com(builder, slots.loader, QUERY_INTERFACE);
     on_failure(builder, &hr, &font_done);
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.out_u32));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.out_u32,
+    ));
     load_arg(builder, 1, slots.key);
     let key_size = builder.temporary_vreg();
-    builder.emit(abi::load_u32(&key_size, abi::stack_pointer(), slots.key_size));
+    builder.emit(abi::load_u32(
+        &key_size,
+        abi::stack_pointer(),
+        slots.key_size,
+    ));
     builder.emit(abi::move_register(abi::c_arg(2), &key_size));
     address_arg(builder, 3, slots.out_u32);
     let hr = com(builder, slots.local, LOCAL_LOADER_GET_FILE_PATH_LENGTH);
     on_failure(builder, &hr, &font_done);
     copy_u32(builder, slots.out_u32, slots.path_length);
 
-    measure_strings(builder, &slots, slots.full, slots.full_index, slots.full_length);
-    measure_strings(builder, &slots, slots.post_script, slots.ps_index, slots.ps_length);
+    measure_strings(
+        builder,
+        &slots,
+        slots.full,
+        slots.full_index,
+        slots.full_length,
+    );
+    measure_strings(
+        builder,
+        &slots,
+        slots.post_script,
+        slots.ps_index,
+        slots.ps_length,
+    );
     // The record is full + PostScript + path + three separators, in UTF-16 units.
     let record = builder.temporary_vreg();
     let part = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&record, abi::stack_pointer(), slots.full_length));
+    builder.emit(abi::load_u64(
+        &record,
+        abi::stack_pointer(),
+        slots.full_length,
+    ));
     builder.emit(abi::load_u64(&part, abi::stack_pointer(), slots.ps_length));
     builder.emit(abi::add_registers(&record, &record, &part));
-    builder.emit(abi::load_u64(&part, abi::stack_pointer(), slots.path_length));
+    builder.emit(abi::load_u64(
+        &part,
+        abi::stack_pointer(),
+        slots.path_length,
+    ));
     builder.emit(abi::add_registers(&record, &record, &part));
     builder.emit(abi::add_immediate(&record, &record, 3));
     let copy = builder.label("canvas_sysfont_record_copy");
@@ -552,16 +652,38 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::add_registers(&need, &need, &part));
     builder.emit(abi::compare_registers(&need, &end));
     builder.emit(abi::branch_gt(&font_done));
-    write_strings(builder, &slots, slots.full, slots.full_index, slots.full_length, "31");
-    write_strings(builder, &slots, slots.post_script, slots.ps_index, slots.ps_length, "31");
+    write_strings(
+        builder,
+        &slots,
+        slots.full,
+        slots.full_index,
+        slots.full_length,
+        "31",
+    );
+    write_strings(
+        builder,
+        &slots,
+        slots.post_script,
+        slots.ps_index,
+        slots.ps_length,
+        "31",
+    );
     // GetFilePathFromKey(local, key, keySize, cursor, length + 1)
     let size = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&size, abi::stack_pointer(), slots.path_length));
+    builder.emit(abi::load_u64(
+        &size,
+        abi::stack_pointer(),
+        slots.path_length,
+    ));
     builder.emit(abi::add_immediate(&size, &size, 1));
     builder.emit(abi::outgoing_stack_arg_store(&size, 0));
     load_arg(builder, 1, slots.key);
     let key_size = builder.temporary_vreg();
-    builder.emit(abi::load_u32(&key_size, abi::stack_pointer(), slots.key_size));
+    builder.emit(abi::load_u32(
+        &key_size,
+        abi::stack_pointer(),
+        slots.key_size,
+    ));
     builder.emit(abi::move_register(abi::c_arg(2), &key_size));
     load_arg(builder, 3, slots.cursor);
     com(builder, slots.local, LOCAL_LOADER_GET_FILE_PATH);
@@ -574,16 +696,28 @@ pub(crate) fn emit_system_font_table(
     let next = builder.temporary_vreg();
     builder.emit(abi::load_u64(&next, abi::stack_pointer(), slots.font_index));
     builder.emit(abi::add_immediate(&next, &next, 1));
-    builder.emit(abi::store_u64(&next, abi::stack_pointer(), slots.font_index));
+    builder.emit(abi::store_u64(
+        &next,
+        abi::stack_pointer(),
+        slots.font_index,
+    ));
     builder.emit(abi::branch(&font_loop));
 
     builder.emit(abi::label(&fonts_done));
     release(builder, slots.family);
     builder.emit(abi::label(&family_next));
     let next = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&next, abi::stack_pointer(), slots.family_index));
+    builder.emit(abi::load_u64(
+        &next,
+        abi::stack_pointer(),
+        slots.family_index,
+    ));
     builder.emit(abi::add_immediate(&next, &next, 1));
-    builder.emit(abi::store_u64(&next, abi::stack_pointer(), slots.family_index));
+    builder.emit(abi::store_u64(
+        &next,
+        abi::stack_pointer(),
+        slots.family_index,
+    ));
     builder.emit(abi::branch(&family_loop));
 
     // After the sizing pass, one wide buffer for every string, then the copy pass.
@@ -602,8 +736,16 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::branch_eq(&buffer_ok));
     builder.emit(abi::branch(&out_of_memory));
     builder.emit(abi::label(&buffer_ok));
-    builder.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slots.buffer));
-    builder.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slots.cursor));
+    builder.emit(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        slots.buffer,
+    ));
+    builder.emit(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        slots.cursor,
+    ));
     let one = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&one, "Integer", "1"));
     builder.emit(abi::store_u64(&one, abi::stack_pointer(), slots.pass));
@@ -612,8 +754,16 @@ pub(crate) fn emit_system_font_table(
     // UTF-16 → the MFBASIC String. An empty table, or any failure before the copy
     // pass, has no buffer and converts to "".
     builder.emit(abi::label(&finish));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.utf8_length));
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.wide_length));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.utf8_length,
+    ));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.wide_length,
+    ));
     let measured = builder.label("canvas_sysfont_utf8_measured");
     let buffer = builder.temporary_vreg();
     builder.emit(abi::load_u64(&buffer, abi::stack_pointer(), slots.buffer));
@@ -624,7 +774,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), slots.cursor));
     builder.emit(abi::subtract_registers(&wide, &cursor, &buffer));
     builder.emit(abi::shift_right_immediate(&wide, &wide, 1));
-    builder.emit(abi::store_u64(&wide, abi::stack_pointer(), slots.wide_length));
+    builder.emit(abi::store_u64(
+        &wide,
+        abi::stack_pointer(),
+        slots.wide_length,
+    ));
     builder.emit(abi::compare_immediate(&wide, "0"));
     builder.emit(abi::branch_eq(&measured));
     for k in 0..4 {
@@ -637,12 +791,20 @@ pub(crate) fn emit_system_font_table(
     call(builder, ctx, "WideCharToMultiByte")?;
     let length = builder.temporary_vreg();
     builder.emit(abi::sign_extend_word(&length, abi::c_return(0)));
-    builder.emit(abi::store_u64(&length, abi::stack_pointer(), slots.utf8_length));
+    builder.emit(abi::store_u64(
+        &length,
+        abi::stack_pointer(),
+        slots.utf8_length,
+    ));
     builder.emit(abi::label(&measured));
     alloc_string(builder, slots.utf8_length, slots.result, &out_of_memory);
     let converted = builder.label("canvas_sysfont_converted");
     let length = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&length, abi::stack_pointer(), slots.utf8_length));
+    builder.emit(abi::load_u64(
+        &length,
+        abi::stack_pointer(),
+        slots.utf8_length,
+    ));
     builder.emit(abi::compare_immediate(&length, "0"));
     builder.emit(abi::branch_eq(&converted));
     let text = builder.temporary_vreg();
@@ -650,7 +812,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::add_immediate(&text, &text, 8));
     builder.emit(abi::outgoing_stack_arg_store(&text, 0));
     let capacity = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&capacity, abi::stack_pointer(), slots.utf8_length));
+    builder.emit(abi::load_u64(
+        &capacity,
+        abi::stack_pointer(),
+        slots.utf8_length,
+    ));
     builder.emit(abi::outgoing_stack_arg_store(&capacity, 1));
     builder.emit(abi::outgoing_stack_arg_store(abi::ZERO, 2));
     builder.emit(abi::outgoing_stack_arg_store(abi::ZERO, 3));
@@ -663,7 +829,11 @@ pub(crate) fn emit_system_font_table(
     let block = builder.temporary_vreg();
     let length = builder.temporary_vreg();
     builder.emit(abi::load_u64(&block, abi::stack_pointer(), slots.result));
-    builder.emit(abi::load_u64(&length, abi::stack_pointer(), slots.utf8_length));
+    builder.emit(abi::load_u64(
+        &length,
+        abi::stack_pointer(),
+        slots.utf8_length,
+    ));
     builder.emit(abi::store_u64(&length, &block, 0));
     builder.emit(abi::add_registers(&block, &block, &length));
     builder.emit(abi::store_u8(abi::ZERO, &block, 8));
@@ -688,7 +858,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::add_immediate(abi::c_arg(1), &size, 2));
     load_arg(builder, 0, slots.buffer);
     builder.emit_arena_free_call();
-    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.buffer));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        slots.buffer,
+    ));
     builder.emit(abi::label(&no_buffer));
     release(builder, slots.collection);
     release(builder, slots.factory);
