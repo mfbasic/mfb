@@ -1,0 +1,60 @@
+{
+  "project": "encoding_codec_self_update_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "encoding", "line": 11 },
+    { "module": "io", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_all=" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "&<>\"'" }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_mixed=" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "<a href='#'>Tom & Jerry</a>" }] } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_empty=[" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_nonascii=" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "café ☕ 日本" }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_once=" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "&" }] }] } }] }, "line": 20 },
+      { "kind": "binding", "mutable": true, "name": "h", "type": "String", "value": { "kind": "string", "value": "a<b&c" }, "line": 21 },
+      { "kind": "assignment", "name": "h", "value": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_self=" }, "right": { "kind": "identifier", "value": "h" } }] }, "line": 23 },
+      { "kind": "assignment", "name": "h", "value": { "kind": "call", "callee": "encoding.htmlUnescape", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "esc_round=" }, "right": { "kind": "identifier", "value": "h" } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "form=" }, "right": { "kind": "call", "callee": "encoding.formUrlEncode", "arguments": [{ "kind": "string", "value": "name = a b & c" }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "form_nonascii=" }, "right": { "kind": "call", "callee": "encoding.formUrlEncode", "arguments": [{ "kind": "string", "value": "café" }] } }] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "f", "type": "String", "value": { "kind": "string", "value": "a b+c" }, "line": 30 },
+      { "kind": "assignment", "name": "f", "value": { "kind": "call", "callee": "encoding.formUrlEncode", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "form_self=" }, "right": { "kind": "identifier", "value": "f" } }] }, "line": 32 },
+      { "kind": "assignment", "name": "f", "value": { "kind": "call", "callee": "encoding.formUrlDecode", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "form_round=" }, "right": { "kind": "identifier", "value": "f" } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pct=" }, "right": { "kind": "call", "callee": "encoding.percentEncode", "arguments": [{ "kind": "string", "value": "a b/c?d=e" }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pct_unreserved=" }, "right": { "kind": "call", "callee": "encoding.percentEncode", "arguments": [{ "kind": "string", "value": "aZ0-._~" }] } }] }, "line": 38 },
+      { "kind": "binding", "mutable": true, "name": "p", "type": "String", "value": { "kind": "string", "value": "a b" }, "line": 39 },
+      { "kind": "assignment", "name": "p", "value": { "kind": "call", "callee": "encoding.percentEncode", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pct_self=" }, "right": { "kind": "identifier", "value": "p" } }] }, "line": 41 },
+      { "kind": "assignment", "name": "p", "value": { "kind": "call", "callee": "encoding.percentDecode", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pct_round=" }, "right": { "kind": "identifier", "value": "p" } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_enc=" }, "right": { "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "bücher.de" }] } }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_dec=" }, "right": { "kind": "call", "callee": "encoding.punycodeDecode", "arguments": [{ "kind": "string", "value": "xn--bcher-kva.de" }] } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_ascii=" }, "right": { "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "example.com" }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_empty=[" }, "right": { "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "d", "type": "String", "value": { "kind": "string", "value": "münchen.example" }, "line": 50 },
+      { "kind": "assignment", "name": "d", "value": { "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "identifier", "value": "d" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_self=" }, "right": { "kind": "identifier", "value": "d" } }] }, "line": 52 },
+      { "kind": "assignment", "name": "d", "value": { "kind": "call", "callee": "encoding.punycodeDecode", "arguments": [{ "kind": "identifier", "value": "d" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "puny_round=" }, "right": { "kind": "identifier", "value": "d" } }] }, "line": 54 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+      ]
+    }
+    ]
+  }
+  ]
+}

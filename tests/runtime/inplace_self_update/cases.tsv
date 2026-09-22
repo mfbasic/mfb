@@ -108,21 +108,21 @@ strings::caseFold(value AS String) AS String	pending:E	String = "abc"	x = string
 strings::normalizeNfc(value AS String) AS String	pending:E	String = "abc"	x = strings::normalizeNfc(x)	before
 strings::replace(value AS String, old AS String, new AS String) AS String	pending:E	String = "abc"	x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")	before
 fs::pathNormalize(path AS String) AS String	pending:E	String = "/a/b"	x = x & "/." ; x = fs::pathNormalize(x)	before
-encoding::formUrlDecode(value AS String) AS String	pending:F	String = "a+b"	x = encoding::formUrlDecode(x) ; x = encoding::formUrlEncode(x)	before
-encoding::formUrlEncode(value AS String) AS String	pending:F	String = "a b"	x = encoding::formUrlEncode(x) ; x = encoding::formUrlDecode(x)	before
-encoding::htmlEscape(value AS String) AS String	pending:F	String = "a<b"	x = encoding::htmlEscape(x) ; x = encoding::htmlUnescape(x)	before
-encoding::htmlUnescape(value AS String) AS String	pending:F	String = "a&lt;b"	x = encoding::htmlUnescape(x) ; x = encoding::htmlEscape(x)	before
-encoding::percentDecode(value AS String) AS String	pending:F	String = "a%20b"	x = encoding::percentDecode(x) ; x = encoding::percentEncode(x)	before
-encoding::percentEncode(value AS String) AS String	pending:F	String = "a b"	x = encoding::percentEncode(x) ; x = encoding::percentDecode(x)	before
-encoding::punycodeDecode(asciiDomain AS String) AS String	pending:F	String = "xn--bcher-kva"	x = encoding::punycodeDecode(x) ; x = encoding::punycodeEncode(x)	before
-encoding::punycodeEncode(domain AS String) AS String	pending:F	String = "bücher"	x = encoding::punycodeEncode(x) ; x = encoding::punycodeDecode(x)	before
-fs::canonicalPath(path AS String) AS String	pending:F	String = "/tmp/mfb_p146_canonical.txt" ; fs::writeText(x, "a") ; x = fs::canonicalPath(x)	x = fs::canonicalPath(x)	before
-fs::readText(path AS String) AS String	pending:F	String = "/tmp/mfb_p146_read_text.txt" ; fs::writeText(x, x)	x = fs::readText(x)	before
-io::input([prompt AS String]) AS String	pending:F	String = ""	x = io::input(x)	before
-net::percentDecode(s AS String) AS String	pending:F	String = "a%20b"	x = net::percentDecode(x) ; x = encoding::percentEncode(x)	before
-os::getEnv(name AS String) AS String	pending:F	String = "MFB_P146_SELF" ; os::setEnv(x, x)	x = os::getEnv(x)	before
-os::getEnvOr(name AS String, fallback AS String) AS String	pending:F	String = "MFB_P146_SELF" ; os::setEnv(x, x)	x = os::getEnvOr(x, "fallback")	before
-regex::replace(value AS String, pattern AS String, replacement AS String) AS String	pending:F	String = "abc"	x = regex::replace(x, "a", "aa") ; x = regex::replace(x, "aa", "a")	before
+encoding::formUrlDecode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::formUrlDecode(x) ; x = encoding::formUrlEncode(x)	before
+encoding::formUrlEncode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::formUrlEncode(x) ; x = encoding::formUrlDecode(x)	before
+encoding::htmlEscape(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::htmlEscape(x) ; x = encoding::htmlUnescape(x)	before
+encoding::htmlUnescape(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::htmlUnescape(x) ; x = encoding::htmlEscape(x)	before
+encoding::percentDecode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::percentDecode(x) ; x = encoding::percentEncode(x)	before
+encoding::percentEncode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::percentEncode(x) ; x = encoding::percentDecode(x)	before
+encoding::punycodeDecode(asciiDomain AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::punycodeDecode(x) ; x = encoding::punycodeEncode(x)	before
+encoding::punycodeEncode(domain AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::punycodeEncode(x) ; x = encoding::punycodeDecode(x)	before
+fs::canonicalPath(path AS String) AS String	exempt	String = "/tmp/mfb_p146_canonical.txt" ; fs::writeText(x, "a") ; x = fs::canonicalPath(x)	x = fs::canonicalPath(x)	before
+fs::readText(path AS String) AS String	exempt	String = "/tmp/mfb_p146_read_text.txt" ; fs::writeText(x, x)	x = fs::readText(x)	before
+io::input([prompt AS String]) AS String	exempt	String = ""	x = io::input(x)	before
+net::percentDecode(s AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = net::percentDecode(x) ; x = encoding::percentEncode(x)	before
+os::getEnv(name AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnv(x)	before
+os::getEnvOr(name AS String, fallback AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnvOr(x, "fallback")	before
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = regex::replace(x, "^a", "b") ; x = regex::replace(x, "^b", "a")	before
 astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::addAttribute(x, 0, 1, astrings::bold()) ; x = astrings::removeAttribute(x, 0, 1, astrings::bold())	astrings::toMarkdown(before)
 astrings::clearAttributes(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::clearAttributes(x)	astrings::toMarkdown(before)
 astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::clearAttributes(x, 0, 1)	astrings::toMarkdown(before)

@@ -2,12 +2,11 @@
 //! `Body::abi_function` lowering ([`lower_set_env`]).
 
 use super::gen_env::{emit_env_lock, emit_env_unlock_return};
-use super::gen_shared::{marshal_cstring, push_alloc_error, void_result, ERRNO_ENOMEM};
+use super::gen_shared::{borrow_cstring, push_alloc_error, void_result, ERRNO_ENOMEM};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -27,7 +26,6 @@ pub(crate) fn lower_set_env(
     let ok = format!("{symbol}_ok");
     let fail = format!("{symbol}_fail");
     let oom = format!("{symbol}_oom");
-    let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let name = vregs.next();
@@ -40,13 +38,6 @@ pub(crate) fn lower_set_env(
         abi::move_register(&value, abi::c_arg(1)),
     ];
     let mut relocations = Vec::new();
-    // bug-574: the marshalled C-string arguments below are this helper's own
-    // scratch — handed to the host `getenv`/`setenv` and never returned to
-    // MFBASIC — so they are released at `done`. Declared (and nulled) HERE,
-    // ahead of every branch that can reach `done`: the second marshal is only
-    // reached when the first succeeded.
-    let name_scratch = HelperScratch::declare_for(&cname, &mut vregs, &mut instructions);
-    let value_scratch = HelperScratch::declare_for(&cvalue, &mut vregs, &mut instructions);
     emit_env_lock(&mut EmitCtx {
         symbol: symbol.as_str(),
         platform_imports: ctx.platform_imports,
@@ -54,26 +45,12 @@ pub(crate) fn lower_set_env(
         instructions: &mut instructions,
         relocations: &mut relocations,
     })?;
-    marshal_cstring(
-        &symbol,
-        &name,
-        &alloc_error,
-        &format!("{symbol}_name"),
-        &name_scratch,
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
-    marshal_cstring(
-        &symbol,
-        &value,
-        &alloc_error,
-        &format!("{symbol}_value"),
-        &value_scratch,
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
+    // plan-146-F: the host reads both arguments' own NUL-terminated bytes at
+    // `+8`; no copy, so nothing to release at `done` and no OOM path here.
+    instructions.extend([
+        borrow_cstring(&name, &cname),
+        borrow_cstring(&value, &cvalue),
+    ]);
     instructions.extend([
         abi::move_register(abi::c_arg(0), &cname),
         abi::move_register(abi::c_arg(1), &cvalue),
@@ -127,16 +104,7 @@ pub(crate) fn lower_set_env(
     );
     instructions.extend([abi::branch(&done), abi::label(&oom)]);
     push_alloc_error(&symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
-    push_alloc_error(&symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
-    emit_helper_scratch_release(
-        &symbol,
-        &[name_scratch, value_scratch],
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol: symbol.as_str(),

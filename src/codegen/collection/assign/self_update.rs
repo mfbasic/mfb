@@ -1146,6 +1146,14 @@ const SHAKE_REASON: &str = "The result is a derived digest; `data` is only read.
 #[cfg(test)]
 const SHAKE_PROOF: &str = "`__crypto_keccakSponge` absorbs whole blocks straight from `data` and builds only the final padded block (`helper_keccak_sponge.rs`); it used to copy all of `data` into a padded buffer (fixed by plan-142-E).";
 
+// plan-146-F: the `String` rows that earn `Exempt`.
+#[cfg(test)]
+const CODEC_REASON: &str =
+    "The result is a new byte stream the codec appends to as it reads `x`; `x` is only read.";
+#[cfg(test)]
+const NOT_DERIVED_REASON: &str =
+    "The result is not a function of `x`'s bytes: `x` only names what to read.";
+
 /// Every registry function with a self-update-shaped overload
 /// (`registry::self_update_shaped`), plus the `String` self-concat.
 #[cfg(test)]
@@ -1730,77 +1738,122 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
     },
     SelfUpdateRow {
         function: "encoding::formUrlDecode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_formUrlDecode` (`encoding/func_form_url_decode.rs`) delegates to `__encoding_percentDecodeBytes` (`encoding/helper_percent_decode_bytes.rs`), whose output starts at `MUT result AS List OF Byte = []` and which reads `text` only through `strings::toBytes` and `collections::get`: no binding of `text`, so no copy.",
+        },
         probes: &[str_probe(EN, STR, "encoding::formUrlDecode(x)")],
     },
     SelfUpdateRow {
         function: "encoding::formUrlEncode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_formUrlEncode` (`encoding/func_form_url_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `text` once, through `LET data AS List OF Byte = strings::toBytes(text)` and a `FOR EACH` over `data`: no binding of `text`, so no copy.",
+        },
         probes: &[str_probe(EN, STR, "encoding::formUrlEncode(x)")],
     },
     SelfUpdateRow {
         function: "encoding::htmlEscape",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_htmlEscape` (`encoding/func_html_escape.rs`) starts its output at `MUT out AS String = \"\"` and walks `text` left to right with `strings::mid(text, i, 1)`, appending one reference or one grapheme per step: the only thing live besides `text` is `out`. plan-146-F rewrote it; it used to start at `MUT out AS String = text`, which copied the argument.",
+        },
         probes: &[str_probe(EN, STR, "encoding::htmlEscape(x)")],
     },
     SelfUpdateRow {
         function: "encoding::htmlUnescape",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_htmlUnescape` (`encoding/func_html_unescape.rs`) starts its output at `MUT out AS String = \"\"` and walks `text` left to right with `strings::mid(text, i, 1)`: no binding of `text`, and no grapheme list held beside it (plan-146-F Correction F4).",
+        },
         probes: &[str_probe(EN, STR, "encoding::htmlUnescape(x)")],
     },
     SelfUpdateRow {
         function: "encoding::percentDecode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_percentDecode` (`encoding/func_percent_decode.rs`) delegates to `__encoding_percentDecodeBytes` (`encoding/helper_percent_decode_bytes.rs`), whose output starts at `MUT result AS List OF Byte = []` and which reads `text` only through `strings::toBytes` and `collections::get`: no binding of `text`, so no copy.",
+        },
         probes: &[str_probe(EN, STR, "encoding::percentDecode(x)")],
     },
     SelfUpdateRow {
         function: "encoding::percentEncode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_percentEncode` (`encoding/func_percent_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `text` once, through `LET data AS List OF Byte = strings::toBytes(text)` and a `FOR EACH` over `data`: no binding of `text`, so no copy.",
+        },
         probes: &[str_probe(EN, STR, "encoding::percentEncode(x)")],
     },
     SelfUpdateRow {
         function: "encoding::punycodeDecode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_punycodeDecode` (`encoding/func_punycode_decode.rs`) starts its output at `MUT out AS String = \"\"` and reads `asciiDomain` once, through `strings::split(asciiDomain, \".\")`, then appends per label: `asciiDomain` itself is never bound, and the label list `split` returns is the decoder's own working value, not a second name for the argument block.",
+        },
         probes: &[str_probe(EN, STR, "encoding::punycodeDecode(x)")],
     },
     SelfUpdateRow {
         function: "encoding::punycodeEncode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_punycodeEncode` (`encoding/func_punycode_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `domain` once, through `strings::split(domain, \".\")`, then appends per label: `domain` itself is never bound, and the label list `split` returns is the encoder's own working value, not a second name for the argument block.",
+        },
         probes: &[str_probe(EN, STR, "encoding::punycodeEncode(x)")],
     },
     SelfUpdateRow {
         function: "fs::canonicalPath",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_fs_canonical_path_helper` (`builtins/fs/gen_canonical.rs`) hands `realpath` a pointer into the caller's block (`path + 8`, already NUL-terminated) and copies the result out of its own PATH_MAX buffer; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
+        },
         probes: &[str_probe(FS, PATH, "fs::canonicalPath(x)")],
     },
     SelfUpdateRow {
         function: "fs::readText",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_fs_read_text_path_helper` (`builtins/fs/gen_atomic_write.rs`) hands `open` a pointer into the caller's block (`path + 8`, already NUL-terminated) and fills the result `String` from `read`; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
+        },
         probes: &[str_probe(FS, PATH, "fs::readText(x)")],
     },
     SelfUpdateRow {
         function: "io::input",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_read_line_family` (`builtins/io/gen_read_line_family.rs`) writes the prompt to stdout straight out of the caller's block (`prompt + 8`, with the stored length) and builds the result from the stdin line buffer: the prompt is stored nowhere.",
+        },
         probes: &[str_probe(&[], STR, "io::input(x)")],
     },
     SelfUpdateRow {
         function: "net::percentDecode",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__net_percentDecode` (`net/func_percent_decode.rs`) delegates to `__net_percentDecodeImpl` (`net/helper_percent_decode_impl.rs`), whose output starts at `MUT out AS List OF Byte = []` and which reads `s` only through `len` and a per-grapheme `strings::mid`: no binding of `s`, so no copy.",
+        },
         probes: &[str_probe(NET, STR, "net::percentDecode(x)")],
     },
     SelfUpdateRow {
         function: "os::getEnv",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_get_env` (`builtins/os/gen_env.rs`) hands `getenv` a pointer into the caller's block (`borrow_cstring`, `builtins/os/gen_shared.rs`) and builds the result from the host's C string (`build_string_from_cstr`): `name` is read by the host and stored nowhere. plan-146-F replaced the `len + 1` arena copy `marshal_cstring` used to make (finding F4).",
+        },
         probes: &[str_probe(OS, STR, "os::getEnv(x)")],
     },
     SelfUpdateRow {
         function: "os::getEnvOr",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_get_env` with `with_fallback` (`builtins/os/gen_env.rs`) hands `getenv` a pointer into the caller's block (`borrow_cstring`, `builtins/os/gen_shared.rs`); the not-found path copies the `fallback` argument, never `name`. plan-146-F replaced the `len + 1` arena copy `marshal_cstring` used to make of `name` (finding F4).",
+        },
         probes: &[str_probe(OS, STR, "os::getEnvOr(x, \"x\")")],
     },
     SelfUpdateRow {
         function: "regex::replace",
-        kind: SelfUpdate::Pending("F"),
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__regex_replace` (`regex/func_replace.rs`) starts its output at `MUT out AS String = \"\"` and appends only the slices between matches (`strings::mid(value, cursor, …)`) and the expanded replacements; the engine sees `value` as the codepoint list `__regex_makeCtx` derives (`regex/helper_make_ctx.rs`), not as the block: no binding of `value`, so no copy.",
+        },
         probes: &[str_probe(RE, STR, "regex::replace(x, \"a\", \"b\")")],
     },
     // --- plan-146-A Open Decision 1: `AttributedString`, deferred ---

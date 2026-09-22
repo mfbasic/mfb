@@ -1,0 +1,41 @@
+{
+  "project": "fs-self-update-borrow-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 6 },
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dir", "type": "String", "value": { "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "leaf", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "mfb_p146f_leaf.txt" }] }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "link", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "mfb_p146f_link.txt" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "leaf" }, { "kind": "string", "value": "leaf payload" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "link" }, { "kind": "identifier", "value": "leaf" }] }, "line": 14 },
+      { "kind": "binding", "mutable": true, "name": "p", "type": "String", "value": { "kind": "identifier", "value": "link" }, "line": 16 },
+      { "kind": "assignment", "name": "p", "value": { "kind": "call", "callee": "fs.canonicalPath", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 17 },
+      { "kind": "assignment", "name": "p", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }] }, "line": 19 },
+      { "kind": "assignment", "name": "p", "value": { "kind": "call", "callee": "fs.canonicalPath", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "leaf" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "link" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "identifier", "value": "leaf" }] }] }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}
