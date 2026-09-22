@@ -1,0 +1,173 @@
+{
+  "project": "tostring_string_owning_store",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "g", "type": "String", "value": { "kind": "string", "value": "" }, "line": 11 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "ident",
+      "line": 13,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 13 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reassignLocal",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "ab" }, { "kind": "number", "value": "4" }] }, "line": 18 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reassignGlobal",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "cd" }, { "kind": "number", "value": "4" }] }, "line": 25 },
+      { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "g" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reassignCaptured",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "ef" }, { "kind": "number", "value": "4" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "collections.forEach", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "lambda", "params": [
+{ "name": "v", "type": "Integer", "default": null, "line": 33 }], "assignTarget": "s", "body": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] } }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bindThenReassignSource",
+      "line": 38,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "gh" }, { "kind": "number", "value": "4" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 40 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "ij" }, { "kind": "number", "value": "4" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "t" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "returnedFromFunction",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "kl" }, { "kind": "number", "value": "4" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "String", "value": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "p" } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "freshArgumentLoop",
+      "line": 53,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "x" }, "line": 54 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "50" },
+        "step": null,
+        "line": 55,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "y" } }] }, "line": 56 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 57 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 59 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "literalThenAppend",
+      "line": 62,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "string", "value": "lit" }] }, "line": 63 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "!" } }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 65 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 68,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignLocal", "arguments": [] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignGlobal", "arguments": [] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignCaptured", "arguments": [] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "bindThenReassignSource", "arguments": [] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "returnedFromFunction", "arguments": [] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "freshArgumentLoop", "arguments": [] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "literalThenAppend", "arguments": [] }, "line": 75 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 76 }
+      ]
+    }
+    ]
+  }
+  ]
+}

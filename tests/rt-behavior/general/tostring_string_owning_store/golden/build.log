@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/general/tostring_string_owning_store
+Wrote AST to tests/rt-behavior/general/tostring_string_owning_store/tostring_string_owning_store.ast
+Wrote IR to tests/rt-behavior/general/tostring_string_owning_store/tostring_string_owning_store.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/tostring_string_owning_store
+Wrote executable to tests/rt-behavior/general/tostring_string_owning_store/build/tostring_string_owning_store.out
+[exit 0]
+$ tests/rt-behavior/general/tostring_string_owning_store/build/tostring_string_owning_store.out
+abababab ########
+cdcdcdcd ########
+efefefef ########
+ghghghgh ijijijij ########
+klklklkl klklklkl ########
+51
+lit!
+[exit 0]

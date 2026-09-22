@@ -1,0 +1,62 @@
+{
+  "project": "string_global_default_owned",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "reassigned", "type": "String", "value": null, "line": 9 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "appended", "type": "String", "value": null, "line": 10 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "untouched", "type": "String", "value": null, "line": 11 },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reassign",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "assignment", "name": "reassigned", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "e" }, { "kind": "number", "value": "3" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "reassigned" }] }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "append",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "assignment", "name": "appended", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "appended" }, "right": { "kind": "string", "value": "c" } }, "line": 19 },
+      { "kind": "assignment", "name": "appended", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "appended" }, "right": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "d" }, { "kind": "number", "value": "40" }] } }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "appended" }] }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassign", "arguments": [] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "append", "arguments": [] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "untouched" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

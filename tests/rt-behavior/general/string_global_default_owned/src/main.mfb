@@ -1,0 +1,29 @@
+IMPORT io
+IMPORT strings
+
+' bug-667 (extended by its producer audit): a module-level `MUT` declared
+' without an initializer used to hold the read-only empty-string constant, so
+' its first reassignment freed read-only data (SIGBUS) - both the copying store
+' and the in-place self-append. A default local was already copied on bind.
+
+MUT reassigned AS String
+MUT appended AS String
+MUT untouched AS String
+
+SUB reassign()
+  reassigned = strings::repeat("e", 3)
+  io::print(reassigned)
+END SUB
+
+SUB append()
+  appended = appended & "c"
+  appended = appended & strings::repeat("d", 40)
+  io::print(appended)
+END SUB
+
+FUNC main() AS Integer
+  reassign()
+  append()
+  io::print("[" & untouched & "]")
+  RETURN 0
+END FUNC

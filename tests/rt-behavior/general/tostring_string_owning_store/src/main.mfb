@@ -1,0 +1,77 @@
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+' bug-667 (extended by plan-143 finding F1): `toString(<String>)` is an
+' identity, and used to hand back its argument's own block. An owning store
+' then took that block as its own: `s = toString(s)` freed the block it stored,
+' so `s` read whatever was allocated next. Each SUB allocates a same-sized junk
+' string after the store; a dangling binding would print the junk.
+
+MUT g AS String = ""
+
+FUNC ident(p AS String) AS String
+  RETURN toString(p)
+END FUNC
+
+SUB reassignLocal()
+  MUT s AS String = strings::repeat("ab", 4)
+  s = toString(s)
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(s & " " & junk)
+END SUB
+
+SUB reassignGlobal()
+  g = strings::repeat("cd", 4)
+  g = toString(g)
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(g & " " & junk)
+END SUB
+
+SUB reassignCaptured()
+  MUT s AS String = strings::repeat("ef", 4)
+  collections::forEach([1], LAMBDA(v AS Integer) -> s = toString(s))
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(s & " " & junk)
+END SUB
+
+SUB bindThenReassignSource()
+  MUT s AS String = strings::repeat("gh", 4)
+  LET t AS String = toString(s)
+  s = strings::repeat("ij", 4)
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(t & " " & s & " " & junk)
+END SUB
+
+SUB returnedFromFunction()
+  LET p AS String = strings::repeat("kl", 4)
+  LET r AS String = ident(p)
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(r & " " & p & " " & junk)
+END SUB
+
+SUB freshArgumentLoop()
+  MUT s AS String = "x"
+  FOR i = 1 TO 50
+    s = toString(s & "y")
+    s = toString(s)
+  NEXT
+  io::print(toString(len(s)))
+END SUB
+
+SUB literalThenAppend()
+  MUT s AS String = toString("lit")
+  s = s & "!"
+  io::print(s)
+END SUB
+
+FUNC main() AS Integer
+  reassignLocal()
+  reassignGlobal()
+  reassignCaptured()
+  bindThenReassignSource()
+  returnedFromFunction()
+  freshArgumentLoop()
+  literalThenAppend()
+  RETURN 0
+END FUNC

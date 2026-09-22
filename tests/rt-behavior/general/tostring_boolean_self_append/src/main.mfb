@@ -1,0 +1,22 @@
+IMPORT io
+
+' bug-667: `toString(<Boolean>)` used to hand back a read-only `TRUE`/`FALSE`
+' constant. A `MUT` bound from it and then grown by the in-place self-append
+' freed read-only data (SIGBUS). A `String` from `toString` is an ordinary value.
+
+FUNC flag(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main() AS Integer
+  MUT a = toString(flag(1))
+  a = a & "!"
+  io::print(a)
+  MUT b = toString(flag(0))
+  b = b & "?"
+  b = b & "?"
+  io::print(b)
+  LET c AS String = toString(flag(1))
+  io::print(c)
+  RETURN 0
+END FUNC
