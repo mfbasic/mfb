@@ -4629,6 +4629,8 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
     let head = builder.label("vk_glyph_head");
     let done = builder.label("vk_glyph_done");
     let next = builder.label("vk_glyph_next");
+    let blank = builder.label("vk_glyph_blank");
+    let publish = builder.label("vk_glyph_publish");
     let copy_head = builder.label("vk_glyph_copy_head");
     let copy_done = builder.label("vk_glyph_copy_done");
 
@@ -4749,9 +4751,10 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         builder.emit(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
     }
     // A cache entry of -1 is a glyph the eviction pass dropped after this run was
-    // built. It draws nothing rather than reading the metadata list out of range.
+    // built. It draws nothing rather than reading the metadata list out of range, and
+    // still publishes its (blank) block — see `blank` below.
     builder.emit(abi::compare_immediate(abi::SCRATCH[2], "0"));
-    builder.emit(abi::branch_lt(&next));
+    builder.emit(abi::branch_lt(&blank));
 
     // meta = glyphMeta + entry * GLYPH_META_SLOTS, in 8-byte Integers.
     builder.emit(abi::move_immediate(
@@ -4820,21 +4823,21 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         ));
     }
     // An empty bitmap — a space, or a glyph with no contours — has nothing to copy and
-    // nothing to draw.
+    // nothing to draw, but still publishes its (blank) block — see `blank` below.
     builder.emit(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
         at.glyph_w,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[5], "0"));
-    builder.emit(abi::branch_le(&next));
+    builder.emit(abi::branch_le(&blank));
     builder.emit(abi::load_u64(
         abi::SCRATCH[6],
         abi::stack_pointer(),
         at.glyph_h,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[6], "0"));
-    builder.emit(abi::branch_le(&next));
+    builder.emit(abi::branch_le(&blank));
 
     // samples = w * h, and the frame's remaining room for them. The predicate has
     // already declined a frame that does not fit, so this bound is the emitter refusing
@@ -4860,7 +4863,7 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         &VULKAN_MAX_FRAME_GLYPH_SAMPLES.to_string(),
     ));
     builder.emit(abi::compare_registers(abi::SCRATCH[8], abi::SCRATCH[9]));
-    builder.emit(abi::branch_gt(&next));
+    builder.emit(abi::branch_gt(&blank));
 
     // --- copy the bitmap into the buffer's glyph region --------------------------
     // dst = mapped + (GLYPH_BASE + cursor) * 4, src = coverage + covStart.
@@ -5060,6 +5063,7 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
     // This glyph's block goes into the frame's item buffer like any other quad's, and
     // the draw names it through `firstInstance`. The index is parked *before* the
     // publish, because publishing advances the cursor past it.
+    builder.emit(abi::label(&publish));
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -5071,6 +5075,33 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         at.instance,
     ));
     emit_item_publish(builder, at.state, at.item, at.item_cursor, &next);
+    builder.emit(abi::branch(&next));
+
+    // A glyph that draws nothing — a space, an evicted cache entry, a bitmap past the
+    // frame's glyph region — still publishes ONE block, with width and height 0, so the
+    // shader's bounds test in `glyphCoverage` answers zero coverage everywhere (bug-484).
+    //
+    // Skipping the publish desynchronised the item buffer from the draw list:
+    // `__canvas_blockInstances` counts a text run as its full glyph count, so every draw
+    // entry after a run containing a space named blocks one position on — the next items
+    // drew under their neighbours' pipelines and group offsets, and the last read a block
+    // never written. Found on Metal by bug-484's picture scene ("Pictures 01"); the
+    // Vulkan gate's only label, "AAAA", has no space. The quad is left as it is (the
+    // previous glyph's box, or the run's hull under a transform): a transparent source
+    // changes nothing under any blend pipeline.
+    builder.emit(abi::label(&blank));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    builder.emit(abi::branch(&publish));
 
     // plan-116-H: this function now PUBLISHES and does not draw. Its `vkCmdDraw` moved
     // to `emit_draw_list_pass`, with every other draw, because the draw list is in scene
