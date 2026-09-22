@@ -174,71 +174,113 @@ pub(crate) fn emit_stdin_poll_ready_check(
     ready_label: &str,
     fallthrough_label: &str,
 ) -> Result<(), String> {
+    emit_stdin_poll_ready_check_with(ctx, &PollReadyRegs::FIXED, ready_label, fallthrough_label)
+}
+
+/// The temporaries [`emit_stdin_poll_ready_check_with`] uses.
+///
+/// `io::pollInput` owns its whole frame, so it has always used fixed names
+/// ([`PollReadyRegs::FIXED`]) — and keeps them, which keeps its code byte-identical.
+/// The mouse pump's escape wait (bug-669) runs the same check in the MIDDLE of a
+/// read helper whose own temporaries are live across it, so there fixed names
+/// could alias one of the caller's; it passes names minted from the caller's
+/// `Vregs` instead.
+pub(crate) struct PollReadyRegs<'a> {
+    pub(crate) addr: &'a str,
+    pub(crate) local_pos: &'a str,
+    pub(crate) local_filled: &'a str,
+    pub(crate) subscriber: &'a str,
+    pub(crate) log: &'a str,
+    pub(crate) cursor: &'a str,
+    pub(crate) fill: &'a str,
+    pub(crate) eof: &'a str,
+}
+
+impl PollReadyRegs<'static> {
+    pub(crate) const FIXED: PollReadyRegs<'static> = PollReadyRegs {
+        addr: "%v52",
+        local_pos: "%v84",
+        local_filled: "%v71",
+        subscriber: "%v89",
+        log: "%v78",
+        cursor: "%v64",
+        fill: "%v70",
+        eof: "%v68",
+    };
+}
+
+/// [`emit_stdin_poll_ready_check`] with caller-chosen temporaries.
+pub(crate) fn emit_stdin_poll_ready_check_with(
+    ctx: &mut EmitCtx,
+    r: &PollReadyRegs,
+    ready_label: &str,
+    fallthrough_label: &str,
+) -> Result<(), String> {
     let symbol = ctx.symbol;
 
     let l = |s: &str| format!("{symbol}_stdin_poll_{s}");
     // Local fast path: pos < filled => a byte is staged.
     field_addr(
-        "%v52",
+        r.addr,
         ARENA_STATE_REGISTER,
         ARENA_STDIN_LOCAL_POS_OFFSET,
         ctx.instructions,
     );
-    ctx.instructions.push(abi::load_u64("%v84", "%v52", 0));
+    ctx.instructions.push(abi::load_u64(r.local_pos, r.addr, 0));
     field_addr(
-        "%v52",
+        r.addr,
         ARENA_STATE_REGISTER,
         ARENA_STDIN_LOCAL_FILLED_OFFSET,
         ctx.instructions,
     );
     ctx.instructions.extend([
-        abi::load_u64("%v71", "%v52", 0),
-        abi::compare_registers("%v71", "%v84"),
+        abi::load_u64(r.local_filled, r.addr, 0),
+        abi::compare_registers(r.local_filled, r.local_pos),
         abi::branch_hi(ready_label),
     ]);
     // Not subscribed => defer to the OS poll (byte-identical to pre-plan-15).
     field_addr(
-        "%v52",
+        r.addr,
         ARENA_STATE_REGISTER,
         ARENA_STDIN_SUBSCRIBER_OFFSET,
         ctx.instructions,
     );
     ctx.instructions.extend([
-        abi::load_u64("%v89", "%v52", 0),
-        abi::compare_immediate("%v89", "0"),
+        abi::load_u64(r.subscriber, r.addr, 0),
+        abi::compare_immediate(r.subscriber, "0"),
         abi::branch_eq(fallthrough_label),
     ]);
-    push_log_address(symbol, "%v78", ctx.instructions, ctx.relocations);
+    push_log_address(symbol, r.log, ctx.instructions, ctx.relocations);
     ctx.instructions
-        .push(abi::move_register(abi::c_arg(0), "%v78"));
+        .push(abi::move_register(abi::c_arg(0), r.log));
     emit_libc(ctx, "pthread_mutex_lock")?;
-    push_log_address(symbol, "%v78", ctx.instructions, ctx.relocations);
+    push_log_address(symbol, r.log, ctx.instructions, ctx.relocations);
     field_addr(
-        "%v52",
+        r.addr,
         ARENA_STATE_REGISTER,
         ARENA_STDIN_SUBSCRIBER_OFFSET,
         ctx.instructions,
     );
     ctx.instructions.extend([
-        abi::load_u64("%v89", "%v52", 0),
-        abi::load_u64("%v64", "%v89", STDIN_SUBSCRIBER_CURSOR_OFFSET),
-        abi::load_u64("%v70", "%v78", STDIN_LOG_FILL_OFFSET),
+        abi::load_u64(r.subscriber, r.addr, 0),
+        abi::load_u64(r.cursor, r.subscriber, STDIN_SUBSCRIBER_CURSOR_OFFSET),
+        abi::load_u64(r.fill, r.log, STDIN_LOG_FILL_OFFSET),
         // cursor < fill => bytes waiting.
-        abi::compare_registers("%v70", "%v64"),
+        abi::compare_registers(r.fill, r.cursor),
         abi::branch_hi(&l("ready_unlock")),
         // cursor >= eofOffset => EOF is immediately observable.
-        abi::load_u64("%v68", "%v78", STDIN_LOG_EOF_OFFSET),
-        abi::compare_registers("%v68", "%v64"),
+        abi::load_u64(r.eof, r.log, STDIN_LOG_EOF_OFFSET),
+        abi::compare_registers(r.eof, r.cursor),
         abi::branch_ls(&l("ready_unlock")),
         // Nothing in the log for us: unlock and defer to the OS poll.
-        abi::move_register(abi::c_arg(0), "%v78"),
+        abi::move_register(abi::c_arg(0), r.log),
     ]);
     emit_libc(ctx, "pthread_mutex_unlock")?;
     ctx.instructions.push(abi::branch(fallthrough_label));
     ctx.instructions.push(abi::label(&l("ready_unlock")));
-    push_log_address(symbol, "%v78", ctx.instructions, ctx.relocations);
+    push_log_address(symbol, r.log, ctx.instructions, ctx.relocations);
     ctx.instructions
-        .push(abi::move_register(abi::c_arg(0), "%v78"));
+        .push(abi::move_register(abi::c_arg(0), r.log));
     emit_libc(ctx, "pthread_mutex_unlock")?;
     ctx.instructions.push(abi::branch(ready_label));
     Ok(())

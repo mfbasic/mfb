@@ -42,6 +42,13 @@ stays truthful: it still answers whether a following read will return without
 waiting, even though some of what the terminal now sends is taken off the stream
 as mouse input and never becomes a character at all.
 
+The Esc key still works while reporting is on, a moment later than usual. A
+mouse report starts with the same Esc character the key sends, so after an Esc
+the program waits up to 25 milliseconds to see whether a report follows. If
+nothing does, `io::readChar` returns the Esc and `io::pollInput` reports it
+ready. Keys that send a longer sequence, such as the arrow keys, arrive whole
+and in order, as they always have.
+
 Turn reporting off before the program finishes so the mouse goes back to the
 user. `term::off` does that for you when it leaves TUI mode, so a program that
 pairs `term::on` with `term::off` is already tidy."#;

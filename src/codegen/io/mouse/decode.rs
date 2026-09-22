@@ -72,6 +72,101 @@ const SGR_WHEEL_DOWN: u64 = 65;
 /// The low-two-bits value meaning "no button" — what a bare motion report carries.
 const SGR_BUTTON_NONE: u64 = 3;
 
+/// How long a held escape prefix may wait for its next byte before it is handed
+/// back as keystrokes (bug-669).
+///
+/// The Esc key sends one byte and then nothing, so "does this ESC start a mouse
+/// report?" is only ever settled by the NEXT byte — and for a lone Esc there is
+/// no next byte. Terminals write a report in one burst, so its tail follows
+/// within microseconds; a prefix still incomplete after this long is keystrokes.
+/// The same trade every curses library makes (its `ESCDELAY`), and the only
+/// point where a read or a `pollInput` waits longer than its caller asked.
+pub(crate) const ESCAPE_DELAY_MS: u64 = 25;
+
+/// Branch to `not_held` unless a prefix is buffered AND nothing is owed — the
+/// one state in which the decoder is sitting on bytes nobody will ever ask for
+/// unless more input arrives (bug-669).
+pub(crate) fn emit_branch_unless_prefix_held(
+    not_held: &str,
+    mouse_state_offset: usize,
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+) {
+    let len = vregs.next();
+    let pos = vregs.next();
+    ctx.instructions.extend([
+        abi::load_u64(
+            &len,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_PARSE_LEN_OFFSET,
+        ),
+        abi::compare_immediate(&len, "0"),
+        abi::branch_eq(not_held),
+        abi::load_u64(
+            &pos,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
+        ),
+        abi::compare_immediate(&pos, "0"),
+        abi::branch_ne(not_held),
+    ]);
+}
+
+/// Give up on a held prefix: it is not a mouse report, so every buffered byte
+/// becomes owed, starting at `buf[0]`. The next [`emit_drain_pending`] hands them
+/// back in order — exactly what a flush does, minus the breaking byte, because
+/// there isn't one: the prefix was ended by silence or by end of input.
+pub(crate) fn emit_release_prefix(mouse_state_offset: usize, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+    let one = vregs.next();
+    ctx.instructions.extend([
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(
+            &one,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
+        ),
+    ]);
+}
+
+/// Report whether a byte is owed, WITHOUT taking it: branch to `owed` when the
+/// drain cursor points at a byte still in the buffer.
+///
+/// `io::pollInput` needs this rather than [`emit_drain_pending`], which advances
+/// the cursor — asking "is a byte owed?" that way hands the byte to nobody and it
+/// is lost (bug-669). A non-zero cursor alone is not enough: after the last owed
+/// byte goes out the cursor sits one past the end until the next drain resets it,
+/// and answering "owed" then would promise a read that blocks.
+pub(crate) fn emit_branch_if_owed(
+    owed: &str,
+    mouse_state_offset: usize,
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+) {
+    let symbol = ctx.symbol;
+    let none = format!("{symbol}_mouse_owed_none_{}", ctx.instructions.len());
+    let pos = vregs.next();
+    let len = vregs.next();
+    ctx.instructions.extend([
+        abi::load_u64(
+            &pos,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
+        ),
+        abi::compare_immediate(&pos, "0"),
+        abi::branch_eq(&none),
+        abi::load_u64(
+            &len,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_PARSE_LEN_OFFSET,
+        ),
+        // One-based cursor: `pos` names `buf[pos - 1]`, which exists while
+        // `pos <= len`.
+        abi::compare_registers(&pos, &len),
+        abi::branch_ls(owed),
+        abi::label(&none),
+    ]);
+}
+
 /// `branch if lhs >= rhs`, unsigned.
 ///
 /// The instruction vocabulary has `lo`/`ls`/`hi` but no `hs`, so this compares the
@@ -134,13 +229,21 @@ pub(crate) fn emit_drain_pending(
         ),
         abi::add_registers(&addr, &buf, &index),
         abi::load_u8(out_byte, &addr, 0),
+        abi::move_immediate(out_have, "Integer", "1"),
         abi::add_immediate(&pos, &pos, 1),
+        // That was the last owed byte (the new cursor `pos` names `buf[pos - 1]`,
+        // past the end once `pos > len`): return to the resting state NOW rather
+        // than on the next drain. `io::pollInput` peeks the cursor and pushes bytes
+        // back without draining (bug-669), so a cursor left one past the end would
+        // read as "owed" there, and a stale `len` would put the next fresh byte
+        // mid-sequence in the decoder.
+        abi::compare_registers(&pos, &len),
+        abi::branch_hi(&reset),
         abi::store_u64(
             &pos,
             ARENA_STATE_REGISTER,
             mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
         ),
-        abi::move_immediate(out_have, "Integer", "1"),
         abi::branch(&done),
     ]);
 
@@ -171,17 +274,43 @@ pub(crate) fn emit_drain_pending(
 /// quiet. The only honest way to know is to run the bytes through the decoder —
 /// and then the one byte that turns out to be the program's must not be lost.
 ///
-/// Safe to call only when nothing is already owed, which is exactly the state
-/// `pollInput` establishes before it reads.
+/// Call it only on the byte a [`emit_decode_byte`] PASS just produced, having
+/// checked that nothing was owed before that decode. Two PASS shapes reach here:
+///
+/// - a plain pass: nothing is buffered, so `byte` becomes a one-byte queue;
+/// - a flush: the decode already queued the whole broken prefix plus its breaking
+///   byte, handed back `buf[0]`, and pointed the cursor at `buf[1]`. Rewriting the
+///   buffer as `[byte]` here would throw that tail away — the key after an ESC,
+///   or the `[Z` of a CSI (bug-669) — so instead the cursor is rewound to replay
+///   from `buf[0]`, which IS `byte`.
 pub(crate) fn emit_pushback_byte(
     byte: &str,
     mouse_state_offset: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) {
+    let symbol = ctx.symbol;
+    let plain = format!("{symbol}_mouse_pushback_plain");
+    let done = format!("{symbol}_mouse_pushback_done");
     let buf = vregs.next();
     let one = vregs.next();
+    let pos = vregs.next();
     ctx.instructions.extend([
+        abi::load_u64(
+            &pos,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
+        ),
+        abi::compare_immediate(&pos, "0"),
+        abi::branch_eq(&plain),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(
+            &one,
+            ARENA_STATE_REGISTER,
+            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
+        ),
+        abi::branch(&done),
+        abi::label(&plain),
         abi::add_immediate(
             &buf,
             ARENA_STATE_REGISTER,
@@ -201,6 +330,7 @@ pub(crate) fn emit_pushback_byte(
             ARENA_STATE_REGISTER,
             mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
         ),
+        abi::label(&done),
     ]);
 }
 

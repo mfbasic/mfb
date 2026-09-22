@@ -221,8 +221,25 @@ program that does not keeps its exact prior instruction stream.
 — including a bare `ESC` and sequences like `ESC [ Z`. Deciding that an escape is
 *not* a mouse report takes several bytes, and by then the decoder holds bytes the
 program is owed but can only return one at a time, so the buffer doubles as a
-replay queue with its own cursor.
+replay queue with its own cursor. The drain resets the queue the moment it
+hands over the last owed byte, so a zero cursor always means "nothing owed".
 [[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_DRAIN_POS_OFFSET]]
+[[src/codegen/io/mouse/decode.rs:emit_drain_pending]]
+
+**A held prefix is settled by silence or by end of input** (bug-669). Only the
+*next* byte can show that an `ESC` is not a report, and the Esc key sends no next
+byte. So while a prefix is held with nothing owed, the read path waits at most
+`ESCAPE_DELAY_MS` (25 ms) for more input. The wait checks the broadcast log first
+in console mode, then `poll(fd 0)`, and retries on `EINTR`. If nothing arrives,
+the prefix is released: its bytes become owed and are handed back in order. A
+read that reaches EOF with a prefix held releases it the same way, and the EOF is
+returned by the next read. Terminals write a report in one burst, so its tail is
+never 25 ms behind its `ESC`. This is the same trade curses makes with
+`ESCDELAY`, and the only place a mouse program's read waits longer than it
+asked. On macOS and Linux every mouse member therefore imports `poll`; Windows
+`io::` reads already import the wait's primitives.
+[[src/codegen/io/mouse/decode.rs:ESCAPE_DELAY_MS]]
+[[src/codegen/builtins/io/gen_read_family.rs:emit_pump_escape_wait]]
 
 Decoded events go into a 64-slot per-thread ring, each stamped with a monotonic
 reading. It **overwrites oldest-first when full**, and `pollMouse` **skips
@@ -252,8 +269,20 @@ existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
   ready" — the pending bytes may be a report the decoder swallows whole. So when
   readiness says ready, `pollInput` runs the bytes through the same decoder, puts
   back the first byte that turns out to be the program's, and re-asks
-  (non-blocking) if what it found was mouse. It still consumes nothing.
+  (non-blocking) if what it found was mouse. It still consumes nothing. Three
+  bug-669 rules keep this honest around escapes:
+  - Bytes the decoder already owes are checked first, before any wait, because
+    neither the log nor the OS can see them. The check peeks the cursor and
+    never drains it.
+  - A put-back after a flush rewinds the cursor rather than rewriting the queue,
+    so the flushed tail survives.
+  - A byte that left a prefix buffered is followed by a re-check that waits the
+    escape delay rather than 0. If that re-check finds nothing, the held prefix
+    is released and `pollInput` answers TRUE.
   [[src/codegen/builtins/io/func_poll_input.rs:lower_poll_input]]
+  [[src/codegen/builtins/io/func_poll_input.rs:emit_mouse_ready_verify]]
+  [[src/codegen/io/mouse/decode.rs:emit_branch_if_owed]]
+  [[src/codegen/io/mouse/decode.rs:emit_pushback_byte]]
 - **`io::input`/`io::readLine` suspend tracking.** They restore the saved cooked
   line discipline for their read, which re-enables echo; a report arriving in that
   window would be echoed onto the screen as visible garbage. Tracking is therefore

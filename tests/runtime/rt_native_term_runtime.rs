@@ -1,6 +1,10 @@
 #[path = "../common/mod.rs"]
 mod common;
 use common::*;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[test]
 fn native_term_mouse_is_opt_in_and_silent_until_asked() {
@@ -256,6 +260,156 @@ fn native_term_mouse_leaves_other_input_untouched() {
     assert!(
         esc.contains("CHARS:a\x1bb"),
         "a bare ESC must pass through, got {esc:?}"
+    );
+}
+
+/// A program that reads with `io::pollInput` first, the shape every TUI draw loop
+/// has: poll, and only read when the poll says a read will not block. Each char
+/// is echoed with ESC spelled out so the output stays printable.
+fn mouse_poll_then_read_source() -> &'static str {
+    r#"
+IMPORT io
+IMPORT term
+
+FUNC name(c AS String) AS String
+  IF c = "\u{1B}" THEN RETURN "<ESC>"
+  RETURN c
+END FUNC
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  MUT chars AS String = ""
+  DO WHILE io::pollInput(2000)
+    LET c AS String = io::readChar() TRAP(e)
+      EXIT DO
+    END TRAP
+    chars = chars & name(c)
+  LOOP
+  io::print("CHARS:" & chars)
+  term::enableMouse(FALSE)
+  RETURN 0
+END FUNC
+"#
+}
+
+/// Spawn `executable`, write `input` to its stdin and then HOLD the pipe open —
+/// no EOF — for up to `hold`, closing it early only if the program exits first.
+///
+/// A lone ESC is only ambiguous while more input might still arrive; closing
+/// stdin right after it would hand the program an EOF, which is a different case.
+/// Returns the program's stdout and whether it exited while stdin was still open.
+fn run_with_held_stdin(executable: &Path, input: &[u8], hold: Duration) -> (String, bool) {
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn executable");
+    let mut stdin = child.stdin.take().expect("stdin pipe");
+    stdin.write_all(input).expect("write stdin");
+    stdin.flush().expect("flush stdin");
+    let deadline = Instant::now() + hold;
+    let mut exited_while_open = false;
+    while Instant::now() < deadline {
+        if child.try_wait().expect("poll child").is_some() {
+            exited_while_open = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(stdin);
+    let output = child.wait_with_output().expect("wait for executable");
+    (
+        String::from_utf8(output.stdout).expect("utf8 stdout"),
+        exited_while_open,
+    )
+}
+
+#[test]
+fn native_term_mouse_poll_input_keeps_the_byte_after_an_escape() {
+    // bug-669 (2). `ESC x` arriving together is a buffered prefix the decoder
+    // flushes when `x` rules out a report: ESC goes back now and `x` is owed. The
+    // pollInput verify path must not drop that owed byte — neither by draining it
+    // to answer "is something owed?" nor by overwriting the replay queue when it
+    // puts ESC back.
+    let project = temp_project(
+        "native_term_mouse_poll_escape",
+        mouse_poll_then_read_source(),
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"a\x1bxb\x1b[Zc");
+    assert!(
+        out.contains("CHARS:a<ESC>xb<ESC>[Zc"),
+        "keys after an ESC must survive io::pollInput, got {out:?}"
+    );
+}
+
+#[test]
+fn native_term_mouse_escape_at_end_of_input_is_delivered() {
+    // bug-669 (3). A lone ESC as the last byte before EOF is still the program's:
+    // end of input settles that no report is coming, so the held prefix must be
+    // handed back before the EOF is.
+    let project = temp_project("native_term_mouse_escape_eof", &mouse_decoder_source(2));
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"a\x1b");
+    assert!(
+        out.contains("CHARS:a\x1b\n"),
+        "an ESC right before EOF must reach io::readChar, got {out:?}"
+    );
+}
+
+#[test]
+fn native_term_mouse_lone_escape_is_reported_without_a_following_key() {
+    // bug-669 (1). The Esc key sends one byte and then nothing. With mouse
+    // reporting on, the decoder buffers that ESC as the possible start of a report;
+    // once the terminal has gone quiet it is plainly a keypress and must be
+    // delivered — to io::pollInput and to a blocking io::readChar alike — without
+    // waiting for the user to press something else.
+    let project = temp_project(
+        "native_term_mouse_lone_esc_poll",
+        mouse_poll_then_read_source(),
+    );
+    let executable = build_project(&project);
+    // The program polls for up to 2 s at a time; hold stdin open well past the
+    // first poll so a FALSE there cannot be explained by EOF.
+    let (out, _) = run_with_held_stdin(&executable, b"\x1b", Duration::from_millis(3000));
+    assert!(
+        out.contains("CHARS:<ESC>"),
+        "io::pollInput must report a lone ESC once input goes quiet, got {out:?}"
+    );
+    // A whole key sequence as the last input: `readChar` takes the ESC and leaves
+    // `[Z` owed inside the decoder, where neither the stdin log nor the OS can see
+    // it. pollInput must still report those bytes as ready.
+    let (out, _) = run_with_held_stdin(&executable, b"\x1b[Z", Duration::from_millis(3000));
+    assert!(
+        out.contains("CHARS:<ESC>[Z"),
+        "io::pollInput must report bytes the decoder still owes, got {out:?}"
+    );
+
+    let source = r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  LET c AS String = io::readChar()
+  IF c = "\u{1B}" THEN
+    io::print("GOT:ESC")
+  ELSE
+    io::print("GOT:" & c)
+  END IF
+  term::enableMouse(FALSE)
+  RETURN 0
+END FUNC
+"#;
+    let project = temp_project("native_term_mouse_lone_esc_read", source);
+    let executable = build_project(&project);
+    let (out, exited_while_open) =
+        run_with_held_stdin(&executable, b"\x1b", Duration::from_millis(3000));
+    assert!(
+        exited_while_open && out.contains("GOT:ESC"),
+        "a blocking io::readChar must return a lone ESC without a following key \
+         (exited while stdin open: {exited_while_open}), got {out:?}"
     );
 }
 

@@ -371,18 +371,30 @@ impl LinuxPlan<'_> {
             // `MFB_MOUSE_INJECT` test affordance. `pollMouse` reads the clock too
             // (it measures every candidate against one "now") but emits no ANSI
             // and reads no environment.
+            //
+            // bug-669: `poll` on every mouse member, because a mouse program's
+            // `io::` reads carry the decoder's escape-delay wait, and a program
+            // may read keys without ever calling `io::pollInput`.
             "term.enableMouse" => vec![
                 self.libc_import("write", required_by),
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("getenv", required_by),
+                self.libc_import("poll", required_by),
             ],
-            "term.pollMouse" => vec![self.libc_import("clock_gettime", required_by)],
+            "term.pollMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("poll", required_by),
+            ],
             // plan-94-D: the canvas members reach the same ring and clock.
             "canvas.enableMouse" => vec![
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("getenv", required_by),
+                self.libc_import("poll", required_by),
             ],
-            "canvas.pollMouse" => vec![self.libc_import("clock_gettime", required_by)],
+            "canvas.pollMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("poll", required_by),
+            ],
             "fs.exists" => vec![self.libc_import("access", required_by)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", required_by)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", required_by)],

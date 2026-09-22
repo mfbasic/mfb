@@ -109,7 +109,16 @@ pub(crate) fn emit_stdin_byte_read(
         (pump, v, vregs)
     });
     if let Some((pump, v, vregs)) = &mut pump {
-        emit_pump_prologue(ctx, pump, v, byte_offset, &pump_head, &pump_done, vregs)?;
+        emit_pump_prologue(
+            ctx,
+            pump,
+            v,
+            byte_offset,
+            app_mode,
+            &pump_head,
+            &pump_done,
+            vregs,
+        )?;
     }
 
     if app_mode {
@@ -204,11 +213,13 @@ fn emit_load_mouse_mode(ctx: &mut EmitCtx, v: &PumpVregs) {
 /// This ordering is the decoder's contract (see `io::mouse::decode`): owed bytes
 /// come first, and only when none are owed is the OS read issued. Getting it the
 /// other way round would interleave a replayed `ESC [ Z` with freshly typed input.
+#[allow(clippy::too_many_arguments)]
 fn emit_pump_prologue(
     ctx: &mut EmitCtx,
     pump: &MousePump,
     v: &PumpVregs,
     byte_offset: usize,
+    app_mode: bool,
     pump_head: &str,
     pump_done: &str,
     vregs: &mut Vregs,
@@ -220,9 +231,10 @@ fn emit_pump_prologue(
     emit_load_mouse_mode(ctx, v);
     ctx.instructions.push(abi::compare_immediate(&v.mode, "0"));
     ctx.instructions.push(abi::branch_eq(&no_drain));
+    let escape_wait = format!("{symbol}_mouse_esc_wait");
     mouse_decode::emit_drain_pending(&v.have, &v.out_byte, pump.state_offset, ctx, vregs);
     ctx.instructions.push(abi::compare_immediate(&v.have, "0"));
-    ctx.instructions.push(abi::branch_eq(&no_drain));
+    ctx.instructions.push(abi::branch_eq(&escape_wait));
     // A replayed byte looks exactly like a freshly read one to the caller: it lands
     // in the same slot, and the synthesized count of 1 reproduces the read's own
     // "got a byte" answer so the caller's EOF test is unchanged.
@@ -230,8 +242,99 @@ fn emit_pump_prologue(
         abi::store_u8(&v.out_byte, abi::stack_pointer(), byte_offset),
         abi::move_immediate(&v.saved_count, "Integer", "1"),
         abi::branch(pump_done),
-        abi::label(&no_drain),
+        abi::label(&escape_wait),
     ]);
+    emit_pump_escape_wait(ctx, pump, app_mode, pump_head, &no_drain, vregs)?;
+    ctx.instructions.push(abi::label(&no_drain));
+    Ok(())
+}
+
+/// Before a fresh read, settle a held escape prefix (bug-669).
+///
+/// The decoder is sitting on a prefix — most often a lone ESC — that only the
+/// next byte can classify. A blocking read would wait for that byte for as long
+/// as the user takes to press another key, so a program could never see the Esc
+/// key on its own. Instead wait at most [`mouse_decode::ESCAPE_DELAY_MS`] for
+/// input: if some arrives, fall through to `read_label` and let the decoder
+/// classify it as usual; if none does, the prefix was keystrokes, so release it
+/// and go back to `pump_head`, whose drain hands the bytes over in order.
+///
+/// Readiness is asked exactly as `io::pollInput` asks it: the stdin broadcast log
+/// first in console mode (bytes staged there are invisible to `poll(fd 0)`), then
+/// the OS. The pollfd lives in the caller's clock scratch, which is free here —
+/// the clock is only read inside the decoder, after the read.
+fn emit_pump_escape_wait(
+    ctx: &mut EmitCtx,
+    pump: &MousePump,
+    app_mode: bool,
+    pump_head: &str,
+    read_label: &str,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    const POLLIN_PACKED_FD0: &str = "4294967296";
+    let symbol = ctx.symbol;
+    let l = |s: &str| format!("{symbol}_mouse_esc_{s}");
+    let os_poll = l("os_poll");
+    let quiet = l("quiet");
+
+    mouse_decode::emit_branch_unless_prefix_held(read_label, pump.state_offset, ctx, vregs);
+    if !app_mode {
+        let names: Vec<String> = (0..8).map(|_| vregs.next()).collect();
+        let regs = PollReadyRegs {
+            addr: &names[0],
+            local_pos: &names[1],
+            local_filled: &names[2],
+            subscriber: &names[3],
+            log: &names[4],
+            cursor: &names[5],
+            fill: &names[6],
+            eof: &names[7],
+        };
+        emit_stdin_poll_ready_check_with(ctx, &regs, read_label, &os_poll)?;
+    }
+    let pollfd = vregs.next();
+    ctx.instructions.extend([
+        abi::label(&os_poll),
+        abi::move_immediate(&pollfd, "Integer", POLLIN_PACKED_FD0),
+        abi::store_u64(&pollfd, abi::stack_pointer(), pump.clock_scratch),
+        abi::add_immediate(
+            abi::return_register(),
+            abi::stack_pointer(),
+            pump.clock_scratch,
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            &mouse_decode::ESCAPE_DELAY_MS.to_string(),
+        ),
+    ]);
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    platform.emit_poll_input(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_gt(read_label),
+        abi::branch_eq(&quiet),
+    ]);
+    // A signal interrupted the wait: wait again rather than guess. Any other poll
+    // failure is left for the read itself to report.
+    emit_eintr_retry_or_error(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
+        abi::return_register(),
+        false,
+        &os_poll,
+        read_label,
+    )?;
+    ctx.instructions.push(abi::label(&quiet));
+    mouse_decode::emit_release_prefix(pump.state_offset, ctx, vregs);
+    ctx.instructions.push(abi::branch(pump_head));
     Ok(())
 }
 
@@ -258,9 +361,19 @@ fn emit_pump_epilogue(
     ctx.instructions.push(abi::branch_eq(&deliver));
     // EOF and errors are the caller's to interpret, not the decoder's: a 0 or
     // negative count means no byte was read, so there is nothing to decode.
+    //
+    // Except that EOF also settles a held escape prefix — no report can follow the
+    // end of input — so a prefix still buffered then is released first and the
+    // EOF comes back on the next read, after its bytes (bug-669).
+    let decode = format!("{symbol}_mouse_pump_decode");
     ctx.instructions
         .push(abi::compare_immediate(&v.saved_count, "0"));
-    ctx.instructions.push(abi::branch_le(&deliver));
+    ctx.instructions.push(abi::branch_gt(&decode));
+    ctx.instructions.push(abi::branch_lt(&deliver));
+    mouse_decode::emit_branch_unless_prefix_held(&deliver, pump.state_offset, ctx, vregs);
+    mouse_decode::emit_release_prefix(pump.state_offset, ctx, vregs);
+    ctx.instructions.push(abi::branch(pump_head));
+    ctx.instructions.push(abi::label(&decode));
 
     ctx.instructions
         .push(abi::load_u8(&v.byte, abi::stack_pointer(), byte_offset));

@@ -103,8 +103,20 @@ pub(crate) fn lower_poll_input(
     // would put it in every program's `io::pollInput` — which is exactly the
     // byte-identity claim this sub-plan makes about programs that never mention
     // the mouse, and exactly how it was first broken (five `io` fixtures diffed).
-    if ctx.mouse_state_offset.is_some() {
+    if let Some(mouse_state_offset) = ctx.mouse_state_offset {
         instructions.push(abi::label(&ready_recheck));
+        // Bytes the decoder owes the program (the tail of a flushed escape prefix
+        // — the `[A` after an arrow key's ESC) live in the decoder, not in the log
+        // or the OS, so neither readiness check below can see them. They are
+        // ready by definition: answer before waiting on anything (bug-669).
+        let mut ectx = EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        };
+        mouse_decode::emit_branch_if_owed(&report_ready, mouse_state_offset, &mut ectx, &mut vregs);
     }
     // plan-15 §4.4: a byte already staged for this thread in the broadcast log is
     // invisible to `poll(fd 0)`, so check the log first (ready => report TRUE) and
@@ -150,6 +162,30 @@ pub(crate) fn lower_poll_input(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&poll_eintr_check),
         abi::branch_gt(&poll_ready),
+    ]);
+    // Nothing more arrived. If the decoder is still holding an escape prefix, the
+    // silence has settled it: it was never a mouse report, so its bytes are the
+    // program's and a read will return them now (bug-669).
+    if let Some(mouse_state_offset) = ctx.mouse_state_offset {
+        let not_held = format!("{symbol}_mouse_not_held");
+        let mut ectx = EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        };
+        mouse_decode::emit_branch_unless_prefix_held(
+            &not_held,
+            mouse_state_offset,
+            &mut ectx,
+            &mut vregs,
+        );
+        mouse_decode::emit_release_prefix(mouse_state_offset, &mut ectx, &mut vregs);
+        ectx.instructions.push(abi::branch(&report_ready));
+        ectx.instructions.push(abi::label(&not_held));
+    }
+    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -355,7 +391,6 @@ fn emit_mouse_ready_verify(
     let mut vregs = Vregs::new();
     let mode_addr = vregs.next();
     let mode = vregs.next();
-    let have = vregs.next();
     let out_byte = vregs.next();
     let count = vregs.next();
     let byte = vregs.next();
@@ -380,10 +415,9 @@ fn emit_mouse_ready_verify(
     ctx.instructions.push(abi::branch_eq(report_ready));
 
     // A byte already owed to the program is a character ready by definition, and
-    // checking first is also what makes the read below safe to issue.
-    mouse_decode::emit_drain_pending(&have, &out_byte, mouse_state_offset, ctx, &mut vregs);
-    ctx.instructions.push(abi::compare_immediate(&have, "0"));
-    ctx.instructions.push(abi::branch_ne(report_ready));
+    // checking first is also what makes the read below safe to issue. Peek, don't
+    // drain: draining would hand the owed byte to nobody (bug-669).
+    mouse_decode::emit_branch_if_owed(report_ready, mouse_state_offset, ctx, &mut vregs);
 
     // Take one byte. Readiness has already said one is there, so this does not
     // block; `mouse: None` keeps the pump out of it — running the pump here would
@@ -429,9 +463,19 @@ fn emit_mouse_ready_verify(
     mouse_decode::emit_pushback_byte(&out_byte, mouse_state_offset, ctx, &mut vregs);
     ctx.instructions.push(abi::branch(report_ready));
 
+    // Consumed. A finished report (or one byte further into a report) re-asks
+    // readiness without waiting; but when the byte was BUFFERED the decoder is now
+    // holding a prefix that only the next byte can settle, so the re-check waits
+    // the escape delay for it. If nothing comes, the not-ready arm releases the
+    // prefix as keystrokes (bug-669) — that is how a lone Esc gets reported.
+    let recheck_store = format!("{symbol}_mouse_verify_recheck_store");
     ctx.instructions.extend([
         abi::label(&consumed),
         abi::move_immediate(&zero, "Integer", "0"),
+        abi::compare_immediate(&action, &mouse_decode::DECODE_BUFFERED.to_string()),
+        abi::branch_ne(&recheck_store),
+        abi::move_immediate(&zero, "Integer", &mouse_decode::ESCAPE_DELAY_MS.to_string()),
+        abi::label(&recheck_store),
         abi::store_u64(&zero, abi::stack_pointer(), timeout_offset),
         abi::branch(ready_recheck),
         abi::label(&read_gave_up),

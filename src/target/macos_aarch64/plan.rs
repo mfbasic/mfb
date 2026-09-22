@@ -496,7 +496,11 @@ impl plan::NativePlanPlatform for Platform {
             // `MFB_MOUSE_INJECT` test affordance. `term.pollMouse` reads the clock
             // too — it measures every candidate against one "now" — but emits no
             // ANSI and reads no environment.
-            "term.enableMouse" => ["_write", "_clock_gettime", "_getenv"]
+            //
+            // bug-669: `_poll` on every mouse member, because a mouse program's
+            // `io::` reads carry the decoder's escape-delay wait, and a program
+            // may read keys without ever calling `io::pollInput`.
+            "term.enableMouse" => ["_write", "_clock_gettime", "_getenv", "_poll"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
@@ -504,15 +508,18 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            "term.pollMouse" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_clock_gettime".to_string(),
-                required_by: required_by.clone(),
-            }],
+            "term.pollMouse" => ["_clock_gettime", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
             // plan-94-C: the canvas members reach the same ring and the same
             // clock. `enableMouse` additionally runs the `MFB_MOUSE_INJECT`
             // affordance, whose decode path stamps an event.
-            "canvas.enableMouse" => ["_clock_gettime", "_getenv"]
+            "canvas.enableMouse" => ["_clock_gettime", "_getenv", "_poll"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
@@ -520,11 +527,14 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            "canvas.pollMouse" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_clock_gettime".to_string(),
-                required_by: required_by.clone(),
-            }],
+            "canvas.pollMouse" => ["_clock_gettime", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
             // `term.isOn`, `term.get*` only read the term-state global and
             // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {
