@@ -27,16 +27,20 @@ demand and the rasterised result is cached, which is where repeated work is actu
 saved.
 
 **What this build reads.** TrueType outlines: an sfnt whose version is `0x00010000`
-or the tag `true`. It refuses CFF/OpenType-PostScript outlines, font collections
-(`ttcf`) and WOFF with `ErrBadFontFile` — a different mistake from `ErrNotFound`,
-which is a path that does not exist, and it needs a different fix. A TrueType file
-whose `head` table puts `unitsPerEm` outside the 16..16384 the format allows is
-refused the same way. When text is drawn, a glyph whose bitmap at the requested size
+or the tag `true`. A font collection (a `.ttc` file, several faces in one) loads its
+first face; pass `face` to choose another by its PostScript name (`Helvetica-Bold`) or
+its full name (`Helvetica Bold`). A `face` the file does not carry is `ErrNotFound`.
+It refuses CFF/OpenType-PostScript outlines and WOFF with
+`ErrBadFontFile` — a different mistake from a path that does not exist, which is
+`ErrPathNotFound`, and it needs a different fix. A TrueType file whose `head` table puts `unitsPerEm` outside the
+16..16384 the format allows is refused the same way. When text is drawn, a glyph whose bitmap at the requested size
 would exceed 8192 pixels a side or 16,777,216 pixels draws nothing.
 
-There is no font *discovery*: `path` names a file. A program that wants a system
-font names its path, which keeps the rendering reproducible — the same file produces
-the same pixels on every platform, which is what makes text goldens exact-match."#;
+`loadFont` is the reproducible way to get a font: the same file draws the same pixels
+on every platform, so a program that ships its font file looks the same everywhere.
+To use a font already installed on the machine instead, pick a name from
+`canvas::listSystemFonts` and load it with `canvas::loadSystemFont` — convenient,
+but the result depends on the fonts that machine has."#;
 
 const EX: &str = r#"```
 IMPORT app
@@ -62,7 +66,22 @@ END SUB
 const LOAD_FONT: &str =
 r#"FUNC __canvas_loadFont(path AS String) AS canvas::Font
   LET bytes AS List OF Byte = fs::readBytes(path)
-  IF NOT __canvas_isTrueType(bytes) THEN
+  MUT dir AS Integer = 0
+  IF __canvas_isCollection(bytes) THEN
+    LET faces AS List OF Integer = __canvas_sfntFaces(bytes)
+    IF len(faces) = 0 THEN
+      ' 77050022 is errorCode.ErrBadFontFile, spelled as a literal for the reason
+      ' __canvas_loadFontBytes gives.
+      FAIL error(77050022, "font collection holds no faces: " & path)
+    END IF
+    dir = collections::getOr(faces, 0, 0)
+  END IF
+  RETURN __canvas_loadFontBytes(path, bytes, dir)
+END FUNC
+
+FUNC __canvas_loadFontBytes(path AS String, bytes AS List OF Byte, dir AS Integer) AS canvas::Font
+  LET face AS List OF Byte = __canvas_extractFace(path, bytes, dir)
+  IF NOT __canvas_isTrueType(face) THEN
     ' 77050022 is errorCode.ErrBadFontFile. The literal rather than the name because
     ' the injected builtin source does not IMPORT errorCode -- every other builtin
     ' body spells its codes the same way (crypto's helper_aes256_gcm_seal, and so on).
@@ -73,24 +92,152 @@ r#"FUNC __canvas_loadFont(path AS String) AS canvas::Font
   ' this (bug-509, DEC-53). At 1, a 300-unit glyph at size 100 is 30,000 px a side --
   ' one letter cost 62 s and 7.6 GB. A file with no `head` is left alone: it has no
   ' scale to poison, and its text measures and draws as nothing, as it always has.
-  LET head AS Integer = __canvas_fontTable(bytes, "head")
+  LET head AS Integer = __canvas_fontTable(face, "head")
   IF head >= 0 THEN
-    LET upem AS Integer = __canvas_beU16(bytes, head + 18)
+    LET upem AS Integer = __canvas_beU16(face, head + 18)
     IF upem < 16 OR upem > 16384 THEN
       FAIL error(77050022, "font unitsPerEm is outside 16..16384: " & path)
     END IF
   END IF
-  RETURN canvas::fontFromBytes(bytes)
+  RETURN canvas::fontFromBytes(face)
+END FUNC"#;
+
+/// `canvas::loadFont(path, face)` — load one named face of a file (plan-148-A).
+///
+/// A collection holds several faces, and the plain `loadFont(path)` takes the first; this
+/// overload finds the one whose `name` table carries `face`. The PostScript name
+/// (nameID 6, `Helvetica-Bold`) is tried across every face before the full name
+/// (nameID 4, `Helvetica Bold`): the PostScript name is the unambiguous one, and it is
+/// what the system-font members pass, because CoreText reports no face *index* to pass
+/// instead. A plain sfnt is its own single face, so the same rule checks that a `.ttf`
+/// is the face the caller meant.
+///
+/// A name no face carries is `ErrNotFound` (77050004), not `ErrBadFontFile`: the file is
+/// a perfectly good font, it is the face that is missing, and the fix is a different name.
+#[rustfmt::skip]
+const LOAD_FONT_NAMED: &str =
+r#"FUNC __canvas_loadFontNamed(path AS String, face AS String) AS canvas::Font
+  LET bytes AS List OF Byte = fs::readBytes(path)
+  LET faces AS List OF Integer = __canvas_sfntFaces(bytes)
+  FOR EACH nameId IN [6, 4]
+    FOR EACH dir IN faces
+      IF __canvas_faceName(bytes, dir, nameId) = face THEN
+        RETURN __canvas_loadFontBytes(path, bytes, dir)
+      END IF
+    NEXT
+  NEXT
+  FAIL error(77050004, "no face named " & face & " in " & path)
+END FUNC"#;
+
+/// TrueType Collections (plan-148-A): which faces a file holds, and one face lifted out
+/// as a standalone sfnt.
+///
+/// A `ttcf` file is a header, a count, and one offset per face; each offset names an
+/// ordinary table directory inside the same file, whose table offsets count from the
+/// start of the *file*. Every reader downstream finds tables through
+/// `__canvas_fontTable`, which reads the directory at byte 0 — so rather than thread a
+/// face offset through a dozen helpers, the Font record and the graphics thread's font
+/// table, the chosen face is copied out into a file of its own at load time. Nothing
+/// after this point knows collections exist.
+///
+/// A plain sfnt is its own single face at directory `0`, and `__canvas_extractFace`
+/// hands its bytes back untouched: an ordinary `.ttf` loads exactly as it always has.
+///
+/// The face count is capped at 4096 — real collections hold tens — so a hostile header
+/// claiming four billion faces costs a comparison, not a loop (bug-509's principle).
+/// A face whose directory or tables run past the end of the file is dropped or refused
+/// rather than read past the end.
+#[rustfmt::skip]
+const COLLECTION: &str =
+r#"FUNC __canvas_isCollection(bytes AS List OF Byte) AS Boolean
+  IF len(bytes) < 12 THEN
+    RETURN FALSE
+  END IF
+  RETURN __canvas_beU32(bytes, 0) = 1953784678
+END FUNC
+
+FUNC __canvas_sfntFaces(bytes AS List OF Byte) AS List OF Integer
+  MUT faces AS List OF Integer = []
+  IF NOT __canvas_isCollection(bytes) THEN
+    faces = collections::append(faces, 0)
+    RETURN faces
+  END IF
+  LET count AS Integer = __canvas_beU32(bytes, 8)
+  IF count > 4096 THEN
+    RETURN faces
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET slot AS Integer = 12 + i * 4
+    IF slot + 4 <= len(bytes) THEN
+      LET dir AS Integer = __canvas_beU32(bytes, slot)
+      IF dir >= 12 AND dir + 12 <= len(bytes) THEN
+        faces = collections::append(faces, dir)
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN faces
+END FUNC
+
+FUNC __canvas_beBytes32(v AS Integer) AS List OF Byte
+  RETURN [toByte((v / 16777216) MOD 256), toByte((v / 65536) MOD 256), toByte((v / 256) MOD 256), toByte(v MOD 256)]
+END FUNC
+
+FUNC __canvas_extractFace(path AS String, bytes AS List OF Byte, dir AS Integer) AS List OF Byte
+  IF dir = 0 THEN
+    RETURN bytes
+  END IF
+  LET numTables AS Integer = __canvas_beU16(bytes, dir + 4)
+  IF dir + 12 + numTables * 16 > len(bytes) THEN
+    FAIL error(77050022, "font collection face directory runs past the end of the file: " & path)
+  END IF
+  ' The header -- version, numTables and the search fields -- is the face's own; then
+  ' one record per table with its offset rebased to the table's place in the new file.
+  MUT out AS List OF Byte = collections::mid(bytes, dir, 12)
+  MUT cursor AS Integer = 12 + numTables * 16
+  MUT i AS Integer = 0
+  WHILE i < numTables
+    LET rec AS Integer = dir + 12 + i * 16
+    LET at AS Integer = __canvas_beU32(bytes, rec + 8)
+    LET size AS Integer = __canvas_beU32(bytes, rec + 12)
+    IF at + size > len(bytes) THEN
+      FAIL error(77050022, "font collection table runs past the end of the file: " & path)
+    END IF
+    out = collections::append(out, collections::mid(bytes, rec, 8))
+    out = collections::append(out, __canvas_beBytes32(cursor))
+    out = collections::append(out, __canvas_beBytes32(size))
+    cursor = cursor + ((size + 3) / 4) * 4
+    i = i + 1
+  END WHILE
+  ' The tables, each padded to four bytes as the format requires.
+  i = 0
+  WHILE i < numTables
+    LET rec AS Integer = dir + 12 + i * 16
+    LET at AS Integer = __canvas_beU32(bytes, rec + 8)
+    LET size AS Integer = __canvas_beU32(bytes, rec + 12)
+    out = collections::append(out, collections::mid(bytes, at, size))
+    MUT pad AS Integer = ((size + 3) / 4) * 4 - size
+    WHILE pad > 0
+      out = collections::append(out, toByte(0))
+      pad = pad - 1
+    END WHILE
+    i = i + 1
+  END WHILE
+  RETURN out
 END FUNC"#;
 
 /// The sfnt version check, as its own helper so the accepted set is one readable list.
 ///
 /// `0x00010000` is TrueType outlines and `true` is the Apple spelling of the same
 /// thing. Everything else is refused *by name* rather than by falling through: `OTTO`
-/// is CFF outlines (a different curve type and a different rasteriser), `ttcf` is a
-/// collection (several fonts in one file, so "the font" is ambiguous), and `wOFF` /
+/// is CFF outlines (a different curve type and a different rasteriser), and `wOFF` /
 /// `wOF2` are compressed web wrappers. Each is a real file a program might hand us,
 /// and each deserves the same answer for a different reason.
+///
+/// A `ttcf` collection never reaches this check as a container: the loader lifts one
+/// face out first (`COLLECTION`), and it is that face's version the check reads — so a
+/// collection of CFF faces is refused here exactly as an `OTTO` file is.
 #[rustfmt::skip]
 const IS_TRUETYPE: &str =
 r#"FUNC __canvas_isTrueType(bytes AS List OF Byte) AS Boolean
@@ -227,18 +374,48 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: None,
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "path",
-                desc: "The font file to read.",
-                aliases: &[],
-                ty: ParameterType::String,
-                default: DefaultValue::None,
-            }],
-            return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrBadFontFile", "ErrOutOfMemory"],
-            body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
-        }],
+        implementations: vec![
+            Implementation {
+                params: vec![Parameter {
+                    name: "path",
+                    desc: "The font file to read.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                }],
+                return_type: ParameterType::named(super::FONT_TYPE_ID),
+                errors: vec!["ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
+                body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
+            },
+            Implementation {
+                params: vec![
+                    Parameter {
+                        name: "path",
+                        desc: "The font file to read.",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "face",
+                        desc: "The face to load: its PostScript name (`Helvetica-Bold`) \
+                           or its full name (`Helvetica Bold`).",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::named(super::FONT_TYPE_ID),
+                errors: vec![
+                    "ErrBadFontFile",
+                    "ErrNotFound",
+                    "ErrPathNotFound",
+                    "ErrOutOfMemory",
+                ],
+                body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
+            },
+        ],
     });
     pkg.add_helper(RegistryHelper::always("canvas_isTrueType", IS_TRUETYPE));
+    pkg.add_helper(RegistryHelper::always("canvas_collection", COLLECTION));
 }

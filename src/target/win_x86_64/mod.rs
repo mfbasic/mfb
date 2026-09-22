@@ -152,6 +152,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.imageHeightOf",
     "canvas.shadowTexel",
     "canvas.fontFromBytes",
+    "canvas.systemFontTable",
     "canvas.destroyFont",
     "canvas.fontHandle",
     "canvas.fontBytes",

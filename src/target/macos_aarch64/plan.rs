@@ -535,6 +535,37 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
+            // plan-148-B: the installed-font enumeration. CoreText names the faces,
+            // CoreFoundation carries the arrays, strings and URLs they come in.
+            "canvas.systemFontTable" => [
+                ("CoreText", "_CTFontManagerCopyAvailableFontURLs"),
+                ("CoreText", "_CTFontManagerCreateFontDescriptorsFromURL"),
+                ("CoreText", "_CTFontCreateWithFontDescriptor"),
+                ("CoreText", "_CTFontCopyTable"),
+                ("CoreText", "_CTFontCopyVariation"),
+                ("CoreText", "_CTFontCopyFullName"),
+                ("CoreText", "_CTFontCopyPostScriptName"),
+                ("CoreFoundation", "_CFArrayGetCount"),
+                ("CoreFoundation", "_CFArrayGetValueAtIndex"),
+                ("CoreFoundation", "_CFURLCopyFileSystemPath"),
+                ("CoreFoundation", "_CFStringCreateMutable"),
+                ("CoreFoundation", "_CFStringAppend"),
+                ("CoreFoundation", "_CFStringAppendCharacters"),
+                ("CoreFoundation", "_CFStringGetLength"),
+                ("CoreFoundation", "_CFStringGetCharacterAtIndex"),
+                ("CoreFoundation", "_CFStringGetMaximumSizeForEncoding"),
+                ("CoreFoundation", "_CFStringGetCString"),
+                ("CoreFoundation", "_CFRelease"),
+                ("libSystem", "_strlen"),
+                ("libSystem", "_memcpy"),
+            ]
+            .iter()
+            .map(|(library, symbol)| PlatformImport {
+                library: (*library).to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: required_by.clone(),
+            })
+            .collect(),
             // `term.isOn`, `term.get*` only read the term-state global and
             // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {

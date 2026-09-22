@@ -6779,6 +6779,7 @@ mod raw_result_block_ownership {
         "canvas.newSurface",        // List OF Byte
         "canvas.pollMouse",         // canvas.MouseEvent (plan-94-A)
         "canvas.retiredItems",      // List OF canvas.DrawItem
+        "canvas.systemFontTable",   // String
         "crypto.generate",          // crypto.KeyPair
         "crypto.hash",              // List OF Byte
         "crypto.open",              // List OF Byte
@@ -6860,6 +6861,66 @@ mod raw_result_block_ownership {
             ty,
             ParameterType::Var(_) | ParameterType::ThreadHandle { .. }
         )
+    }
+
+    /// A package companion may not call a `collections` member whose body is MFBASIC
+    /// source (`sort`, `distinct`, `sortBy`, …) — plan-148-B found this the hard way.
+    ///
+    /// The `collections` source reaches a build only when the *program* imports
+    /// `collections` (`codegen::builtins::collections::augmented_project`, run from
+    /// `parse_project` because the monomorphizer needs it). Companions are injected
+    /// later, by the resolver's augmentation chain, so a companion's call to a
+    /// source-generic member compiles when the program happens to import `collections`
+    /// and otherwise fails at link with "NIR call target '#collections_sort' does not
+    /// resolve" — a failure that depends on the user's imports, not on the companion.
+    /// The native members (`append`, `getOr`, `mid`, …) have no such dependency.
+    #[test]
+    fn no_companion_calls_a_source_generic_collections_member() {
+        let reg = crate::codegen::registry::registry();
+        let collections = reg
+            .resolve_package("collections")
+            .expect("collections is registered");
+        let generic: Vec<&str> = collections
+            .functions()
+            .iter()
+            .filter(|f| {
+                f.implementations
+                    .iter()
+                    .any(|i| matches!(i.body, crate::codegen::registry::Body::Mfb { .. }))
+            })
+            .map(|f| f.name)
+            .collect();
+        assert!(
+            generic.contains(&"sort"),
+            "the census of source-generic members found no `sort`: {generic:?}",
+        );
+        let mut offenders = Vec::new();
+        for package in reg.packages() {
+            if package.import_name() == "collections" {
+                continue;
+            }
+            let mut sources = vec![package.get_mfb()];
+            sources.extend(
+                package
+                    .helpers()
+                    .iter()
+                    .filter_map(|h| h.body.map(str::to_string)),
+            );
+            for source in &sources {
+                for name in &generic {
+                    if source.contains(&format!("collections::{name}(")) {
+                        offenders.push(format!("{}: collections::{name}", package.import_name()));
+                    }
+                }
+            }
+        }
+        offenders.sort();
+        offenders.dedup();
+        assert!(
+            offenders.is_empty(),
+            "companion source calls a source-generic collections member, which links \
+             only when the program itself imports collections: {offenders:#?}",
+        );
     }
 
     #[test]
@@ -6955,6 +7016,7 @@ mod raw_result_block_ownership {
     const STRING_RESULT_HELPERS: &[&str] = &[
         "big.toRadixString",
         "big.toString",
+        "canvas.systemFontTable",
         "fs.canonicalPath",
         "fs.currentDirectory",
         "fs.readAll",

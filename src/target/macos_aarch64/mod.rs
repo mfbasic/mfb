@@ -81,6 +81,7 @@ impl NativeBackend for Backend {
                 "canvas.imageHeightOf",
                 "canvas.shadowTexel",
                 "canvas.fontFromBytes",
+                "canvas.systemFontTable",
                 "canvas.destroyFont",
                 "canvas.fontHandle",
                 "canvas.fontBytes",

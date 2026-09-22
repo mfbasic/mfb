@@ -277,6 +277,10 @@ name = "rt_canvas_font"
 path = "tests/canvas/rt_canvas_font.rs"
 
 [[test]]
+name = "rt_canvas_system_fonts"
+path = "tests/canvas/rt_canvas_system_fonts.rs"
+
+[[test]]
 name = "rt_canvas_golden"
 path = "tests/canvas/rt_canvas_golden.rs"
 

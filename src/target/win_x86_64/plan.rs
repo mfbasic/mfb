@@ -27,6 +27,9 @@ const OLE32: &str = "ole32.dll";
 /// `Icmp*` exports were confirmed in `C:\Windows\System32\IPHLPAPI.DLL` on the
 /// Windows 11 test box (10.0.26100.9168).
 const IPHLPAPI: &str = "iphlpapi.dll";
+/// `canvas::systemFontTable`'s DirectWrite system font collection (plan-148-D). Only
+/// `DWriteCreateFactory` is imported; every other DirectWrite call is a vtable call.
+const DWRITE: &str = "dwrite.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -483,6 +486,10 @@ impl NativePlanPlatform for Platform {
             "canvas.pollMouse" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            "canvas.systemFontTable" => vec![
+                import("DWriteCreateFactory", DWRITE, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
             ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
