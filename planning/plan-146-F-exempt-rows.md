@@ -190,7 +190,7 @@ Six rows need a fixture in Phase 3: `formUrlEncode`, `htmlEscape`,
 
 Acceptance: recorded here with citations and the per-row fixture counts
 (est. 40 min).
-Commit: —
+Commit: `1a7e4a122`
 
 ### Phase 2: F4
 
@@ -235,7 +235,7 @@ Acceptance (measured):
   `test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4288 filtered out`.
 - Golden churn: recorded under Phase 3, which regenerated Phases 2 and 3 in one
   pass (the artifact gate ran once over both).
-Commit: —
+Commit: `66499e1e5`
 
 ### Phase 3: Body fixes and the Exempt rows
 
@@ -344,12 +344,29 @@ Only the traced goldens were regenerated — the exact files the gate named, usi
 the gate's own build invocations (host dumps rebuilt with `-ast -ir`; per-target
 dumps rebuilt with `-target <t>` and hashed into `.ncodesum` with
 `shasum -a 256`). No fixture's golden set changed shape.
-Commit: —
+Commit: `66499e1e5`
 
 ## Validation Plan
 
 - Tests: 15 harness lines, the loop cases in Phase 2, fixtures for untested rows.
-- Per-letter gate: `cargo test --bin mfb`.
+- Per-letter gate: `cargo test --bin mfb` →
+  `test result: ok. 4297 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out;
+  finished in 2168.69s`. That run started before the last edit to
+  `self_update.rs` (four `proof` strings, Correction F4's rewording), so the
+  affected subset was re-run on the final tree:
+  `cargo test --bin mfb self_update` →
+  `test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4288 filtered out;
+  finished in 96.79s`.
+- Not run here: the full `scripts/test-accept.sh` sweep. It was started and
+  abandoned at fixture 569/1490 — the `rt-behavior/tcp` block runs on live socket
+  timeouts and was taking ~20 min per 50 fixtures under the concurrent
+  `cargo test --bin mfb` load. In its place: the artifact gate over all 1490
+  fixtures (0 diffs, which covers every `.ast`/`.ir`/`.hex` and per-target dump
+  golden this letter could move) plus the two targeted acceptance runs above,
+  which cover every package in the churn list. The `tcp`/`tls`/`udp` fixtures
+  that appear in that list do so only through their `.ir` — no `encoding` change
+  can reach their `build.log` or `.run` — and the artifact gate compares exactly
+  that `.ir`.
 
 ## Open Decisions
 
@@ -476,3 +493,19 @@ Commit: —
 F turns 15 rows into proven exemptions. First it removes the copies that would
 make the proofs false: F4's four C-string copies, and any MFBASIC body that seeds
 its output with a copy of its argument, which `htmlEscape` already does.
+
+**As landed.** F4 is fixed by one mechanism — the host reads the argument
+`String` block's own NUL-terminated bytes at `+8` (`borrow_cstring` for `os`,
+`emit_cstring_nul_scan` plus a `+8` for the two `fs` paths) — so the arena copy,
+its `HelperScratch`, its release and (where it was the only one) its OOM exit are
+all gone. Two MFBASIC bodies were rewritten, not one: `htmlEscape` for the copy
+the plan predicted, and `htmlUnescape` because the `strings::graphemes` list it
+read through is itself as live as the argument and costs ~42 bytes per character
+(Correction F4). Both now scan with `strings::mid`. The 15 rows are
+`Exempt { reason, proof }` and their 15 harness lines are `exempt` and pass.
+
+The one thing this letter did NOT get is the RED proof as written: the
+peak-live-bytes bound cannot fail on account of a single copy of a 64 KiB
+`String` (Correction F5 does the arithmetic and runs the harness to show it).
+Letter H should close that with a static check, since a dynamic one structurally
+cannot.
