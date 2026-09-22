@@ -131,7 +131,7 @@ Acceptance: positive count on Win11; every listed face loads; `Arial` present.
   Check: `ssh -p 2230 … probe.exe` → `faces=N loaded=N`, N > 0, and `Arial` in the
   list (est. 5 min).
   **Observed: `rc=0`, `faces=162 loaded=162`, `unknown: 77050004`, `name: Arial`.**
-Commit: (this commit)
+Commit: a8bc9e6b6
 
 ## Validation Plan
 
