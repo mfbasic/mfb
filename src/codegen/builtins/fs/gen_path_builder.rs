@@ -188,7 +188,6 @@ impl CodeBuilder<'_> {
         let byte = self.temporary_vreg();
         let index = self.temporary_vreg();
         let start = self.temporary_vreg();
-        let constant_ptr = self.temporary_vreg();
 
         self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&length, &path_ptr, 0));
@@ -219,37 +218,27 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&length, &index));
         self.emit(abi::branch(&materialize));
 
+        // bug-667: `.` and `/` are materialized like every other result, so the
+        // caller always owns a fresh block. Returned as read-only constants, the
+        // binding that took them freed read-only data (SIGBUS).
         self.emit(abi::label(&dot));
         let dot_register = self.load_string_constant(".")?;
-        self.emit(abi::move_register(&constant_ptr, &dot_register));
-        let done_constant = self.label("fs_path_dir_name_done_constant");
-        self.emit(abi::branch(&done_constant));
+        self.emit(abi::add_immediate(&bytes, &dot_register, 8));
+        self.emit(abi::move_immediate(&length, "Integer", "1"));
+        self.emit(abi::branch(&materialize));
 
+        // Every route here has `/` as the path's first byte.
         self.emit(abi::label(&root));
-        let slash_register = self.load_string_constant("/")?;
-        self.emit(abi::move_register(&constant_ptr, &slash_register));
-        self.emit(abi::branch(&done_constant));
+        self.emit(abi::move_immediate(&length, "Integer", "1"));
 
         self.emit(abi::label(&materialize));
         self.emit(abi::move_register(&start, &bytes));
         let result = self.emit_materialize_string_from_bytes(&start, &length)?;
-        let final_slot = self.allocate_stack_object("fs_path_dir_name_result", 8);
-        self.emit(abi::store_u64(&result, abi::stack_pointer(), final_slot));
-        let done = self.label("fs_path_dir_name_done");
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&done_constant));
-        self.emit(abi::store_u64(
-            &constant_ptr,
-            abi::stack_pointer(),
-            final_slot,
-        ));
-        self.emit(abi::label(&done));
-        let out = self.allocate_register();
-        self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(out.render()),
+            location: Operand::from(result.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -712,8 +701,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         // bug-536 shape B: `result_slot` holds this lowering's own
-        // `emit_arena_alloc_call` block. `fs.pathDirName` beside it is NOT
-        // marked — one of its arms yields a rodata constant pointer.
+        // `emit_arena_alloc_call` block.
         self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,

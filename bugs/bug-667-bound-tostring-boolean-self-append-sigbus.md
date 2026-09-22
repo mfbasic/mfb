@@ -159,20 +159,24 @@ allocation, but it depends on the builder statically typing the argument as
       (hand-written in the golden `build.log`/`.run`).
 
 Acceptance: the test fails for the documented reason.
-Commit: —
+Commit: b56b5bd6c
 
 ### Phase 2 — the fix
 
-- [ ] Apply the chosen design in `lower_boolean_to_string`.
-- [ ] B: the `String` arm passes the block through only when it is the statement's
+- [x] Apply the chosen design in `lower_boolean_to_string`. → (a): `copy_flat_block` + `mark_fresh_string`.
+- [x] B: the `String` arm passes the block through only when it is the statement's
       own fresh temporary (`pending_temp_would_be_claimed`); otherwise it copies and
       marks the copy fresh.
-- [ ] C: route the `.`/`/` arms through the existing materialize path (the `/` is
+- [x] C: route the `.`/`/` arms through the existing materialize path (the `/` is
       the path's own first byte), and mark the result fresh.
-- [ ] D: copy the default empty `String` into the arena in `StoreGlobal`'s
+- [x] D: copy the default empty `String` into the arena in `StoreGlobal`'s
       no-value path, as the local `Bind` does.
 
-Acceptance: the Phase 1 test passes.
+Acceptance: the Phase 1 test passes. → `scripts/test-accept.sh target/release/mfb
+target/accept-actual <the 4 fixtures>` → `acceptance tests passed (4 test(s) ran)`;
+plan-143's runtime sweep (`/tmp/plan-143-probes/rt_run.sh`, 67 self-update forms ×
+S1/S2/S9, `pathDirName` now on a path with no directory part) → 201/201 pass
+(3 failed before: `toString(s)` at every site).
 Commit: —
 
 ### Phase 3 — full validation

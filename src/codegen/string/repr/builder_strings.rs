@@ -924,8 +924,24 @@ impl CodeBuilder<'_> {
             // registration must be re-identified onto this result or the
             // statement-scope free outlives the owner that claims it — a
             // use-after-free, not a leak. See `retarget_pending_temp`.
+            //
+            // bug-667: the identity is only sound for a block this statement owns
+            // (its most recent pending temporary). Anything else — a binding's
+            // block, a parameter, a literal — is copied: handed back as-is, an
+            // owning store took it as its own, so `s = toString(s)` freed the
+            // block it stored.
             ParameterType::String => {
                 let location = Operand::from(value_register.render());
+                if !self.pending_temp_would_be_claimed(&value) {
+                    let copied = self.copy_flat_block(&ParameterType::String, &location)?;
+                    self.mark_fresh_string(Operand::from(copied.render()));
+                    return Ok(ValueResult {
+                        origin: None,
+                        type_: ParameterType::String,
+                        location: Operand::from(copied.render()),
+                        text: format!("toString({})", value.text),
+                    });
+                }
                 self.retarget_pending_temp(&value.location, &location);
                 Ok(ValueResult {
                     origin: None,
@@ -1033,10 +1049,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&false_label));
         self.emit_load_string_constant(&result, "FALSE")?;
         self.emit(abi::label(&done));
+        // bug-667: the constant is copied into a fresh block, as the enum arm does.
+        // Handed back read-only, a binding took it as its own and freed it (or grew
+        // it in place) — SIGBUS.
+        let copied = self.copy_flat_block(&ParameterType::String, &result)?;
+        self.mark_fresh_string(Operand::from(copied.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(copied.render()),
             text: "toString(Boolean)".to_string(),
         })
     }

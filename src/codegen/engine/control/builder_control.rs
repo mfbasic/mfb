@@ -1110,7 +1110,22 @@ impl CodeBuilder<'_> {
                         let result = if let Some(value) = value {
                             self.lower_value_owned(value)?
                         } else {
-                            self.lower_default_value(&value_type)?
+                            let default = self.lower_default_value(&value_type)?;
+                            // bug-667: the default empty `String` is static rodata;
+                            // copy it into the arena so the global owns a block its
+                            // next store can free, exactly as a local's `Bind` does.
+                            if default.type_ == ParameterType::String {
+                                let copied =
+                                    self.copy_flat_block(&ParameterType::String, &default.location)?;
+                                ValueResult {
+                                    origin: None,
+                                    type_: ParameterType::String,
+                                    location: Operand::from(copied.render()),
+                                    text: default.text,
+                                }
+                            } else {
+                                default
+                            }
                         };
                         // Observation boundary: a `Float` global must be finite
                         // (plan-17).
