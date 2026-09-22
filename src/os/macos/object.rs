@@ -571,7 +571,7 @@ fn dylib_for_library(library: &str) -> Result<String, String> {
         // (`Versions/A/`), taken from `dyld_info -dependents` on AppKit rather than
         // assumed to match AppKit's own unversioned shape.
         "Metal" => Ok("/System/Library/Frameworks/Metal.framework/Versions/A/Metal".to_string()),
-        // plan-147-B: `canvas::systemFontTable`'s CoreText enumeration. Versioned, as
+        // plan-148-B: `canvas::systemFontTable`'s CoreText enumeration. Versioned, as
         // `otool -L` reports it for a binary linking CoreText.
         "CoreText" => {
             Ok("/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText".to_string())

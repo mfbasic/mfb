@@ -11,7 +11,7 @@
 //! wants and does not need a real font in the repository. That also makes the *negative*
 //! cases exact: `OTTO` and `wOFF` are each a real thing a program might hand us and each
 //! must be refused by the same rule, which is hard to arrange with borrowed system fonts
-//! and trivial here. A `ttcf` collection is read (plan-147-A) — it loads its first face —
+//! and trivial here. A `ttcf` collection is read (plan-148-A) — it loads its first face —
 //! so a twelve-byte `ttcf` header, which holds no face at all, is refused for *that*.
 
 #[path = "../common/mod.rs"]
@@ -115,7 +115,7 @@ END SUB
 /// `ErrBadFontFile`, from `errorCode`. Spelled here so a renumbering of the table
 /// fails this test rather than silently changing what a program sees.
 const ERR_BAD_FONT_FILE: &str = "77050022";
-/// `ErrNotFound` (`7-705-0004`) — a face name the file does not carry (plan-147-A).
+/// `ErrNotFound` (`7-705-0004`) — a face name the file does not carry (plan-148-A).
 const ERR_FACE_NOT_FOUND: &str = "77050004";
 /// `ErrPathNotFound` — the *other* answer `loadFont` can give, and the reason
 /// `ErrBadFontFile` exists as a separate code at all.
@@ -1559,7 +1559,7 @@ fn a_display_sized_glyph_is_well_inside_the_raster_cap() {
 }
 
 /// A TrueType Collection holding `faces`, each a standalone sfnt such as
-/// `truetype_fixture` builds (plan-147-A).
+/// `truetype_fixture` builds (plan-148-A).
 ///
 /// A collection is a `ttcf` header, a face count and one offset per face, then the faces
 /// themselves. Each face keeps its own table directory, but the offsets in that directory
@@ -1609,7 +1609,7 @@ END SUB
 "#;
 
 /// A collection's first face draws exactly what the same font drawn from its own file
-/// draws (plan-147-A Phase 1). Exact, because extraction is a byte copy: any difference
+/// draws (plan-148-A Phase 1). Exact, because extraction is a byte copy: any difference
 /// at all means a table was rebased to the wrong place.
 #[test]
 fn a_collection_loads_its_first_face() {
@@ -1641,7 +1641,7 @@ fn a_collection_loads_its_first_face() {
 }
 
 /// A collection whose face, or one of whose tables, lies past the end of the file is
-/// refused with `ErrBadFontFile` rather than read past the end (plan-147-A Phase 1).
+/// refused with `ErrBadFontFile` rather than read past the end (plan-148-A Phase 1).
 #[test]
 fn a_collection_that_runs_past_its_end_is_refused() {
     // One face, offset far beyond the file.
@@ -1686,7 +1686,7 @@ END SUB
     );
 }
 
-/// `font` with one more table, `tag`, added to its directory (plan-147-A).
+/// `font` with one more table, `tag`, added to its directory (plan-148-A).
 ///
 /// Rebuilds the file rather than patching it: every existing table moves 16 bytes to
 /// make room for the new record, and the directory stays in sorted tag order as a real
@@ -1769,7 +1769,7 @@ fn named_face(full: &str, post_script: &str, advance: u16) -> Vec<u8> {
 }
 
 /// `canvas::loadFont(path, face)` picks a collection's face by PostScript name or by full
-/// name, and refuses a name no face carries with `ErrNotFound` (plan-147-A Phase 2). The faces differ only in `A`'s advance — 250 and 400 font units, 25 and
+/// name, and refuses a name no face carries with `ErrNotFound` (plan-148-A Phase 2). The faces differ only in `A`'s advance — 250 and 400 font units, 25 and
 /// 40 px at size 100 — so the measured width says which one loaded.
 #[test]
 fn load_font_chooses_a_collection_face_by_name() {

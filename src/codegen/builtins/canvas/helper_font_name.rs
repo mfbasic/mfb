@@ -1,4 +1,4 @@
-//! Reading a face's names out of its sfnt `name` table (plan-147-A).
+//! Reading a face's names out of its sfnt `name` table (plan-148-A).
 //!
 //! The system-font members name faces the way the operating system does — by full
 //! name (nameID 4, `"Helvetica Bold"`) and PostScript name (nameID 6,

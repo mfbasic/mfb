@@ -1,14 +1,14 @@
-# plan-147-E: Docs and the final gate
+# plan-148-E: Docs and the final gate
 
 Last updated: 2026-09-21
 Effort: medium (1h–2h)
-Depends on: plan-147-D
+Depends on: plan-148-D
 
-Prerequisites: see plan-147-A. Additionally plan-147-D is archived
-(`ls planning/completed/plan-147-D-*` → one file). If not, this letter cannot start,
+Prerequisites: see plan-148-A. Additionally plan-148-D is archived
+(`ls planning/completed/plan-148-D-*` → one file). If not, this letter cannot start,
 full stop.
 
-Documents the two public members (added in plan-147-B on top of `canvas::systemFaces`
+Documents the two public members (added in plan-148-B on top of `canvas::systemFaces`
 and the `canvas::loadFont(path, face)` overload from A), rewrites the "no font
 discovery" contract, and runs the feature's one full-suite gate. Checkable outcome: on this Mac,
 `canvas::listSystemFonts()` contains `"Helvetica"` and is sorted with no duplicates, and
@@ -51,7 +51,7 @@ fails `ErrNotFound` (77050004).
 ### Phase 1 — Members
 
 - [x] ~~`func_system_fonts.rs`: both members, and their tests~~ — moot here: moved into
-      plan-147-B (its Phase 1 tasks and Corrections), because the internal backend is
+      plan-148-B (its Phase 1 tasks and Corrections), because the internal backend is
       unreachable from a test program without them.
 - [x] Man prose for `listSystemFonts` / `loadSystemFont` finished against
       `.ai/man-content.md`: the list depends on the machine; read once per run; empty
@@ -102,22 +102,22 @@ Commit: e1194b769
       passed; 0 failed`; `artifact-gate [all]: 1480 tests, 1655 build(s), 2092
       golden(s) checked, 0 diff(s)`. (The first run, before the fix recorded in
       Corrections, had 1 failure.)
-- [x] `cargo clippy --all-targets` → no warnings in files plan-147 touched. Observed:
-      no diagnostic in any plan-147 file after the `rt_canvas_font.rs` fixture-builder
+- [x] `cargo clippy --all-targets` → no warnings in files plan-148 touched. Observed:
+      no diagnostic in any plan-148 file after the `rt_canvas_font.rs` fixture-builder
       fixes (`div_ceil`, `sort_by_key`). The run exits 101 on
-      `rt_math_fixed_trig_accuracy`'s five `FRAC_PI_2` errors, which predate plan-147
+      `rt_math_fixed_trig_accuracy`'s five `FRAC_PI_2` errors, which predate plan-148
       and are not in its files.
 - [ ] Merge `worktree-system-fonts` into main from the main checkout (clean merge,
-      main tree not entangled), then archive plan-147-E.
+      main tree not entangled), then archive plan-148-E.
 
 Commit: —
 
 ## Validation Plan
 
-- Final gate (once, for all of plan-147): `cargo test` (full suite, est. per
+- Final gate (once, for all of plan-148): `cargo test` (full suite, est. per
   `.ai/testing-gates.md`) plus `cargo clippy --all-targets` → clean; C's and D's remote
   proofs recorded in their Corrections stand as the Linux/Windows runtime proof.
-- Archive plan-147-A…E to `planning/completed/`.
+- Archive plan-148-A…E to `planning/completed/`.
 
 ## Open Decisions
 
@@ -125,6 +125,13 @@ Commit: —
   case-insensitive.
 
 ## Corrections
+
+- **Renumbered from plan-147 to plan-148 before landing.** While this work ran in its
+  worktree, main gained a different plan-147 (owned-argument calls, A–F, commit
+  `c269d2a30`). Following the repo's precedent (`bug-672: renumber from bug-671`), the
+  later arrival renumbers: every `plan-147` in this branch's files (23 files, `git grep
+  -l plan-147` before the merge; all plan-148's own) became `plan-148`, and the five
+  plan files were renamed. Commit messages before this point still say plan-147.
 
 - **Final gate, first run: 1 failure, and it exposed a real leak.**
   `every_string_returning_runtime_helper_is_marked_fresh` (bug-576 audit) — the new
@@ -142,7 +149,7 @@ Commit: —
 - **A too-broad `pkill -f artifact-gate.sh` was run** to stop this worktree's
   poisoned gate run; other sessions were running suites on the machine at the time,
   and whether one of theirs had an artifact gate in flight is unknown. Kill by pid.
-- The members themselves and their tests moved to plan-147-B (see B's Corrections);
+- The members themselves and their tests moved to plan-148-B (see B's Corrections);
   this letter keeps the prose, the spec, and the final gate.
 
 ## Summary

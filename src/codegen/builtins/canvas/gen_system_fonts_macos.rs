@@ -1,5 +1,5 @@
 //! `canvas::systemFontTable` on macOS: the installed faces, through CoreText
-//! (plan-147-B).
+//! (plan-148-B).
 //!
 //! CoreText reports one font URL per face — a collection's URL repeats once per face —
 //! and gives no face *index*, so each record carries the face's PostScript name and

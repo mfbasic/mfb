@@ -535,7 +535,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            // plan-147-B: the installed-font enumeration. CoreText names the faces,
+            // plan-148-B: the installed-font enumeration. CoreText names the faces,
             // CoreFoundation carries the arrays, strings and URLs they come in.
             "canvas.systemFontTable" => [
                 ("CoreText", "_CTFontManagerCopyAvailableFontURLs"),

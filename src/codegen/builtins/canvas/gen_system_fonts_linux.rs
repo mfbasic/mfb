@@ -1,5 +1,5 @@
 //! `canvas::systemFontTable` on Linux: the installed faces, through fontconfig
-//! (plan-147-C).
+//! (plan-148-C).
 //!
 //! fontconfig is reached through `dlopen("libfontconfig.so.1")` and `dlsym`, never a
 //! `DT_NEEDED`, for the same reason Vulkan is (`runtime/canvas/vulkan.rs`): a canvas

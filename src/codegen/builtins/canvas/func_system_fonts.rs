@@ -1,5 +1,5 @@
 //! `canvas::listSystemFonts`, `canvas::loadSystemFont`, and the internal
-//! `canvas::systemFontTable` they read (plan-147).
+//! `canvas::systemFontTable` they read (plan-148).
 //!
 //! The operating system knows which fonts are installed; this build knows how to draw a
 //! TrueType face. `systemFontTable` is the one native step — asking the OS — and

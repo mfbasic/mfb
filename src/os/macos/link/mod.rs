@@ -314,7 +314,7 @@ fn dylib_path(library: &str) -> Result<String, String> {
         "CoreGraphics" => {
             "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics".to_string()
         }
-        // plan-147-B: `canvas::systemFontTable`. Versioned install name, matching
+        // plan-148-B: `canvas::systemFontTable`. Versioned install name, matching
         // `dylib_for_library` in the object plan.
         "CoreText" => {
             "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText".to_string()

@@ -27,7 +27,7 @@ const OLE32: &str = "ole32.dll";
 /// `Icmp*` exports were confirmed in `C:\Windows\System32\IPHLPAPI.DLL` on the
 /// Windows 11 test box (10.0.26100.9168).
 const IPHLPAPI: &str = "iphlpapi.dll";
-/// `canvas::systemFontTable`'s DirectWrite system font collection (plan-147-D). Only
+/// `canvas::systemFontTable`'s DirectWrite system font collection (plan-148-D). Only
 /// `DWriteCreateFactory` is imported; every other DirectWrite call is a vtable call.
 const DWRITE: &str = "dwrite.dll";
 

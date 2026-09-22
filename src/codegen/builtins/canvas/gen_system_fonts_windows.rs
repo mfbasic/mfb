@@ -1,5 +1,5 @@
 //! `canvas::systemFontTable` on Windows: the installed faces, through DirectWrite's
-//! system font collection (plan-147-D).
+//! system font collection (plan-148-D).
 //!
 //! `DWriteCreateFactory` is `dwrite.dll`'s one flat export; everything after it is a
 //! COM vtable call. The slot numbers below are the method's index in its interface's

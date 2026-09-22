@@ -102,7 +102,7 @@ FUNC __canvas_loadFontBytes(path AS String, bytes AS List OF Byte, dir AS Intege
   RETURN canvas::fontFromBytes(face)
 END FUNC"#;
 
-/// `canvas::loadFont(path, face)` — load one named face of a file (plan-147-A).
+/// `canvas::loadFont(path, face)` — load one named face of a file (plan-148-A).
 ///
 /// A collection holds several faces, and the plain `loadFont(path)` takes the first; this
 /// overload finds the one whose `name` table carries `face`. The PostScript name
@@ -129,7 +129,7 @@ r#"FUNC __canvas_loadFontNamed(path AS String, face AS String) AS canvas::Font
   FAIL error(77050004, "no face named " & face & " in " & path)
 END FUNC"#;
 
-/// TrueType Collections (plan-147-A): which faces a file holds, and one face lifted out
+/// TrueType Collections (plan-148-A): which faces a file holds, and one face lifted out
 /// as a standalone sfnt.
 ///
 /// A `ttcf` file is a header, a count, and one offset per face; each offset names an

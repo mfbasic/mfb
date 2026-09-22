@@ -395,7 +395,7 @@ impl LinuxPlan<'_> {
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("poll", required_by),
             ],
-            // plan-147-C: fontconfig arrives through `dlopen`/`dlsym`, never a
+            // plan-148-C: fontconfig arrives through `dlopen`/`dlsym`, never a
             // DT_NEEDED — a canvas program must still start without it.
             "canvas.systemFontTable" => ["dlopen", "dlsym", "strlen", "strcmp", "memcpy"]
                 .into_iter()

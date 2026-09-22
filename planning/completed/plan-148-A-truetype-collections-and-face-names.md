@@ -1,12 +1,12 @@
-# plan-147-A: TrueType collections and face names
+# plan-148-A: TrueType collections and face names
 
 Last updated: 2026-09-21
-Overall Effort: x-large (1d–3d) — the whole plan-147 feature (`canvas::listSystemFonts`,
+Overall Effort: x-large (1d–3d) — the whole plan-148 feature (`canvas::listSystemFonts`,
 `canvas::loadSystemFont`, their three native backends, collections, docs)
 Effort: large (3h–1d)
 Depends on: nothing
 
-plan-147 adds two members to the `canvas` package:
+plan-148 adds two members to the `canvas` package:
 
 ```
 canvas::listSystemFonts() AS List OF String
@@ -44,7 +44,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Work happens in the plan-147 worktree | `git -C . rev-parse --abbrev-ref HEAD` → `worktree-system-fonts` | MET (2026-09-21) |
+| Work happens in the plan-148 worktree | `git -C . rev-parse --abbrev-ref HEAD` → `worktree-system-fonts` | MET (2026-09-21) |
 | The build is green before starting | `cargo build` → exit 0 | re-run before starting |
 
 Everything below is written against the world where these hold.
@@ -317,7 +317,7 @@ Commit: 37ae8a1dd
   host-font test, gated to macOS like `every_glyph_of_a_text_run_draws_its_own_bitmap`).
 - Doc sync: `loadFont` DESC, `IS_TRUETYPE` comment, `ErrBadFontFile` description,
   `06_canvas.md`.
-- Final gate for the whole feature runs once, in plan-147-E.
+- Final gate for the whole feature runs once, in plan-148-E.
 
 ## Open Decisions
 
@@ -339,14 +339,14 @@ Commit: 37ae8a1dd
   PostScript name, then full name; a missing face is `ErrNotFound`, not
   `ErrBadFontFile`. Knock-on: `systemFaces` is internal too, so B/C/D cannot test it
   directly either — the public `listSystemFonts`/`loadSystemFont` move from E into B
-  (see plan-147-B/E Corrections).
+  (see plan-148-B/E Corrections).
 - **Phase 3's golden check named a test target that does not exist.** The
   `app-mouse-surface` native goldens are read only by `scripts/artifact-gate.sh`
   (`tests/gate/golden.rs`, whose one test runs the *full* gate — too big for a phase
   check) and its `.ir`/`.ast` by `scripts/test-accept.sh`. The scoped substitute: the
   fixture rebuilt with artifact-gate's exact commands (`/tmp/p147_regen_app.sh`, 8/8
   `same`) plus `test-accept.sh … 'app*'` and `'canvas*'`. The full gate still runs once
-  in plan-147-E.
+  in plan-148-E.
 - MFBASIC note: `next` is a keyword (FOR … NEXT); the offset cursor in
   `__canvas_extractFace` is named `cursor`.
 

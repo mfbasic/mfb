@@ -48,7 +48,7 @@ END FUNC"#;
 ///
 /// `__canvas_faceTable` reads the directory at `dir` — `0` for an ordinary sfnt, or one
 /// face's directory inside a collection, whose table offsets still count from the start
-/// of the file (plan-147-A). Every renderer-side reader goes through `__canvas_fontTable`,
+/// of the file (plan-148-A). Every renderer-side reader goes through `__canvas_fontTable`,
 /// which is the directory at `0`: a loaded font is always a standalone face, because the
 /// loader lifts a collection's face out before stamping the resource.
 ///

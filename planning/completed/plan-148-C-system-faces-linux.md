@@ -1,11 +1,11 @@
-# plan-147-C: System faces on Linux (fontconfig via dlopen)
+# plan-148-C: System faces on Linux (fontconfig via dlopen)
 
 Last updated: 2026-09-21
 Effort: large (3h–1d)
-Depends on: plan-147-B
+Depends on: plan-148-B
 
-Prerequisites: see plan-147-A. Additionally plan-147-B is archived
-(`ls planning/completed/plan-147-B-*` → one file), and a GTK Linux box with fontconfig
+Prerequisites: see plan-148-A. Additionally plan-148-B is archived
+(`ls planning/completed/plan-148-B-*` → one file), and a GTK Linux box with fontconfig
 answers: `ssh -p 2228 test@127.0.0.1 'fc-list | wc -l'` → a positive count (2628 on
 2026-09-21). If either fails, this letter cannot start, full stop.
 
@@ -15,7 +15,7 @@ program still starts on a machine without fontconfig; there the list is **empty*
 Checkable outcome: on box 2228 a headless `--app` program prints a positive face count,
 and `canvas::loadSystemFont` succeeds for every name `canvas::listSystemFonts` returns.
 
-References: plan-147-A/B; `src/codegen/builtins/audio/gen_alsa_shared.rs`
+References: plan-148-A/B; `src/codegen/builtins/audio/gen_alsa_shared.rs`
 (`emit_dlopen`, `emit_dlsym`, `emit_call_fnptr`), `src/codegen/builtins/audio/gen_alsa_devices.rs`
 (list of records from a dlopened library), `src/target/linux_common/plan.rs`,
 `.ai/arch-abi.md` (x86-64 SysV), `.ai/remote_systems.md`.
@@ -110,11 +110,11 @@ fontconfig).
       linux-x86_64|linux-aarch64 -nplan` succeeds, the plan imports `dlopen`/`dlsym` and
       names no fontconfig library (the nplan's import table *is* what becomes
       `DT_NEEDED`; see Corrections).
-- [x] Restore the Linux canvas-app build broken since plan-147-B (every canvas app
+- [x] Restore the Linux canvas-app build broken since plan-148-B (every canvas app
       reaches `canvas.systemFontTable`): `mfb build -ncode -target linux-x86_64 --app`
       and `-target linux-aarch64` of `tests/syntax/app/app-mouse-surface` succeed, and
       their `.app.ncodesum` goldens are regenerated (the target-shared `.ir` already
-      shows the diff is only the plan-147 members). Re-check → `same` for both.
+      shows the diff is only the plan-148 members). Re-check → `same` for both.
 
 Acceptance: builds for both app-capable Linux targets, no fontconfig `DT_NEEDED`.
   Check: `cargo test --test rt_canvas_system_fonts linux` → pass (est. 3 min).
@@ -137,7 +137,7 @@ Commit: c73794420
 ## Validation Plan
 
 - Tests: cross-build + no-DT_NEEDED test; remote run on 2228.
-- Final gate: plan-147-E.
+- Final gate: plan-148-E.
 
 ## Open Decisions
 

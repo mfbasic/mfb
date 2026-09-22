@@ -1,11 +1,11 @@
-# plan-147-D: System faces on Windows (DirectWrite)
+# plan-148-D: System faces on Windows (DirectWrite)
 
 Last updated: 2026-09-21
 Effort: large (3h–1d)
-Depends on: plan-147-C
+Depends on: plan-148-C
 
-Prerequisites: see plan-147-A. Additionally plan-147-C is archived
-(`ls planning/completed/plan-147-C-*` → one file), and the Windows box answers:
+Prerequisites: see plan-148-A. Additionally plan-148-C is archived
+(`ls planning/completed/plan-148-C-*` → one file), and the Windows box answers:
 `ssh -p 2230 test@127.0.0.1 'ver'` → a Windows version line. If either fails, this
 letter cannot start, full stop.
 
@@ -13,7 +13,7 @@ Implements `canvas::systemFaces()` on windows-x86_64 with DirectWrite's system f
 collection through COM. Checkable outcome: on box 2230 a headless `--app` program prints
 a positive face count and `canvas::loadSystemFont` succeeds for every listed name.
 
-References: plan-147-A/B/C; `src/codegen/builtins/audio/gen_windows.rs` (`com_call`,
+References: plan-148-A/B/C; `src/codegen/builtins/audio/gen_windows.rs` (`com_call`,
 `ole_call`), `src/codegen/builtins/audio/gen_windows_devices.rs` (COM enumeration →
 record list), `src/target/win_x86_64/plan.rs`, `src/target/win_x86_64/code.rs`
 (`emit_wide_to_utf8`), `.ai/arch-abi.md` (Win64), mingw-w64 `dwrite.h`.
@@ -115,9 +115,9 @@ PostScript name); GDI `EnumFontFamiliesEx` (no file paths).
 - [x] `gen_system_fonts_windows.rs`, plan arm (`DWriteCreateFactory` from new
       `DWRITE` = `dwrite.dll`, `WideCharToMultiByte` from kernel32), capability entry;
       the no-backend arm is gone (every `PlatformFamily` has a backend).
-- [x] Restore the Windows canvas-app build broken since plan-147-B: `mfb build -ncode
+- [x] Restore the Windows canvas-app build broken since plan-148-B: `mfb build -ncode
       -target windows-x86_64 --app` of `tests/syntax/app/app-mouse-surface` succeeds and
-      its `.app.ncodesum` is regenerated (the target-shared `.ir` shows only plan-147
+      its `.app.ncodesum` is regenerated (the target-shared `.ir` shows only plan-148
       members). The two Linux sums were regenerated again too — `stack_bytes` now
       writes 4-byte chunks (see Corrections). Re-check: 8/8 `same`.
 - [x] Tests: `rt_canvas_system_fonts.rs` `windows_reaches_directwrite_through_its_factory`
@@ -136,7 +136,7 @@ Commit: a8bc9e6b6
 ## Validation Plan
 
 - Tests: cross-build test; remote run on 2230; audio goldens unchanged after the lift.
-- Final gate: plan-147-E.
+- Final gate: plan-148-E.
 
 ## Open Decisions
 
@@ -157,7 +157,7 @@ Commit: a8bc9e6b6
 - **`stack_bytes` writes 4-byte chunks.** The GUIDs set the top bit of 8-byte words,
   and a 64-bit immediate above `i64::MAX` is not a form any emitter here was shown to
   take; four bytes at a time keeps every immediate a small non-negative number. That
-  also changed the Linux emitter's stack C-strings, so plan-147-C's runtime proof was
+  also changed the Linux emitter's stack C-strings, so plan-148-C's runtime proof was
   re-run on 2228 against the new code (recorded here because C is archived):
   `exit=0 seconds=222`, `faces=2429 loaded=2429`, `unknown: 77050004` — identical to
   C's result. macOS does not use `stack_bytes` (its `.app.ncodesum` stayed `same`).

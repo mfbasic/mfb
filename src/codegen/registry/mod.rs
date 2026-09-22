@@ -6864,7 +6864,7 @@ mod raw_result_block_ownership {
     }
 
     /// A package companion may not call a `collections` member whose body is MFBASIC
-    /// source (`sort`, `distinct`, `sortBy`, …) — plan-147-B found this the hard way.
+    /// source (`sort`, `distinct`, `sortBy`, …) — plan-148-B found this the hard way.
     ///
     /// The `collections` source reaches a build only when the *program* imports
     /// `collections` (`codegen::builtins::collections::augmented_project`, run from

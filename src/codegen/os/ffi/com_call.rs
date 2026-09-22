@@ -1,5 +1,5 @@
 //! A COM vtable method call — the one shape shared by WASAPI audio and DirectWrite
-//! system-font enumeration (plan-147-D).
+//! system-font enumeration (plan-148-D).
 
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeInstruction;

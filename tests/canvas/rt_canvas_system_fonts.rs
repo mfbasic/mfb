@@ -1,4 +1,4 @@
-//! `canvas::listSystemFonts` and `canvas::loadSystemFont` (plan-147).
+//! `canvas::listSystemFonts` and `canvas::loadSystemFont` (plan-148).
 //!
 //! These run a real headless `--app` program against the host's installed fonts. That
 //! is the point, not a convenience: what has to be true is a statement about the
@@ -181,7 +181,7 @@ END SUB
     plan
 }
 
-/// On Linux, fontconfig is loaded at run time and never linked (plan-147-C): a canvas
+/// On Linux, fontconfig is loaded at run time and never linked (plan-148-C): a canvas
 /// program must start on a machine without it, where the font list is simply empty.
 /// So the plan imports `dlopen`/`dlsym` and names no fontconfig library — a
 /// `DT_NEEDED` on `libfontconfig.so.1` would make every canvas app fail to exec there.
@@ -205,7 +205,7 @@ fn linux_reaches_fontconfig_through_dlopen_not_a_link() {
     }
 }
 
-/// On Windows the fonts come from DirectWrite (plan-147-D): the plan imports
+/// On Windows the fonts come from DirectWrite (plan-148-D): the plan imports
 /// `dwrite.dll`'s one flat export, `DWriteCreateFactory`, and nothing else from it —
 /// every other DirectWrite call is a vtable call.
 #[test]
