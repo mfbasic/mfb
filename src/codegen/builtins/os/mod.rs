@@ -28,6 +28,7 @@ use crate::codegen::registry::{Registry, RegistryPackage};
 mod gen_env;
 mod gen_introspect;
 mod gen_paths;
+pub(crate) use gen_paths::resource_base_offset;
 mod gen_shared;
 pub(crate) use gen_env::{module_uses_env_lock, os_env_lock_init_hex};
 pub(crate) use gen_shared::{

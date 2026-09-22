@@ -88,6 +88,9 @@ pub(crate) enum ArmId {
     /// `s = f(s, …)` for the 13 `String` builtins whose result is a window of `s`
     /// (plan-146-C).
     StrWindow,
+    /// `s = f(s, …)` for the `String` builtins whose result is `s` with bytes
+    /// added (plan-146-D).
+    StrGrow,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -422,6 +425,11 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
         |b, s, v| b.try_inplace_string_window_assign(s, v),
         FieldReach::None,
     ),
+    (
+        ArmId::StrGrow,
+        |b, s, v| b.try_inplace_string_grow_assign(s, v),
+        FieldReach::None,
+    ),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -500,20 +508,33 @@ impl CodeBuilder<'_> {
     }
 }
 
+/// plan-146-D: a call's `(target, args)`, whichever node the lowering produced —
+/// a plain `Call`, or the `RuntimeCall` an `abi_function` member's call site
+/// becomes (`os::resourcePath`). Both are `f(args…)` to every gate here.
+pub(crate) fn self_update_call_parts(value: &NirValue) -> Option<(&str, &[NirValue])> {
+    match value {
+        NirValue::Call { target, args, .. } => Some((target.as_str(), args.as_slice())),
+        NirValue::RuntimeCall { target, args, .. } => Some((target.as_str(), args.as_slice())),
+        _ => None,
+    }
+}
+
 /// Whether `value` is shaped `f(name, …)` for a builtin with a self-update arm —
 /// the test for giving a by-ref local's statement a `Ref` destination (plan-142-G)
 /// before any slot is allocated for it.
 pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
-    matches!(value, NirValue::Call { target, args, .. }
-        if self_update_builtin(target).is_some()
-            && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name))
+    self_update_call_parts(value).is_some_and(|(target, args)| {
+        self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name)
+    })
 }
 
 /// [`is_self_update_call`] for the module-level global `name` (plan-142-H).
 pub(crate) fn is_global_self_update_call(value: &NirValue, name: &str) -> bool {
-    matches!(value, NirValue::Call { target, args, .. }
-        if self_update_builtin(target).is_some()
-            && matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name))
+    self_update_call_parts(value).is_some_and(|(target, args)| {
+        self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -617,6 +638,9 @@ pub(crate) const SCRATCH_ARMS: &[&str] = &[
     "symmetricDifference",
     "mapValues",
     "merge",
+    // plan-146-D: the `os::resourcePath` arm builds its prefix — the executable's
+    // directory plus the build mode's resource suffix — in the scratch.
+    "resourcePath",
 ];
 
 /// Whether `ops` (recursively) hold a self-update `x = f(x, …)` whose call target
@@ -627,16 +651,17 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
             if with_holds_field_self_update(value, wanted) {
                 return true;
             }
-            let NirValue::Call { target, args, .. } = value else {
+            let Some((target, args)) = self_update_call_parts(value) else {
                 return false;
             };
             matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name) && wanted(target)
         }
         NirOp::StoreGlobal {
             name,
-            value: Some(NirValue::Call { target, args, .. }),
+            value: Some(value),
             ..
-        } => {
+        } if self_update_call_parts(value).is_some() => {
+            let (target, args) = self_update_call_parts(value).expect("matched above");
             matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
                 && wanted(target)
         }
@@ -753,6 +778,16 @@ fn target_needs_self_update_scratch(target: &str) -> bool {
         .is_some()
 }
 
+/// plan-146-D: whether the module holds a self-update `x = f(x, …)` of the builtin
+/// whose bare name is `bare`.
+pub(crate) fn module_self_updates_with(module: &NirModule, bare: &str) -> bool {
+    module.functions.iter().any(|function| {
+        ops_hold_self_update(&function.body, &|target| {
+            self_update_builtin(target) == Some(bare)
+        })
+    })
+}
+
 /// Whether the module holds a `collections::replace` self-update (plan-142-C).
 /// Its arm writes through `lower_list_set_in_place`, whose rebuild path — never
 /// taken from that arm, but always emitted — raises `ErrIndexOutOfRange`, so the
@@ -835,6 +870,34 @@ impl CodeBuilder<'_> {
         self.active_cleanups
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: ParameterType::list_of(ParameterType::Integer),
+                stack_offset: slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            }));
+    }
+
+    /// plan-146-D: give this function a slot for `os::resourcePath`'s base block
+    /// when its body holds `s = os::resourcePath(s)` — the in-place arm computes the
+    /// base at most once per call and reads it from there. Registered as a
+    /// function-level owned `String`, so the ordinary scope drop frees it (with the
+    /// null guard and prologue zeroing that drop brings), exactly as the self-update
+    /// scratch is.
+    pub(crate) fn prescan_string_resource_base(&mut self, ops: &[NirOp]) {
+        if self.string_resource_base.is_some() {
+            return;
+        }
+        if !ops_hold_self_update(ops, &|target| {
+            self_update_builtin(target) == Some("resourcePath")
+        }) {
+            return;
+        }
+        let slot = self.allocate_stack_object("str_resource_base", 8);
+        self.string_resource_base = Some(slot);
+        self.active_cleanups
+            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                type_: ParameterType::String,
                 stack_offset: slot,
                 closure_captures: None,
                 capacity_slot: None,
@@ -1670,32 +1733,32 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
     },
     SelfUpdateRow {
         function: "strings::padLeft",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(ST, STR, "strings::padLeft(x, 8)")],
     },
     SelfUpdateRow {
         function: "strings::padRight",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(ST, STR, "strings::padRight(x, 8)")],
     },
     SelfUpdateRow {
         function: "strings::padLeftToWidth",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(ST, STR, "strings::padLeftToWidth(x, 8)")],
     },
     SelfUpdateRow {
         function: "strings::padRightToWidth",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(ST, STR, "strings::padRightToWidth(x, 8)")],
     },
     SelfUpdateRow {
         function: "strings::repeat",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(ST, STR, "strings::repeat(x, 2)")],
     },
     SelfUpdateRow {
         function: "os::resourcePath",
-        kind: SelfUpdate::Pending("D"),
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(OS, STR, "os::resourcePath(x)")],
     },
     SelfUpdateRow {
@@ -2039,6 +2102,7 @@ impl ArmId {
             ArmId::MapValues => &["inplace_mapvalues_action"],
             ArmId::StrIdentity => &["inplace_str_identity"],
             ArmId::StrWindow => &["inplace_str_window"],
+            ArmId::StrGrow => &["inplace_str_grow"],
         }
     }
 }
@@ -2332,6 +2396,12 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         ),
         (
             ArmId::StrWindow,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrGrow,
             "",
             ALL_FIELD_SITES,
             "a `String` field is deferred:string (plan-145-A Open Decision 1)",

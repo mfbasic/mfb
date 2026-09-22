@@ -96,12 +96,12 @@ strings::graphemeAt(value AS String, index AS Integer) AS String	arm	String = "a
 fs::pathBaseName(path AS String) AS String	arm	String = "b"	x = x & "/b" ; x = fs::pathBaseName(x)	before
 fs::pathDirName(path AS String) AS String	arm	String = "a"	x = x & "/b" ; x = fs::pathDirName(x)	before
 fs::pathExtension(path AS String) AS String	arm	String = "txt"	x = x & ".txt" ; x = fs::pathExtension(x)	before
-strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padLeft(x, 8) ; x = strings::right(x, 3)	before
-strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padRight(x, 8) ; x = strings::left(x, 3)	before
-strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	before
-strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	before
-strings::repeat(value AS String, times AS Integer) AS String	pending:D	String = "abc"	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	before
-os::resourcePath(relative AS String) AS String	pending:D	String = "r"	x = os::resourcePath(x) ; x = fs::pathBaseName(x)	before
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padLeft(x, 8) ; x = strings::right(x, 3)	before
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRight(x, 8) ; x = strings::left(x, 3)	before
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	before
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	before
+strings::repeat(value AS String, times AS Integer) AS String	arm	String = "abc"	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	before
+os::resourcePath(relative AS String) AS String	arm	String = "r"	x = os::resourcePath(x) ; x = fs::pathBaseName(x)	before
 strings::upper(value AS String) AS String	pending:E	String = "abc"	x = strings::upper(x) ; x = strings::lower(x)	before
 strings::lower(value AS String) AS String	pending:E	String = "ABC"	x = strings::lower(x) ; x = strings::upper(x)	before
 strings::caseFold(value AS String) AS String	pending:E	String = "abc"	x = strings::caseFold(x)	before

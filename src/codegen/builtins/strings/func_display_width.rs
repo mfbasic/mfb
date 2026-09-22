@@ -105,8 +105,17 @@ pub(crate) fn lower(
     if args.len() != 1 {
         return Err("strings.displayWidth: no native lowering for these arguments".to_string());
     }
-    let value = &args[0];
+    display_width_of(builder, &args[0])
+}
 
+/// plan-146-D: the column count of `value`, without the constant fold — the walk
+/// [`lower`] emits, callable from a lowering that has no `AbiCtx` (the
+/// `padLeftToWidth`/`padRightToWidth` in-place arm measures with it, exactly as
+/// the MFBASIC helper `__strings_padToWidthCopies` calls `strings::displayWidth`).
+pub(crate) fn display_width_of(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+) -> Result<ValueResult, String> {
     let ptr = builder.temporary_vreg();
     let len = builder.temporary_vreg();
     let data = builder.temporary_vreg();

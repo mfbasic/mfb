@@ -13,7 +13,9 @@
 use std::ops::RangeInclusive;
 
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
-use crate::codegen::collection::assign::self_update::{self_update_builtin, SelfUpdateSite};
+use crate::codegen::collection::assign::self_update::{
+    self_update_builtin, self_update_call_parts, SelfUpdateSite,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::control::string_self_append_operands_of;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
@@ -42,6 +44,13 @@ pub(crate) const STRING_SHADOW_ARMS: &[&str] = &[
     "pathBaseName",
     "pathDirName",
     "pathExtension",
+    // plan-146-D, the grow arm.
+    "padLeft",
+    "padRight",
+    "padLeftToWidth",
+    "padRightToWidth",
+    "repeat",
+    "resourcePath",
 ];
 
 /// Whether `value` is a `String` self-update of the binding `root` recognises
@@ -53,9 +62,10 @@ pub(crate) fn is_string_self_update(value: &NirValue, root: &dyn Fn(&NirValue) -
     if string_self_append_operands_of(value, root).is_some() {
         return true;
     }
-    matches!(value, NirValue::Call { target, args, .. }
-        if self_update_builtin(target).is_some_and(|bare| STRING_SHADOW_ARMS.contains(&bare))
-            && args.first().is_some_and(root))
+    self_update_call_parts(value).is_some_and(|(target, args)| {
+        self_update_builtin(target).is_some_and(|bare| STRING_SHADOW_ARMS.contains(&bare))
+            && args.first().is_some_and(root)
+    })
 }
 
 /// plan-146-C: how a window row locates the result inside its first argument.
@@ -124,6 +134,54 @@ pub(crate) const STRING_WINDOW_FNS: &[(&str, RangeInclusive<usize>, WindowKind)]
     ("pathDirName", 1..=1, WindowKind::PathDirName),
     ("pathExtension", 1..=1, WindowKind::PathExtension),
 ];
+
+/// plan-146-D: how a grow row measures its result and where the new bytes go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GrowKind {
+    /// `strings::padLeft` / `padRight`: pad to a SCALAR count.
+    Pad { right: bool },
+    /// `strings::padLeftToWidth` / `padRightToWidth`: pad to a COLUMN count.
+    PadToWidth { right: bool },
+    /// `strings::repeat`.
+    Repeat,
+    /// `os::resourcePath`: the result is `<base>/` + `relative`, so it is prefix
+    /// growth whose prefix comes from the host.
+    ResourcePath,
+}
+
+/// plan-146-D: the `String` builtins whose result is their first argument with
+/// bytes added — `(bare name, arity, how it grows)`. One arm (`ArmId::StrGrow`)
+/// serves them all.
+pub(crate) const STRING_GROW_FNS: &[(&str, RangeInclusive<usize>, GrowKind)] = &[
+    ("padLeft", 2..=3, GrowKind::Pad { right: false }),
+    ("padRight", 2..=3, GrowKind::Pad { right: true }),
+    (
+        "padLeftToWidth",
+        2..=3,
+        GrowKind::PadToWidth { right: false },
+    ),
+    (
+        "padRightToWidth",
+        2..=3,
+        GrowKind::PadToWidth { right: true },
+    ),
+    ("repeat", 2..=2, GrowKind::Repeat),
+    ("resourcePath", 1..=1, GrowKind::ResourcePath),
+];
+
+/// plan-146-D: what a grow row's measure step hands its write step.
+enum GrowWrite {
+    /// `pad_count` copies of the padChar block's bytes.
+    Pad {
+        pad_slot: usize,
+        pad_len_slot: usize,
+        pad_count_slot: usize,
+    },
+    /// `times - 1` further copies of the block's own bytes.
+    Repeat { times_slot: usize },
+    /// A buffer holding the prefix bytes, and their count.
+    Prefix { ptr_slot: usize, len_slot: usize },
+}
 
 /// A binding's capacity shadow, opened for one statement: `slot` holds the spare
 /// bytes past the block's length. For a global it is a working copy of the hidden
@@ -195,8 +253,8 @@ impl CodeBuilder<'_> {
         if site.type_ != ParameterType::String {
             return None;
         }
-        // G2 — a call.
-        let NirValue::Call { target, args, .. } = value else {
+        // G2 — a call (either node shape a lowering produces).
+        let Some((target, args)) = self_update_call_parts(value) else {
             return None;
         };
         // G3 / G4 — the builtin and its arity.
@@ -514,6 +572,729 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(&zero, &ptr, 8));
     }
 
+    /// plan-146-D: `s = f(s, …)` for a builtin whose result is `s` with bytes
+    /// added ([`STRING_GROW_FNS`]). The measure step computes the result's length
+    /// and raises everything the row can raise; then the block is reserved (which
+    /// allocates only when the binding outgrows its spare capacity, so a loop
+    /// allocates `O(log n)` times), the added bytes are written — after `s`'s for
+    /// an append, before them for a prefix, which moves `s`'s bytes right first —
+    /// and the length is stored.
+    pub(crate) fn try_inplace_string_grow_assign(
+        &mut self,
+        site: &SelfUpdateSite<'_>,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let Some((target, _)) = self_update_call_parts(value) else {
+            return Ok(false);
+        };
+        let Some(bare) = self_update_builtin(target) else {
+            return Ok(false);
+        };
+        let Some((name, arity, kind)) = STRING_GROW_FNS
+            .iter()
+            .find(|(name, _, _)| *name == bare)
+            .map(|(name, arity, kind)| (*name, arity.clone(), *kind))
+        else {
+            return Ok(false);
+        };
+        let Some(args) = self.resolve_string_self_update(site, value, name, arity, true) else {
+            return Ok(false);
+        };
+        let args: Vec<NirValue> = args.to_vec();
+
+        let block_slot = site.dest.block_slot();
+        let shadow = self
+            .string_shadow_slot(site)?
+            .ok_or("native String grow self-update lost its capacity shadow")?;
+        let mut rest = Vec::new();
+        for arg in &args[1..] {
+            rest.push(self.lower_value(arg)?);
+        }
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+        let value_result = ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(block.render()),
+            text: String::new(),
+        };
+        let value_slot = self.spill_to_slot("inplace_str_grow_value", &value_result.location);
+        // The marker slot: its presence proves this arm fired (`ArmId::markers`).
+        let newlen_slot = self.allocate_stack_object("inplace_str_grow", 8);
+        let grow = self.emit_string_grow_measure(kind, value_slot, &rest, newlen_slot)?;
+        // Every raise is behind us; the reserve is the only remaining failure, and
+        // it allocates before it writes.
+        self.emit_string_reserve(block_slot, shadow.slot, newlen_slot)?;
+        self.emit_string_grow_write(kind, block_slot, newlen_slot, &grow);
+        self.emit_string_set_len(block_slot, shadow.slot, newlen_slot);
+        self.publish_string_shadow(&shadow)?;
+        if let Some(local) = self.locals.get_mut(site.name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// What a grow row's measure step leaves for its write step.
+    fn emit_string_grow_measure(
+        &mut self,
+        kind: GrowKind,
+        value_slot: usize,
+        rest: &[ValueResult],
+        newlen_slot: usize,
+    ) -> Result<GrowWrite, String> {
+        let arg = |i: usize| -> Result<&ValueResult, String> {
+            rest.get(i)
+                .ok_or_else(|| "native String grow self-update lost an argument".to_string())
+        };
+        match kind {
+            GrowKind::Pad { right } => {
+                use crate::codegen::builtins::strings::gen_pad::{pad_measure, PadScratch};
+                let width_slot = self.spill_to_slot("inplace_str_grow_width", &arg(0)?.location);
+                let pad_slot = self.string_pad_char_slot(rest.get(1))?;
+                let regs: Vec<VirtualRegister> = (0..9).map(|_| self.temporary_vreg()).collect();
+                let measure = pad_measure(
+                    self,
+                    value_slot,
+                    width_slot,
+                    pad_slot,
+                    &PadScratch {
+                        scratch9: &regs[0],
+                        scratch10: &regs[1],
+                        scratch11: &regs[2],
+                        scratch12: &regs[3],
+                        scratch13: &regs[4],
+                        scratch14: &regs[5],
+                        scratch15: &regs[6],
+                        scratch16: &regs[7],
+                        scratch17: &regs[8],
+                    },
+                )?;
+                let member = if right {
+                    "strings.padRight"
+                } else {
+                    "strings.padLeft"
+                };
+                self.emit_grow_raise_here(&measure.invalid, member)?;
+                let total = self.temporary_vreg();
+                self.emit(abi::load_u64(
+                    &total,
+                    abi::stack_pointer(),
+                    measure.total_slot,
+                ));
+                self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
+                Ok(GrowWrite::Pad {
+                    pad_slot,
+                    pad_len_slot: measure.pad_len_slot,
+                    pad_count_slot: measure.pad_count_slot,
+                })
+            }
+            GrowKind::PadToWidth { right } => {
+                let pad_slot = self.string_pad_char_slot(rest.get(1))?;
+                let member = if right {
+                    "strings.padRightToWidth"
+                } else {
+                    "strings.padLeftToWidth"
+                };
+                let (pad_len_slot, pad_count_slot) = self.emit_pad_to_width_measure(
+                    value_slot,
+                    arg(0)?,
+                    pad_slot,
+                    newlen_slot,
+                    member,
+                )?;
+                Ok(GrowWrite::Pad {
+                    pad_slot,
+                    pad_len_slot,
+                    pad_count_slot,
+                })
+            }
+            GrowKind::ResourcePath => {
+                // The prefix is built in the function's self-update scratch, which
+                // the prescan gives every function holding this self-update.
+                if self.self_update_scratch.is_none() {
+                    return Err(
+                        "native os.resourcePath self-update in a function without a scratch"
+                            .to_string(),
+                    );
+                }
+                // The relative path is checked first: `os::resourcePath` rejects a
+                // `.` or `..` component before it builds anything.
+                self.emit_reject_dot_components(value_slot)?;
+                let (prefix_ptr_slot, prefix_len_slot) = self.emit_resource_prefix()?;
+                let prefix_len = self.temporary_vreg();
+                let value_ptr = self.temporary_vreg();
+                let value_len = self.temporary_vreg();
+                let total = self.temporary_vreg();
+                let overflow = self.label("inplace_str_respath_overflow");
+                let ok = self.label("inplace_str_respath_total_ok");
+                self.emit(abi::load_u64(
+                    &prefix_len,
+                    abi::stack_pointer(),
+                    prefix_len_slot,
+                ));
+                self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
+                self.emit(abi::load_u64(&value_len, &value_ptr, 0));
+                self.emit_checked_size_add(&total, &prefix_len, &value_len, &overflow);
+                self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
+                self.emit(abi::branch(&ok));
+                self.emit(abi::label(&overflow));
+                self.raise_error_bare("ErrOutOfMemory")?;
+                self.emit(abi::label(&ok));
+                Ok(GrowWrite::Prefix {
+                    ptr_slot: prefix_ptr_slot,
+                    len_slot: prefix_len_slot,
+                })
+            }
+            GrowKind::Repeat => {
+                use crate::codegen::builtins::strings::func_repeat::repeat_measure;
+                let times_slot = self.spill_to_slot("inplace_str_grow_times", &arg(0)?.location);
+                let measure = repeat_measure(self, value_slot, times_slot)?;
+                self.emit_grow_raise_here(&measure.invalid, "strings.repeat")?;
+                let total = self.temporary_vreg();
+                self.emit(abi::load_u64(
+                    &total,
+                    abi::stack_pointer(),
+                    measure.total_slot,
+                ));
+                self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
+                Ok(GrowWrite::Repeat { times_slot })
+            }
+        }
+    }
+
+    /// Raise `ErrInvalidArgument` at a measure half's `invalid` label, which the
+    /// copying lowering emits after its result instead. Nothing has been written to
+    /// the binding at either point (failure atomicity).
+    fn emit_grow_raise_here(&mut self, invalid: &str, label: &str) -> Result<(), String> {
+        let ok = self.label("inplace_str_grow_ok");
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(invalid));
+        self.raise_error(label, "ErrInvalidArgument")?;
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
+
+    /// The padChar argument's block, or — when the call defaults it — a one-byte
+    /// `" "` `String` block built in the frame. The copying lowering materializes
+    /// an arena block for the default; an arm must allocate nothing per statement,
+    /// and every reader of a `String` only wants `[len][bytes][NUL]` at the
+    /// pointer, which a stack object provides.
+    fn string_pad_char_slot(&mut self, pad: Option<&ValueResult>) -> Result<usize, String> {
+        if let Some(pad) = pad {
+            return Ok(self.spill_to_slot("inplace_str_grow_pad", &pad.location));
+        }
+        let block = self.allocate_stack_object("inplace_str_grow_space", 16);
+        let one = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let address = self.temporary_vreg();
+        self.emit(abi::move_immediate(&one, "Integer", "1"));
+        self.emit(abi::store_u64(&one, abi::stack_pointer(), block));
+        self.emit(abi::move_immediate(&byte, "Byte", "32"));
+        self.emit(abi::add_immediate(&address, abi::stack_pointer(), block));
+        self.emit(abi::store_u8(&byte, &address, 8));
+        self.emit(abi::store_u8(abi::ZERO, &address, 9));
+        let slot = self.allocate_stack_object("inplace_str_grow_padptr", 8);
+        self.emit(abi::store_u64(&address, abi::stack_pointer(), slot));
+        Ok(slot)
+    }
+
+    /// The `*ToWidth` measure: `__strings_padToWidthCopies`' rule, natively — a
+    /// negative `columns`, a `padChar` that is not exactly one scalar, and a
+    /// zero-column `padChar` all raise; then `copies = (columns − displayWidth(value))
+    /// / displayWidth(padChar)`, truncating (the undershoot rule), and the result's
+    /// byte length is `byteLen(value) + copies × byteLen(padChar)`.
+    /// Returns `(pad_len_slot, pad_count_slot)`.
+    fn emit_pad_to_width_measure(
+        &mut self,
+        value_slot: usize,
+        columns: &ValueResult,
+        pad_slot: usize,
+        newlen_slot: usize,
+        member: &str,
+    ) -> Result<(usize, usize), String> {
+        use crate::codegen::builtins::strings::func_display_width::display_width_of;
+        if columns.type_ != ParameterType::Integer {
+            return Err(format!(
+                "strings.padToWidth columns must be Integer, got {}",
+                columns.type_
+            ));
+        }
+        let columns_slot = self.spill_to_slot("inplace_str_width_columns", &columns.location);
+        let pad_len_slot = self.allocate_stack_object("inplace_str_width_padlen", 8);
+        let pad_count_slot = self.allocate_stack_object("inplace_str_width_copies", 8);
+        let invalid = self.label("inplace_str_width_invalid");
+        let ok = self.label("inplace_str_width_ok");
+        let no_pad = self.label("inplace_str_width_no_pad");
+        let have_pad = self.label("inplace_str_width_have_pad");
+
+        let cols = self.temporary_vreg();
+        let pad_ptr = self.temporary_vreg();
+        let pad_len = self.temporary_vreg();
+        let scalars = self.temporary_vreg();
+        let unit = self.temporary_vreg();
+        let have = self.temporary_vreg();
+        let copies = self.temporary_vreg();
+        let value_ptr = self.temporary_vreg();
+        let value_len = self.temporary_vreg();
+        let total = self.temporary_vreg();
+
+        // columns >= 0.
+        self.emit(abi::load_u64(&cols, abi::stack_pointer(), columns_slot));
+        self.emit(abi::compare_immediate(&cols, "0"));
+        self.emit(abi::branch_lt(&invalid));
+        // `len(padChar) = 1` — one scalar, as the MFBASIC helper counts it.
+        self.emit(abi::load_u64(&pad_ptr, abi::stack_pointer(), pad_slot));
+        self.emit(abi::load_u64(&pad_len, &pad_ptr, 0));
+        self.emit(abi::store_u64(&pad_len, abi::stack_pointer(), pad_len_slot));
+        self.emit(abi::compare_immediate(&pad_len, "0"));
+        self.emit(abi::branch_eq(&invalid));
+        {
+            let loop_label = self.label("inplace_str_width_scalars_loop");
+            let not_cont = self.label("inplace_str_width_scalars_not_cont");
+            let after = self.label("inplace_str_width_scalars_after");
+            let done = self.label("inplace_str_width_scalars_done");
+            let cursor = self.temporary_vreg();
+            let byte = self.temporary_vreg();
+            let masked = self.temporary_vreg();
+            let mask = self.temporary_vreg();
+            self.emit(abi::add_immediate(&cursor, &pad_ptr, 8));
+            self.emit_scalar_count_loop(
+                &cursor,
+                &byte,
+                &scalars,
+                &masked,
+                &mask,
+                &unit,
+                &pad_len,
+                &loop_label,
+                &not_cont,
+                &after,
+                &done,
+            );
+        }
+        self.emit(abi::compare_immediate(&scalars, "1"));
+        self.emit(abi::branch_ne(&invalid));
+        // `unit = displayWidth(padChar) >= 1`.
+        let pad_value = ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(pad_ptr.render()),
+            text: String::new(),
+        };
+        self.emit(abi::load_u64(&pad_ptr, abi::stack_pointer(), pad_slot));
+        let unit_value = display_width_of(self, &pad_value)?;
+        self.emit(abi::move_register(&unit, &unit_value.location));
+        self.emit(abi::compare_immediate(&unit, "1"));
+        self.emit(abi::branch_lt(&invalid));
+        // `have = displayWidth(value)`; no padding when it already fills the width.
+        let value_value = ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(value_ptr.render()),
+            text: String::new(),
+        };
+        self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
+        let have_value = display_width_of(self, &value_value)?;
+        self.emit(abi::move_register(&have, &have_value.location));
+        self.emit(abi::load_u64(&cols, abi::stack_pointer(), columns_slot));
+        self.emit(abi::compare_registers(&have, &cols));
+        self.emit(abi::branch_ge(&no_pad));
+        // `copies = (columns - have) / unit`, truncating toward zero.
+        self.emit(abi::subtract_registers(&copies, &cols, &have));
+        self.emit(abi::signed_divide_registers(&copies, &copies, &unit));
+        self.emit(abi::branch(&have_pad));
+        self.emit(abi::label(&no_pad));
+        self.emit(abi::move_immediate(&copies, "Integer", "0"));
+        self.emit(abi::label(&have_pad));
+        self.emit(abi::store_u64(
+            &copies,
+            abi::stack_pointer(),
+            pad_count_slot,
+        ));
+        // `newLen = byteLen(value) + copies * byteLen(padChar)`.
+        self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&value_len, &value_ptr, 0));
+        self.emit(abi::load_u64(&pad_len, abi::stack_pointer(), pad_len_slot));
+        self.emit_checked_size_multiply(&total, &copies, &pad_len, &invalid);
+        self.emit_checked_size_add(&total, &value_len, &total, &invalid);
+        self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&invalid));
+        self.raise_error(member, "ErrInvalidArgument")?;
+        self.emit(abi::label(&ok));
+        Ok((pad_len_slot, pad_count_slot))
+    }
+
+    /// Write a grow row's added bytes into the (already reserved) block.
+    fn emit_string_grow_write(
+        &mut self,
+        kind: GrowKind,
+        block_slot: usize,
+        newlen_slot: usize,
+        write: &GrowWrite,
+    ) {
+        match (kind, write) {
+            (
+                GrowKind::Pad { right } | GrowKind::PadToWidth { right },
+                GrowWrite::Pad {
+                    pad_slot,
+                    pad_len_slot,
+                    pad_count_slot,
+                },
+            ) => {
+                let block = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                let newlen = self.temporary_vreg();
+                let dst = self.temporary_vreg();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::load_u64(&len, &block, 0));
+                self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+                if right {
+                    // Append: the pads start where the bytes end.
+                    self.emit(abi::add_immediate(&dst, &block, 8));
+                    self.emit(abi::add_registers(&dst, &dst, &len));
+                } else {
+                    // Prefix: move the bytes right by the pad width first, from the
+                    // far end, so the copy never overwrites a byte it has yet to
+                    // read; then the pads go at the front.
+                    self.emit_string_move_right(&block, &len, &newlen);
+                    self.emit(abi::add_immediate(&dst, &block, 8));
+                }
+                self.emit_pad_copies(&dst, *pad_slot, *pad_len_slot, *pad_count_slot);
+            }
+            (GrowKind::Repeat, GrowWrite::Repeat { times_slot }) => {
+                // The block already holds copy 1; write copies 2..times after it,
+                // each from the fixed prefix `[8, 8 + len)`.
+                let block = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                let times = self.temporary_vreg();
+                let dst = self.temporary_vreg();
+                let src = self.temporary_vreg();
+                let count = self.temporary_vreg();
+                let outer = self.label("inplace_str_repeat_outer");
+                let outer_done = self.label("inplace_str_repeat_done");
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::load_u64(&len, &block, 0));
+                self.emit(abi::load_u64(&times, abi::stack_pointer(), *times_slot));
+                self.emit(abi::add_immediate(&dst, &block, 8));
+                self.emit(abi::add_registers(&dst, &dst, &len));
+                self.emit(abi::label(&outer));
+                self.emit(abi::compare_immediate(&times, "1"));
+                self.emit(abi::branch_le(&outer_done));
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::add_immediate(&src, &block, 8));
+                self.emit(abi::move_register(&count, &len));
+                self.emit_copy_bytes(&dst, &src, &count, "inplace_str_repeat_copy");
+                self.emit(abi::subtract_immediate(&times, &times, 1));
+                self.emit(abi::branch(&outer));
+                self.emit(abi::label(&outer_done));
+            }
+            (
+                GrowKind::ResourcePath,
+                GrowWrite::Prefix {
+                    ptr_slot,
+                    len_slot: prefix_len_slot,
+                },
+            ) => {
+                let block = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                let newlen = self.temporary_vreg();
+                let dst = self.temporary_vreg();
+                let src = self.temporary_vreg();
+                let count = self.temporary_vreg();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::load_u64(&len, &block, 0));
+                self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+                self.emit_string_move_right(&block, &len, &newlen);
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::add_immediate(&dst, &block, 8));
+                self.emit(abi::load_u64(&src, abi::stack_pointer(), *ptr_slot));
+                self.emit(abi::load_u64(
+                    &count,
+                    abi::stack_pointer(),
+                    *prefix_len_slot,
+                ));
+                self.emit_copy_bytes(&dst, &src, &count, "inplace_str_respath_prefix");
+            }
+            _ => unreachable!("a grow row's write step matches its measure step"),
+        }
+    }
+
+    /// Move the block's `len` bytes right so they end at `newlen`, copying from the
+    /// far end (the regions overlap).
+    fn emit_string_move_right(
+        &mut self,
+        block: &VirtualRegister,
+        len: &VirtualRegister,
+        newlen: &VirtualRegister,
+    ) {
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let left = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let loop_label = self.label("inplace_str_grow_move_loop");
+        let done = self.label("inplace_str_grow_move_done");
+        // src = block + 8 + len, dst = block + 8 + newlen, both one past the end.
+        self.emit(abi::add_immediate(&src, block, 8));
+        self.emit(abi::add_registers(&src, &src, len));
+        self.emit(abi::add_immediate(&dst, block, 8));
+        self.emit(abi::add_registers(&dst, &dst, newlen));
+        self.emit(abi::move_register(&left, len));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(&left, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::subtract_immediate(&src, &src, 1));
+        self.emit(abi::subtract_immediate(&dst, &dst, 1));
+        self.emit(abi::load_u8(&byte, &src, 0));
+        self.emit(abi::store_u8(&byte, &dst, 0));
+        self.emit(abi::subtract_immediate(&left, &left, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done));
+    }
+
+    /// Write `pad_count` copies of the padChar block's bytes at `dst`.
+    fn emit_pad_copies(
+        &mut self,
+        dst: &VirtualRegister,
+        pad_slot: usize,
+        pad_len_slot: usize,
+        pad_count_slot: usize,
+    ) {
+        let pad = self.temporary_vreg();
+        let pad_len = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let left = self.temporary_vreg();
+        let dst = dst.clone();
+        let outer = self.label("inplace_str_pad_outer");
+        let outer_done = self.label("inplace_str_pad_outer_done");
+        let inner = self.label("inplace_str_pad_inner");
+        let inner_done = self.label("inplace_str_pad_inner_done");
+        let byte = self.temporary_vreg();
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), pad_count_slot));
+        self.emit(abi::load_u64(&pad, abi::stack_pointer(), pad_slot));
+        self.emit(abi::load_u64(&pad_len, abi::stack_pointer(), pad_len_slot));
+        self.emit(abi::label(&outer));
+        self.emit(abi::compare_immediate(&count, "0"));
+        self.emit(abi::branch_eq(&outer_done));
+        self.emit(abi::add_immediate(&src, &pad, 8));
+        self.emit(abi::move_register(&left, &pad_len));
+        self.emit(abi::label(&inner));
+        self.emit(abi::compare_immediate(&left, "0"));
+        self.emit(abi::branch_eq(&inner_done));
+        self.emit(abi::load_u8(&byte, &src, 0));
+        self.emit(abi::store_u8(&byte, &dst, 0));
+        self.emit(abi::add_immediate(&src, &src, 1));
+        self.emit(abi::add_immediate(&dst, &dst, 1));
+        self.emit(abi::subtract_immediate(&left, &left, 1));
+        self.emit(abi::branch(&inner));
+        self.emit(abi::label(&inner_done));
+        self.emit(abi::subtract_immediate(&count, &count, 1));
+        self.emit(abi::branch(&outer));
+        self.emit(abi::label(&outer_done));
+    }
+
+    /// plan-146-D: the `os::resourcePath` prefix — `<executable dir>[/<suffix>]/` —
+    /// written into a frame buffer once per call of the function holding the
+    /// self-update, and its byte length returned in a slot.
+    ///
+    /// The copying lowering acquires the executable path from the host on every
+    /// call (`os/func_resource_path.rs:lower_resource_path`); an arm may not (that
+    /// is an allocation per statement), and a running process's own executable path
+    /// cannot change, so the arm asks `os::executablePath()` once and caches the
+    /// block it returns in `string_resource_base` (freed by the function's scope
+    /// drop, `prescan_string_resource_base`). The prefix is then the same
+    /// computation the helper does: strip `strip` components off the end of that
+    /// path, append `/`, and — in an app build — the mode's resource suffix and a
+    /// second `/` (`os/gen_paths.rs:resource_base_offset`). Those suffix bytes are
+    /// compile-time constants, written as immediates rather than a data object.
+    ///
+    /// Returns `(prefix_ptr_slot, prefix_len_slot)`.
+    fn emit_resource_prefix(&mut self) -> Result<(usize, usize), String> {
+        let slot = self
+            .string_resource_base
+            .ok_or("native os.resourcePath self-update in a function with no base slot")?;
+        let have = self.label("inplace_str_respath_have");
+        let block = self.temporary_vreg();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_ne(&have));
+        let helper = crate::target::shared::runtime::catalog::spec_for_call("os.executablePath")
+            .ok_or("os.executablePath has no runtime helper spec")?
+            .helper;
+        let base = self.lower_runtime_helper_call(helper, "os.executablePath", &[], false)?;
+        self.emit(abi::store_u64(&base.location, abi::stack_pointer(), slot));
+        self.emit(abi::label(&have));
+
+        let module_name = self.module_name.clone();
+        let (strip, suffix) =
+            crate::codegen::builtins::os::resource_base_offset(self.build_mode, &module_name);
+        // The prefix buffer: the executable path's directory part, plus `/`, plus
+        // the suffix and a second `/` in an app build.
+        let extra = if suffix.is_empty() {
+            1
+        } else {
+            suffix.len() + 2
+        };
+        let ptr_slot = self.allocate_stack_object("inplace_str_respath_prefix_ptr", 8);
+        let len_slot = self.allocate_stack_object("inplace_str_respath_prefix_len", 8);
+        let scratch_need = self.allocate_stack_object("inplace_str_respath_need", 8);
+
+        let path = self.temporary_vreg();
+        let path_len = self.temporary_vreg();
+        let bytes = self.temporary_vreg();
+        let scan = self.temporary_vreg();
+        let left = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let need = self.temporary_vreg();
+        let scan_loop = self.label("inplace_str_respath_scan");
+        let scan_hit = self.label("inplace_str_respath_scan_hit");
+        let prefix_ready = self.label("inplace_str_respath_prefix_ready");
+        let fail = self.label("inplace_str_respath_fail");
+
+        self.emit(abi::load_u64(&path, abi::stack_pointer(), slot));
+        self.emit(abi::load_u64(&path_len, &path, 0));
+        self.emit(abi::add_immediate(&bytes, &path, 8));
+        // Scan back for the `strip`-th separator. The executable path uses the
+        // host's separator: `/` everywhere but Windows, where it is `\`.
+        let separator = if self.platform.target().starts_with("windows") {
+            "92"
+        } else {
+            "47"
+        };
+        self.emit(abi::move_register(&scan, &path_len));
+        self.emit(abi::move_immediate(&left, "Integer", &strip.to_string()));
+        self.emit(abi::label(&scan_loop));
+        self.emit(abi::compare_immediate(&scan, "0"));
+        self.emit(abi::branch_eq(&fail));
+        self.emit(abi::subtract_immediate(&scan, &scan, 1));
+        self.emit(abi::add_registers(&byte, &bytes, &scan));
+        self.emit(abi::load_u8(&byte, &byte, 0));
+        self.emit(abi::compare_immediate(&byte, separator));
+        self.emit(abi::branch_eq(&scan_hit));
+        self.emit(abi::branch(&scan_loop));
+        self.emit(abi::label(&scan_hit));
+        self.emit(abi::subtract_immediate(&left, &left, 1));
+        self.emit(abi::compare_immediate(&left, "0"));
+        self.emit(abi::branch_eq(&prefix_ready));
+        self.emit(abi::branch(&scan_loop));
+        self.emit(abi::label(&fail));
+        self.raise_error("os.resourcePath", "ErrUnsupported")?;
+        self.emit(abi::label(&prefix_ready));
+        // The prefix is `scan` directory bytes plus `extra` joined bytes; build it
+        // in the function's self-update scratch, which is reused across statements.
+        self.emit(abi::add_immediate(&need, &scan, extra));
+        self.emit(abi::store_u64(&need, abi::stack_pointer(), len_slot));
+        self.emit(abi::store_u64(&need, abi::stack_pointer(), scratch_need));
+        let dest = self.emit_reserve_self_update_scratch(scratch_need)?;
+        let out = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        self.emit(abi::load_u64(&out, abi::stack_pointer(), dest));
+        self.emit(abi::store_u64(&out, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64(&path, abi::stack_pointer(), slot));
+        self.emit(abi::add_immediate(&src, &path, 8));
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), len_slot));
+        self.emit(abi::subtract_immediate(&count, &count, extra));
+        self.emit_copy_bytes(&out, &src, &count, "inplace_str_respath_dir");
+        // `out` now points just past the directory bytes: write `/`, the suffix and
+        // its `/` as immediates (a compile-time constant, so no data object).
+        let mut joined = String::from("/");
+        if !suffix.is_empty() {
+            joined.push_str(&suffix);
+            joined.push('/');
+        }
+        let literal = self.temporary_vreg();
+        for (i, b) in joined.bytes().enumerate() {
+            self.emit(abi::move_immediate(&literal, "Byte", &b.to_string()));
+            self.emit(abi::store_u8(&literal, &out, i));
+        }
+        Ok((ptr_slot, len_slot))
+    }
+
+    /// plan-146-D: `os::resourcePath` rejects a relative path with a `.` or `..`
+    /// component (`os/gen_paths.rs:emit_reject_dot_component`, raised as
+    /// `ErrInvalidPath` before anything is built). The arm checks the binding's own
+    /// bytes the same way, before it writes one.
+    fn emit_reject_dot_components(&mut self, value_slot: usize) -> Result<(), String> {
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let bytes = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let comp_len = self.temporary_vreg();
+        let all_dots = self.temporary_vreg();
+        let walk = self.label("inplace_str_respath_walk");
+        let boundary = self.label("inplace_str_respath_boundary");
+        let not_boundary = self.label("inplace_str_respath_char");
+        let next = self.label("inplace_str_respath_next");
+        let not_dot = self.label("inplace_str_respath_not_dot");
+        let end = self.label("inplace_str_respath_end");
+        let bad = self.label("inplace_str_respath_bad");
+        let component_ok = self.label("inplace_str_respath_component_ok");
+        let done = self.label("inplace_str_respath_validated");
+
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0));
+        self.emit(abi::add_immediate(&bytes, &ptr, 8));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&comp_len, "Integer", "0"));
+        self.emit(abi::move_immediate(&all_dots, "Integer", "1"));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(&index, &len));
+        self.emit(abi::branch_ge(&end));
+        self.emit(abi::add_registers(&byte, &bytes, &index));
+        self.emit(abi::load_u8(&byte, &byte, 0));
+        // `/` is a component boundary on every target; `\` is one on Windows too,
+        // and rejecting it everywhere only ever rejects MORE, never less, so the
+        // arm's check is never weaker than the helper's.
+        self.emit(abi::compare_immediate(&byte, "47"));
+        self.emit(abi::branch_eq(&boundary));
+        self.emit(abi::compare_immediate(&byte, "92"));
+        self.emit(abi::branch_eq(&boundary));
+        self.emit(abi::branch(&not_boundary));
+        self.emit(abi::label(&boundary));
+        self.emit_reject_dot_component_check(&comp_len, &all_dots, &bad, &component_ok);
+        self.emit(abi::label(&component_ok));
+        self.emit(abi::move_immediate(&comp_len, "Integer", "0"));
+        self.emit(abi::move_immediate(&all_dots, "Integer", "1"));
+        self.emit(abi::branch(&next));
+        self.emit(abi::label(&not_boundary));
+        self.emit(abi::add_immediate(&comp_len, &comp_len, 1));
+        self.emit(abi::compare_immediate(&byte, "46"));
+        self.emit(abi::branch_eq(&not_dot));
+        self.emit(abi::move_immediate(&all_dots, "Integer", "0"));
+        self.emit(abi::label(&not_dot));
+        self.emit(abi::branch(&next));
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&end));
+        self.emit_reject_dot_component_check(&comp_len, &all_dots, &bad, &done);
+        self.emit(abi::label(&bad));
+        self.raise_error("os.resourcePath", "ErrInvalidPath")?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// One component's verdict: an all-dots component of length 1 (`.`) or 2 (`..`)
+    /// branches to `bad`, anything else to `ok`.
+    fn emit_reject_dot_component_check(
+        &mut self,
+        comp_len: &VirtualRegister,
+        all_dots: &VirtualRegister,
+        bad: &str,
+        ok: &str,
+    ) {
+        self.emit(abi::compare_immediate(all_dots, "0"));
+        self.emit(abi::branch_eq(ok));
+        self.emit(abi::compare_immediate(comp_len, "1"));
+        self.emit(abi::branch_eq(bad));
+        self.emit(abi::compare_immediate(comp_len, "2"));
+        self.emit(abi::branch_eq(bad));
+        self.emit(abi::branch(ok));
+    }
+
     /// plan-146-C: `s = f(s, …)` for a builtin whose result is a contiguous window
     /// of `s`'s own bytes ([`STRING_WINDOW_FNS`]). The window step is the code the
     /// copying lowering runs (every check and raise happens there, before a byte
@@ -525,7 +1306,7 @@ impl CodeBuilder<'_> {
         site: &SelfUpdateSite<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
-        let NirValue::Call { target, .. } = value else {
+        let Some((target, _)) = self_update_call_parts(value) else {
             return Ok(false);
         };
         let Some(bare) = self_update_builtin(target) else {

@@ -1,0 +1,284 @@
+IMPORT io
+IMPORT strings
+IMPORT os
+IMPORT errorCode
+
+' plan-146-D: `s = f(s, …)` for the String builtins whose result is `s` with
+' bytes added writes those bytes into `s`'s own block, growing it geometrically
+' through the binding's capacity shadow. Each case computes the same result
+' twice — once through a LET (the copying lowering) and once as a self-update
+' (the arm) — and prints whether they agree. Every case runs at a local and at a
+' module-level global (S1 and S2); the raising rows run under a TRAP, which must
+' leave `s` exactly as it was.
+
+MUT g AS String = ""
+
+SUB show(tag AS String, got AS String, want AS String)
+  IF got = want THEN
+    io::print(tag & " ok [" & got & "]")
+  ELSE
+    io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
+  END IF
+END SUB
+
+SUB padLocal()
+  MUT s AS String = "abc"
+  LET a AS String = strings::padRight(s, 8)
+  s = strings::padRight(s, 8)
+  show("padRight", s, a)
+
+  s = "abc"
+  LET b AS String = strings::padLeft(s, 8)
+  s = strings::padLeft(s, 8)
+  show("padLeft", s, b)
+
+  ' The width is already met: no pad bytes, and the value is unchanged.
+  s = "abcdefgh"
+  LET c AS String = strings::padRight(s, 3)
+  s = strings::padRight(s, 3)
+  show("padRightMet", s, c)
+
+  s = "abcdefgh"
+  LET d AS String = strings::padLeft(s, 3)
+  s = strings::padLeft(s, 3)
+  show("padLeftMet", s, d)
+
+  ' A multi-byte padChar, and a multi-byte value (the count is in scalars).
+  s = "hé"
+  LET e AS String = strings::padRight(s, 5, "é")
+  s = strings::padRight(s, 5, "é")
+  show("padRightUtf8", s, e)
+
+  s = "hé"
+  LET f AS String = strings::padLeft(s, 5, "é")
+  s = strings::padLeft(s, 5, "é")
+  show("padLeftUtf8", s, f)
+
+  s = ""
+  LET h AS String = strings::padRight(s, 4, "x")
+  s = strings::padRight(s, 4, "x")
+  show("padRightEmpty", s, h)
+END SUB
+
+SUB padToWidthLocal()
+  MUT s AS String = "abc"
+  LET a AS String = strings::padRightToWidth(s, 8)
+  s = strings::padRightToWidth(s, 8)
+  show("padRightToWidth", s, a)
+
+  s = "abc"
+  LET b AS String = strings::padLeftToWidth(s, 8)
+  s = strings::padLeftToWidth(s, 8)
+  show("padLeftToWidth", s, b)
+
+  ' Already wide enough.
+  s = "abcdefgh"
+  LET c AS String = strings::padRightToWidth(s, 3)
+  s = strings::padRightToWidth(s, 3)
+  show("padRightToWidthMet", s, c)
+
+  ' A wide (two-column) value: the gap is counted in columns, not scalars.
+  s = "漢字"
+  LET d AS String = strings::padRightToWidth(s, 6)
+  s = strings::padRightToWidth(s, 6)
+  show("padRightToWidthWide", s, d)
+
+  s = "漢字"
+  LET e AS String = strings::padLeftToWidth(s, 6)
+  s = strings::padLeftToWidth(s, 6)
+  show("padLeftToWidthWide", s, e)
+
+  ' A wide padChar: two columns per copy, three bytes per copy.
+  s = "ab"
+  LET f AS String = strings::padRightToWidth(s, 7, "漢")
+  s = strings::padRightToWidth(s, 7, "漢")
+  show("padRightToWidthWidePad", s, f)
+END SUB
+
+SUB repeatLocal()
+  MUT s AS String = "ab"
+  LET a AS String = strings::repeat(s, 3)
+  s = strings::repeat(s, 3)
+  show("repeat3", s, a)
+
+  s = "ab"
+  LET b AS String = strings::repeat(s, 1)
+  s = strings::repeat(s, 1)
+  show("repeat1", s, b)
+
+  s = "ab"
+  LET c AS String = strings::repeat(s, 0)
+  s = strings::repeat(s, 0)
+  show("repeat0", s, c)
+
+  s = "é😀"
+  LET d AS String = strings::repeat(s, 2)
+  s = strings::repeat(s, 2)
+  show("repeatUtf8", s, d)
+END SUB
+
+SUB growsGlobal()
+  g = "abc"
+  LET a AS String = strings::padRight(g, 8)
+  g = strings::padRight(g, 8)
+  show("g.padRight", g, a)
+
+  g = "abc"
+  LET b AS String = strings::padLeft(g, 8)
+  g = strings::padLeft(g, 8)
+  show("g.padLeft", g, b)
+
+  g = "abc"
+  LET c AS String = strings::padLeftToWidth(g, 8)
+  g = strings::padLeftToWidth(g, 8)
+  show("g.padLeftToWidth", g, c)
+
+  g = "ab"
+  LET d AS String = strings::repeat(g, 3)
+  g = strings::repeat(g, 3)
+  show("g.repeat3", g, d)
+END SUB
+
+' --- the grown block keeps working: append, shrink, grow again --------------
+
+SUB growThenUse()
+  MUT s AS String = "abc"
+  s = strings::padRight(s, 8)
+  s = s & "!"
+  show("growThenAppend", s, "abc     !")
+
+  s = "abc"
+  s = strings::padLeft(s, 6, "0")
+  s = strings::left(s, 4)
+  s = s & "Z"
+  show("growShrinkAppend", s, "000aZ")
+
+  MUT t AS String = "x"
+  FOR i = 1 TO 6
+    t = strings::padRight(t, 4)
+    t = strings::trimEnd(t)
+    t = strings::repeat(t, 2)
+    t = strings::left(t, 1)
+  NEXT
+  show("growLoop", t, "x")
+END SUB
+
+' --- os::resourcePath: prefix growth whose prefix comes from the host --------
+' The path itself is machine-specific, so only the verdict is printed.
+
+SUB same(tag AS String, got AS String, want AS String)
+  IF got = want THEN
+    io::print(tag & " ok")
+  ELSE
+    io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
+  END IF
+END SUB
+
+SUB resourcePaths()
+  MUT s AS String = "data/x.txt"
+  LET a AS String = os::resourcePath(s)
+  s = os::resourcePath(s)
+  same("resourcePath", s, a)
+
+  s = ""
+  LET b AS String = os::resourcePath(s)
+  s = os::resourcePath(s)
+  same("resourcePathEmpty", s, b)
+
+  g = "a/b.txt"
+  LET c AS String = os::resourcePath(g)
+  g = os::resourcePath(g)
+  same("g.resourcePath", g, c)
+
+  ' Repeated in a loop: the host is asked once, the rest is in place.
+  MUT t AS String = "x"
+  FOR i = 1 TO 3
+    t = os::resourcePath(t)
+    t = strings::right(t, 1)
+  NEXT
+  show("resourcePathLoop", t, "x")
+END SUB
+
+SUB trapResourceDots()
+  MUT s AS String = "../etc/passwd"
+  s = os::resourcePath(s)
+  io::print("trap.resourceDots NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.resourceDots raised=" & toString(err.code = errorCode::ErrInvalidPath) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+' --- failure atomicity ------------------------------------------------------
+
+SUB trapPadRight()
+  MUT s AS String = "abc"
+  s = strings::padRight(s, -1)
+  io::print("trap.padRight NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.padRight raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapPadLeftBadChar()
+  MUT s AS String = "abc"
+  s = strings::padLeft(s, 8, "ab")
+  io::print("trap.padLeftBadChar NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.padLeftBadChar raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapPadToWidth()
+  MUT s AS String = "abc"
+  s = strings::padRightToWidth(s, -1)
+  io::print("trap.padToWidth NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.padToWidth raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapRepeat()
+  MUT s AS String = "abc"
+  s = strings::repeat(s, -1)
+  io::print("trap.repeat NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.repeat raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapGlobalRepeat()
+  g = "abc"
+  g = strings::repeat(g, -1)
+  io::print("trap.g.repeat NOT RAISED [" & g & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.g.repeat raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " g=[" & g & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+FUNC main() AS Integer
+  padLocal()
+  padToWidthLocal()
+  repeatLocal()
+  growsGlobal()
+  growThenUse()
+  resourcePaths()
+  trapPadRight()
+  trapPadLeftBadChar()
+  trapPadToWidth()
+  trapRepeat()
+  trapGlobalRepeat()
+  trapResourceDots()
+  RETURN 0
+END FUNC

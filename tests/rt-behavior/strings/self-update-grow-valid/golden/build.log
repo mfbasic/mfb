@@ -1,0 +1,43 @@
+$ mfb build -ast -ir tests/rt-behavior/strings/self-update-grow-valid
+Wrote AST to tests/rt-behavior/strings/self-update-grow-valid/self_update_grow_valid.ast
+Wrote IR to tests/rt-behavior/strings/self-update-grow-valid/self_update_grow_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/strings/self-update-grow-valid
+Wrote executable to tests/rt-behavior/strings/self-update-grow-valid/build/self_update_grow_valid.out
+[exit 0]
+$ tests/rt-behavior/strings/self-update-grow-valid/build/self_update_grow_valid.out
+padRight ok [abc     ]
+padLeft ok [     abc]
+padRightMet ok [abcdefgh]
+padLeftMet ok [abcdefgh]
+padRightUtf8 ok [héééé]
+padLeftUtf8 ok [éééhé]
+padRightEmpty ok [xxxx]
+padRightToWidth ok [abc     ]
+padLeftToWidth ok [     abc]
+padRightToWidthMet ok [abcdefgh]
+padRightToWidthWide ok [漢字  ]
+padLeftToWidthWide ok [  漢字]
+padRightToWidthWidePad ok [ab漢漢]
+repeat3 ok [ababab]
+repeat1 ok [ab]
+repeat0 ok []
+repeatUtf8 ok [é😀é😀]
+g.padRight ok [abc     ]
+g.padLeft ok [     abc]
+g.padLeftToWidth ok [     abc]
+g.repeat3 ok [ababab]
+growThenAppend ok [abc     !]
+growShrinkAppend ok [000aZ]
+growLoop ok [x]
+resourcePath ok
+resourcePathEmpty ok
+g.resourcePath ok
+resourcePathLoop ok [x]
+trap.padRight raised=TRUE s=[abc]
+trap.padLeftBadChar raised=TRUE s=[abc]
+trap.padToWidth raised=TRUE s=[abc]
+trap.repeat raised=TRUE s=[abc]
+trap.g.repeat raised=TRUE g=[abc]
+trap.resourceDots raised=TRUE s=[../etc/passwd]
+[exit 0]
