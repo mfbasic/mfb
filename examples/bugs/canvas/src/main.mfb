@@ -1,0 +1,863 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT math
+IMPORT os
+IMPORT strings
+
+' Bugs - click the bugs, spare the plants. The canvas edition of
+' examples/bugs/tui: the same game, drawn with shapes instead of text.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/bugs/canvas
+'   open examples/bugs/canvas/build/bugs.app        (macOS)
+'
+' Rules:
+'   Plants sprout at random. At most level * 10 are on the field at once; when
+'   a new one would go over that, the oldest one wilts.
+'
+'   A bug turns up somewhere on the field and stays for 10 / level + 1 seconds
+'   before it scurries off, leaving a sparkle behind. It comes back somewhere
+'   new 5 to 10 seconds later.
+'
+'   Click the bug: +1, and it splats. Click a plant: -2. A score below zero ends
+'   the game. Every 15 points is another level.
+'
+'   Each level has its own bug and the plants that bug lives among (see
+'   levelPlants), on its own ground. After the tenth level the cycle starts
+'   again.
+'
+' Controls:
+'   mouse click   swat
+'   esc           pause (esc again resumes, q quits)
+'   r             restart
+'   q             quit
+'
+' Everything on the field is drawn from canvas shapes — circles, ellipses,
+' lines, polygons and rounded rectangles — on a grid of square cells, one thing
+' per cell. The only text is the score bar and the pause and game-over panels,
+' which use a system TrueType font. Resizing the window clears the field,
+' because what was on it may no longer fit the new grid.
+
+' ---------------------------------------------------------------------------
+' Game state records
+' ---------------------------------------------------------------------------
+
+' A cell of the field grid.
+TYPE Slot
+  row AS Integer
+  column AS Integer
+END TYPE
+
+' Something growing on the field: where it is and which plant (see drawPlant).
+TYPE Plant
+  spot AS Slot
+  kind AS Integer
+END TYPE
+
+' A short-lived mark on the field — a splat or a sparkle — and the window it
+' shows for.
+TYPE Effect
+  spot AS Slot
+  splat AS Boolean
+  startAt AS Integer
+  untilAt AS Integer
+END TYPE
+
+' Where the field grid sits on the window, recomputed whenever the window
+' changes size.
+TYPE Layout
+  width AS Float
+  height AS Float
+  barHeight AS Float
+  fieldX AS Float
+  fieldY AS Float
+  fieldW AS Float
+  fieldH AS Float
+  gridX AS Float
+  gridY AS Float
+  cell AS Float
+  rows AS Integer
+  columns AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Timing and rules (the same as the tui edition)
+' ---------------------------------------------------------------------------
+
+FUNC frameDelayMs AS Integer
+  RETURN 16
+END FUNC
+
+FUNC grassDelayMs AS Integer
+  RETURN math::rand(200, 800)
+END FUNC
+
+FUNC bugReturnDelayMs AS Integer
+  RETURN math::rand(5000, 10000)
+END FUNC
+
+FUNC bugLifetimeMs(level AS Integer) AS Integer
+  RETURN 10000 / level + 1000
+END FUNC
+
+FUNC levelForScore(score AS Integer) AS Integer
+  RETURN score / 15 + 1
+END FUNC
+
+FUNC splatMs AS Integer
+  RETURN 1000
+END FUNC
+
+' How long the splat shows the impact before it settles into goo.
+FUNC impactMs AS Integer
+  RETURN 250
+END FUNC
+
+FUNC sparkleMs AS Integer
+  RETURN 500
+END FUNC
+
+FUNC nowMs AS Integer
+  RETURN datetime::monotonicNanos() / 1000000
+END FUNC
+
+' Levels come in a cycle of ten. Each has one bug (drawBug) among one to three
+' kinds of plant, on its own ground.
+FUNC themeOf(level AS Integer) AS Integer
+  RETURN (level - 1) MOD 10
+END FUNC
+
+' Plant kinds: 0 seedling, 1 herb, 2 clover, 3 rice, 4 palm, 5 cactus, 6 pine,
+' 7 round tree, 8 log, 9 fallen leaf, 10 maple leaf.
+FUNC levelPlants(level AS Integer) AS List OF Integer
+  LET t AS Integer = themeOf(level)
+  IF t = 0 THEN RETURN [0, 1, 2]  ' bee: a spring meadow
+  IF t = 1 THEN RETURN [1, 2, 7]  ' butterfly: a garden edge
+  IF t = 2 THEN RETURN [8, 9]     ' beetle: the forest floor
+  IF t = 3 THEN RETURN [3, 1]     ' cricket: tall grass
+  IF t = 4 THEN RETURN [9, 10, 8] ' fly: autumn litter
+  IF t = 5 THEN RETURN [4, 1]     ' mosquito: the tropics
+  IF t = 6 THEN RETURN [0, 3]     ' ant: a field
+  IF t = 7 THEN RETURN [2, 0]     ' ladybug: clover
+  IF t = 8 THEN RETURN [8, 10, 6] ' cockroach: a woodpile
+  RETURN [5, 4]                   ' scorpion: the desert
+END FUNC
+
+FUNC groundColor(level AS Integer) AS color::Color
+  LET t AS Integer = themeOf(level)
+  IF t = 0 THEN RETURN color::rgb(52, 92, 50)
+  IF t = 1 THEN RETURN color::rgb(58, 96, 62)
+  IF t = 2 THEN RETURN color::rgb(78, 60, 42)
+  IF t = 3 THEN RETURN color::rgb(86, 100, 48)
+  IF t = 4 THEN RETURN color::rgb(96, 70, 46)
+  IF t = 5 THEN RETURN color::rgb(40, 96, 84)
+  IF t = 6 THEN RETURN color::rgb(104, 104, 56)
+  IF t = 7 THEN RETURN color::rgb(46, 104, 58)
+  IF t = 8 THEN RETURN color::rgb(76, 56, 40)
+  RETURN color::rgb(196, 164, 104)
+END FUNC
+
+FUNC randomPlant(level AS Integer) AS Integer
+  LET plants AS List OF Integer = levelPlants(level)
+  RETURN collections::get(plants, math::rand(0, len(plants) - 1))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Layout and the field grid
+' ---------------------------------------------------------------------------
+
+FUNC layoutFor(surface AS canvas::Size) AS Layout
+  LET w AS Float = toFloat(surface.width)
+  LET h AS Float = toFloat(surface.height)
+  LET margin AS Float = 14.0
+  LET bar AS Float = 48.0
+  LET fx AS Float = margin
+  LET fy AS Float = bar
+  LET fw AS Float = math::max(w - 2.0 * margin, 1.0)
+  LET fh AS Float = math::max(h - bar - margin, 1.0)
+  ' About sixteen cells across the shorter side, within sensible bounds.
+  LET cell AS Float = math::min(math::max(math::min(fw, fh) / 16.0, 22.0), 48.0)
+  LET columns AS Integer = math::max(math::floor(fw / cell), 1)
+  LET rows AS Integer = math::max(math::floor(fh / cell), 1)
+  LET gx AS Float = fx + (fw - toFloat(columns) * cell) / 2.0
+  LET gy AS Float = fy + (fh - toFloat(rows) * cell) / 2.0
+  RETURN Layout[w, h, bar, fx, fy, fw, fh, gx, gy, cell, rows, columns]
+END FUNC
+
+FUNC slotEq(a AS Slot, b AS Slot) AS Boolean
+  RETURN a.row = b.row AND a.column = b.column
+END FUNC
+
+' The cell under a point, or row -1 when the point is off the grid.
+FUNC slotAt(lay AS Layout, px AS Float, py AS Float) AS Slot
+  IF px < lay.gridX OR py < lay.gridY THEN RETURN Slot[-1, -1]
+  LET c AS Integer = math::floor((px - lay.gridX) / lay.cell)
+  LET r AS Integer = math::floor((py - lay.gridY) / lay.cell)
+  IF c >= lay.columns OR r >= lay.rows THEN RETURN Slot[-1, -1]
+  RETURN Slot[r, c]
+END FUNC
+
+FUNC centerX(lay AS Layout, s AS Slot) AS Float
+  RETURN lay.gridX + (toFloat(s.column) + 0.5) * lay.cell
+END FUNC
+
+FUNC centerY(lay AS Layout, s AS Slot) AS Float
+  RETURN lay.gridY + (toFloat(s.row) + 0.5) * lay.cell
+END FUNC
+
+FUNC indexOfPlant(plants AS List OF Plant, s AS Slot) AS Integer
+  FOR i = 0 TO len(plants) - 1
+    IF slotEq(collections::get(plants, i).spot, s) THEN RETURN i
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC effectAt(effects AS List OF Effect, s AS Slot) AS Boolean
+  FOR EACH e IN effects
+    IF slotEq(e.spot, s) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' A random empty cell, or row -1 when a few tries all landed on something (the
+' field is crowded; the caller just skips this spawn).
+FUNC freeSlot(lay AS Layout, grass AS List OF Plant, bug AS Slot, bugVisible AS Boolean, effects AS List OF Effect) AS Slot
+  FOR attempt = 1 TO 50
+    LET s AS Slot = Slot[math::rand(0, lay.rows - 1), math::rand(0, lay.columns - 1)]
+    IF indexOfPlant(grass, s) < 0 AND NOT (bugVisible AND slotEq(s, bug)) AND NOT effectAt(effects, s) THEN RETURN s
+  NEXT
+  RETURN Slot[-1, -1]
+END FUNC
+
+FUNC liveEffects(effects AS List OF Effect, now AS Integer) AS List OF Effect
+  MUT kept AS List OF Effect = []
+  FOR EACH e IN effects
+    IF now < e.untilAt THEN kept = collections::append(kept, e)
+  NEXT
+  RETURN kept
+END FUNC
+
+' The same effects with their windows pushed out by `by` milliseconds — what a
+' pause does to every clock in the game.
+FUNC delayEffects(effects AS List OF Effect, by AS Integer) AS List OF Effect
+  MUT moved AS List OF Effect = []
+  FOR EACH e IN effects
+    moved = collections::append(moved, Effect[e.spot, e.splat, e.startAt + by, e.untilAt + by])
+  NEXT
+  RETURN moved
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing primitives. Each returns one canvas::DrawItem; the pictures below are
+' lists of them, drawn in order.
+' ---------------------------------------------------------------------------
+
+FUNC pt(px AS Float, py AS Float) AS canvas::Point
+  RETURN canvas::Point[x := px, y := py]
+END FUNC
+
+FUNC circ(px AS Float, py AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Circle[x := px, y := py, radius := r, paint := canvas::fill(c)]
+END FUNC
+
+FUNC oval(px AS Float, py AS Float, rx AS Float, ry AS Float, turn AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Ellipse[x := px, y := py, radiusX := rx, radiusY := ry, angle := turn, paint := canvas::fill(c)]
+END FUNC
+
+FUNC seg(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, w AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Line[x1 := x1, y1 := y1, x2 := x2, y2 := y2, cap := canvas::CapStyle.Round, paint := canvas::stroke(c, w)]
+END FUNC
+
+FUNC poly(points AS List OF canvas::Point, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Polygon[points := points, paint := canvas::fill(c)]
+END FUNC
+
+FUNC slab(px AS Float, py AS Float, w AS Float, h AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::RoundedRect[x := px, y := py, w := w, h := h, cornerRadius := r, paint := canvas::fill(c)]
+END FUNC
+
+' A star of `points` spikes: alternating outer and inner radii, the first spike
+' pointing along `turn`.
+FUNC star(cx AS Float, cy AS Float, outer AS Float, inner AS Float, points AS Integer, turn AS Float, c AS color::Color) AS canvas::DrawItem
+  MUT corners AS List OF canvas::Point = []
+  FOR i = 0 TO points * 2 - 1
+    LET a AS Float = turn + toFloat(i) * math::pi / toFloat(points)
+    MUT r AS Float = outer
+    IF i MOD 2 = 1 THEN r = inner
+    corners = collections::append(corners, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+  NEXT
+  RETURN poly(corners, c)
+END FUNC
+
+' Three pairs of legs out of a body centred at (cx, cy), wiggling with `t`.
+FUNC legs(cx AS Float, cy AS Float, s AS Float, reach AS Float, t AS Float, w AS Float, c AS color::Color) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR i = 0 TO 2
+    LET dy AS Float = (toFloat(i) - 1.0) * 0.28 * s
+    LET wiggle AS Float = math::sin(t * 14.0 + toFloat(i) * 2.1) * 0.08 * s
+    LET kneeY AS Float = cy + dy - 0.05 * s
+    LET footY AS Float = cy + dy * 1.6 + wiggle + 0.1 * s
+    out = collections::append(out, seg(cx - 0.12 * s, cy + dy, cx - reach * 0.6 * s, kneeY, w, c))
+    out = collections::append(out, seg(cx - reach * 0.6 * s, kneeY, cx - reach * s, footY, w, c))
+    out = collections::append(out, seg(cx + 0.12 * s, cy + dy, cx + reach * 0.6 * s, kneeY, w, c))
+    out = collections::append(out, seg(cx + reach * 0.6 * s, kneeY, cx + reach * s, footY - 2.0 * wiggle, w, c))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC antennae(cx AS Float, cy AS Float, s AS Float, spread AS Float, height AS Float, c AS color::Color) AS List OF canvas::DrawItem
+  RETURN [seg(cx - 0.05 * s, cy, cx - spread * s, cy - height * s, 0.05 * s, c), seg(cx + 0.05 * s, cy, cx + spread * s, cy - height * s, 0.05 * s, c)]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Plants. (cx, cy) is the cell centre and s its half-size.
+' ---------------------------------------------------------------------------
+
+FUNC drawPlant(kind AS Integer, cx AS Float, cy AS Float, s AS Float) AS List OF canvas::DrawItem
+  LET leaf AS color::Color = color::rgb(120, 200, 80)
+  LET green AS color::Color = color::rgb(70, 160, 64)
+  LET dark AS color::Color = color::rgb(38, 110, 56)
+  LET bark AS color::Color = color::rgb(122, 84, 50)
+  LET soil AS color::Color = color::rgba(60, 40, 24, 150)
+
+  IF kind = 0 THEN
+    ' seedling: two leaves on a short stem out of a mound of soil
+    RETURN [oval(cx, cy + 0.72 * s, 0.42 * s, 0.13 * s, 0.0, soil), seg(cx, cy + 0.7 * s, cx, cy - 0.05 * s, 0.1 * s, green), oval(cx - 0.3 * s, cy - 0.2 * s, 0.34 * s, 0.15 * s, 0.5, leaf), oval(cx + 0.3 * s, cy - 0.3 * s, 0.34 * s, 0.15 * s, -0.5, leaf)]
+  END IF
+
+  IF kind = 1 THEN
+    ' herb: a stem with three pairs of leaves and one at the tip
+    MUT out AS List OF canvas::DrawItem = [seg(cx, cy + 0.8 * s, cx, cy - 0.65 * s, 0.08 * s, dark)]
+    FOR i = 0 TO 2
+      LET y AS Float = cy + 0.4 * s - toFloat(i) * 0.38 * s
+      out = collections::append(out, oval(cx - 0.24 * s, y, 0.26 * s, 0.11 * s, 0.45, green))
+      out = collections::append(out, oval(cx + 0.24 * s, y - 0.08 * s, 0.26 * s, 0.11 * s, -0.45, green))
+    NEXT
+    RETURN collections::append(out, oval(cx, cy - 0.75 * s, 0.1 * s, 0.2 * s, 0.0, leaf))
+  END IF
+
+  IF kind = 2 THEN
+    ' four-leaf clover
+    LET clover AS color::Color = color::rgb(64, 168, 72)
+    LET d AS Float = 0.24 * s
+    RETURN [seg(cx, cy + 0.1 * s, cx + 0.3 * s, cy + 0.85 * s, 0.08 * s, dark), circ(cx - d, cy - d, 0.27 * s, clover), circ(cx + d, cy - d, 0.27 * s, clover), circ(cx - d, cy + d, 0.27 * s, clover), circ(cx + d, cy + d, 0.27 * s, clover), circ(cx, cy, 0.1 * s, dark)]
+  END IF
+
+  IF kind = 3 THEN
+    ' sheaf of rice: three stalks with drooping heads, tied at the waist
+    LET straw AS color::Color = color::rgb(206, 176, 88)
+    LET grain AS color::Color = color::rgb(232, 204, 110)
+    MUT out AS List OF canvas::DrawItem = []
+    FOR i = 0 TO 2
+      LET dx AS Float = (toFloat(i) - 1.0) * 0.32 * s
+      out = collections::append(out, seg(cx + dx * 0.4, cy + 0.85 * s, cx + dx, cy - 0.35 * s, 0.07 * s, straw))
+      FOR k = 0 TO 3
+        out = collections::append(out, oval(cx + dx + toFloat(k) * 0.08 * s, cy - 0.45 * s + toFloat(k) * 0.13 * s, 0.07 * s, 0.12 * s, -0.4, grain))
+      NEXT
+    NEXT
+    RETURN collections::append(out, oval(cx, cy + 0.45 * s, 0.2 * s, 0.07 * s, 0.0, bark))
+  END IF
+
+  IF kind = 4 THEN
+    ' palm tree: a leaning trunk, five fronds and coconuts
+    MUT out AS List OF canvas::DrawItem = [poly([pt(cx - 0.14 * s, cy + 0.85 * s), pt(cx + 0.12 * s, cy + 0.85 * s), pt(cx + 0.12 * s, cy - 0.35 * s), pt(cx - 0.02 * s, cy - 0.35 * s)], bark)]
+    LET topX AS Float = cx + 0.05 * s
+    LET topY AS Float = cy - 0.4 * s
+    FOR EACH a IN [-2.7, -2.0, -1.3, -0.6, 0.1]
+      out = collections::append(out, oval(topX + 0.4 * s * math::cos(a), topY + 0.4 * s * math::sin(a), 0.44 * s, 0.12 * s, a, color::rgb(46, 150, 72)))
+    NEXT
+    RETURN collections::append(out, [circ(topX - 0.08 * s, topY + 0.08 * s, 0.09 * s, color::rgb(96, 64, 36)), circ(topX + 0.08 * s, topY + 0.1 * s, 0.09 * s, color::rgb(96, 64, 36))])
+  END IF
+
+  IF kind = 5 THEN
+    ' cactus: a column with two arms on a sand mound
+    LET body AS color::Color = color::rgb(66, 150, 82)
+    RETURN [oval(cx, cy + 0.82 * s, 0.45 * s, 0.1 * s, 0.0, color::rgba(120, 90, 50, 150)), slab(cx - 0.18 * s, cy - 0.75 * s, 0.36 * s, 1.55 * s, 0.18 * s, body), slab(cx - 0.55 * s, cy - 0.3 * s, 0.2 * s, 0.5 * s, 0.1 * s, body), slab(cx - 0.5 * s, cy + 0.04 * s, 0.4 * s, 0.17 * s, 0.08 * s, body), slab(cx + 0.35 * s, cy - 0.55 * s, 0.2 * s, 0.5 * s, 0.1 * s, body), slab(cx + 0.1 * s, cy - 0.22 * s, 0.4 * s, 0.17 * s, 0.08 * s, body), seg(cx, cy - 0.6 * s, cx, cy + 0.7 * s, 0.03 * s, dark)]
+  END IF
+
+  IF kind = 6 THEN
+    ' pine: three stacked tiers on a trunk
+    MUT out AS List OF canvas::DrawItem = [slab(cx - 0.08 * s, cy + 0.45 * s, 0.16 * s, 0.4 * s, 0.03 * s, bark)]
+    FOR i = 0 TO 2
+      LET top AS Float = cy - 0.85 * s + toFloat(i) * 0.36 * s
+      LET half AS Float = 0.3 * s + toFloat(i) * 0.13 * s
+      out = collections::append(out, poly([pt(cx, top), pt(cx + half, top + 0.58 * s), pt(cx - half, top + 0.58 * s)], color::rgb(34, 110, 62)))
+    NEXT
+    RETURN out
+  END IF
+
+  IF kind = 7 THEN
+    ' round tree: a trunk under a clump of canopy
+    RETURN [slab(cx - 0.1 * s, cy + 0.05 * s, 0.2 * s, 0.8 * s, 0.04 * s, bark), circ(cx - 0.3 * s, cy - 0.08 * s, 0.33 * s, color::rgb(52, 140, 60)), circ(cx + 0.3 * s, cy - 0.08 * s, 0.33 * s, color::rgb(52, 140, 60)), circ(cx, cy - 0.3 * s, 0.48 * s, color::rgb(62, 156, 66)), circ(cx - 0.15 * s, cy - 0.45 * s, 0.14 * s, color::rgba(170, 230, 130, 110))]
+  END IF
+
+  IF kind = 8 THEN
+    ' log: bark, a cut end with rings, and a knot
+    RETURN [slab(cx - 0.8 * s, cy - 0.28 * s, 1.4 * s, 0.56 * s, 0.22 * s, bark), seg(cx - 0.6 * s, cy - 0.1 * s, cx + 0.3 * s, cy - 0.1 * s, 0.04 * s, color::rgb(92, 60, 34)), seg(cx - 0.5 * s, cy + 0.12 * s, cx + 0.35 * s, cy + 0.12 * s, 0.04 * s, color::rgb(92, 60, 34)), oval(cx + 0.6 * s, cy, 0.18 * s, 0.28 * s, 0.0, color::rgb(214, 172, 118)), canvas::Ellipse[x := cx + 0.6 * s, y := cy, radiusX := 0.1 * s, radiusY := 0.16 * s, angle := 0.0, paint := canvas::stroke(color::rgb(150, 110, 70), 0.03 * s)], circ(cx - 0.3 * s, cy + 0.02 * s, 0.06 * s, color::rgb(80, 52, 30))]
+  END IF
+
+  IF kind = 9 THEN
+    ' fallen leaf: a tilted oval with its vein and stalk
+    LET a AS Float = -0.6
+    LET ux AS Float = math::cos(a)
+    LET uy AS Float = math::sin(a)
+    RETURN [oval(cx, cy, 0.62 * s, 0.3 * s, a, color::rgb(206, 122, 48)), seg(cx - 0.55 * s * ux, cy - 0.55 * s * uy, cx + 0.5 * s * ux, cy + 0.5 * s * uy, 0.04 * s, color::rgb(150, 80, 30)), seg(cx - 0.55 * s * ux, cy - 0.55 * s * uy, cx - 0.8 * s * ux, cy - 0.8 * s * uy, 0.05 * s, color::rgb(120, 70, 30))]
+  END IF
+
+  ' maple leaf: a five-lobed star on a stalk
+  RETURN [seg(cx, cy + 0.2 * s, cx + 0.1 * s, cy + 0.85 * s, 0.06 * s, color::rgb(140, 40, 30)), star(cx, cy - 0.05 * s, 0.78 * s, 0.36 * s, 5, -math::pi / 2.0, color::rgb(206, 52, 40))]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Bugs. One per theme, drawn head-up at the cell centre; `t` is seconds, for
+' legs that wiggle and wings that beat.
+' ---------------------------------------------------------------------------
+
+FUNC drawBug(theme AS Integer, cx AS Float, cy AS Float, s AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET black AS color::Color = color::rgb(24, 22, 20)
+  LET wing AS color::Color = color::rgba(230, 240, 255, 150)
+
+  IF theme = 0 THEN
+    ' bee: striped body, dark head, beating wings, a stinger
+    LET beat AS Float = 0.2 + 0.1 * math::sin(t * 40.0)
+    MUT out AS List OF canvas::DrawItem = [oval(cx - 0.3 * s, cy - 0.2 * s, 0.32 * s, 0.16 * s, 0.6 + beat, wing), oval(cx + 0.3 * s, cy - 0.2 * s, 0.32 * s, 0.16 * s, -0.6 - beat, wing), poly([pt(cx - 0.07 * s, cy + 0.5 * s), pt(cx + 0.07 * s, cy + 0.5 * s), pt(cx, cy + 0.72 * s)], black), oval(cx, cy + 0.06 * s, 0.32 * s, 0.48 * s, 0.0, color::rgb(246, 198, 40))]
+    FOR EACH dy IN [-0.08, 0.14, 0.34]
+      LET k AS Float = (dy - 0.06) / 0.48
+      out = collections::append(out, oval(cx, cy + dy * s, 0.3 * s * math::sqrt(math::max(1.0 - k * k, 0.0)), 0.06 * s, 0.0, black))
+    NEXT
+    RETURN collections::append(out, circ(cx, cy - 0.46 * s, 0.2 * s, black))
+  END IF
+
+  IF theme = 1 THEN
+    ' butterfly: four flapping wings with spots, a slim body, antennae
+    LET f AS Float = 0.45 + 0.55 * math::abs(math::sin(t * 7.0))
+    LET upper AS color::Color = color::rgb(244, 142, 40)
+    LET lower AS color::Color = color::rgb(226, 96, 40)
+    MUT out AS List OF canvas::DrawItem = [oval(cx - 0.36 * s * f, cy - 0.18 * s, 0.4 * s * f, 0.3 * s, 0.3, upper), oval(cx + 0.36 * s * f, cy - 0.18 * s, 0.4 * s * f, 0.3 * s, -0.3, upper), oval(cx - 0.28 * s * f, cy + 0.3 * s, 0.28 * s * f, 0.22 * s, -0.3, lower), oval(cx + 0.28 * s * f, cy + 0.3 * s, 0.28 * s * f, 0.22 * s, 0.3, lower), circ(cx - 0.42 * s * f, cy - 0.22 * s, 0.08 * s * f, color::rgb(255, 240, 210)), circ(cx + 0.42 * s * f, cy - 0.22 * s, 0.08 * s * f, color::rgb(255, 240, 210))]
+    out = collections::append(out, antennae(cx, cy - 0.38 * s, s, 0.24, 0.42, black))
+    RETURN collections::append(out, [circ(cx - 0.24 * s, cy - 0.8 * s, 0.05 * s, black), circ(cx + 0.24 * s, cy - 0.8 * s, 0.05 * s, black), oval(cx, cy, 0.08 * s, 0.46 * s, 0.0, black)])
+  END IF
+
+  IF theme = 2 THEN
+    ' beetle: legs under a split, shiny shell
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy + 0.05 * s, s, 0.62, t, 0.06 * s, black)
+    out = collections::append(out, antennae(cx, cy - 0.5 * s, s, 0.25, 0.3, black))
+    RETURN collections::append(out, [circ(cx, cy - 0.45 * s, 0.18 * s, black), oval(cx, cy + 0.1 * s, 0.38 * s, 0.5 * s, 0.0, color::rgb(40, 92, 64)), seg(cx, cy - 0.3 * s, cx, cy + 0.58 * s, 0.03 * s, black), oval(cx - 0.16 * s, cy - 0.05 * s, 0.07 * s, 0.2 * s, 0.2, color::rgba(170, 240, 200, 120))])
+  END IF
+
+  IF theme = 3 THEN
+    ' cricket: big folded hind legs, a long green body, long antennae
+    LET jump AS Float = 0.05 * s * math::sin(t * 9.0)
+    LET body AS color::Color = color::rgb(96, 152, 58)
+    LET limb AS color::Color = color::rgb(70, 118, 44)
+    MUT out AS List OF canvas::DrawItem = [seg(cx - 0.12 * s, cy + 0.1 * s, cx - 0.52 * s, cy - 0.2 * s + jump, 0.09 * s, limb), seg(cx - 0.52 * s, cy - 0.2 * s + jump, cx - 0.42 * s, cy + 0.78 * s, 0.05 * s, limb), seg(cx + 0.12 * s, cy + 0.1 * s, cx + 0.52 * s, cy - 0.2 * s + jump, 0.09 * s, limb), seg(cx + 0.52 * s, cy - 0.2 * s + jump, cx + 0.42 * s, cy + 0.78 * s, 0.05 * s, limb), seg(cx - 0.1 * s, cy - 0.2 * s, cx - 0.35 * s, cy - 0.05 * s, 0.04 * s, limb), seg(cx + 0.1 * s, cy - 0.2 * s, cx + 0.35 * s, cy - 0.05 * s, 0.04 * s, limb)]
+    out = collections::append(out, antennae(cx, cy - 0.5 * s, s, 0.55, 0.45, limb))
+    RETURN collections::append(out, [oval(cx, cy + 0.12 * s, 0.2 * s, 0.56 * s, 0.0, body), circ(cx, cy - 0.46 * s, 0.17 * s, body), circ(cx - 0.08 * s, cy - 0.5 * s, 0.04 * s, black), circ(cx + 0.08 * s, cy - 0.5 * s, 0.04 * s, black)])
+  END IF
+
+  IF theme = 4 THEN
+    ' fly: see-through wings, a grey body, big red eyes
+    LET buzz AS Float = 0.12 * math::sin(t * 45.0)
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy + 0.05 * s, s, 0.55, t, 0.04 * s, black)
+    RETURN collections::append(out, [oval(cx - 0.28 * s, cy + 0.18 * s, 0.34 * s, 0.16 * s, 1.0 + buzz, color::rgba(200, 225, 255, 150)), oval(cx + 0.28 * s, cy + 0.18 * s, 0.34 * s, 0.16 * s, -1.0 - buzz, color::rgba(200, 225, 255, 150)), oval(cx, cy + 0.12 * s, 0.22 * s, 0.38 * s, 0.0, color::rgb(70, 72, 78)), circ(cx, cy - 0.18 * s, 0.18 * s, color::rgb(58, 60, 66)), circ(cx, cy - 0.36 * s, 0.17 * s, color::rgb(58, 60, 66)), circ(cx - 0.12 * s, cy - 0.4 * s, 0.12 * s, color::rgb(190, 40, 36)), circ(cx + 0.12 * s, cy - 0.4 * s, 0.12 * s, color::rgb(190, 40, 36))])
+  END IF
+
+  IF theme = 5 THEN
+    ' mosquito: long thin legs, narrow wings, a striped needle of a body
+    LET grey AS color::Color = color::rgb(62, 58, 56)
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy, s, 0.95, t, 0.025 * s, grey)
+    out = collections::append(out, [oval(cx - 0.18 * s, cy - 0.02 * s, 0.3 * s, 0.08 * s, 0.9, wing), oval(cx + 0.18 * s, cy - 0.02 * s, 0.3 * s, 0.08 * s, -0.9, wing), oval(cx, cy + 0.2 * s, 0.09 * s, 0.46 * s, 0.0, grey)])
+    FOR EACH dy IN [0.05, 0.22, 0.39]
+      out = collections::append(out, oval(cx, cy + dy * s, 0.08 * s, 0.03 * s, 0.0, color::rgb(210, 210, 200)))
+    NEXT
+    RETURN collections::append(out, [circ(cx, cy - 0.3 * s, 0.11 * s, grey), seg(cx, cy - 0.38 * s, cx, cy - 0.85 * s, 0.03 * s, grey)])
+  END IF
+
+  IF theme = 6 THEN
+    ' ant: head, thorax and abdomen in a line, six legs, antennae
+    LET ant AS color::Color = color::rgb(66, 34, 22)
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy - 0.02 * s, s, 0.62, t, 0.05 * s, ant)
+    out = collections::append(out, antennae(cx, cy - 0.5 * s, s, 0.3, 0.35, ant))
+    RETURN collections::append(out, [circ(cx, cy + 0.38 * s, 0.26 * s, ant), oval(cx, cy - 0.02 * s, 0.13 * s, 0.18 * s, 0.0, ant), circ(cx, cy - 0.4 * s, 0.17 * s, ant), circ(cx + 0.08 * s, cy + 0.3 * s, 0.07 * s, color::rgba(255, 220, 200, 90))])
+  END IF
+
+  IF theme = 7 THEN
+    ' ladybug: a red dome with black spots, split down the middle
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy + 0.05 * s, s, 0.6, t, 0.05 * s, black)
+    out = collections::append(out, [oval(cx, cy - 0.42 * s, 0.26 * s, 0.16 * s, 0.0, black), circ(cx, cy + 0.06 * s, 0.46 * s, color::rgb(214, 38, 32)), seg(cx, cy - 0.38 * s, cx, cy + 0.5 * s, 0.03 * s, black)])
+    FOR EACH p IN [pt(-0.22, -0.1), pt(0.22, -0.1), pt(-0.25, 0.25), pt(0.25, 0.25), pt(-0.1, 0.12), pt(0.1, 0.12)]
+      out = collections::append(out, circ(cx + p.x * s, cy + p.y * s, 0.08 * s, black))
+    NEXT
+    RETURN collections::append(out, [circ(cx - 0.1 * s, cy - 0.46 * s, 0.05 * s, color::rgb(250, 250, 250)), circ(cx + 0.1 * s, cy - 0.46 * s, 0.05 * s, color::rgb(250, 250, 250)), circ(cx - 0.18 * s, cy - 0.2 * s, 0.07 * s, color::rgba(255, 255, 255, 120))])
+  END IF
+
+  IF theme = 8 THEN
+    ' cockroach: spiky legs, long antennae, a glossy brown shell
+    LET roach AS color::Color = color::rgb(122, 62, 30)
+    MUT out AS List OF canvas::DrawItem = legs(cx, cy + 0.08 * s, s, 0.8, t, 0.04 * s, color::rgb(80, 40, 20))
+    out = collections::append(out, antennae(cx, cy - 0.5 * s, s, 0.6, 0.5, color::rgb(80, 40, 20)))
+    RETURN collections::append(out, [oval(cx, cy + 0.1 * s, 0.3 * s, 0.56 * s, 0.0, roach), oval(cx, cy - 0.42 * s, 0.22 * s, 0.14 * s, 0.0, color::rgb(70, 36, 18)), seg(cx, cy - 0.28 * s, cx, cy + 0.62 * s, 0.03 * s, color::rgb(70, 36, 18)), oval(cx - 0.12 * s, cy + 0.02 * s, 0.05 * s, 0.25 * s, 0.1, color::rgba(255, 200, 150, 90))])
+  END IF
+
+  ' scorpion: pincers, eight legs, a segmented body and a curled tail
+  LET shell AS color::Color = color::rgb(186, 122, 52)
+  LET edge AS color::Color = color::rgb(130, 80, 30)
+  LET snap AS Float = 0.05 * s * math::sin(t * 6.0)
+  MUT out AS List OF canvas::DrawItem = legs(cx, cy + 0.05 * s, s, 0.7, t, 0.05 * s, edge)
+  out = collections::append(out, [seg(cx - 0.12 * s, cy - 0.25 * s, cx - 0.45 * s, cy - 0.45 * s, 0.07 * s, edge), seg(cx + 0.12 * s, cy - 0.25 * s, cx + 0.45 * s, cy - 0.45 * s, 0.07 * s, edge), oval(cx - 0.5 * s, cy - 0.62 * s, 0.12 * s, 0.18 * s, -0.3 - snap / s, shell), oval(cx + 0.5 * s, cy - 0.62 * s, 0.12 * s, 0.18 * s, 0.3 + snap / s, shell), oval(cx, cy - 0.05 * s, 0.22 * s, 0.32 * s, 0.0, shell), circ(cx, cy - 0.34 * s, 0.14 * s, shell)])
+  ' The tail: shrinking beads round a curve that leaves the rear, swings out to
+  ' the right and hooks back up over the body, ending in the sting.
+  LET tailX AS Float = cx + 0.08 * s
+  LET tailY AS Float = cy + 0.05 * s
+  LET tailR AS Float = 0.42 * s
+  FOR i = 0 TO 6
+    LET a AS Float = math::pi / 2.0 - toFloat(i) * 0.42
+    out = collections::append(out, circ(tailX + tailR * math::cos(a), tailY + tailR * math::sin(a), (0.12 - toFloat(i) * 0.01) * s, shell))
+  NEXT
+  LET tipA AS Float = math::pi / 2.0 - 7.0 * 0.42
+  RETURN collections::append(out, star(tailX + tailR * math::cos(tipA), tailY + tailR * math::sin(tipA), 0.12 * s, 0.035 * s, 3, tipA - math::pi / 2.0, color::rgb(60, 30, 16)))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Effects
+' ---------------------------------------------------------------------------
+
+' A swat: a burst of impact, then goo that fades out.
+FUNC drawSplat(cx AS Float, cy AS Float, s AS Float, elapsed AS Integer) AS List OF canvas::DrawItem
+  IF elapsed < impactMs() THEN
+    LET q AS Float = toFloat(elapsed) / toFloat(impactMs())
+    RETURN [star(cx, cy, s * (0.5 + 0.9 * q), s * (0.25 + 0.45 * q), 8, 0.2, color::rgb(255, 214, 60)), star(cx, cy, s * (0.3 + 0.5 * q), s * (0.15 + 0.25 * q), 8, 0.6, color::rgb(255, 128, 40)), circ(cx, cy, s * 0.18, color::rgb(255, 250, 220))]
+  END IF
+  LET fade AS Float = 1.0 - toFloat(elapsed - impactMs()) / toFloat(splatMs() - impactMs())
+  LET alpha AS Integer = math::max(toInt(255.0 * fade), 0)
+  LET goo AS color::Color = color::rgba(150, 196, 44, alpha)
+  MUT out AS List OF canvas::DrawItem = [oval(cx, cy, 0.46 * s, 0.38 * s, 0.4, goo)]
+  FOR i = 0 TO 5
+    LET a AS Float = 0.3 + toFloat(i) * 1.05
+    LET d AS Float = (0.62 + 0.12 * toFloat(i MOD 2)) * s
+    out = collections::append(out, circ(cx + d * math::cos(a), cy + d * math::sin(a), (0.09 + 0.03 * toFloat(i MOD 3)) * s, goo))
+    out = collections::append(out, seg(cx + 0.3 * s * math::cos(a), cy + 0.3 * s * math::sin(a), cx + d * math::cos(a), cy + d * math::sin(a), 0.07 * s, goo))
+  NEXT
+  RETURN out
+END FUNC
+
+' Where the bug got away: three twinkling stars that fade.
+FUNC drawSparkle(cx AS Float, cy AS Float, s AS Float, elapsed AS Integer) AS List OF canvas::DrawItem
+  LET q AS Float = toFloat(elapsed) / toFloat(sparkleMs())
+  LET alpha AS Integer = math::max(toInt(255.0 * (1.0 - q)), 0)
+  LET glow AS color::Color = color::rgba(255, 238, 150, alpha)
+  LET core AS color::Color = color::rgba(255, 255, 255, alpha)
+  MUT out AS List OF canvas::DrawItem = []
+  FOR EACH p IN [pt(0.0, 0.0), pt(-0.45, -0.35), pt(0.4, 0.3)]
+    LET pulse AS Float = 0.6 + 0.8 * math::sin((q + math::abs(p.x)) * math::pi)
+    LET r AS Float = (0.5 - 0.2 * math::abs(p.x)) * s * pulse
+    out = collections::append(out, star(cx + p.x * s, cy + p.y * s, r, r * 0.22, 4, -math::pi / 2.0, glow))
+    out = collections::append(out, circ(cx + p.x * s, cy + p.y * s, r * 0.18, core))
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The scene
+' ---------------------------------------------------------------------------
+
+FUNC edgeRect(px AS Float, py AS Float, w AS Float, h AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Rectangle[x := px, y := py, w := w, h := h, paint := canvas::fill(c)]
+END FUNC
+
+FUNC padNumber(n AS Integer, width AS Integer) AS String
+  IF n < 0 THEN RETURN "-" & strings::padLeft(toString(-n), width - 1, "0")
+  RETURN strings::padLeft(toString(n), width, "0")
+END FUNC
+
+FUNC label(face AS canvas::Font, size AS Float, text AS String, px AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Text[x := px, y := baseline, text := text, font := face, size := size, paint := canvas::fill(c)]
+END FUNC
+
+' A centred panel over a dimmed field: a title and a line of key hints.
+FUNC banner(lay AS Layout, face AS canvas::Font, title AS String, hint AS String, fill AS color::Color) AS List OF canvas::DrawItem
+  LET w AS Float = 380.0
+  LET h AS Float = 150.0
+  LET x AS Float = (lay.width - w) / 2.0
+  LET y AS Float = (lay.height - h) / 2.0
+  LET titleSize AS Float = 36.0
+  LET hintSize AS Float = 18.0
+  LET tm AS canvas::TextMetrics = canvas::measureText(face, titleSize, title)
+  LET hm AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
+  RETURN [canvas::Rectangle[x := lay.fieldX, y := lay.fieldY, w := lay.fieldW, h := lay.fieldH, paint := canvas::fill(color::rgba(0, 0, 0, 120))], canvas::RoundedRect[x := x, y := y, w := w, h := h, cornerRadius := 16.0, paint := canvas::fillStroke(fill, color::rgba(255, 255, 255, 180), 2.0)], label(face, titleSize, title, x + (w - tm.width) / 2.0, y + 62.0, color::rgb(255, 255, 255)), label(face, hintSize, hint, x + (w - hm.width) / 2.0, y + 112.0, color::rgb(235, 240, 255))]
+END FUNC
+
+FUNC sceneFor(lay AS Layout, face AS canvas::Font, level AS Integer, score AS Integer, grass AS List OF Plant, bug AS Slot, bugTheme AS Integer, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer, gameOver AS Boolean, paused AS Boolean) AS List OF canvas::DrawItem
+  LET s AS Float = lay.cell * 0.44
+  LET t AS Float = toFloat(now) / 1000.0
+  LET ground AS color::Color = groundColor(level)
+
+  ' The software renderer's cost is the area each item covers, so the backdrop
+  ' paints every pixel once: the score bar's strip, then the ground under
+  ' everything else. (A full-window backdrop under a separate field, or the field
+  ' as a gradient-filled or stroked rounded rectangle, each cost a whole-surface
+  ' pass per frame; together they held the game to about two frames a second.)
+  LET barStrip AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := lay.width, h := lay.barHeight, paint := canvas::fill(color::rgb(20, 24, 30))]
+  LET field AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := lay.barHeight, w := lay.width, h := lay.height - lay.barHeight, paint := canvas::fill(ground)]
+  MUT scene AS List OF canvas::DrawItem = [barStrip, field]
+  ' A faint grid, then the frame as four thin edges.
+  LET line AS color::Color = color::rgba(255, 255, 255, 12)
+  FOR c = 1 TO lay.columns - 1
+    LET x AS Float = lay.gridX + toFloat(c) * lay.cell
+    scene = collections::append(scene, seg(x, lay.gridY, x, lay.gridY + toFloat(lay.rows) * lay.cell, 1.0, line))
+  NEXT
+  FOR r = 1 TO lay.rows - 1
+    LET y AS Float = lay.gridY + toFloat(r) * lay.cell
+    scene = collections::append(scene, seg(lay.gridX, y, lay.gridX + toFloat(lay.columns) * lay.cell, y, 1.0, line))
+  NEXT
+  LET edge AS color::Color = color::rgb(120, 180, 220)
+  scene = collections::append(scene, [edgeRect(lay.fieldX, lay.fieldY, lay.fieldW, 2.0, edge), edgeRect(lay.fieldX, lay.fieldY + lay.fieldH - 2.0, lay.fieldW, 2.0, edge), edgeRect(lay.fieldX, lay.fieldY, 2.0, lay.fieldH, edge), edgeRect(lay.fieldX + lay.fieldW - 2.0, lay.fieldY, 2.0, lay.fieldH, edge)])
+
+  FOR EACH plant IN grass
+    scene = collections::append(scene, drawPlant(plant.kind, centerX(lay, plant.spot), centerY(lay, plant.spot), s))
+  NEXT
+  FOR EACH e IN effects
+    IF now < e.untilAt THEN
+      IF e.splat THEN
+        scene = collections::append(scene, drawSplat(centerX(lay, e.spot), centerY(lay, e.spot), s, now - e.startAt))
+      ELSE
+        scene = collections::append(scene, drawSparkle(centerX(lay, e.spot), centerY(lay, e.spot), s, now - e.startAt))
+      END IF
+    END IF
+  NEXT
+  IF bugVisible THEN
+    scene = collections::append(scene, drawBug(bugTheme, centerX(lay, bug), centerY(lay, bug), s, t))
+  END IF
+
+  ' The score bar, laid out like the tui edition's top border.
+  LET barSize AS Float = 22.0
+  LET baseline AS Float = lay.barHeight / 2.0 + 8.0
+  LET white AS color::Color = color::rgb(240, 244, 250)
+  LET levelText AS String = "LEVEL " & padNumber(level, 2)
+  LET titleText AS String = "BUGS"
+  LET scoreText AS String = padNumber(score, 3)
+  LET titleM AS canvas::TextMetrics = canvas::measureText(face, barSize, titleText)
+  LET scoreM AS canvas::TextMetrics = canvas::measureText(face, barSize, scoreText)
+  scene = collections::append(scene, [label(face, barSize, levelText, lay.fieldX + 4.0, baseline, white), label(face, barSize, titleText, (lay.width - titleM.width) / 2.0, baseline, color::rgb(255, 214, 90)), label(face, barSize, scoreText, lay.fieldX + lay.fieldW - scoreM.width - 4.0, baseline, white)])
+
+  IF gameOver THEN
+    scene = collections::append(scene, banner(lay, face, "GAME OVER", "r restart     q quit", color::rgb(200, 52, 48)))
+  ELSEIF paused THEN
+    scene = collections::append(scene, banner(lay, face, "PAUSED", "esc resume     q quit", color::rgb(60, 90, 160)))
+  END IF
+  RETURN scene
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Input
+' ---------------------------------------------------------------------------
+
+FUNC getChar AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' One key press. A lone escape byte is the Esc key; an escape followed by more
+' input is a key sequence, which is read off and reported as "" so it does
+' nothing.
+FUNC readKey AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c <> "\u{1B}" THEN RETURN c
+  IF NOT ready(30) THEN RETURN "ESC"
+  DO WHILE ready(0)
+    LET rest AS String = getChar()
+    IF rest = "" THEN RETURN "EOF"
+  LOOP
+  RETURN ""
+END FUNC
+
+' The first TrueType font on this platform that is actually installed, or ""
+' when none is. canvas::loadFont reads plain .ttf files only, so the list names
+' those (the same list examples/emoji uses).
+FUNC systemFontPath AS String
+  MUT candidates AS List OF String = []
+  IF os::name() = "macos" THEN
+    candidates = ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf"]
+  ELSE
+    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"]
+  END IF
+  FOR EACH path IN candidates
+    IF fs::fileExists(path) THEN RETURN path
+  NEXT
+  RETURN ""
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The game loop
+' ---------------------------------------------------------------------------
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+
+  LET fontPath AS String = systemFontPath()
+  IF fontPath = "" THEN
+    io::printError("bugs: no TrueType font found in the usual system locations.")
+    RETURN 1
+  END IF
+  RES face AS canvas::Font = canvas::loadFont(fontPath) TRAP(e)
+    io::printError("bugs: cannot load " & fontPath & ": " & e.message)
+    RETURN 1
+  END TRAP
+
+  canvas::enableMouse(TRUE)
+
+  MUT lay AS Layout = layoutFor(canvas::getSize())
+  MUT score AS Integer = 0
+  MUT level AS Integer = 1
+  MUT grass AS List OF Plant = []
+  MUT effects AS List OF Effect = []
+  MUT bug AS Slot = Slot[-1, -1]
+  MUT bugTheme AS Integer = 0
+  MUT bugVisible AS Boolean = FALSE
+  MUT nextGrassAt AS Integer = 0
+  ' While the bug is visible this is when it leaves; while it is away, when it
+  ' comes back.
+  MUT bugEventAt AS Integer = 0
+  MUT gameOver AS Boolean = FALSE
+  MUT paused AS Boolean = FALSE
+  MUT pausedAt AS Integer = 0
+  MUT restart AS Boolean = TRUE
+  MUT running AS Boolean = TRUE
+
+  DO WHILE running
+    ' A resized window gets a fresh grid and an empty field.
+    IF canvas::didResize() THEN
+      lay = layoutFor(canvas::getSize())
+      grass = []
+      effects = []
+      bugVisible = FALSE
+      ' Measured from the pause if there is one: resuming adds the time spent
+      ' paused to every deadline, so "now" would count that stretch twice.
+      MUT base AS Integer = nowMs()
+      IF paused THEN base = pausedAt
+      bugEventAt = base + bugReturnDelayMs()
+    END IF
+
+    IF restart THEN
+      restart = FALSE
+      score = 0
+      level = 1
+      grass = []
+      effects = []
+      bugVisible = FALSE
+      gameOver = FALSE
+      paused = FALSE
+      nextGrassAt = nowMs() + grassDelayMs()
+      ' The first bug arrives quickly; after that it keeps the 5-10 s rhythm.
+      bugEventAt = nowMs() + math::rand(1000, 3000)
+    END IF
+
+    ' Swats.
+    MUT event AS canvas::MouseEvent = canvas::pollMouse()
+    DO WHILE event.kind <> canvas::MouseKind.None
+      IF NOT gameOver AND NOT paused AND event.kind = canvas::MouseKind.Down AND event.button = canvas::MouseButton.Left THEN
+        LET hit AS Slot = slotAt(lay, event.position.x, event.position.y)
+        LET plantIndex AS Integer = indexOfPlant(grass, hit)
+        IF hit.row < 0 THEN
+          ' Off the grid: nothing there.
+        ELSEIF bugVisible AND slotEq(hit, bug) THEN
+          score = score + 1
+          level = math::max(level, levelForScore(score))
+          bugVisible = FALSE
+          LET swatAt AS Integer = nowMs()
+          effects = collections::append(effects, Effect[bug, TRUE, swatAt, swatAt + splatMs()])
+          bugEventAt = swatAt + bugReturnDelayMs()
+        ELSEIF plantIndex >= 0 THEN
+          score = score - 2
+          grass = collections::removeAt(grass, plantIndex)
+          IF score < 0 THEN gameOver = TRUE
+        END IF
+      END IF
+      event = canvas::pollMouse()
+    LOOP
+
+    ' The field grows and the bug comes and goes.
+    IF NOT gameOver AND NOT paused THEN
+      LET now AS Integer = nowMs()
+      effects = liveEffects(effects, now)
+
+      IF now >= nextGrassAt THEN
+        LET spot AS Slot = freeSlot(lay, grass, bug, bugVisible, effects)
+        IF spot.row >= 0 THEN
+          grass = collections::append(grass, Plant[spot, randomPlant(level)])
+          DO WHILE len(grass) > level * 10
+            grass = collections::removeAt(grass, 0)
+          LOOP
+        END IF
+        nextGrassAt = now + grassDelayMs()
+      END IF
+
+      IF now >= bugEventAt THEN
+        IF bugVisible THEN
+          ' It got away.
+          bugVisible = FALSE
+          effects = collections::append(effects, Effect[bug, FALSE, now, now + sparkleMs()])
+          bugEventAt = now + bugReturnDelayMs()
+        ELSE
+          LET spot AS Slot = freeSlot(lay, grass, bug, FALSE, effects)
+          IF spot.row >= 0 THEN
+            bug = spot
+            bugTheme = themeOf(level)
+            bugVisible = TRUE
+            bugEventAt = now + bugLifetimeMs(level)
+          END IF
+        END IF
+      END IF
+    END IF
+
+    ' A paused game shows everything frozen where it was.
+    MUT drawnAt AS Integer = nowMs()
+    IF paused THEN drawnAt = pausedAt
+    canvas::present(sceneFor(lay, face, level, score, grass, bug, bugTheme, bugVisible, effects, drawnAt, gameOver, paused))
+
+    IF ready(frameDelayMs()) THEN
+      LET key AS String = readKey()
+      IF key = "q" OR key = "Q" OR key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "ESC" AND gameOver THEN
+        running = FALSE
+      ELSEIF key = "ESC" AND paused THEN
+        ' Push every pending deadline out by the time spent paused, so the
+        ' pause costs the player nothing.
+        LET pausedFor AS Integer = nowMs() - pausedAt
+        nextGrassAt = nextGrassAt + pausedFor
+        bugEventAt = bugEventAt + pausedFor
+        effects = delayEffects(effects, pausedFor)
+        paused = FALSE
+      ELSEIF key = "ESC" THEN
+        paused = TRUE
+        pausedAt = nowMs()
+      ELSEIF key = "r" OR key = "R" THEN
+        restart = TRUE
+      END IF
+    END IF
+  LOOP
+
+  canvas::enableMouse(FALSE)
+  RETURN 0
+
+  TRAP(e)
+    io::printError("bugs: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
