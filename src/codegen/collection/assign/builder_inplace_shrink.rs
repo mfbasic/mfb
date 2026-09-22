@@ -38,6 +38,12 @@ impl CodeBuilder<'_> {
     ) -> Option<(SelfUpdateTarget<'v>, ParameterType)> {
         let target = self.resolve_self_update(site, value, builtin, arity)?;
         let element_type = typed_list_element_type(&target.collection_type).cloned()?;
+        // plan-145-D: at a field, only a fixed-width element. A variable-width
+        // compaction may repack the list into a new block (the out-of-order path),
+        // which an inlined sub-block cannot receive; that kind is letter E's.
+        if target.dest.is_field() && kind2_payload_size(&element_type).is_none() {
+            return None;
+        }
         Some((target, element_type))
     }
 
@@ -80,8 +86,9 @@ impl CodeBuilder<'_> {
         let Some((target, element_type)) = self.resolve_shrink(site, value, "take", 2) else {
             return Ok(false);
         };
-        let buffer_slot = target.dest.block_slot();
+        let dest = self.open_inplace_dest(&target.dest)?;
         let n_slot = self.lower_integer_operand(&target.args[1], "take_count")?;
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_take_len");
         let start_slot = self.allocate_stack_object("inplace_take_start", 8);
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), start_slot));
@@ -96,6 +103,7 @@ impl CodeBuilder<'_> {
             &target.collection_type,
             &element_type,
         )?;
+        self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
         Ok(true)
     }
@@ -109,8 +117,9 @@ impl CodeBuilder<'_> {
         let Some((target, element_type)) = self.resolve_shrink(site, value, "drop", 2) else {
             return Ok(false);
         };
-        let buffer_slot = target.dest.block_slot();
+        let dest = self.open_inplace_dest(&target.dest)?;
         let n_slot = self.lower_integer_operand(&target.args[1], "drop_count")?;
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_drop_len");
         let start_slot = self.emit_clamp_to_count(n_slot, count_slot, "drop")?;
         // len = count - start.
@@ -130,6 +139,7 @@ impl CodeBuilder<'_> {
             &target.collection_type,
             &element_type,
         )?;
+        self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
         Ok(true)
     }
@@ -145,10 +155,11 @@ impl CodeBuilder<'_> {
         let Some((target, element_type)) = self.resolve_shrink(site, value, "mid", 3) else {
             return Ok(false);
         };
-        let buffer_slot = target.dest.block_slot();
+        let dest = self.open_inplace_dest(&target.dest)?;
         // Source order, matching `lower_mid`: start, then count.
         let start_slot = self.lower_integer_operand(&target.args[1], "mid_start")?;
         let len_slot = self.lower_integer_operand(&target.args[2], "mid_count")?;
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let base = self.temporary_vreg();
         let start = self.temporary_vreg();
         let len = self.temporary_vreg();
@@ -189,6 +200,7 @@ impl CodeBuilder<'_> {
             &target.collection_type,
             &element_type,
         )?;
+        self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
         Ok(true)
     }
@@ -206,7 +218,7 @@ impl CodeBuilder<'_> {
         let Some((target, element_type)) = self.resolve_shrink(site, value, "filter", 2) else {
             return Ok(false);
         };
-        let buffer_slot = target.dest.block_slot();
+        let dest = self.open_inplace_dest(&target.dest)?;
         let action = self.lower_value(&target.args[1])?;
         let output_type = typed_callable_return_type(&action.type_)
             .cloned()
@@ -228,6 +240,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_filter_count");
         let marks_slot = self.emit_reserve_self_update_scratch(count_slot)?;
 
@@ -290,6 +303,7 @@ impl CodeBuilder<'_> {
             &target.collection_type,
             &element_type,
         )?;
+        self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
         Ok(true)
     }
@@ -307,7 +321,8 @@ impl CodeBuilder<'_> {
         let Some((target, element_type)) = self.resolve_shrink(site, value, "distinct", 1) else {
             return Ok(false);
         };
-        let buffer_slot = target.dest.block_slot();
+        let dest = self.open_inplace_dest(&target.dest)?;
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_distinct_count");
         let marks_slot = self.emit_reserve_self_update_scratch(count_slot)?;
         let payload = kind2_payload_size(&element_type);
@@ -435,6 +450,7 @@ impl CodeBuilder<'_> {
             &target.collection_type,
             &element_type,
         )?;
+        self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
         Ok(true)
     }

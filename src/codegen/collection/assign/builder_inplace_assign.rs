@@ -996,6 +996,10 @@ impl CodeBuilder<'_> {
         if site.is_self(&target.args[1]) {
             return Ok(false);
         }
+        // `G17` — a grow must not shift a later sibling.
+        if !self.field_is_last_inlined(site) {
+            return Ok(false);
+        }
         let dest = self.open_inplace_dest(&target.dest)?;
         let rhs = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &rhs)?;
@@ -1025,6 +1029,10 @@ impl CodeBuilder<'_> {
     ) -> Result<bool, String> {
         // `G12` — exclude the self-alias `add(field, field)`.
         if site.is_self(&target.args[1]) {
+            return Ok(false);
+        }
+        // `G17` — a grow must not shift a later sibling.
+        if !self.field_is_last_inlined(site) {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;
@@ -1162,6 +1170,10 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
+        // `G17` — a new key grows the map, which must not shift a later sibling.
+        if !self.field_is_last_inlined(site) {
+            return Ok(false);
+        }
         let dest = self.open_inplace_dest(&target.dest)?;
         let block_slot = dest.block_slot();
         let key = self.lower_value(&target.args[1])?;
@@ -1352,6 +1364,10 @@ impl CodeBuilder<'_> {
         match self.static_item_type(&target.args[rhs_index]) {
             Some(vt) if vt == *element_type => {}
             _ => return Ok(false),
+        }
+        // `G17` — a grow must not shift a later sibling.
+        if !self.field_is_last_inlined(site) {
+            return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;
         let block_slot = dest.block_slot();

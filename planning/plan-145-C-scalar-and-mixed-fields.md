@@ -135,7 +135,7 @@ reorders a write. Each rule gets a runtime case that asserts the **decline**.
       them (Correction C3).
 
 Acceptance: both answers recorded here (est. 20 min).
-Commit: recorded with Phases 2 and 3 (below)
+Commit: `831e85027` (with Phases 2 and 3)
 
 ### Phase 2: Scalar and pointer fields
 
@@ -176,7 +176,7 @@ lines at every flipped site: `MFB_SELF_UPDATE_FILTER='Integer|Float|Fixed|Money|
 Boolean|Byte|json::Json|json::JsonArr|json::JsonObj'
 MFB_SELF_UPDATE_SITES=S3,S4,S10,T1,T2,T3,T4,T5,T8 … every_field_kind` → ok
 (900.88 s).
-Commit: (recorded in the next commit)
+Commit: `831e85027`
 
 ### Phase 3: The mixed `WITH`
 
@@ -215,7 +215,7 @@ Acceptance: `cargo test --test rt_inplace_field_mixed` passes, and
 passed". `MFB_TEST_EXE=target/release/mfb MFB_SELF_UPDATE_SITES=S10,T5 cargo test
 --test rt_inplace_self_update` → both tests ok (558.90 s): every `cases.tsv` line
 and every kind at S10 and T5, the 20 flipped lines included.
-Commit: (recorded in the next commit)
+Commit: `831e85027`
 
 ## Validation Plan
 

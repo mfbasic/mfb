@@ -404,12 +404,20 @@ impl CodeBuilder<'_> {
                 return Ok(false);
             }
         }
+        // `G25` over every scalar's value and over the arm's OPERANDS — the arm's
+        // call itself is the builtin the arm replaces (a `.mfb`-bodied builtin such
+        // as `sortBy` would otherwise read as user code), exactly the operands the
+        // single-field seam asks about (`resolve_self_update`).
         if let FieldContainer::State { .. } = container {
-            if updates.iter().any(|update| {
-                self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(
-                    &update.value,
-                ))
-            }) {
+            let arm_operands: &[NirValue] = match arm_value {
+                NirValue::Call { args, .. } => args,
+                other => std::slice::from_ref(other),
+            };
+            if self.inplace_state_operands_reach_a_state_assign(arm_operands)
+                || scalars.iter().any(|(_, _, value)| {
+                    self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(*value))
+                })
+            {
                 return Ok(false);
             }
         }

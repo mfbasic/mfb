@@ -458,7 +458,8 @@ impl CodeBuilder<'_> {
         if !is_ordered(&element_type) {
             return Ok(false);
         }
-        let buffer_slot = resolved.dest.block_slot();
+        let dest = self.open_inplace_dest(&resolved.dest)?;
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let count_slot = self.allocate_stack_object("inplace_sort_count", 8);
         let base = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -494,6 +495,7 @@ impl CodeBuilder<'_> {
             self.emit_index_merge_sort(count_slot, perm_slot, pingpong_slot, &compare)?;
         self.lower_list_permute_in_place(buffer_slot, sorted_slot, temp_slot, &element_type);
         self.emit(abi::label(&skip));
+        self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
         }
@@ -516,7 +518,7 @@ impl CodeBuilder<'_> {
         let Some(element_type) = typed_list_element_type(&resolved.collection_type).cloned() else {
             return Ok(false);
         };
-        let buffer_slot = resolved.dest.block_slot();
+        let dest = self.open_inplace_dest(&resolved.dest)?;
         let action = self.lower_value(&resolved.args[1])?;
         let key_type = typed_callable_return_type(&action.type_)
             .cloned()
@@ -538,6 +540,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let string_keys = key_type == ParameterType::String;
         let count_slot = self.allocate_stack_object("inplace_sortby_count", 8);
         let base = self.temporary_vreg();
@@ -665,6 +668,7 @@ impl CodeBuilder<'_> {
             self.emit_free_parked_strings(keys_slot, all_slot, key_slot)?;
         }
         self.emit(abi::label(&skip));
+        self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
         }

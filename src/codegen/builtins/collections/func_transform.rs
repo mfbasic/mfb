@@ -246,8 +246,15 @@ pub(crate) fn lower_transform(
     // Emitted only when the item is itself a block: for a fixed-width element
     // the item register holds a scalar, which cannot compare equal to an arena
     // pointer, and the comparison would be pure noise in the loop.
-    if output_type == ParameterType::String {
-        if element_type == ParameterType::String {
+    //
+    // bug-677: the same holds for every flat block result — a record, a data
+    // union, a collection — which the append byte-copies just the same, and which
+    // leaked one block per element until `free_callback_result` covered it. A
+    // non-`String` block element is an alias into the source's packed data, so the
+    // identity guard there protects the SOURCE list from a callback that handed its
+    // argument back.
+    if builder.callback_result_is_block(&output_type) {
+        if element_type == output_type {
             let kept = builder.label("transform_result_kept");
             let carried = builder.temporary_vreg();
             let produced = builder.temporary_vreg();
@@ -255,10 +262,10 @@ pub(crate) fn lower_transform(
             builder.emit(abi::load_u64(&produced, abi::stack_pointer(), item_slot));
             builder.emit(abi::compare_registers(&carried, &produced));
             builder.emit(abi::branch_eq(&kept));
-            builder.free_collection_loop_item(item_slot, &output_type)?;
+            builder.free_callback_result(item_slot, &output_type)?;
             builder.emit(abi::label(&kept));
         } else {
-            builder.free_collection_loop_item(item_slot, &output_type)?;
+            builder.free_callback_result(item_slot, &output_type)?;
         }
     }
     builder.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);

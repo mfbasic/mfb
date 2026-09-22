@@ -222,3 +222,146 @@ fn a_failing_self_update_leaves_the_binding_unchanged() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// plan-145-D: the same guarantee at a field. `filter`'s failing predicate, `mid`'s
+/// bad range and a `math` domain error, each over a record field and a `STATE`
+/// field, leave the field (and its siblings) as they were. `b` and `f` are NOT
+/// the record's last inlined field — the arms mutate a middle sub-block where it
+/// lies (plan-145-A Open Decision 2). The whole program then frees every byte it
+/// allocated: a shrunk sub-block must not leak the record's tail (`live_bytes 0`
+/// in the `--debug` report). The `STATE` handle is a `RES` parameter, so the
+/// handler may read it (bug-676).
+#[test]
+fn a_failing_field_self_update_leaves_the_owner_unchanged() {
+    // (name, field, the failing update's value with `@` for the owner)
+    let cases: &[(&str, &str, &str)] = &[
+        ("filter", "b", "collections::filter(@.b, failOnThree)"),
+        ("mid", "b", "collections::mid(@.b, 1, -1)"),
+        ("sqrt", "f", "math::sqrt(@.f)"),
+    ];
+    let mut source = format!(
+        "{HELPERS}
+IMPORT fs
+
+TYPE R
+  a AS Integer
+  b AS List OF Integer
+  f AS List OF Float
+  c AS List OF Integer
+END TYPE
+
+FUNC fresh() AS R
+  RETURN R[a := 1, b := [1, 2, 3, 4, 5], f := [4.0, 9.0, -1.0], c := [7]]
+END FUNC
+
+FUNC show(r AS R) AS String
+  RETURN toString(r.a) & \"|\" & showInts(r.b) & \"|\" & showFloats(r.f) & \"|\" & showInts(r.c)
+END FUNC
+"
+    );
+    let mut calls = String::new();
+    let mut want = Vec::new();
+    let original = "1|1,2,3,4,5,|4.00,9.00,-1.00,|7,";
+    for (name, field, update) in cases {
+        let rec = update.replace('@', "r");
+        let st = update.replace('@', "h.state");
+        source.push_str(&format!(
+            "
+FUNC rec_{name}() AS Integer
+  MUT r AS R = fresh()
+  r = WITH r {{ {field} := {rec} }}
+  io::print(\"not reached\")
+  RETURN 0
+
+  TRAP(e)
+    io::print(\"rec {name} \" & show(r))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC st_{name}(RES h AS fs::File STATE R) AS Integer
+  h.state = WITH h.state {{ {field} := {st} }}
+  io::print(\"not reached\")
+  RETURN 0
+
+  TRAP(e)
+    io::print(\"state {name} \" & show(h.state))
+    RETURN 1
+  END TRAP
+END FUNC
+"
+        ));
+        calls.push_str(&format!(
+            "  io::print(toString(rec_{name}()))\n  \
+             h.state = fresh()\n  \
+             io::print(toString(st_{name}(h)))\n  \
+             io::print(\"after {name} \" & show(h.state))\n"
+        ));
+        want.push(format!("rec {name} {original}"));
+        want.push("1".to_string());
+        want.push(format!("state {name} {original}"));
+        want.push("1".to_string());
+        want.push(format!("after {name} {original}"));
+    }
+    source.push_str(&format!(
+        "
+FUNC main() AS Integer
+  RES h AS fs::File STATE R = fs::openFile(\"/dev/null\")
+{calls}  RETURN 0
+END FUNC
+"
+    ));
+
+    let project = common::temp_project("inplace_atomic_fields", &source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("--debug")
+        .arg(&project)
+        .output()
+        .expect("run mfb build");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "build failed:\n{stdout}\n{}\n--- source ---\n{source}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exe = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Wrote executable to "))
+        .find(|p| p.ends_with("-glibc.out"))
+        .or_else(|| {
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix("Wrote executable to "))
+        })
+        .expect("an executable")
+        .to_string();
+    let run = Command::new(&exe).output().expect("run the program");
+    let _ = std::fs::remove_dir_all(&project);
+    let text = String::from_utf8_lossy(&run.stdout).into_owned();
+    let report = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        run.status.success(),
+        "program failed ({}):\n{text}\n{report}\n--- source ---\n{source}",
+        common::exit_description(&run.status)
+    );
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    assert_eq!(
+        lines, want,
+        "a failed field update must leave the owner as it was"
+    );
+    let sum = |key: &str| -> u64 {
+        report
+            .lines()
+            .filter_map(|line| line.strip_prefix("arena."))
+            .filter_map(|rest| rest.split_once(key))
+            .filter(|(arena, _)| !arena.contains('.'))
+            .map(|(_, n)| n.trim().parse::<u64>().expect("a count"))
+            .sum()
+    };
+    assert_eq!(
+        (sum(".alloc_calls "), sum(".live_bytes ")),
+        (sum(".free_calls "), 0),
+        "the field cases leaked:\n{report}"
+    );
+}

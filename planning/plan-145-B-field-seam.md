@@ -231,6 +231,7 @@ Commit: `e5a8b1a9d`
   --test rt_inplace_self_update` → ok (exit 0): every line and kind kept its
   expectation at the four sites.
 - Per-letter unit gate: `cargo test --bin mfb`.
+  **Result** (B state, run while C was in progress): `cargo test --bin mfb` → "test result: ok. 4290 passed; 0 failed; 1 ignored" (3578 s).
 
 ## Corrections
 

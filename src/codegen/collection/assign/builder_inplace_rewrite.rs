@@ -71,7 +71,7 @@ impl CodeBuilder<'_> {
         }
         let lower = crate::codegen::registry::abi_inline_lower(target)
             .ok_or_else(|| format!("native in-place math: `{target}` has no inline lowering"))?;
-        let buffer_slot = resolved.dest.block_slot();
+        let dest = self.open_inplace_dest(&resolved.dest)?;
         let marker = self.allocate_stack_object("inplace_math_result", 8);
         // The arguments are lowered before the redirect is armed, so a nested
         // array call in an operand (`min(x, abs(ys))`) allocates its own result.
@@ -88,6 +88,7 @@ impl CodeBuilder<'_> {
                 resolved.collection_type
             ));
         }
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         // Copy the scratch lanes over `x`'s data: count * 8 bytes.
         self.emit(abi::store_u64(
             &result.location,
@@ -106,6 +107,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_COUNT));
         self.emit(abi::shift_left_immediate(&len, &len, 3));
         self.emit_block_copy_advance(&dst, &src, &len, &copy, "inplace_math_copy");
+        self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
         }
@@ -207,7 +209,12 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = resolved.collection_type.clone();
-        let buffer_slot = resolved.dest.block_slot();
+        // plan-145-D: at a field, only a fixed-width element — a longer
+        // variable-width replacement reserves tail room by repacking (a new block).
+        if resolved.dest.is_field() && list_entry_stride(&element_type) != 0 {
+            return Ok(false);
+        }
+        let dest = self.open_inplace_dest(&resolved.dest)?;
         // Source order, as `lower_replace`: old, then new.
         let old = self.lower_value(&resolved.args[1])?;
         if old.type_ != element_type {
@@ -235,6 +242,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_slot,
         ));
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let index_slot = self.allocate_stack_object("inplace_replace_index", 8);
 
         // Pass 1 (variable width only): count the matches and reserve the tail
@@ -333,6 +341,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
         self.emit(abi::branch(&top));
         self.emit(abi::label(&done));
+        self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
         }
@@ -363,7 +372,11 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = resolved.collection_type.clone();
-        let buffer_slot = resolved.dest.block_slot();
+        // plan-145-D: at a field, only a fixed-width element (see `replace`).
+        if resolved.dest.is_field() && list_entry_stride(&element_type) != 0 {
+            return Ok(false);
+        }
+        let dest = self.open_inplace_dest(&resolved.dest)?;
         let action = self.lower_value(&resolved.args[1])?;
         let output_type = typed_callable_return_type(&action.type_)
             .cloned()
@@ -386,6 +399,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
+        let buffer_slot = self.inplace_collection_slot(&dest)?;
         let is_string = element_type == ParameterType::String;
 
         // Scratch: one word per element.
@@ -431,10 +445,10 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&callee);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok));
-        // A failing `f`: free what pass 1 produced (the parked `String` results
-        // and this element's materialized copy), then route the error. `x` has
-        // not been written.
-        if is_string {
+        // A failing `f`: free what pass 1 produced (the parked results — a
+        // `String` or any flat block, bug-677 — and a `String` element's
+        // materialized copy), then route the error. `x` has not been written.
+        if self.callback_result_is_block(&element_type) {
             let regs = [
                 RESULT_TAG_REGISTER,
                 RESULT_VALUE_REGISTER,
@@ -464,7 +478,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_registers(&results, &results, &index));
             self.emit(abi::load_u64(&results, &results, 0));
             self.emit(abi::store_u64(&results, abi::stack_pointer(), result_slot));
-            self.free_collection_loop_item(result_slot, &element_type)?;
+            self.free_callback_result(result_slot, &element_type)?;
             self.emit(abi::branch(&unwind));
             self.emit(abi::label(&unwound));
             for (reg, slot) in regs.iter().zip(&saved) {
@@ -545,7 +559,8 @@ impl CodeBuilder<'_> {
             self.emit_reserve_list_tail(buffer_slot, extra_slot, &list_type, &element_type)?;
         }
 
-        // Pass 2: x[i] = results[i], freeing each parked `String` once copied in.
+        // Pass 2: x[i] = results[i], freeing each parked block once copied in
+        // (a `String`, or any flat block — bug-677).
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
         let top = self.label("inplace_transform_write");
         let done = self.label("inplace_transform_write_done");
@@ -571,15 +586,14 @@ impl CodeBuilder<'_> {
             &list_type,
             &element_type,
         )?;
-        if is_string {
-            self.free_collection_loop_item(result_slot, &element_type)?;
-        }
+        self.free_callback_result(result_slot, &element_type)?;
         let index = self.temporary_vreg();
         self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
         self.emit(abi::add_immediate(&index, &index, 1));
         self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
         self.emit(abi::branch(&top));
         self.emit(abi::label(&done));
+        self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
         }

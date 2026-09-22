@@ -198,9 +198,16 @@ pub(crate) enum FieldReach {
     /// The arm declines every field site.
     None,
     /// The arm serves a field site exactly as the record and `STATE` arm it
-    /// absorbed did (plan-121-C/D): the last-inlined field of a local record or
-    /// a `STATE` payload.
+    /// absorbed did (plan-121-C/D). Its growing routes need the last-inlined
+    /// field (`field_is_last_inlined`); its others may mutate any inlined
+    /// collection field where it lies.
     Existing,
+    /// plan-145-D: the arm never stores a new block pointer for the element kinds
+    /// it admits at a field, so it mutates the field's sub-block where it lies —
+    /// at any inlined collection field, last or not (Open Decision 2). The kinds
+    /// that could reallocate (a variable-width element or value) decline at a
+    /// field, in the arm.
+    NoRealloc,
 }
 
 /// The dispatch list. Every arm-backed `SELF_UPDATE_TABLE` row names ids from
@@ -261,52 +268,52 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::Filter,
         |b, s, v| b.try_inplace_filter_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Take,
         |b, s, v| b.try_inplace_take_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Drop,
         |b, s, v| b.try_inplace_drop_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Mid,
         |b, s, v| b.try_inplace_mid_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Distinct,
         |b, s, v| b.try_inplace_distinct_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Math,
         |b, s, v| b.try_inplace_math_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Replace,
         |b, s, v| b.try_inplace_replace_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Transform,
         |b, s, v| b.try_inplace_transform_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Sort,
         |b, s, v| b.try_inplace_sort_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::SortBy,
         |b, s, v| b.try_inplace_sort_by_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Union,
@@ -316,12 +323,12 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::Intersection,
         |b, s, v| b.try_inplace_intersection_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::Difference,
         |b, s, v| b.try_inplace_difference_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
     (
         ArmId::SymmetricDifference,
@@ -336,7 +343,7 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::MapValues,
         |b, s, v| b.try_inplace_map_values_assign(s, v),
-        FieldReach::None,
+        FieldReach::NoRealloc,
     ),
 ];
 
@@ -518,6 +525,9 @@ pub(crate) const SCRATCH_ARMS: &[&str] = &[
 fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Assign { name, value } => {
+            if with_holds_field_self_update(value, wanted) {
+                return true;
+            }
             let NirValue::Call { target, args, .. } = value else {
                 return false;
             };
@@ -531,6 +541,9 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
             matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
                 && wanted(target)
         }
+        // plan-145-D: a field self-update `r = WITH r { f := g(r.f, …) }` or
+        // `h.state = WITH h.state { f := g(h.state.f, …) }`, one field or mixed.
+        NirOp::StateAssign { value, .. } => with_holds_field_self_update(value, wanted),
         NirOp::If {
             then_body,
             else_body,
@@ -546,6 +559,49 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
         | NirOp::Trap { body, .. } => ops_hold_self_update(body, wanted),
         _ => false,
     })
+}
+
+/// Whether `value` is a `WITH` over its owner (`r` or `h.state`) with a field
+/// update `f := g(<owner>.f, …)` whose `g` is `wanted` — a field self-update.
+/// The owner is the `WITH` target itself; `ops_hold_self_update`'s caller
+/// matched the assignment's left side to it.
+fn with_holds_field_self_update(value: &NirValue, wanted: &dyn Fn(&str) -> bool) -> bool {
+    let NirValue::WithUpdate {
+        target: owner,
+        updates,
+        ..
+    } = value
+    else {
+        return false;
+    };
+    updates.iter().any(|update| {
+        let NirValue::Call { target, args, .. } = &update.value else {
+            return false;
+        };
+        matches!(
+            args.first(),
+            Some(NirValue::MemberAccess { target: inner, member })
+                if *member == update.field && same_field_owner(inner, owner)
+        ) && wanted(target)
+    })
+}
+
+/// Whether two field owners name the same place: the local `r`, or `h.state`.
+fn same_field_owner(a: &NirValue, b: &NirValue) -> bool {
+    match (a, b) {
+        (NirValue::Local(x), NirValue::Local(y)) => x == y,
+        (
+            NirValue::MemberAccess {
+                target: x,
+                member: mx,
+            },
+            NirValue::MemberAccess {
+                target: y,
+                member: my,
+            },
+        ) => mx == "state" && my == "state" && same_field_owner(x, y),
+        _ => false,
+    }
 }
 
 /// Whether `ops` create a closure whose lambda borrows its creator's scratch
@@ -1726,45 +1782,11 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 #[cfg(test)]
 pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
     const LAST: &[&str] = &["S4", "T2", "T4", "T8"];
-    const NOT_LAST: &[&str] = &["S3", "T1", "T3"];
-    const LAST_AND_NOT: &[&str] = &["S3", "S4", "T1", "T2", "T3", "T4", "T8"];
     const MIXED: &[&str] = &["S10", "T5"];
     const NESTED: &[&str] = &["S6", "T6"];
     const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // Cannot-reallocate arms reach a not-last field (Open Decision 2).
-        (ArmId::Set, NOT_LAST, 'D'),
-        (ArmId::RemoveKey, NOT_LAST, 'D'),
-        (ArmId::RemoveAt, NOT_LAST, 'D'),
-        (ArmId::SetRemove, NOT_LAST, 'D'),
-        // plan-142's cannot-reallocate arms at a field (letter D).
-        (ArmId::Filter, LAST_AND_NOT, 'D'),
-        (ArmId::Take, LAST_AND_NOT, 'D'),
-        (ArmId::Drop, LAST_AND_NOT, 'D'),
-        (ArmId::Mid, LAST_AND_NOT, 'D'),
-        (ArmId::Distinct, LAST_AND_NOT, 'D'),
-        (ArmId::Math, LAST_AND_NOT, 'D'),
-        (ArmId::Replace, LAST_AND_NOT, 'D'),
-        (ArmId::Transform, LAST_AND_NOT, 'D'),
-        (ArmId::Sort, LAST_AND_NOT, 'D'),
-        (ArmId::SortBy, LAST_AND_NOT, 'D'),
-        (ArmId::Intersection, LAST_AND_NOT, 'D'),
-        (ArmId::Difference, LAST_AND_NOT, 'D'),
-        (ArmId::MapValues, LAST_AND_NOT, 'D'),
-        (ArmId::Filter, MIXED, 'D'),
-        (ArmId::Take, MIXED, 'D'),
-        (ArmId::Drop, MIXED, 'D'),
-        (ArmId::Mid, MIXED, 'D'),
-        (ArmId::Distinct, MIXED, 'D'),
-        (ArmId::Math, MIXED, 'D'),
-        (ArmId::Replace, MIXED, 'D'),
-        (ArmId::Transform, MIXED, 'D'),
-        (ArmId::Sort, MIXED, 'D'),
-        (ArmId::SortBy, MIXED, 'D'),
-        (ArmId::Intersection, MIXED, 'D'),
-        (ArmId::Difference, MIXED, 'D'),
-        (ArmId::MapValues, MIXED, 'D'),
         // plan-142's reallocating arms at a last-inlined field (letter E).
         (ArmId::Union, LAST, 'E'),
         (ArmId::SymmetricDifference, LAST, 'E'),

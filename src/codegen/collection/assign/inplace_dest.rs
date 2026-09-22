@@ -35,6 +35,7 @@
 
 use crate::codegen::collection::assign::self_update::{FieldContainer, SelfUpdateSite};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::typed_is_collection_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -308,11 +309,19 @@ impl CodeBuilder<'_> {
             // plan-145-B: the field containers' gates, once for every arm (they
             // were `resolve_inplace_record_field` / `resolve_inplace_state_field`).
             Some(field) => {
-                // `G17` — only a *last-inlined* collection field grows without
-                // shifting a later sibling sub-block and the offsets stored into it.
-                let (index, _) =
-                    self.record_collection_last_inlined(&field.record_type, field.field)?;
-                if index != field.field_index {
+                // The field is an inlined collection — its sub-block lies inside
+                // the owner's block. `G17` (last-inlined) is NOT asked here: an arm
+                // that cannot reallocate may mutate a middle sub-block where it lies
+                // (the owner's size and copy read each field's stored offset and the
+                // last field's end, never a sum of field sizes, and a shrink keeps
+                // the collection's capacity — plan-145-A Open Decision 2, measured in
+                // plan-145-D Phase 1). A route that can reallocate asks
+                // `field_is_last_inlined` itself.
+                let fields = self.type_model.record_fields.get(&field.record_type)?;
+                let (_, field_type) = fields.get(field.field_index)?;
+                if !typed_is_collection_type(field_type)
+                    || !self.record_field_is_inlined(field_type)
+                {
                     return None;
                 }
                 match field.container {
@@ -365,6 +374,48 @@ impl CodeBuilder<'_> {
     ///
     /// Emits for a `STATE` field. Must run after every gate (`O-order-1`) and
     /// before the mutated operand is lowered (`O-order-4`).
+    /// plan-145-D: the slot holding the collection's block pointer, for a lowering
+    /// written against a plain local's slot: the slot itself for a plain, `Ref` or
+    /// `Global` destination, or the address of an (opened) field's inlined
+    /// sub-block (`open_inplace_inlined_subblock`, emitted here). Only for an
+    /// arm that cannot reallocate: the sub-block address must never receive a new
+    /// block pointer. Take it after the operands are lowered (`O-order-4`): an
+    /// operand can run a lambda that reassigns the owner.
+    pub(crate) fn inplace_collection_slot(&mut self, dest: &InPlaceDest) -> Result<usize, String> {
+        match dest {
+            InPlaceDest::Inlined { .. } => self.open_inplace_inlined_subblock(dest),
+            InPlaceDest::StateField { .. } => {
+                Err("native in-place: a STATE field destination must be opened first".to_string())
+            }
+            _ => Ok(dest.block_slot()),
+        }
+    }
+
+    /// plan-145-D: close a destination an arm opened with
+    /// [`Self::open_inplace_dest`] — for a field only (a `STATE` payload is
+    /// published back, `O4`; a record needs nothing). A plain, `Ref` or `Global`
+    /// destination is closed by `try_inplace_self_update` itself.
+    pub(crate) fn close_field_dest(
+        &mut self,
+        original: &InPlaceDest,
+        opened: &InPlaceDest,
+    ) -> Result<(), String> {
+        if original.is_field() {
+            self.close_inplace_dest(opened)?;
+        }
+        Ok(())
+    }
+
+    /// plan-145-D: whether a field site's field is its owner's last inlined field
+    /// (`G17`) — required before a route that can reallocate grows it: a grow of a
+    /// middle sub-block would shift the next sibling and its stored offset.
+    pub(crate) fn field_is_last_inlined(&self, site: &SelfUpdateSite<'_>) -> bool {
+        site.field.as_ref().is_some_and(|field| {
+            self.record_collection_last_inlined(&field.record_type, field.field)
+                .is_some_and(|(index, _)| index == field.field_index)
+        })
+    }
+
     pub(crate) fn open_inplace_dest(&mut self, dest: &InPlaceDest) -> Result<InPlaceDest, String> {
         // plan-145-C: a mixed `WITH`'s scalar values, evaluated here — the first
         // thing the arm emits, after every gate — so they run before the arm's

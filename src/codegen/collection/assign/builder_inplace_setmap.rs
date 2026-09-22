@@ -657,14 +657,16 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let set_type = target.collection_type.clone();
-        let dest = target.dest.block_slot();
+        let opened = self.open_inplace_dest(&target.dest)?;
         if alias {
             // `intersection(s, s)` is `s`; `difference(s, s)` is empty.
             if !member_keeps {
+                let dest = self.inplace_collection_slot(&opened)?;
                 self.lower_map_clear_in_place(dest, &set_type)?;
             }
         } else {
             let other = self.lower_other_collection(&target.args[1], &set_type, builtin)?;
+            let dest = self.inplace_collection_slot(&opened)?;
             let marks_size = self.emit_map_counts(&[dest]);
             let mut sizes = vec![marks_size];
             let area_size = self.emit_borrow_area_size(dest, Payload::Key, &element_type);
@@ -684,6 +686,7 @@ impl CodeBuilder<'_> {
             )?;
             self.lower_map_compact_in_place(dest, marks, &set_type)?;
         }
+        self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
         Ok(true)
     }
@@ -906,7 +909,12 @@ impl CodeBuilder<'_> {
         let Some(value_type) = typed_map_type_parts(&map_type).map(|(_, v)| v.clone()) else {
             return Ok(false);
         };
-        let dest = target.dest.block_slot();
+        // plan-145-D: at a field, only a fixed-width value — a longer result is
+        // written to room the map reserves by reallocating.
+        if target.dest.is_field() && !value_type_is_fixed(&value_type) {
+            return Ok(false);
+        }
+        let opened = self.open_inplace_dest(&target.dest)?;
         let action = self.lower_value(&target.args[1])?;
         let output_type = typed_callable_return_type(&action.type_)
             .cloned()
@@ -929,6 +937,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
+        let dest = self.inplace_collection_slot(&opened)?;
         let is_string = value_type == ParameterType::String;
         // Results: one word per entry.
         let need_slot = self.allocate_stack_object("inplace_mapvalues_need", 8);
@@ -959,7 +968,9 @@ impl CodeBuilder<'_> {
         let ok = self.label("inplace_mapvalues_ok");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok));
-        if is_string {
+        // A failing `f`: free the parked results — a `String` or any flat block
+        // (bug-677) — and a `String` value's materialized copy.
+        if self.callback_result_is_block(&value_type) {
             let regs = [
                 RESULT_TAG_REGISTER,
                 RESULT_VALUE_REGISTER,
@@ -989,7 +1000,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_registers(&results, &results, &index));
             self.emit(abi::load_u64(&results, &results, 0));
             self.emit(abi::store_u64(&results, abi::stack_pointer(), result_slot));
-            self.free_collection_loop_item(result_slot, &value_type)?;
+            self.free_callback_result(result_slot, &value_type)?;
             self.emit(abi::branch(&unwind));
             self.emit(abi::label(&unwound));
             for (reg, slot) in regs.iter().zip(&saved) {
@@ -1053,10 +1064,10 @@ impl CodeBuilder<'_> {
         let (index_slot, top, done) = self.emit_map_loop_head(dest, "inplace_mapvalues_write");
         self.emit_load_result_word(results_slot, index_slot, result_slot);
         self.emit_map_entry_value_write(dest, index_slot, result_slot, &value_type)?;
-        if is_string {
-            self.free_collection_loop_item(result_slot, &value_type)?;
-        }
+        // The parked result was copied into its entry (bug-677: any flat block).
+        self.free_callback_result(result_slot, &value_type)?;
         self.emit_map_loop_next(index_slot, &top, &done);
+        self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
         Ok(true)
     }
