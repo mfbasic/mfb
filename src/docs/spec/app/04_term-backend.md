@@ -440,6 +440,7 @@ runtime-synthesized classes). Twelve methods are added, then
 | `acceptsFirstResponder` | `c@:` | `_mfb_macapp_term_acceptsFR` |
 | `keyDown:` | `v@:@` | `_mfb_macapp_term_keyDown` |
 | `mfbClear:` | `v@:@` | `_mfb_macapp_term_clear` |
+| `mfbPresent:` | `v@:@` | `_mfb_macapp_term_present` |
 | `setFrameSize:` | `v@:{CGSize=dd}` | `_mfb_macapp_term_setFrameSize` |
 
 `isFlipped` returns YES so row 0 is at the top and cell `(row, col)` maps to
@@ -460,7 +461,7 @@ view are likewise stashed under `_mfb_macapp_window_key`,
 
 A `calloc`'d buffer attached to the view via `objc_setAssociatedObject(view,
 &TVSTATE_KEY, state, OBJC_ASSOCIATION_ASSIGN)` — a plain C buffer the runtime
-never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+never messages. Forty-three 8-byte fields = 344 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 | Field | Offset | Type | Meaning |
 |-------|--------|------|---------|
@@ -491,6 +492,10 @@ never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/t
 | `TV_TEXT_X`/`Y` | 280/288 | i64 | `drawText` start cell, `X` = column, `Y` = row (text is the object arg) |
 | `TV_POOL` | 296 | `u8*` | TermCell-parallel EGC pool base (heap) |
 | `TV_DID_RESIZE` | 304 | i64 | cached "was resized" flag; set by `setFrameSize:` on a genuine change, read-and-cleared by `term::didResize` |
+| `TV_FRONT_CELLS` | 312 | `TermCell*` | the last presented grid — the only one `drawRect:` paints (0 until the first present) |
+| `TV_FRONT_POOL` | 320 | `u8*` | EGC pool of the last presented grid |
+| `TV_FRONT_ROWS` | 328 | i64 | rows of the front grid |
+| `TV_FRONT_COLS` | 336 | i64 | columns of the front grid |
 
 The `TV_CUR_*` attribute fields (64..96) are the app-mode mirror of the
 term-state global: the GUI setters write **both** the global (for readers) and
@@ -555,15 +560,43 @@ the `TV_DID_RESIZE` flag on `TVSTATE`, which `term::didResize` read-and-clears.
 same thread as `drawRect:` and the marshaled grid writes — so the realloc cannot
 tear a concurrent draw. [[src/target/macos_aarch64/app/term_view.rs:emit_term_set_frame_size_helper]]
 
+### `mfbPresent:` — publishing a frame
+
+The surface is double-buffered in app mode as on the console. Every drawing call
+edits `TV_CELLS`/`TV_POOL` (the back grid) through its own marshaled main-thread
+call, and AppKit may run a display pass between any two of them. So `drawRect:`
+never reads that grid. `term::sync` and `io::flush` marshal `mfbPresent:`
+(`waitUntilDone:YES`), which runs on the main thread:
+
+1. It copies the back grid into `TV_FRONT_CELLS`, and the pool into
+   `TV_FRONT_POOL` when both exist.
+2. It reallocates the front pair first if the grid's dimensions changed since the
+   last present, and records them in `TV_FRONT_ROWS`/`TV_FRONT_COLS`.
+3. It sends `[self setNeedsDisplay:YES]`.
+
+`term::on` presents its cleared grid, so a second TUI session never shows the
+last frame of the first. `setFrameSize:` resizes only the back grid; the front
+keeps its own dimensions, and `drawRect:` paints the old frame until the next
+present. Before the front buffer, `drawRect:` painted the live grid, so a
+display pass that landed between a frame's `term::clear` and its redraw could
+show it blank or half-drawn.
+[[src/target/macos_aarch64/app/term_view.rs:emit_term_present_helper]]
+
 ### `drawRect:` — the renderer
 
 `void drawRect:(NSRect dirty)` (self x0, _cmd x1, rect d0..d3). Spills the dirty
 rect immediately (the FP arg regs are clobbered by the first call). [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_draw_rect]]
 
 1. Fill the dirty rect black: `[[NSColor blackColor] set]; NSRectFill(rect)`.
-2. If no state or no `cells`, stop (clean black surface).
-3. `font = [NSFont userFixedPitchFontOfSize:N]`; build `attrs =
-   [NSMutableDictionary dictionary]` with `NSFontAttributeName = font`.
+2. If no state or no front grid (`TV_FRONT_CELLS`, nothing presented yet), stop
+   (clean black surface). Everything below reads the front grid, its dimensions
+   and its pool, never the back grid.
+3. `font = [NSFont fontWithName:@"Menlo-Regular" size:N]`, falling back to
+   `userFixedPitchFontOfSize:N` only when Menlo is missing — the same font
+   `_mfb_macapp_term_init` sized the cells with. (Drawing in the user fixed-pitch
+   font, Monaco, left box-drawing rules dashed: its box and block glyphs are
+   shorter than a Menlo row.) Build `attrs = [NSMutableDictionary dictionary]`
+   with `NSFontAttributeName = font`.
 4. Pre-resolve every selector and attribute key once
    (`colorWithCalibratedRed:green:blue:alpha:`, `set`, `setObject:forKey:`,
    `removeObjectForKey:`, `drawAtPoint:withAttributes:`,
@@ -571,10 +604,20 @@ rect immediately (the FP arg regs are clobbered by the first call). [[src/target
    bold `NSNumber(-3.0)`, underline `NSNumber(1)`), spilling them to the stack —
    so the per-cell loop never calls `sel_registerName` (which would clobber the
    d0..d3 colour-component args).
-5. For each cell `(row, col)`:
-   - background: if `cell.bg != 0`, `[bgColor set]; NSRectFill(col*cellW,
-     row*cellH, cellW, cellH)`.
-   - glyph: skip if glyph is 0 or 32 (space). Set the fg colour attribute from
+5. Two passes over every cell `(row, col)`, as a terminal paints: all the fills
+   first, then all the glyphs. In a single per-cell sweep, the next row's
+   background painted over any glyph that overhangs its cell (a `q` in a
+   coloured panel lost its descender). A cell rectangle is filled with its edges
+   rounded to whole points, each from its own index (`round(col*cellW)` to
+   `round((col+1)*cellW)`), so neighbours share an exact edge. With raw
+   fractional edges, a run of fills showed a seam at every column.
+   [[src/target/macos_aarch64/app/term_view.rs:emit_fill_current_cell]]
+   - pass 0, background: if `cell.bg != 0`, `[bgColor set]` and fill the cell.
+   - pass 0, full block: a `U+2588` glyph is filled as the cell rectangle in
+     `cell.fg`, not drawn from the font. The font's glyph sits lower than the
+     cell and is a hair narrower, so `term::fillRect` panels were striped.
+   - pass 1, glyph: skip if glyph is 0 or 32 (space), a wide trail, or a full
+     block. Set the fg colour attribute from
      `cell.fg`; set/remove the faux-bold stroke-width attribute
      (`NSStrokeWidthAttributeName = -3.0`, negative = fill-stroke bold) per
      `cell.bold`; set/remove `NSUnderlineStyleAttributeName = 1` per

@@ -341,6 +341,13 @@ pub(super) fn emit_main_bootstrap(
         asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbPresent:), imp, "v@:@") — the
+        // main-thread present that publishes the drawn grid to the front buffer.
+        asm.load_selector(SEL_MFB_PRESENT.0);
+        asm.local_address("x2", TERM_PRESENT_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
         // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
         // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
         // cell buffer, so it runs on the main thread; it reads the draw parameters the

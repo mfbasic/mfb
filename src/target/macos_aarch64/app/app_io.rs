@@ -399,6 +399,17 @@ pub(crate) fn emit_app_term_on_helper(
     asm.push(abi::move_register(abi::mfb_arg(0), &v_termview));
     asm.call_internal(TERM_CLEAR_SYMBOL);
 
+    // Present that cleared grid, so the front buffer does not still hold the last
+    // frame of an earlier TUI session when the surface is swapped back in.
+    asm.load_selector(SEL_MFB_PRESENT.0);
+    asm.push(abi::move_register(&v_sel, abi::mfb_arg(1)));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register(abi::mfb_arg(2), &v_sel));
+    asm.push(abi::move_register(abi::mfb_arg(3), &v_termview));
+    asm.push(abi::move_immediate(abi::mfb_arg(4), "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_termview));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     // [window performSelectorOnMainThread:@selector(setContentView:)
     //         withObject:termview waitUntilDone:YES]  (AppKit is main-thread only)
     asm.load_selector(SEL_SET_CONTENT_VIEW.0);
@@ -713,9 +724,10 @@ fn emit_present_needs_display_vreg(asm: &mut Asm, vregs: &mut Vregs, done: &str)
     asm.push(abi::move_register(&tv, abi::mfb_return(0))); // termView or nil
     asm.push(abi::compare_immediate(&tv, "0"));
     asm.push(abi::branch_eq(done));
-    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv
-    //  waitUntilDone:YES] — any non-nil withObject reads as BOOL YES.
-    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    // [tv performSelectorOnMainThread:@selector(mfbPresent:) withObject:tv
+    //  waitUntilDone:YES] — publish the drawn grid to the front buffer and
+    //  request the redraw, both on the main thread (the IMP ignores the object).
+    asm.load_selector(SEL_MFB_PRESENT.0);
     asm.push(abi::move_register(&sel, abi::mfb_arg(1)));
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);
     asm.push(abi::move_register(abi::mfb_arg(2), &sel));

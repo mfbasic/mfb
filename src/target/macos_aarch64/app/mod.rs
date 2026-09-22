@@ -358,6 +358,10 @@ const SEL_ADD_TRACKING_AREA: (&str, &str) = ("_mfb_macapp_sel_addTrackingArea", 
 /// `mfbWriteString:` rather than run on the worker (bug-165). Its IMP is the
 /// existing [`TERM_CLEAR_SYMBOL`] helper (reads only `self`, ignores `_cmd`/obj).
 const SEL_MFB_CLEAR: (&str, &str) = ("_mfb_macapp_sel_mfbClear", "mfbClear:");
+/// `mfbPresent:` — the main-thread present for `term::sync` / `io::flush`: copy
+/// the drawn grid into the front buffer, then `setNeedsDisplay:`. See
+/// [`TV_FRONT_CELLS_OFFSET`].
+const SEL_MFB_PRESENT: (&str, &str) = ("_mfb_macapp_sel_mfbPresent", "mfbPresent:");
 /// `mfbDrawLine:` — the main-thread grid draw-line entry point for
 /// `term::drawHLine`/`drawVLine`. Like `mfbClear:`, the cell buffer it mutates can
 /// be realloc'd by `setFrameSize:` on the main thread, so the draw is marshaled
@@ -642,7 +646,20 @@ const TV_POOL_OFFSET: usize = 296; // TermCell-parallel EGC pool base (u8* heap)
 /// `term::didResize()`. calloc-zeroed with the rest of TVSTATE, so it reads false
 /// until the first real resize.
 const TV_DID_RESIZE_OFFSET: usize = 304; // i64 did-resize flag
-const TV_STATE_SIZE: usize = 312;
+                                         // The front buffer: the last PRESENTED frame, which is all `drawRect:` ever paints.
+                                         // The program draws into `TV_CELLS`/`TV_POOL` one marshaled call at a time, and
+                                         // AppKit may run a display pass between any two of them — painting that grid
+                                         // directly showed every `term::clear` of a redraw loop as a blank frame. So
+                                         // `mfbPresent:` (the `term::sync` / `io::flush` present) copies the back grid
+                                         // here on the main thread and only then requests the redraw: the surface's
+                                         // retained, double-buffered contract, as the console backend keeps it. The front
+                                         // carries its own dimensions because `setFrameSize:` resizes the back grid
+                                         // between presents; `drawRect:` keeps painting the old frame until the next one.
+const TV_FRONT_CELLS_OFFSET: usize = 312; // TermCell* last presented grid (0 = none yet)
+const TV_FRONT_POOL_OFFSET: usize = 320; // EGC pool of the last presented grid
+const TV_FRONT_ROWS_OFFSET: usize = 328; // i64 rows of the front grid
+const TV_FRONT_COLS_OFFSET: usize = 336; // i64 columns of the front grid
+const TV_STATE_SIZE: usize = 344;
 // A multi-scalar grapheme cluster (combining sequence, ZWJ emoji family, flag)
 // whose UTF-8 exceeds the 3 bytes that fit... no: the cell glyph is a u32
 // codepoint, so a cluster of >1 scalar is stored in the cell's pool slot. 64
@@ -687,6 +704,8 @@ const TERM_VIEW_DRAW_RECT_SYMBOL: &str = "_mfb_macapp_term_drawRect";
 const TERM_VIEW_IS_FLIPPED_SYMBOL: &str = "_mfb_macapp_term_isFlipped";
 const TERM_INIT_SYMBOL: &str = "_mfb_macapp_term_init";
 const TERM_CLEAR_SYMBOL: &str = "_mfb_macapp_term_clear";
+/// IMP for the TermView `mfbPresent:` main-thread present.
+const TERM_PRESENT_SYMBOL: &str = "_mfb_macapp_term_present";
 const TERM_SCROLL_SYMBOL: &str = "_mfb_macapp_term_scroll";
 /// IMP for the TermView `setFrameSize:` override (grid resize on window resize).
 const TERM_SET_FRAME_SIZE_SYMBOL: &str = "_mfb_macapp_term_setFrameSize";
@@ -851,6 +870,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_view_draw_rect(),
         emit_term_init_helper(),
         emit_term_clear_helper(),
+        emit_term_present_helper(),
         emit_term_scroll_helper(),
         emit_term_write_string_helper(spec.uses_term),
         emit_term_draw_line_helper(),
@@ -1141,6 +1161,7 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
         SEL_SET_FRAME_SIZE,
         SEL_MFB_WRITE_STRING,
         SEL_MFB_CLEAR,
+        SEL_MFB_PRESENT,
         SEL_MFB_DRAW_LINE,
         SEL_MFB_DRAW_BOX,
         SEL_MFB_FILL_RECT,
