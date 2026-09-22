@@ -1247,10 +1247,7 @@ impl<'a> Monomorphizer<'a> {
                 line,
             } => {
                 // The value of `h.state = …` is the payload, not the handle.
-                let expected = context
-                    .locals
-                    .get(resource)
-                    .and_then(ParameterType::state);
+                let expected = context.locals.get(resource).and_then(ParameterType::state);
                 HirStatement::StateAssign {
                     resource: resource.clone(),
                     value: self.lower_expression(
