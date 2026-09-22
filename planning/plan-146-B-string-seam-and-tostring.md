@@ -75,7 +75,7 @@ identity, so the in-place form is a no-op.
 |---|---|---|
 | In-tree fixtures holding a `String` self-update of a plan-146 row | 25 lines in 8 files (`tests/`: 2 files, both bug-667's; `examples/`: 6) | `bash /tmp/p146list.sh` (Appendix) → the `.mfb` half |
 | MFBASIC helper bodies in `src/` holding one | 8 lines in 4 files: `encoding/func_html_escape.rs:43-47` (`out = strings::replace(out, …)` ×5), `json/helper_round_digits.rs:59` (`strings::left`), `http/helper_multipart_boundary.rs:22` (`strings::trim`), `string/repr/builder_strings.rs:931` (a comment) | same script, the `.rs` half |
-| Call-target spellings of the 26 arm rows and `toString` after lowering | UNMEASURED | Phase 1 |
+| Call-target spellings of the 26 arm rows and `toString` after lowering | 4 kinds, 26 rows: 23 `<pkg>.<member>` natives (`strings.left`, …, `fs.pathNormalize`), 2 `#strings_<member>` (`padLeftToWidth`, `padRightToWidth`), 1 `os.resourcePath`, and the bare `toString` | `/tmp/p146_nir.py` (Phase 1): one project holding all 27 statements at S1 and S2, `mfb build --nir`, `grep -oE '"target": ?"[^"]*"' p146nir.nir | sort | uniq -c` |
 
 The helper-body lines matter for golden churn. Once C and E land, every program
 that calls `encoding::htmlEscape`, formats a JSON number through
@@ -156,14 +156,33 @@ Rejected alternatives:
 
 ### Phase 1: Spellings (measure first)
 
-- [ ] One `mfb build --nir` probe holding `s = f(s, …)` for each of the 26 rows C–E
+- [x] One `mfb build --nir` probe holding `s = f(s, …)` for each of the 26 rows C–E
       arm (the Pending C/D/E rows) and `s = toString(s)`, at S1 and S2. Record the
       call-target spellings (`grep -oE '"target": ?"[^"]*"'`) here, one per row.
-- [ ] Extend `self_update_builtin` to answer each recorded spelling's bare name
+      Each appears twice (S1 + S2), which is the prediction that both sites lower
+      the same target:
+
+      | spelling | rows |
+      |---|---|
+      | `strings.<member>` | `left right mid stripPrefix stripSuffix trim trimStart trimEnd trimChars graphemeAt padLeft padRight repeat upper lower caseFold normalizeNfc replace` (18) |
+      | `fs.<member>` | `pathBaseName pathDirName pathExtension pathNormalize` (4) |
+      | `#strings_padLeftToWidth`, `#strings_padRightToWidth` | the two `Body::Rewrite` rows (2) |
+      | `os.resourcePath` | the `Body::abi_function` row (1) |
+      | `toString` | the identity row |
+
+      (The dump also holds `strings.displayWidth`, `strings.repeat` ×2 more and
+      `#strings_padToWidthCopies` from inside the `*ToWidth` helper bodies — not
+      call targets of a self-update statement.)
+- [x] Extend `self_update_builtin` to answer each recorded spelling's bare name
       (expected: `Rewrite` targets such as `#strings_padLeftToWidth`, and
       `abi_function` targets such as `os.resourcePath`). Extend
       `self_update_builtin_names_every_spelling` with one assertion per new
       spelling, plus a negative (`#strings_nope`).
+      Only 4 of the 27 needed one (`STRING_SELF_UPDATE_SPELLINGS`): the other 23 are
+      `Body::abi_inline`/`Intrinsic` natives `native_builtin_target` already
+      dequalifies. The test now asserts all 26 rows plus `toString`, and two
+      negatives: `#strings_nope` and `#strings_padToWidthCopies` (a `Rewrite`
+      helper that is not a row).
 
 Acceptance: `cargo test --bin mfb self_update_builtin_names_every_spelling` passes
 with the new assertions (est. 5 min).
@@ -171,18 +190,31 @@ Commit: —
 
 ### Phase 2: Resolver and shadow helpers, byte-identical
 
-- [ ] `resolve_string_self_update` with the gates in §3 (no caller yet besides a
+- [x] `resolve_string_self_update` with the gates in §3 (no caller yet besides a
       unit test that runs each gate's decline on a hand-built `NirValue`).
-- [ ] Move the shadow code out of the concat arm into `string_shadow_slot`,
+      `resolve_string_self_update_runs_every_gate` (`string_self_update.rs`) builds
+      a `CodeBuilder` through `BuilderHarness` and asserts one decline per gate
+      (`G-string-dest`, `G-string-type`, G2, G3, G4, G5/G6, `G21-string`, G1,
+      `G-shadow` at a local and at a global) plus the all-pass case.
+- [x] Move the shadow code out of the concat arm into `string_shadow_slot`,
       `emit_string_reserve` and `emit_string_set_len`. The concat arm calls them.
-- [ ] `is_string_self_update`, called by both prescans. It accepts exactly today's
-      `&` shapes.
+      Landed as `string_shadow_exists` / `string_shadow_slot` /
+      `publish_string_shadow` and `emit_string_regrow` (the regrow the concat arm
+      has always emitted, now shared and parameterized by the caller's slots,
+      registers, labels and a `fill` hook). `emit_string_reserve` and
+      `emit_string_set_len` are built on `emit_string_regrow` but have no caller
+      until letter C, so they land with it (Correction B1).
+- [x] `is_string_self_update`, called by both prescans. It accepts exactly today's
+      `&` shapes. (`STRING_SHADOW_ARMS` is empty until letter C; the unit test
+      `is_string_self_update_accepts_exactly_the_self_append_today` pins that.)
 
 Acceptance: codegen is unchanged.
   Check: `cargo build --release && cargo test --test golden` → pass, 0 `.ncode`
   diffs (est. 20 min: the artifact gate is the only check that sees every concat
   site's emission, and every function's prescan). A diff is a refactor bug:
   objdump one fixture and fix it.
+Result: `artifact-gate [all]: 1485 tests, 1660 build(s), 2098 golden(s) checked,
+0 diff(s)`; `test result: ok. 1 passed` (191.08 s).
 Commit: —
 
 ### Phase 3: The identity arm
@@ -221,6 +253,26 @@ Commit: —
 None beyond plan-146-A's.
 
 ## Corrections
+
+- **B1 — `emit_string_reserve` / `emit_string_set_len` land with letter C, their
+  first caller.** Phase 2 has no caller for them, and an unused method is dead code
+  AGENTS.md forbids ("never 'consumed by a later phase'"). They are written and
+  built on `emit_string_regrow` (this phase's shared regrow); letter C lands them
+  with the window arm that calls them. Nothing about the seam's shape changes.
+- **B2 — the concat arm's regrow is shared through a caller-owned frame.**
+  §3's "move the shadow code into `emit_string_reserve`" cannot be literal and
+  byte-identical at once: the concat regrow interleaves the operand copy between
+  the old-bytes copy and the free, and allocates its slots/registers/labels in its
+  own order, all of which the `.ncode` records. So the shared routine
+  (`emit_string_regrow`) takes a `StringRegrow` of the caller's slots, registers
+  and labels plus a `fill` hook for what follows the copied bytes; the concat arm
+  passes its own (unchanged order) and `emit_string_reserve` passes its own. The
+  artifact gate confirms it: 2098 goldens, 0 diffs.
+- **B3 — Phase 1's new spellings move no golden.** Naming `toString`,
+  `#strings_pad*ToWidth` and `os.resourcePath` makes S2/S9 build a self-update site
+  for them (observation O1's dead load) even before an arm exists. The only in-tree
+  fixture with such a statement is `tests/rt-behavior/general/tostring_string_owning_store`
+  (`grep -rnoE '\b([a-zA-Z_][a-zA-Z0-9_]*) = (toString|strings::padLeftToWidth|strings::padRightToWidth|os::resourcePath)\(\1\b' --include='*.mfb' tests examples benchmark` → no hit; the fixture's `g = toString(g)` and its lambda are found by the narrower `= *toString\(` grep), and it carries no `.ncode`/`.ncodesum` golden. Phase 2's gate agrees: 0 diffs.
 
 ## Summary
 

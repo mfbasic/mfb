@@ -2985,8 +2985,10 @@ impl CodeBuilder<'_> {
                     // replace its buffer through the reference without seeing this
                     // frame's shadow, which would then claim spare bytes the new
                     // buffer does not have (`rt_byref_string_capture_capacity`).
-                    if string_self_append_operands(value, name).is_some()
-                        && !self.string_capacity_slots.contains_key(name)
+                    if crate::codegen::collection::assign::string_self_update::is_string_self_update(
+                        value,
+                        &|root| matches!(root, NirValue::Local(local) if local == name),
+                    ) && !self.string_capacity_slots.contains_key(name)
                         && !self.address_taken_locals.contains(name)
                     {
                         let slot = self.allocate_stack_object(&format!("strcap_{name}"), 8);
@@ -3588,23 +3590,11 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// If `value` is a left-associated string-concat chain `name & a & b …` whose
-/// leftmost leaf is `Local(name)`, return the operands to append in source order
-/// (`[a, b, …]`); otherwise `None`. Used to recognize the in-place self-append
-/// idiom `name = name & …` (plan-02 §4.1). `&` is string concatenation, so a
-/// match guarantees `name` is a `String` local.
-pub(crate) fn string_self_append_operands<'v>(
-    value: &'v NirValue,
-    name: &str,
-) -> Option<Vec<&'v NirValue>> {
-    string_self_append_operands_of(
-        value,
-        &|root| matches!(root, NirValue::Local(local) if local == name),
-    )
-}
-
-/// [`string_self_append_operands`] for a chain whose leftmost operand satisfies
-/// `is_self` — the local, or a global (plan-142-H).
+/// If `value` is a left-associated string-concat chain whose leftmost leaf
+/// satisfies `is_self` — the local, or a global (plan-142-H) — return the operands
+/// to append in source order (`[a, b, …]`); otherwise `None`. This is the in-place
+/// self-append idiom `name = name & …` (plan-02 §4.1); `&` is string
+/// concatenation, so a match guarantees the binding is a `String`.
 pub(crate) fn string_self_append_operands_of<'v>(
     value: &'v NirValue,
     is_self: &dyn Fn(&NirValue) -> bool,

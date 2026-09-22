@@ -415,11 +415,19 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
 ///   injected `__collections_take OF T`, internalized and mangled per instance;
 ///   `native_builtin_target` answers `None` for it);
 /// * the unmonomorphized qualified spelling of such a member —
-///   `collections.take` → `take`.
+///   `collections.take` → `take`;
+/// * plan-146-B: the `String` arm rows whose target is none of those
+///   ([`STRING_SELF_UPDATE_SPELLINGS`]).
 ///
-/// `None` for anything that is not a `collections` builtin.
+/// `None` for anything else.
 pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
     if let Some(bare) = crate::codegen::builtins::native_builtin_target(target) {
+        return Some(bare);
+    }
+    if let Some((_, bare)) = STRING_SELF_UPDATE_SPELLINGS
+        .iter()
+        .find(|(spelling, _)| *spelling == target)
+    {
         return Some(bare);
     }
     let member = match target.strip_prefix("#collections_") {
@@ -433,6 +441,19 @@ pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
         .function(member)
         .map(|function| function.name)
 }
+
+/// plan-146-B Phase 1: the call targets of the `String` rows plan-146 arms that
+/// `native_builtin_target` does not name, recorded from a `mfb build --nir` probe
+/// of `s = f(s, …)` at S1 and S2: two `Body::Rewrite` members (their MFBASIC
+/// helpers, internalized), one `Body::abi_function` member, and the unqualified
+/// `toString`. Every other plan-146 arm row (`strings.left`, `fs.pathBaseName`, …)
+/// is a `Body::abi_inline`/`Intrinsic` native the first rule already answers.
+pub(crate) const STRING_SELF_UPDATE_SPELLINGS: &[(&str, &str)] = &[
+    ("#strings_padLeftToWidth", "padLeftToWidth"),
+    ("#strings_padRightToWidth", "padRightToWidth"),
+    ("os.resourcePath", "resourcePath"),
+    ("toString", "toString"),
+];
 
 impl CodeBuilder<'_> {
     /// Lower `site.name = value` in place if any arm recognises it. `false` =
@@ -487,7 +508,9 @@ fn global_string_capacity_name(name: &str) -> String {
 }
 
 /// Declare a hidden `Integer` global beside every global `String` that is the
-/// target of a self-append (`gs = gs & t`) anywhere in `module`: the concat arm
+/// target of a self-append (`gs = gs & t`), or of another `String` self-update
+/// whose arm needs a shadow (`is_string_self_update`, plan-146-B), anywhere in
+/// `module`: the concat arm
 /// keeps the buffer's spare capacity there, as it keeps a local's in a frame
 /// slot. Every other store to the global frees with it and resets it to 0
 /// (`StoreGlobal`), and the global's own initializer is such a store, so it starts
@@ -507,11 +530,10 @@ pub(crate) fn add_global_string_capacities(module: &mut NirModule) {
             } = op
             {
                 if self.strings.contains(name)
-                    && crate::codegen::engine::control::string_self_append_operands_of(
+                    && crate::codegen::collection::assign::string_self_update::is_string_self_update(
                         value,
                         &|root| matches!(root, NirValue::Global { name: g, .. } if g == name),
                     )
-                    .is_some()
                 {
                     self.found.insert(name.clone());
                 }
@@ -2657,6 +2679,41 @@ mod tests {
         );
         // … or, before monomorphization, qualified.
         assert_eq!(self_update_builtin("collections.take"), Some("take"));
+        // plan-146-B: every spelling of a `String` row plan-146 arms (C, D, E) and
+        // of `toString`, from the `--nir` probe (plan-146-B Phase 1).
+        for (target, bare) in [
+            ("strings.left", "left"),
+            ("strings.right", "right"),
+            ("strings.mid", "mid"),
+            ("strings.stripPrefix", "stripPrefix"),
+            ("strings.stripSuffix", "stripSuffix"),
+            ("strings.trim", "trim"),
+            ("strings.trimStart", "trimStart"),
+            ("strings.trimEnd", "trimEnd"),
+            ("strings.trimChars", "trimChars"),
+            ("strings.graphemeAt", "graphemeAt"),
+            ("fs.pathBaseName", "pathBaseName"),
+            ("fs.pathDirName", "pathDirName"),
+            ("fs.pathExtension", "pathExtension"),
+            ("strings.padLeft", "padLeft"),
+            ("strings.padRight", "padRight"),
+            ("#strings_padLeftToWidth", "padLeftToWidth"),
+            ("#strings_padRightToWidth", "padRightToWidth"),
+            ("strings.repeat", "repeat"),
+            ("os.resourcePath", "resourcePath"),
+            ("strings.upper", "upper"),
+            ("strings.lower", "lower"),
+            ("strings.caseFold", "caseFold"),
+            ("strings.normalizeNfc", "normalizeNfc"),
+            ("strings.replace", "replace"),
+            ("fs.pathNormalize", "pathNormalize"),
+            ("toString", "toString"),
+        ] {
+            assert_eq!(self_update_builtin(target), Some(bare), "{target}");
+        }
+        assert_eq!(self_update_builtin("#strings_nope"), None);
+        // A Rewrite helper that is not a row stays invisible.
+        assert_eq!(self_update_builtin("#strings_padToWidthCopies"), None);
         // Not a collections builtin.
         assert_eq!(self_update_builtin("#collections_nope$Integer"), None);
         assert_eq!(self_update_builtin("#json_parse"), None);
