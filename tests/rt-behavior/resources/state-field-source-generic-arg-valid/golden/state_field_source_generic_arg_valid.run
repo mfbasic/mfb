@@ -1,0 +1,27 @@
+owner distinct=[3,1,2,5]
+owner take=[3,1]
+owner drop=[2,1,5]
+owner sort=[1,1,2,3,3,5]
+owner sortBy=[5,3,3,2,1,1]
+owner union=[1,2,3,4]
+owner intersection=[2,3]
+owner difference=[1]
+owner symmetricDifference=[1,4]
+owner merge=a=1 b=2 
+owner mapValues=a=-1 b=-2 
+param distinct=[3,1,2,5]
+param take=[3,1]
+param drop=[2,1,5]
+param sort=[1,1,2,3,3,5]
+param sortBy=[5,3,3,2,1,1]
+param union=[1,2,3,4]
+param intersection=[2,3]
+param difference=[1]
+param symmetricDifference=[1,4]
+param merge=a=1 b=2 
+param mapValues=a=-1 b=-2 
+let distinct=[3,1,2,5]
+each distinct=[4,1]
+each distinct=[2]
+return distinct=[2,7]
+filter=[3,1,3,2,1,5]

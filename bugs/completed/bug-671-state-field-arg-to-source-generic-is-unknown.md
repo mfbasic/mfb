@@ -5,8 +5,13 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: (to add) `tests/rt-behavior/resources/state-field-source-generic-arg-valid`
+Status: Fixed
+Regression Test: `tests/rt-behavior/resources/state-field-source-generic-arg-valid`
+
+**STATUS: FIXED (`bf85f4900`).** The monomorphizer records a `RES` binding's `STATE` payload in its
+locals, `expression_type` has the `.state` member arm, and `function_signature_types` carries a
+`RES … STATE` return's payload. Deviation: the return-state gap (`f().state.xs`) reproduced, so it
+was fixed here as the Open Decision recommends, and the regression test covers it.
 
 `collections::distinct(h.state.xs)`, where `h` is a `RES … STATE Cur` handle and
 `xs` is a `List OF Integer` field of `Cur`, is rejected at compile time:
@@ -179,36 +184,62 @@ this helper.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/resources/state-field-source-generic-arg-valid`: the
+- [x] Add `tests/rt-behavior/resources/state-field-source-generic-arg-valid`: the
       reproduction, extended to all 11 source generics on an owner handle and on a
       `RES` parameter, plus an inferred `LET` and a `FOR EACH v IN h.state.xs` with a
       generic call on `v`. Confirm it fails with the documented diagnostic.
-- [ ] Complete the blast-radius audit: a verdict per `expression_type` caller.
+      RED: `mfb build` at `a09e3d88d` → 24× `TYPE_CALL_ARGUMENT_MISMATCH` (lines
+      53–63 param, 75–85 owner, 92 inferred LET, 96 FOR EACH), exit 1; and
+      `test-accept.sh <main's mfb> … state-field-source-generic-arg-valid` →
+      "3 mismatch(es)". The `f().state.xs` case (below) was added after it
+      reproduced the same diagnostic.
+- [x] Complete the blast-radius audit: a verdict per `expression_type` caller.
+      - `:1501` call arguments, `:1162` inferred LET, `:1391` FOR EACH element:
+        reproduced and fixed (fixture lines `owner/param`, `let`, `each`).
+      - `:1357/1358/1362` FOR bounds, `:1625` generic constructor inference,
+        `:2049` builtin return-type args, recursive uses: all read the same
+        `MemberAccess` arm, so they now get the field type; no separate code.
+      - `:1235` `StateAssign` expected type: now `locals[h].state()`.
+      - `helpers.rs` `function_signature_types`: reproduced (`len(distinct(opened().state.xs))`
+        → the same diagnostic) and fixed; fixture line `return`.
 
 Acceptance: the new test fails for the documented reason; every audit site has a
 verdict.
-Commit: —
+Commit: `bf85f4900`
 
 ### Phase 2 — the fix
 
-- [ ] (a) and (b) in `src/monomorph/lower.rs` (and `function_signature_types` if
-      Phase 1 reproduces the return-state gap).
-- [ ] `StateAssign`'s expected type from `target.state()`.
+- [x] (a) and (b) in `src/monomorph/lower.rs` (and `function_signature_types` if
+      Phase 1 reproduces the return-state gap). All three landed; the fixture
+      builds and prints the expected values (`test-accept.sh target/debug/mfb …
+      state-field-source-generic-arg-valid` → passed).
+- [x] `StateAssign`'s expected type from `target.state()`.
 
 Acceptance: the Phase 1 test passes; the contrast cases still compile; nothing in
 Non-goals changed.
-Commit: —
+Commit: `bf85f4900`
 
 ### Phase 3 — full validation
 
-- [ ] Run the full suite (`./scripts/test-accept.sh`, `./scripts/artifact-gate.sh
+- [x] Run the full suite (`./scripts/test-accept.sh`, `./scripts/artifact-gate.sh
       ./target/release/mfb all`, `cargo test --bin mfb`); no golden should move.
-- [ ] Re-run the reproduction, and plan-144-B's `STATE` probe with
+      `test-accept.sh target/debug/mfb target/accept-actual` → "acceptance tests
+      passed (1505 test(s) ran)"; `artifact-gate.sh target/release/mfb all` →
+      "1479 tests, 1654 build(s), 2090 golden(s) checked, 0 diff(s)"; `cargo test
+      --bin mfb` → "4286 passed; 0 failed; 1 ignored". After merging `main`
+      (`58b9096ec`, one new fixture only) the new fixture
+      `rt-behavior/scope/global-mut-assign-in-function-valid` passes too (scoped
+      re-run: `main` added nothing else).
+- [x] Re-run the reproduction, and plan-144-B's `STATE` probe with
       `exclude.txt` emptied of its 88 bug-671 entries: 0 diagnostics.
+      `gen_state.py` (probe copy in `/tmp/p145-probes`) → "2558 called functions,
+      14 excluded"; `mfb build … --ncode` → "Wrote native code plan", no
+      diagnostic; `fill_state.py` → "rows 345 cells 2760 disagreements 0", and the
+      88 cells read `n (no arm)`.
 
 Acceptance: the full suite is green with no golden delta, and the reproduction
 builds.
-Commit: —
+Commit: `bf85f4900` (validation recorded in the archiving commit)
 
 ## Validation Plan
 
