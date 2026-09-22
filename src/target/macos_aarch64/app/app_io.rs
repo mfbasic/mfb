@@ -775,17 +775,23 @@ fn emit_app_set_color(
     let v_state = vregs.next(); // TVSTATE ptr
     let done = format!("{symbol}_done");
     emit_term_active_gate(&mut asm, term_state_offset, &done);
-    // packed = r | g<<8 | b<<16 (r/g/b arrive in mfb_arg(0..2); consumed before any
-    // call, so they need no vreg — only the packed result crosses the objc calls).
-    asm.push(abi::move_register(abi::SCRATCH[0], abi::mfb_arg(0))); // r
+    // packed = r | g<<8 | b<<16. The single argument is a `color::Color` RECORD
+    // POINTER in mfb_arg(0) (plan-122-F), channels at 0/8/16 as the console's
+    // `emit_set_color` reads them; alpha is not read, a cell has none. Staged first
+    // so no load overwrites the pointer it is reading through. All of this happens
+    // before any call, so only the packed result needs a vreg.
+    asm.push(abi::move_register(abi::SCRATCH[3], abi::mfb_arg(0))); // record
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[3], 0)); // r
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[3], 8));
+    asm.push(abi::load_u64(abi::SCRATCH[2], abi::SCRATCH[3], 16));
     asm.push(abi::shift_left_immediate(
         abi::SCRATCH[1],
-        abi::mfb_arg(1),
+        abi::SCRATCH[1],
         8,
     )); // g<<8
     asm.push(abi::shift_left_immediate(
         abi::SCRATCH[2],
-        abi::mfb_arg(2),
+        abi::SCRATCH[2],
         16,
     )); // b<<16
     asm.push(abi::or_registers(

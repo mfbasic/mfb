@@ -3892,6 +3892,14 @@ fn emit_term_set_color(
     // gate, and an ungated one mutates state the getters report the moment TUI
     // mode comes back.
     emit_win_term_active_gate(&mut ins, tso, "sc_done");
+    // The single argument is a `color::Color` RECORD POINTER (plan-122-F), channels
+    // at 0/8/16 as the console's `emit_set_color` reads them; alpha is not read, a
+    // cell has none. Staged in ARG[3] first so no load overwrites the pointer it
+    // reads through. The packing below is also GDI's COLORREF (0x00BBGGRR).
+    ins.push(abi::move_register(abi::mfb_arg(3), abi::mfb_arg(0)));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(3), 0)); // r
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(3), 8)); // g
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(3), 16)); // b
     ins.push(abi::shift_left_immediate(
         abi::mfb_arg(1),
         abi::mfb_arg(1),
