@@ -99,10 +99,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-142 is complete and archived | `ls planning/completed/plan-142-I-lock-and-docs.md` → exists | MET (2026-09-21) |
-| plan-144 is complete and its findings exist | `ls planning/completed/plan-144-B-state-self-update-audit.md planning/plan-144-findings/record-state-self-update-audit.md` → both exist | MET (2026-09-21) |
-| bug-671 fixed: a `STATE` field passed to a source-generic `collections` member type-checks | `ls bugs/completed/bug-671-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/resources/state-field-source-generic-arg-valid'` → passes (the regression test bug-671 names) | NOT MET (2026-09-21: `bugs/bug-671-state-field-arg-to-source-generic-is-unknown.md`, Status: Open; in progress in worktree `B-671`) |
-| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | re-run before starting |
+| plan-142 is complete and archived | `ls planning/completed/plan-142-I-lock-and-docs.md` → exists | MET (2026-09-21, re-checked) |
+| plan-144 is complete and its findings exist | `ls planning/completed/plan-144-B-state-self-update-audit.md planning/plan-144-findings/record-state-self-update-audit.md` → both exist | MET (2026-09-21, re-checked) |
+| bug-671 fixed: a `STATE` field passed to a source-generic `collections` member type-checks | `ls bugs/completed/bug-671-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/resources/state-field-source-generic-arg-valid'` → passes (the regression test bug-671 names) | NOT MET (2026-09-21 re-check: `ls bugs/completed/bug-671-*.md` → no match; `bugs/bug-671-state-field-arg-to-source-generic-is-unknown.md` Status: Open; the regression test directory does not exist and `test-accept.sh` reports "no tests matched filter"; no `B-671` worktree exists) |
+| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-21) |
 
 Why bug-671 gates the whole plan: 11 `collections` members (`distinct take drop
 sort sortBy union intersection difference symmetricDifference merge mapValues`)
