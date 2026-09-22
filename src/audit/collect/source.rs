@@ -46,55 +46,51 @@ pub(super) fn collect_source(
 
             let mut calls = Vec::new();
             {
-                let mut visit =
-                    |callee: &str, line: usize, in_trap: bool, arguments: &[CallArg]| {
-                        // Where this call's error actually goes (bug-280). The label
-                        // used to be chosen from the *function's* trap alone, so a
-                        // call fully recovered by an inline `TRAP … RECOVER` was
-                        // reported as `return` — auto-propagates to the caller — which
-                        // is the opposite of what happens.
-                        let propagation = if in_trap || has_trap {
-                            "trap"
-                        } else {
-                            "return"
-                        };
-                        let capability = builtin_capability(callee, &aliases);
-                        if let Some(capability) = capability {
-                            permissions.push(PermissionEntry {
-                                capability: capability.to_string(),
-                                package: package_of(callee).to_string(),
-                                function: callee.to_string(),
-                                path: file.path.clone(),
-                                line,
-                                kind: if capability == "native" {
-                                    "native".to_string()
-                                } else {
-                                    "standard".to_string()
-                                },
-                            });
-                        }
-                        if relaxes_certificate_trust(callee, arguments) {
-                            relaxed_trust.push(RelaxedTrustEntry {
-                                function: callee.to_string(),
-                                path: file.path.clone(),
-                                line,
-                            });
-                        }
-                        if is_fallible_call(
-                            callee,
-                            &fallible.names,
-                            arguments,
-                            &enums,
-                            &enum_locals,
-                        ) {
-                            calls.push(CallSite {
-                                callee: callee.to_string(),
-                                line,
-                                propagation: propagation.to_string(),
-                                capability: capability.map(str::to_string),
-                            });
-                        }
+                let mut visit = |callee: &str,
+                                 line: usize,
+                                 in_trap: bool,
+                                 arguments: &[CallArg]| {
+                    // Where this call's error actually goes (bug-280). The label
+                    // used to be chosen from the *function's* trap alone, so a
+                    // call fully recovered by an inline `TRAP … RECOVER` was
+                    // reported as `return` — auto-propagates to the caller — which
+                    // is the opposite of what happens.
+                    let propagation = if in_trap || has_trap {
+                        "trap"
+                    } else {
+                        "return"
                     };
+                    let capability = builtin_capability(callee, &aliases);
+                    if let Some(capability) = capability {
+                        permissions.push(PermissionEntry {
+                            capability: capability.to_string(),
+                            package: package_of(callee).to_string(),
+                            function: callee.to_string(),
+                            path: file.path.clone(),
+                            line,
+                            kind: if capability == "native" {
+                                "native".to_string()
+                            } else {
+                                "standard".to_string()
+                            },
+                        });
+                    }
+                    if relaxes_certificate_trust(callee, arguments) {
+                        relaxed_trust.push(RelaxedTrustEntry {
+                            function: callee.to_string(),
+                            path: file.path.clone(),
+                            line,
+                        });
+                    }
+                    if is_fallible_call(callee, &fallible.names, arguments, &enums, &enum_locals) {
+                        calls.push(CallSite {
+                            callee: callee.to_string(),
+                            line,
+                            propagation: propagation.to_string(),
+                            capability: capability.map(str::to_string),
+                        });
+                    }
+                };
                 walk_statements(&function.body, false, &mut visit);
                 if let Some(trap) = &function.trap {
                     walk_statements(&trap.body, false, &mut visit);
@@ -1243,7 +1239,10 @@ mod tests {
         };
         assert!(!at(4).fallible, "toInt of an enum parameter cannot fail");
         assert!(!at(7).fallible, "toString of an enum already cannot fail");
-        assert!(!at(10).fallible, "toInt of an enum member literal cannot fail");
+        assert!(
+            !at(10).fallible,
+            "toInt of an enum member literal cannot fail"
+        );
         assert!(!at(13).fallible, "toInt of an enum-typed LET cannot fail");
         // The non-goal half: every other overload really can fail, and a caller of
         // one stays fallible. Marking the name infallible outright would delete the

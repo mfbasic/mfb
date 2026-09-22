@@ -1816,7 +1816,13 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types, context.type_index) == Some(true);
+        && trap_hoist_kind(
+            &root,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+        ) == Some(true);
     let check_root = match &root {
         // bug-486: the census is asked with the root call's ARGUMENT types, not
         // its name alone. `toString` is infallible on every argument type but
@@ -2309,7 +2315,13 @@ fn hoist_trap_calls(
     // `len(stringify(parse(a))) + len(stringify(parse(b)))` left the second `len` behind and
     // failed the build with `Checked wraps a call to len`.
     let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(root, context.fallible, locals, &context.binding_types, context.type_index) == Some(true);
+        && trap_hoist_kind(
+            root,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+        ) == Some(true);
     let limit = if root_is_checked_operator {
         fallible.len()
     } else {
@@ -2423,13 +2435,11 @@ fn trap_hoist_kind(
     kinds: &dyn builtins::TypeKinds,
 ) -> Option<bool> {
     match value {
-        IrValue::Call { target, args, .. } => Some(
-            fallible.call_is_fallible(
-                target,
-                &ir_call_arg_types(target, args, locals, globals),
-                kinds,
-            ),
-        ),
+        IrValue::Call { target, args, .. } => Some(fallible.call_is_fallible(
+            target,
+            &ir_call_arg_types(target, args, locals, globals),
+            kinds,
+        )),
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
         // exempt.
@@ -2629,8 +2639,13 @@ fn rewrite_trap_call(
     // The scan's fallibility verdict is recomputed here rather than read off
     // `fallible[position]`, because a non-raising operator is not indexed at all
     // and must not consume a position.
-    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types, context.type_index)
-    else {
+    let Some(checked) = trap_hoist_kind(
+        value,
+        context.fallible,
+        locals,
+        &context.binding_types,
+        context.type_index,
+    ) else {
         return;
     };
     assert_eq!(

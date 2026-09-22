@@ -16,12 +16,22 @@
 //!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `typeName`, `toString`,
 //!   the total `bits::*` ops, and the pure-query / default-returning /
 //!   growth-only collection and string members). That census is keyed on the
-//!   callee name **and** the call site's argument types: `toString` is
-//!   overloaded across every type and exactly one overload can fail —
-//!   `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding` (bug-486).
-//!   Every question asked here therefore carries argument types; a site that
-//!   cannot supply them falls back to the name-keyed answer, which for
-//!   `toString` is the *under*-approximating side.
+//!   callee name **and** the call site's argument types, in both directions:
+//!
+//!   - `toString` is overloaded across every type and exactly one overload can
+//!     fail — `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
+//!     (bug-486). The name is infallible; that one overload is subtracted.
+//!   - `toInt` is the mirror (bug-679). The name is fallible — a bad parse, an
+//!     overflow — and exactly one overload is total: over an enum it is the
+//!     ordinal the value already holds, a register move that declares no error
+//!     (plan-140-B). That one overload is granted.
+//!
+//!   Every question asked here therefore carries argument types, and the `toInt`
+//!   half additionally carries a `TypeKinds` oracle, since an enum is not its own
+//!   `ParameterType`. A site that cannot supply either falls back to the
+//!   name-keyed answer: for `toString` that is the *under*-approximating side and
+//!   must be fixed; for `toInt` it is the over-approximating one and is merely
+//!   imprecise.
 //! * A function declared in this project whose body cannot let an error escape,
 //!   decided by the fixpoint in [`analyze`].
 //!
@@ -36,6 +46,13 @@
 //! hand-curated per-package census is tuned to avoid over-reporting to a human.
 //! The two are deliberately separate: a report that over-reports is noisy, while
 //! a desugar that under-reports miscompiles.
+//!
+//! Separate also means a rule about one overload has to be taught to BOTH, in
+//! each one's own terms. bug-679 is the worked example: fixing the census here
+//! silenced the dead-handler warning's half of it and left `mfb audit` reporting
+//! the same `toInt(<enum>)` chain as fallible, because that census reads its own
+//! hand-curated name list over the AST and had never been given the call's
+//! arguments at all. A change to one is a prompt to check the other.
 
 use super::lower::{expression_type, LowerContext};
 use crate::codegen::builtins;

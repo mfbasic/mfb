@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: FIXED
 Regression Test: `tests/rt-behavior/general/toInt_enum` (extend), plus a
 `cargo test --bin mfb` unit case on `inline_builtin_is_infallible`
 
@@ -239,41 +239,42 @@ Expected output shift: `.ir`/`.nir`/`.ncode` goldens only for fixtures calling
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a `cargo test --bin mfb` case asserting
+- [x] Add a `cargo test --bin mfb` case asserting
       `inline_builtin_is_infallible("toInt", &[<an enum Named>], &<oracle>)` is
       `true` and that `toInt(<String>)` / `toInt(<Float>)` stay `false`. Reuse
       the `ColorIsAnEnum` oracle already in
       `src/codegen/builtins/general/mod.rs:1025`. Confirm it fails today.
-- [ ] Extend `tests/rt-behavior/general/toInt_enum` with the inline-`TRAP`
+- [x] Extend `tests/rt-behavior/general/toInt_enum` with the inline-`TRAP`
       shape, so the missing `TYPE_INLINE_TRAP_DEAD_HANDLER` is a golden diff.
-- [ ] Enumerate every `toInt(<enum>)` in `tests/` and `examples/`; record the
+- [x] Enumerate every `toInt(<enum>)` in `tests/` and `examples/`; record the
       exact golden set expected to move in Phase 3.
-- [ ] Settle the `src/codegen/builtins/mod.rs:227` verdict left open above.
+- [x] Settle the `src/codegen/builtins/mod.rs:227` verdict left open above.
 
 Acceptance: the new test(s) fail for the documented reason; the blast-radius
 list has a verdict per site and a named golden set.
-Commit: —
+Commit: `0692e121` (the unit case and the threading), `f1a21b2b` (the audit case)
 
 ### Phase 2 — the fix
 
-- [ ] Thread `TypeKinds` into `inline_builtin_is_infallible` (or its
+- [x] Thread `TypeKinds` into `inline_builtin_is_infallible` (or its
       `_with_kinds` twin), defaulting unconverted callers to `NoTypeKinds`.
-- [ ] Add the `toInt` + single enum argument rule.
-- [ ] Add `toInt` to `inline_builtin_fallibility_depends_on_args`.
-- [ ] Pass real oracles at `src/ir/fallible.rs:81` and
+- [x] Add the `toInt` + single enum argument rule.
+- [x] Add `toInt` to `inline_builtin_fallibility_depends_on_args`.
+- [x] Pass real oracles at `src/ir/fallible.rs:81` and
       `src/ir/verify/resources.rs:995`.
 
 Acceptance: Phase 1 tests pass; every contrast-case row in the table above still
 holds; nothing in Non-goals changed.
-Commit: —
+Commit: `0692e121` (the IR census), `f1a21b2b` (the audit census — a SECOND root
+cause the document did not identify; see Corrections)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate only the goldens named in Phase 1; diff each and confirm the
+- [x] Regenerate only the goldens named in Phase 1; diff each and confirm the
       delta is the `CallResult` → `Call` collapse and nothing else.
-- [ ] `scripts/artifact-gate.sh <exe> all` (full, once) + `test-accept.sh`, the
+- [x] `scripts/artifact-gate.sh <exe> all` (full, once) + `test-accept.sh`, the
       latter being the only harness that sees the diagnostic prose change.
-- [ ] Re-run both reproductions; confirm two warnings, and
+- [x] Re-run both reproductions; confirm two warnings, and
       `mfb audit examples/dungeon | grep -c "(fallible)"` → 9.
 
 Acceptance: full gate green; golden deltas are exactly the intended set; both
@@ -311,3 +312,98 @@ construction (an unconverted caller keeps today's answer), so the real work is
 proving in Phase 1 that the set of goldens containing `toInt(<enum>)` is small
 and known, and in Phase 3 that nothing outside it moved. Runtime behavior,
 enum representation, and every non-enum `toInt` overload are untouched.
+
+## Corrections
+
+Four things this document asserted turned out to be wrong. All were found by
+measurement, and each changed the work.
+
+**1. "The one census behind both symptoms" — there are two, and they are
+independent.** §Root Cause names `builtins::inline_builtin_is_infallible` as the
+single cause of both the dead-handler symptom and the `mfb audit` symptom. Only
+the first is true. `mfb audit` never calls that function: it has its own
+AST-level census in `src/audit/collect/source.rs`, where `is_fallible_builtin`
+lists a bare `"toInt"` by name and `block_escapes`'s visitor discards the call's
+arguments outright (`_arguments: &[CallArg]`). This was proved, not inferred —
+after the Phase 2 fix landed, `mfb build /tmp/tointtrap` warned on both lines
+while `mfb audit /tmp/tointfall` still reported `ordinalOf` as fallible,
+unchanged. The document's own References half-knew this: `src/ir/fallible.rs`'s
+module doc says the two censuses are "deliberately separate". The fix is
+therefore two independent changes in disjoint files, not one.
+
+The audit half was also the harder one. The IR census had a `TypeKinds` oracle
+one accessor away; the AST census had no type information at all, so it needed a
+declared-`ENUM` table and a per-function map of bindings that provably hold one.
+That map fails closed on shadowing: a name bound anywhere in the function to
+something that is not an annotated enum is dropped, so a `LET n AS String` in one
+branch cannot be read as the enum parameter of the same name in another and
+silently stop reporting a real `toInt(<String>)`.
+
+**2. "`.ir`/`.nir`/`.ncode` goldens for any fixture containing `toInt(<enum>)`
+will move" — none did.** §Blast Radius predicts a `CallResult` → `Call` collapse.
+It does not happen, and should not: the inline-`TRAP` desugar emits `CallResult` +
+`ResultIsOk` for its *own scrutinee* regardless of fallibility. The census decides
+the warning and the nested-call hoist, not the scrutinee's shape. Verified against
+the known-correct sibling rather than assumed — `toString(Color.Green) TRAP(e)`,
+classified infallible since plan-140-C, lowers to the identical `callResult`
+shape. `toInt_enum.ir` is byte-identical after the fix.
+
+The only golden that moved is `tests/rt-behavior/general/toInt_enum/golden/build.log`,
+gaining the two warning blocks and nothing else; the `.ast`, `.ir` and `.run`
+goldens and the program's output are untouched. That fixture's source already
+carried the comment "the conversion never fails, so the handler never runs" — the
+golden was recording the bug.
+
+**3. "`examples/dungeon` returns to 9 fallible functions" — it returns to 12, and
+12 is correct.** The `9` was measured on the file as it stood *before* commit
+`df455c0e`, which is not the file being fixed. Measured with
+`mfb audit examples/dungeon | grep -c "(fallible)"`: 38 before, 12 after. The
+difference from 9 is three functions that the same commit `df455c0e` introduced
+or changed, none of which reaches `toInt`: `insetX` and `insetY` are new and
+fallible via `toFloat`, and `generateDungeon` gained an explicit `FAIL`. Confirmed
+by auditing `df455c0e~1`'s version of the file with the fixed binary — it reports
+9, and diffing the two name sets yields exactly those three. So the document's
+"the single `toInt(f)` accounts for all 29" is right in substance: 26 of the 38
+were that chain.
+
+**4. "`mfb audit` on the reproduction lists neither `ordinalOf` nor `nameOf`" — it
+also still lists `main`, correctly.** `main` calls `io::print`, which genuinely
+raises `ErrOutput`. Only the `ordinalOf`/`nameOf` half of that expectation is
+about this bug.
+
+### Open Decision, settled
+
+Signature vs. twin: took the **direct parameter**, as recommended. The document
+estimated 4 call sites; there are 5 production ones — it missed
+`src/codegen/engine/value/builder_values.rs` and
+`src/codegen/engine/control/builder_control.rs` (plus ~22 test assertions, all
+mechanical). Both new sites keep `NoTypeKinds`, which is sound in the way the
+document argues: `builder_control`'s is a plan-145-C NIR optimizer with no
+declaration table in scope, where a `false` merely forgoes an optimization, and
+`builder_values`'s is unreachable for `toInt` anyway — every `toInt` form returns
+earlier through `lower_inline_conversion_raw`. The `mod.rs:227`
+(`inline_trap_unsupported`) verdict left open in §Blast Radius resolves the same
+way: reached only from that unreachable path, and asserted in the new unit test.
+
+## STATUS: FIXED
+
+Landed on `worktree-B-679`, merged to `main`.
+
+**What was wrong, in one line:** `toInt` is fallible by name and nothing told
+either fallibility census that its enum overload — a register move of an ordinal
+the value already holds — is the one exception, so a total program was described
+as error-propagating in both `mfb audit` and the dead-handler warning.
+
+**What changed:** two censuses, in disjoint files, each given the argument-aware
+rule in its own terms. `inline_builtin_is_infallible` gained a `&dyn TypeKinds`
+parameter and the granting rule, with real oracles threaded to `ir::fallible`
+(via `LowerContext`'s `TypeIndex`) and `ir::verify::resources` (`TypeEnv` is
+itself the oracle); `audit::collect::source` gained a declared-`ENUM` table, a
+per-function enum-binding map, and the same rule over the AST.
+
+**Deviation from the plan as written:** the document scoped this to one census;
+it ships as two, because the audit symptom has a separate root cause the document
+misattributed. See Corrections 1. Everything in §Non-goals held: no other `toInt`
+overload changed, no `Enum` variant was added to `ParameterType`, no spelling
+heuristic was used (both rules key on the declaration's kind), and `turned` in
+`examples/dungeon` was not rewritten.

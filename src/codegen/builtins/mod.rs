@@ -234,6 +234,15 @@ pub(crate) fn inline_trap_unsupported(
 /// The inline built-ins whose fallibility depends on their **argument type**
 /// rather than their name (bug-486, bug-533).
 ///
+/// Three names are listed: `toString` (bug-486), `replace` (bug-533) and `toInt`
+/// (bug-679). The first two have a name-keyed infallibility that ONE overload
+/// takes away, and this function applies that subtraction. `toInt` is the mirror
+/// — fallible by name, with one overload that is total — so it appears in the
+/// shared list (its verdict does turn on an argument type, which is what
+/// [`inline_builtin_fallibility_depends_on_args`] gates on) but this function
+/// answers `false` for it and the grant happens in
+/// [`inline_builtin_is_infallible`], where the `TypeKinds` oracle is in scope.
+///
 /// `toString` is overloaded across every type, and exactly one of those overloads
 /// can fail: `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
 /// (`77020004`) on an ill-formed sequence
@@ -408,7 +417,17 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
 /// `sum`, `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
 /// `List`** (bug-533 — the `String` overload of the same bare target refuses an
-/// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]).
+/// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]), and `toInt` **on
+/// a single enum argument** (bug-679 — the ordinal the value already holds, a
+/// register move that declares no error; plan-140-B).
+///
+/// That last entry is the only one that runs the other way: the two above take
+/// infallibility AWAY from a name that has it by default, while `toInt` is
+/// fallible by default and one overload is granted an exception. It is therefore
+/// the only entry that needs `kinds`, because an enum is not its own
+/// `ParameterType` — see [`TypeKinds`]. `NoTypeKinds` answers `false`, which is
+/// the over-approximating side, so a caller that cannot supply a real oracle
+/// keeps the verdict this had before the exception existed.
 ///
 /// Fallible (NOT infallible — raw-supported, so an inline `TRAP` traps their real
 /// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
@@ -1292,7 +1311,11 @@ mod tests {
         // Every inline member is classified one way or the other, and non-inline
         // callees (user functions) are not infallible built-ins.
         assert!(!inline_builtin_is_infallible("myFunc", &[], &NoTypeKinds));
-        assert!(!inline_builtin_is_infallible("math.sqrt", &[], &NoTypeKinds));
+        assert!(!inline_builtin_is_infallible(
+            "math.sqrt",
+            &[],
+            &NoTypeKinds
+        ));
     }
 
     /// bug-486: the census answers per OVERLOAD for the names whose fallibility
@@ -1302,7 +1325,11 @@ mod tests {
     #[test]
     fn tostring_is_fallible_only_on_a_byte_list() {
         let bytes = [ParameterType::list_of(ParameterType::Byte)];
-        assert!(!inline_builtin_is_infallible("toString", &bytes, &NoTypeKinds));
+        assert!(!inline_builtin_is_infallible(
+            "toString",
+            &bytes,
+            &NoTypeKinds
+        ));
         assert!(inline_builtin_raw_supported("toString", &bytes));
         assert!(!inline_trap_unsupported("toString", &bytes, &NoTypeKinds));
 
