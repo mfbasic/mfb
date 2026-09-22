@@ -303,7 +303,7 @@ Acceptance: goldens reflect only the added helpers; man and spec say collections
   **Observed:** goldens re-verified by the same build commands → 8/8 `same`;
   `cargo test --bin mfb spec` → `43 passed; 0 failed`. (The golden check named
   `cargo test --test acceptance app_mouse_surface` does not exist — see Corrections.)
-Commit: (next commit)
+Commit: 37ae8a1dd
 
 ## Validation Plan
 
