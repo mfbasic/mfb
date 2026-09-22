@@ -861,7 +861,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_main_bootstrap(spec.initial_mode, spec.uses_canvas, spec.uses_mouse),
         emit_worker_shim(spec),
         emit_append_helper(),
-        emit_finish_helper(spec.uses_term),
+        emit_finish_helper(spec.uses_term, spec.debug_hooks),
         emit_should_terminate_helper(),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),

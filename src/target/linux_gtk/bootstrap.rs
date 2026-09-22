@@ -1074,9 +1074,11 @@ pub(super) fn emit_window_closed_handler() -> Result<CodeFunction, String> {
 /// park the worker in `pause()` so the main loop keeps the window open until the
 /// user closes it. With no transcript attached (headless) terminate with the code.
 ///
-/// The language program runs on the worker thread, so we must NOT `_exit` in GUI
-/// mode or the process (window + main loop) dies.
-pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
+/// The language program runs on the worker thread, so `_exit` in GUI mode takes
+/// the window and main loop down with it — which is exactly what a release build
+/// (`debug` false) wants: the program is over, so the app is too. Only a `--debug`
+/// build keeps the window open on the last output and the exit code.
+pub(super) fn emit_finish_helper(debug: bool) -> Result<CodeFunction, String> {
     let prefix_len = STR_EXIT_PREFIX.1.len(); // includes the leading '\n'
     let mut asm = Asm::new(FINISH_SYMBOL);
     // lr@0, x19(exit code)@8, x20(chunk)@16.
@@ -1090,6 +1092,9 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
+    if !debug {
+        asm.push(abi::branch("fin_exit"));
+    }
 
     // Headless (no transcript): terminate the process with the exit code.
     // Both spellings must be the SAME one. `%scratch0` realizes to `x9`, so a load
@@ -1103,6 +1108,7 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.load_state(abi::SCRATCH[0], ST_TEXT_BUFFER);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne("fin_gui"));
+    asm.push(abi::label("fin_exit"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_exit");
     asm.push(abi::branch_self());

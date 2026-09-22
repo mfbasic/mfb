@@ -1992,12 +1992,14 @@ pub(super) fn emit_append_helper() -> CodeFunction {
 /// worker program's exit here instead of `_exit`.
 ///
 /// Headless (no transcript view attached): `_exit(code)` — preserves the
-/// console-like behavior the runtime tests rely on. GUI: append
+/// console-like behavior the runtime tests rely on. A release build (`debug` is
+/// false) does the same with a window up: the program is over, so the app is too.
+/// A `--debug` GUI build instead keeps the window open for inspection: append
 /// `Program exited with code <N>` to the transcript and `pthread_exit` the worker
 /// so the process keeps running with the window open; the app quits when the
 /// window is closed (the synthesized delegate's
 /// applicationShouldTerminateAfterLastWindowClosed: returns YES).
-pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
+pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     let mut asm = Asm::new(FINISH_SYMBOL);
     // Frame: lr@0, x19(code)@8, x20(scratch/nsstring)@16, x21(textview)@24,
     // x22(digit count)@32, decimal digit buffer@40 (<=3 digits for 0..255).
@@ -2023,6 +2025,12 @@ pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 40));
     }
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
+
+    // Only a `--debug` build lingers on the last output and the exit code; a
+    // release app closes the moment its program finishes, like any other app.
+    if !debug {
+        asm.push(abi::branch("headless_exit"));
+    }
 
     // view = objc_getAssociatedObject([NSApplication sharedApplication], &KEY)
     asm.external_data(abi::LOCAL[2], CLASS_NS_APPLICATION, LIB_APPKIT);

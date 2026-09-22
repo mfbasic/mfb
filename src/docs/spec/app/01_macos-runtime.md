@@ -147,7 +147,14 @@ The autorelease pool is mandatory: the worker creates autoreleased Cocoa objects
 exits — but were it to exit, the thread-exit autorelease-pool cleanup would crash
 draining improperly-pooled objects. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]
 
-## Program-finish path (window stays open)
+## Program-finish path
+
+**Only a `--debug` build keeps the window open** after the program finishes.
+`emit_finish_helper` takes the build's `debug` flag (`AppEntrySpec.debug_hooks`,
+set from `--debug`). A release build restores the terminal if needed, then goes
+straight to the `_exit(code)` arm, so the app closes when its program does, with
+the program's exit code. The GUI keep-open path below is emitted only for
+`--debug`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 
 macOS `emit_program_exit` diverges from the console `_exit`: when the emitting
 function is `_mfb_macapp_program` (the worker's program entry), the program's exit
