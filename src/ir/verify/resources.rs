@@ -403,9 +403,7 @@ impl TypeEnv {
                         }
                     }
                 }
-                IrOp::While { body, .. }
-                | IrOp::For { body, .. }
-                | IrOp::DoUntil { body, .. } => {
+                IrOp::While { body, .. } | IrOp::For { body, .. } | IrOp::DoUntil { body, .. } => {
                     run_branch(body, locals, moved, aliases, contains);
                 }
                 // bug-676: every route into the function-level handler closes the
