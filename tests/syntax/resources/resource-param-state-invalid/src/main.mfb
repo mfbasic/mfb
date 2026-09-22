@@ -1,0 +1,18 @@
+IMPORT fs
+IMPORT json
+
+' bug-674: a non-copyable STATE is rejected on a RES parameter, with the same code
+' as its binding (resource-state-invalid), field and return
+' (resource-return-state-invalid) twins. A `json::Json` field makes `P` a record
+' no STATE may hold. The parameter used to compile: every declaration that could
+' create such a handle was refused, but nothing checked the parameter itself.
+TYPE P
+  j AS json::Json
+END TYPE
+
+SUB g(RES h AS fs::File STATE P)
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

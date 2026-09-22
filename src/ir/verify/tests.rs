@@ -3573,6 +3573,21 @@ fn rejects_state_type_not_defaultable() {
     );
 }
 
+/// bug-674: a `RES` parameter's `STATE` is held to the same rule as a binding's.
+#[test]
+fn rejects_param_state_type_not_defaultable() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("h", "fs.File STATE Shape", None)],
+        vec![],
+    );
+    expect_rule(
+        &project(vec![f], vec![union("Shape", &["A", "B"])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
 #[test]
 fn rejects_state_assign_no_state() {
     // Assign state on a File binding declared without STATE.

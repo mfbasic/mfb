@@ -380,6 +380,18 @@ fn collect_diagnostics_with(
             env.check_thread_sendability(&param.type_.without_state());
             if let Some(state) = param.type_.state() {
                 env.check_thread_sendability(&state);
+                // bug-674: a parameter's `STATE T` is held to the rule a binding's,
+                // a field's and a return's already are — `T` must be a copyable,
+                // defaultable data type. It was the one position left unchecked.
+                if !env.is_defaultable(&state, &mut std::collections::HashSet::new()) {
+                    env.emit(
+                        "TYPE_STATE_INVALID",
+                        format!(
+                            "Parameter `{}` STATE type `{state}` must be a copyable, defaultable data type.",
+                            param.name
+                        ),
+                    );
+                }
             }
             // Every parameter must declare an `AS` type (lambda parameters
             // included — the former source checker checks both forms with this rule).
