@@ -163,18 +163,23 @@ Acceptance: every overload has a row.
   Check: `grep -cE '^\| `(strings|astrings|encoding|fs|os|io|net|regex)::' planning/plan-143-findings/string-self-update-audit.md`
   → 44 + the Phase 1 generic count (est. 1 min). Corrected (Correction 1): → 63
   (44 literal + 0 generic + 19 Tier-B `AttributedString`). Measured: `63`.
-Commit: —
+Commit: 77ea4c292
 
 ### Phase 2 — Map the lowering paths
 
-- [ ] For each package, record how its `String` builtins lower (`Body` kind:
+- [x] For each package, record how its `String` builtins lower (`Body` kind:
       `abi_inline`, `Intrinsic`, `Mfb`, `Rewrite`, `AbiFunction`) and whether the
       lowering allocates a fresh block for the result (cite the allocation).
-- [ ] Confirm no recogniser matches any of these builtins (grep the arms' builtin
+      → findings Appendix B.2, one row per §1 row (`grep -o 'body: Body::…'` over
+      each `func_*.rs`); every result is a fresh block, except `fs::pathDirName`'s
+      rodata `.`/`/` (finding F3).
+- [x] Confirm no recogniser matches any of these builtins (grep the arms' builtin
       names against the list), and record where a `String` self-update statement is
       dispatched at S1, S2, S9 (the `NirOp::Assign` chain, `StoreGlobal`, the by-ref
-      fallback).
-- [ ] Record the `String` representation facts the form column depends on: the
+      fallback). → Appendix B.1: the arm-name grep meets the §1 names only in
+      `mid`/`replace`, which decline at G10; 22 `abi_inline`/`Intrinsic` rows build
+      an S2/S9 site (`su_global_block`/`su_ref_block` in 22/22 probes each), 41 never do.
+- [x] Record the `String` representation facts the form column depends on: the
       tight block layout, the capacity shadow (who allocates it, when it resets —
       `builder_control.rs:2285-2345`), the read-only-data literal case (can a `MUT s`
       binding ever hold a rodata pointer at the moment of a self-update?), and how a
@@ -183,6 +188,9 @@ Commit: —
 Acceptance: the appendix lists every package's lowering kind for its rows, and the
 three representation facts, each with a citation.
   Check: `grep -c '^| ' <appendix lowering table>` → one row per function (est. 2 min).
+  Measured: `awk '/^### B.2/,/^### B.3/' … | grep -c '^| r'` → 63 (one per §1 row;
+  `clearAttributes`' two overloads have different bodies, so rows, not functions);
+  B.3 holds four representation facts, each cited.
 Commit: —
 
 ### Phase 3 — Fill the table
@@ -255,6 +263,14 @@ Commit: —
    `builder_inplace_assign.rs:1609`, `string_capacity_slot_for` at
    `builder_control.rs:2351`, `prescan_string_self_appends` at `:2374`. Every
    verdict here is read at `efdb54bb7`.
+3. **Two memory-safety bugs surfaced by the audit** (findings §3.2 F1, F3), fixed
+   under bug-667 (whose producer audit they belong to): `s = toString(s)` frees the
+   block it stores, at S1, S2 and S9 (`toString(<String>)` returns its argument's
+   block); `fs::pathDirName` returns a rodata `.`/`/` that the owner later frees
+   (SIGBUS). Found by an added runtime sweep (Appendix C.3) — not a plan task, but
+   the plan's "a copy is a finding" check for `not-derived` rows needed the
+   runtime view to be trusted. No code changes here: the fix lands from bug-667's
+   own worktree.
 
 ## Summary
 
