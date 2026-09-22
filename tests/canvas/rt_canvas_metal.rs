@@ -701,9 +701,7 @@ fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
         let stride = WIDTH as usize * 4;
         Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
     };
-    if let Err(diff) =
-        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
-    {
+    if let Err(diff) = compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT) {
         panic!(
             "the Metal backend draws a text run differently from the software oracle: \
              {diff}\nA glyph drawn with ANOTHER glyph's bitmap (hatching, or one letter \
