@@ -110,37 +110,109 @@ Rejected alternatives:
 
 ### Phase 1: Read the six lowerings
 
-- [ ] Record per row: every raise point, and whether the output length is known
+- [x] Record per row: every raise point, and whether the output length is known
       before the first write (shape a) or not (shape b), with the upper bound shape
       b will use.
 
-Acceptance: recorded here with citations (est. 30 min).
+      - **`upper` / `lower` / `caseFold`** (`strings/gen_case_map.rs:lower_strings_case_map`).
+        Raises: four `raise_error_bare("ErrOutOfMemory")` — the ASCII path's
+        `emit_arena_alloc_call` and its `ascii_size_overflow`
+        (`emit_checked_size_add_immediate(byteLen, 9)`), and the slow path's alloc
+        and `strings_case_map_size_overflow`. No `ErrInvalidArgument` path at all.
+        **Shape (a) on both paths**: the ASCII path proves every byte < 0x80 (the
+        SWAR scan `ascii_scan`) and then `newLen == byteLen(value)`; the slow path's
+        count loop (`count_loop` … `count_done`) computes the full mapped length
+        into `length_slot` BEFORE the allocation and before any output byte (1 byte
+        per cp < 0x80, else `emit_case_map_lookup` → `emit_utf8_encoded_width` of
+        the identity or of each mapped cp — the re-encoded width, bug-175 B). Two
+        `emit_arena_alloc_call` sites (`byteLen + 9`, `length_slot + 9`), each
+        followed by the length word and a write loop (`ascii_transform_loop` /
+        `write_loop`) and a trailing NUL; the slow path ends with
+        `emit_write_cursor_assert` against `result + 8 + length_slot`.
+        The whole-string ASCII gate §3 step 2 wants already exists here.
+      - **`normalizeNfc`** (`strings/func_normalize_nfc.rs:lower`). Raises: six
+        `raise_error_bare("ErrOutOfMemory")` — the ASCII copy path's alloc and
+        `ascii_size_overflow`; the scalar temp buffer's alloc and
+        `strings_nfc_size_overflow` (`emit_checked_size_multiply(scalarCount, 8)`,
+        audit-unicode #8); the result's alloc and a second overflow check
+        (`…_add_immediate(outputLen, 9)`, bug-378). **Shape (a)**, contrary to the
+        plan's table: the composed scalars are built in a `u64` temp buffer first,
+        then `byte_len_loop` sums `emit_utf8_encoded_width` over them into
+        `output_len_slot` before the result is allocated or written. Three
+        `emit_arena_alloc_call` sites: the ASCII copy (`byteLen + 9`), the scalar
+        temp (`scalarCount × 8` — a genuine second scratch, of `u64`s, not bytes),
+        and the result (`output_len + 9`, written by `encode_loop`).
+      - **`strings::replace`** (`string/repr/builder_strings.rs:lower_replace`,
+        the `String` branch). Raises: `replace_empty_old` →
+        `raise_error("strings.replace", "ErrInvalidArgument")` for
+        `byteLen(old) == 0` (bug-533); `raise_error_bare("ErrOutOfMemory")` on the
+        alloc and at `replace_overflow` (`emit_checked_size_add(output_len,
+        new_len)`, `…_add_immediate(output_len, 9)`); plus the no-match arm's
+        `copy_flat_block`, which has its own alloc and `ErrOutOfMemory`.
+        **Shape (a)**: the first pass counts non-overlapping leftmost matches and
+        accumulates `output_len = byteLen(value) + Σ(newLen − oldLen)` before any
+        output byte. Two no-match shortcuts branch to `copy_original`
+        (`byteLen(old) > byteLen(value)`, and no match found) — for an arm that is a
+        no-op on `s` needing no scratch at all.
+      - **`fs::pathNormalize`** (`fs/gen_path_builder.rs:lower_fs_path_normalize`).
+        Raises: exactly one, `raise_error_bare("ErrOutOfMemory")` on its single
+        `emit_arena_alloc_call`; no argument is ever rejected. **Shape (b)** — the
+        only one: it allocates first and builds the result incrementally, tracking
+        the length in `out_len_slot`, and `..` TRUNCATES an already-written region
+        (`pop_previous`/`pop_scan`/`pop_store` scan the output backwards for the
+        preceding `/`). The upper bound is already in the source: the allocation is
+        `byteLen(path) + 10` = 8 + `byteLen(path)` + 1 (the `"."` fallback) + 1
+        (NUL), so **`byteLen(s) + 1` output bytes suffice** and a scratch reserved
+        once never needs to grow. The destination must be READABLE as well as
+        writable (`pop_scan`, and the "last byte already `/`?" test).
 Commit: —
 
 ### Phase 2: Split at the output, byte-identical
 
-- [ ] `*_into` halves in `gen_case_map.rs`, `func_normalize_nfc.rs`,
+- [x] `*_into` halves in `gen_case_map.rs`, `func_normalize_nfc.rs`,
       `builder_strings.rs` (`lower_replace`'s `String` branch), and
       `gen_path_builder.rs` (`pathNormalize`).
+      Landed as ONE destination parameter rather than four split halves
+      (Correction E1): each lowering takes a `StringOut` — `Block` (the copying
+      path, byte for byte) or `Scratch` (build the bytes in the function's
+      self-update scratch and hand the arm a pointer and a length).
+      `lower_strings_case_map_out`, `func_normalize_nfc::lower_out`,
+      `lower_replace_out` and `lower_fs_path_normalize_out`.
 
 Acceptance: `cargo build --release && cargo test --test golden` → 0 `.ncode` diffs
 (est. 20 min).
+Result: `artifact-gate.sh target/release/mfb strings` → `0 diff(s)` after the case
+map and after `replace`; `… collections` → `0 diff(s)` (the `List` overload shares
+`lower_replace`); `… strings` and `… fs` → `0 diff(s)` after `pathNormalize` and
+`normalizeNfc`. The full gate ran at the end of Phase 3.
 Commit: —
 
 ### Phase 3: The arm
 
-- [ ] `ArmId::StrRewrite`, `STRING_REWRITE_FNS`, `try_inplace_string_rewrite_assign`,
+- [x] `ArmId::StrRewrite`, `STRING_REWRITE_FNS`, `try_inplace_string_rewrite_assign`,
       the marker, and the `SELF_UPDATE_ARMS` entry after the collection `Replace`
-      arm (which declines a `String` at G10) and after `StrGrow`.
-- [ ] `SCRATCH_ARMS` and `is_string_self_update` gain the names in §3.
-- [ ] The 6 rows → `Arm([StrRewrite])`; 6 `cases.tsv` lines → `arm`, each paired
+      arm (which declines a `String` at G10) and after `StrGrow` (plus its
+      `FIELD_NEVER` row at all 15 field sites, plan-146-B Correction B4).
+- [x] `SCRATCH_ARMS` and `is_string_self_update` gain the names in §3 — the scratch
+      one by QUALIFIED target, not bare name (Correction E2).
+- [x] The 6 rows → `Arm([StrRewrite])`; 6 `cases.tsv` lines → `arm`, each paired
       with a restoring statement where the rewrite is not idempotent
       (`x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")`).
-- [ ] Runtime: `tests/rt-behavior/strings/self-update-rewrite-valid/`, with the
+- [x] Runtime: `tests/rt-behavior/strings/self-update-rewrite-valid/`, with the
       differential cases and a trapped failure per raising row, at a local and a
-      global.
-- [ ] RED proof: skip the ASCII check so every case map takes the in-place byte
+      global. 32 cases: the ASCII and Unicode case-map paths (`ß` → `SS` and
+      `İ` → `i`+combining dot, both LONGER than their input; Greek final sigma),
+      NFC decomposed/precomposed/reordered (shorter), `replace` longer/shorter/
+      equal/empty/no-match/multi-byte, `pathNormalize` with `..`, `.`, repeated
+      `/`, a path that becomes `.`, one that climbs above the root and the empty
+      path, the four rows again at a global, three rewrite-then-use cases, and the
+      one trapped failure (`strings::replace(s, "", "x")`) — every line `ok` /
+      `raised=TRUE s=[abc]`.
+- [x] RED proof: skip the ASCII check so every case map takes the in-place byte
       map. The `ß` case must fail. Restore.
+      `upperSharpS MISMATCH [STRAßE] want [STRASSE]`, and with it
+      `lowerDottedI`, `lowerSigma`, `caseFoldGreek`, `g.upperSharpS` and
+      `rewriteThenAppend` — every non-ASCII case. Restored.
 
 Acceptance: `cargo test --bin mfb self_update`, the harness over the six lines, and
 `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/strings/self-update-rewrite-valid'`
@@ -149,6 +221,20 @@ Acceptance: `cargo test --bin mfb self_update`, the harness over the six lines, 
   fixture that calls `encoding::htmlEscape` (its helper body is 5 `replace`
   self-updates). Run `cargo test --test golden`. Every diff must trace to one of
   these: objdump one per producer. Re-baseline only the traced fixtures.
+Result: `cargo test --bin mfb self_update` → the matrix fires `StrRewrite` for all
+six rows at S1 and S2; the harness over the six lines at S1/S2 → every filter
+`test result: ok`; `scripts/test-accept.sh … 'rt-behavior/strings/self-update-rewrite-valid'`
+→ `acceptance tests passed`. Golden: 53 diffs over 11 fixtures
+(`byte-identity/{compress,crypto,csv,encoding,json,regex,resource-xfer-slots,strings,tls}`,
+`rt-behavior/crypto/crypto-ec-valid`, `syntax/app/app-mouse-surface`), every one
+traced to the SAME single producer — `#encoding_htmlEscape`, whose body holds five
+`out = strings::replace(out, …)` self-updates and which is injected into all of
+them. Verified by rebuilding three of the eleven (`csv`, `tls`, `strings`): each
+`.ncode` has exactly ONE function with a `inplace_str_rewrite`/`su_scratch` slot,
+`#encoding_htmlEscape`, out of 101 / 121 / 96. No fixture self-updates a rewrite
+row in its own source. The 53 `.ncodesum` goldens were regenerated for those 11
+fixtures alone; the gate then reported `1488 tests, 1663 build(s), 2104 golden(s)
+checked, 0 diff(s)`.
 Commit: —
 
 ## Validation Plan
@@ -161,6 +247,44 @@ Commit: —
 None beyond plan-146-A's.
 
 ## Corrections
+
+- **E1 — one destination parameter, not four `*_into` halves.** §3 asks each
+  lowering to be split into a half that writes to a caller-supplied
+  `(dest_ptr, capacity)`. Three of the four cannot be cut that way without
+  duplicating their control flow: the case maps and `replace` interleave the
+  allocation between their count pass and their write pass, and `pathNormalize`
+  READS its own output while building it (`..` pops the previous component back
+  off, `pop_scan`). So each lowering instead takes a `StringOut` telling it where
+  its result goes — `Block` (allocate, exactly as before) or `Scratch` (the
+  function's self-update scratch) — which keeps ONE implementation of every
+  rewrite and leaves the copying path byte-identical (proven by the artifact gate
+  after each one). For `normalizeNfc` and `pathNormalize` the scratch region is
+  given the SHAPE of a block (an 8-byte length word then the bytes), so every
+  `+8` offset in those lowerings is untouched.
+- **E2 — `replace` is NOT in `SCRATCH_ARMS`, and must not be added by name.**
+  §2 says "`replace` is already in `SCRATCH_ARMS` for the collection arm, so a
+  function holding `s = strings::replace(s, …)` already gets a scratch slot
+  today". Measured false: `SCRATCH_ARMS` is `filter, distinct, transform, sort,
+  sortBy, union, intersection, difference, symmetricDifference, mapValues, merge`
+  — no `replace` (the collection `replace` arm keeps its state in the collection).
+  The arm declined for that reason alone (`DBG rewrite: bare=replace
+  scratch=false`). Adding the bare name would give every
+  `xs = collections::replace(xs, …)` function a scratch slot and drop it never
+  uses — dead code in every such program, and a golden move. The scratch
+  requirement is therefore keyed on the QUALIFIED target
+  (`target_needs_string_scratch`: `strings.upper|lower|caseFold|normalizeNfc|replace`,
+  `fs.pathNormalize`, `os.resourcePath`), which a `collections::replace` call
+  never matches.
+- **E3 — `normalizeNfc` needs BOTH its buffers in the scratch, reserved once.**
+  Its slow path allocates a `u64` scalar array as well as the result block, and a
+  second `emit_reserve_self_update_scratch` would move the first (the reserve
+  frees and reallocates rather than growing in place). The arm reserves
+  `scalarCount × 12 + 9` once — `× 8` for the scalar array, at most `× 4` bytes of
+  UTF-8 output plus a block header — and lays the result region out after the
+  array. `strings::normalizeNfc` and the case maps also keep their all-ASCII
+  shortcut in the ARM (ASCII is already NFC; an ASCII case map is one byte in, one
+  byte out and runs over the binding's own bytes), so neither reaches the scratch
+  for ASCII input at all.
 
 ## Summary
 

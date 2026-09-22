@@ -102,12 +102,12 @@ strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]
 strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	before
 strings::repeat(value AS String, times AS Integer) AS String	arm	String = "abc"	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	before
 os::resourcePath(relative AS String) AS String	arm	String = "r"	x = os::resourcePath(x) ; x = fs::pathBaseName(x)	before
-strings::upper(value AS String) AS String	pending:E	String = "abc"	x = strings::upper(x) ; x = strings::lower(x)	before
-strings::lower(value AS String) AS String	pending:E	String = "ABC"	x = strings::lower(x) ; x = strings::upper(x)	before
-strings::caseFold(value AS String) AS String	pending:E	String = "abc"	x = strings::caseFold(x)	before
-strings::normalizeNfc(value AS String) AS String	pending:E	String = "abc"	x = strings::normalizeNfc(x)	before
-strings::replace(value AS String, old AS String, new AS String) AS String	pending:E	String = "abc"	x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")	before
-fs::pathNormalize(path AS String) AS String	pending:E	String = "/a/b"	x = x & "/." ; x = fs::pathNormalize(x)	before
+strings::upper(value AS String) AS String	arm	String = "abc"	x = strings::upper(x) ; x = strings::lower(x)	before
+strings::lower(value AS String) AS String	arm	String = "ABC"	x = strings::lower(x) ; x = strings::upper(x)	before
+strings::caseFold(value AS String) AS String	arm	String = "abc"	x = strings::caseFold(x)	before
+strings::normalizeNfc(value AS String) AS String	arm	String = "abc"	x = strings::normalizeNfc(x)	before
+strings::replace(value AS String, old AS String, new AS String) AS String	arm	String = "abc"	x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")	before
+fs::pathNormalize(path AS String) AS String	arm	String = "/a/b"	x = x & "/." ; x = fs::pathNormalize(x)	before
 encoding::formUrlDecode(value AS String) AS String	pending:F	String = "a+b"	x = encoding::formUrlDecode(x) ; x = encoding::formUrlEncode(x)	before
 encoding::formUrlEncode(value AS String) AS String	pending:F	String = "a b"	x = encoding::formUrlEncode(x) ; x = encoding::formUrlDecode(x)	before
 encoding::htmlEscape(value AS String) AS String	pending:F	String = "a<b"	x = encoding::htmlEscape(x) ; x = encoding::htmlUnescape(x)	before

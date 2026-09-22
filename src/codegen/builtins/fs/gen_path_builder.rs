@@ -1,5 +1,6 @@
 //! Purely-syntactic `path*` string `fs` code generation: the call-site path lowering, the five abi_inline members, and the standalone pathJoin runtime helper.
 
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::typed_list_element_type;
@@ -341,6 +342,22 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_fs_path_normalize(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (result, _) = self.lower_fs_path_normalize_out(path, StringOut::Block)?;
+        Ok(result)
+    }
+
+    /// plan-146-E: [`lower_fs_path_normalize`] with the destination chosen by the
+    /// caller. `StringOut::Block` is the copying lowering, byte for byte;
+    /// `StringOut::Scratch` normalizes into a block-SHAPED region of the function's
+    /// self-update scratch — this lowering reads its own output as it builds it
+    /// (`..` pops the previous component back off), and every offset in it is
+    /// relative to that header, so handing it scratch memory of the same shape
+    /// changes nothing but where the bytes live. Returns `(buffer, length slot)`.
+    pub(crate) fn lower_fs_path_normalize_out(
+        &mut self,
+        path: &ValueResult,
+        out: StringOut,
+    ) -> Result<(ValueResult, usize), String> {
         let path = path.clone();
         self.require_string("fs.pathNormalize path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_normalize_path", &path.location);
@@ -397,22 +414,44 @@ impl CodeBuilder<'_> {
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch9, 0));
-        self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            result_slot,
-        ));
-        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
-        self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
+        match out {
+            StringOut::Block => {
+                self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+                self.emit_arena_alloc_call();
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.raise_error_bare("ErrOutOfMemory")?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+                self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
+                self.emit(abi::store_u64(
+                    abi::mfb_return(1),
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
+                self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
+            }
+            StringOut::Scratch => {
+                // The same `length + 10` region, in the reused scratch.
+                let need = self.allocate_stack_object("fs_path_normalize_need", 8);
+                self.emit(abi::add_immediate(&scratch12, &scratch10, 10));
+                self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), need));
+                let data = self.emit_reserve_self_update_scratch(need)?;
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), data));
+                self.emit(abi::store_u64(
+                    &scratch13,
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+                self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
+                self.emit(abi::store_u64(abi::ZERO, &scratch13, 0));
+                self.emit(abi::store_u8(abi::ZERO, &scratch13, 8));
+            }
+        }
         self.emit(abi::store_u64(
             abi::ZERO,
             abi::stack_pointer(),
@@ -729,19 +768,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&finish_nonempty));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
         self.emit(abi::store_u64(&scratch8, &scratch9, 0));
+        if matches!(out, StringOut::Scratch) {
+            // The `.` fallback above bumped the length without going through the
+            // slot; the arm reads the slot, so keep it in step.
+            self.emit(abi::store_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                out_len_slot,
+            ));
+        }
         self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
         self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        // bug-536 shape B: `result_slot` holds this lowering's own
-        // `emit_arena_alloc_call` block.
-        self.mark_fresh_string(Operand::from(result.render()));
-        Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(result.render()),
-            text: "fs.pathNormalize".to_string(),
-        })
+        if matches!(out, StringOut::Block) {
+            // bug-536 shape B: `result_slot` holds this lowering's own
+            // `emit_arena_alloc_call` block.
+            self.mark_fresh_string(Operand::from(result.render()));
+        }
+        Ok((
+            ValueResult {
+                origin: None,
+                type_: ParameterType::String,
+                location: Operand::from(result.render()),
+                text: "fs.pathNormalize".to_string(),
+            },
+            out_len_slot,
+        ))
     }
 }
 

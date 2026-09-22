@@ -54,7 +54,7 @@ mod func_join;
 mod func_left;
 mod func_lower;
 mod func_mid;
-mod func_normalize_nfc;
+pub(crate) mod func_normalize_nfc;
 mod func_pad_left;
 mod func_pad_left_to_width;
 mod func_pad_right;
@@ -75,7 +75,7 @@ mod func_trim_end;
 mod func_trim_start;
 mod func_upper;
 
-mod gen_case_map;
+pub(crate) mod gen_case_map;
 pub(crate) mod gen_graphemes;
 pub(crate) mod gen_left_right;
 pub(crate) mod gen_pad;

@@ -1,4 +1,5 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -13,6 +14,20 @@ use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_replace(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let (result, _, _) = self.lower_replace_out(args, StringOut::Block)?;
+        Ok(result)
+    }
+
+    /// plan-146-E: [`lower_replace`] with the destination chosen by the caller.
+    /// `StringOut::Block` is the copying lowering, byte for byte;
+    /// `StringOut::Scratch` writes the result into the function's self-update
+    /// scratch and answers `(pointer, length slot, "no match" flag slot)` — the
+    /// no-match case leaves the binding alone, so the arm skips the copy back.
+    pub(crate) fn lower_replace_out(
+        &mut self,
+        args: &[NirValue],
+        out: StringOut,
+    ) -> Result<(ValueResult, usize, usize), String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -71,8 +86,10 @@ impl CodeBuilder<'_> {
                 &value.type_,
                 element_type,
             )?;
-            // plan-134-E: the rebuilt list owns its elements' graphs.
-            return self.own_collection_payload_edges(result);
+            // plan-134-E: the rebuilt list owns its elements' graphs. A `List`
+            // never reaches the `String` in-place arm (its own arm serves it), so
+            // the extra slots are irrelevant here.
+            return Ok((self.own_collection_payload_edges(result)?, 0, 0));
         }
         if value.type_ != ParameterType::String {
             return Err(format!(
@@ -117,6 +134,18 @@ impl CodeBuilder<'_> {
 
         let result_slot = self.allocate_stack_object("replace_result", 8);
         let output_len_slot = self.allocate_stack_object("replace_output_len", 8);
+        // plan-146-E: the in-place arm's two extra slots and labels. They are
+        // allocated only in that mode, so the copying path's frame is unchanged.
+        let (unchanged_slot, scratch_ready, scratch_written) = if matches!(out, StringOut::Scratch)
+        {
+            (
+                self.allocate_stack_object("replace_unchanged", 8),
+                self.label("replace_scratch_ready"),
+                self.label("replace_scratch_written"),
+            )
+        } else {
+            (0, String::new(), String::new())
+        };
 
         let value_ptr = &scratch8;
         let value_len = &scratch9;
@@ -217,6 +246,13 @@ impl CodeBuilder<'_> {
             output_len_slot,
         ));
         // allocate output_len + 9 (block header), trapping the header add's wrap.
+        if matches!(out, StringOut::Scratch) {
+            // plan-146-E: the rewritten bytes go to the reused scratch instead.
+            let scratch = self.emit_string_out_scratch(output_len_slot)?;
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), scratch));
+            self.emit(abi::store_u64(&result, abi::stack_pointer(), result_slot));
+            self.emit(abi::branch(&scratch_ready));
+        }
         self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -244,6 +280,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(output_len, abi::mfb_return(1), 0));
         self.emit(abi::add_immediate(dest, abi::mfb_return(1), 8));
+        if matches!(out, StringOut::Scratch) {
+            self.emit(abi::branch(&scratch_written));
+            self.emit(abi::label(&scratch_ready));
+            // The scratch holds only the bytes: the cursor starts at its first.
+            self.emit(abi::load_u64(dest, abi::stack_pointer(), result_slot));
+            self.emit(abi::label(&scratch_written));
+        }
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
         self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
@@ -301,15 +344,34 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&second_loop));
 
         self.emit(abi::label(&second_done));
-        self.emit(abi::move_immediate(value_byte, "Integer", "0"));
-        self.emit(abi::store_u8(value_byte, dest, 0));
+        if matches!(out, StringOut::Block) {
+            self.emit(abi::move_immediate(value_byte, "Integer", "0"));
+            self.emit(abi::store_u8(value_byte, dest, 0));
+        }
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        if matches!(out, StringOut::Scratch) {
+            // A replacement happened, so the arm publishes the scratch.
+            self.emit(abi::move_immediate(value_byte, "Integer", "0"));
+            self.emit(abi::store_u64(
+                value_byte,
+                abi::stack_pointer(),
+                unchanged_slot,
+            ));
+        }
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&empty_old));
         self.raise_error("strings.replace", "ErrInvalidArgument")?;
 
         self.emit(abi::label(&copy_original));
+        if matches!(out, StringOut::Scratch) {
+            // plan-146-E: nothing matched, so the binding already holds the result;
+            // the arm skips the copy back entirely (and skips this deep copy).
+            let one = self.temporary_vreg();
+            self.emit(abi::move_immediate(&one, "Integer", "1"));
+            self.emit(abi::store_u64(&one, abi::stack_pointer(), unchanged_slot));
+            self.emit(abi::branch(&done));
+        }
         // No replacement occurred. The caller owns and frees this result, so it
         // must be a fresh arena block, not an alias of the input `value` (which
         // may be a caller local or a static constant — freeing either would
@@ -324,17 +386,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));
 
+        if matches!(out, StringOut::Scratch) {
+            return Ok((
+                ValueResult {
+                    origin: None,
+                    type_: ParameterType::String,
+                    location: Operand::from(result.render()),
+                    text: "strings.replace".to_string(),
+                },
+                output_len_slot,
+                unchanged_slot,
+            ));
+        }
         // bug-536 shape B: BOTH arms put a fresh block in `result` — the
         // replacing arm its own `emit_arena_alloc_call`, the no-match arm the
         // `copy_flat_block` right above (which exists precisely so the result is
         // never an alias of the input).
         self.mark_fresh_string(Operand::from(result.render()));
-        Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(result.render()),
-            text: "replace(String, String, String)".to_string(),
-        })
+        Ok((
+            ValueResult {
+                origin: None,
+                type_: ParameterType::String,
+                location: Operand::from(result.render()),
+                text: "replace(String, String, String)".to_string(),
+            },
+            output_len_slot,
+            unchanged_slot,
+        ))
     }
 
     pub(crate) fn lower_list_replace(

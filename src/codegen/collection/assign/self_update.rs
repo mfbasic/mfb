@@ -91,6 +91,9 @@ pub(crate) enum ArmId {
     /// `s = f(s, …)` for the `String` builtins whose result is `s` with bytes
     /// added (plan-146-D).
     StrGrow,
+    /// `s = f(s, …)` for the `String` builtins that rewrite `s`'s bytes
+    /// (plan-146-E).
+    StrRewrite,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -430,6 +433,12 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
         |b, s, v| b.try_inplace_string_grow_assign(s, v),
         FieldReach::None,
     ),
+    // After the collection `Replace` arm, which declines a `String` at G10.
+    (
+        ArmId::StrRewrite,
+        |b, s, v| b.try_inplace_string_rewrite_assign(s, v),
+        FieldReach::None,
+    ),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -638,9 +647,6 @@ pub(crate) const SCRATCH_ARMS: &[&str] = &[
     "symmetricDifference",
     "mapValues",
     "merge",
-    // plan-146-D: the `os::resourcePath` arm builds its prefix — the executable's
-    // directory plus the build mode's resource suffix — in the scratch.
-    "resourcePath",
 ];
 
 /// Whether `ops` (recursively) hold a self-update `x = f(x, …)` whose call target
@@ -772,6 +778,11 @@ fn ops_create_scratch_closure(builder: &CodeBuilder<'_>, ops: &[NirOp]) -> bool 
 /// function's self-update scratch.
 fn target_needs_self_update_scratch(target: &str) -> bool {
     self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+        // plan-146-D/E: the `String` arms that build their result in the scratch
+        // (`os::resourcePath`'s prefix, the six rewrites), by qualified target.
+        || crate::codegen::collection::assign::string_self_update::target_needs_string_scratch(
+            target,
+        )
         || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
             target,
         )
@@ -1763,32 +1774,32 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
     },
     SelfUpdateRow {
         function: "strings::upper",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(ST, STR, "strings::upper(x)")],
     },
     SelfUpdateRow {
         function: "strings::lower",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(ST, STR, "strings::lower(x)")],
     },
     SelfUpdateRow {
         function: "strings::caseFold",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(ST, STR, "strings::caseFold(x)")],
     },
     SelfUpdateRow {
         function: "strings::normalizeNfc",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(ST, STR, "strings::normalizeNfc(x)")],
     },
     SelfUpdateRow {
         function: "strings::replace",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(ST, STR, "strings::replace(x, \"a\", \"b\")")],
     },
     SelfUpdateRow {
         function: "fs::pathNormalize",
-        kind: SelfUpdate::Pending("E"),
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
         probes: &[str_probe(FS, PATH, "fs::pathNormalize(x)")],
     },
     SelfUpdateRow {
@@ -2103,6 +2114,7 @@ impl ArmId {
             ArmId::StrIdentity => &["inplace_str_identity"],
             ArmId::StrWindow => &["inplace_str_window"],
             ArmId::StrGrow => &["inplace_str_grow"],
+            ArmId::StrRewrite => &["inplace_str_rewrite"],
         }
     }
 }
@@ -2402,6 +2414,12 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         ),
         (
             ArmId::StrGrow,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrRewrite,
             "",
             ALL_FIELD_SITES,
             "a `String` field is deferred:string (plan-145-A Open Decision 1)",

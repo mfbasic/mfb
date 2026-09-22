@@ -1,6 +1,7 @@
 //! `strings.normalizeNfc` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
@@ -74,6 +75,25 @@ pub(crate) fn lower(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
+    let (result, _) = lower_out(builder, args, StringOut::Block)?;
+    Ok(result)
+}
+
+/// plan-146-E: [`lower`] with the destination chosen by the caller.
+/// `StringOut::Block` is the copying lowering, byte for byte;
+/// `StringOut::Scratch` puts BOTH of this lowering's buffers in the function's
+/// self-update scratch — the `u64` scalar array it composes in, and a
+/// block-shaped region for the encoded bytes after it — reserved once, since a
+/// second reserve would move the first. The bound is `scalarCount × 12 + 9`:
+/// `× 8` for the scalar array, and at most `× 4` bytes for the encoded output
+/// (a scalar encodes to at most four UTF-8 bytes) plus the block's own 9.
+/// Returns `(buffer, length slot)`. An all-ASCII string is NFC-normalized
+/// already, so the arm never calls this for one.
+pub(crate) fn lower_out(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    out: StringOut,
+) -> Result<(ValueResult, usize), String> {
     if args.len() != 1 {
         return Err("strings.normalizeNfc: no native lowering for these arguments".to_string());
     }
@@ -159,6 +179,11 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&scratch21, &scratch20, 0));
     builder.emit(abi::add_immediate(&scratch22, &scratch20, 8));
     builder.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+    if matches!(out, StringOut::Scratch) {
+        // plan-146-E: an all-ASCII string is already NFC, so the arm leaves the
+        // binding untouched and never reaches this lowering for one.
+        builder.emit(abi::branch(&nfc_slow));
+    }
     builder.emit(abi::label(&ascii_scan));
     builder.emit(abi::compare_registers(&scratch23, &scratch21));
     builder.emit(abi::branch_ge(&ascii_copy));
@@ -254,6 +279,29 @@ pub(crate) fn lower(
     // unreachable on real hardware, but every arena-size computation shares
     // the same self-defending shape.
     let size_overflow = builder.label("strings_nfc_size_overflow");
+    let scratch_need_slot = builder.allocate_stack_object("strings_nfc_scratch_need", 8);
+    let scratch_base_slot = builder.allocate_stack_object("strings_nfc_scratch_base", 8);
+    if matches!(out, StringOut::Scratch) {
+        // `scalarCount * 12 + 9`: the scalar array, the encoded bytes and a block
+        // header, reserved in one go (a later reserve would move the array).
+        builder.emit(abi::move_immediate(&scratch13, "Integer", "12"));
+        builder.emit_checked_size_multiply(&scratch12, &scratch24, &scratch13, &size_overflow);
+        builder.emit_checked_size_add_immediate(&scratch12, &scratch12, 9, &size_overflow);
+        builder.emit(abi::store_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            scratch_need_slot,
+        ));
+        let data = builder.emit_reserve_self_update_scratch(scratch_need_slot)?;
+        builder.emit(abi::load_u64(&scratch12, abi::stack_pointer(), data));
+        builder.emit(abi::store_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            scratch_base_slot,
+        ));
+        builder.emit(abi::store_u64(&scratch12, abi::stack_pointer(), temp_slot));
+        builder.emit(abi::branch(&temp_alloc_ok));
+    }
     builder.emit(abi::move_immediate(&scratch13, "Integer", "8"));
     builder.emit_checked_size_multiply(
         abi::return_register(),
@@ -271,11 +319,13 @@ pub(crate) fn lower(
     builder.emit(abi::label(&size_overflow));
     builder.raise_error_bare("ErrOutOfMemory")?;
     builder.emit(abi::label(&temp_alloc_ok));
-    builder.emit(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        temp_slot,
-    ));
+    if matches!(out, StringOut::Block) {
+        builder.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            temp_slot,
+        ));
+    }
 
     builder.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
     builder.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -498,6 +548,43 @@ pub(crate) fn lower(
     // pathological composed byte length cannot wrap the allocation size,
     // matching every sibling string builder (case-map, graphemes, ...).
     let size_overflow = builder.label("strings_nfc_size_overflow");
+    // plan-146-E: where the scratch path rejoins, past the block allocation. Created
+    // only in that mode, so the copying path's label numbering is untouched.
+    let result_join = if matches!(out, StringOut::Scratch) {
+        builder.label("strings_nfc_result_join")
+    } else {
+        String::new()
+    };
+    if matches!(out, StringOut::Scratch) {
+        // The encoded bytes go after the scalar array: `base + scalarCount * 8`,
+        // laid out as a block so the encode loop and its cursor assert are the
+        // copying path's own code.
+        let base = builder.temporary_vreg();
+        let offset = builder.temporary_vreg();
+        let eight = builder.temporary_vreg();
+        builder.emit(abi::load_u64(
+            &base,
+            abi::stack_pointer(),
+            scratch_base_slot,
+        ));
+        builder.emit(abi::load_u64(
+            &offset,
+            abi::stack_pointer(),
+            scalar_count_slot,
+        ));
+        builder.emit(abi::move_immediate(&eight, "Integer", "8"));
+        builder.emit(abi::multiply_registers(&offset, &offset, &eight));
+        builder.emit(abi::add_registers(&base, &base, &offset));
+        builder.emit(abi::store_u64(&base, abi::stack_pointer(), result_slot));
+        builder.emit(abi::load_u64(
+            &scratch24,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
+        builder.emit(abi::store_u64(&scratch24, &base, 0));
+        builder.emit(abi::add_immediate(&scratch28, &base, 8));
+        builder.emit(abi::branch(&result_join));
+    }
     builder.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     builder.emit_arena_alloc_call();
@@ -518,6 +605,9 @@ pub(crate) fn lower(
     ));
     builder.emit(abi::store_u64(&scratch24, abi::mfb_return(1), 0));
     builder.emit(abi::add_immediate(&scratch28, abi::mfb_return(1), 8));
+    if matches!(out, StringOut::Scratch) {
+        builder.emit(abi::label(&result_join));
+    }
     builder.emit(abi::move_immediate(&scratch23, "Integer", "0"));
     builder.emit(abi::label(&encode_loop));
     builder.emit(abi::load_u64(
@@ -552,16 +642,30 @@ pub(crate) fn lower(
     builder.emit(abi::label(&nfc_done));
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    if matches!(out, StringOut::Scratch) {
+        return Ok((
+            ValueResult {
+                origin: None,
+                type_: ParameterType::String,
+                location: Operand::from(result.render()),
+                text: "strings.normalizeNfc".to_string(),
+            },
+            output_len_slot,
+        ));
+    }
     // bug-536 shape B: the normalized output is this lowering's own
     // `emit_arena_alloc_call` block (`result_slot`). The constant-fold early
     // return above loads a rodata pointer and is deliberately NOT marked.
     builder.mark_fresh_string(Operand::from(result.render()));
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::String,
-        location: Operand::from(result.render()),
-        text: "strings.normalizeNfc".to_string(),
-    })
+    Ok((
+        ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(result.render()),
+            text: "strings.normalizeNfc".to_string(),
+        },
+        output_len_slot,
+    ))
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
