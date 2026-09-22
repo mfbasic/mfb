@@ -72,7 +72,18 @@ LET __CANVAS_GEO_ARC AS Integer = 3
 ' plan-116-G. 8 is the next free value; a Group's header carries this rather than
 ' NONE so the deferred-hash path and the renderers can tell "a group node" from
 ' "an item with no geometry", which are different things.
-LET __CANVAS_GEO_GROUP AS Integer = 8"#;
+LET __CANVAS_GEO_GROUP AS Integer = 8
+' bug-484. A Picture: the destination rectangle in the rectangle's own slots (centre
+' 2-3, half-extent 4-5, radius 6 = 0), so its coverage and stroke ARE a rectangle's;
+' the image's width and height in the per-kind aux pair 20-21; and its pixel block's
+' address in two 24-bit halves. Halves because every header slot is hashed through
+' `__canvas_hashFloat`, which multiplies by 65536 before `toInt` -- a whole address
+' would overflow it (the `__canvas_textHash` font-handle note measures exactly that).
+' 35-36 are the cap slots, which only Line and Arc read.
+LET __CANVAS_GEO_PICTURE AS Integer = 9
+LET __CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = 35
+LET __CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = 36
+LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216"#;
 
 /// The cache, as parallel lists rather than a list of records.
 ///
@@ -157,7 +168,7 @@ r#"FUNC __canvas_headerFor(item AS DrawItem) AS List OF Float
     CASE Polygon(p)
       RETURN __canvas_polygonHeader(p)
     CASE Picture(pic)
-      RETURN __canvas_emptyHeader()
+      RETURN __canvas_pictureHeader(pic)
     CASE Text(t)
       RETURN __canvas_emptyHeader()
     CASE Ellipse(e)
@@ -399,6 +410,46 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
   out = __canvas_paintHeader(out, paint)
   LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0
   RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
+END FUNC
+
+' bug-484: a picture's header -- a rectangle's, re-kinded, plus what the sampler needs.
+'
+' The image is read through `canvas::imageShadow` and friends, which answer 0 for a
+' destroyed image instead of raising: this runs on the graphics thread, over a scene the
+' program may have built before destroying what it names. Any of the three reading 0 --
+' including a destroy landing between the reads -- is "no such image" and the item draws
+' nothing, exactly as a zero-area rectangle does. The width and height never change and
+' the shadow is never freed, so a header built from a live read stays drawable for the
+' rest of the frame whatever the worker does next (`.ai/canvas-threading.md` section 7).
+'
+' The shadow address being IN the header is what makes a `setBytes` visible: it swaps a
+' fresh block in, so the header differs, the cache confirmation fails, and the damage
+' diff sees a changed item -- although nothing in the scene the program wrote changed.
+FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
+  LET shadow AS Integer = canvas::imageShadow(pic.image)
+  LET iw AS Integer = canvas::imageWidthOf(pic.image)
+  LET ih AS Integer = canvas::imageHeightOf(pic.image)
+  IF shadow = 0 OR iw <= 0 OR ih <= 0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  LET base AS List OF Float = __canvas_rectHeader(pic.x, pic.y, pic.w, pic.h, 0.0, pic.paint)
+  IF toInt(collections::getOr(base, 0, 0.0)) <> __CANVAS_KIND_RECT THEN
+    RETURN base
+  END IF
+  MUT out AS List OF Float = base
+  out = collections::set(out, 0, toFloat(__CANVAS_GEO_PICTURE))
+  ' The Correction F18 trap, the other way round: `__canvas_paintHeader` ran while slot
+  ' 0 still said RECT, a kind with an interior, so it counted a gradient's stops into
+  ' slot 1 -- and `__canvas_tailFor`'s Picture arm appends none, because the image, not
+  ' a ramp, is what fills a picture. Undone here so the record declares only what it
+  ' holds.
+  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, 0.0)
+  out = collections::set(out, 20, toFloat(iw))
+  out = collections::set(out, 21, toFloat(ih))
+  out = collections::set(out, __CANVAS_GEO_PICTURE_SHADOW_HI, toFloat(shadow / __CANVAS_GEO_PICTURE_SPLIT))
+  out = collections::set(out, __CANVAS_GEO_PICTURE_SHADOW_LO, toFloat(shadow MOD __CANVAS_GEO_PICTURE_SPLIT))
+  RETURN out
 END FUNC
 
 FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Paint) AS List OF Float

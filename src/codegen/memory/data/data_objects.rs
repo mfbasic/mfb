@@ -272,6 +272,7 @@ pub(crate) fn string_symbols(
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",
+            "canvas.setBytesRaw",
         ],
     ) {
         for value in [
