@@ -155,7 +155,7 @@ All green (above); counts recorded.
 `scripts/artifact-gate.sh target/release/mfb all` → "1485 tests, 1660 build(s),
 2098 golden(s) checked, 0 diff(s)"; `scripts/test-accept.sh` (a copy of that
 `target/debug/mfb`) → "acceptance tests passed (1511 test(s) ran)".
-Commit: `(recorded in the next commit)`
+Commit: `ecd9ba43f` (re-run on the re-merged tree: `1f0616463`)
 
 ## Corrections
 
