@@ -9,7 +9,7 @@ counts), the documentation is brought in sync, the self-update harness gains `LE
 are re-measured, and the full gate runs once.
 
 **The single outcome:** `mfb build -v` reports `Place copy forwarding: <n>` for a program with a forwardable `LET`;
-the 8 Fixed benchmark rows run at direct-form speed; and the full gate is green.
+the 14 benchmark rows whose direct form is in place run at direct-form speed; and the full gate is green.
 
 ## Prerequisites
 
@@ -20,13 +20,15 @@ See plan-149-A. In addition: plan-149-B's phases are all ticked with their `Comm
 
 - A catalog row exists at level 1, stage `NIR`, with its counter, and the man page table includes it.
 - The harness proves the `LET cur` shape at every field site plan-145 covers, for a fixed sample of operations.
-- The 8 Fixed benchmark rows reach the direct-form timing (probe order of magnitude: 1,443 → 7–10 ns for the record
+- The 14 in-scope benchmark rows (the 8 Fixed rows, plus the 6 Dynamic `removeAt` / `remove` / `removeKey` rows) reach
+  the direct-form timing (probe order of magnitude: 1,443 → 7–10 ns for the record
   `set` row).
 - The full suite, the artifact gate and acceptance are green, and every golden diff is a dropped copy.
 
 ### Non-goals
 
-These are the same as plan-149-A's. The 8 Dynamic rows' remaining rebuild is **not** fixed here (see Open Decisions).
+These are the same as plan-149-A's. The 2 Dynamic `set` rows (`test_lrd_set`, `test_lsd_set`) keep their rebuild; it
+is **not** fixed here (see Open Decisions).
 
 ## 2. Current State
 
@@ -103,13 +105,14 @@ Commit: —
       the wall-clock time here (this replaces the UNMEASURED line in §2).
 - [ ] Record the 16 rows' results from that run. Then rebuild with the plan-149 compiler, run again, and record the 16
       rows again: a before / after table.
-- [ ] If any Fixed row does not approach its direct-form timing, root-cause it on that row. Build the row alone with
+- [ ] If any in-scope row does not approach its direct-form timing, root-cause it on that row. Build the row alone with
       `--nir` and check whether the binding was forwarded. Fix the gate that declined it, or record with evidence why it
       must decline.
 
-Acceptance: a before / after table for all 16 rows in this section. Every Fixed row is at least 10× faster, or has a
-recorded root cause. (The probe ratios were 137× to 206× for record rows and 8× to 18× for `STATE` rows, so 10× is a
-floor that a working forward clears everywhere.)
+Acceptance: a before / after table for all 16 rows in this section. Every in-scope row (the 8 Fixed and the 6 Dynamic
+remove rows) is at least 5× faster, or has a recorded root cause. The probe ratios were 137× to 206× for the record
+`set` rows, 8× (`removeAt`) to 18× (`set`) for the `STATE` rows, and 18× to 35× for the `String`-element removes, so
+5× is a floor that a working forward clears everywhere.
 Commit: —
 
 ## Validation Plan
@@ -144,9 +147,12 @@ Commit: —
 
 ## Open Decisions
 
-- **The Dynamic rows' rebuild.** They are slow even in the direct form (`dynDirect` 9,294 ns per statement, probe
-  `/tmp/getprobe/d`). Recommendation: file it as its own bug or plan, with that probe as the reproduction, when C3's
-  table lands. It is a seam gap for `String`-element collections in a field, not a forwarding problem.
+- **The variable-width list `set` rows.** `test_lrd_set` and `test_lsd_set` are slow even in the direct form
+  (`dynDirect` 9,294 ns per statement, probe `/tmp/getprobe/d`): `lower_field_set`
+  (`src/codegen/collection/assign/builder_inplace_assign.rs:1093`) declines a variable-width element `set` because a
+  longer string grows the list block. Recommendation: file it as its own bug with that probe as the reproduction. The
+  likely fix is codegen, routing the `set` through `InlineGrow` the way `Map` `set` does, when the field is the owner's
+  last inline sub-block (it is in `RecDyn`). Not an optimizer row.
 - **Row name.** "Place copy forwarding" is recommended. "Field-read forwarding" is too narrow, because the row also
   forwards bare locals and globals.
 
@@ -158,4 +164,4 @@ C carries little risk. The real exposure is the golden churn and the harness sam
 - the churn by the census above (30 dirs);
 - the sample by its 95 named cells.
 
-Left untouched: the Dynamic rows' rebuild, aggcopy's Level-3 row, and any codegen.
+Left untouched: the 2 variable-width list `set` rows' rebuild, aggcopy's Level-3 row, and any codegen.

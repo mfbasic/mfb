@@ -70,10 +70,13 @@ Everything below is written against the world where these hold.
   copy plus rebuild.
 - **No change to any program's output, errors, or error locations at any level.** This is the dial contract.
 - **Not Level 0.** Keeping the copy is still correct, so by the catalog's own sorting rule this is a Level-1 row.
-- **Not the `String`-element rows.** The 8 "Dynamic" benchmark rows (`List OF String` and friends) are slow even in the
-  direct form: 9,294 ns per statement direct versus 11,820 with `LET cur` (probe `/tmp/getprobe/d`, `dynDirect` /
-  `dynCur`). The forward removes their copy, but their rebuild is a separate seam gap, to be filed separately (see
-  plan-149-C, Open Decisions).
+- **Not the variable-width list `set` rows.** Two of the 16 benchmark rows, `test_lrd_set` and `test_lsd_set`
+  (`List OF String` `set`), are slow even in the direct form: 9,294 ns per statement direct versus 11,820 with
+  `LET cur` (probe `/tmp/getprobe/d`, `dynDirect` / `dynCur`). The in-place seam declines them on purpose
+  (`lower_field_set`, `src/codegen/collection/assign/builder_inplace_assign.rs:1093`): a longer replacement string
+  grows the list block, and the field route cannot take a new block. That is a codegen gap, not a copy, and no NIR
+  rewrite can fix it (see plan-149-C, Open Decisions). The other six Dynamic rows (`String`-element `removeAt`,
+  `remove`, `removeKey`) **are** in place in the direct form and are in scope (§2 Verified properties).
 - **`aggcopy.rs` is not changed or removed.** Its Level-3 row keeps its own gates. Where both could fire, the new row
   runs first, and aggcopy then finds nothing.
 
@@ -111,7 +114,7 @@ Everything below is written against the world where these hold.
 
 | What | Count | Command |
 |---|---|---|
-| Benchmark rows with `LET cur = <owner>.<field>` then a write to that owner using `cur` | 16 (list 8, mapmatrix 4, setops 4); 8 Fixed, 8 Dynamic | the census script in this plan's commit message, run over `benchmark/mfb/src/*.mfb` |
+| Benchmark rows with `LET cur = <owner>.<field>` then a write to that owner using `cur` | 16 (list 8, mapmatrix 4, setops 4); 8 Fixed, 8 Dynamic. 14 are in place in the direct form; the 2 Dynamic `set` rows are not | the census script in this plan's commit message, run over `benchmark/mfb/src/*.mfb` |
 | `LET <T> = <owner>.<field>` lines in the benchmarks (write-back plus read-only rows) | 210 (list 134, mapmatrix 32, setops 44) | `grep -rEc '^\s*LET \w+ AS [^=]+= [A-Za-z_]\w*(\.\w+)+\s*$' benchmark/mfb/src/*.mfb` |
 | Fixture/example dirs containing a `LET <T> = owner.field` or `LET <agg> = local` line (an upper bound on the goldens that can diff) | 30 | the two `grep -rlE` commands recorded in plan-149-C §Validation |
 
@@ -121,6 +124,17 @@ Everything below is written against the world where these hold.
   `target/release/mfb`):
   - `list (Record-Fixed) set` shape: 1,443 / 1,416 ns per statement with `LET cur`, versus 7 / 10 direct.
   - `STATE` `set`: 1,566 versus 87. `STATE` `removeAt`: 986 versus 124 (probe `/tmp/getprobe/d`).
+- **The `String`-element removes are in place in the direct form** (probe `/tmp/getprobe/f` direct vs `/tmp/getprobe/g`
+  `LET cur`, a record local, 400 statements × 100):
+
+  | Operation | `LET cur` | Direct | Slot |
+  |---|---|---|---|
+  | `List OF String` `removeAt` | 9,255 ns | 495 ns | `inplace_recfield_remove_at_index` |
+  | `Set OF String` `remove` | 12,997 ns | 437 ns | `inplace_recfield_set_remove` |
+  | `Map OF Integer TO String` `removeKey` | 14,737 ns | 413 ns | `inplace_recfield_remove_key` |
+
+  None of the three direct functions has a `with_target` slot. The `STATE` versions are inferred from plan-145's
+  `STATE` arms, not measured; plan-149-C3 measures them.
 - **Reading `rec.xs` as the argument of a builtin makes no copy.** The `.ncode` for probe `b` has no extra
   `copy_source` or `copy_result`, and no `with_target`, relative to `a`. It does have `inplace_recfield_set_*`.
 - **The direct form is correct with sibling reads of the owner** (probe `/tmp/getprobe/e`, output
@@ -315,6 +329,13 @@ END FUNC
 ```
 
 ## Corrections
+
+- **The Dynamic rows (before execution).** The first version of this plan (`b4d4d8d6c`) said all 8 Dynamic rows stay
+  slow. That was generalized from the `List OF String` `set` probe alone. Probes `/tmp/getprobe/f` and `g` show the
+  `String`-element `removeAt`, `remove` and `removeKey` go in place in the direct form (18–35× faster than `LET cur`).
+  Only the 2 `set` rows are out of reach. The Non-goals, §2, and plan-149-C's goal, acceptance and Open Decisions are
+  corrected to 14 rows in scope. plan-149-C3's acceptance floor also drops from 10× to 5×: the old text claimed 10× was
+  cleared everywhere, but `STATE` `removeAt` measured 8× (986 → 124 ns).
 
 ## Summary
 
