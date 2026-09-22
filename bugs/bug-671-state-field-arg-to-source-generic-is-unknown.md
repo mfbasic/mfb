@@ -1,4 +1,4 @@
-# bug-670: a `RES … STATE` payload field passed to a source-generic `collections` member does not type-check
+# bug-671: a `RES … STATE` payload field passed to a source-generic `collections` member does not type-check
 
 Last updated: 2026-09-21
 Effort: medium (1h–2h)
@@ -32,7 +32,7 @@ References:
 
 - Found by plan-144-B (the `STATE` self-update audit), whose probe
   `/tmp/plan-144-probes/state` could not compile 11 rows × 8 `STATE` sites (88
-  functions). They are recorded as `n/a (does not compile: bug-670)` in
+  functions). They are recorded as `n/a (does not compile: bug-671)` in
   `planning/plan-144-findings/record-state-self-update-audit.md` §2.
 - `mfb man variable` §"A handle can carry its own data: STATE": `h.state.f` reads a
   field of the payload record.
@@ -204,7 +204,7 @@ Commit: —
 - [ ] Run the full suite (`./scripts/test-accept.sh`, `./scripts/artifact-gate.sh
       ./target/release/mfb all`, `cargo test --bin mfb`); no golden should move.
 - [ ] Re-run the reproduction, and plan-144-B's `STATE` probe with
-      `exclude.txt` emptied of its 88 bug-670 entries: 0 diagnostics.
+      `exclude.txt` emptied of its 88 bug-671 entries: 0 diagnostics.
 
 Acceptance: the full suite is green with no golden delta, and the reproduction
 builds.

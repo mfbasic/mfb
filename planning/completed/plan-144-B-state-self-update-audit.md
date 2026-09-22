@@ -230,7 +230,7 @@ Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
       `markers.py`, extended with the STATE arm slots and the replace marker.
       Record each verdict's marker line.
       — `gen_state.py` (findings C.10) → `2470 called functions, 102 excluded`, and
-      the `--ncode` build has no diagnostics. The 102 exclusions are 88 bug-670
+      the `--ncode` build has no diagnostics. The 102 exclusions are 88 bug-671
       functions and 14 `json::Json` `TYPE_STATE_INVALID` functions (Corrections B1,
       B2). `markers.py` already carried the `STATE` markers from plan-144-A. Each
       row's evidence carries every site's marker line.
@@ -316,7 +316,7 @@ Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
 
 ## Corrections
 
-- **B1 — 11 rows cannot be written at any `STATE` site (bug-670).** The first
+- **B1 — 11 rows cannot be written at any `STATE` site (bug-671).** The first
   `STATE` probe build failed in 88 functions: `distinct`, `take`, `drop`, `sort`,
   `sortBy`, `union`, `intersection`, `difference`, `symmetricDifference`, `merge` and
   `mapValues` on `h.state.f`, at all 8 sites. The error is `error[2-203-0021
@@ -326,9 +326,9 @@ Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
   fails too, while `filter(h.state.xs, p)` compiles. The monomorphizer's
   `expression_type` has no `.state` arm, and its locals drop the `STATE` clause. This
   is a compiler defect, not a language rule, so it was filed as
-  `bugs/bug-670-state-field-arg-to-source-generic-is-unknown.md` (`9db94aba4`) and
+  `bugs/bug-671-state-field-arg-to-source-generic-is-unknown.md` (`9db94aba4`) and
   not fixed here (this plan changes no code). Those cells are `n/a (does not compile:
-  bug-670)`, and each row states the reading it would have if it compiled
+  bug-671)`, and each row states the reading it would have if it compiled
   (`n (no arm)`).
 - **B2 — `json::Json` cannot be a `STATE` field.** §2 "What is already known" said
   every non-inlined F4 type should be `y` at an owner site. `json::Json` is not
@@ -347,8 +347,13 @@ Commit: b1d5f93ce (Phases 1–3 landed together: one findings file)
 - **B5 — the arm table is findings Appendix B.6, not B.2.** plan-144-A had already
   used B.2 for the seam check. The acceptance grep is location-independent and
   counts 11.
+- **B7 — the bug was renumbered 670 → 671.** At merge time, the main checkout held
+  another session's uncommitted `bugs/bug-670-metal-text-run-…md`, which claims the
+  same number. This plan's bug document was renamed to
+  `bugs/bug-671-state-field-arg-to-source-generic-is-unknown.md`, and every
+  reference was updated (`grep -rc bug-670` over the plan-144 files → 0).
 - **B6 — the final gate's scope.** `git diff --stat HEAD -- . ':!planning'` is empty
-  at the end of B. The one file plan-144 wrote outside `planning/` is the bug-670
+  at the end of B. The one file plan-144 wrote outside `planning/` is the bug-671
   document (`bugs/`, committed on its own as `9db94aba4`). It is a document, not
   code: the no-code non-goal holds (`git diff --stat efdb54bb7 HEAD -- src tests`
   → empty).
