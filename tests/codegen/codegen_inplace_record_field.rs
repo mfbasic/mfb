@@ -99,15 +99,17 @@ fn remove_key_on_a_record_field_mutates_in_place() {
     );
 }
 
-/// `G14` — a second updated field in the same `WITH` must take the rebuild path.
+/// `G14`, as plan-145-C relaxed it — a second updated field in the same `WITH`.
 ///
-/// This is the decline that matters most in this container. The in-place arm
-/// signals "handled" by returning `true`, which **elides the whole-record
-/// rebuild**; if it matched a two-field update, `after`'s new value would never be
-/// stored. A behavioural fixture catches that only if it happens to read the other
-/// field afterwards — the emitted code shows it always.
+/// The in-place arm signals "handled" by returning `true`, which **elides the
+/// whole-record rebuild**; if it matched a two-field update and stopped there,
+/// `after`'s new value would never be stored. plan-121-C therefore declined every
+/// two-field `WITH`. plan-145-C's mixed `WITH` (`try_inplace_mixed_with`) runs the
+/// arm AND stores the scalar sibling, evaluated first (`mixed_with_scalar`), so the
+/// emitted code must show both and no rebuild. `tests/runtime/rt_inplace_field_mixed.rs`
+/// checks the sibling's value lands at run time.
 #[test]
-fn a_second_updated_field_declines_to_the_record_rebuild() {
+fn a_second_updated_field_is_stored_beside_the_arm() {
     let plan = ncode(
         "inplace_recfield_removekey_multi",
         &format!(
@@ -125,21 +127,34 @@ fn a_second_updated_field_declines_to_the_record_rebuild() {
         ),
     );
     assert_eq!(
-        stack_slot_count(&plan, "_mfb_fn_drain", "inplace_inlined_subblock"),
+        stack_slot_count(&plan, "_mfb_fn_drain", "mixed_with_scalar"),
+        1,
+        "a two-field `WITH` takes the in-place arm only together with the sibling's \
+         store; without it the sibling field's new value would be dropped"
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_drain", "inplace_inlined_subblock") >= 1,
+        "the mixed `WITH` runs the arm through the inlined sub-block"
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_drain", "with_target"),
         0,
-        "a two-field `WITH` must NOT take the in-place path: the arm elides the \
-         whole-record rebuild, so the sibling field's new value would be dropped"
+        "the mixed `WITH` is in place: no whole-record rebuild"
     );
 }
 
-/// The container gate is not "is it a record field" but "is it the **last inlined**
-/// field" — growing or compacting any earlier sub-block would shift the siblings
-/// that follow it and the offsets stored for them.
+/// The container gate for a GROWING operation is "is it the **last inlined**
+/// field": growing an earlier sub-block would shift the siblings that follow it and
+/// the offsets stored for them. A SHRINKING one is not gated so (plan-145-D, Open
+/// Decision 2): a record's size, copy and free read each field's stored offset and
+/// the last field's end, and a collection's block size comes from its capacity,
+/// which a shrink keeps — so compacting a middle sub-block moves nothing after it.
 ///
 /// Paired with the admit above so the arm cannot be widened into matching every
-/// record shape: here `m` is followed by an inlined `String`, so it must decline.
+/// record shape: here `m` is followed by an inlined `String`, so `removeKey` runs
+/// where it lies and a new key (a grow) still declines to the rebuild.
 #[test]
-fn a_field_followed_by_an_inlined_sibling_declines() {
+fn a_field_followed_by_an_inlined_sibling_shrinks_in_place_and_declines_a_grow() {
     let plan = ncode(
         "inplace_recfield_removekey_notlast",
         "IMPORT collections\n\
@@ -155,15 +170,36 @@ fn a_field_followed_by_an_inlined_sibling_declines() {
         \x20 NEXT\n\
         \x20 RETURN len(rec.m) + len(rec.tail)\n\
          END FUNC\n\
+         FUNC grow(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS Box = Box[1, Map OF Integer TO Integer { 1 := 10 }, \"t\"]\n\
+        \x20 FOR i = 1 TO n\n\
+        \x20   rec = WITH rec { m := collections::set(rec.m, i, i) }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.m) + len(rec.tail)\n\
+         END FUNC\n\
          FUNC main AS Integer\n\
-        \x20 RETURN drain(2)\n\
+        \x20 RETURN drain(2) + grow(3)\n\
          END FUNC\n",
     );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_drain", "inplace_inlined_subblock") >= 1,
+        "a shrink of a collection field followed by another INLINED field runs where \
+         it lies: it keeps the sub-block's extent, so nothing after it moves"
+    );
     assert_eq!(
-        stack_slot_count(&plan, "_mfb_fn_drain", "inplace_inlined_subblock"),
+        stack_slot_count(&plan, "_mfb_fn_drain", "with_target"),
         0,
-        "a collection field followed by another INLINED field must decline: \
-         compacting its sub-block would shift the sibling that follows it"
+        "the in-place shrink leaves no whole-record rebuild"
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_grow", "with_target") >= 1,
+        "a GROWING update of a collection field followed by another INLINED field must \
+         decline to the rebuild: growing its sub-block would shift the sibling"
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_grow", "inplace_inlined_field_off"),
+        0,
+        "the declining grow must not take the `InlineGrow` route"
     );
 }
 

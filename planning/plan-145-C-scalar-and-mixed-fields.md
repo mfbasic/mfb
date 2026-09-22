@@ -291,6 +291,12 @@ Commit: `831e85027`
   arm plus `mixed_with_scalar`, no `state_assign_value`) and renamed
   `a_second_updated_state_field_is_stored_beside_the_arm`. It fails on main's
   compiler (no mixed `WITH`) and passes now.
+- **C6 — the record twin: `codegen_inplace_record_field`'s two-field decline.**
+  `a_second_updated_field_declines_to_the_record_rebuild` (plan-121-C, `b8138f8bc`)
+  asserted a two-field `WITH` over a record takes no arm; found by plan-145-I's
+  full gate. Corrected as C5 was: the arm, `mixed_with_scalar`, and no
+  `with_target` (`a_second_updated_field_is_stored_beside_the_arm`); passes on the
+  final compiler, fails on main's.
 
 ## Summary
 

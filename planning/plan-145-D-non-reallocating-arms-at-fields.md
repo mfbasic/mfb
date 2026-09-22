@@ -244,6 +244,18 @@ Commit: `4cd54ed9e`
   `union` and `symmetricDifference` and left `filter` and `intersection` at
   `None`; the matrix caught it ("the arm ran without evaluating its scalars"), and
   every result above is from the corrected table.
+- **D8 — `codegen_inplace_record_field` asserted the old `G17` for a shrink.**
+  `a_field_followed_by_an_inlined_sibling_declines` (plan-121-C, `b8138f8bc`) said
+  compacting a middle sub-block "would shift the sibling that follows it"; Phase 1
+  measured the opposite (record size reads stored offsets; a collection's size is
+  its capacity, which a shrink keeps), and the same shape at run time — `removeKey`
+  on a map followed by an inlined `String`, then a `set` — prints what main's
+  compiler prints (`2 30 90 the-tail-string 1`), `alloc_calls = free_calls`. Found
+  by plan-145-I's full gate. Corrected to what still holds: the shrink runs where it
+  lies (`inplace_inlined_subblock`, no `with_target`) and a GROW at that field still
+  declines (`with_target`, no `inplace_inlined_field_off`)
+  (`a_field_followed_by_an_inlined_sibling_shrinks_in_place_and_declines_a_grow`);
+  passes on the final compiler, fails on main's.
 
 ## Summary
 
