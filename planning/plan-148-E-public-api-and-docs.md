@@ -101,7 +101,14 @@ Commit: e1194b769
       `EXIT=0`, `failures:` 0, 216 `test result: ok`, 0 FAILED; unit tests `4287
       passed; 0 failed`; `artifact-gate [all]: 1480 tests, 1655 build(s), 2092
       golden(s) checked, 0 diff(s)`. (The first run, before the fix recorded in
-      Corrections, had 1 failure.)
+      Corrections, had 1 failure.) Main then moved again (bug-484, canvas GPU
+      pictures) and was merged a second time (`74c11b22e`); the suite re-ran on that
+      tree (`/tmp/p148_full3.log`): unit tests `4288 passed; 0 failed`, `artifact-gate
+      [all]: … 2092 golden(s) checked, 0 diff(s)`, and one failure —
+      `rt_compress_bounds::decode_time_is_linear_in_output_size`, a wall-clock ratio of
+      4.75 against a 4.4 limit whose `n` runs spread 77–172 ms while other sessions'
+      suites loaded the machine. plan-148 touches no `compress` code; re-run alone,
+      `cargo test --test rt_compress_bounds` → `2 passed; 0 failed`.
 - [x] `cargo clippy --all-targets` → no warnings in files plan-148 touched. Observed:
       no diagnostic in any plan-148 file after the `rt_canvas_font.rs` fixture-builder
       fixes (`div_ceil`, `sort_by_key`). The run exits 101 on
