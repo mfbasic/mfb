@@ -514,6 +514,39 @@ of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_u
   codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
   result is a new value.
 
+A **field** of a record or of a `RES … STATE` payload is a site too:
+`r = WITH r { f := op(r.f, …) }`, `h.state.f = op(h.state.f, …)`, and the same
+through a module-level record, a nested record field (`o.inner.f`), a `FOR EACH`
+over the field, or a record captured by reference. The field is updated where it
+lies in its owner's block; the owner is not rebuilt.
+[[src/codegen/engine/control/builder_control.rs:field_self_update_site]]
+
+- **Scalar and fixed-size fields are stored.** A `WITH` whose every update is a
+  scalar field, a pointer field (a `json::Json`) or a record of compile-time fixed
+  size (`vector::Float3`, `color::Color`, the `datetime` types) evaluates every new
+  value first, in source order, then writes each into its slot or over its
+  sub-block. A failing value therefore leaves the owner unchanged.
+  [[src/codegen/engine/control/builder_control.rs:try_inplace_scalar_fields]]
+- **One collection field beside scalars.** A `WITH` updating one collection field
+  with a self-update and other fields with scalars runs the collection's
+  operation in place and stores the scalars. `WITH` evaluates its updates in source
+  order against the old record: a scalar is computed before the operation mutates
+  anything, and a scalar written after the operation in source order is moved
+  ahead only when it has no effect and neither it nor the operation can fail with
+  a different error; otherwise the whole `WITH` is rebuilt.
+  [[src/codegen/engine/control/builder_control.rs:try_inplace_mixed_with]]
+- **Growth needs the last field.** An operation that can reallocate the
+  collection (a growing insert, a repack) grows the owner's block, so it runs in
+  place only when the field — and every record on a nested path — is its owner's
+  last inlined field; elsewhere the statement is rebuilt. An operation that only
+  shrinks or rewrites at the same width runs at any field.
+  [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
+- **Rebuilt by design.** A field whose size depends on its value — a `String`, a
+  collection updated by an operation with no in-place form, a record holding a
+  `String`, a collection or a data union — is rebuilt: its new value's size is
+  known only after it is built.
+  [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
+
 ### `append`
 
 `List` `append` has two paths:

@@ -45,8 +45,6 @@
 //! site) pair's expected outcome is in `inplace_self_update/field_expect.tsv`:
 //!
 //! * `arm` — meets the line's bound (above);
-//! * `copy:<letter>` — still rebuilds the owner: it must FAIL the bound, so the
-//!   plan-145 letter that lands it has to flip the line;
 //! * `rebuild:<reason>` / `deferred:<plan>` — still rebuilds, and is meant to;
 //! * `na:<diagnostic>` — the program does not compile, with that diagnostic.
 //!
@@ -811,8 +809,6 @@ impl FieldSite {
 enum FieldExpect {
     /// Meets the line's bound.
     Arm,
-    /// Still rebuilds; the named plan-145 letter lands it.
-    Copy(char),
     /// Still rebuilds, by design (the reason is the row's proof).
     Rebuild(String),
     /// Still rebuilds; the named plan owns it.
@@ -826,14 +822,16 @@ impl FieldExpect {
         let (kind, arg) = text.split_once(':').unwrap_or((text, ""));
         match (kind, arg) {
             ("arm", "") => FieldExpect::Arm,
-            ("copy", l) if l.len() == 1 && "BCDEFGH".contains(l) => {
-                FieldExpect::Copy(l.chars().next().unwrap())
-            }
+            // plan-145-I: every letter has landed, so a pending copy is a hole.
+            ("copy", _) => panic!(
+                "{context}: `{text}` — a field self-update needs an in-place lowering, a \
+                 `Rebuild` row with its proof, or a deferral to a named plan"
+            ),
             ("rebuild", r) if !r.is_empty() => FieldExpect::Rebuild(r.to_string()),
             ("deferred", p) if !p.is_empty() => FieldExpect::Deferred(p.to_string()),
             ("na", d) if !d.is_empty() => FieldExpect::Na(d.to_string()),
             _ => panic!(
-                "{context}: expectation `{text}` is not arm, copy:<B-H>, rebuild:<reason>, \
+                "{context}: expectation `{text}` is not arm, rebuild:<reason>, \
                  deferred:<plan> or na:<diagnostic>"
             ),
         }

@@ -115,7 +115,7 @@ Acceptance: `cargo test --test rt_inplace_field_loop` passes, and
 `MFB_SELF_UPDATE_SITES=S7,T7 cargo test --test rt_inplace_self_update` passes
 (est. 8 min).
 The harness (`MFB_SELF_UPDATE_SITES=S7,T7,S9`) is recorded in the next commit.
-Commit: `(recorded in the next commit)`
+Commit: `1ab6c7d0f`
 
 ### Phase 2: S9
 
@@ -137,7 +137,7 @@ Commit: `(recorded in the next commit)`
 
 Acceptance: the same two commands with `S9` (est. 6 min).
 Recorded with Phase 1's harness run.
-Commit: `(recorded in the next commit)`
+Commit: `1ab6c7d0f`
 
 ## Validation Plan
 

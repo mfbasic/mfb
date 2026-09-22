@@ -123,15 +123,24 @@ sound. The four value cases above are their tests.
 Acceptance: `cargo test --test rt_inplace_global_record` passes, and
 `MFB_SELF_UPDATE_SITES=S5 cargo test --test rt_inplace_self_update` passes (est.
 6 min).
-The S5 harness (`MFB_SELF_UPDATE_SITES=S5,S6,T6`, with F's S6/T6) is recorded in the next commit.
-Commit: `(recorded in the next commit)`
+`MFB_TEST_EXE=target/release/mfb MFB_SELF_UPDATE_SITES=S5,S6,T6 cargo test --test
+rt_inplace_self_update` (the compiler at `ea14b83e6`'s source before plan-145-F
+Correction F6): every S5 line and kind passed; the run's only 5 failures were
+`json::` kinds at S6/T6 (letter F's, fixed by F6). `cargo test --test
+rt_inplace_global_record` → "2 passed".
+Commit: `ea14b83e6`
 
 ### Phase 2: Goldens and timing
 
 - [ ] Run `scripts/artifact-gate.sh target/release/mfb all` once. Every diff must
       be a global-record fixture: objdump one per directory, then regenerate the
       confirmed ones. Record the count.
-- [ ] The timing loop, recorded here.
+- [x] The timing loop, recorded here.
+      plan-141's `/tmp/inplace_probe` (a copy under `/tmp/p145/tprobe`), built by
+      the compiler at the H/I source and by the plan-145-C compiler, same machine,
+      ns/op: global record last field **9** (C: 69,223; plan-142-I: 70,099);
+      local record first field 9 (C: 70,374 — D's not-last field); local record
+      last field 8 (C: 8); global `List` set 8, global `Map` set 51 (C: 8, 47).
 
 Acceptance: the artifact gate is clean after regeneration (est. 20 min: global
 records appear in fixtures across directories, and only the full gate finds them

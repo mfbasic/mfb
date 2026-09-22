@@ -374,7 +374,11 @@ at 7
 
 `f.state = value` replaces the whole payload; `f.state.field = value` updates
 one field of it. The payload starts at its default value, travels with the
-handle, and goes away when the handle does.
+handle, and goes away when the handle does. Updating a field writes it where it
+lies, without rebuilding the payload, when the field is a scalar, a collection
+changed by a builtin such as `collections::append`, or a fixed-size record such as
+`vector::Float3`; a field whose size depends on its value, such as a `String`, is
+rebuilt.
 
 ## What goes away, and when
 

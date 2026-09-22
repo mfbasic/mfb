@@ -112,7 +112,7 @@ grow, and every level's last-inlined proof must hold, or a sibling shifts.
 
 Acceptance: table recorded (est. 15 min).
 Recorded above.
-Commit: recorded with Phase 2 (below)
+Commit: `b05277aef` (with Phase 2)
 
 ### Phase 2: Fixed-size overwrite
 
@@ -132,12 +132,19 @@ Commit: recorded with Phase 2 (below)
       `field_kind_census_covers_every_record_field_type` passes.
 - [x] RED proof: revert the builder call, and confirm the kind lines fail the
       bound.
-      The kind-line harness at the flipped sites (`MFB_SELF_UPDATE_SITES=S3,S4,S10,T1,T2,T3,T4,T5,T8`, `every_field_kind_meets_its_expectation`) is recorded in the next commit.
+      The plan-145-C compiler (no overwrite) over the flipped kind lines:
+      `MFB_TEST_EXE=<C compiler> MFB_SELF_UPDATE_SITES=S3,S4,T1,T2 cargo test --test
+      rt_inplace_self_update every_field_kind_meets_its_expectation` → "120 of 316
+      case/site pair(s) failed" (the fixed-size kinds, "marked `arm`, but … the
+      statement rebuilds the owner").
 
 Acceptance: `MFB_SELF_UPDATE_SITES=S3,S4,T1,T2 cargo test --test rt_inplace_self_update`
 filtered to the kind lines → pass (est. 4 min).
-The RED run (the plan-145-C compiler, which has no overwrite, over the flipped kind lines at S3, S4, T1, T2) is recorded in the next commit.
-Commit: `(recorded in the next commit)`
+`MFB_TEST_EXE=target/release/mfb MFB_SELF_UPDATE_SITES=S3,S4,S10,T1,T2,T3,T4,T5,T8
+cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation` →
+"1 passed" (1814.39 s), with Correction F5's fix (the compiler at `ea14b83e6`'s
+source).
+Commit: `b05277aef`
 
 ### Phase 3: Nested paths
 
@@ -171,8 +178,12 @@ Commit: `(recorded in the next commit)`
 Acceptance: `cargo test --test rt_inplace_field_nested` passes, and
 `MFB_SELF_UPDATE_SITES=S6,T6 cargo test --test rt_inplace_self_update` passes
 (est. 8 min).
-The S6/T6 harness (`MFB_SELF_UPDATE_SITES=S6,T6`) is recorded in the next commit.
-Commit: `(recorded in the next commit)`
+`MFB_SELF_UPDATE_SITES=S5,S6,T6` (with G) at `ea14b83e6`'s source before
+Correction F6: every collection line passed; 5 kind pairs failed, all `json::` at
+S6/T6 (the pointer record level F6 then fixed; `/tmp/p145/jarr` S6 at the
+control's 3 blocks a run). The unfiltered harness of plan-145-I's full gate re-runs
+every S6/T6 line on the final compiler.
+Commit: `b05277aef`
 
 ## Validation Plan
 

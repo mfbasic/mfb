@@ -16,13 +16,17 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
 
 
-## In-place mutation: one table, four sites (plan-121-A, plan-142)
+## In-place mutation: one table, four sites (plan-121-A, plan-142), and every field (plan-145)
 
 `x = OP(x, …)` — a *self-update* of a `List`/`Map`/`Set` (and `s = s & t` on a
 `String`) — mutates `x`'s own block instead of building a new one, at every
 binding site that can hold one: a function local (S1), a module-level global
 (S2), a local inside a `FOR EACH` over itself (S7), and a `MUT` captured by
-reference in a `collections::forEach` lambda (S9). The seam is
+reference in a `collections::forEach` lambda (S9). A **field** of a record or of a
+`RES … STATE` payload is a site of the same seam (plan-145): `r = WITH r { f :=
+OP(r.f, …) }` and `h.state.f = OP(h.state.f, …)` build a `SelfUpdateSite` whose
+`field` names the owner (`FieldContainer::{Record, State, Global}`), the field, and
+any nested path, and every arm serves it (see "Field sites" below). The seam is
 `src/codegen/collection/assign/self_update.rs`:
 
 * `SELF_UPDATE_ARMS` — the dispatch list, `(ArmId, fn)`. The `NirOp::Assign` and
@@ -62,6 +66,12 @@ Where the destination lives is `InPlaceDest`
 * `Ref { ref_slot, block_slot }` (S9) and `Global { name, block_slot }` (S2) — the
   arm works on a frame copy of the block pointer (read through the reference, or
   out of the global), and `close_inplace_dest` stores it back.
+* plan-145: `Inlined`'s `write_back` is `WriteBack::{None, State, Global, Ref}`
+  and it carries the field's `path` (the inlined records above it). The unopened
+  `StateField`, `GlobalField` and `RefField` emit nothing until the arm calls
+  `open_inplace_dest` after its gates (`O-order-1`), which loads the owner's block
+  pointer into a working slot and turns them into `Inlined`; `close_inplace_dest`
+  publishes it back (the STATE slot, the global, or through the reference).
 
 `InPlaceGate` holds the aliasing proofs, with `admits_with` a pure predicate over a
 borrowed `LiveIterables` view so the decline conditions are unit-testable. The
@@ -213,15 +223,17 @@ easy to get wrong:
   asserting the variable-width entry shift survives so the deletion cannot later
   widen into a miscompile.
 * **A collection inlined in a record: the container decides who holds a pointer,
-  and that is the whole question (plan-121-C).** A record/`STATE` field's
-  collection is *bytes inside the owner's block*, not its own allocation, so the
-  seven mutating operations split by whether they can **reallocate** — a line that
-  cuts across every other way of grouping them:
+  and that is the whole question (plan-121-C, plan-145-D/E).** A record/`STATE`
+  field's collection is *bytes inside the owner's block*, not its own allocation,
+  so every arm splits by whether it can **reallocate** — a line that cuts across
+  every other way of grouping them. Each `SELF_UPDATE_ARMS` entry carries its
+  class (`FieldReach`):
 
-  | | operations | how the mutation reaches the field |
+  | class | arms | how the mutation reaches the field |
   |---|---|---|
-  | cannot grow | `removeKey`, `removeAt`, Set `remove`, `set` of a **fixed-width** list element | the inlined **sub-block address** — the plain-local lowering, unchanged |
-  | can grow | `add`, `set` on a `Map`, `insert`, `prepend` | grow the **record** block and repoint it (`InlineGrow`) |
+  | `NoRealloc` | `filter take drop mid distinct math replace transform sort sortBy intersection difference mapValues` (and, of `Existing`, `removeKey removeAt` Set `remove`, fixed-width `set`) | the inlined **sub-block address** (`inplace_collection_slot`) — the plain-local lowering, unchanged — at ANY inlined field, last or not (a shrink keeps the collection's capacity, and the owner's size reads stored offsets) |
+  | `Realloc` / a growing route | `union symmetricDifference merge`; `append insert prepend add`, Map `set`, `splice`; the variable-width kinds of the `NoRealloc` list/map arms (their repack or reserve) | grow the **record** block and repoint it (`InlineGrow`), only at the owner's **last** inlined field and with no pointer operand read from the owner (`field_realloc_admitted`) |
+  | `None` | the `String` concat (plan-145-A Open Decision 1) | no field site; `FIELD_NEVER` and a `deferred:` line say so |
 
   Read the lowering, do not assume: `lower_map_remove_key_in_place` touches its
   slot four times and **every one is a load**, so it can be handed a sub-block
@@ -254,11 +266,31 @@ easy to get wrong:
   - **`FOR EACH x IN rec.field` is an alias nothing tracks.** `for_each_iterable_locals`
     tracks only a plain `Local` iterable, so growing that field inside the loop (or the
     plain rebuild freeing the old block) frees the buffer mid-iteration — wrong results,
-    no crash. Decline the in-place path and skip the free while such an iterable is live.
+    no crash. plan-145-H: when the body writes the owner, the loop walks a copy made once
+    at entry (`owns_owner_field_iterable`) and joins no tracking list, so the arms run
+    and nothing leaks; only a loop whose writes go through a callee still takes the
+    tracking lists' decline-and-skip-the-free route.
+* **Field sites beyond the arms (plan-145-C, -F, -G, -H).** One routine,
+  `try_inplace_scalar_fields`, stores a `WITH` whose every update is a scalar (its
+  slot), a pointer field (the new owned pointee stored, the old one dropped), or a
+  record of compile-time fixed size (`record_field_is_inlined_fixed`: its bytes
+  copied over the sub-block; a register-native vector's lanes stored directly). It
+  computes every value first, in source order, so a failing value leaves the owner
+  unchanged; a borrowed overwrite source is copied only when another store of the
+  same `WITH` could change it first. `try_inplace_mixed_with` runs one collection
+  arm beside scalar updates: the scalars are evaluated at the arm's first emission
+  (`field_pre_emit`), and a scalar after the arm in source order runs early only
+  when it has no effect and cannot fail differently. A nested path (`o = WITH o {
+  inner := WITH o.inner { … } }`) is peeled by `peel_field_path` — inlined levels
+  for the arms (their offsets summed by `emit_path_field_offset`, read once before
+  any grow), inlined or pointer levels for the store routine. A module-level record
+  (`gR = WITH gR { … }`, `StoreGlobal`) is the same site with its block pointer in
+  the global (`G-global-operand` over every update value). A record captured by
+  reference writes through `WriteBack::Ref`.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so
-  the same seven arms use the same two routes. What a STATE block adds is that it
+  every arm takes the same route as at a record field. What a STATE block adds is that it
   has a **second holder**: the resource record's `RESOURCE_OFFSET_STATE` slot,
   which every alias of the handle reads through, so a reallocated block must be
   republished (`close_inplace_dest`, obligation `O4`). A record local has no such

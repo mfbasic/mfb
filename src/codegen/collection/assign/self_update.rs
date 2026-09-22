@@ -1848,13 +1848,6 @@ pub(crate) const FIELD_SITES: &[Site] = &[
     Site::T8,
 ];
 
-/// plan-145-A: `(arm, field sites, the plan-145 letter that makes the arm fire
-/// there)`. The matrix asserts both ways: a pair not listed here (or in
-/// `FIELD_NEVER`) must fire, and a pair listed here must NOT — so a letter that
-/// lands a pair early, without removing its entry, fails. Letter I deletes this.
-#[cfg(test)]
-pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = { &[] };
-
 /// plan-145-A: `(arm, probe type or "" for every probe, field sites, reason)` — the
 /// probes an arm never fires for at those sites, by design. The matrix asserts
 /// they do not fire, and does not require them to.
@@ -1902,7 +1895,7 @@ impl Site {
         }
     }
 
-    /// The site's code in `FIELD_PENDING`/`FIELD_NEVER` (`S4`, `T2`, …).
+    /// The site's code in `FIELD_NEVER` and the harness tables (`S4`, `T2`, …).
     pub(crate) fn code(self) -> String {
         format!("{self:?}")
     }
@@ -2320,12 +2313,6 @@ mod tests {
     #[test]
     fn every_arm_row_fires_at_every_enabled_site() {
         let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
-        let pending = |id: ArmId, site: Site| {
-            FIELD_PENDING
-                .iter()
-                .find(|(arm, sites, _)| *arm == id && sites.contains(&site.code().as_str()))
-                .map(|(_, _, letter)| *letter)
-        };
         let never = |id: ArmId, probe: &Probe, site: Site| {
             FIELD_NEVER.iter().any(|(arm, ty, sites, _)| {
                 *arm == id
@@ -2381,18 +2368,14 @@ mod tests {
                     if !reachable.contains(id) {
                         continue;
                     }
-                    match pending(*id, site) {
-                        Some(letter) if fired.contains(id) => failures.push(format!(
-                            "{} at {site:?}: {id:?} fires, but FIELD_PENDING still lists it for \
-                             letter {letter} — remove the entry",
-                            row.function
-                        )),
-                        Some(_) => {}
-                        None if !fired.contains(id) => failures.push(format!(
+                    // plan-145-I: every pair not in `FIELD_NEVER` must fire — a field
+                    // self-update needs an in-place lowering, a `Rebuild` row with its
+                    // proof, or a deferral to a named plan.
+                    if !fired.contains(id) {
+                        failures.push(format!(
                             "{} at {site:?}: no probe fired {id:?}",
                             row.function
-                        )),
-                        None => {}
+                        ));
                     }
                     if !arms.contains(id) {
                         failures.push(format!(
@@ -2406,27 +2389,13 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    /// plan-145-A: `FIELD_PENDING` and `FIELD_NEVER` name only field sites, and a
-    /// pair appears at most once across both.
+    /// plan-145-A: `FIELD_NEVER` names only field sites, and a pair appears in it
+    /// at most once.
     #[test]
-    fn field_pending_and_never_name_field_sites_once() {
+    fn field_never_names_field_sites_once() {
         let codes: Vec<String> = FIELD_SITES.iter().map(|s| s.code()).collect();
         let mut seen = BTreeSet::new();
         let mut failures = Vec::new();
-        for (arm, sites, letter) in FIELD_PENDING {
-            assert!(
-                "BCDEFGH".contains(*letter),
-                "{arm:?}: letter {letter} is no plan-145 letter"
-            );
-            for site in *sites {
-                if !codes.iter().any(|c| c == site) {
-                    failures.push(format!("FIELD_PENDING {arm:?} names no field site {site}"));
-                }
-                if !seen.insert((*arm, site.to_string(), String::new())) {
-                    failures.push(format!("FIELD_PENDING lists {arm:?} at {site} twice"));
-                }
-            }
-        }
         for (arm, ty, sites, reason) in FIELD_NEVER {
             assert!(
                 !reason.trim().is_empty(),
@@ -2436,8 +2405,65 @@ mod tests {
                 if !codes.iter().any(|c| c == site) {
                     failures.push(format!("FIELD_NEVER {arm:?} names no field site {site}"));
                 }
-                if ty.is_empty() && seen.contains(&(*arm, site.to_string(), String::new())) {
-                    failures.push(format!("{arm:?} at {site} is both pending and never"));
+                if !seen.insert((*arm, site.to_string(), ty.to_string())) {
+                    failures.push(format!("FIELD_NEVER lists {arm:?} ({ty}) at {site} twice"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// plan-145-I: an arm that serves no field site (`FieldReach::None` — today the
+    /// `String` concat, plan-145-A Open Decision 1) must be declared so, not left
+    /// to fail quietly: `FIELD_NEVER` lists it at every field site, and every
+    /// `field_expect.tsv` line of its rows is a deferral to a named plan (or `na:`,
+    /// where the program does not compile).
+    #[test]
+    fn an_arm_with_no_field_reach_is_deferred_at_every_field_site() {
+        const FIELD_EXPECT: &str =
+            include_str!("../../../../tests/runtime/inplace_self_update/field_expect.tsv");
+        let mut failures = Vec::new();
+        for (id, _, reach) in SELF_UPDATE_ARMS {
+            if *reach != FieldReach::None {
+                continue;
+            }
+            for site in FIELD_SITES {
+                let code = site.code();
+                if !FIELD_NEVER
+                    .iter()
+                    .any(|(arm, _, sites, _)| arm == id && sites.contains(&code.as_str()))
+                {
+                    failures.push(format!(
+                        "{id:?} has FieldReach::None but FIELD_NEVER does not list it at {code}"
+                    ));
+                }
+            }
+            let rows = SELF_UPDATE_TABLE
+                .iter()
+                .filter(|row| matches!(row.kind, SelfUpdate::Arm(ids) if ids.contains(id)));
+            for row in rows {
+                let prefixes = [format!("{}(", row.function), format!("{} (", row.function)];
+                let lines: Vec<&str> = FIELD_EXPECT
+                    .lines()
+                    .filter(|line| !line.starts_with('#'))
+                    .filter(|line| prefixes.iter().any(|p| line.starts_with(p.as_str())))
+                    .collect();
+                if lines.is_empty() {
+                    failures.push(format!(
+                        "{id:?}: field_expect.tsv has no line for row {}",
+                        row.function
+                    ));
+                }
+                for line in lines {
+                    let expect = line.rsplit('\t').next().unwrap_or("");
+                    // `na:` — the program does not compile there at all.
+                    if !expect.starts_with("deferred:") && !expect.starts_with("na:") {
+                        failures.push(format!(
+                            "{id:?} has FieldReach::None, but field_expect.tsv says `{line}` — \
+                             a field self-update needs an in-place lowering, a `Rebuild` row \
+                             with its proof, or a deferral to a named plan"
+                        ));
+                    }
                 }
             }
         }

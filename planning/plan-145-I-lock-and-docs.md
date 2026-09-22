@@ -27,25 +27,56 @@ every contradiction the findings list (§3.4), and runs the full gate once.
 
 ### Phase 1: Lock
 
-- [ ] Delete `FIELD_PENDING` and `copy:` handling. Delete `FieldReach::None` if
+- [x] Delete `FIELD_PENDING` and `copy:` handling. Delete `FieldReach::None` if
       no arm uses it. If one does (the `String` arms, Open Decision 1), keep it
       and require the arm's rows to be `deferred:`.
-- [ ] Run the drill, and record the failure lines.
+      `FIELD_PENDING` deleted, and the matrix requires every pair not in
+      `FIELD_NEVER` to fire; the harness's `FieldExpect::Copy` deleted, and a
+      `copy:` line panics "a field self-update needs an in-place lowering, a
+      `Rebuild` row with its proof, or a deferral to a named plan".
+      `FieldReach::None` stays (the `String` concat); the new
+      `an_arm_with_no_field_reach_is_deferred_at_every_field_site` requires such
+      an arm in `FIELD_NEVER` at every field site and every `field_expect.tsv`
+      line of its rows `deferred:` (or `na:`).
+- [x] Run the drill, and record the failure lines.
+      A throwaway `color::DrillProbe` record (one `Float` field) in the `color`
+      package: `cargo test --bin mfb field_kind_census` → "color.DrillProbe
+      (InlinedFixed) has no FIELD_KIND_TABLE row — classify it: `Arm(letter)`,
+      `Rebuild { reason, proof }` or `Deferred(plan)`"; `MFB_TEST_EXE=target/debug/mfb
+      cargo test --test inplace_self_update_census` → "package record type(s)
+      documented by `mfb man` with no line in …/field_kinds.tsv — regenerate it
+      with field_kinds_gen.py and classify each: color::DrillProbe". A
+      `FieldReach::None` arm (Correction I1): `cargo test --bin mfb self_update` →
+      "collections::filter at S3: no probe fired Filter" (and at every field
+      site), "Filter has FieldReach::None but FIELD_NEVER does not list it at S3",
+      and "Filter has FieldReach::None, but field_expect.tsv says `collections::filter(…)
+      S3 arm` — a field self-update needs an in-place lowering, …". Both removed:
+      `git diff src/codegen/builtins/color/mod.rs` → empty, and no `Filter`
+      change in `self_update.rs`.
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_update_census`
 → pass; drill lines recorded (est. 15 min).
-Commit:
+`cargo test --bin mfb self_update` → "7 passed"; the census guard is in the
+full gate (Phase 3).
+Commit: `(recorded in the next commit)`
 
 ### Phase 2: Docs (findings §3.4)
 
-- [ ] `builder_control.rs`, the `NirOp::StateAssign` comment ("`append` … is
+- [x] `builder_control.rs`, the `NirOp::StateAssign` comment ("`append` … is
       currently the only operation dispatched"): rewrite it to name the field seam
       (§3.4 item 1). B may already have removed the comment with the chain. If so,
       record that.
-- [ ] `inplace_dest.rs`, `resolve_inplace_record_field`'s doc comment: deleted
+      B removed it: `grep -rn "currently the only operation dispatched" src/codegen`
+      → 0; the `StateAssign` arm's comments name the field seam
+      (`field_self_update_site`).
+- [x] `inplace_dest.rs`, `resolve_inplace_record_field`'s doc comment: deleted
       in B. Confirm with `grep -n 'last-inlined \`List\`' src -r` → 0 (§3.4
       item 2).
-- [ ] `.ai/collections.md`:
+      `grep -rn "fn resolve_inplace_record_field" src` → 0 (the function and its
+      doc are gone). The phrase grep → 1, and it is `lower_field_append`'s own doc
+      ("into the last-inlined `List`, growing the owner's block") — accurate: an
+      `append` grows, so it needs the last-inlined field (Correction I2).
+- [x] `.ai/collections.md`:
   - §"In-place mutation" (`:21-25`): records and `STATE` fields are now sites
     of the same seam (item 4);
   - §"A collection inlined in a record" and §"The third container": replace
@@ -53,21 +84,38 @@ Commit:
     `Realloc`) and the table of arms (item 3);
   - document the scalar-field stores for both containers, the fixed-size
     overwrite, nested paths, the global holder, and the loop copy.
-- [ ] `planning/plan-141-findings/inplace-audit.md` is history. Add a one-line
+  All three: the section title and intro name the field sites; the
+  `InPlaceDest` list gains `WriteBack` and the unopened field destinations; the
+  table is `FieldReach`'s three classes with their arms; a "Field sites beyond
+  the arms" entry covers the store routine, the mixed `WITH`, nested paths, the
+  global and the by-ref owner; the `FOR EACH` rule notes the loop copy. `grep -n
+  seven .ai/collections.md` → 0.
+- [x] ~~`planning/plan-141-findings/inplace-audit.md` is history. Add a one-line
       pointer at its top to `self_update.rs` and to plan-144's findings §3.4
-      item 5. Do not edit the body.
-- [ ] `src/docs/spec/memory/05_collections.md` *Self-updates* section
+      item 5. Do not edit the body.~~ — moot: the file no longer exists; it was
+      removed in `50784e853` ("planning: add plan-145 … remove
+      plan-141-findings/inplace-audit.md"), so there is no top to annotate.
+- [x] `src/docs/spec/memory/05_collections.md` *Self-updates* section
       (plan-142-I): add the field sites, the scalar store, the mixed-`WITH`
       ordering rule, and the `Rebuild` kinds, with `[[…]]` citations. Gate:
       `cargo test --bin mfb spec`.
-- [ ] `mfb man variable` §"A handle can carry its own data: STATE" (§3.4 item 7):
+      A field paragraph and four rules (stored scalars and fixed-size fields, one
+      collection beside scalars with the ordering rule, growth needs the last
+      field, rebuilt by design), each cited. `cargo test --bin mfb spec` → "43
+      passed".
+- [x] `mfb man variable` §"A handle can carry its own data: STATE" (§3.4 item 7):
       the semantics are unchanged. Add one sentence on which field kinds update
       without rebuilding the payload. Check with
       `scripts/man-census.sh --memory-scope` → 0 unclassified.
+      `src/docs/man/variable/package.md`: scalars, builtin-changed collections and
+      fixed-size records update where they lie; a value-sized field (a `String`)
+      is rebuilt. `scripts/man-census.sh --memory-scope` → "unclassified
+      memory-vocabulary hits: 0".
 
 Acceptance: `cargo test --bin mfb spec` passes, and
 `scripts/man-census.sh --memory-scope` → 0 unclassified hits (est. 10 min).
-Commit:
+Both above.
+Commit: `(recorded in the next commit)`
 
 ### Phase 3: Full gate (run once)
 
@@ -84,6 +132,14 @@ by `.ai/testing-gates.md`, plus the one unfiltered harness run).
 Commit:
 
 ## Corrections
+
+- **I1 — the `FieldReach::None` drill flips an existing arm.** A brand-new
+  `SELF_UPDATE_ARMS` entry needs a new `ArmId` with markers and a table row, so the
+  drill set `filter`'s reach to `None` instead — the matrix and the new deferral
+  test both named every field site — and set it back.
+- **I2 — the `last-inlined \`List\`` grep finds one accurate doc.** The stale
+  `resolve_inplace_record_field` comment is gone with its function; the one hit
+  left is `lower_field_append`'s, which is true.
 
 ## Summary
 
