@@ -31,7 +31,20 @@ Record sites (§1; plan-144-A §5):
 | S9 captured | S4 inside a `collections::forEach([k], LAMBDA(v AS Integer) -> …)` capturing `r` | the update lowers in the lifted lambda |
 | S10 two-field | S4 plus a scalar update in the same `WITH`, on `RecN { a, b AS T, n AS Integer }` | `r = WITH r { b := op(r.b, …), n := k }` |
 
-`STATE` sites (§2): filled by plan-144-B.
+`STATE` sites (§2; plan-144-B §4). The payload is `P { a AS T, b AS T, n AS Integer }`.
+`n` is not inlined, so `b` is the last inlined field (and, for a fixed-width `T`, `n`
+is the last field, which Layer 1 does not care about):
+
+| Site | Meaning | Statement shape |
+|---|---|---|
+| T1 owner, not-last | owner-local `RES h AS fs::File STATE P`, field `a` | `h.state.a = op(h.state.a, …)` |
+| T2 owner, last | same, field `b` | `h.state.b = op(h.state.b, …)` |
+| T3 param, not-last | callee `SUB g(RES h AS fs::File STATE P, k AS Integer)`, field `a` | as T1, in the callee |
+| T4 param, last | callee, field `b` | as T2, in the callee |
+| T5 two-field | whole payload, two updates | `h.state = WITH h.state { b := op(h.state.b, …), n := k }` |
+| T6 nested | field `b` of `inner AS In { a, b AS T }` in `Q { inner AS In, n AS Integer }` | `h.state.inner = WITH h.state.inner { b := op(h.state.inner.b, …) }` |
+| T7 loop-live | T2 inside `FOR EACH v IN h.state.b` | `n/a` for a type `FOR EACH` rejects |
+| T8 union handle | T2 on `RES h AS Stream STATE P`, `UNION Stream { fs::File, tcp::Socket }` (plan-74 `{tag, ptr}`) | as T2 |
 
 **What "last" means.** The record arms admit a field only when
 `record_collection_last_inlined` (`bc:295`) says it is a `List`/`Map`/`Set` that is
@@ -451,11 +464,661 @@ row.
 
 ## 2. `STATE` sites
 
-Filled by plan-144-B.
+The parser desugars `h.state.f = v` to `h.state = WITH h.state { f := v }`
+(`src/ast/stmt.rs:226`), and the IR lowers every `STATE` write to
+`NirOp::StateAssign` (`bc:1496`). That path shares the `WithUpdate` shape with a
+record but has its own dispatcher, and it never calls the plan-142 seam (the seam's
+only callers are `bc:1102` and `bc:1240`; no seam-arm marker appears in the `STATE`
+dump, Appendix C.10).
+
+**Paths** (cited in each row's evidence):
+
+- **Layer 1** — `try_inplace_state_scalar_assign` (`bc:144`), tried first
+  (`bc:1500`). It admits a `WithUpdate` over exactly `h.state` whose **every**
+  updated field is neither inlined nor a pointer (`bc:186`), whatever the values
+  are, and any number of fields. `G25` (`bc:204`) applies. It lowers every new value,
+  then stores each into the existing STATE block at `8 × index`. There is no copy
+  and no allocation (marker `state_field_inplace`, `L1=y`).
+- **Layer 2** — `try_inplace_state_collection_assign` (`bc:351`, tried at
+  `bc:1509`) runs 8 arms in order (`bc:356-363`). Each goes through **SC** =
+  `resolve_inplace_state_field` (`ipd:371`) and then its own gates, which are
+  identical to its record twin's (Appendix B.6). The arm mutates the field inside
+  the STATE block (`InPlaceDest::Inlined` with a `StateWriteBack`) and republishes the
+  block pointer (`close_inplace_dest`, obligation `O4`).
+- **replace** — `bc:1512` onward: `lower_value_stored_field(value)` lowers the
+  `WithUpdate` through `lower_with_update` (a new STATE record block, marker
+  `with_target`), publishes it into `RESOURCE_OFFSET_STATE` (marker
+  `state_assign_value`), and frees the displaced block (bug-644, marker
+  `state_assign_replaced`) unless a `FOR EACH` over the resource is live
+  (`bc:1546-1560`: skipped, so it leaks).
+
+**Cell values.** As in §1, plus `n (L1i)` = Layer 1 declines because the updated
+field is inlined (only for a fixed-width row at T6, where the update is to the
+record field `inner`), and no Layer 2 arm applies. For a non-scalar row, Layer 1's
+inlined decline is not named: it is not the deciding gate (a collection field is
+decided by Layer 2), so the cell names Layer 2's gate or `no arm`, as §1 does.
+
+**Replace marker, confirmed on one probe** (plan-144-B Phase 1): `r102o0_T2` is
+`h.state.b = strings::trim(h.state.b)` on a `P_String` payload, and `markers.py` gives
+`r102o0_T2: ARM=- GLOBAL=- SUG=- WITH=y L1=- REPL=y FREE=y`. That is
+`state_assign_value` (the replace), with `with_target` (the rebuild) and
+`state_assign_replaced` (the bug-644 free).
+
+| row | form | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | evidence |
+|---|---|---|---|---|---|---|---|---|---|---|
+| F1 `collections::add(value AS Set OF T, item AS T) AS Set OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `Set OF Integer`. Probe `r000o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_set_add L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_set_add L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_set_add L1=- REPL=- FREE=-. |
+| F1 `collections::append(value AS List OF T, item AS T) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r001o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_append L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_append L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_append L1=- REPL=- FREE=-. |
+| F1 `collections::append(value AS List OF T, item AS List OF T) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r002o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_append L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_append L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_append L1=- REPL=- FREE=-. |
+| F1 `collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Set OF Integer`. Probe `r003o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::distinct(value AS List OF T) AS List OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `List OF Integer`. Probe `r004o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::drop(value AS List OF T, count AS Integer) AS List OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `List OF Integer`. Probe `r005o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r006o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r007o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-. |
+| F1 `collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Set OF Integer`. Probe `r008o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Map OF Integer TO Integer`. Probe `r009o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r010o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::prepend(value AS List OF T, item AS T) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r011o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_splice(insert/prepend) L1=- REPL=- FREE=-. |
+| F1 `collections::remove(value AS Set OF T, item AS T) AS Set OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `Set OF Integer`. Probe `r012o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_set_remove L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_set_remove L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_set_remove L1=- REPL=- FREE=-. |
+| F1 `collections::removeAt(value AS List OF T, index AS Integer) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r013o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_remove_at L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_remove_at L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_remove_at L1=- REPL=- FREE=-. |
+| F1 `collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `Map OF Integer TO Integer`. Probe `r014o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_remove_key L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_remove_key L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_remove_key L1=- REPL=- FREE=-. |
+| F1 `collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r015o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `List OF Integer`. Probe `r016o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_set(List) L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_set(List) L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_set(List) L1=- REPL=- FREE=-. |
+| F1 `collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V` | — | n (G17) | y | n (G17) | y | n (G14) | n (G17) | n (G16) | y | Layer 2 arm at T2/T4/T8; replace elsewhere. Field `Map OF Integer TO Integer`. Probe `r017o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=state_set(Map) L1=- REPL=- FREE=-, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=state_set(Map) L1=- REPL=- FREE=-, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=state_set(Map) L1=- REPL=- FREE=-. |
+| F1 `collections::sort(value AS List OF T) AS List OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `List OF Integer`. Probe `r018o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `List OF Integer`. Probe `r019o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Set OF Integer`. Probe `r020o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::take(value AS List OF T, count AS Integer) AS List OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `List OF Integer`. Probe `r021o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T` | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Set OF Integer`. Probe `r022o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `compress::deflate(data AS List OF Byte, [level AS Integer]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r023o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `compress::gzipDecode(data AS List OF Byte, [maxBytes AS Integer], [ignoreChecksum AS Boolean]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r024o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `compress::gzipEncode(data AS List OF Byte, [level AS Integer]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r025o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `compress::inflate(data AS List OF Byte, [maxBytes AS Integer]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r026o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `compress::zlibDecode(data AS List OF Byte, [maxBytes AS Integer], [ignoreChecksum AS Boolean]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r027o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `compress::zlibEncode(data AS List OF Byte, [level AS Integer]) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r028o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `crypto::argon2id(password AS List OF Byte, salt AS List OF Byte, memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer, length AS Integer) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r029o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `crypto::argon2id(password AS List OF Byte, salt AS List OF Byte, profile AS crypto::Argon2Profile, length AS Integer) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r030o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `crypto::shake256(data AS List OF Byte, length AS Integer) AS List OF Byte` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Byte`. Probe `r031o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::abs(value AS List OF Integer) AS List OF Integer` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r032o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::abs(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r033o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::abs(value AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r034o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::acos(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r035o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::asin(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r036o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::atan(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r037o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r038o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r039o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r040o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r041o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::cos(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r042o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::exp(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r043o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::log(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r044o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::log(value AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r045o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::log10(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r046o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::log10(value AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r047o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r048o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::max(a AS List OF Float, b AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r049o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r050o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r051o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::min(a AS List OF Float, b AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r052o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r053o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r054o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::sin(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r055o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::sqrt(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r056o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::sqrt(value AS List OF Fixed) AS List OF Fixed` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Fixed`. Probe `r057o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `math::tan(value AS List OF Float) AS List OF Float` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Float`. Probe `r058o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U` (generic, U = T) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r059o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U` (generic, U = T) | — | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | n/a (does not compile: bug-670) | replace (`bc:1496`). Field `Map OF Integer TO Integer`. Probe `r060o0_T*`: . Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template arguments from `Unknown`" (bug-670: a `h.state.f` argument to a source-generic `collections` member has type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin and Layer 1 refuses an inlined collection field, so every site would take the replace: `n (no arm)`. |
+| F1 `collections::reduce(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U` (generic, U = T) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r061o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F1 `collections::reduceRight(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U` (generic, U = T) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r062o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F2 `astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString` | same-len (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `AttributedString`. Probe `r063o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `astrings::clearAttributes(value AS AttributedString) AS AttributedString` | same-len (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `AttributedString`. Probe `r064o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString` | same-len (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `AttributedString`. Probe `r065o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString` | same-len (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `AttributedString`. Probe `r066o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::formUrlDecode(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r067o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::formUrlEncode(value AS String) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r068o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::htmlEscape(value AS String) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r069o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::htmlUnescape(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r070o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::percentDecode(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r071o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::percentEncode(value AS String) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r072o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::punycodeDecode(asciiDomain AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r073o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `encoding::punycodeEncode(domain AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r074o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::canonicalPath(path AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r075o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::pathBaseName(path AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r076o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::pathDirName(path AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r077o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::pathExtension(path AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r078o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::pathNormalize(path AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r079o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `fs::readText(path AS String) AS String` | not-derived (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r080o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `io::input([prompt AS String]) AS String` | not-derived (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r081o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `net::percentDecode(s AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r082o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `os::getEnv(name AS String) AS String` | not-derived (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r083o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `os::getEnvOr(name AS String, fallback AS String) AS String` | not-derived (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r084o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `os::resourcePath(relative AS String) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r085o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `regex::replace(value AS String, pattern AS String, replacement AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r086o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::caseFold(value AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r087o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::graphemeAt(value AS String, index AS Integer) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r088o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::left(value AS String, count AS Integer) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r089o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::lower(value AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r090o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::mid(value AS String, start AS Integer, count AS Integer) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r091o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::normalizeNfc(value AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r092o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r093o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r094o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r095o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String` | grow (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r096o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::repeat(value AS String, times AS Integer) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r097o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::replace(value AS String, old AS String, new AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r098o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::right(value AS String, count AS Integer) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r099o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::stripPrefix(value AS String, prefix AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r100o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::stripSuffix(value AS String, suffix AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r101o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::trim(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r102o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::trimChars(value AS String, chars AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r103o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::trimEnd(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r104o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::trimStart(value AS String) AS String` | shrink (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r105o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F2 `strings::upper(value AS String) AS String` | rewrite (plan-144) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r106o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `s & t` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r107o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `s & t & u` (chain) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r108o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `x + k` (Integer) | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r109o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `x - k` (Integer) | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r110o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `x + k` (Float) | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r111o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F3 `x - k` (Float) | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r112o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::abs(a AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r113o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::add(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r114o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::divide(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r115o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::gcd(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r116o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::modPow(base AS big::Int, exponent AS big::Int, modulus AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r117o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::multiply(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r118o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::negate(a AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r119o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::pow(base AS big::Int, exponent AS Integer) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r120o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::remainder(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r121o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::shiftLeft(a AS big::Int, count AS Integer) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r122o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::shiftRight(a AS big::Int, count AS Integer) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r123o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `big::subtract(a AS big::Int, b AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r124o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `crypto::randomInt(min AS big::Int, max AS big::Int) AS big::Int` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `big::Int`. Probe `r125o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::band(a AS Integer, b AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r126o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bnot(a AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r127o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bor(a AS Integer, b AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r128o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bswap16(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r129o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bswap32(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r130o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bswap64(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r131o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::bxor(a AS Integer, b AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r132o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::clz(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r133o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::ctz(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r134o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::popCount(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r135o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::rl32(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r136o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::rl64(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r137o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::rr32(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r138o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::rr64(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r139o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::sl(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r140o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::sr(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r141o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `bits::sra(value AS Integer, count AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r142o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `crypto::randomInt(min AS Integer, max AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r143o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::daysInMonth(year AS Integer, month AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r144o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::localOffset(epochSeconds AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r145o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::abs(value AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r146o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::clamp(value AS Integer, low AS Integer, high AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r147o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::max(a AS Integer, b AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r148o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::min(a AS Integer, b AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r149o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::rand(min AS Integer, max AS Integer) AS Integer` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r150o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `color::Color` (all 9 overloads: color::brighten, color::darken, color::desaturate, color::grayscale, color::invert, color::mix, color::rotateHue, color::saturate, color::withAlpha) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `color::Color`. Probe `r151o0…o8_T*` (9 overloads): T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::add(at AS datetime::Instant, by AS datetime::Duration) AS datetime::Instant` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `datetime::Instant`. Probe `r152o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::subtract(at AS datetime::Instant, by AS datetime::Duration) AS datetime::Instant` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `datetime::Instant`. Probe `r153o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::DateTime` (all 4 overloads: datetime::addDays, datetime::addMonths, datetime::startOfDay, datetime::withZone) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `datetime::DateTime`. Probe `r154o0…o3_T*` (4 overloads): T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `datetime::Duration` (all 3 overloads: datetime::minus, datetime::negate, datetime::plus) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `datetime::Duration`. Probe `r155o0…o2_T*` (3 overloads): T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `http::Response` (all 1 overloads: http::withHeader) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `http::Response`. Probe `r156o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `json::Json` (all 2 overloads: json::get, json::getOr) | — | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | n/a (not a valid `STATE` type) | replace (`bc:1496`). Field `json::Json`. Probe `r157o0…o1_T*` (2 overloads): . `error[2-203-0085 TYPE_STATE_INVALID]`: a `STATE` type must be a copyable, defaultable data type (a recursive union is neither), at every handle declaration. A callee `RES h … STATE P_json__Json` parameter compiles, but no caller can create the handle to pass to it. |
+| F4 `math::abs(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r158o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::acos(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r159o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::asin(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r160o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::atan(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r161o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::atan2(y AS Float, x AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r162o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::clamp(value AS Float, low AS Float, high AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r163o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::cos(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r164o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::exp(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r165o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::log(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r166o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::log10(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r167o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::max(a AS Float, b AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r168o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::min(a AS Float, b AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r169o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::pow(base AS Float, exponent AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r170o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::sin(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r171o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::sqrt(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r172o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::tan(value AS Float) AS Float` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Float`. Probe `r173o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::abs(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r174o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::acos(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r175o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::asin(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r176o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::atan(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r177o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::atan2(y AS Fixed, x AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r178o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r179o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::cos(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r180o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::exp(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r181o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::log(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r182o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::log10(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r183o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::max(a AS Fixed, b AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r184o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::min(a AS Fixed, b AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r185o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::pow(base AS Fixed, exponent AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r186o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::sin(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r187o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::sqrt(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r188o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::tan(value AS Fixed) AS Fixed` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Fixed`. Probe `r189o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::abs(value AS Money) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r190o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::clamp(value AS Money, low AS Money, high AS Money) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r191o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::max(a AS Money, b AS Money) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r192o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::min(a AS Money, b AS Money) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r193o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `math::rand(min AS Money, max AS Money) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r194o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `money::round(value AS Money, decimals AS Integer) AS Money` | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Money`. Probe `r195o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r196o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Float2, max AS Float) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r197o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r198o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Float2, b AS vector::Float2, t AS Float) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r199o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Float2, b AS vector::Float2, t AS Float) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r200o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r201o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r202o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r203o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::perpendicular(v AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r204o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r205o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r206o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r207o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::rotate_2d(v AS vector::Float2, angle AS Float) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r208o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Float2, b AS vector::Float2) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r209o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Float2, b AS vector::Float2, t AS Float) AS vector::Float2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float2`. Probe `r210o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r211o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Float3, max AS Float) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r212o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r213o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Float3, b AS vector::Float3, t AS Float) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r214o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Float3, b AS vector::Float3, t AS Float) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r215o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r216o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r217o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r218o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r219o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r220o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r221o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Float3, b AS vector::Float3) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r222o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Float3, b AS vector::Float3, t AS Float) AS vector::Float3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float3`. Probe `r223o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r224o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Float4, max AS Float) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r225o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Float4, b AS vector::Float4, c AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r226o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Float4, b AS vector::Float4, t AS Float) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r227o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Float4, b AS vector::Float4, t AS Float) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r228o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r229o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r230o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r231o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r232o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r233o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r234o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Float4, b AS vector::Float4) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r235o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Float4, b AS vector::Float4, t AS Float) AS vector::Float4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Float4`. Probe `r236o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r237o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Fixed2, max AS Fixed) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r238o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r239o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Fixed2, b AS vector::Fixed2, t AS Float) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r240o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Fixed2, b AS vector::Fixed2, t AS Float) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r241o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r242o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r243o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r244o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::perpendicular(v AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r245o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r246o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r247o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r248o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::rotate_2d(v AS vector::Fixed2, angle AS Float) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r249o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Fixed2, b AS vector::Fixed2) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r250o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Fixed2, b AS vector::Fixed2, t AS Float) AS vector::Fixed2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed2`. Probe `r251o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r252o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Fixed3, max AS Fixed) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r253o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r254o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Fixed3, b AS vector::Fixed3, t AS Float) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r255o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Fixed3, b AS vector::Fixed3, t AS Float) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r256o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r257o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r258o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r259o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r260o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r261o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r262o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Fixed3, b AS vector::Fixed3) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r263o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Fixed3, b AS vector::Fixed3, t AS Float) AS vector::Fixed3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed3`. Probe `r264o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r265o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Fixed4, max AS Fixed) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r266o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Fixed4, b AS vector::Fixed4, c AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r267o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Fixed4, b AS vector::Fixed4, t AS Float) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r268o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Fixed4, b AS vector::Fixed4, t AS Float) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r269o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r270o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r271o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r272o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r273o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r274o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r275o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Fixed4, b AS vector::Fixed4) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r276o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Fixed4, b AS vector::Fixed4, t AS Float) AS vector::Fixed4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Fixed4`. Probe `r277o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r278o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Integer2, max AS Integer) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r279o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r280o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Integer2, b AS vector::Integer2, t AS Float) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r281o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Integer2, b AS vector::Integer2, t AS Float) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r282o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r283o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r284o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r285o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::perpendicular(v AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r286o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r287o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r288o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r289o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::rotate_2d(v AS vector::Integer2, angle AS Float) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r290o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Integer2, b AS vector::Integer2) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r291o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Integer2, b AS vector::Integer2, t AS Float) AS vector::Integer2` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer2`. Probe `r292o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r293o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Integer3, max AS Integer) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r294o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r295o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Integer3, b AS vector::Integer3, t AS Float) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r296o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Integer3, b AS vector::Integer3, t AS Float) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r297o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r298o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r299o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r300o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r301o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r302o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r303o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Integer3, b AS vector::Integer3) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r304o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Integer3, b AS vector::Integer3, t AS Float) AS vector::Integer3` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer3`. Probe `r305o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::abs(v AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r306o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::clamp_length(v AS vector::Integer4, max AS Integer) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r307o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::cross(a AS vector::Integer4, b AS vector::Integer4, c AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r308o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp(a AS vector::Integer4, b AS vector::Integer4, t AS Float) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r309o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::lerp_unclamped(a AS vector::Integer4, b AS vector::Integer4, t AS Float) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r310o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::max(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r311o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::min(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r312o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::normalize(v AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r313o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::project(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r314o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reflect(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r315o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::reject(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r316o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::scale(a AS vector::Integer4, b AS vector::Integer4) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r317o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F4 `vector::slerp(a AS vector::Integer4, b AS vector::Integer4, t AS Float) AS vector::Integer4` | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `vector::Integer4`. Probe `r318o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F5 replacement, scalar field (`f := k`) | — | y | y | y | y | y | n (L1i) | n/a (not a `FOR EACH` iterable) | y | Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces. Field `Integer`. Probe `r319o0_T*`: T1 ARM=- L1=y REPL=- FREE=-, T2 ARM=- L1=y REPL=- FREE=-, T3 ARM=- L1=y REPL=- FREE=-, T4 ARM=- L1=y REPL=- FREE=-, T5 ARM=- L1=y REPL=- FREE=-, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=y REPL=- FREE=-. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F5 replacement, `String` field (`f := toString(k)`) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `String`. Probe `r320o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F5 replacement, `List` field (`f := [k]`) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `List OF Integer`. Probe `r321o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F5 replacement, `Map` field (`f := mkMap()`) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `Map OF Integer TO Integer`. Probe `r322o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F5 replacement, `Set` field (`f := toSet([k])`) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | replace (`bc:1496`). Field `Set OF Integer`. Probe `r323o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T7 ARM=- L1=- REPL=y FREE=-, T8 ARM=- L1=- REPL=y FREE=y. |
+| F5 replacement, record field (`f := Inner[x := k]`) | — | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n (no arm) | n/a (not a `FOR EACH` iterable) | n (no arm) | replace (`bc:1496`). Field `Inner`. Probe `r324o0_T*`: T1 ARM=- L1=- REPL=y FREE=y, T2 ARM=- L1=- REPL=y FREE=y, T3 ARM=- L1=- REPL=y FREE=y, T4 ARM=- L1=- REPL=y FREE=y, T5 ARM=- L1=- REPL=y FREE=y, T6 ARM=- L1=- REPL=y FREE=y, T8 ARM=- L1=- REPL=y FREE=y. T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`). |
+| F5 `r.prop = value` (field assignment) | — | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | n/a (this is the `STATE` form) | For a `STATE` payload, field assignment is the native form. Every T1–T4, T7 and T8 cell above is written `h.state.f = …` (desugared to a one-field `WITH` over `h.state`, `src/ast/stmt.rs:226`), so this row has no cell of its own. |
+
+### 2b. `STATE` shapes that cannot be written
+
+Re-run in `/tmp/plan-144-probes/state-na/` (`gen_statena.py`, Appendix C.11), one
+project per shape, with the worktree compiler:
+
+| Shape | Probe | Diagnostic |
+|---|---|---|
+| module-level `RES g AS fs::File STATE Cur`, then `g.state.pos = g.state.pos + k` in a `FUNC` | `global_res` | `main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]` "State assignment target `g` is not a local binding." (`src/ir/shape.rs:1708`); reading `g.state.pos` also fails (`:21` `TYPE_UNKNOWN_VALUE`, `TYPE_STATE_INVALID` "`fs.File` here has no STATE to read") |
+| a `RES` field of a record: `r.h.state.pos = 3` | `rec_field_res` | `main.mfb:24 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]` |
+| a deep payload path: `f.state.inner.x = 3` | `nested_state` | `main.mfb:19 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]` (the nested form is T6's one-level `WITH`) |
+| a collection element: `fl[0].state.pos = 2` | `list_res` | `main.mfb:20 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]` |
+| a lambda capture: `forEach([1, 2], LAMBDA(v AS Integer) -> f.state.pos = f.state.pos + v)` | `lambda_res` | `main.mfb:19 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]` (and `TYPE_CALL_ARGUMENT_MISMATCH` on the `forEach`) |
+
+Two more non-expressible sets surfaced in the §2 probe, and they are `n/a` cells in
+the table rather than shapes:
+
+- **`json::Json` in a payload** (row `r157`, both overloads): every handle
+  declaration fails with `error[2-203-0085 TYPE_STATE_INVALID]` "STATE must be a
+  copyable, defaultable data type". `json::Json` is a recursive union (B.4), so it
+  is neither. This is the language's rule, not a defect.
+- **The 11 source-generic `collections` members** (`difference`, `distinct`,
+  `drop`, `intersection`, `merge`, `sort`, `sortBy`, `symmetricDifference`, `take`,
+  `union`, `mapValues`) with an `h.state.f` argument: `error[2-203-0021
+  TYPE_CALL_ARGUMENT_MISMATCH]` "Call to `__collections_…` cannot infer template
+  arguments from `Unknown`", at all 8 sites (88 functions). This **is** a defect,
+  filed as **bug-670** (`bugs/bug-670-state-field-arg-to-source-generic-is-unknown.md`):
+  the monomorphizer's `expression_type` has no `.state` arm, and its locals drop the
+  `STATE` clause. The same calls on a record field compile (§1).
 
 ## 3. Summary
 
-Written by plan-144-B.
+### 3.1 When a record-field or `STATE` field self-update is in place
+
+**A record field** (`r = WITH r { f := op(r.f, …) }`) is updated in place only when
+**all** of these hold:
+
+- `r` is a function-local `MUT`, never a module-level one (every S5 cell is
+  `n (StoreGlobal)`);
+- the `WITH` updates **exactly one** field;
+- that field is a `List`/`Map`/`Set` with **no inlined field declared after it**;
+- `op` is one of the **10 overloads with a record arm**: `append` (both), `insert`,
+  `prepend`, `removeAt`, `set` (List, fixed-width element; and Map), `add`,
+  `remove` (Set) and `removeKey`;
+- no `FOR EACH` is walking `r.f`, and `r` is not a lambda's by-ref capture.
+
+That is 10 cells out of 2,282. Every other record self-update rebuilds the whole
+record through `lower_with_update`. That includes every scalar, `String`, record and
+package-record field, whatever the function.
+
+**A `STATE` field** (`h.state.f = op(h.state.f, …)`) is updated in place in two cases.
+**Layer 1** handles a field of a fixed-width scalar type (`Integer`, `Float`, `Fixed`,
+`Money`), for **any** value expression and any number of fields at once. **Layer 2**
+handles the same 10 collection overloads under the same last-inlined, single-field and
+no-live-loop conditions as a record.
+
+These hold whether `h` is the owner, a `RES` parameter or a resource-union handle
+(T3/T4/T8 equal T1/T2 cell for cell). Every other `STATE` update, including every
+`String` field, rebuilds the payload record and republishes it (the replace).
+
+### 3.2 Findings, most consequential first
+
+1. **Record vs `STATE`: a scalar field is in place in `STATE` and never in a record
+   (68 rows, 408 cells).** Of the 326 rows, 81 have different S4 and T2 verdicts.
+   68 of them are the fixed-width scalar rows: `Integer` 28, `Float` 18, `Fixed` 16
+   and `Money` 6. That covers the 25 `Integer` overloads, the two F3 `Integer`
+   operators, the F5 scalar replacement and the rest. Each is `n (no arm)` at every
+   record site and `y` at T1, T2, T3, T4, T5 and T8.
+
+   The deciding code on the `STATE` side is Layer 1 (`try_inplace_state_scalar_assign`,
+   `bc:144`). It stores any non-inlined, non-pointer field in place and needs no
+   operation-specific arm. On the record side nothing is its twin: every record arm
+   goes through `resolve_inplace_record_field`, whose `G17` refuses a non-collection
+   field. So `r = WITH r { hp := r.hp - dmg }` rebuilds the whole record, while
+   `h.state.hp = h.state.hp - dmg` is a single store.
+
+   The same Layer 1 also makes the **two-field** `STATE` update in place (T5 `y` for
+   those 68 rows), where the record's S10 is `n`. The other 13 differing rows are `STATE`
+   `n/a` cells: 11 for bug-670, `json::Json` (not a valid `STATE` type), and the
+   `r.prop = value` row. All other 245 rows agree: 10 are `y`/`y` and 235 are `n`/`n`.
+2. **The `String` field gap (46 rows, 598 cells, all `n`).** The 44 F2 rows and the
+   two F3 `&` rows are `n` at every record site and every expressible `STATE` site.
+   - Record: no record arm names a `String` builtin, and `G17` refuses a
+     non-collection field.
+   - `STATE`: Layer 1 refuses an inlined field (`bc:186`), and no Layer 2 arm exists.
+   - `&`: the self-concat capacity shadow is keyed on a local name and is only created
+     for `name = name & …` (`bc:2374`), so a field can never have one (B.5).
+
+   The `form` column shows what an arm could do:
+
+   - **shrink** (16) and **same-len** (4, the `astrings` rows, whose text is
+     unchanged) never need more bytes than the field already has, so 20 functions
+     could rewrite in place without growing the record;
+   - **grow** (8) needs the record's tail room, which a last-inlined field has;
+   - **rewrite** (12) can go either way;
+   - **not-derived** (4: `fs::readText`, `io::input`, `os::getEnv`, `os::getEnvOr`)
+     only need `s` to be read, not copied.
+3. **The plan-142 arms never reach a record or a `STATE` payload (53 F1 rows).**
+   plan-142 gave a plain local 26 arms, including `filter`, `take`, `drop`, `mid`,
+   `distinct`, `replace`, `transform`, `sort`, `sortBy`, the 16 `math` element-wise
+   functions, `union`, `intersection`, `difference`, `symmetricDifference`, `merge`
+   and `mapValues`. A record field has only its original 9 arms, and a `STATE`
+   field only its 8. So 53 of the 63 F1 rows are `n (no arm)` at S4, and the whole
+   record is rebuilt around a freshly built collection. At T2, 42 of them are
+   `n (no arm)` and the other 11 cannot be written at all (bug-670, finding 7).
+
+   The local seam is reached by a local record's `WITH`, but every seam arm declines
+   at `G2` (the value is a `WithUpdate`, B.2). A `STATE` write never reaches the seam.
+4. **A package-record or nested-record field is never in place (143 rows).** The 123
+   `vector::*` rows, `color::Color`, `big::Int` (13), the 3 `datetime` types (4
+   rows), `http::Response` and the F5 record replacement are all inlined (B.4). So
+   Layer 1 refuses them in `STATE`, no arm handles them in a record, and every
+   expressible cell is `n`.
+
+   A `vector::Float3` field is a fixed-size block of three scalars. The rebuild writes
+   the same number of bytes back, but builds a whole new record (or payload) to do it.
+5. **A module-level record is never updated in place (S5: 325 `n (StoreGlobal)`,
+   including the 10 arm rows).** plan-142-H taught `StoreGlobal` to reach the seam,
+   but only for `g = f(g, …)` and `&` chains (`su:262`). A `WITH` is neither, so no
+   arm, not even one of the 10 record arms, is tried for `gR = WITH gR { … }`. A
+   `STATE` handle cannot be module-level at all (§2b).
+6. **The container gates decline the 10 arm rows everywhere except S4/T2/T4/T8.**
+   `G17` declines them at S3/T1 (not-last), S6/T6 (the outer update is a record) and
+   T3. `G14` declines them at S10/T5 (a second field, even a scalar counter). `G15`
+   declines S7 and `G16` declines T7 (a live `FOR EACH` over the field). `G1`
+   declines S9 (by-ref capture; a `STATE` handle cannot be captured, §2b).
+7. **bug-670: 11 `collections` members cannot take a `STATE` field at all.**
+   `distinct`, `take`, `drop`, `sort`, `sortBy`, `union`, `intersection`,
+   `difference`, `symmetricDifference`, `merge` and `mapValues`, called on
+   `h.state.f`, fail to type-check. The monomorphizer types `h.state.f` as `Unknown`,
+   so a source generic cannot bind `T`. These are the 88 `n/a` bug-670 cells. The
+   same calls on a record field compile and rebuild (finding 3). Filed as
+   `bugs/bug-670-state-field-arg-to-source-generic-is-unknown.md`.
+
+### 3.3 Counts
+
+Computed from the §1 and §2 tables by `summary.py` (Appendix C.15). Each `n (…)` cell
+counts once toward its deciding gate, and each `n/a` cell toward its reason.
+
+**§1 record sites**: 326 rows × 7 sites = 2282 cells.
+
+| site | y | n | n/a | total |
+|---|---|---|---|---|
+| S3 | 0 | 325 | 1 | 326 |
+| S4 | 10 | 315 | 1 | 326 |
+| S5 | 0 | 325 | 1 | 326 |
+| S6 | 0 | 325 | 1 | 326 |
+| S7 | 0 | 66 | 260 | 326 |
+| S9 | 0 | 325 | 1 | 326 |
+| S10 | 0 | 325 | 1 | 326 |
+| **all** | **10** | **2006** | **266** | **2282** |
+
+| family | y | n | n/a | total |
+|---|---|---|---|---|
+| F1 | 10 | 431 | 0 | 441 |
+| F2 | 0 | 264 | 44 | 308 |
+| F3 | 0 | 36 | 6 | 42 |
+| F4 | 0 | 1236 | 206 | 1442 |
+| F5 | 0 | 39 | 10 | 49 |
+
+| deciding gate / reason | cells |
+|---|---|
+| no arm | 1631 |
+| StoreGlobal | 325 |
+| n/a: not a `FOR EACH` iterable | 259 |
+| G17 | 20 |
+| G15 | 10 |
+| G1 | 10 |
+| G14 | 10 |
+| n/a: not expressible | 7 |
+
+**§2 STATE sites**: 326 rows × 8 sites = 2608 cells.
+
+| site | y | n | n/a | total |
+|---|---|---|---|---|
+| T1 | 68 | 245 | 13 | 326 |
+| T2 | 78 | 235 | 13 | 326 |
+| T3 | 68 | 245 | 13 | 326 |
+| T4 | 78 | 235 | 13 | 326 |
+| T5 | 68 | 245 | 13 | 326 |
+| T6 | 0 | 313 | 13 | 326 |
+| T7 | 0 | 55 | 271 | 326 |
+| T8 | 78 | 235 | 13 | 326 |
+| **all** | **438** | **1808** | **362** | **2608** |
+
+| family | y | n | n/a | total |
+|---|---|---|---|---|
+| F1 | 30 | 386 | 88 | 504 |
+| F2 | 0 | 308 | 44 | 352 |
+| F3 | 24 | 18 | 6 | 48 |
+| F4 | 378 | 1057 | 213 | 1648 |
+| F5 | 6 | 39 | 11 | 56 |
+
+| deciding gate / reason | cells |
+|---|---|
+| no arm | 1690 |
+| n/a: not a `FOR EACH` iterable | 258 |
+| n/a: does not compile: bug-670 | 88 |
+| L1i | 68 |
+| G17 | 30 |
+| G14 | 10 |
+| G16 | 10 |
+| n/a: not a valid `STATE` type | 8 |
+| n/a: this is the `STATE` form | 8 |
+
+total == rows*15: 4890 == 326*15 → True
+
+**Reading vs dump.** Every `y`/`n` cell was predicted from the code and checked against
+its probe marker: §1 2,282 cells and §2 2,608 cells, **0 disagreements**
+(`fill_rec.py`, `fill_state.py`). The `n/a` cells each cite a diagnostic from a
+build.
+
+### 3.4 Contradictions with the docs and comments (for the fix plan to correct)
+
+1. **`bc:1502-1508`** (the `NirOp::StateAssign` comment): "`append` (amortized O(1)
+   grow) is currently the only operation dispatched". In fact 8 are dispatched
+   (`bc:356-363`), and 7 of them fired in the probe (`state_remove_key`,
+   `state_set_add`, `state_set(List)`, `state_set(Map)`, `state_remove_at`,
+   `state_set_remove`, `state_splice`) besides `state_append` (C.10).
+2. **`ipd:304-306`** (the `resolve_inplace_record_field` doc comment): "`G17` (the
+   field is the record's last-inlined `List`)". Since plan-121-C `G17` admits any
+   `List`/`Map`/`Set` (`bc:295`), and `record_field_set(Map)`, `record_field_set_add`
+   and `record_field_set_remove` fired in the probe. The comment's gate order ("`G1`,
+   `G2`, `G13`, `G14`, `G15`, `G17`, `G10`, `G3` and `G4`") also differs from the
+   code's (`G2` → `G13` → `G14` → `G17` → {`G1`, `G15`, `G10`} → `G2`/`G3`/`G4`).
+3. **`.ai/collections.md`** §"A collection inlined in a record" (`:215-218`) and
+   §"The third container is `RES … STATE`" (`:258-262`) speak of "seven mutating
+   operations" and "the same seven arms". The code has 9 record-field recognisers
+   (8 operations plus the shared splice body) and 8 Layer-2 `STATE` arms (the same 8
+   operations), because `append` is not in the doc's table. The doc also does not
+   mention Layer 1, the `STATE` scalar store, which has no record twin (finding 1).
+4. **`.ai/collections.md:21-25`**: "`x = OP(x, …)` … mutates `x`'s own block … at
+   every binding site that can hold one". This is true of the four plain sites it
+   lists, but a record field and a `STATE` field also hold one, and there only 10
+   overloads are in place (findings 3, 4). The doc should say that records and
+   `STATE` are outside the seam.
+5. **plan-141 findings, §3.2 finding 1 and Appendix B.1**: "Module-level `MUT` is
+   never updated in place" and "`StoreGlobal` … calls no `try_inplace_*`". Both have
+   been stale since `02692cd64` (plan-142-H): `StoreGlobal` calls the seam
+   (`bc:1102`), and `x_concat_S2` now fires the concat arm (§1b). Both remain true
+   for a module-level **record** (finding 5).
+6. **plan-144-B §2 "What is already known"**: "every F4 type that is not inlined
+   should be `y` at an owner site". `json::Json` is not inlined but is a pointer, so
+   Layer 1 refuses it. It is also not a valid `STATE` type, so its cells are `n/a`
+   (Correction B2).
+7. **`mfb man variable`** §"A handle can carry its own data: STATE" says
+   "`f.state.field = value` updates one field of it". That is accurate as semantics.
+   Nothing there claims the update is in place, so there is no contradiction; the
+   fix plan may want to note that only a fixed-width scalar field is stored without
+   rebuilding the payload.
+
+### 3.5 Observed while reading, not verdicts
+
+- **Leaks on the skipped-free paths.** A record self-update under a live
+  `FOR EACH` over the field (S7, 66 cells) takes P1 with the old-block free skipped
+  (`bc:1380`). A `STATE` update under a live `FOR EACH` over the handle (T7, 55 cells)
+  takes the replace with the bug-644 free skipped (`bc:1546-1560`; `FREE=-` in all 55
+  T7 probes, against `FREE=y` in every other replace). Either way, each iteration
+  copies the record or payload **and** leaks the displaced block. This is bug-430's
+  deliberate trade (a use-after-free otherwise), and the cost is quadratic memory in
+  a loop that appends to the field it walks.
+- **plan-141 §3.5's S9 leak is closed.** A by-ref capture's reassignment now frees
+  the displaced block through the reference (`reassign_ref_old`, `bc:1342`,
+  plan-142-G). This is read from the code; no leak was measured.
+- **A `RES` parameter can declare an invalid `STATE` type.** `SUB g(RES h AS fs::File
+  STATE P_json__Json, …)` compiles (probe `r157o0_T3`, `REPL=y`), although every
+  declaration that would create such a handle fails with `TYPE_STATE_INVALID`. The
+  callee is unreachable, so this is harmless, but the check is not applied to
+  parameters.
+- **Where plan-142's seam would and would not fit.**
+  - It would fit because the destination already exists. `InPlaceDest::Inlined {
+    block_slot, field_index, write_back }` is what all 9 record arms and 8 `STATE`
+    arms use today, and `open_inplace_state_dest`/`close_inplace_dest` already
+    republish a `STATE` block.
+  - It would not fit as is, in three places:
+    - `SelfUpdateSite` identifies the binding by name: `is_self` matches only
+      `Local(name)` or `Global(name)`, and `read_by` walks for that name
+      (`su:108-146`). A field site would need both to match `r.f` / `h.state.f`.
+    - The value an arm matches is the `WITH`'s inner update, not the statement's
+      value, and `G14` (one update) must stay the site's gate.
+    - An arm whose lowering installs a fresh block pointer into its slot must not
+      do so for an `Inlined` sub-block (`.ai/collections.md:225-231`). Growing arms
+      need the `InlineGrow` route the record arms use. The shrink and rewrite arms
+      (plan-142-B/C) write within the existing bytes, so they are the natural first
+      candidates.
+  - Layer 1 has no seam counterpart at all, because it is type-driven, not
+    operation-driven.
 
 ## Appendix A — census
 
@@ -714,6 +1377,73 @@ all nine vectors, `color::Color`, `big::Int`, the `datetime` types and
   `WithUpdate`, not a `&` chain rooted at a local, so no slot is created. No record arm
   handles `&` either. F3's `&` rows are therefore `n` at every record site, and
   `y` would need both a per-field shadow and a record `&` arm.
+
+### B.6 The `STATE` paths (plan-144-B Phase 1)
+
+`grep -rhoE 'fn try_inplace_state_[a-z_]*' src --include='*.rs' | wc -l` → 11.
+
+**SC** = `resolve_inplace_state_field` (`ipd:371`): `G2` `WithUpdate` → `G13` the
+target is exactly `MemberAccess(Local resource, "state")` → `G14` exactly one update
+(`ipd:397`) → `InPlaceGate` {`G16` no live `FOR EACH` over this state field} →
+`G17` `record_collection_last_inlined` → `G10` `CollectionTypeLayout::from_type`
+(`ipd:414`) → `inplace_call_args` {`G2` `Call`, `G3`, `G4`} → `G25` no operand can
+reach a `STATE` assignment (`ipd:418`, `inplace_state_operands_reach_a_state_assign`).
+Compared with RF (B.1), there are three differences. **No `G1`** ("a resource handle
+is never a `by_ref` collection local", `ipd:401`; a lambda cannot capture a handle at
+all, §2b). **`G16` replaces `G15` and runs before `G17`**. **`G25` is added.**
+`fndiff.py` shows SC, the 8 Layer-2 arms, the splice body, Layer 1 and the dispatcher
+unchanged since `b6a10efbc`. The one changed function is `G25`'s
+`inplace_state_operands_reach_a_state_assign`, which now asks the shared store-reach
+analysis (`values_reach_store(…, StoreLeaf::StateAssign)`, the bug-665/666 era
+refactor). Its verdict on this audit's operands is unchanged: none of them calls
+user code.
+
+| recogniser | location | position in `StateAssign` | recognises (builtin, arity) | ordered gates | record twin, and the gates that differ |
+|---|---|---|---|---|---|
+| try_inplace_state_scalar_assign | `bc:144` | Layer 1, first (`bc:1500`) | any value; every updated field neither inlined nor a pointer; any number of fields | `G2` `WithUpdate` → `G13` (`h.state`) → the `STATE` type's fields are known → each field: not inlined, not a pointer (`bc:186`) → non-empty → `G25` (`bc:204`) | **none**: no record arm handles a scalar field (§1's scalar rows are `n (no arm)` at every site) |
+| try_inplace_state_collection_assign | `bc:351` | Layer 2 dispatcher (`bc:1509`) | — (tries the 8 arms below in order, `bc:356-363`) | — | the record chain `bc:1241-1283`, in a different order (irrelevant, since every arm matches a distinct builtin) |
+| try_inplace_state_collection_append | `bc:377` | Layer 2 #1 | `append`, 2 (element or list) | SC → G9 List → G18 `args[0]` is `h.state.f` → G11 → G12 | `record_field_append`: same after the container |
+| try_inplace_state_remove_key_assign | `bia:775` | Layer 2 #2 | `removeKey`, 2 | SC → G9 Map → G18 → G11 key | `record_field_remove_key`: same |
+| try_inplace_state_set_add_assign | `bia:824` | Layer 2 #3 | `add`, 2 | SC → G9 Set → G18 → G11 → G12 | `record_field_set_add`: same |
+| try_inplace_state_set_assign | `bia:902` | Layer 2 #4 | `set`, 3 (List or Map) | SC → G18 → List: G26 fixed-width element (`bia:921`), E1, E2 \| Map: E2, E2 | `record_field_set`: same |
+| try_inplace_state_remove_at_assign | `bia:1046` | Layer 2 #5 | `removeAt`, 2 | SC → G9 List → G18 → E1 | `record_field_remove_at`: same |
+| try_inplace_state_set_remove_assign | `bia:1093` | Layer 2 #6 | `remove`, 2 | SC → G9 Set → G18 → G11 | `record_field_set_remove`: same |
+| try_inplace_state_insert_assign | `bia:1220` | Layer 2 #7 | `insert`, 3 | → `state_splice` | `record_field_insert`: same |
+| try_inplace_state_prepend_assign | `bia:1229` | Layer 2 #8 | `prepend`, 2 | → `state_splice` | `record_field_prepend`: same |
+| try_inplace_state_splice_assign | `bia:1140` | via `bia:1225`, `bia:1234` | shared body of `insert`/`prepend` | SC → G9 List → G18 → G12 → G11 | `record_field_splice`: same |
+
+The gate lists above were read from each body (`gates.py`, C.12), and they match the
+record twins label for label after the container.
+
+**Layer 1 eligibility, checked against B.4.** Layer 1 admits a field iff
+`!record_field_is_inlined(t) && !record_field_is_pointer(t)` (`bc:186`). Of the row
+field types, that is exactly `Integer`, `Float`, `Fixed` and `Money`. Every other
+type is refused. The inlined ones are `String`, `AttributedString`, collections,
+`Inner`, `big::Int`, `color::Color`, the `datetime` types, `http::Response` and the
+vectors (B.4). `json::Json` is not inlined but is a pointer (`named_field_is_pointer`:
+a union), and it cannot be a `STATE` type anyway (§2b). The probe agrees: `L1=y` in
+exactly the 68 ops whose field is one of the four (`Integer` 25 + 2 F3 + 1 F5,
+`Float` 16 + 2 F3, `Fixed` 16, `Money` 6) at T1–T5 and T8, and in no other function.
+
+**The replace path and its marker.** Described in §2's path legend. The marker is
+`state_assign_value` (`bc:1575`, the one allocation of that name:
+`grep -rho '"state_assign_value"' src` → 1), with `state_assign_replaced` present
+iff the bug-644 free is emitted. Confirmed on `r102o0_T2` (§2).
+
+**`StateAssign` never reaches `try_inplace_self_update`.** Its only callers are
+`bc:1102` (`StoreGlobal`) and `bc:1240` (`Assign`); `NirOp::StateAssign`
+(`bc:1496-1512`) calls Layer 1, then Layer 2, then the replace. Dump: across the
+2,337 `STATE` probe functions the only `ARM=` values are `-` and the 8 `state_*`
+arms (C.10).
+
+**Parameters (T3/T4) and the union handle (T8).** Layer 1, SC and
+`open_inplace_state_dest` (`ipd:459`) all read the handle's STATE pointer the same
+way: they load the handle's slot (`locals[resource].stack_offset`), apply
+`emit_resource_record_ptr` (`bvs:20`: `+8` for a resource union, identity
+otherwise), and load `RESOURCE_OFFSET_STATE`. A `RES` parameter's slot holds the
+same resource pointer as the owner's, and no gate reads "is owner". SC's only
+by-reference question (`G1`) is absent. So T3/T4 equal T1/T2 cell for cell, and T8
+equals T2, and the probe shows exactly that (§3.3).
 
 ## Appendix C — probes
 
@@ -1565,4 +2295,575 @@ open(P + "rec/table.md", "w").write("\n".join(out) + "\n")
 print("rows", len(out), "cells", cells, "disagreements", len(disagree))
 for d in disagree[:20]:
     print(d)
+```
+
+### C.10 `gen_state.py` — the `STATE` probe, and its result by site
+
+2,439 functions to call (339 ops × 7 sites + T7 for the 66 iterable ops, plus the
+T3/T4 callees), of which 102 were excluded after two builds: 88 bug-670 functions (11
+rows × 8 sites) and 14 `json::Json` handle declarations (`TYPE_STATE_INVALID`).
+`state/exclude.txt` holds each with its diagnostic (`errmap.py`, C.13). The final
+build has no diagnostics (`2337 called functions, 102 excluded`, then `--ncode`
+→ `Wrote native code plan`).
+
+```python
+"""Generate /tmp/plan-144-probes/state/src/main.mfb: one function per (row, op, STATE site).
+
+Names are `<row id>o<op index>_T<n>`; markers.py reports per function which arm fired,
+whether Layer 1 stored in place (`L1`), and whether the whole-record replace ran
+(`REPL`, with `FREE` = the bug-644 free of the displaced block).
+
+Payload types, per field type T (plan-144-B §3/§4):
+  P_T  { a AS T, b AS T, n AS Integer }   T1/T3 = a, T2/T4/T7/T8 = b, T5 = b and n
+  In_T { a AS T, b AS T }, Q_T { inner AS In_T, n AS Integer }   T6
+Owner sites open `RES h AS fs::File STATE P_T`; T3/T4 are the callee
+`SUB …(RES h AS fs::File STATE P_T, k AS Integer)`, called by a `…w` wrapper; T8 is a
+resource-union handle `RES h AS Stream STATE P_T` (plan-74 `{tag, ptr}`).
+Owner functions return `h.state` so the update is live.
+"""
+import json
+import os
+import re
+
+P = "/tmp/plan-144-probes/"
+OUT = P + "state"
+ns = {}
+exec(open(P + "rows.py").read().split("def split_params")[0], ns)
+INIT = ns["INIT"]
+rows = json.load(open(P + "rows.json"))["rows"]
+exclude = {}
+if os.path.exists(OUT + "/exclude.txt"):
+    for line in open(OUT + "/exclude.txt"):
+        if line.strip():
+            name, _, why = line.strip().partition(" ")
+            exclude[name] = why
+ITERABLE = ("List", "Map", "Set")
+OPEN = 'fs::openFile("/tmp/plan-144-probes/project.json")'
+
+
+def ident(t):
+    return re.sub(r"[^A-Za-z0-9]", "_", t)
+
+
+src = open(P + "rec/src/main.mfb").read()
+head = src[:src.index("TYPE Inner")]  # the IMPORT lines
+helpers = src[src.index("FUNC mkMap()"):src.index("MUT gR_")]
+types = sorted({r["ft"] for r in rows if r["ft"]})
+out = [head, "IMPORT tcp", "", "TYPE Inner", "  x AS Integer", "END TYPE", "",
+       "UNION Stream", "  fs::File", "  tcp::Socket", "END UNION", ""]
+for t in types:
+    i = ident(t)
+    out += [f"TYPE P_{i}", f"  a AS {t}", f"  b AS {t}", "  n AS Integer", "END TYPE", ""]
+    out += [f"TYPE In_{i}", f"  a AS {t}", f"  b AS {t}", "END TYPE", ""]
+    out += [f"TYPE Q_{i}", f"  inner AS In_{i}", "  n AS Integer", "END TYPE", ""]
+out.append(helpers)
+
+funcs = []
+
+
+def emit(name, head_line, end, body, call=True):
+    if name in exclude:
+        return False
+    if call:
+        funcs.append(name)
+    out.extend([head_line] + ["  " + l for l in body] + [end, ""])
+    return True
+
+
+for r in rows:
+    t = r["ft"]
+    if t is None:
+        continue
+    i = ident(t)
+    for oi, tpl in enumerate(r["ops"]):
+        base = f"{r['id']}o{oi}"
+        op = lambda x: tpl.replace("{X}", x)  # noqa: E731
+        own = f"RES h AS fs::File STATE P_{i} = {OPEN}"
+
+        def owner(site, body, ret=f"P_{i}", decl=own):
+            emit(f"{base}_{site}", f"FUNC {base}_{site}(k AS Integer) AS {ret}", "END FUNC",
+                 [decl] + body + ["RETURN h.state"])
+
+        owner("T1", [f"h.state.a = {op('h.state.a')}"])
+        owner("T2", [f"h.state.b = {op('h.state.b')}"])
+        for site, field in (("T3", "a"), ("T4", "b")):
+            name = f"{base}_{site}"
+            if emit(name, f"SUB {name}(RES h AS fs::File STATE P_{i}, k AS Integer)", "END SUB",
+                    [f"h.state.{field} = {op(f'h.state.{field}')}"], call=False):
+                emit(f"{name}w", f"FUNC {name}w(k AS Integer) AS P_{i}", "END FUNC",
+                     [own, f"{name}(h, k)", "RETURN h.state"])
+        owner("T5", [f"h.state = WITH h.state {{ b := {op('h.state.b')}, n := k }}"])
+        owner("T6", [f"h.state.inner = WITH h.state.inner {{ b := {op('h.state.inner.b')} }}"],
+              ret=f"Q_{i}", decl=f"RES h AS fs::File STATE Q_{i} = {OPEN}")
+        if t.split()[0] in ITERABLE:
+            owner("T7", ["FOR EACH v IN h.state.b", f"  h.state.b = {op('h.state.b')}", "NEXT"])
+        owner("T8", [f"h.state.b = {op('h.state.b')}"],
+              decl=f"RES h AS Stream STATE P_{i} = {OPEN}")
+
+out += ["SUB main()"] + [f"  {n}(7)" for n in funcs] + ["END SUB", ""]
+os.makedirs(OUT + "/src", exist_ok=True)
+open(OUT + "/src/main.mfb", "w").write("\n".join(out))
+os.system(f"cp {P}project.json {OUT}/project.json")
+print(len(funcs), "called functions,", len(exclude), "excluded")
+```
+
+`python3 markers.py state/p144_probe.ncode r`, reduced to the site with the
+`state_*` arm names folded into `statearm`, then `sort | uniq -c` (`T3w`/`T4w` are the
+wrappers, which only open the handle and call the callee):
+
+```
+  68 T1 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 258 T1 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+  68 T2 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 248 T2 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+  10 T2 ARM=statearm GLOBAL=- WITH=- L1=- REPL=- FREE=-
+  68 T3 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 260 T3 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+ 326 T3w ARM=- GLOBAL=- WITH=- L1=- REPL=- FREE=-
+  68 T4 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 250 T4 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+  10 T4 ARM=statearm GLOBAL=- WITH=- L1=- REPL=- FREE=-
+ 326 T4w ARM=- GLOBAL=- WITH=- L1=- REPL=- FREE=-
+  68 T5 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 258 T5 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+ 326 T6 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+  55 T7 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=-
+  68 T8 ARM=- GLOBAL=- WITH=- L1=y REPL=- FREE=-
+ 248 T8 ARM=- GLOBAL=- WITH=y L1=- REPL=y FREE=y
+  10 T8 ARM=statearm GLOBAL=- WITH=- L1=- REPL=- FREE=-
+```
+
+`grep -oE 'ARM=[^ ]+' state/markers.txt | sort | uniq -c` shows only `-` and the 8
+`state_*` arms, so no seam arm fired anywhere. The 3 lambdas in the dump are library
+bodies (`ARM=-`). `fill_state.py` (C.14) → `rows 326 cells 2608 disagreements 0`.
+
+### C.11 `gen_statena.py` — the §2b shapes
+
+```python
+"""plan-144-B §2b: the five non-expressible STATE shapes, one project each.
+
+  python3 gen_statena.py  -> writes /tmp/plan-144-probes/state-na/<shape>/, builds each
+                             with the worktree compiler, prints the error lines
+"""
+import os
+import subprocess
+
+P = "/tmp/plan-144-probes/"
+MFB = "/Users/justinzaun/Development/mfb/.claude/worktrees/P-144/target/release/mfb"
+HEAD = """IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Cur
+  pos AS Integer
+END TYPE
+
+TYPE Inner
+  x AS Integer
+END TYPE
+
+TYPE Deep
+  inner AS Inner
+END TYPE
+"""
+OPEN = 'fs::openFile("/tmp/plan-144-probes/project.json")'
+SHAPES = {
+    "global_res": f"""
+RES g AS fs::File STATE Cur = {OPEN}
+
+FUNC bump(k AS Integer) AS Integer
+  g.state.pos = g.state.pos + k
+  RETURN g.state.pos
+END FUNC
+
+SUB main()
+  io::print(toString(bump(1)))
+END SUB
+""",
+    "rec_field_res": f"""
+TYPE Holder
+  h AS fs::File
+END TYPE
+
+SUB main()
+  RES f AS fs::File STATE Cur = {OPEN}
+  MUT r AS Holder = Holder[h := f]
+  r.h.state.pos = 3
+END SUB
+""",
+    "nested_state": f"""
+SUB main()
+  RES f AS fs::File STATE Deep = {OPEN}
+  f.state.inner.x = 3
+  io::print(toString(f.state.inner.x))
+END SUB
+""",
+    "list_res": f"""
+SUB main()
+  RES f AS fs::File STATE Cur = {OPEN}
+  MUT fl AS List OF RES fs::File STATE Cur = [f]
+  fl[0].state.pos = 2
+END SUB
+""",
+    "lambda_res": f"""
+SUB main()
+  RES f AS fs::File STATE Cur = {OPEN}
+  collections::forEach([1, 2], LAMBDA(v AS Integer) -> f.state.pos = f.state.pos + v)
+  io::print(toString(f.state.pos))
+END SUB
+""",
+}
+for name, body in SHAPES.items():
+    d = P + "state-na/" + name
+    os.makedirs(d + "/src", exist_ok=True)
+    open(d + "/src/main.mfb", "w").write(HEAD + body)
+    os.system(f"cp {P}project.json {d}/project.json")
+    r = subprocess.run([MFB, "build", d], capture_output=True, text=True)
+    errs = [l for l in (r.stdout + r.stderr).splitlines() if "error" in l]
+    print(f"{name}: exit {r.returncode}")
+    for e in errs:
+        print("  " + e.replace(P, "/tmp/plan-144-probes/"))
+```
+
+Output:
+
+```
+global_res: exit 1
+  /tmp/plan-144-probes/state-na/global_res/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+  /tmp/plan-144-probes/state-na/global_res/src/main.mfb:21 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+  /tmp/plan-144-probes/state-na/global_res/src/main.mfb:21 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+rec_field_res: exit 1
+  /tmp/plan-144-probes/state-na/rec_field_res/src/main.mfb:24 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported
+nested_state: exit 1
+  /tmp/plan-144-probes/state-na/nested_state/src/main.mfb:19 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported
+list_res: exit 1
+  /tmp/plan-144-probes/state-na/list_res/src/main.mfb:20 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+lambda_res: exit 1
+  /tmp/plan-144-probes/state-na/lambda_res/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+  /tmp/plan-144-probes/state-na/lambda_res/src/main.mfb:19 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+```
+
+### C.12 `gates.py`
+
+```python
+"""Print each named function's gate sequence: the ordered `Gnn`/`E#` labels in its
+comments plus every `return Ok(false)`/`return None`/`else {` decline, and the
+resolver and builtin name it calls. Used for findings Appendix B.2.
+
+Usage: python3 gates.py <file>... -- <fn-name-regex>
+"""
+import re
+import sys
+
+sep = sys.argv.index("--")
+files, pat = sys.argv[1:sep], re.compile(sys.argv[sep + 1])
+for f in files:
+    src = open(f).read()
+    for m in re.finditer(r"\n[ \t]*(?:pub\(crate\) )?fn ([a-z_0-9]+)", src):
+        name = m.group(1)
+        if not pat.search(name):
+            continue
+        i = src.index("{", m.end())
+        depth, j = 0, i
+        while True:
+            depth += {"{": 1, "}": -1}.get(src[j], 0)
+            if depth == 0:
+                break
+            j += 1
+        body = src[i:j]
+        line = src[:m.start()].count("\n") + 2
+        labels = []
+        for g in re.finditer(r"`?(G\d+|E\d)`?", body):
+            if g.group(1) not in labels:
+                labels.append(g.group(1))
+        call = re.search(r"resolve_inplace_(?:state|record)_field\([^\"]*\"(\w+)\", (\d)", body)
+        fixed = "list_element_is_fixed_width" in body
+        print(f"{name} @{f.split('/')[-1]}:{line} "
+              f"builtin={call.group(1) + '/' + call.group(2) if call else '-'} "
+              f"gates={'→'.join(labels) or '-'}{' +fixed-width(G26)' if fixed else ''}")
+```
+
+### C.13 `errmap.py`
+
+```python
+"""Map a probe build's diagnostics to the probe functions that hold them.
+
+Usage: python3 errmap.py <probe dir>  -> prints row/sites per failing function and
+writes <probe dir>/exclude.txt (`<function> <diagnostic code> <message>` per line).
+"""
+import json
+import re
+import sys
+from collections import defaultdict
+
+d = sys.argv[1].rstrip("/")
+log = open(d + "/build.log").read().split("\n")
+src = open(d + "/src/main.mfb").read().split("\n")
+bad = {}
+for i, l in enumerate(log):
+    m = re.match(r".*/src/main.mfb:(\d+) (error\[[^\]]+\]: .*)", l)
+    if not m:
+        continue
+    detail = log[i + 1].strip() if i + 1 < len(log) else ""
+    n = int(m.group(1))
+    for j in range(n - 1, -1, -1):
+        h = re.match(r"(?:FUNC|SUB) (r\d+o\d+_[TS]\d+w?)\b", src[j])
+        if h:
+            bad[h.group(1)] = m.group(2) + " — " + detail
+            break
+rows = {r["id"]: r for r in json.load(open("/tmp/plan-144-probes/rows.json"))["rows"]}
+by = defaultdict(list)
+for f in sorted(bad):
+    by[f.split("_")[0]].append(f.split("_")[1])
+for k, v in by.items():
+    print(k, rows[k[:4]]["label"][:80], v)
+print(len(bad), "functions")
+open(d + "/exclude.txt", "w").write("".join(f"{f} {bad[f]}\n" for f in sorted(bad)))
+```
+
+### C.14 `fill_state.py` — the §2 fill and the reading-vs-dump check
+
+```python
+"""Fill plan-144 §2 (STATE sites) from the code reading, checked against the dump.
+
+  python3 fill_state.py -> writes state/table.md; prints disagreements (must be 0)
+
+Predicted verdict per cell (the code reading, cited in the §2 path legend), then
+checked against the probe markers:
+  y via Layer 1 <=> L1=y (`state_field_inplace`), REPL=-;
+  y via Layer 2 <=> ARM=<the predicted state arm>, REPL=-;
+  n             <=> ARM=-, L1=-, REPL=y (`state_assign_value`, the whole-record replace).
+T3/T4 read the callee SUB (the wrapper only opens the handle and calls it).
+"""
+import json
+
+P = "/tmp/plan-144-probes/"
+rows = json.load(open(P + "rows.json"))["rows"]
+
+
+def load(path):
+    m = {}
+    for line in open(path):
+        name, _, rest = line.strip().partition(": ")
+        m[name] = dict(kv.split("=", 1) for kv in rest.split())
+    return m
+
+
+mk = load(P + "state/markers.txt")
+excl = {}
+for line in open(P + "state/exclude.txt"):
+    name, _, why = line.strip().partition(" ")
+    excl[name] = why
+SITES = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
+SCALAR = ("Integer", "Float", "Fixed", "Money")  # neither inlined nor a pointer (findings B.4)
+ARM_OF = {
+    "collections::add({X}, k)": "state_set_add",
+    "collections::append({X}, k)": "state_append",
+    "collections::append({X}, [k, k])": "state_append",
+    "collections::insert({X}, 0, k)": "state_splice(insert/prepend)",
+    "collections::prepend({X}, k)": "state_splice(insert/prepend)",
+    "collections::remove({X}, k)": "state_set_remove",
+    "collections::removeAt({X}, 0)": "state_remove_at",
+    "collections::removeKey({X}, k)": "state_remove_key",
+    "collections::set({X}, 0, k)": "state_set(List)",
+    "collections::set({X}, k, k)": "state_set(Map)",
+}
+BUG670 = "n/a (does not compile: bug-670)"
+# The rows whose every STATE probe failed with bug-670's diagnostic.
+BUGROWS = {name[:4] for name, why in excl.items() if "2-203-0021" in why}
+JSONNA = "n/a (not a valid `STATE` type)"
+
+
+def predict(row, site):
+    ft = row["ft"]
+    iterable = ft.split()[0] in ("List", "Map", "Set")
+    arm = ARM_OF.get(row["ops"][0]) if row["fam"] == "F1" else None
+    if ft == "json::Json":
+        return JSONNA, None
+    if row["id"] in BUGROWS:
+        return BUG670, None
+    if site == "T7" and not iterable:
+        return "n/a (not iterable)", None
+    if ft in SCALAR:
+        if site == "T6":
+            return "n (L1i)", None
+        return "y", "L1"
+    if arm is None:
+        return "n (no arm)", None
+    return {"T1": ("n (G17)", None), "T2": ("y", arm), "T3": ("n (G17)", None), "T4": ("y", arm),
+            "T5": ("n (G14)", None), "T6": ("n (G17)", None), "T7": ("n (G16)", None),
+            "T8": ("y", arm)}[site]
+
+
+def agrees(v, how, m):
+    if v == "y" and how == "L1":
+        return m["L1"] == "y" and m["REPL"] == "-" and m["ARM"] == "-"
+    if v == "y":
+        return m["ARM"] == how and m["REPL"] == "-"
+    return m["ARM"] == "-" and m["L1"] == "-" and m["REPL"] == "y"
+
+
+out, disagree, cells = [], [], 0
+for row in rows:
+    label = row["label"].replace("|", "\\|")
+    form = row.get("form", "—")
+    if row["ft"] is None:
+        na = "n/a (this is the `STATE` form)"
+        out.append(f"| {row['fam']} {label} | — | " + " | ".join([na] * 8)
+                   + " | For a `STATE` payload, field assignment is the native form. Every T1–T4, "
+                   "T7 and T8 cell above is written `h.state.f = …` (desugared to a one-field "
+                   "`WITH` over `h.state`, `src/ast/stmt.rs:226`), so this row has no cell of "
+                   "its own. |")
+        cells += 8
+        continue
+    verdicts, ev = [], []
+    first_excl = None
+    for site in SITES:
+        cells += 1
+        v, how = predict(row, site)
+        per_op = []
+        for oi in range(len(row["ops"])):
+            fn = f"{row['id']}o{oi}_{site}"
+            wrapper = fn + "w" if site in ("T3", "T4") else fn
+            if wrapper in excl or fn in excl:
+                first_excl = excl.get(wrapper) or excl.get(fn)
+                if not (v.startswith("n/a") and (v == JSONNA or row["id"] in BUGROWS)):
+                    disagree.append((fn, v, "excluded: " + first_excl))
+                if row["id"] in BUGROWS:
+                    v = BUG670
+                continue
+            if v.startswith("n/a"):
+                if fn in mk:
+                    disagree.append((fn, v, "compiled"))
+                continue
+            m = mk[fn]
+            if not agrees(v, how, m):
+                disagree.append((fn, v, m))
+            per_op.append(f"ARM={m['ARM']} L1={m['L1']} REPL={m['REPL']} FREE={m['FREE']}")
+        if v == "n/a (not iterable)":
+            v = "n/a (not a `FOR EACH` iterable)"
+        verdicts.append(v)
+        if per_op:
+            ev.append(f"{site} " + "; ".join(sorted(set(per_op))))
+    nops = len(row["ops"])
+    probe = f"`{row['id']}o0_T*`" if nops == 1 else f"`{row['id']}o0…o{nops - 1}_T*` ({nops} overloads)"
+    ft = row["ft"]
+    if row["id"] in BUGROWS:
+        note = (" Every site fails to compile: `error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]` "
+                "\"Call to `__collections_…` cannot infer template arguments from `Unknown`\" "
+                "(bug-670: a `h.state.f` argument to a source-generic `collections` member has "
+                "type `Unknown`). Reading, if it compiled: no Layer 2 arm names this builtin "
+                "and Layer 1 refuses an inlined collection field, so every site would take "
+                "the replace: `n (no arm)`.")
+    elif ft == "json::Json":
+        note = (" `error[2-203-0085 TYPE_STATE_INVALID]`: a `STATE` type must be a copyable, "
+                "defaultable data type (a recursive union is neither), at every handle "
+                "declaration. A callee `RES h … STATE P_json__Json` parameter compiles, but no "
+                "caller can create the handle to pass to it.")
+    elif ft.split()[0] not in ("List", "Map", "Set"):
+        note = " T7: `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`)."
+    else:
+        note = ""
+    path = ("Layer 1 (`bc:144`) at T1–T5/T8; T6 replaces" if ft in SCALAR else
+            "Layer 2 arm at T2/T4/T8; replace elsewhere" if ARM_OF.get(row["ops"][0]) and row["fam"] == "F1"
+            else "replace (`bc:1496`)")
+    out.append(f"| {row['fam']} {label} | {form} | " + " | ".join(verdicts)
+               + f" | {path}. Field `{ft}`. Probe {probe}: " + ", ".join(ev) + "." + note + " |")
+
+open(P + "state/table.md", "w").write("\n".join(out) + "\n")
+print("rows", len(out), "cells", cells, "disagreements", len(disagree))
+for d in disagree[:20]:
+    print(d)
+```
+
+### C.15 `summary.py` — the §3.3 counts
+
+```python
+"""plan-144 §3.3: count §1 and §2 cells per site and per family from the findings file.
+
+Usage: python3 summary.py <findings.md>
+Prints the markdown count tables and, last, `total == rows*15` (or the mismatch).
+A cell is `y`, `n` (any `n (…)`), or `n/a`. Each `n (…)` also counts toward its gate.
+"""
+import re
+import sys
+from collections import Counter, defaultdict
+
+text = open(sys.argv[1]).read()
+
+
+def section(start, end):
+    return text[text.index(start):text.index(end)]
+
+
+def rows(sec):
+    out = []
+    for line in sec.split("\n"):
+        if re.match(r"^\| F[1-5] ", line):
+            cells = [c.strip() for c in re.split(r"(?<!\\)\|", line)[1:-1]]
+            out.append(cells)
+    return out
+
+
+def kind(cell):
+    if cell.startswith("n/a"):
+        return "n/a"
+    if cell == "y":
+        return "y"
+    if cell.startswith("n ("):
+        return "n"
+    raise ValueError(cell)
+
+
+tables = {
+    "§1 record sites": (rows(section("## 1. Record sites", "### 1b.")),
+                        ["S3", "S4", "S5", "S6", "S7", "S9", "S10"]),
+    "§2 STATE sites": (rows(section("## 2. `STATE` sites", "### 2b.")),
+                       ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]),
+}
+lines, grand, nrows = [], 0, None
+for name, (rs, sites) in tables.items():
+    per_site = {s: Counter() for s in sites}
+    per_fam = defaultdict(Counter)
+    gates = Counter()
+    for r in rs:
+        fam = r[0][:2]
+        for i, s in enumerate(sites):
+            cell = r[2 + i]
+            k = kind(cell)
+            per_site[s][k] += 1
+            per_fam[fam][k] += 1
+            if k == "n":
+                gates[re.match(r"n \(([^)]*)\)", cell).group(1)] += 1
+            elif k == "n/a":
+                gates["n/a: " + cell[5:-1]] += 1
+    total = Counter()
+    for c in per_site.values():
+        total.update(c)
+    n = sum(total.values())
+    grand += n
+    nrows = len(rs) if nrows is None else nrows
+    assert len(rs) == nrows, (name, len(rs), nrows)
+    lines.append(f"**{name}**: {len(rs)} rows × {len(sites)} sites = {n} cells.\n")
+    lines.append("| site | y | n | n/a | total |")
+    lines.append("|---|---|---|---|---|")
+    for s in sites:
+        c = per_site[s]
+        lines.append(f"| {s} | {c['y']} | {c['n']} | {c['n/a']} | {sum(c.values())} |")
+    lines.append(f"| **all** | **{total['y']}** | **{total['n']}** | **{total['n/a']}** | **{n}** |")
+    lines.append("")
+    lines.append("| family | y | n | n/a | total |")
+    lines.append("|---|---|---|---|---|")
+    for fam in sorted(per_fam):
+        c = per_fam[fam]
+        lines.append(f"| {fam} | {c['y']} | {c['n']} | {c['n/a']} | {sum(c.values())} |")
+    lines.append("")
+    lines.append("| deciding gate / reason | cells |")
+    lines.append("|---|---|")
+    for g, c in gates.most_common():
+        lines.append(f"| {g} | {c} |")
+    lines.append("")
+print("\n".join(lines))
+ok = grand == nrows * 15
+print(f"total == rows*15: {grand} == {nrows}*15 → {ok}" if ok else f"MISMATCH {grand} != {nrows}*15")
 ```
