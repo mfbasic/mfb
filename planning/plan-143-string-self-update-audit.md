@@ -46,7 +46,7 @@ None: this plan reads code and writes one findings file.
 
 | Must be true | Command | Status |
 |---|---|---|
-| The release compiler exists, for the `--ncode` cross-checks | `ls target/release/mfb` → exists | MET (2026-09-20) |
+| The release compiler exists, for the `--ncode` cross-checks | `ls target/release/mfb` → exists | MET (2026-09-21, re-run by /follow-plan in the P-143 worktree: `cargo build --release` exit 0, `target/release/mfb` listed) |
 
 ## 1. Goal
 
@@ -75,8 +75,11 @@ None: this plan reads code and writes one findings file.
 |---|---|---|
 | Builtin packages / overloads | 42 / 828 | plan-142-A Appendix census script → `packages 42 overloads 828` |
 | Overloads whose first parameter is `String`/`AttributedString` and whose return type is the same, literally | 44: `strings` 20, `encoding` 8, `fs` 6, `astrings` 4, `os` 3, `io` 1, `net` 1, `regex` 1 | the same script with the type test changed to `ft in ("String", "AttributedString", "astrings::AttributedString") and ft == ret` (Appendix) → `uniq -c` per package |
-| Generic overloads whose result can be the first argument's `String` type (`Var`/`Arg(n)`) | UNMEASURED | the literal rule cannot see them; Phase 1 measures them first |
-| Operator self-update forms | 1 known: `s = s & t` (and chains) | plan-141 findings §1b |
+| Generic overloads whose result can be the first argument's `String` type (`Var`/`Arg(n)`) | 0 | `grep -rn 'ParameterType::Var\|ParameterType::Arg\|ParameterType::var(' src/codegen/builtins/{strings,astrings,encoding,regex,fs,os,io,net}` → no output; `census.py generic` (findings Appendix A) → 25 candidates across all 42 packages, of which the 11 true generics all take a `List`/`Map`/`Thread` first |
+| Tier-B `AttributedString` overloads of `strings::` transforms (prose-documented, invisible to the man census) | 19 | `TIER_B_TRANSFORMS` in `src/codegen/builtins/strings/mod.rs:332` → 19 entries; each compiles as `a = strings::f(a, …)` (probe `/tmp/plan-143-probes/try`) |
+| Unqualified builtin with a `String` self-update form | 1: `toString(s)` | `general::resolve_call` `TO_STRING` arm accepts `ParameterType::String` (`src/codegen/builtins/general/mod.rs:393`) |
+| §1 rows | 63 = 44 + 19 | `python3 census.py rows \| wc -l` → 63 |
+| Operator self-update forms | 2: `s = s & t` (and chains) on `String`, `a = a & b` on `AttributedString` | plan-141 findings §1b; `mfb man astrings` ("`a & b` joins two `AttributedString` values") |
 
 The 44, by name (`strings`): `caseFold graphemeAt left lower mid normalizeNfc padLeft
 padLeftToWidth padRight padRightToWidth repeat replace right stripPrefix stripSuffix
@@ -140,21 +143,26 @@ function's lowering (the code, not its man page).
 
 ### Phase 1 — Row census
 
-- [ ] Measure the generic `String` self-update overloads (the UNMEASURED row):
+- [x] Measure the generic `String` self-update overloads (the UNMEASURED row):
       read the registry signatures of `strings`, `astrings`, `encoding` and `regex`
       for `Var`/`Arg(n)` returns that can equal the first parameter's type; record
-      the count and names in Measured populations.
-- [ ] Create `planning/plan-143-findings/string-self-update-audit.md` with the
+      the count and names in Measured populations. → 0 (grep of the eight
+      packages' registries for `Var`/`Arg` → no output; `census.py generic` → no
+      candidate takes a `String` first). Found instead: 19 prose-documented
+      `AttributedString` overloads and `toString(s)` (Correction 1).
+- [x] Create `planning/plan-143-findings/string-self-update-audit.md` with the
       sections: site legend, §1 overloads table
       (`| function definition | form | S1 | S2 | S7 | S9 | evidence |`), §2 the
       `&` operator row(s), §3 summary, appendices (census script, recogniser/lowering
       map, probes).
-- [ ] Generate one row per overload (signature verbatim from `mfb man <pkg> <f>`)
-      with the census script kept in the appendix.
+- [x] Generate one row per overload (signature verbatim from `mfb man <pkg> <f>`)
+      with the census script kept in the appendix. → `census.py rows | wc -l` → 63;
+      the script is findings Appendix A.
 
 Acceptance: every overload has a row.
   Check: `grep -cE '^\| `(strings|astrings|encoding|fs|os|io|net|regex)::' planning/plan-143-findings/string-self-update-audit.md`
-  → 44 + the Phase 1 generic count (est. 1 min).
+  → 44 + the Phase 1 generic count (est. 1 min). Corrected (Correction 1): → 63
+  (44 literal + 0 generic + 19 Tier-B `AttributedString`). Measured: `63`.
 Commit: —
 
 ### Phase 2 — Map the lowering paths
@@ -228,6 +236,25 @@ Commit: —
   `s` is only read; alternative: leave them out of the audit table.
 
 ## Corrections
+
+1. **The row population was 44, it is 63.** The literal man census cannot see the
+   19 Tier-B `AttributedString` overloads of `strings::` transforms: they are
+   typed by `strings::resolve_return_type` (`src/codegen/builtins/strings/mod.rs`)
+   and documented only in prose, so `mfb man strings trim` shows one `String`
+   declaration. `a = strings::trim(a)` on a `MUT a AS AttributedString` compiles
+   (probe `/tmp/plan-143-probes/try`), so each is a self-update form in scope
+   under Open Decision 1 (recommended option, include `AttributedString`). The
+   generic count the plan left UNMEASURED is 0. `toString(s)` (unqualified,
+   `general::resolve_call` accepts `String`) and `a = a & b` on `AttributedString`
+   are further forms; they go in findings §2 beside `s = s & t`, since they are
+   not package overloads. Phase 1's acceptance number is corrected to 63.
+2. **plan-142 has landed since this plan was written** (`planning/completed/plan-142-*`),
+   so plan-141 §1b's `s = s & t` verdicts (S2 `n (StoreGlobal)`) and the
+   references' line numbers are stale: `StoreGlobal` now dispatches the arms
+   (`builder_control.rs:1076-1105`), and `try_inplace_concat_assign` is at
+   `builder_inplace_assign.rs:1609`, `string_capacity_slot_for` at
+   `builder_control.rs:2351`, `prescan_string_self_appends` at `:2374`. Every
+   verdict here is read at `efdb54bb7`.
 
 ## Summary
 
