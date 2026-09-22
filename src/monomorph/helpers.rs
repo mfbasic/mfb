@@ -672,9 +672,15 @@ pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpress
 /// lowered function, which made the seeding O(F^2) in the function count.
 pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType, ParameterType) {
     let returns = match function.kind {
-        crate::ast::FunctionKind::Func => {
-            opt_type(&function.returns).unwrap_or(ParameterType::Unknown)
-        }
+        // bug-671: a `FUNC … AS RES T STATE S` return carries its payload, as
+        // the IR's `function_return_type` does, so `f().state.x` types.
+        crate::ast::FunctionKind::Func => match opt_type(&function.returns) {
+            Some(returns) => match (&function.return_state_type, function.return_resource) {
+                (Some(state), true) => returns.with_state(state),
+                _ => returns,
+            },
+            None => ParameterType::Unknown,
+        },
         crate::ast::FunctionKind::Sub => ParameterType::Nothing,
     };
     let params = function

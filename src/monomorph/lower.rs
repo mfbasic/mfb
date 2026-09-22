@@ -700,9 +700,15 @@ impl<'a> Monomorphizer<'a> {
         context.enclosing_return = opt_type(&function.returns);
         for param in &function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
-                context
-                    .locals
-                    .insert(param.name.clone(), param.type_.clone());
+                // bug-671: a `RES … STATE S` parameter carries its payload in the
+                // local's type, as the IR records it, so `h.state.f` types.
+                let param_type = match &param.state_type {
+                    Some(state) => param
+                        .type_
+                        .with_state(&self.concrete_type(state, substitutions)),
+                    None => param.type_.clone(),
+                };
+                context.locals.insert(param.name.clone(), param_type);
             }
         }
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
@@ -1161,6 +1167,14 @@ impl<'a> Monomorphizer<'a> {
                         .as_ref()
                         .and_then(|value| self.expression_type(value, context))
                 });
+                // bug-671: an explicit `AS T` binding with `STATE S` records the
+                // payload too (an inferred one already carries it from the value).
+                let binding_type = match (binding_type, &lowered_state) {
+                    (Some(binding_type), Some(state)) if binding_type.state().is_none() => {
+                        Some(binding_type.with_state(state))
+                    }
+                    (binding_type, _) => binding_type,
+                };
                 if let Some(binding_type) = binding_type {
                     context.locals.insert(name.clone(), binding_type);
                 }
@@ -1232,7 +1246,11 @@ impl<'a> Monomorphizer<'a> {
                 value,
                 line,
             } => {
-                let expected = context.locals.get(resource).cloned();
+                // The value of `h.state = …` is the payload, not the handle.
+                let expected = context
+                    .locals
+                    .get(resource)
+                    .and_then(ParameterType::state);
                 HirStatement::StateAssign {
                     resource: resource.clone(),
                     value: self.lower_expression(
@@ -2121,6 +2139,13 @@ impl<'a> Monomorphizer<'a> {
             )),
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
+                // bug-671: `h.state` is the `RES` handle's payload record,
+                // mirroring the IR's `expression_type`.
+                if member == "state" {
+                    if let Some(state) = target_type.state() {
+                        return Some(state);
+                    }
+                }
                 self.record_fields(&target_type)?
                     .iter()
                     .find(|field| field.name == *member)

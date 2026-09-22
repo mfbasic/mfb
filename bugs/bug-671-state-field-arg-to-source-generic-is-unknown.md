@@ -179,11 +179,24 @@ this helper.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/resources/state-field-source-generic-arg-valid`: the
+- [x] Add `tests/rt-behavior/resources/state-field-source-generic-arg-valid`: the
       reproduction, extended to all 11 source generics on an owner handle and on a
       `RES` parameter, plus an inferred `LET` and a `FOR EACH v IN h.state.xs` with a
       generic call on `v`. Confirm it fails with the documented diagnostic.
-- [ ] Complete the blast-radius audit: a verdict per `expression_type` caller.
+      RED: `mfb build` at `a09e3d88d` → 24× `TYPE_CALL_ARGUMENT_MISMATCH` (lines
+      53–63 param, 75–85 owner, 92 inferred LET, 96 FOR EACH), exit 1; and
+      `test-accept.sh <main's mfb> … state-field-source-generic-arg-valid` →
+      "3 mismatch(es)". The `f().state.xs` case (below) was added after it
+      reproduced the same diagnostic.
+- [x] Complete the blast-radius audit: a verdict per `expression_type` caller.
+      - `:1501` call arguments, `:1162` inferred LET, `:1391` FOR EACH element:
+        reproduced and fixed (fixture lines `owner/param`, `let`, `each`).
+      - `:1357/1358/1362` FOR bounds, `:1625` generic constructor inference,
+        `:2049` builtin return-type args, recursive uses: all read the same
+        `MemberAccess` arm, so they now get the field type; no separate code.
+      - `:1235` `StateAssign` expected type: now `locals[h].state()`.
+      - `helpers.rs` `function_signature_types`: reproduced (`len(distinct(opened().state.xs))`
+        → the same diagnostic) and fixed; fixture line `return`.
 
 Acceptance: the new test fails for the documented reason; every audit site has a
 verdict.
@@ -191,9 +204,11 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] (a) and (b) in `src/monomorph/lower.rs` (and `function_signature_types` if
-      Phase 1 reproduces the return-state gap).
-- [ ] `StateAssign`'s expected type from `target.state()`.
+- [x] (a) and (b) in `src/monomorph/lower.rs` (and `function_signature_types` if
+      Phase 1 reproduces the return-state gap). All three landed; the fixture
+      builds and prints the expected values (`test-accept.sh target/debug/mfb …
+      state-field-source-generic-arg-valid` → passed).
+- [x] `StateAssign`'s expected type from `target.state()`.
 
 Acceptance: the Phase 1 test passes; the contrast cases still compile; nothing in
 Non-goals changed.

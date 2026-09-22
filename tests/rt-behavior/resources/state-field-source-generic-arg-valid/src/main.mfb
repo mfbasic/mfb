@@ -1,0 +1,113 @@
+' bug-671: a `RES ... STATE` payload field passed to a `collections` member whose
+' body is MFBASIC source (a source generic, `__collections_X OF T`) must
+' type-check. The monomorphizer typed `h.state.f` as Unknown, so template
+' inference failed with TYPE_CALL_ARGUMENT_MISMATCH for all 11 of them.
+'
+' Every source generic is called on an owner handle's field and again through a
+' `RES` parameter. An inferred `LET` and a `FOR EACH` element fed back into a
+' source generic cover two more places the same type was lost, and a user
+' `FUNC … AS RES … STATE Cur` call's `.state` field covers the return-type gap.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Cur
+  xs AS List OF Integer
+  s  AS Set OF Integer
+  t  AS Set OF Integer
+  m  AS Map OF String TO Integer
+  ls AS List OF List OF Integer
+END TYPE
+
+FUNC negate(v AS Integer) AS Integer
+  RETURN 0 - v
+END FUNC
+
+FUNC isPos(v AS Integer) AS Boolean
+  RETURN v > 0
+END FUNC
+
+FUNC joinInts(xs AS List OF Integer) AS String
+  MUT out AS String = ""
+  FOR EACH v IN xs
+    IF len(out) > 0 THEN
+      out = out & ","
+    END IF
+    out = out & toString(v)
+  NEXT
+  RETURN "[" & out & "]"
+END FUNC
+
+FUNC setText(s AS Set OF Integer) AS String
+  RETURN joinInts(collections::sort(collections::toList(s)))
+END FUNC
+
+FUNC mapText(m AS Map OF String TO Integer) AS String
+  MUT out AS String = ""
+  FOR EACH k IN collections::sort(collections::keys(m))
+    out = out & k & "=" & toString(collections::get(m, k)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC report(tag AS String, RES h AS fs::File STATE Cur) AS Nothing
+  io::print(tag & " distinct=" & joinInts(collections::distinct(h.state.xs)))
+  io::print(tag & " take=" & joinInts(collections::take(h.state.xs, 2)))
+  io::print(tag & " drop=" & joinInts(collections::drop(h.state.xs, 3)))
+  io::print(tag & " sort=" & joinInts(collections::sort(h.state.xs)))
+  io::print(tag & " sortBy=" & joinInts(collections::sortBy(h.state.xs, negate)))
+  io::print(tag & " union=" & setText(collections::union(h.state.s, h.state.t)))
+  io::print(tag & " intersection=" & setText(collections::intersection(h.state.s, h.state.t)))
+  io::print(tag & " difference=" & setText(collections::difference(h.state.s, h.state.t)))
+  io::print(tag & " symmetricDifference=" & setText(collections::symmetricDifference(h.state.s, h.state.t)))
+  io::print(tag & " merge=" & mapText(collections::merge(h.state.m, h.state.m, TRUE)))
+  io::print(tag & " mapValues=" & mapText(collections::mapValues(h.state.m, negate)))
+END FUNC
+
+FUNC opened() AS RES fs::File STATE Cur
+  RES h AS fs::File STATE Cur = fs::openFile("tests/rt-behavior/resources/state-field-source-generic-arg-valid/project.json")
+  h.state.xs = [2, 2, 7]
+  RETURN h
+END FUNC
+
+FUNC main AS Integer
+  RES h AS fs::File STATE Cur = fs::openFile("tests/rt-behavior/resources/state-field-source-generic-arg-valid/project.json")
+  h.state.xs = [3, 1, 3, 2, 1, 5]
+  h.state.s = Set OF Integer { 1, 2, 3 }
+  h.state.t = Set OF Integer { 2, 3, 4 }
+  h.state.m = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  h.state.ls = [[4, 4, 1], [2, 2]]
+
+  ' Owner handle.
+  io::print("owner distinct=" & joinInts(collections::distinct(h.state.xs)))
+  io::print("owner take=" & joinInts(collections::take(h.state.xs, 2)))
+  io::print("owner drop=" & joinInts(collections::drop(h.state.xs, 3)))
+  io::print("owner sort=" & joinInts(collections::sort(h.state.xs)))
+  io::print("owner sortBy=" & joinInts(collections::sortBy(h.state.xs, negate)))
+  io::print("owner union=" & setText(collections::union(h.state.s, h.state.t)))
+  io::print("owner intersection=" & setText(collections::intersection(h.state.s, h.state.t)))
+  io::print("owner difference=" & setText(collections::difference(h.state.s, h.state.t)))
+  io::print("owner symmetricDifference=" & setText(collections::symmetricDifference(h.state.s, h.state.t)))
+  io::print("owner merge=" & mapText(collections::merge(h.state.m, h.state.m, TRUE)))
+  io::print("owner mapValues=" & mapText(collections::mapValues(h.state.m, negate)))
+
+  ' `RES` parameter.
+  report("param", h)
+
+  ' Inferred `LET` from a STATE field, then a source generic on it.
+  LET ys = h.state.xs
+  io::print("let distinct=" & joinInts(collections::distinct(ys)))
+
+  ' `FOR EACH` element of a STATE field, then a source generic on it.
+  FOR EACH row IN h.state.ls
+    io::print("each distinct=" & joinInts(collections::distinct(row)))
+  NEXT
+
+  ' A returned handle's STATE field.
+  io::print("return distinct=" & joinInts(collections::distinct(opened().state.xs)))
+
+  ' Contrast: an inline-lowered member always worked.
+  io::print("filter=" & joinInts(collections::filter(h.state.xs, isPos)))
+  fs::close(h)
+  RETURN 0
+END FUNC
