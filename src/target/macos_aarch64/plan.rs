@@ -557,6 +557,7 @@ impl plan::NativePlanPlatform for Platform {
                 ("CoreFoundation", "_CFStringGetCString"),
                 ("CoreFoundation", "_CFRelease"),
                 ("libSystem", "_strlen"),
+                ("libSystem", "_memcpy"),
             ]
             .iter()
             .map(|(library, symbol)| PlatformImport {

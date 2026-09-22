@@ -47,6 +47,7 @@
   { "library": "CoreFoundation", "symbol": "_CFStringGetCString", "requiredBy": "_mfb_rt_canvas_canvas_systemFontTable" },
   { "library": "CoreFoundation", "symbol": "_CFRelease", "requiredBy": "_mfb_rt_canvas_canvas_systemFontTable" },
   { "library": "libSystem", "symbol": "_strlen", "requiredBy": "_mfb_rt_canvas_canvas_systemFontTable" },
+  { "library": "libSystem", "symbol": "_memcpy", "requiredBy": "_mfb_rt_canvas_canvas_systemFontTable" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_mfb_rt_os_os_getEnvOr" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_mfb_rt_canvas_canvas_surfaceWidth" },
   { "library": "libSystem", "symbol": "_pthread_attr_init", "requiredBy": "_mfb_rt_canvas_canvas_surfaceWidth" },

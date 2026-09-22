@@ -68,7 +68,7 @@ Acceptance: Check: `scripts/man-census.sh --memory-scope` → 0 unclassified;
 `mfb man canvas loadSystemFont` renders (est. 2 min).
   **Observed:** `unclassified memory-vocabulary hits: 0`; the page renders the
   declaration, parameter, description and a four-row Errors table.
-Commit: (this commit)
+Commit: e1194b769
 
 ### Phase 2 — Docs
 
@@ -91,7 +91,18 @@ Commit: (this commit)
 Acceptance: Check: `cargo test --bin mfb spec` → pass; the man renders above show the
 new pages (est. 5 min).
   **Observed:** `cargo test --bin mfb spec` → `43 passed; 0 failed`.
-Commit: (this commit)
+Commit: e1194b769
+
+### Phase 3 — Final gate and landing
+
+- [ ] `cargo test --no-fail-fast > /tmp/p147_full.log 2>&1; echo EXIT=$?` → `EXIT=0`,
+      `grep -c '^failures:'` → 0 (includes `artifact_gate_all`, the full cross-target
+      golden sweep).
+- [ ] `cargo clippy --all-targets` → no warnings in files plan-147 touched.
+- [ ] Merge `worktree-system-fonts` into main from the main checkout (clean merge,
+      main tree not entangled), then archive plan-147-E.
+
+Commit: —
 
 ## Validation Plan
 
@@ -107,6 +118,22 @@ Commit: (this commit)
 
 ## Corrections
 
+- **Final gate, first run: 1 failure, and it exposed a real leak.**
+  `every_string_returning_runtime_helper_is_marked_fresh` (bug-576 audit) — the new
+  `canvas.systemFontTable` returns a `String` and was not in `STRING_RESULT_HELPERS`.
+  Checking the audit's condition (caller-arena block, only pointer) found the macOS
+  backend returned CoreFoundation's worst-case-sized conversion block with a shorter
+  length stamped, but a String is freed as `byteLength + 9`
+  (`builder_owned_cleanup.rs`, bug-560), so the spare bytes were orphaned on every
+  drop. Fixed: convert into a scratch block, `memcpy` into an exact `length + 9`
+  String, free the scratch at its own size. Linux and Windows already allocate
+  exactly. Then added the call to the audit list. Re-checked:
+  `cargo test --bin mfb raw_result_block_ownership` → 4 passed;
+  `rt_canvas_system_fonts` → `system fonts: 563 loaded: 563`, 4 passed; macOS
+  `.app.nplan` diff = exactly `+ _memcpy` for `systemFontTable`.
+- **A too-broad `pkill -f artifact-gate.sh` was run** to stop this worktree's
+  poisoned gate run; other sessions were running suites on the machine at the time,
+  and whether one of theirs had an artifact gate in flight is unknown. Kill by pid.
 - The members themselves and their tests moved to plan-147-B (see B's Corrections);
   this letter keeps the prose, the spec, and the final gate.
 

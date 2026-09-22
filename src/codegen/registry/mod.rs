@@ -7016,6 +7016,7 @@ mod raw_result_block_ownership {
     const STRING_RESULT_HELPERS: &[&str] = &[
         "big.toRadixString",
         "big.toString",
+        "canvas.systemFontTable",
         "fs.canonicalPath",
         "fs.currentDirectory",
         "fs.readAll",

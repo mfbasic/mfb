@@ -23,7 +23,7 @@
 //! CoreFoundation call clobbers every caller-saved register (`.ai/compiler.md`, the
 //! register-lifetime rules).
 
-use super::gen_system_fonts_shared::{call, load_arg, store_result};
+use super::gen_system_fonts_shared::{alloc_string, call, load_arg, store_result};
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::AbiCtx;
@@ -59,6 +59,15 @@ struct Slots {
     unichar: usize,
     result: usize,
     capacity: usize,
+    scratch: usize,
+    length: usize,
+}
+
+/// `arena_free(scratch, capacity)` — the conversion block, at the size it was given.
+fn free_scratch(builder: &mut CodeBuilder, slots: &Slots) {
+    load_arg(builder, 0, slots.scratch);
+    load_arg(builder, 1, slots.capacity);
+    builder.emit_arena_free_call();
 }
 
 /// `CFRelease(slot)` when the slot holds a non-NULL reference.
@@ -135,6 +144,8 @@ pub(crate) fn emit_system_font_table(
         unichar: builder.allocate_stack_object("canvas_sysfont_unichar", 8),
         result: builder.allocate_stack_object("canvas_sysfont_result", 8),
         capacity: builder.allocate_stack_object("canvas_sysfont_capacity", 8),
+        scratch: builder.allocate_stack_object("canvas_sysfont_scratch", 8),
+        length: builder.allocate_stack_object("canvas_sysfont_length", 8),
     };
     let url_loop = builder.label("canvas_sysfont_url_loop");
     let url_next = builder.label("canvas_sysfont_url_next");
@@ -323,8 +334,11 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::label(&urls_done));
     release_slot(builder, ctx, slots.urls)?;
 
-    // CFString → MFBASIC String: `[length u64][UTF-8 bytes][NUL]`, sized for the
-    // worst-case encoding and then stamped with the real length.
+    // CFString → MFBASIC String: `[length u64][UTF-8 bytes][NUL]`. CoreFoundation
+    // converts into a scratch block sized for the worst-case encoding; the String is
+    // then allocated at exactly `length + 9`, because a String is freed as
+    // `byteLength + 9` — returning the scratch block itself would orphan its spare
+    // bytes on every drop (the bug-560 rule).
     builder.emit(abi::label(&convert));
     load_arg(builder, 0, slots.table);
     call(builder, ctx, "CFStringGetLength")?;
@@ -335,7 +349,7 @@ pub(crate) fn emit_system_font_table(
     store_result(builder, slots.capacity);
     let size = builder.temporary_vreg();
     builder.emit(abi::load_u64(&size, abi::stack_pointer(), slots.capacity));
-    builder.emit(abi::add_immediate(abi::c_arg(0), &size, 8));
+    builder.emit(abi::move_register(abi::c_arg(0), &size));
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     builder.emit_arena_alloc_call();
     builder.emit(abi::branch_eq(&alloc_ok));
@@ -346,12 +360,10 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
-        slots.result,
+        slots.scratch,
     ));
-    let buffer = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&buffer, abi::stack_pointer(), slots.result));
-    builder.emit(abi::add_immediate(abi::c_arg(1), &buffer, 8));
     load_arg(builder, 0, slots.table);
+    load_arg(builder, 1, slots.scratch);
     load_arg(builder, 2, slots.capacity);
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", CF_UTF8));
     call(builder, ctx, "CFStringGetCString")?;
@@ -361,19 +373,33 @@ pub(crate) fn emit_system_font_table(
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(&converted));
     let first = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&first, abi::stack_pointer(), slots.result));
-    builder.emit(abi::store_u8(abi::ZERO, &first, 8));
+    builder.emit(abi::load_u64(&first, abi::stack_pointer(), slots.scratch));
+    builder.emit(abi::store_u8(abi::ZERO, &first, 0));
     builder.emit(abi::label(&converted));
-    let text = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&text, abi::stack_pointer(), slots.result));
-    builder.emit(abi::add_immediate(abi::c_arg(0), &text, 8));
-    call(builder, ctx, "strlen")?;
-    let length = builder.temporary_vreg();
-    builder.emit(abi::move_register(&length, abi::c_return(0)));
-    let block = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&block, abi::stack_pointer(), slots.result));
-    builder.emit(abi::store_u64(&length, &block, 0));
     release_slot(builder, ctx, slots.table)?;
+    load_arg(builder, 0, slots.scratch);
+    call(builder, ctx, "strlen")?;
+    store_result(builder, slots.length);
+    let exact_fail = builder.label("canvas_sysfont_exact_fail");
+    let exact_ok = builder.label("canvas_sysfont_exact_ok");
+    alloc_string(builder, slots.length, slots.result, &exact_fail);
+    builder.emit(abi::branch(&exact_ok));
+    builder.emit(abi::label(&exact_fail));
+    free_scratch(builder, &slots);
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&exact_ok));
+    // memcpy(result + 8, scratch, length + 1) — the text and its NUL.
+    let block = builder.temporary_vreg();
+    let length = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&block, abi::stack_pointer(), slots.result));
+    builder.emit(abi::load_u64(&length, abi::stack_pointer(), slots.length));
+    builder.emit(abi::store_u64(&length, &block, 0));
+    builder.emit(abi::add_immediate(abi::c_arg(0), &block, 8));
+    builder.emit(abi::add_immediate(abi::c_arg(2), &length, 1));
+    load_arg(builder, 1, slots.scratch);
+    call(builder, ctx, "memcpy")?;
+    free_scratch(builder, &slots);
 
     let answer = builder.temporary_vreg();
     builder.emit(abi::load_u64(&answer, abi::stack_pointer(), slots.result));
