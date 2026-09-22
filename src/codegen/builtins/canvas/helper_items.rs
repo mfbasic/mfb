@@ -406,6 +406,27 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' the cap; zero for every other kind and never read by one.
   LET ellCos AS Float = __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_COS)
   LET ellSin AS Float = __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_SIN)
+  ' bug-484: a picture IS a rectangle to the distance function -- its header carries the
+  ' rectangle's centre, half-extent and zero radius -- so its coverage, antialiased edge,
+  ' clip, transform and stroke are a rectangle's by construction. Only the fill colour
+  ' differs, and that is sampled per pixel below. `distKind` is what the distance calls
+  ' dispatch on; `kind` keeps saying PICTURE for the fill.
+  LET isPicture AS Boolean = kind = __CANVAS_GEO_PICTURE
+  MUT distKind AS Integer = kind
+  MUT picShadow AS Integer = 0
+  MUT picW AS Integer = 0
+  MUT picH AS Integer = 0
+  IF isPicture THEN
+    distKind = __CANVAS_KIND_RECT
+    picShadow = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+    picW = toInt(__canvas_geoAt(offset, 20))
+    picH = toInt(__canvas_geoAt(offset, 21))
+  END IF
+  ' The destination's left/top edge and extent, from the rectangle slots.
+  LET picX0 AS Float = p0 - p2
+  LET picY0 AS Float = p1 - p3
+  LET picDW AS Float = p2 * 2.0
+  LET picDH AS Float = p3 * 2.0
 
   ' Arc sweep vectors: per-shape constants, so the only sin/cos in the renderer runs
   ' once per arc rather than once per pixel.
@@ -498,14 +519,20 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       MUT dRaw AS Float = 0.0
       MUT dScale AS Float = 1.0
       MUT distance AS Float = 0.0
+      ' The SHAPE-space point: where a picture samples its image. The inverse-mapped
+      ' point under a transform, the group-relative point otherwise.
+      MUT qx AS Float = px
+      MUT qy AS Float = py
       IF transformed THEN
         LET tx AS Float = __canvas_invX(offset, px, py)
         LET ty AS Float = __canvas_invY(offset, px, py)
-        LET d0 AS Float = __canvas_geoDistance(kind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dxp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dxm AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dyp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dym AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        qx = tx
+        qy = ty
+        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
         LET gx AS Float = dxp - dxm
         LET gy AS Float = dyp - dym
         LET g AS Float = math::sqrt(gx * gx + gy * gy)
@@ -515,7 +542,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         END IF
         distance = dRaw / dScale
       ELSE
-        dRaw = __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
         distance = dRaw
       END IF
       LET idx AS Integer = rowBase + x * 4
@@ -555,6 +582,24 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         gG = gc.green
         gB = gc.blue
         gA = toInt(gc.alpha)
+      END IF
+      ' bug-484: a picture's fill colour is its image, sampled NEAREST -- the plan-116-C
+      ' section 4.5 rule glyphs follow, for the same reason: `floor` and `+ - * /` only,
+      ' so all three renderers pick the same texel. The texel is then TINTED by
+      ' `Paint.fill`, channel by channel, so the white fill of every man example draws
+      ' the image unchanged and the fill's alpha is the picture's opacity.
+      '
+      ' The index is clamped, not rejected: the antialiased edge pixels just outside the
+      ' destination (centre within half a pixel of it) still take coverage, and they
+      ' belong to the border texel -- exactly as a rectangle's edge pixels take its fill.
+      IF isPicture THEN
+        LET tu AS Integer = __canvas_maxI(__canvas_minI(math::floor((qx - picX0) * toFloat(picW) / picDW), picW - 1), 0)
+        LET tv AS Integer = __canvas_maxI(__canvas_minI(math::floor((qy - picY0) * toFloat(picH) / picDH), picH - 1), 0)
+        LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
+        gR = toByte(((texel MOD 256) * toInt(fillR)) / 255)
+        gG = toByte((((texel / 256) MOD 256) * toInt(fillG)) / 255)
+        gB = toByte((((texel / 65536) MOD 256) * toInt(fillB)) / 255)
+        gA = ((texel / 16777216) * fillA) / 255
       END IF
       IF gA > 0 THEN
         MUT coverage AS Integer = __canvas_coverage(distance)

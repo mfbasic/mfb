@@ -171,6 +171,7 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 /// | | Metal | Vulkan |
 /// |---|---|---|
 /// | the glyph-run walk (`__canvas_runSamples`, one function both call) | 1 (shared) | |
+/// | a picture's texel count (`__canvas_pictureSamples`, one function both call) | 1 (shared) | |
 /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
 /// | the frame edge sum | 1 | 1 |
 /// | ~~the frame quad count, a glyph run's glyphs~~ | — | — |
@@ -187,6 +188,10 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 /// frame-wide region the way Vulkan's always did, so both predicates call the one
 /// `__canvas_runSamples`, whose read is counted once.
 ///
+/// It went 4 → 5 in bug-484, and that one is an ADDITION, not a move: a picture's
+/// header carries its image's width in slot 20 (and height in 21), and both predicates
+/// count `width * height` texels against the glyph region they share with text.
+///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
 /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
@@ -200,7 +205,7 @@ fn the_predicates_read_the_edge_count_slot() {
         RENDER_METAL
             .matches(&format!("offset + {HEADER_AUX0}"))
             .count(),
-        4,
+        5,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \

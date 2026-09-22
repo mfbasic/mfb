@@ -1,6 +1,8 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
-    GEO_KIND_GROUP, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_SLOTS,
+    GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_CAP,
+    HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_SLOTS,
+    PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -63,6 +65,8 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         ("__CANVAS_GEO_POLYGON", GEO_KIND_POLYGON),
         // plan-116-G.
         ("__CANVAS_GEO_GROUP", GEO_KIND_GROUP),
+        // bug-484.
+        ("__CANVAS_GEO_PICTURE", GEO_KIND_PICTURE),
     ] {
         assert_eq!(
             declared(name).to_string(),
@@ -70,5 +74,33 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
             "{name} and its emitter-side kind constant disagree, so the predicates \
                  and the emitters would branch on different values for the same kind",
         );
+    }
+}
+
+/// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild
+/// the address from, and they sit where no other reader of a picture looks.
+///
+/// Wrong here, the GPU copies texels from an address that is valid-looking garbage —
+/// another block, or the middle of one — and draws a plausible wrong image.
+#[test]
+fn the_picture_layout_constants_match_their_rust_counterparts() {
+    assert_eq!(
+        declared("__CANVAS_GEO_PICTURE_SHADOW_HI"),
+        HEADER_PICTURE_SHADOW_HI
+    );
+    assert_eq!(
+        declared("__CANVAS_GEO_PICTURE_SHADOW_LO"),
+        HEADER_PICTURE_SHADOW_LO
+    );
+    assert_eq!(
+        declared("__CANVAS_GEO_PICTURE_SPLIT"),
+        1usize << PICTURE_SHADOW_SPLIT_BITS,
+        "the MFBASIC split and the emitters' shift disagree, so the rebuilt address is \
+         not the block's",
+    );
+    // The slots are the Line/Arc cap endpoints, free on a picture; they must not be the
+    // aux pair (the image size) or anything the rectangle fields use.
+    for slot in [HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO] {
+        assert!(slot > HEADER_CAP && slot < HEADER_SLOTS);
     }
 }

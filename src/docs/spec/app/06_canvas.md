@@ -234,6 +234,32 @@ specified separately: each pixel of the run's transformed bounds samples the gly
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
 and a rotated label is a rotated label on every backend.
 
+**A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
+antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, `Paint.transform` and a
+group's translation are exactly those of a `Rectangle` with the same `x, y, w, h` —
+the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
+the image is sampled at the shape-space point (the inverse-mapped point under a
+transform, the group-relative one inside a group), **nearest**, as texel
+`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image. It
+is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
+backend picks the same texel; a bilinear filter would change edge bytes between
+renderers unless all three shared identical fixed-point weights.
+
+The texel is then **tinted** by `Paint.fill`, each channel multiplied as
+`(texel * fill) / 255`, alpha included. The white fill every example uses therefore
+draws the image unchanged, and the fill's alpha is the picture's opacity; the zero
+`Paint` draws nothing, as it does for every other variant. `Paint.fillGradient` is
+ignored — the image, not a ramp, fills a picture. An item whose image has been closed
+draws nothing (see *Images are named, not embedded*).
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+
+On the GPU a picture's texels travel in the same per-frame buffer region as glyph
+coverage, one packed word per texel, and each item's block names its slice — so a
+frame's pictures and glyphs together are bounded by that region, and a frame that
+would overflow it is drawn in software instead. There is no texture object and nothing
+to free: the pixels are copied from the image's own storage while the frame is built.
+
 **`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
 in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
 transformed rectangle. A zero-area or negative-extent `Bounds` means no clipping,
@@ -364,11 +390,13 @@ draws nothing; the frame around it renders normally and nothing is raised. That 
 what makes the two lifetimes independent without the scene having an opinion about
 either.
 
-Destroying an image a presented scene still draws is therefore safe. The runtime
-defers freeing the backing object until the GPU has finished with the last frame
-that used it, and that deferral is entirely runtime-side and invisible from
-MFBASIC: there is no reference count, no generation table, and nothing for a
-program to synchronise.
+Destroying an image a presented scene still draws is therefore safe. Closing an
+image sets its closed flag and frees nothing, and there is no GPU-side copy to
+release: every backend reads a frame's texels from the image's own storage while
+that frame is built, so a frame already in flight finishes with the pixels it
+started with and the next one sees the image closed. That is entirely runtime-side
+and invisible from MFBASIC: there is no reference count, no generation table, and
+nothing for a program to synchronise.
 
 ### A named group is the exception
 
@@ -418,6 +446,14 @@ the same places, and only the content of one of their images is different.
 
 This is why a video frame, a plot, or a progress bar can update without rebuilding
 the scene at all.
+
+**`setBytes` asks for that frame itself** when something live names the image — the
+installed scene, its layers, or any installed group — and, like `present`, waits for it
+when `MFB_CANVAS_SYNC` is set. Nothing else would: re-presenting the unchanged scene is
+refused by the frame skip. An image nothing draws is refilled without a frame. The
+image's storage is replaced rather than overwritten, so a frame already drawing keeps
+the pixels it started with.
+[[src/codegen/builtins/canvas/func_set_bytes.rs:BODY]]
 
 The runtime keeps its own copy of every image's pixels as the source of truth the
 backend is uploaded from, so `canvas::getBytes` answers without a GPU readback —

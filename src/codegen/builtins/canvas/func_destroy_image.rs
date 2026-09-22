@@ -47,9 +47,9 @@ END SUB
 /// An already-closed image raises `ErrResourceClosed`, the one contract every close
 /// follows (`mfb spec language resource-management` §15, bug-610). The scope-drop
 /// routes here too and treats that code as a benign no-op, so a drop after an
-/// explicit destroy stays silent. The OS-side free is deliberately not here — it is gated on
-/// `closed AND lastUsedFrame < lastCompletedFrame` and belongs to the backend
-/// (plan-98-D), because only the backend knows when the GPU is done reading.
+/// explicit destroy stays silent. It frees nothing, and nothing else does either: a
+/// frame on the graphics thread may still be sampling the pixel block, and no backend
+/// holds a per-image GPU object that would need a deferred free (bug-484).
 pub(crate) fn lower_destroy_image(
     builder: &mut CodeBuilder,
     args: &[ValueResult],

@@ -195,7 +195,18 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       ' identical when a node's `dx`/`dy` change, so a hash that ignored the offset
       ' reported "nothing changed" and the moved group was never repainted -- measured
       ' as `frames=1 skipped=1 damage=none` for a group moved 500px.
-      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, gdx), gdy))
+      '
+      ' bug-484: a picture also folds in its image's pixel-block address. `canvas::setBytes`
+      ' repaints without a `present`, so the scene's published hash -- computed by the
+      ' worker when the scene was presented -- still names the OLD pixels, and the damage
+      ' diff would report "nothing changed" and skip exactly the frame `setBytes` asked
+      ' for. The geometry was just built on this thread from the live image, so its header
+      ' holds the current block.
+      MUT drawHash AS Integer = hash
+      IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_PICTURE THEN
+        drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)), __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      END IF
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(drawHash, gdx), gdy))
       RETURN out
   END MATCH
 END FUNC
@@ -604,6 +615,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
+    ' bug-484: a picture's texels ride the same frame-wide region as glyph coverage, one
+    ' word each, so they are counted against the same cap -- the region overflowing would
+    ' make one picture read another's texels, a plausible wrong image.
+    IF kind = __CANVAS_GEO_PICTURE THEN
+      samples = samples + __canvas_pictureSamples(offset)
+    END IF
     ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
     ' asks. A blended item that both strokes and fills publishes two
     ' (`emit_split_or_publish`); counting it as one let a scene near the cap write past
@@ -702,6 +719,12 @@ FUNC __canvas_runSamples(offset AS Integer) AS Integer
   RETURN total
 END FUNC
 
+' The words one picture puts in the frame's glyph region: its image's texel count, from
+' the aux pair its header carries (bug-484).
+FUNC __canvas_pictureSamples(offset AS Integer) AS Integer
+  RETURN toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 21, 0.0))
+END FUNC
+
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
@@ -711,6 +734,10 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
+    END IF
+    ' bug-484: as in `__canvas_metalRenderable` -- texels share the glyph region's cap.
+    IF kind = __CANVAS_GEO_PICTURE THEN
+      samples = samples + __canvas_pictureSamples(offset)
     END IF
     ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
     ' list asks. A blended item that both strokes and fills publishes two

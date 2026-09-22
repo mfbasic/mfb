@@ -43,9 +43,9 @@ use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
     push_symbol_address, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
     CANVAS_DRAW_ENTRY_SHIFT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H,
+    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
     GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
     GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
     GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
@@ -64,16 +64,18 @@ use crate::codegen::runtime::canvas::{
     HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0,
     HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN,
     HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
-    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
-    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
-    ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
-    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
+    HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
+    HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
+    HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
+    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
+    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND,
-    MAX_FRAME_GRADIENT_STOPS, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS,
-    VULKAN_GRADIENT_BASE_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    MAX_FRAME_GRADIENT_STOPS, PICTURE_SHADOW_SPLIT_BITS, VULKAN_BUFFER_BYTES,
+    VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
+    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -3961,6 +3963,180 @@ fn emit_edge_upload(
     builder.emit(abi::label(&done));
 }
 
+/// Copy a `canvas::Picture`'s texels into the frame buffer's glyph region, and name
+/// the slice in the item block (bug-484).
+///
+/// A picture is a rectangle whose fill colour is sampled from an image, so its block is
+/// the rectangle's in every field but three, which it names exactly as a glyph does:
+/// width in `misc.w`, height in `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), and the slice's base
+/// in `arc.z` (`ITEM_ARC_EDGE_BASE`). The region, the cursor and the frame cap are the
+/// glyphs' — the predicates count a picture's texels against that same cap.
+///
+/// **Must run after `emit_edge_upload`**, which zeroes `misc.w` and `arc.z` for every
+/// kind that is not a polygon, and **before `emit_split_or_publish`**, so both records
+/// of a split item carry the slice. Unlike a glyph run, a picture is one quad and does
+/// not end the instanced run.
+///
+/// One 32-bit word per texel, copied verbatim: the pixel block is a `List OF Byte` of
+/// RGBA8, so each little-endian word already reads `r | g << 8 | b << 16 | a << 24`,
+/// the packing the shader unpacks. The block's address arrives split across two header
+/// doubles (`HEADER_PICTURE_SHADOW_HI`/`_LO`) because a whole address overflows the
+/// header hash; the texels start `COLLECTION_HEADER_SIZE` bytes in. The block is never
+/// freed, so reading it here, during the frame, is safe.
+///
+/// A picture whose texels would not fit the frame's remaining glyph room draws nothing
+/// (`misc.w = 0`), rather than writing past the region. Unreachable: the predicate
+/// declined such a frame to software.
+fn emit_picture_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_glyph_cursor: usize,
+) {
+    let done = builder.label("vk_pic_done");
+    let empty = builder.label("vk_pic_empty");
+    let copy_head = builder.label("vk_pic_copy_head");
+
+    let header = abi::SCRATCH[6];
+    let width = abi::SCRATCH[2];
+    let height = abi::SCRATCH[3];
+    let samples = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let source = abi::SCRATCH[7];
+
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_PICTURE));
+    builder.emit(abi::branch_ne(&done));
+
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    for (slot, register) in [(HEADER_AUX0, width), (HEADER_AUX1, height)] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        builder.emit(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
+    }
+    builder.emit(abi::compare_immediate(width, "0"));
+    builder.emit(abi::branch_le(&empty));
+    builder.emit(abi::compare_immediate(height, "0"));
+    builder.emit(abi::branch_le(&empty));
+    builder.emit(abi::multiply_registers(samples, width, height));
+
+    // Room check against the glyph region's frame cap — the same bound the glyph copy
+    // applies, through a register because the cap does not fit an immediate compare.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_glyph_cursor,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        samples,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[8],
+        "Integer",
+        &VULKAN_MAX_FRAME_GLYPH_SAMPLES.to_string(),
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[8]));
+    builder.emit(abi::branch_gt(&empty));
+
+    // The slice: width, height, and the pre-advance cursor.
+    builder.emit(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::store_u32(
+        height,
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_glyph_cursor,
+    ));
+
+    // target = mapped + (GLYPH_BASE + cursor) * 4
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        VULKAN_GLYPH_BASE_WORDS,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        2,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[0]));
+
+    // source = ((hi << 24) | lo) + COLLECTION_HEADER_SIZE
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_HI * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    builder.emit(abi::shift_left_immediate(
+        source,
+        source,
+        PICTURE_SHADOW_SPLIT_BITS as u8,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_LO * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::or_registers(source, source, abi::SCRATCH[1]));
+    builder.emit(abi::add_immediate(source, source, COLLECTION_HEADER_SIZE));
+
+    // `samples` counts down; it is at least 1 here.
+    builder.emit(abi::label(&copy_head));
+    builder.emit(abi::load_u32(abi::SCRATCH[0], source, 0));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+    builder.emit(abi::add_immediate(source, source, 4));
+    builder.emit(abi::add_immediate(target, target, 4));
+    builder.emit(abi::subtract_immediate(samples, samples, 1));
+    builder.emit(abi::compare_immediate(samples, "0"));
+    builder.emit(abi::branch_gt(&copy_head));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&empty));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for offset in [
+        ITEM_OFFSET_MISC + 12,
+        ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+        ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ] {
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_item + offset,
+        ));
+    }
+
+    builder.emit(abi::label(&done));
+}
+
 /// Copy the item block just built on the stack into the frame's item buffer at the
 /// cursor, and advance the cursor by one quad.
 ///
@@ -4453,6 +4629,8 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
     let head = builder.label("vk_glyph_head");
     let done = builder.label("vk_glyph_done");
     let next = builder.label("vk_glyph_next");
+    let blank = builder.label("vk_glyph_blank");
+    let publish = builder.label("vk_glyph_publish");
     let copy_head = builder.label("vk_glyph_copy_head");
     let copy_done = builder.label("vk_glyph_copy_done");
 
@@ -4573,9 +4751,10 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         builder.emit(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
     }
     // A cache entry of -1 is a glyph the eviction pass dropped after this run was
-    // built. It draws nothing rather than reading the metadata list out of range.
+    // built. It draws nothing rather than reading the metadata list out of range, and
+    // still publishes its (blank) block — see `blank` below.
     builder.emit(abi::compare_immediate(abi::SCRATCH[2], "0"));
-    builder.emit(abi::branch_lt(&next));
+    builder.emit(abi::branch_lt(&blank));
 
     // meta = glyphMeta + entry * GLYPH_META_SLOTS, in 8-byte Integers.
     builder.emit(abi::move_immediate(
@@ -4644,21 +4823,21 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         ));
     }
     // An empty bitmap — a space, or a glyph with no contours — has nothing to copy and
-    // nothing to draw.
+    // nothing to draw, but still publishes its (blank) block — see `blank` below.
     builder.emit(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
         at.glyph_w,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[5], "0"));
-    builder.emit(abi::branch_le(&next));
+    builder.emit(abi::branch_le(&blank));
     builder.emit(abi::load_u64(
         abi::SCRATCH[6],
         abi::stack_pointer(),
         at.glyph_h,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[6], "0"));
-    builder.emit(abi::branch_le(&next));
+    builder.emit(abi::branch_le(&blank));
 
     // samples = w * h, and the frame's remaining room for them. The predicate has
     // already declined a frame that does not fit, so this bound is the emitter refusing
@@ -4684,7 +4863,7 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         &VULKAN_MAX_FRAME_GLYPH_SAMPLES.to_string(),
     ));
     builder.emit(abi::compare_registers(abi::SCRATCH[8], abi::SCRATCH[9]));
-    builder.emit(abi::branch_gt(&next));
+    builder.emit(abi::branch_gt(&blank));
 
     // --- copy the bitmap into the buffer's glyph region --------------------------
     // dst = mapped + (GLYPH_BASE + cursor) * 4, src = coverage + covStart.
@@ -4884,6 +5063,7 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
     // This glyph's block goes into the frame's item buffer like any other quad's, and
     // the draw names it through `firstInstance`. The index is parked *before* the
     // publish, because publishing advances the cursor past it.
+    builder.emit(abi::label(&publish));
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -4895,6 +5075,33 @@ fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
         at.instance,
     ));
     emit_item_publish(builder, at.state, at.item, at.item_cursor, &next);
+    builder.emit(abi::branch(&next));
+
+    // A glyph that draws nothing — a space, an evicted cache entry, a bitmap past the
+    // frame's glyph region — still publishes ONE block, with width and height 0, so the
+    // shader's bounds test in `glyphCoverage` answers zero coverage everywhere (bug-484).
+    //
+    // Skipping the publish desynchronised the item buffer from the draw list:
+    // `__canvas_blockInstances` counts a text run as its full glyph count, so every draw
+    // entry after a run containing a space named blocks one position on — the next items
+    // drew under their neighbours' pipelines and group offsets, and the last read a block
+    // never written. Found on Metal by bug-484's picture scene ("Pictures 01"); the
+    // Vulkan gate's only label, "AAAA", has no space. The quad is left as it is (the
+    // previous glyph's box, or the run's hull under a transform): a transparent source
+    // changes nothing under any blend pipeline.
+    builder.emit(abi::label(&blank));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    builder.emit(abi::branch(&publish));
 
     // plan-116-H: this function now PUBLISHES and does not draw. Its `vkCmdDraw` moved
     // to `emit_draw_list_pass`, with every other draw, because the draw list is in scene
@@ -5636,6 +5843,9 @@ pub(crate) fn emit_vulkan_draw_scene(
     emit_item_block(builder, off_item, off_width, off_height);
     emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
+    // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
+    // and before the split, so both records of a split picture name its texels.
+    emit_picture_upload(builder, off_state, off_item, off_header, off_glyph_cursor);
     // Published, not drawn. The draw happens at the end of the run this item joins —
     // which is what makes consecutive shapes one instanced `vkCmdDraw` instead of N.
     emit_split_or_publish(

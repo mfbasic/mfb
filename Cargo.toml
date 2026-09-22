@@ -305,6 +305,10 @@ name = "rt_canvas_metal"
 path = "tests/canvas/rt_canvas_metal.rs"
 
 [[test]]
+name = "rt_canvas_picture"
+path = "tests/canvas/rt_canvas_picture.rs"
+
+[[test]]
 name = "rt_canvas_present_deep_copy"
 path = "tests/canvas/rt_canvas_present_deep_copy.rs"
 
