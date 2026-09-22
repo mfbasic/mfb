@@ -58,7 +58,7 @@ Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_
 → pass; drill lines recorded (est. 15 min).
 `cargo test --bin mfb self_update` → "7 passed"; the census guard is in the
 full gate (Phase 3).
-Commit: `(recorded in the next commit)`
+Commit: `096acb8bd`
 
 ### Phase 2: Docs (findings §3.4)
 
@@ -115,21 +115,40 @@ Commit: `(recorded in the next commit)`
 Acceptance: `cargo test --bin mfb spec` passes, and
 `scripts/man-census.sh --memory-scope` → 0 unclassified hits (est. 10 min).
 Both above.
-Commit: `(recorded in the next commit)`
+Commit: `096acb8bd`
 
 ### Phase 3: Full gate (run once)
 
-- [ ] `cargo test --no-fail-fast` (`.ai/testing-gates.md:423`).
-- [ ] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
-- [ ] `rt_inplace_self_update` over every site, unfiltered: 79 lines × 19 sites.
-- [ ] Re-run plan-144's reading-vs-dump scripts (`fill_rec.py`, `fill_state.py`,
+- [x] `cargo test --no-fail-fast` (`.ai/testing-gates.md:423`).
+      On the tree with main merged in (`e07ad2462`, then `3e542ca19`): `exit 101` over 221 test targets — 5,965 passed, 2 failed, both in `codegen_inplace_record_field`: two plan-121-C declines that plan-145-C/-D replaced by design (plan-145-C Correction C6, plan-145-D Correction D8). Corrected in `0cd7b2687` (each checked against the four-question rule: history, protected behavior, dependents, proof); `cargo test --test codegen_inplace_record_field` → "10 passed". The `--bin mfb` target: "4293 passed; 0 failed; 1 ignored".
+- [x] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
+      On the merged tree: `artifact-gate [all]: 1485 tests, 1660 build(s), 2098 golden(s) checked, 0 diff(s)`.
+- [x] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
+      With a copy of that `target/debug/mfb` (so the concurrent `cargo test` could
+      not rebuild it mid-run, as plan-142-I did): `acceptance tests passed (1511 test(s) ran)`.
+- [x] `rt_inplace_self_update` over every site, unfiltered: 79 lines × 19 sites.
+      Inside the full gate (no site filter runs every site): `rt_inplace_self_update` → "2 passed" (3778.24 s) — every `cases.tsv` line at the four plain sites and every line and kind at the 15 field sites against the final `field_expect.tsv`/`field_kinds.tsv` (no `copy:` left).
+- [x] Re-run plan-144's reading-vs-dump scripts (`fill_rec.py`, `fill_state.py`,
       `summary.py`, findings Appendix C) against the final compiler. Record the
       new §3.3 counts beside the findings' (10/2,415 record, 438/2,760 `STATE`).
+      The probes (`/tmp/p145-probes`, plan-144's `rec` and `state` programs)
+      rebuilt with the final compiler (at `096acb8bd`), read with `markers.py`
+      (extended with plan-145's store slots, `FS`) and counted from the dump by
+      `count_dump.py` — the reading scripts encode plan-144's pre-plan-145 rules,
+      so the dump is the authority (Correction I3). **Record sites: 1,537 of 2,415
+      in place** (plan-144: 10) — S3 240, S4 249, S5 249, S6 249, S7 52, S9 249,
+      S10 249. **`STATE` sites: 1,770 of 2,760** (plan-144: 438) — T1 239, T2 248,
+      T3 239, T4 248, T5 248, T6 248, T7 52, T8 248. The rest are the `String`
+      rows (`deferred:string`), the value-sized kinds (`rebuild:size-varies`) and
+      the `n/a` cells (S7/T7 over a non-collection, the `r.prop = v` row, `json::Json`
+      as a `STATE` type). The four `STATE` probe callees with a `json::Json`
+      payload parameter no longer compile (bug-674's check) and were dropped from
+      the source; plan-144 already counted them `n/a`.
 
 Acceptance: all green; counts recorded (est. 90 min: the full gate, required once
 by `.ai/testing-gates.md`, plus the one unfiltered harness run).
-Commit:
+All green (above); counts recorded.
+Commit: `(recorded in the next commit)`
 
 ## Corrections
 
@@ -137,6 +156,14 @@ Commit:
   `SELF_UPDATE_ARMS` entry needs a new `ArmId` with markers and a table row, so the
   drill set `filter`'s reach to `None` instead — the matrix and the new deferral
   test both named every field site — and set it back.
+- **I3 — the plan-144 counts come from the dump.** `fill_rec.py`/`fill_state.py`
+  predict each cell from plan-144's code reading and check it against the markers;
+  that reading is the pre-plan-145 lowering, so re-running them would report
+  disagreements, not counts. `count_dump.py` counts the same cells (every overload
+  in place, no copy path) from the rebuilt probes' markers alone.
+- **I4 — main was merged before the gate, not after.** main had advanced (bug-484,
+  plan-147's plan, a `.ai/collections.md` line); merging first let the full gate
+  run once, on the merged tree.
 - **I2 — the `last-inlined \`List\`` grep finds one accurate doc.** The stale
   `resolve_inplace_record_field` comment is gone with its function; the one hit
   left is `lower_field_append`'s, which is true.

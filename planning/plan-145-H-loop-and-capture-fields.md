@@ -114,7 +114,7 @@ double-frees), and the by-ref write-back after an `InlineGrow`.
 Acceptance: `cargo test --test rt_inplace_field_loop` passes, and
 `MFB_SELF_UPDATE_SITES=S7,T7 cargo test --test rt_inplace_self_update` passes
 (est. 8 min).
-The harness (`MFB_SELF_UPDATE_SITES=S7,T7,S9`) is recorded in the next commit.
+The unfiltered harness in plan-145-I's full gate covers S7, T7 and S9: `rt_inplace_self_update` → "2 passed" (3778.24 s); `cargo test --test rt_inplace_field_loop` → "3 passed" in the same gate.
 Commit: `1ab6c7d0f`
 
 ### Phase 2: S9

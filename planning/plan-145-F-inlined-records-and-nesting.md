@@ -182,7 +182,8 @@ Acceptance: `cargo test --test rt_inplace_field_nested` passes, and
 Correction F6: every collection line passed; 5 kind pairs failed, all `json::` at
 S6/T6 (the pointer record level F6 then fixed; `/tmp/p145/jarr` S6 at the
 control's 3 blocks a run). The unfiltered harness of plan-145-I's full gate re-runs
-every S6/T6 line on the final compiler.
+every S6/T6 line on the final compiler: "2 passed" (3778.24 s), the `json::` S6/T6
+lines included.
 Commit: `b05277aef`
 
 ## Validation Plan

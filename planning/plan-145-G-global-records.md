@@ -151,7 +151,7 @@ Acceptance: the artifact gate is clean after regeneration (est. 20 min: global
 records appear in fixtures across directories, and only the full gate finds them
 all).
 Clean (above); timing recorded.
-Commit: `(recorded in the next commit)`
+Commit: `3e542ca19`
 
 ## Validation Plan
 
