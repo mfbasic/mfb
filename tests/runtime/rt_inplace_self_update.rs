@@ -26,13 +26,13 @@
 //!   make this distinction: these functions allocate per-block temporaries that
 //!   they free as they go — plan-142-E Correction E2.)
 //!
-//! plan-146-A reopens two statuses for the `String` lines it adds, each asserting
-//! the statement still copies (`count(2N) - count(N) >= N`), so the letter that
-//! changes it has to flip the line:
+//! There is one further status, for a row another plan owns:
 //!
-//! * `pending:<letter>` — the plan-146 letter that lands the arm or the exemption
-//!   (plan-146-H deletes this status again);
-//! * `deferred:<tag>` — another plan owns the row (`attributed-string`).
+//! * `deferred:<tag>` — the statement still copies (`count(2N) - count(N) >= N`),
+//!   and is meant to; the named plan (`attributed-string`, plan-146-A Open
+//!   Decision 1) flips it. plan-146-A's temporary `pending:<letter>` is gone
+//!   again, deleted by plan-146-H: every other line is an arm or a proven
+//!   exemption.
 //!
 //! **Value semantics.** Every program first takes `LET before = x`, prints the
 //! line's check expression over `before`, runs the loop, and prints it again: the
@@ -164,9 +164,8 @@ END FUNC
 enum Status {
     Arm,
     Exempt,
-    /// plan-146-A: still copies until the named plan-146 letter lands.
-    Pending(String),
-    /// plan-146-A: still copies; the named plan owns it.
+    /// plan-146-A: still copies; the named plan owns it (plan-146-H deleted the
+    /// `pending:` twin — a line with no arm is a missing arm).
     Deferred(String),
 }
 
@@ -270,14 +269,10 @@ fn cases() -> Vec<Case> {
             let status = match cols[1].split_once(':') {
                 None if cols[1] == "arm" => Status::Arm,
                 None if cols[1] == "exempt" => Status::Exempt,
-                Some(("pending", letter)) if !letter.is_empty() => {
-                    Status::Pending(letter.to_string())
-                }
                 Some(("deferred", tag)) if !tag.is_empty() => Status::Deferred(tag.to_string()),
                 _ => panic!(
-                    "cases.tsv: status `{}` is not `arm`, `exempt`, `pending:<letter>` or \
-                     `deferred:<tag>` in: {line} — a self-update needs an in-place arm or a \
-                     proven exemption",
+                    "cases.tsv: status `{}` is not `arm`, `exempt` or `deferred:<tag>` in: \
+                     {line} — a self-update needs an in-place arm or a proven exemption",
                     cols[1]
                 ),
             };
@@ -742,17 +737,12 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
         Status::Exempt => exempt_check(index, case, site, &label),
         Status::Arm => Ok(()),
         // plan-146-A: a copy allocates at least one block per statement run.
-        Status::Pending(owner) | Status::Deferred(owner) if extra < n => Err(format!(
-            "{label}: marked `{}`, but {n} more runs allocated only {extra} more blocks \
-             ({once} at N={n}, {twice} at 2N) — the statement no longer copies; flip the \
-             line (owner: {owner})",
-            if matches!(case.status, Status::Pending(_)) {
-                "pending"
-            } else {
-                "deferred"
-            }
+        Status::Deferred(plan) if extra < n => Err(format!(
+            "{label}: marked `deferred:{plan}`, but {n} more runs allocated only {extra} \
+             more blocks ({once} at N={n}, {twice} at 2N) — the statement no longer copies; \
+             flip the line"
         )),
-        Status::Pending(_) | Status::Deferred(_) => Ok(()),
+        Status::Deferred(_) => Ok(()),
     }
 }
 

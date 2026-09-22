@@ -492,12 +492,45 @@ lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 ### Self-updates
 
 A self-update — `x = f(x, …)` of a `List`, `Map` or `Set` for a builtin `f`, and
-`s = s & t` of a `String` — mutates `x`'s own block instead of building a new
-value, wherever `x` is bound: a function local, a module-level global, a local
-inside a `FOR EACH` over itself, or a `MUT` captured by reference in a
-`collections::forEach` lambda. The operation's result and every other value are
-exactly what the copying form would give; the difference is that no second copy
-of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+`s = s & t` or `s = f(s, …)` of a `String` — mutates `x`'s own block instead of
+building a new value, wherever `x` is bound: a function local, a module-level
+global, a local inside a `FOR EACH` over itself, or a `MUT` captured by reference
+in a `collections::forEach` lambda. The operation's result and every other value
+are exactly what the copying form would give; the difference is that no second
+copy of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+
+For a `String` the builtins fall into four families, and every one of them writes
+into `s`'s own block:
+
+- **identity** — `s = toString(s)` emits nothing at all;
+- **window** — `strings::left`, `right`, `mid`, `stripPrefix`, `stripSuffix`,
+  `trim`, `trimStart`, `trimEnd`, `trimChars`, `graphemeAt`, `fs::pathBaseName`,
+  `pathDirName`, `pathExtension`: the result is a run of `s`'s own bytes, moved
+  down to the start of the block;
+- **grow** — `strings::padLeft`, `padRight`, `padLeftToWidth`, `padRightToWidth`,
+  `repeat`, `os::resourcePath`: the added bytes are written into the block's spare
+  capacity, which grows geometrically, so a loop that grows `s` allocates
+  `O(log n)` times;
+- **rewrite** — `strings::upper`, `lower`, `caseFold`, `normalizeNfc`,
+  `strings::replace`, `fs::pathNormalize`: the result is built in the function's
+  self-update scratch (a writer would otherwise overtake the reader — `ß`
+  uppercases to `SS`) and copied back.
+  [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+
+`fs::readText`, `fs::canonicalPath`, `io::input`, `os::getEnv`, `os::getEnvOr`,
+the `encoding` codecs, `net::percentDecode` and `regex::replace` have no in-place
+form: their result is not built from `s`'s bytes. They read `s` without copying
+it (the host reads the block's own NUL-terminated bytes), so there is no copy to
+avoid.
+
+A `String` binding that a self-update leaves shorter than its block keeps the
+bytes it gave up as **spare capacity**, tracked by the compiler beside the
+binding — in a frame slot for a local, a hidden global beside a global, and, for a
+`MUT` captured by reference, in the OWNER's slot, whose address the closure
+environment carries so the lambda and its creator always agree.
+[[src/codegen/collection/assign/string_self_update.rs:string_shadow_captures]]
+The spare capacity is never observable: `len` and every copy, return and transfer
+read `byteLength` bytes and hand on the tight form.
 
 - **Failure atomicity.** Every error the operation can raise — a callback's, an
   index or domain error, `ErrOutOfMemory` — is raised before `x` is written, so a

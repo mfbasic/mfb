@@ -36,6 +36,14 @@ logical string length. A `String` object's total allocation size is therefore
 `+9` formula sizes a `String` block inlined into a record or collection
 (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 
+A `MUT` binding's own block is the one exception, and only while it is bound: an
+in-place self-update (`mfb spec memory collections`, *Self-updates*) may leave the
+block larger than `byteLength + 9`, with the spare bytes recorded beside the
+binding so its drop frees the block at its real size. The spare capacity never
+escapes — every copy, return and transfer reads `byteLength` bytes and produces
+the tight form above — so no reader of a `String` ever sees it.
+[[src/codegen/collection/assign/string_self_update.rs:emit_string_set_len]]
+
 ## Record
 
 User-defined records store one 8-byte field slot per declared field, in

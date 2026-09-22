@@ -204,7 +204,18 @@ an argument or a container corrupts the free list, surfacing much later as
 - `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
   one-byte pad String that is copied into the result and never returned. No
   result-shaped rule can reach it — that one is handed to the statement free
-  explicitly with `register_fresh_string_temp`.
+  explicitly with `register_fresh_string_temp`. The in-place arm (plan-146-D)
+  builds the same `[len][bytes][NUL]` shape in a FRAME object instead: an arm may
+  not allocate per statement, and every reader of a `String` only wants that shape
+  at the pointer.
+- plan-146: a `String` self-update (`s = f(s, …)`) writes into `s`'s OWN block, so
+  it is sound only because a `MUT` binding never holds a block it does not own —
+  the rule the two traps above exist to keep. It also means a bound block may be
+  LARGER than `byteLength + 9`: the spare bytes are tracked beside the binding
+  (`string_capacity_slots`, `$strcap$<global>`, or the owner's slot shared through
+  the closure environment) and `emit_owned_value_drop` frees by
+  `len + 9 + shadow`. A new producer or a new store path for a `String` must keep
+  that pair in step — `mfb spec memory collections`, *Self-updates*.
 - A **user/`.mfb`-bodied** function returning `String` needs the callee-side
   contract below — the mark is set by a producer's own lowering and cannot travel
   out of a callee.

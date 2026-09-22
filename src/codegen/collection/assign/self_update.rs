@@ -12,8 +12,10 @@
 //!   Every arm declines without emitting (inventory rule `O-order-1`), so the order
 //!   only matters for the one name-shared pair, `append` before `bulk_append`.
 //! * `SELF_UPDATE_TABLE` — one row per registry function with a self-update-shaped
-//!   overload (`registry::self_update_shaped`), naming the arm(s) that serve it or
-//!   why none is needed.
+//!   overload (`registry::self_update_shaped`: a `List`, `Map`, `Set`, `String` or
+//!   `AttributedString` first parameter whose return type can equal it), naming the
+//!   arm(s) that serve it or why none is needed. The 19 Tier-B `AttributedString`
+//!   transforms are not registry overloads and come from `TIER_B_TRANSFORMS`.
 //!
 //! A binding site (a function local, a module-level global, …) is only a different
 //! way of building a [`SelfUpdateSite`]: every arm is automatically an arm at every
@@ -1154,11 +1156,10 @@ pub(crate) enum SelfUpdate {
         reason: &'static str,
         proof: &'static str,
     },
-    /// plan-146-A: still copies; the plan-146 letter named here lands its arm or
-    /// its proven exemption. Letter H deletes this variant again, as plan-142-I did.
-    Pending(&'static str),
     /// Still copies; the named plan owns it (plan-146-A Open Decision 1: the
-    /// `AttributedString` forms, `attributed-string`).
+    /// `AttributedString` forms, `attributed-string`). plan-146-H deleted
+    /// `Pending` again, as plan-142-I did: a `String` builtin with a self-update
+    /// form now needs an arm or a proven exemption, never a promise.
     Deferred(&'static str),
 }
 
@@ -1773,7 +1774,7 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         },
         probes: &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
     },
-    // --- plan-146: `String` self-updates (Pending until their letter lands) ---
+    // --- plan-146: the `String` self-updates ---
     SelfUpdateRow {
         function: "toString",
         kind: SelfUpdate::Arm(&[ArmId::StrIdentity]),
@@ -3057,12 +3058,11 @@ mod tests {
                     row.function
                 );
             }
-            if let SelfUpdate::Pending(owner) | SelfUpdate::Deferred(owner) = row.kind {
+            if let SelfUpdate::Deferred(plan) = row.kind {
                 assert!(
-                    !owner.trim().is_empty(),
-                    "row {} is {:?} without naming who lands it",
-                    row.function,
-                    row.kind
+                    !plan.trim().is_empty(),
+                    "row {} is Deferred without naming the plan that owns it",
+                    row.function
                 );
             }
             if let SelfUpdate::Arm(ids) = row.kind {

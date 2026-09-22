@@ -6,13 +6,11 @@
 #   signature  exactly as `mfb man` renders it (an operator line has no `::`)
 #   status     arm | exempt — `arm`: the statement allocates O(1) per run
 #              (count(2N) - count(N) < N/8); `exempt`: `x` is read, never copied (a
-#              peak-live-bytes bound). plan-146-A reopens two more, for the `String`
-#              lines it adds, each asserting the statement still copies
-#              (count(2N) - count(N) >= N): `pending:<letter>`, the plan-146 letter
-#              that lands the arm or exemption (plan-146-H deletes it again), and
-#              `deferred:<tag>`, a row another plan owns (`attributed-string`,
-#              plan-146-A Open Decision 1). Otherwise a line with no arm is a missing
-#              arm (plan-142-I).
+#              peak-live-bytes bound). There is ONE other status, and it names the
+#              plan that owes the work: `deferred:<tag>`, a row another plan owns
+#              (`attributed-string`, plan-146-A Open Decision 1), asserting the
+#              statement still copies (count(2N) - count(N) >= N). Otherwise a line
+#              with no arm is a missing arm (plan-142-I, plan-146-H).
 #   setup      `<type> = <init>` declaring `x`, then optional ` ; <statement>` lines; `{M}` is the size of `x` (see the harness)
 #   statement  run each iteration; ` ; ` separates several
 #   check      a String expression over `before` (a copy of `x` taken first); printed
