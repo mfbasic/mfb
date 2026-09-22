@@ -37,19 +37,27 @@ pub(crate) fn store_result(builder: &mut CodeBuilder, slot: usize) {
     builder.emit(abi::store_u64(abi::c_return(0), abi::stack_pointer(), slot));
 }
 
-/// A NUL-terminated copy of `text` in a fresh stack slot, written eight bytes at a
-/// time; answers the slot. For the handful of short, fixed C strings a backend passes
-/// (`dlsym` names, fontconfig object names) — no data object to declare per target.
+/// A NUL-terminated copy of `text` in a fresh stack slot; answers the slot. For the
+/// handful of short, fixed C strings a backend passes (`dlsym` names, fontconfig object
+/// names) — no data object to declare per target.
 pub(crate) fn stack_cstring(builder: &mut CodeBuilder, name: &str, text: &str) -> usize {
     let mut bytes = text.as_bytes().to_vec();
     bytes.push(0);
+    stack_bytes(builder, name, &bytes)
+}
+
+/// `bytes` in a fresh stack slot (zero-padded to a multiple of eight), written four
+/// bytes at a time so every immediate is a small non-negative number on every target;
+/// answers the slot. A wide string or a GUID is laid out by the caller.
+pub(crate) fn stack_bytes(builder: &mut CodeBuilder, name: &str, bytes: &[u8]) -> usize {
+    let mut bytes = bytes.to_vec();
     bytes.resize(bytes.len().div_ceil(8) * 8, 0);
     let slot = builder.allocate_stack_object(name, bytes.len());
-    for (i, chunk) in bytes.chunks(8).enumerate() {
-        let word = u64::from_le_bytes(chunk.try_into().expect("an 8-byte chunk"));
+    for (i, chunk) in bytes.chunks(4).enumerate() {
+        let word = u32::from_le_bytes(chunk.try_into().expect("a 4-byte chunk"));
         let value = builder.temporary_vreg();
         builder.emit(abi::move_immediate(&value, "Integer", &word.to_string()));
-        builder.emit(abi::store_u64(&value, abi::stack_pointer(), slot + i * 8));
+        builder.emit(abi::store_u32(&value, abi::stack_pointer(), slot + i * 4));
     }
     slot
 }

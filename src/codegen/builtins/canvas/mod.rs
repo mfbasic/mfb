@@ -70,6 +70,7 @@ mod gen_font_table;
 mod gen_system_fonts_linux;
 mod gen_system_fonts_macos;
 mod gen_system_fonts_shared;
+mod gen_system_fonts_windows;
 mod gen_group;
 mod gen_image;
 mod gen_present;

@@ -195,3 +195,16 @@ fn linux_reaches_fontconfig_through_dlopen_not_a_link() {
         }
     }
 }
+
+/// On Windows the fonts come from DirectWrite (plan-147-D): the plan imports
+/// `dwrite.dll`'s one flat export, `DWriteCreateFactory`, and nothing else from it —
+/// every other DirectWrite call is a vtable call.
+#[test]
+fn windows_reaches_directwrite_through_its_factory() {
+    let plan = cross_plan("canvas_sysfont_plan_windows", "windows-x86_64");
+    assert!(plan.contains("dwrite.dll"), "the plan does not import dwrite.dll");
+    assert!(
+        plan.contains("\"DWriteCreateFactory\""),
+        "the plan does not import DWriteCreateFactory",
+    );
+}

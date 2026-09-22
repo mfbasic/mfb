@@ -96,28 +96,42 @@ PostScript name); GDI `EnumFontFamiliesEx` (no file paths).
 
 ### Phase 1 — Constants and the shared COM helper
 
-- [ ] Record every slot/IID/enum of §2 as named constants with `dwrite.h` citations.
-- [ ] Lift the COM call helper; audio uses it.
-- [ ] Check: audio Windows goldens unchanged — `cargo test --test acceptance audio`
-      (name via `rg -l 'IMPORT audio' tests/syntax`) → pass (est. 5 min).
+- [x] Record every slot/IID/enum of §2 as named constants with `dwrite.h` citations —
+      `gen_system_fonts_windows.rs` constants cite mingw-w64 `dwrite.h`/`dwrite_3.h`
+      lines, extracted by `/tmp/p147_dw/slots.py` from the headers' `…Vtbl` structs
+      (e.g. `dwrite.h:1743 IDWriteFontFace::TryGetFontTable slot 12`,
+      `dwrite_3.h:9602 IDWriteFontFace5::HasVariations slot 55`).
+- [x] Lift the COM call helper; audio uses it — `src/codegen/os/ffi/com_call.rs`
+      `emit_com_call`, called by audio's `com_call` (same instruction order) and by the
+      DirectWrite emitter.
+- [x] Check: audio Windows goldens unchanged — the named `cargo test --test acceptance
+      audio` does not exist; the audio goldens are artifact-gate goldens.
+      `bash scripts/artifact-gate.sh ./target/debug/mfb audio` → `7 golden(s) checked,
+      0 diff(s)`, including `audio_codegen_cover_rt.windows-x86_64.ncodesum`, whose
+      fixture calls `audio::devices`/`openOutput`/`openInput` (5 hits).
 
+### Phase 2 — Emitter, plan, capability, runtime proof
 
-- [ ] Restore the Windows canvas-app build broken since plan-147-B:
-      `mfb build -ncode -target windows-x86_64 --app` of
-      `tests/syntax/app/app-mouse-surface` succeeds and its `.app.ncodesum` golden is
-      regenerated after checking the diff is only the plan-147 members.### Phase 2 — Emitter, plan, capability, runtime proof
-
-- [ ] `gen_system_faces_windows.rs`, plan arm, capability entry; delete the
-      no-backend arm.
-- [ ] Tests: `rt_canvas_system_fonts.rs` cross-build for `windows-x86_64` succeeds.
-- [ ] Runtime proof on 2230 via `scripts/test-winapp.sh`-style shipping
-      (`win_ship` in `scripts/remote-common.sh`), `MFB_WINAPP_HEADLESS=1`: list then
-      load every face; record count in Corrections.
+- [x] `gen_system_fonts_windows.rs`, plan arm (`DWriteCreateFactory` from new
+      `DWRITE` = `dwrite.dll`, `WideCharToMultiByte` from kernel32), capability entry;
+      the no-backend arm is gone (every `PlatformFamily` has a backend).
+- [x] Restore the Windows canvas-app build broken since plan-147-B: `mfb build -ncode
+      -target windows-x86_64 --app` of `tests/syntax/app/app-mouse-surface` succeeds and
+      its `.app.ncodesum` is regenerated (the target-shared `.ir` shows only plan-147
+      members). The two Linux sums were regenerated again too — `stack_bytes` now
+      writes 4-byte chunks (see Corrections). Re-check: 8/8 `same`.
+- [x] Tests: `rt_canvas_system_fonts.rs` `windows_reaches_directwrite_through_its_factory`
+      — the `windows-x86_64` cross-build succeeds and imports `DWriteCreateFactory` from
+      `dwrite.dll`. `cargo test --test rt_canvas_system_fonts -- windows linux` →
+      `2 passed`.
+- [x] Runtime proof on 2230 (`scp` + `C:\mfbwin\p147run.bat`, `MFB_WINAPP_HEADLESS=1`):
+      list then load every face; count recorded in Corrections.
 
 Acceptance: positive count on Win11; every listed face loads; `Arial` present.
   Check: `ssh -p 2230 … probe.exe` → `faces=N loaded=N`, N > 0, and `Arial` in the
   list (est. 5 min).
-Commit: —
+  **Observed: `rc=0`, `faces=162 loaded=162`, `unknown: 77050004`, `name: Arial`.**
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -130,6 +144,23 @@ Commit: —
   macOS/fontconfig report) vs. the user's locale (list would differ by machine language).
 
 ## Corrections
+
+- **Runtime proof (2230, Windows 11 10.0.26100.9457, 2026-09-21):** 162 faces listed,
+  all 162 load, `Arial` present, an unknown name → `77050004`.
+- **First run listed 0 faces: the `glyf` tag constant was wrong.** A temporary
+  instrumented build (per-rejection counters returned as hex, reverted before commit)
+  showed, per pass of 531 fonts, 267 rejected as simulated and all 264 others as
+  lacking `glyf`. `DWRITE_MAKE_OPENTYPE_TAG('g','l','y','f')` is `0x66796C67` =
+  1719233639; the constant was 1718185063 = `0x66696C67` (`glif`). Fixed. The
+  simulated count is DirectWrite's synthesised bold/italic faces for families that
+  lack them — excluded by design.
+- **`stack_bytes` writes 4-byte chunks.** The GUIDs set the top bit of 8-byte words,
+  and a 64-bit immediate above `i64::MAX` is not a form any emitter here was shown to
+  take; four bytes at a time keeps every immediate a small non-negative number. That
+  also changed the Linux emitter's stack C-strings, so plan-147-C's runtime proof was
+  re-run on 2228 against the new code (recorded here because C is archived):
+  `exit=0 seconds=222`, `faces=2429 loaded=2429`, `unknown: 77050004` — identical to
+  C's result. macOS does not use `stack_bytes` (its `.app.ncodesum` stayed `same`).
 
 ## Summary
 
