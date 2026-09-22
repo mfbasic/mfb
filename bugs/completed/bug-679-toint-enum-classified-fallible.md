@@ -409,3 +409,19 @@ misattributed. See Corrections 1. Everything in §Non-goals held: no other `toIn
 overload changed, no `Enum` variant was added to `ParameterType`, no spelling
 heuristic was used (both rules key on the declaration's kind), and `turned` in
 `examples/dungeon` was not rewritten.
+
+**Gates, all measured on the merged tree** (`worktree-B-679` after `git merge main`):
+
+- `cargo test --bin mfb` — `test result: ok. 4296 passed; 0 failed; 1 ignored`.
+- `scripts/artifact-gate.sh target/debug/mfb all` — `1485 tests, 1660 build(s),
+  2098 golden(s) checked, 0 diff(s)`.
+- `scripts/test-accept.sh target/debug/mfb <dir>` — `acceptance tests passed
+  (1511 test(s) ran)`. The first run of this reported one mismatch, the
+  `acceptance` fixture timing out; it passes alone and the full suite passes
+  clean on a quiet machine. That run was sharing the host with a stale
+  `cargo test` and a second worktree's suite. Not a regression — but re-run
+  rather than argued away.
+- Reproductions: `mfb build /tmp/tointtrap` warns `TYPE_INLINE_TRAP_DEAD_HANDLER`
+  on **both** lines 8 and 11 and the program still prints `1Green`;
+  `mfb audit /tmp/tointfall` lists neither `ordinalOf` nor `nameOf`;
+  `mfb audit examples/dungeon | grep -c "(fallible)"` → **12** (38 before).
