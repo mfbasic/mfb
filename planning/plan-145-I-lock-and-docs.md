@@ -148,6 +148,13 @@ Commit: `096acb8bd`
 Acceptance: all green; counts recorded (est. 90 min: the full gate, required once
 by `.ai/testing-gates.md`, plus the one unfiltered harness run).
 All green (above); counts recorded.
+**Re-run after main advanced again** (plan-147, plan-148 landed; merged at
+`0192c02eb`, no conflict): `cargo test --no-fail-fast` → `exit 0`, 222 test targets,
+5,976 passed, 0 failed (`--bin mfb`: "4294 passed; 0 failed; 1 ignored";
+`rt_inplace_self_update` unfiltered: "2 passed", 3009.21 s);
+`scripts/artifact-gate.sh target/release/mfb all` → "1485 tests, 1660 build(s),
+2098 golden(s) checked, 0 diff(s)"; `scripts/test-accept.sh` (a copy of that
+`target/debug/mfb`) → "acceptance tests passed (1511 test(s) ran)".
 Commit: `(recorded in the next commit)`
 
 ## Corrections
