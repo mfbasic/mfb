@@ -134,7 +134,7 @@ check is the test for exactly that.
 
 Acceptance: both recorded (est. 30 min).
 Both recorded above.
-Commit: recorded with Phase 2 (below)
+Commit: `4cd54ed9e` (with Phase 2)
 
 ### Phase 2: The slot helper and the arms
 
@@ -190,9 +190,9 @@ flips).
   5 diffs, all `byte-identity/http` — bug-677's fix, regenerated there.
 - `cargo test --bin mfb self_update` → "6 passed".
 - `cargo test --test rt_inplace_failure_atomic` → "2 passed".
-- The seven-site harness run (`MFB_SELF_UPDATE_SITES=S3,S4,T1,T2,T3,T4,T8`) is recorded in the next commit.
+- `MFB_TEST_EXE=target/release/mfb MFB_SELF_UPDATE_SITES=S3,S4,T1,T2,T3,T4,T8 cargo test --test rt_inplace_self_update` → "2 passed" (2306 s): every `cases.tsv` line and kind at the seven sites, the 342 flipped lines included.
 - D4 changed the mixed path: `MFB_SELF_UPDATE_SITES=S10,T5` is re-run and recorded in the next commit.
-Commit: `(recorded in the next commit)`
+Commit: `4cd54ed9e`
 
 ## Validation Plan
 

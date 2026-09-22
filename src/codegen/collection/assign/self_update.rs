@@ -202,12 +202,17 @@ pub(crate) enum FieldReach {
     /// field (`field_is_last_inlined`); its others may mutate any inlined
     /// collection field where it lies.
     Existing,
-    /// plan-145-D: the arm never stores a new block pointer for the element kinds
-    /// it admits at a field, so it mutates the field's sub-block where it lies —
-    /// at any inlined collection field, last or not (Open Decision 2). The kinds
-    /// that could reallocate (a variable-width element or value) decline at a
-    /// field, in the arm.
+    /// plan-145-D: for a fixed-width element (or value) the arm never stores a new
+    /// block pointer, so it mutates the field's sub-block where it lies — at any
+    /// inlined collection field, last or not (Open Decision 2). plan-145-E: a
+    /// variable-width kind may repack (a reallocation), which reaches the field
+    /// through `InlineGrow` at its owner's last inlined field only
+    /// (`field_realloc_admitted`, in the arm).
     NoRealloc,
+    /// plan-145-E: the arm reallocates (its inserts grow the collection), so it
+    /// runs at a field only through `InlineGrow`, at its owner's last inlined
+    /// field, with no pointer operand read from the owner (`field_realloc_admitted`).
+    Realloc,
 }
 
 /// The dispatch list. Every arm-backed `SELF_UPDATE_TABLE` row names ids from
@@ -318,7 +323,7 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::Union,
         |b, s, v| b.try_inplace_union_assign(s, v),
-        FieldReach::None,
+        FieldReach::Realloc,
     ),
     (
         ArmId::Intersection,
@@ -333,12 +338,12 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::SymmetricDifference,
         |b, s, v| b.try_inplace_symmetric_difference_assign(s, v),
-        FieldReach::None,
+        FieldReach::Realloc,
     ),
     (
         ArmId::Merge,
         |b, s, v| b.try_inplace_merge_assign(s, v),
-        FieldReach::None,
+        FieldReach::Realloc,
     ),
     (
         ArmId::MapValues,
@@ -1781,19 +1786,10 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 /// lands a pair early, without removing its entry, fails. Letter I deletes this.
 #[cfg(test)]
 pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
-    const LAST: &[&str] = &["S4", "T2", "T4", "T8"];
-    const MIXED: &[&str] = &["S10", "T5"];
     const NESTED: &[&str] = &["S6", "T6"];
     const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // plan-142's reallocating arms at a last-inlined field (letter E).
-        (ArmId::Union, LAST, 'E'),
-        (ArmId::SymmetricDifference, LAST, 'E'),
-        (ArmId::Merge, LAST, 'E'),
-        (ArmId::Union, MIXED, 'E'),
-        (ArmId::SymmetricDifference, MIXED, 'E'),
-        (ArmId::Merge, MIXED, 'E'),
         // Nested paths (F), the global record (G), the loop and the capture (H):
         // every collection arm.
         (ArmId::Append, NESTED, 'F'),

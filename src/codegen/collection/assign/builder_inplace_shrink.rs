@@ -16,10 +16,12 @@
 //! * `take`/`drop` are total (the range clamps); `mid` validates its range with the
 //!   same checks, order and error as `lower_list_mid` before compacting.
 
+use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::collection::assign::inplace_dest::*;
 use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::collection::layout::kind2_payload_size;
 use crate::codegen::collection::list::list_compact::KeepSource;
+use crate::codegen::collection::map::map_mutate::InlineGrow;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
@@ -38,13 +40,27 @@ impl CodeBuilder<'_> {
     ) -> Option<(SelfUpdateTarget<'v>, ParameterType)> {
         let target = self.resolve_self_update(site, value, builtin, arity)?;
         let element_type = typed_list_element_type(&target.collection_type).cloned()?;
-        // plan-145-D: at a field, only a fixed-width element. A variable-width
-        // compaction may repack the list into a new block (the out-of-order path),
-        // which an inlined sub-block cannot receive; that kind is letter E's.
-        if target.dest.is_field() && kind2_payload_size(&element_type).is_none() {
+        // plan-145-D/E: a variable-width compaction may repack the list into a new
+        // block (the out-of-order path) — a reallocation, which reaches a field
+        // through `InlineGrow` only at its owner's last inlined field. The other
+        // operands are scalars and a callable, never a view into the owner.
+        if kind2_payload_size(&element_type).is_none() && !self.field_realloc_admitted(site, &[]) {
             return None;
         }
         Some((target, element_type))
+    }
+
+    /// plan-145-E: the compaction's repack `InlineGrow` at a field — for a
+    /// variable-width element only; a fixed-width compaction never repacks.
+    fn shrink_inline_grow(
+        &mut self,
+        dest: &InPlaceDest,
+        element_type: &ParameterType,
+    ) -> Result<Option<InlineGrow>, String> {
+        if kind2_payload_size(element_type).is_some() {
+            return Ok(None);
+        }
+        self.inplace_inline_grow(dest)
     }
 
     /// Store `count` of the list in `buffer_slot` into a fresh slot.
@@ -89,6 +105,7 @@ impl CodeBuilder<'_> {
         let dest = self.open_inplace_dest(&target.dest)?;
         let n_slot = self.lower_integer_operand(&target.args[1], "take_count")?;
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        let grow = self.shrink_inline_grow(&dest, &element_type)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_take_len");
         let start_slot = self.allocate_stack_object("inplace_take_start", 8);
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), start_slot));
@@ -102,6 +119,7 @@ impl CodeBuilder<'_> {
             },
             &target.collection_type,
             &element_type,
+            grow,
         )?;
         self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
@@ -120,6 +138,7 @@ impl CodeBuilder<'_> {
         let dest = self.open_inplace_dest(&target.dest)?;
         let n_slot = self.lower_integer_operand(&target.args[1], "drop_count")?;
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        let grow = self.shrink_inline_grow(&dest, &element_type)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_drop_len");
         let start_slot = self.emit_clamp_to_count(n_slot, count_slot, "drop")?;
         // len = count - start.
@@ -138,6 +157,7 @@ impl CodeBuilder<'_> {
             },
             &target.collection_type,
             &element_type,
+            grow,
         )?;
         self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
@@ -160,6 +180,7 @@ impl CodeBuilder<'_> {
         let start_slot = self.lower_integer_operand(&target.args[1], "mid_start")?;
         let len_slot = self.lower_integer_operand(&target.args[2], "mid_count")?;
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        let grow = self.shrink_inline_grow(&dest, &element_type)?;
         let base = self.temporary_vreg();
         let start = self.temporary_vreg();
         let len = self.temporary_vreg();
@@ -199,6 +220,7 @@ impl CodeBuilder<'_> {
             },
             &target.collection_type,
             &element_type,
+            grow,
         )?;
         self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
@@ -241,6 +263,7 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        let grow = self.shrink_inline_grow(&dest, &element_type)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_filter_count");
         let marks_slot = self.emit_reserve_self_update_scratch(count_slot)?;
 
@@ -302,6 +325,7 @@ impl CodeBuilder<'_> {
             &KeepSource::Marks { marks_slot },
             &target.collection_type,
             &element_type,
+            grow,
         )?;
         self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);
@@ -323,6 +347,7 @@ impl CodeBuilder<'_> {
         };
         let dest = self.open_inplace_dest(&target.dest)?;
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        let grow = self.shrink_inline_grow(&dest, &element_type)?;
         let count_slot = self.spill_list_count(buffer_slot, "inplace_distinct_count");
         let marks_slot = self.emit_reserve_self_update_scratch(count_slot)?;
         let payload = kind2_payload_size(&element_type);
@@ -449,6 +474,7 @@ impl CodeBuilder<'_> {
             &KeepSource::Marks { marks_slot },
             &target.collection_type,
             &element_type,
+            grow,
         )?;
         self.close_field_dest(&target.dest, &dest)?;
         self.clear_constant(site.name);

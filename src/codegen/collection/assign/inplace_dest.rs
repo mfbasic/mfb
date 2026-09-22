@@ -406,6 +406,49 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// plan-145-E: the `InlineGrow` a reallocating route takes at an (opened)
+    /// field destination — the owner's block slot, and the field's offset read
+    /// here once, before any grow (`open_inplace_inlined_field_offset`) — or
+    /// `None` for a plain, `Ref` or `Global` destination, whose slot a
+    /// reallocation simply repoints. Emits for a field, so it runs after the
+    /// operands (`O-order-4`), like [`Self::inplace_collection_slot`].
+    pub(crate) fn inplace_inline_grow(
+        &mut self,
+        dest: &InPlaceDest,
+    ) -> Result<Option<crate::codegen::collection::map::map_mutate::InlineGrow>, String> {
+        match dest {
+            InPlaceDest::Inlined { block_slot, .. } => {
+                let block_slot = *block_slot;
+                let field_off_slot = self.open_inplace_inlined_field_offset(dest)?;
+                Ok(Some(
+                    crate::codegen::collection::map::map_mutate::InlineGrow {
+                        block_slot,
+                        field_off_slot,
+                    },
+                ))
+            }
+            InPlaceDest::StateField { .. } => {
+                Err("native in-place: a STATE field destination must be opened first".to_string())
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// plan-145-E: whether a route that can reallocate may run at `site`. A plain
+    /// site always. A field only when it is its owner's last inlined field (`G17`:
+    /// the new record ends where the collection ends, so nothing after it shifts)
+    /// and none of `operands` reads the owner — such an operand may be a borrowed
+    /// view into the old record, which the grow frees before the arm is done
+    /// reading it.
+    pub(crate) fn field_realloc_admitted(
+        &self,
+        site: &SelfUpdateSite<'_>,
+        operands: &[NirValue],
+    ) -> bool {
+        site.field.is_none()
+            || (self.field_is_last_inlined(site) && !operands.iter().any(|v| site.read_by(v)))
+    }
+
     /// plan-145-D: whether a field site's field is its owner's last inlined field
     /// (`G17`) — required before a route that can reallocate grows it: a grow of a
     /// middle sub-block would shift the next sibling and its stored offset.

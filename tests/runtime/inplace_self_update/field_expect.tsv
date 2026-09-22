@@ -153,20 +153,20 @@ collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	T7	copy:H
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	T8	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S3	rebuild:not-last-grow
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S4	copy:E
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S4	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S5	copy:G
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S6	copy:F
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S7	copy:H
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S9	copy:H
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S10	copy:E
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S10	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T1	rebuild:not-last-grow
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T2	copy:E
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T2	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T3	rebuild:not-last-grow
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T4	copy:E
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T5	copy:E
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T4	arm
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T5	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T6	copy:F
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T7	copy:H
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T8	copy:E
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T8	arm
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S4	arm
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S5	copy:G
@@ -348,20 +348,20 @@ collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	T6	c
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	T7	copy:H
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	T8	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	rebuild:not-last-grow
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	copy:E
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	copy:F
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S10	copy:E
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S10	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T1	rebuild:not-last-grow
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T2	copy:E
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T2	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T3	rebuild:not-last-grow
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T4	copy:E
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T5	copy:E
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T4	arm
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T5	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T6	copy:F
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T7	copy:H
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	copy:E
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	arm
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S4	arm
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S5	copy:G
@@ -393,20 +393,20 @@ collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	T6	co
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	T7	copy:H
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	T8	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	rebuild:not-last-grow
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	copy:E
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	copy:F
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S10	copy:E
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S10	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T1	rebuild:not-last-grow
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T2	copy:E
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T2	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T3	rebuild:not-last-grow
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T4	copy:E
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T5	copy:E
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T4	arm
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T5	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T6	copy:F
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T7	copy:H
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	copy:E
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	arm
 compress::deflate(data AS List OF Byte, [level AS Integer]) AS List OF Byte	S3	rebuild:new-value
 compress::deflate(data AS List OF Byte, [level AS Integer]) AS List OF Byte	S4	rebuild:new-value
 compress::deflate(data AS List OF Byte, [level AS Integer]) AS List OF Byte	S5	rebuild:new-value

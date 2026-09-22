@@ -365,3 +365,153 @@ END FUNC
         "the field cases leaked:\n{report}"
     );
 }
+
+/// plan-145-E: `union` and `merge` at a last-inlined record field and `STATE`
+/// field. Their only possible failures are an operand's (here a callback that
+/// fails) and `ErrOutOfMemory` at the reserve, both before the first write, so a
+/// failing statement leaves the owner as it was; and the grown record is freed
+/// whole (`live_bytes 0`).
+#[test]
+fn a_failing_reallocating_field_update_leaves_the_owner_unchanged() {
+    let source = format!(
+        "{HELPERS}
+IMPORT fs
+
+TYPE U
+  a AS Integer
+  s AS Set OF String
+END TYPE
+
+TYPE M
+  a AS Integer
+  m AS Map OF String TO String
+END TYPE
+
+FUNC failSet() AS Set OF String
+  FAIL error(77050002, \"set\")
+END FUNC
+
+FUNC failBool() AS Boolean
+  FAIL error(77050002, \"bool\")
+END FUNC
+
+FUNC showU(u AS U) AS String
+  MUT l AS List OF String = []
+  FOR EACH v IN u.s
+    l = collections::append(l, v)
+  NEXT
+  RETURN toString(u.a) & \"|\" & showStrs(collections::sort(l))
+END FUNC
+
+FUNC freshU() AS U
+  RETURN U[a := 1, s := Set OF String {{ \"x\", \"y\" }}]
+END FUNC
+
+FUNC freshM() AS M
+  RETURN M[a := 1, m := Map OF String TO String {{ \"k\" := \"v\" }}]
+END FUNC
+
+FUNC recUnion() AS Integer
+  MUT r AS U = freshU()
+  FOR i = 1 TO 40
+    r = WITH r {{ s := collections::union(r.s, Set OF String {{ \"grow-\" & toString(i) }}) }}
+  NEXT
+  r = WITH r {{ s := collections::union(r.s, failSet()) }}
+  RETURN 0
+
+  TRAP(e)
+    io::print(\"rec union \" & toString(len(r.s)) & \" \" & toString(r.a))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC stMerge(RES h AS fs::File STATE M) AS Integer
+  FOR i = 1 TO 40
+    h.state = WITH h.state {{ m := collections::merge(h.state.m, Map OF String TO String {{ \"k\" & toString(i) := \"value\" }}, TRUE) }}
+  NEXT
+  LET n AS Map OF String TO String = Map OF String TO String {{ \"z\" := \"zz\" }}
+  h.state = WITH h.state {{ m := collections::merge(h.state.m, n, failBool()) }}
+  RETURN 0
+
+  TRAP(e)
+    io::print(\"state merge \" & showMap(h.state.m) & \" \" & toString(h.state.a))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(recUnion()))
+  RES h AS fs::File STATE M = fs::openFile(\"/dev/null\")
+  h.state = freshM()
+  io::print(toString(stMerge(h)))
+  io::print(\"after \" & toString(len(h.state.m)))
+  RETURN 0
+END FUNC
+"
+    );
+    // `showMap` walks the keys in insertion order: the entry key, then the 40 merged.
+    let mut merged = String::from("k=v,");
+    for i in 1..=40 {
+        merged.push_str(&format!("k{i}=value,"));
+    }
+    let want = vec![
+        "rec union 42 1".to_string(),
+        "1".to_string(),
+        format!("state merge {merged} 1"),
+        "1".to_string(),
+        "after 41".to_string(),
+    ];
+
+    let project = common::temp_project("inplace_atomic_realloc_fields", &source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("--debug")
+        .arg(&project)
+        .output()
+        .expect("run mfb build");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "build failed:\n{stdout}\n{}\n--- source ---\n{source}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exe = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Wrote executable to "))
+        .find(|p| p.ends_with("-glibc.out"))
+        .or_else(|| {
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix("Wrote executable to "))
+        })
+        .expect("an executable")
+        .to_string();
+    let run = Command::new(&exe).output().expect("run the program");
+    let _ = std::fs::remove_dir_all(&project);
+    let text = String::from_utf8_lossy(&run.stdout).into_owned();
+    let report = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        run.status.success(),
+        "program failed ({}):\n{text}\n{report}\n--- source ---\n{source}",
+        common::exit_description(&run.status)
+    );
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    assert_eq!(
+        lines, want,
+        "a failed reallocating field update must leave the owner as it was"
+    );
+    let sum = |key: &str| -> u64 {
+        report
+            .lines()
+            .filter_map(|line| line.strip_prefix("arena."))
+            .filter_map(|rest| rest.split_once(key))
+            .filter(|(arena, _)| !arena.contains('.'))
+            .map(|(_, n)| n.trim().parse::<u64>().expect("a count"))
+            .sum()
+    };
+    assert_eq!(
+        (sum(".alloc_calls "), sum(".live_bytes ")),
+        (sum(".free_calls "), 0),
+        "the reallocating field cases leaked:\n{report}"
+    );
+}

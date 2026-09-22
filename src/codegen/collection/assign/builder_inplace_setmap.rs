@@ -32,6 +32,7 @@
 
 use crate::codegen::collection::assign::inplace_dest::*;
 use crate::codegen::collection::assign::self_update::SelfUpdateSite;
+use crate::codegen::collection::map::map_mutate::InlineGrow;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::{
@@ -469,7 +470,10 @@ impl CodeBuilder<'_> {
     }
 
     /// `add` every element of the set in `source_slot` (or every marked one) to
-    /// the set in `dest_slot`, in the source's order.
+    /// the set in `dest_slot`, in the source's order. `inline` is each insert's
+    /// `InlineGrow` at a field (plan-145-E); every insert reads the set through
+    /// `dest_slot`, which a grow repoints.
+    #[allow(clippy::too_many_arguments)]
     fn emit_add_all(
         &mut self,
         dest_slot: usize,
@@ -478,6 +482,7 @@ impl CodeBuilder<'_> {
         set_type: &ParameterType,
         element_type: &ParameterType,
         key_area: Option<usize>,
+        inline: Option<InlineGrow>,
     ) -> Result<(), String> {
         let true_slot = self.emit_true_slot();
         let (index_slot, top, done) = self.emit_map_loop_head(source_slot, "inplace_add_all");
@@ -503,7 +508,7 @@ impl CodeBuilder<'_> {
             set_type,
             element_type,
             &ParameterType::Boolean,
-            None,
+            inline,
         )?;
         self.emit(abi::label(&skip));
         self.emit_map_loop_next(index_slot, &top, &done);
@@ -626,18 +631,25 @@ impl CodeBuilder<'_> {
         let Some((target, element_type, alias)) = self.resolve_set_op(site, value, "union") else {
             return Ok(false);
         };
+        // plan-145-E: the inserts grow the set.
+        if !self.field_realloc_admitted(site, &target.args[1..]) {
+            return Ok(false);
+        }
+        let opened = self.open_inplace_dest(&target.dest)?;
         if !alias {
             let set_type = target.collection_type.clone();
-            let dest = target.dest.block_slot();
             let other = self.lower_other_collection(&target.args[1], &set_type, "union")?;
+            let dest = self.inplace_collection_slot(&opened)?;
+            let grow = self.inplace_inline_grow(&opened)?;
             let key_area = match self.emit_borrow_area_size(other, Payload::Key, &element_type) {
                 Some(size) => Some(self.emit_scratch_areas(&[size])?[0]),
                 None => None,
             };
             let (entries, bytes) = self.emit_map_batch_room(other, None);
-            self.emit_map_reserve(dest, entries, bytes, &set_type)?;
-            self.emit_add_all(dest, other, None, &set_type, &element_type, key_area)?;
+            self.emit_map_reserve(dest, entries, bytes, &set_type, grow)?;
+            self.emit_add_all(dest, other, None, &set_type, &element_type, key_area, grow)?;
         }
+        self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
         Ok(true)
     }
@@ -722,12 +734,19 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let set_type = target.collection_type.clone();
-        let dest = target.dest.block_slot();
+        // plan-145-E: the inserts grow the set.
+        if !self.field_realloc_admitted(site, &target.args[1..]) {
+            return Ok(false);
+        }
+        let opened = self.open_inplace_dest(&target.dest)?;
         if alias {
+            let dest = self.inplace_collection_slot(&opened)?;
             self.lower_map_clear_in_place(dest, &set_type)?;
         } else {
             let other =
                 self.lower_other_collection(&target.args[1], &set_type, "symmetricDifference")?;
+            let dest = self.inplace_collection_slot(&opened)?;
+            let grow = self.inplace_inline_grow(&opened)?;
             // Marks for `s` then for `t`, in one scratch region, then one borrowed
             // key area big enough for either set's keys; both membership passes
             // read the original `s`.
@@ -773,7 +792,7 @@ impl CodeBuilder<'_> {
             )?;
             self.lower_map_compact_in_place(dest, marks_s, &set_type)?;
             let (entries, bytes) = self.emit_map_batch_room(other, Some(marks_t));
-            self.emit_map_reserve(dest, entries, bytes, &set_type)?;
+            self.emit_map_reserve(dest, entries, bytes, &set_type, grow)?;
             self.emit_add_all(
                 dest,
                 other,
@@ -781,8 +800,10 @@ impl CodeBuilder<'_> {
                 &set_type,
                 &element_type,
                 key_area,
+                grow,
             )?;
         }
+        self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
         Ok(true)
     }
@@ -805,7 +826,12 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        let dest = target.dest.block_slot();
+        // plan-145-E: a new key grows the map. `preferB` is lowered into a slot
+        // before any grow, so only the other map can be a stale view.
+        if !self.field_realloc_admitted(site, &target.args[1..2]) {
+            return Ok(false);
+        }
+        let opened = self.open_inplace_dest(&target.dest)?;
         let alias = site.is_self(&target.args[1]);
         // Source order: the other map, then preferB.
         let other = if alias {
@@ -826,8 +852,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             prefer_slot,
         ));
+        let dest = self.inplace_collection_slot(&opened)?;
         // `merge(m, m, p)` is `m` whatever `p` is.
         if let Some(other) = other {
+            let grow = self.inplace_inline_grow(&opened)?;
             let mut sizes = Vec::new();
             let key_size = self.emit_borrow_area_size(other, Payload::Key, &key_type);
             let value_size = self.emit_borrow_area_size(other, Payload::Value, &value_type);
@@ -843,7 +871,7 @@ impl CodeBuilder<'_> {
                 (key_area, value_area)
             };
             let (entries, bytes) = self.emit_map_batch_room(other, None);
-            self.emit_map_reserve(dest, entries, bytes, &map_type)?;
+            self.emit_map_reserve(dest, entries, bytes, &map_type, grow)?;
             let (index_slot, top, done) = self.emit_map_loop_head(other, "inplace_merge");
             let key_slot = self.emit_map_entry_borrowed(
                 other,
@@ -884,11 +912,12 @@ impl CodeBuilder<'_> {
                 &map_type,
                 &key_type,
                 &value_type,
-                None,
+                grow,
             )?;
             self.emit(abi::label(&skip));
             self.emit_map_loop_next(index_slot, &top, &done);
         }
+        self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
         Ok(true)
     }
@@ -909,9 +938,10 @@ impl CodeBuilder<'_> {
         let Some(value_type) = typed_map_type_parts(&map_type).map(|(_, v)| v.clone()) else {
             return Ok(false);
         };
-        // plan-145-D: at a field, only a fixed-width value — a longer result is
-        // written to room the map reserves by reallocating.
-        if target.dest.is_field() && !value_type_is_fixed(&value_type) {
+        // plan-145-D/E: a variable-width value's results are written to room the
+        // map reserves, which may reallocate — at a field, through `InlineGrow` at
+        // the last inlined field. The callable operand is no view into the owner.
+        if !value_type_is_fixed(&value_type) && !self.field_realloc_admitted(site, &[]) {
             return Ok(false);
         }
         let opened = self.open_inplace_dest(&target.dest)?;
@@ -1056,7 +1086,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(&total, &total, 16));
             self.emit(abi::store_u64(&total, abi::stack_pointer(), bytes_slot));
             self.emit_map_loop_next(index_slot, &top, &done);
-            self.emit_map_reserve(dest, entries_slot, bytes_slot, &map_type)?;
+            let grow = self.inplace_inline_grow(&opened)?;
+            self.emit_map_reserve(dest, entries_slot, bytes_slot, &map_type, grow)?;
         }
 
         // Pass 2: write each result into its own entry, in place — the key is

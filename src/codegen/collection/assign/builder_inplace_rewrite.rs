@@ -121,13 +121,15 @@ impl CodeBuilder<'_> {
     /// fixed-width list never grows its data on a same-length rewrite, so this is
     /// a no-op for one. Used before a pass of `lower_list_set_in_place` writes so
     /// that none of them repacks mid-pass: the only allocation — and so the only
-    /// failure (`ErrOutOfMemory`) — happens before the first write.
+    /// failure (`ErrOutOfMemory`) — happens before the first write. `inline` is
+    /// the repack's `InlineGrow` at a field (plan-145-E).
     fn emit_reserve_list_tail(
         &mut self,
         buffer_slot: usize,
         extra_slot: usize,
         list_type: &ParameterType,
         element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         let stride = list_entry_stride(element_type);
         if stride == 0 {
@@ -149,7 +151,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&end, &cap));
         self.emit(abi::branch_ls(&fits));
         self.emit(abi::branch_eq(&fits));
-        self.emit_repack_list_data(buffer_slot, extra_slot, list_type, element_type, stride)?;
+        self.emit_repack_list_data(
+            buffer_slot,
+            extra_slot,
+            list_type,
+            element_type,
+            stride,
+            inline,
+        )?;
         self.emit(abi::label(&fits));
         Ok(())
     }
@@ -209,9 +218,13 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = resolved.collection_type.clone();
-        // plan-145-D: at a field, only a fixed-width element — a longer
-        // variable-width replacement reserves tail room by repacking (a new block).
-        if resolved.dest.is_field() && list_entry_stride(&element_type) != 0 {
+        // plan-145-D/E: a longer variable-width replacement reserves tail room by
+        // repacking (a new block) — at a field, through `InlineGrow` at the last
+        // inlined field, and only when neither `old` nor `new` is a view into the
+        // owner the repack frees.
+        if list_entry_stride(&element_type) != 0
+            && !self.field_realloc_admitted(site, &resolved.args[1..])
+        {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&resolved.dest)?;
@@ -298,7 +311,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(&per, &per, 8));
             self.emit(abi::multiply_registers(&matches, &matches, &per));
             self.emit(abi::store_u64(&matches, abi::stack_pointer(), extra_slot));
-            self.emit_reserve_list_tail(buffer_slot, extra_slot, &list_type, &element_type)?;
+            let grow = self.inplace_inline_grow(&dest)?;
+            self.emit_reserve_list_tail(buffer_slot, extra_slot, &list_type, &element_type, grow)?;
         }
 
         // Pass 2: overwrite each match. `lower_list_set_in_place` calls, so the
@@ -372,8 +386,9 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = resolved.collection_type.clone();
-        // plan-145-D: at a field, only a fixed-width element (see `replace`).
-        if resolved.dest.is_field() && list_entry_stride(&element_type) != 0 {
+        // plan-145-D/E: a variable-width element's reserve may repack (see
+        // `replace`); the callable operand is no view into the owner.
+        if list_entry_stride(&element_type) != 0 && !self.field_realloc_admitted(site, &[]) {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&resolved.dest)?;
@@ -556,7 +571,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
             self.emit(abi::branch(&top));
             self.emit(abi::label(&done));
-            self.emit_reserve_list_tail(buffer_slot, extra_slot, &list_type, &element_type)?;
+            let grow = self.inplace_inline_grow(&dest)?;
+            self.emit_reserve_list_tail(buffer_slot, extra_slot, &list_type, &element_type, grow)?;
         }
 
         // Pass 2: x[i] = results[i], freeing each parked block once copied in

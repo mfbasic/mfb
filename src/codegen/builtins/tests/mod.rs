@@ -44,6 +44,7 @@ mod imported_types;
 mod inplace;
 mod inplace_compact;
 mod inplace_fields;
+mod inplace_inline_repack;
 mod link;
 mod link_out_widths;
 mod link_struct_widths;

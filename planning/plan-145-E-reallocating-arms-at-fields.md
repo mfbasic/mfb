@@ -85,46 +85,123 @@ differential probe is the test.
 
 ### Phase 1: Measure
 
-- [ ] List every point in these arms where the collection pointer is read after
+- [x] List every point in these arms where the collection pointer is read after
       a call that can reallocate. Record them with line numbers.
+      Every read goes through the arm's collection slot (the sub-block address
+      at a field), and every reallocation repoints that slot — `emit_map_reserve`,
+      `lower_map_set_in_place` and `emit_repack_list_data` store the new sub-block
+      address into it after `InlineGrow`'s split. No arm caches the pointer in a
+      register or a second slot across one:
+      - `union` (`builder_inplace_setmap.rs` `try_inplace_union_assign`): reserve →
+        `emit_add_all`, whose every insert loads `dest`.
+      - `symmetricDifference`: marks and the compaction (no reallocation) → reserve
+        → `emit_add_all` as `union`. `marks_t` is a scratch address, not the set.
+      - `merge`: reserve → per entry `emit_key_membership(dest)` and
+        `lower_map_set_in_place(dest)`, each loading `dest`.
+      - `mapValues`, variable-width value: reserve → the write pass's
+        `emit_map_loop_head(dest)` / `emit_map_entry_value_write(dest)`.
+      - `replace`, `transform`, variable-width element: `emit_reserve_list_tail` →
+        the write pass's `lower_list_set_in_place(buffer_slot)`, whose own repack is
+        unreachable once the tail is reserved (the reserve's contract).
+      - the five shrink arms, variable-width element: the repack is the
+        compaction's last step; nothing reads the list after it.
+      - every arm's `close_field_dest` (a `STATE` publish) reads the opened
+        `block_slot`, which `InlineGrow`'s free step repointed.
 
 Acceptance: list recorded (est. 15 min).
-Commit:
+Recorded above.
+Commit: recorded with Phase 3 (below)
 
 ### Phase 2: `InlineGrow` through the repack
 
-- [ ] `emit_repack_list_data` and `emit_reserve_list_tail` take
+- [x] `emit_repack_list_data` and `emit_reserve_list_tail` take
       `Option<InlineGrow>`, and the compaction's repack passes it.
-- [ ] Unit codegen test in `src/codegen/builtins/tests/`: an inlined repack emits
+      Also `emit_map_reserve`, `lower_list_compact_in_place` (→
+      `emit_compact_entries`) and `emit_add_all`. Every existing caller passes
+      `None`, so plain sites are byte-identical (Phase 3's gate).
+- [x] Unit codegen test in `src/codegen/builtins/tests/`: an inlined repack emits
       the prefix copy and a record free, not a list free.
+      `inplace_inline_repack.rs`: a field `filter` over `List OF String` and a
+      field `union` each emit `inline_grow_prefix` copies (≥ 3: the repack, the
+      reserve, the insert grows); the same operations on plain locals emit none.
 
 Acceptance: `cargo test --bin mfb inline_repack` → pass (est. 5 min).
-Commit:
+`cargo test --bin mfb inline_repack` → "1 passed".
+Commit: recorded with Phase 3 (below)
 
 ### Phase 3: The arms
 
-- [ ] `union symmetricDifference merge`, and the variable-width kinds of
+- [x] `union symmetricDifference merge`, and the variable-width kinds of
       `mapValues replace transform filter take drop mid distinct`, at `Inlined`,
       each with `InlineGrow` and the reload helper.
-- [ ] Flip `field_expect.tsv`, and remove the `FIELD_PENDING` entries.
-- [ ] Differential probe: each arm at S4 and T2 against the copying call on a
+      `inplace_inline_grow` (the `InlineGrow` of an opened field destination) and
+      `field_realloc_admitted` (a field only at its owner's last inlined field, and
+      no pointer operand reading the owner — a view into the record the grow frees;
+      Correction E2). `FieldReach::Realloc` for the three set/map arms. No separate
+      reload helper is needed (Correction E1).
+- [x] Flip `field_expect.tsv`, and remove the `FIELD_PENDING` entries.
+      `LANDED += E`: 18 lines `copy:E` → `arm` (3 each at S4, S10, T2, T4, T5, T8).
+      `grep -cE 'copy:(D|E)' tests/runtime/inplace_self_update/field_expect.tsv` →
+      0. 6 `FIELD_PENDING` entries removed (the three arms at the last and mixed
+      sites).
+- [x] Differential probe: each arm at S4 and T2 against the copying call on a
       copy, over `Integer`, in-order and out-of-order `String` lists and maps, and
       a 500-iteration loop. Record the ok count and `alloc_calls = free_calls`.
-- [ ] RED proof: drop one reload in `union` and confirm the probe fails. Restore.
+      D's probe (`/tmp/p145/dprobe/gen.py`) plus `union`, `symmetricDifference`,
+      `merge` and growing forms run 60 rounds (`unionGrow`, `mergeGrow`,
+      `transformGrow`, `mapValuesGrow`, `replaceGrow`), at S4, S3, T2, T1: 232 of
+      232 `ok`, `live_bytes 0`. Each E arm fires at the last field (21
+      `inline_grow_prefix` labels for `unionGrow/SS/T2`, `mergeGrow/MS/S4`,
+      `symmetricDifference/SS/T2`; 7 for the list and `mapValues` forms) and
+      declines at S3 (`unionGrow/SS/S3`: 0, the rebuild's `with_target`). The
+      500-iteration `append`/`filter` loop on an out-of-order `String` field
+      (`/tmp/p145/loop500`): peak live bytes 608 at S4 and 704 at T2 for both 250
+      and 500 iterations (flat — the repack bounds the data region), `alloc_calls
+      = free_calls`, `live_bytes 0`.
+- [x] RED proof: drop one reload in `union` and confirm the probe fails. Restore.
+      In a copy of the tree under `/tmp`, `union` restored its pre-reserve
+      sub-block address into `dest` after `emit_map_reserve` (a missed reload):
+      `unionGrow/*` → exit 139 (SIGSEGV). The worktree was never changed.
 
 Acceptance: `cargo test --bin mfb self_update` passes, and
 `MFB_SELF_UPDATE_SITES=S4,T2,T4,T8 cargo test --test rt_inplace_self_update` passes
 (est. 15 min).
-Commit:
+- `cargo test --bin mfb self_update` → "6 passed".
+- The four-site harness (`MFB_SELF_UPDATE_SITES=S4,T2,T4,T8`, run with S10,T5) is recorded in the next commit.
+Commit: `(recorded in the next commit)`
 
 ## Validation Plan
 
 - Tests above; `rt_inplace_failure_atomic` field cases for `union` and `merge`.
+  **Result:** `a_failing_reallocating_field_update_leaves_the_owner_unchanged` —
+  40 growing `union`s at a record field, then one whose operand fails; 40 growing
+  `merge`s at a `STATE` field, then one whose `preferB` fails: each owner prints
+  as it was, and `alloc_calls = free_calls`, `live_bytes 0`.
+  `cargo test --test rt_inplace_failure_atomic` → "3 passed".
+- Failure atomicity by reading (§1): in `unionGrow/SS/S4`'s `.ncode`, the arm's
+  labels run `mreserve_*` (with its `inline_grow_prefix` copy) — the one
+  allocation, and so the only `ErrOutOfMemory` — before `inplace_add_all_one`,
+  the first write.
 - Goldens: the fixtures D's `rg` found for these ops, plus any the artifact gate
   flags in `rt-behavior/collections`. Each is objdumped once to confirm the arm.
-- Per-letter unit gate: `cargo test --bin mfb`.
+- Per-letter unit gate: `cargo test --bin mfb`. Run at plan-145-I's full gate
+  (plan-145-D Correction D6).
 
 ## Corrections
+
+- **E1 — no reload helper.** Every reallocation these arms reach already writes
+  the new sub-block address back into the slot the arm reads through (the three
+  `InlineGrow` helpers end by storing it), so the arms stay unchanged after a grow;
+  Phase 1 lists each read.
+- **E2 — an operand read from the owner declines.** `union(r.s, r.t)` borrows
+  `r.t` as a pointer into the record block; the grow frees that block while the
+  inserts still read it. `field_realloc_admitted` declines any pointer operand
+  that reads the owner (`read_by`), for the set/map arms and `replace`'s `old`
+  and `new`.
+- **E3 — the variable-width kinds keep `FieldReach::NoRealloc`.** The table is per
+  arm, and those arms never reallocate for a fixed-width element; their
+  variable-width kinds are gated in the arm (`field_realloc_admitted`). Only the
+  three set/map arms are `Realloc`.
 
 ## Summary
 

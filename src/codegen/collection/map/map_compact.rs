@@ -204,12 +204,18 @@ impl CodeBuilder<'_> {
     /// (geometrically) if not. The entries and data are copied verbatim — the data
     /// region's base moves with the capacity, and every entry locates its payloads
     /// relative to that base — and the new block's hash index starts not-ready.
+    ///
+    /// plan-145-E: `inline` is `Some` for a map inlined in a record or `STATE`
+    /// field — the grow then reallocates the RECORD through `InlineGrow`
+    /// (plan-121-C's three steps), and `map_slot`, which holds the sub-block
+    /// address, is repointed to the sub-block inside the new record.
     pub(crate) fn emit_map_reserve(
         &mut self,
         map_slot: usize,
         extra_entries_slot: usize,
         extra_bytes_slot: usize,
         map_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
@@ -327,6 +333,9 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
             &overflow,
         );
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -339,6 +348,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        let new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
         // Header: same count / dataLength, the new capacities; index not-ready.
         let nb = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -377,8 +387,14 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&dst, &nb, &ParameterType::named(""));
         self.emit(abi::load_u64(&len, &old, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit_block_copy_advance(&dst, &src, &len, &copy, "mreserve_data");
-        // Free the old block, then publish the new one.
-        self.emit_free_pre_grow_buffer(map_slot, map_type)?;
+        // Free the old block (for an inlined map, the old RECORD), then publish
+        // the new one.
+        match (inline, new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, map_slot, map_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(map_slot, map_type)?,
+        }
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), map_slot));

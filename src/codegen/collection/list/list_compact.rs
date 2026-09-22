@@ -89,12 +89,15 @@ impl CodeBuilder<'_> {
     /// `count` and `dataLength` are updated; `capacity` and `dataCapacity` are not
     /// (the freed room is headroom a later `append` reuses). On the out-of-order
     /// path the block may be repacked, so `buffer_slot` can be repointed.
+    /// plan-145-E: `inline` is the repack's `InlineGrow` for a list inlined in a
+    /// record or `STATE` field (`emit_repack_list_data`).
     pub(crate) fn lower_list_compact_in_place(
         &mut self,
         buffer_slot: usize,
         keep: &KeepSource,
         list_type: &ParameterType,
         element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
@@ -131,7 +134,9 @@ impl CodeBuilder<'_> {
         }
         match kind2_payload_size(element_type) {
             Some(width) => self.emit_compact_fixed_width(buffer_slot, keep, element_type, width),
-            None => self.emit_compact_entries(buffer_slot, keep, list_type, element_type)?,
+            None => {
+                self.emit_compact_entries(buffer_slot, keep, list_type, element_type, inline)?
+            }
         }
         Ok(())
     }
@@ -227,6 +232,7 @@ impl CodeBuilder<'_> {
         keep: &KeepSource,
         list_type: &ParameterType,
         element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         let stride = list_entry_stride(element_type);
         let alignment = self.list_element_padding_alignment(element_type);
@@ -451,7 +457,14 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&repack));
             let extra_slot = self.allocate_stack_object("compact_repack_extra", 8);
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), extra_slot));
-            self.emit_repack_list_data(buffer_slot, extra_slot, list_type, element_type, stride)?;
+            self.emit_repack_list_data(
+                buffer_slot,
+                extra_slot,
+                list_type,
+                element_type,
+                stride,
+                inline,
+            )?;
         }
         self.emit(abi::label(&done));
         Ok(())
