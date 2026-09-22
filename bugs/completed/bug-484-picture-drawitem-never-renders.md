@@ -1,12 +1,15 @@
 # bug-484: `canvas::Picture` never renders — the documented image item draws nothing on every backend
 
-Last updated: 2026-09-13
+Last updated: 2026-09-21
 Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/canvas/rt_canvas_picture.rs (to be added by Phase 1)
+Status: Fixed (see STATUS at the end)
+Regression Test: tests/canvas/rt_canvas_picture.rs; tests/canvas/rt_canvas_metal.rs
+(`every_picture_path_matches_the_software_oracle`,
+`a_space_in_a_text_run_does_not_shift_the_draws_after_it`);
+tests/canvas/rt_canvas_graphics_thread.rs (R1, R2, R11); scripts/test-canvas-vulkan.sh
 
 `canvas::Picture` is documented, exported surface: *"An image drawn into a
 rectangle, scaled to fit it"* (the `name: "Picture"` record in
@@ -218,36 +221,68 @@ decline pictures only until the GPU phases land.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/canvas/rt_canvas_picture.rs` with the reproduction as a failing pixel
+- [x] Add `tests/canvas/rt_canvas_picture.rs` with the reproduction as a failing pixel
       test (software path; `common::build_app_debug`, `MFB_CANVAS_SYNC=1`).
-- [ ] Re-verify the blast-radius audit above at fix time; write verdicts here.
+- [x] Re-verify the blast-radius audit above at fix time; write verdicts here.
+
+Reproduced 2026-09-21 at `4e0c50a8b` exactly as documented (exit 0, `rendered`, 0
+non-background pixels, (116,116) = `(0,0,0,255)`). RED at pristine HEAD in a detached
+checkout: 8 of 9 fail reading background where the picture belongs; the destroyed-image
+test passes vacuously and stays as a guard.
+
+Blast-radius verdicts: the seven `CASE Picture` arms in `helper_geometry.rs` — header
+(now `__canvas_pictureHeader`), tail (`[]`, correct: nothing rides a tail),
+`tailMatches` (`TRUE`, correct: the header carries the pixel-block address),
+`headerIsDeferred` (`FALSE`), `deferredHeader`/`deferredHash` (unreachable for a
+non-deferred kind), `hashItem` (the header hash already folds the address). Draw arm,
+both predicates and both emitters as below. `IMAGE_LAST_USED_FRAME`: removed, not
+stamped (see Deviations). `__canvas_closeRetired`/`__canvas_listNamesImage`: unchanged.
 
 Acceptance: the new test fails for the documented reason.
-Commit: —
+Commit: bbfacf3e6
 
 ### Phase 2 — the software blit (the oracle defines the semantics)
 
-- [ ] Kind, header, cache arms (incl. hash/tailMatches per the landed polygon
+- [x] Kind, header, cache arms (incl. hash/tailMatches per the landed polygon
       pattern), draw arm, `setBytes` dirty-generation invalidation.
-- [ ] Both `*Renderable` predicates decline scenes with pictures (honesty gate)
+- [x] Both `*Renderable` predicates decline scenes with pictures (honesty gate)
       until Phase 3.
 
 Acceptance: Phase 1's test passes; all existing goldens byte-identical; a
 `setBytes`-then-present test shows the new pixels.
-Commit: —
+Commit: 6858eafce (tests for R1/R2/R9/R11 and the image-contract pixel check: 250ffa9af)
 
 ### Phase 3 — Metal, then Vulkan textures + full validation
 
-- [ ] §6 upload path, per-backend; run-break or atlas decision recorded with a
+- [x] §6 upload path, per-backend; run-break or atlas decision recorded with a
       measurement; predicates accept pictures again.
-- [ ] `IMAGE_LAST_USED_FRAME` stamped; a destroy-mid-frame race test in
-      `tests/canvas/rt_canvas_graphics_thread.rs`.
-- [ ] Full suite, `scripts/test-accept.sh`, `scripts/artifact-gate.sh all`,
+- [x] `IMAGE_LAST_USED_FRAME` stamped; a destroy-mid-frame race test in
+      `tests/canvas/rt_canvas_graphics_thread.rs`. *(Deviation: removed rather than
+      stamped — see Deviations. The race tests landed.)*
+- [x] Full suite, `scripts/test-accept.sh`, `scripts/artifact-gate.sh all`,
       `scripts/test-canvas-vulkan.sh`; regenerate `.ncodesum`.
 
 Acceptance: reproduction passes on all three paths with the GPU proven taken;
 full suite green on both axes.
-Commit: —
+Commit: 769bd0785 (shared prep), aa4ce9458 (Vulkan), 4a1c39c8e (Metal),
+6c6502967 (goldens)
+
+### Phase 3b — a blank glyph shifted every later GPU draw (found during Phase 3)
+
+- [x] RED on both backends: `a_space_in_a_text_run_does_not_shift_the_draws_after_it`
+      (Metal, pre-fix build: 6960 px differ, worst 235 — the group's dot drawn at the
+      origin) and a spaced text run added to `test-canvas-vulkan.sh`'s main scene
+      (pre-fix: worst=255 differing=3.04%).
+- [x] Fix both emitters: a glyph that draws nothing still publishes a zero-size block.
+
+Not a Picture bug, and pre-existing: both `emit_glyph_publish`s skipped the block for an
+evicted entry, an empty bitmap (a space) or one over the region cap, while
+`__canvas_blockInstances` counts every glyph — so every draw entry after a text run
+containing a space named its neighbour's block (wrong pipeline, wrong group offset, the
+last reading a block never written). The Metal picture scene's label "Pictures 01" is
+what exposed it; `TEXT_LINE` has spaces but nothing after its runs with a draw state of
+its own, and the Vulkan gate's only label "AAAA" has none.
+Commit: d49023713 (tests), 4a1c39c8e (Metal), 7ae9c31fa (Vulkan)
 
 ## Validation Plan
 
@@ -278,3 +313,51 @@ threading protocol, which has been documentation without a consumer since
 plan-98-D. The software arm is small and lands first as the oracle; the GPU
 halves follow behind pixel tests. Untouched: every other variant, the `Image`
 resource surface, plan-116-I's field type, and plan-116-J's ownership rules.
+
+## STATUS: FIXED (6c6502967, merged to main from worktree-B-484)
+
+A `Picture` renders on the software, Metal and Vulkan paths: its geometry is a
+rectangle's re-kinded to 9, so coverage, stroke, clip, blend, transform and group offset
+are the rectangle's; the fill colour is the image sampled nearest and tinted by
+`Paint.fill` (white = unchanged, the fill's alpha = opacity; a gradient is ignored).
+
+### Deviations from the Fix Design
+
+- **No texture object, so no §6/§7 protocol.** The "risk" the Summary names never
+  materialised because the design avoided it. The header carries the image's pixel-block
+  address (split in two 24-bit halves — the header hash would overflow a whole address);
+  the software path samples that block through the allocation-free
+  `canvas::shadowTexel`, and both GPU emitters copy its texels, one packed word each,
+  into the frame buffer's **glyph region** with the block naming its slice. The
+  run-break vs atlas question dissolved: a picture is one quad inside the instanced run,
+  and the region is the atlas. Safe because `setBytes` swaps a fresh block in and no
+  block or image record is ever freed; the address doubles as the content generation
+  (cache, damage diff and GPU copy all see a `setBytes`).
+- **`IMAGE_LAST_USED_FRAME` removed, not stamped** — and `IMAGE_DIRTY` with it. With no
+  GPU object there is nothing to free and nothing to upload lazily, so both words would
+  have been written for no reader.
+- **`setBytes` gained redraw trigger 5** (`.ai/canvas-threading.md` §4) — an
+  unlisted sub-issue: nothing signalled a frame after `setBytes`, and re-presenting the
+  unchanged scene was frame-skipped, so the documented "appears on the next rendered
+  frame" never happened. `setBytes` is now an MFBASIC wrapper over the native
+  `canvas::setBytesRaw` that signals (and waits under `MFB_CANVAS_SYNC`) only when the
+  installed items, layers or a group name the image (R10 holds).
+- **Phase 3b** (above): the pre-existing blank-glyph block skip on both emitters.
+- **The Vulkan gate never checked `gpuFrames` for its main scene**, so a declined frame
+  compared software with itself; it does now.
+- **`.ai/testing-gates.md` was wrong** that no gate fixture covers canvas:
+  `tests/syntax/app/app-mouse-surface` does, and its seven goldens were regenerated
+  after the IR delta was localized to exactly this change.
+
+### Validation (2026-09-21)
+
+- `cargo test --no-fail-fast`: 215 test binaries ok; the one failure,
+  `artifact_gate_all`, was the app-mouse-surface goldens above — after regeneration
+  `scripts/artifact-gate.sh all`: 2092 goldens, 0 diffs.
+- `scripts/test-accept.sh`: 1505 of 1506 passed; the one mismatch, `acceptance`, was the harness timeout under load average ~100 (log: `timeout`, exit 99; the project imports neither canvas nor app) and passed on its own re-run (3m08s).
+- `cargo test --test rt_canvas_picture` 10/10, `rt_canvas_graphics_thread` 11 passed (2 pre-existing ignores) incl. R1/R2/R11,
+  `rt_canvas_metal` 10/10 (picture scene band: 0 differing px), `cli_canvas_image_resource`
+  4/4.
+- `scripts/test-canvas-vulkan.sh` all ok on box 2228 (glibc) and 2227 (musl, `--icd
+  auto`): worst=2 differing=0.8177%, gpuFrames=1.
+- The reproduction: (116,116) = `(0, 255, 0, 255)`, exactly the 32×32 destination lit.
