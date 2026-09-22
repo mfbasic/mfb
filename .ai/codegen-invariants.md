@@ -190,12 +190,17 @@ SIGBUS (the free list is written into read-only memory) and freeing a view into
 an argument or a container corrupts the free list, surfacing much later as
 "Allocation failed". Traps found while opting producers in:
 
-- `toString(String)` is the IDENTITY arm — it hands back its own argument. Not fresh.
-- `toString(Boolean)`, `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
-  constant-fold early return load a rodata pointer. Not fresh.
-- `fs::pathDirName` has one arm that yields a rodata constant and one that
-  materializes. Not fresh (its siblings `pathBaseName`/`pathExtension` materialize
-  on every path and are).
+- `toString(String)` is the IDENTITY arm: it hands its argument through only when
+  that argument is the statement's own pending temporary, and copies (marked fresh)
+  otherwise. An owning store does not copy a call's result, so the old
+  unconditional identity made `s = toString(s)` free the block it stored (bug-667).
+- `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
+  constant-fold early return load a rodata pointer. Not fresh — sound only because
+  `static_string_value` recognizes each, so `value_needs_owning_copy` copies it at
+  an owning store. A new rodata producer that predicate cannot see must copy
+  instead: `toString(Boolean)` and `fs::pathDirName`'s `.`/`/` did not, and a
+  binding freed rodata (SIGBUS, bug-667). Both now return a fresh marked block, as
+  does the default empty `String` of a module-level `MUT` with no initializer.
 - `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
   one-byte pad String that is copied into the result and never returned. No
   result-shaped rule can reach it — that one is handed to the statement free
