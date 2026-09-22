@@ -68,6 +68,9 @@ twice.
   `__canvas_headerFor` gives it an empty `NONE` header and no draw path exists), so
   there is nothing to transform. Bug-484's fix must implement `Paint.transform` for
   pictures as part of its own design, against the semantics this letter pins.
+  *Closed by bug-484:* a picture takes this letter's rectangle path for its coverage
+  and samples its image at the inverse-mapped point, nearest — §4.5's glyph rule — on
+  all three renderers.
 - **Stroke width is transformed with the geometry**, not held constant in surface
   pixels — see §4.3, and note this is a *decision*, recorded because both readings are
   defensible.

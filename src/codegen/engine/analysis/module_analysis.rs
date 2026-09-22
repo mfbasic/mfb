@@ -62,6 +62,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",
+            "canvas.setBytesRaw",
         ],
     ) {
         return true;

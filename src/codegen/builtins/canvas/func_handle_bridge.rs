@@ -29,13 +29,15 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_image::emit_closed_guard;
+use super::gen_image::{emit_closed_guard, IMAGE_HEIGHT, IMAGE_PIXELS, IMAGE_WIDTH};
 
-/// The shared body. `what` names the resource for the labels and the error text.
-fn lower_handle(
+/// The shared body. `what` names the member for the labels and the error text, and
+/// `field` is the record word answered while the resource is live.
+fn lower_field(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
     what: &str,
+    field: usize,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let record = args
@@ -59,7 +61,7 @@ fn lower_handle(
     let source = builder.temporary_vreg();
     let handle = builder.temporary_vreg();
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), record_slot));
-    builder.emit(abi::load_u64(&handle, &source, RESOURCE_OFFSET_HANDLE));
+    builder.emit(abi::load_u64(&handle, &source, field));
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &handle));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -84,7 +86,121 @@ fn lower_handle(
         origin: None,
         type_: ParameterType::Nothing,
         location: Operand::from("void"),
-        text: format!("canvas.{what}Handle"),
+        text: format!("canvas.{what}"),
+    })
+}
+
+fn lower_handle(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    what: &str,
+) -> Result<ValueResult, String> {
+    lower_field(
+        builder,
+        args,
+        &format!("{what}Handle"),
+        RESOURCE_OFFSET_HANDLE,
+    )
+}
+
+/// bug-484: `canvas::imageShadow`, `canvas::imageWidthOf`, `canvas::imageHeightOf` —
+/// the three facts a `Picture`'s geometry needs, read on the graphics thread in the same
+/// closed-before-field order as the handle, and answering `0` for a destroyed image for
+/// the same reason.
+///
+/// The shadow is the address of the image's pixel block, and it serves twice. It is what
+/// the draw samples, through `canvas::shadowTexel`. And it is the image's **content
+/// generation**: `canvas::setBytes` swaps in a fresh block rather than writing into the
+/// old one, and no shadow is ever freed — neither a close nor the scope-drop frees an
+/// `Image` — so a new address means new pixels, and an old address stays readable for a
+/// frame still sampling it. That is what lets a picture's geometry header stand for its
+/// content without copying it.
+fn lower_image_shadow(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_field(builder, args, "imageShadow", IMAGE_PIXELS)
+}
+
+fn lower_image_width(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_field(builder, args, "imageWidthOf", IMAGE_WIDTH)
+}
+
+fn lower_image_height(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_field(builder, args, "imageHeightOf", IMAGE_HEIGHT)
+}
+
+/// `canvas::shadowTexel(shadow, index) AS Integer` — texel `index` of a pixel block, as
+/// `r | g << 8 | b << 16 | a << 24`, or `0` (transparent black) when `shadow` is `0` or
+/// `index` is outside the block.
+///
+/// One call per sampled pixel, and it allocates nothing: `__canvas_drawGeometry` owns
+/// the 2.3 MB surface local, and `collections::set` stays in place only while nothing
+/// allocates beneath it (`helper_items.rs`). Packing the four channels into one word is
+/// what keeps it one call rather than four.
+///
+/// The bound is the block's own count, not a width and height the caller also holds, so
+/// a caller whose arithmetic is wrong reads transparent rather than past the block.
+fn lower_shadow_texel(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    if args.len() < 2 {
+        return Err(format!("'{symbol}' expects the shadow and the texel index"));
+    }
+    let shadow_in = args[0].location.clone();
+    let index_in = args[1].location.clone();
+    let outside = builder.label("canvas_shadow_texel_outside");
+    let done = builder.label("canvas_shadow_texel_done");
+
+    let shadow = builder.temporary_vreg();
+    let byte = builder.temporary_vreg();
+    let count = builder.temporary_vreg();
+    let end = builder.temporary_vreg();
+    let texel = builder.temporary_vreg();
+    builder.emit(abi::move_register(&shadow, &shadow_in));
+    builder.emit(abi::move_register(&byte, &index_in));
+    builder.emit(abi::compare_immediate(&shadow, "0"));
+    builder.emit(abi::branch_eq(&outside));
+    builder.emit(abi::compare_immediate(&byte, "0"));
+    builder.emit(abi::branch_lt(&outside));
+    // byte = index * 4, in range when byte + 4 <= count.
+    builder.emit(abi::shift_left_immediate(&byte, &byte, 2));
+    builder.emit(abi::load_u64(&count, &shadow, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::add_immediate(&end, &byte, 4));
+    builder.emit(abi::compare_registers(&end, &count));
+    builder.emit(abi::branch_gt(&outside));
+    // A `List OF Byte` has the fixed-width layout: payload `i` at `HEADER + i`.
+    builder.emit(abi::add_registers(&byte, &shadow, &byte));
+    builder.emit(abi::load_u32(&texel, &byte, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &texel));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&outside));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: "canvas.shadowTexel".to_string(),
     })
 }
 
@@ -104,7 +220,79 @@ pub(crate) fn lower_font_handle(
     lower_handle(builder, args, "font")
 }
 
+type Lower = fn(&mut CodeBuilder, &[ValueResult], &AbiCtx) -> Result<ValueResult, String>;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    for (name, intro, lower) in [
+        (
+            "imageShadow",
+            "The address of a live image's pixel block, or 0 once it is destroyed.",
+            lower_image_shadow as Lower,
+        ),
+        (
+            "imageWidthOf",
+            "A live image's width, or 0 once it is destroyed.",
+            lower_image_width as Lower,
+        ),
+        (
+            "imageHeightOf",
+            "A live image's height, or 0 once it is destroyed.",
+            lower_image_height as Lower,
+        ),
+    ] {
+        pkg.add_function(RegistryFunction {
+            name,
+            intro,
+            desc: "Internal. Read by the Picture geometry on the graphics thread, which \
+                   may see a scene naming an image the program has since destroyed — so \
+                   it answers 0 rather than raising.",
+            example: "",
+            expected_arguments: None,
+            internal_only: true,
+            implementations: vec![Implementation {
+                params: vec![Parameter {
+                    name: "image",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::res(ParameterType::named("canvas.Image")),
+                    default: DefaultValue::None,
+                }],
+                return_type: ParameterType::Integer,
+                errors: vec![],
+                body: Body::abi_function(lower),
+            }],
+        });
+    }
+    pkg.add_function(RegistryFunction {
+        name: "shadowTexel",
+        intro: "One RGBA texel of an image's pixel block, packed into an Integer.",
+        desc: "Internal. The Picture draw's sampler: it allocates nothing, and answers 0 \
+               for a null block or an index outside it.",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "shadow",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "index",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_shadow_texel),
+        }],
+    });
     for (name, what, resource, lower) in [
         (
             "imageHandle",

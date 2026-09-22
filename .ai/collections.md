@@ -401,9 +401,9 @@ easy to get wrong:
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
 
-## An accumulator must be a local of the function that writes it
+## An accumulator must not be threaded through a helper
 
-Every `try_inplace_*` arm resolves its destination through `self.locals`, so a collection threaded through a helper's parameter and return, or kept in a module-level `MUT`, misses the fast path and is copied whole on every write. Measured on 20,000 writes into a 200,000-byte `List OF Byte`: 5 ms as a same-function local, ~1.2 s through a helper or a global (290×). This holds for `append`, `set`, `add`, `removeKey`, bulk append and the record-field `WITH` append alike.
+A self-update is in place at the four sites above — a function local, a module-level `MUT` global (S2, plan-142-H), a local inside a `FOR EACH` over itself, a `MUT` captured by a `forEach` lambda. It is **not** in place when the collection goes through a helper's parameter and back out as its return: a parameter cannot be assigned, so `RETURN collections::set(xs, …)` inside the helper is not `x = OP(x, …)` at any site and builds a new collection, and the caller's `acc = helper(acc, …)` copies the whole thing on every call. Measured 2026-09-21 on 20,000 `collections::set` writes into a 200,000-byte `List OF Byte` (release `mfb` built after `77a9255b1`, three runs): 0 ms as a local, 0 ms as a global, 4.1–4.3 s through a one-line helper. Write the self-update inline in the function that owns the collection (or keep it in a global); wrap only the parts that do not rebuild it.
 
 A call as the written item used to miss it too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
 

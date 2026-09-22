@@ -61,21 +61,22 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
-    HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
-    HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
-    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS,
-    HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA,
-    HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX,
-    HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
-    ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
-    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H,
+    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
+    HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1,
+    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R,
+    HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
+    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_RADIUS, HEADER_SHAPE,
+    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
+    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
+    ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
+    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
+    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
     MAX_FRAME_GRADIENT_STOPS, METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS,
-    METAL_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_GLYPH_SAMPLES, PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The one-time setup helper's symbol.
@@ -277,7 +278,11 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
     "  float radius = fx(item.misc.y);\n",
     "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
-    "  if (item.misc.x == 0) {\n",
+    // bug-484: a picture (9) is a rectangle to the distance field -- its header carries
+    // the destination's centre, half-extent and a zero radius -- so its coverage, edge,
+    // clip, transform and stroke are the rectangle's by construction, exactly as the
+    // oracle's `distKind` makes them. Only its fill colour differs (`pictureColour`).
+    "  if (item.misc.x == 0 || item.misc.x == 9) {\n",
     "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
     "  }\n",
     "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
@@ -410,6 +415,30 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
     "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
     "}\n",
+    // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
+    // NEAREST and tinted by the fill, the twin of the `isPicture` arm of
+    // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
+    // and `floor` rather than a cast, so all renderers pick the same texel; the index is
+    // CLAMPED because the antialiased pixels just outside the destination belong to the
+    // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
+    // word each, and the block names its slice as a glyph's does: width in `misc.w`,
+    // height in `arc.x`, base in `arc.z`. A zero width is an image the emitter could not
+    // upload (destroyed, or over the frame's cap): transparent, like the oracle's
+    // `shadowTexel` answer for a missing block.
+    "static int4 pictureColour(constant MfbItem &item, constant int *edges, float2 q) {\n",
+    "  int iw = item.misc.w;\n",
+    "  int ih = item.arc.x;\n",
+    "  if (iw <= 0 || ih <= 0) { return int4(0); }\n",
+    "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
+    "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
+    "  float dw = hw * 2.0, dh = hh * 2.0;\n",
+    "  int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);\n",
+    "  int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);\n",
+    "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
+    "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
+    "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
+    "  return (tex * item.fill) / 255;\n",
+    "}\n",
     "static float4 covered(int4 rgba, int coverage) {\n",
     "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
     "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
@@ -499,6 +528,11 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float d = dRaw / dScale;\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
+    // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
+    // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
+    "  if (item.misc.x == 9) {\n",
+    "    fillRgba = pictureColour(item, edges, hasTransform(item) ? inverseMap(item, p) : p);\n",
+    "  }\n",
     "  float4 colour = covered(fillRgba,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -1729,6 +1763,9 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     emit_item_block(&mut asm);
     emit_edge_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
+    // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
+    // before the split, so both records of a blended stroked picture name its texels.
+    emit_picture_buffer(&mut asm);
     // Published, not drawn. The draw happens at the end of the run this item joins,
     // which is what makes consecutive shapes one instanced draw instead of N — and
     // there is nothing left to bind per item now that the edges ride the frame buffer
@@ -1945,6 +1982,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_glyph_head");
     let done = format!("{METAL_DRAW_SYMBOL}_glyph_done");
     let next = format!("{METAL_DRAW_SYMBOL}_glyph_next");
+    let blank = format!("{METAL_DRAW_SYMBOL}_glyph_blank");
+    let publish = format!("{METAL_DRAW_SYMBOL}_glyph_publish");
 
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
@@ -2059,9 +2098,10 @@ fn emit_glyph_publish(asm: &mut Asm) {
         asm.push(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
     }
     // A cache entry of -1 is a glyph the eviction pass dropped after this run was
-    // built: it draws nothing rather than indexing the metadata out of range.
+    // built: it draws nothing rather than indexing the metadata out of range. It still
+    // publishes its (blank) block -- see `blank` below.
     asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
-    asm.push(abi::branch_lt(&next));
+    asm.push(abi::branch_lt(&blank));
 
     // meta = glyphMeta + entry * GLYPH_META_SLOTS, in 8-byte Integers.
     asm.push(abi::move_immediate(
@@ -2150,22 +2190,22 @@ fn emit_glyph_publish(asm: &mut Asm) {
         OFF_GLYPH_SRC,
     ));
 
-    // An empty bitmap — a space, or a glyph with no contours — draws nothing, and
-    // `setFragmentBytes:length:` will not take a zero length anyway.
+    // An empty bitmap — a space, or a glyph with no contours — has nothing to copy and
+    // draws nothing, but still publishes its (blank) block — see `blank` below.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
         OFF_GLYPH_W,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[5], "0"));
-    asm.push(abi::branch_le(&next));
+    asm.push(abi::branch_le(&blank));
     asm.push(abi::load_u64(
         abi::SCRATCH[6],
         abi::stack_pointer(),
         OFF_GLYPH_H,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
-    asm.push(abi::branch_le(&next));
+    asm.push(abi::branch_le(&blank));
     // samples = w * h, and the frame's remaining room for them. The predicate has
     // already declined a frame that does not fit, so this bound is the emitter refusing
     // to write past its buffer if the two ever disagree — not a policy of its own.
@@ -2195,7 +2235,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
         &METAL_MAX_FRAME_GLYPH_SAMPLES.to_string(),
     ));
     asm.push(abi::compare_registers(abi::SCRATCH[8], abi::SCRATCH[0]));
-    asm.push(abi::branch_gt(&next));
+    asm.push(abi::branch_gt(&blank));
 
     // --- copy the bitmap into the frame buffer's glyph region --------------------------
     // dst = contents + (GLYPH_BASE + cursor) * 4, src = the cached bitmap; one byte of
@@ -2338,6 +2378,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
     // This glyph's block goes into the frame buffer like any other quad's, and the draw
     // names it through `baseInstance:`. The index is parked *before* the publish,
     // because publishing advances the cursor past it.
+    asm.push(abi::label(&publish));
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -2371,6 +2412,32 @@ fn emit_glyph_publish(asm: &mut Asm) {
         OFF_GLYPH_INDEX,
     ));
     asm.push(abi::branch(&head));
+
+    // A glyph that draws nothing — a space, an evicted cache entry, a bitmap past the
+    // frame's glyph region — still publishes ONE block, with width and height 0 so the
+    // shader's bounds test answers zero coverage for every fragment (bug-484).
+    //
+    // Skipping the publish instead desynchronised the item buffer from the draw list:
+    // `__canvas_blockInstances` counts a text run as its full glyph count, so every
+    // draw entry after a run containing a space named blocks one position too far on —
+    // the next items drew under their neighbours' pipelines and group offsets, and the
+    // last entry read a block that was never written. The quad is left as it is (the
+    // previous glyph's box, or the run's hull under a transform): a transparent source
+    // leaves the destination unchanged under all four blend pipelines, and zeroing the
+    // quad would strand the hull a following transformed glyph relies on.
+    asm.push(abi::label(&blank));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    asm.push(abi::branch(&publish));
     asm.push(abi::label(&done));
 }
 
@@ -3179,6 +3246,170 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::add_immediate(index, index, 1));
     asm.push(abi::branch(&head));
 
+    asm.push(abi::label(&done));
+}
+
+/// Copy a picture's texels into the frame buffer's **glyph region**, and name the slice
+/// in its item block the way a glyph's does (bug-484): width in `misc.w`, height in
+/// `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), base in `arc.z` (`ITEM_ARC_EDGE_BASE`). Every
+/// other kind falls straight through.
+///
+/// The pixel block is the image's `List OF Byte`, whose address the header carries
+/// split across two slots (`HEADER_PICTURE_SHADOW_HI/LO`) because a whole 48-bit
+/// address does not survive the header hash. It is RGBA8, row-major, top row first,
+/// so each texel's four bytes are already the little-endian word
+/// `r | g << 8 | b << 16 | a << 24` the shader unpacks — the copy is verbatim, one word
+/// a texel. No block is ever freed, so reading it during the frame is safe.
+///
+/// A picture is ONE quad and does not end the instanced run; it only shares the glyph
+/// region's cursor. Runs **after** `emit_edge_buffer`, which zeroes `arc.z` for every
+/// non-polygon, and after `emit_item_block`, which writes `arc.x` as a 16.16 angle.
+///
+/// When the image cannot be uploaded — a destroyed image (zero size or no block), a
+/// block shorter than `iw * ih * 4`, or a frame whose samples would pass
+/// `METAL_MAX_FRAME_GLYPH_SAMPLES` (unreachable: the predicate counts picture texels
+/// against that cap and declines such a frame) — `misc.w` is left 0, which the shader
+/// reads as a transparent fill. The stroke still draws, as the oracle's does over a
+/// transparent `shadowTexel`. Never a write past the region.
+///
+/// No `objc_msgSend` here, and only `SCRATCH[0..8]`: indices 10 and up are the loop
+/// state's callee-saved registers and 9 is Apple's reserved x18.
+fn emit_picture_buffer(asm: &mut Asm) {
+    let done = format!("{METAL_DRAW_SYMBOL}_picture_done");
+    let copy_head = format!("{METAL_DRAW_SYMBOL}_picture_copy_head");
+    let header = abi::SCRATCH[0];
+    let kind = abi::SCRATCH[1];
+    let width = abi::SCRATCH[2];
+    let height = abi::SCRATCH[3];
+    let samples = abi::SCRATCH[4];
+    let block = abi::SCRATCH[5];
+    let temp = abi::SCRATCH[6];
+    let cursor = abi::SCRATCH[7];
+    let end = abi::SCRATCH[8];
+
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(kind, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(kind, GEO_KIND_PICTURE));
+    asm.push(abi::branch_ne(&done));
+
+    for (register, slot) in [(width, HEADER_AUX0), (height, HEADER_AUX1)] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
+    }
+    // The not-uploaded defaults: width 0 (transparent), the real height, base 0.
+    asm.push(abi::move_immediate(temp, "Integer", "0"));
+    asm.push(abi::store_u32(
+        temp,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::store_u32(
+        temp,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        height,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    asm.push(abi::compare_immediate(width, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::compare_immediate(height, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::multiply_registers(samples, width, height));
+
+    // block = (hi << PICTURE_SHADOW_SPLIT_BITS) | lo
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_HI * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(block, abi::FP_SCRATCH[1]));
+    const _: () = assert!(
+        PICTURE_SHADOW_SPLIT_BITS < 64,
+        "the split is a 64-bit shift amount"
+    );
+    asm.push(abi::shift_left_immediate(
+        block,
+        block,
+        PICTURE_SHADOW_SPLIT_BITS as u8,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_LO * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(temp, abi::FP_SCRATCH[1]));
+    asm.push(abi::or_registers(block, block, temp));
+    asm.push(abi::compare_immediate(block, "0"));
+    asm.push(abi::branch_eq(&done));
+    // The block must hold every texel the width and height promise — the bound
+    // `canvas::shadowTexel` applies per read, applied once.
+    asm.push(abi::load_u64(temp, block, COLLECTION_OFFSET_COUNT));
+    asm.push(abi::shift_left_immediate(end, samples, 2));
+    asm.push(abi::compare_registers(end, temp));
+    asm.push(abi::branch_gt(&done));
+
+    // Would this picture's texels fit the frame's glyph region?
+    asm.push(abi::load_u64(
+        cursor,
+        abi::stack_pointer(),
+        OFF_GLYPH_CURSOR,
+    ));
+    asm.push(abi::add_registers(end, cursor, samples));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_MAX_FRAME_GLYPH_SAMPLES.to_string(),
+    ));
+    asm.push(abi::compare_registers(end, temp));
+    asm.push(abi::branch_gt(&done));
+
+    // The block names its slice; then the cursor moves past it.
+    asm.push(abi::store_u64(end, abi::stack_pointer(), OFF_GLYPH_CURSOR));
+    asm.push(abi::store_u32(
+        cursor,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+
+    // dst = contents + (GLYPH_BASE + cursor) * 4, src = block + COLLECTION_HEADER_SIZE.
+    // `header` and `kind` are dead from here and serve as the copy's registers.
+    let (dst, word) = (header, kind);
+    asm.push(abi::move_immediate(
+        dst,
+        "Integer",
+        &METAL_GLYPH_BASE_WORDS.to_string(),
+    ));
+    asm.push(abi::add_registers(dst, dst, cursor));
+    asm.push(abi::shift_left_immediate(dst, dst, 2));
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(dst, temp, dst));
+    asm.push(abi::add_immediate(block, block, COLLECTION_HEADER_SIZE));
+    asm.push(abi::label(&copy_head));
+    asm.push(abi::compare_immediate(samples, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::load_u32(word, block, 0));
+    asm.push(abi::store_u32(word, dst, 0));
+    asm.push(abi::add_immediate(block, block, 4));
+    asm.push(abi::add_immediate(dst, dst, 4));
+    asm.push(abi::subtract_immediate(samples, samples, 1));
+    asm.push(abi::branch(&copy_head));
     asm.push(abi::label(&done));
 }
 
