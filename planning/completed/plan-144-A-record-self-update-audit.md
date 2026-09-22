@@ -102,7 +102,7 @@ hash the audit read.
 | … `String`/`AttributedString` | 44: `strings` 20, `encoding` 8, `fs` 6, `astrings` 4, `os` 3, `io` 1, `net` 1, `regex` 1 | same output (matches plan-143 §2) |
 | … any other type | 220, over 20 types: `Integer` 25, `Float` 16, `Fixed` 16, nine `vector::*` types 123 (15×3 + 13×6), `big::Int` 13, `color::Color` 9, `Money` 6, `datetime::DateTime` 4, `datetime::Duration` 3, `datetime::Instant` 2, `json::Json` 2, `http::Response` 1 | same output, grouped by return type (the Appendix one-liner) |
 | Generic overloads whose result can equal the first argument's type (`Var`/`Arg(n)`) | 18 candidates (every one in `collections`), of which 4 type-check as a self-update: `transform`, `mapValues`, `reduce`, `reduceRight` | `census.py … generic` → 18 lines; probe `gen` → 14 errors, one per other candidate (findings C.1) |
-| Rows in the shared census (after the F4 guard split) | 326: F1 63, F2 44, F3 6, F4 206, F5 7 | `rows.py` → `Counter({'F4': 206, 'F1': 63, 'F2': 44, 'F5': 7, 'F3': 6}) total 326` |
+| Rows in the shared census (after the F4 guard split and Correction A8) | 345: F1 63, F2 63, F3 6, F4 206, F5 7 | `rows.py` → `Counter({'F4': 206, 'F1': 63, 'F2': 63, 'F5': 7, 'F3': 6}) total 345` |
 | In-place recognisers (`fn try_inplace_*`) | 48, of which 9 are `try_inplace_record_field_*` and 11 are `try_inplace_state_*` | `grep -rhoE 'fn try_inplace_[a-z_]*' src --include='*.rs' \| wc -l` → 48; the same grep with `record_field_` → 9 and with `state_` → 11 |
 
 ### What is already known (re-verified here, not assumed)
@@ -246,18 +246,20 @@ last UNMEASURED population first.
       F5 rows. For F2 rows, copy the form column's value from plan-143 §4 if
       plan-143's findings exist. Otherwise classify the form from the function's
       lowering, citing it, and mark it "(plan-144)".
-      — `rows.py` (findings C.2) → 326 rows. plan-143's findings do not exist
-      (`ls planning/plan-143-findings` → absent), so all 44 F2 forms were
-      classified from their lowering and are marked `(plan-144)`, with citations
-      in findings A.2. The F4 rows are per type for 5 types and per overload for
-      15 types (the Phase 2 guard failed, Correction A1).
+      — `rows.py` (findings C.2) → 345 rows (326 before Correction A8). At first
+      plan-143's findings did not exist, so the 44 F2 forms were classified from
+      their lowering. When plan-143 landed on `main` and was merged, its form
+      column was copied as this task asks, and the plan-144 reading became the
+      cross-check in findings A.2 (Correction A3). The F4 rows are per type for 5
+      types and per overload for 15 types (the Phase 2 guard failed, Correction
+      A1).
 
 Acceptance: every census row exists in §1.
   Check: `sed -n '/^## 1\./,/^## 2\./p' planning/plan-144-findings/record-state-self-update-audit.md | grep -c '^| F[1-5]'`
   → 59 + 44 + generic count + F3 rows + 20 + F5 rows, the total the §0 table
   states (est. 1 min).
-  Measured 2026-09-21: → `326` = 63 + 44 + 6 + 206 + 7, the §0 total. (The F4
-  term is 206, not 20: Correction A1.)
+  Measured 2026-09-21: → `345` = 63 + 63 + 6 + 206 + 7, the §0 total. (The F4
+  term is 206, not 20: Correction A1. F2 is 63, not 44: Correction A8.)
 Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
 
 ### Phase 2: Map the record paths
@@ -281,7 +283,7 @@ filled.
       `Call`/`&` shape) and `bc:1240` (`Assign`, unconditional); `SelfUpdateSite`
       is built only at `bc:1092`/`bc:1234`. A local `WITH` reaches the seam and
       every arm declines at `G2`. A global `WITH` never reaches it (`SUG=-` in all
-      339 S5 probes).
+      358 S5 probes).
 - [x] F4 guard: grep every arm's matched builtin names (all 48 `try_inplace_*`,
       plus `SELF_UPDATE_TABLE` rows) against the 220 F4 overloads. Record the
       command and a result of 0. A non-zero result means that type's row is split
@@ -320,7 +322,7 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
       fields the row's type, so that `a` is S3 and `b` is S4, then `n AS Integer`
       for S10, which is not inlined and so keeps `b` last; plus a nested and a
       global variant). Keep the generator in Appendix C.
-      — `gen_rec.py` (findings C.3) → `2100 functions, 0 excluded`, built without
+      — `gen_rec.py` (findings C.3) → `2214 functions, 0 excluded`, built without
       diagnostics. The probes are FUNCs that return the record, so the update is
       live. S10 uses a separate `RecN { a, b, n }`, so S4's `b` is still the last
       field for a fixed-width type.
@@ -330,12 +332,12 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
       to each verdict.
       — `markers.py` (findings C.4) was extended with the 26 plan-142 arms, the
       seam-global and the STATE markers. `lambdas.py` maps each S9 lambda to its
-      FUNC (339 of 339). Each row's evidence cell carries every site's marker
+      FUNC (358 of 358). Each row's evidence cell carries every site's marker
       line.
 - [x] Fill every cell with `y`, `n (<first declining gate or path>)` or `n/a`
       (with the reason: for example, S7 for a non-iterable type, with the
       diagnostic from a probe). A `y` names every gate it passed.
-      — `fill_rec.py` (findings C.9) → `rows 326 cells 2282 disagreements 0`. The S7
+      — `fill_rec.py` (findings C.9) → `rows 345 cells 2415 disagreements 0`. The S7
       `n/a` cells cite `TYPE_FOR_EACH_REQUIRES_COLLECTION` (probe `s7na`, 23 of 23
       types). The `y` cells' path A names RF's gates and the arm's gates
       (findings B.1).
@@ -385,7 +387,7 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
   split into 201 per-overload rows, and the 5 without one (`color::Color`,
   `datetime::DateTime`, `datetime::Duration`, `json::Json`, `http::Response`) keep
   one row each. Phase 1's acceptance total is therefore 63 + 44 + 6 + **206** + 7 =
-  326, where the check text had `+ 20`. The design did not depend on the per-type
+  326 (345 after Correction A8), where the check text had `+ 20`. The design did not depend on the per-type
   claim. A name hit never fires an arm here: every hit's arm also gates the
   binding's collection type (`G9`/`G10`), and no seam arm runs at a record site
   (B.2). All 201 split rows show the same verdicts as the per-type reading
@@ -404,6 +406,25 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
   name suggests. `upper`/`lower`/`caseFold` are `rewrite`, because the Unicode
   table can change the width. `pathDirName`/`pathNormalize` are `rewrite`,
   because `""` becomes `"."`. `repeat` is `rewrite`, because `times = 0` shrinks.
+  **Superseded when plan-143 landed.** plan-143 was run on `main` in parallel with
+  this plan and landed there (`77ea4c292`…`be2c86943`). It was merged into
+  `worktree-P-144` at `6aeb3f69b` (`git diff efdb54bb7 HEAD -- src` is empty, so the
+  probed compiler is unchanged). Phase 1's rule now applies as written: the F2 form
+  column is **copied from plan-143's findings**. plan-144's own reading is kept in
+  findings A.2 as a cross-check. 34 of 44 agree. 8 differ because plan-143's `shrink`
+  means a window of `s` (the codecs and `canonicalPath`). The other 2 are genuine
+  disagreements for the fix plan: `repeat` and `pathDirName`.
+- **A8 — F2 is 63 rows, not 44: plan-143's 19 Tier-B `AttributedString`
+  overloads.** plan-143 Correction 1 found 19 `strings::` transforms with an
+  `AttributedString` overload typed by `strings::resolve_return_type`. They
+  appear on no `mfb man` page, so the census cannot see them. They are self-updates
+  of an `AttributedString` field, so they belong in F2. `rows.py` now adds them
+  (asserting 19), both probes were regenerated and rebuilt, and both tables
+  re-filled: §1 has 345 rows and 2,415 cells (`fill_rec.py` → 0 disagreements), and
+  §2 has 345 rows and 2,760 cells (`fill_state.py` → 0 disagreements). The Tier-B
+  rows are `n (no arm)` / `n (StoreGlobal)` at every record site and `n (no arm)` at
+  every `STATE` site. Every acceptance check was re-run on the 345-row file (§0
+  total, 9 arms, 0 empty cells, 11 `STATE` arms, `5175 == 345*15`).
 - **A4 — the citation `builder_collection_layout.rs:706` is the method wrapper.**
   The `record_field_is_inlined` logic is the free function at
   `builder_collection_layout.rs:3152`, which the findings cite.
@@ -415,7 +436,7 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
   `try_inplace_self_update` for `g = f(g, …)` and `&` chains (`bc:1087–1102`). A
   `WITH` value matches neither shape, so the S5 verdict stands. The path is now
   "StoreGlobal: the seam's shape gate is false for a `WithUpdate`" (P2), confirmed by
-  `SUG=-` in all 339 S5 probes.
+  `SUG=-` in all 358 S5 probes.
 - **A7 — the probe also needs a two-field record type distinct from `Rec`.** §5 put
   `n` in the same `Rec` as `a`/`b`. For a fixed-width `T` that would make `b` not the
   last field at S4. The probe uses `Rec { a, b }` for S3/S4/S5/S6/S7/S9 and
@@ -425,8 +446,8 @@ Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
 ## Summary
 
 This letter is a read-only table fill over the shared row census (59 collection +
-44 `String` overloads, 4 generics, 6 operators, 206 F4 rows after the F4 guard
-split, and 7 non-self-update forms: 326 rows) at seven record sites. The main risk is false `y` verdicts, and a new risk
+44 + 19 Tier-B `String`/`AttributedString` overloads, 4 generics, 6 operators,
+206 F4 rows after the F4 guard split, and 7 non-self-update forms: 345 rows) at seven record sites. The main risk is false `y` verdicts, and a new risk
 is a per-type row that hides a function-specific arm. The Phase 2 guard grep
 handles the second. plan-144-B fills the same rows at `RES … STATE` sites and
 writes the summary.
