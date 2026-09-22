@@ -1394,7 +1394,7 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => {
-                // bug-671: a call to a module function has its declared return
+                // bug-672: a call to a module function has its declared return
                 // type. Builtin resolution alone left `typeName(pick(1))` unfoldable,
                 // a build error on valid source. A callable local of the same name
                 // shadows the function, as at the call itself (bug-569).

@@ -1,4 +1,4 @@
-# bug-671: `typeName(<user FUNC call>)` fails to compile
+# bug-672: `typeName(<user FUNC call>)` fails to compile
 
 Last updated: 2026-09-21
 Effort: small
@@ -6,6 +6,7 @@ Severity: MEDIUM (a build error on valid source; no miscompile)
 Class: Codegen / typing
 
 Status: **FIXED** (2026-09-21) — landed as a small-ish fix (write-bug), no phased plan.
+Renumbered from bug-671 at merge: plan-144 claimed bug-671 on `main` first.
 Regression Test: `tests/rt-behavior/general/typename_user_call`
 
 **The correct behavior:** `typeName(f(…))` for a user `FUNC f` builds and prints

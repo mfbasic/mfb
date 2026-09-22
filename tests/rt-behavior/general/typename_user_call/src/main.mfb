@@ -1,6 +1,6 @@
 IMPORT io
 
-' bug-671: `typeName` of a call to a user FUNC failed to compile ("native code
+' bug-672: `typeName` of a call to a user FUNC failed to compile ("native code
 ' cannot determine typeName argument type"): the fold knew builtin return types
 ' but not a module function's declared one. `typeName` never reads its argument,
 ' so the call is not evaluated - `noisy` prints nothing.
