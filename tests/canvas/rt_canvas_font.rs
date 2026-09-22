@@ -115,7 +115,9 @@ END SUB
 /// `ErrBadFontFile`, from `errorCode`. Spelled here so a renumbering of the table
 /// fails this test rather than silently changing what a program sees.
 const ERR_BAD_FONT_FILE: &str = "77050022";
-/// `ErrNotFound` — the *other* answer `loadFont` can give, and the reason
+/// `ErrNotFound` (`7-705-0004`) — a face name the file does not carry (plan-147-A).
+const ERR_FACE_NOT_FOUND: &str = "77050004";
+/// `ErrPathNotFound` — the *other* answer `loadFont` can give, and the reason
 /// `ErrBadFontFile` exists as a separate code at all.
 const ERR_NOT_FOUND: &str = "77030001";
 
@@ -1679,4 +1681,164 @@ END SUB
             format!("table: refused {ERR_BAD_FONT_FILE}"),
         ],
     );
+}
+
+/// `font` with one more table, `tag`, added to its directory (plan-147-A).
+///
+/// Rebuilds the file rather than patching it: every existing table moves 16 bytes to
+/// make room for the new record, and the directory stays in sorted tag order as a real
+/// font's does.
+fn with_table(font: &[u8], tag: &[u8; 4], data: Vec<u8>) -> Vec<u8> {
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..count)
+        .map(|i| {
+            let rec = 12 + i * 16;
+            let at = u32::from_be_bytes(font[rec + 8..rec + 12].try_into().unwrap()) as usize;
+            let len = u32::from_be_bytes(font[rec + 12..rec + 16].try_into().unwrap()) as usize;
+            (font[rec..rec + 4].try_into().unwrap(), font[at..at + len].to_vec())
+        })
+        .collect();
+    tables.push((*tag, data));
+    tables.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = font[..4].to_vec();
+    out.extend((tables.len() as u16).to_be_bytes());
+    out.extend([0u8; 6]);
+    let mut offset = 12 + 16 * tables.len();
+    for (tag, data) in &tables {
+        out.extend(tag);
+        out.extend(0u32.to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((data.len() as u32).to_be_bytes());
+        offset += (data.len() + 3) / 4 * 4;
+    }
+    for (_, data) in &tables {
+        out.extend(data);
+        out.resize((out.len() + 3) / 4 * 4, 0);
+    }
+    out
+}
+
+/// A `name` table (format 0) holding `records`: `(platform, encoding, language, nameID,
+/// the string's bytes as stored)`.
+fn name_table(records: &[(u16, u16, u16, u16, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(0u16.to_be_bytes()); // format 0
+    out.extend((records.len() as u16).to_be_bytes());
+    out.extend(((6 + 12 * records.len()) as u16).to_be_bytes()); // stringOffset
+    let mut strings: Vec<u8> = Vec::new();
+    for (platform, encoding, language, id, bytes) in records {
+        for v in [*platform, *encoding, *language, *id, bytes.len() as u16] {
+            out.extend(v.to_be_bytes());
+        }
+        out.extend((strings.len() as u16).to_be_bytes());
+        strings.extend(bytes);
+    }
+    out.extend(strings);
+    out
+}
+
+fn utf16be(text: &str) -> Vec<u8> {
+    text.encode_utf16().flat_map(u16::to_be_bytes).collect()
+}
+
+/// The minimal fixture carrying Windows-Unicode full and PostScript names, with glyph
+/// 1's (`A`'s) advance set to `advance` so two faces can be told apart by measuring.
+fn named_face(full: &str, post_script: &str, advance: u16) -> Vec<u8> {
+    let mut font = minimal_truetype();
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let hmtx = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|rec| &font[*rec..*rec + 4] == b"hmtx")
+        .map(|rec| u32::from_be_bytes(font[rec + 8..rec + 12].try_into().unwrap()) as usize)
+        .expect("the fixture has hmtx");
+    font[hmtx + 4..hmtx + 6].copy_from_slice(&advance.to_be_bytes());
+    with_table(
+        &font,
+        b"name",
+        name_table(&[
+            (3, 1, 0x0409, 4, utf16be(full)),
+            (3, 1, 0x0409, 6, utf16be(post_script)),
+        ]),
+    )
+}
+
+/// `canvas::loadFont(path, face)` picks a collection's face by PostScript name or by full
+/// name, and refuses a name no face carries with `ErrNotFound` (plan-147-A Phase 2). The faces differ only in `A`'s advance — 250 and 400 font units, 25 and
+/// 40 px at size 100 — so the measured width says which one loaded.
+#[test]
+fn load_font_chooses_a_collection_face_by_name() {
+    let ttc = collection(&[
+        named_face("Face A Full", "FaceA", 250),
+        named_face("Face B Full", "FaceB", 400),
+    ]);
+    // A Mac Roman-only face: 0x8E is `é` in Mac OS Roman.
+    let roman = with_table(
+        &minimal_truetype(),
+        b"name",
+        name_table(&[(1, 0, 0, 4, b"Caf\x8e".to_vec())]),
+    );
+    let lines = run_files(
+        "canvas_font_face_by_name",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB attempt(label AS String, path AS String, face AS String)
+  RES f AS canvas::Font = canvas::loadFont(path, face) TRAP(e)
+    io::print(label & ": refused " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print(label & ": " & toString(canvas::measureText(f, 100.0, "A").width))
+END SUB
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  attempt("ps-b", "faces.ttc", "FaceB")
+  attempt("ps-a", "faces.ttc", "FaceA")
+  attempt("full-b", "faces.ttc", "Face B Full")
+  attempt("absent", "faces.ttc", "Nope")
+  attempt("roman", "roman.ttf", "Café")
+END SUB
+"#,
+        &[("faces.ttc", ttc), ("roman.ttf", roman)],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "ps-b: 40.00".to_string(),
+            "ps-a: 25.00".to_string(),
+            "full-b: 40.00".to_string(),
+            format!("absent: refused {ERR_FACE_NOT_FOUND}"),
+            "roman: 25.00".to_string(),
+        ],
+    );
+}
+
+/// A real system collection loads by PostScript name: `Helvetica.ttc` ships with every
+/// macOS, and its bold face is not face 0 — so this is the host-font proof that the
+/// face walk and the extraction work on a production file, not only the fixture.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_system_collection_face_loads_by_post_script_name() {
+    let lines = run(
+        "canvas_font_helvetica_bold",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES regular AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc")
+  RES bold AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc", "Helvetica-Bold")
+  LET r AS Float = canvas::measureText(regular, 100.0, "Hamburgefonts").width
+  LET b AS Float = canvas::measureText(bold, 100.0, "Hamburgefonts").width
+  IF r > 0.0 AND b > r THEN
+    io::print("bold is wider")
+  ELSE
+    io::print("regular " & toString(r) & " bold " & toString(b))
+  END IF
+END SUB
+"#,
+    );
+    assert_eq!(lines, vec!["bold is wider".to_string()]);
 }

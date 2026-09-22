@@ -1,4 +1,4 @@
-# plan-147-B: System faces on macOS (CoreText)
+# plan-147-B: System fonts on macOS (CoreText) and the public members
 
 Last updated: 2026-09-21
 Effort: large (3h–1d)
@@ -9,12 +9,14 @@ Prerequisites: see plan-147-A. Additionally: plan-147-A is archived
 → one file). If it is not, this letter cannot start, full stop.
 
 This letter adds the internal runtime call **`canvas::systemFaces() AS List OF
-canvas::SystemFace`** and implements it on macOS with CoreText. `SystemFace` is an
-internal record `{name AS String, postScript AS String, path AS String}`: the face's
-full name, its PostScript name, and the file that holds it. Checkable outcome: on this
-Mac, a headless `--app` program printing `len(canvas::systemFaces())` prints 413 (the
-probe's count, §2), and every entry's `canvas::loadFontFace(path, postScript, name)`
-succeeds.
+canvas::SystemFace`**, implements it on macOS with CoreText, and adds the two public
+members on top of it (moved here from plan-147-E — see Corrections):
+`canvas::listSystemFonts() AS List OF String` and
+`canvas::loadSystemFont(name AS String) AS canvas::Font`. `SystemFace` is an internal
+record `{name AS String, postScript AS String, path AS String}`: the face's full name,
+its PostScript name, and the file that holds it. Checkable outcome: on this Mac,
+`len(canvas::listSystemFonts())` is 413 (the probe's count, §2), and
+`canvas::loadSystemFont(n)` succeeds for every `n` in the list.
 
 References: plan-147-A; `src/codegen/builtins/audio/gen_macos_shared.rs`
 (`emit_cfstring_field`), `src/codegen/memory/marshal/record_list.rs`
@@ -25,13 +27,26 @@ References: plan-147-A; `src/codegen/builtins/audio/gen_macos_shared.rs`
 - `canvas::systemFaces()` on macos-aarch64 answers one `SystemFace` per installed face
   that (a) has a `glyf` table and (b) is not a variable font, in CoreText's order.
 - Absent/odd entries (no URL, no name) are skipped, never fatal.
+- `canvas::listSystemFonts()` — the `name` of every `systemFaces` entry, sorted (the
+  `collections` string sort), duplicates removed.
+- `canvas::loadSystemFont(name)` — among entries whose `name` equals `name` (exact,
+  case-sensitive), the first after sorting by `path` then `postScript` (deterministic
+  when two files carry one full name) is loaded with
+  `canvas::loadFont(path, postScript)` — or `canvas::loadFont(path, name)` when the OS
+  gave no PostScript name. None → `FAIL error(77050004, "no system font named: " &
+  name)` (`ErrNotFound`). Both are `Body::mfb` in `func_system_fonts.rs`; no
+  `Mode.Canvas` check (like `loadFont`).
 
 ### Non-goals
 
-- No public member (E adds them). `systemFaces` is `internal_only`.
-- Linux and Windows are C and D. On those targets `canvas.systemFaces` is **not** in
-  `RUNTIME_CALLS` yet, so a program calling it fails the capability check — no stub.
-- No sorting or de-duplication here; E does that in MFBASIC.
+- `systemFaces` is `internal_only`; users reach it only through the two public members.
+- Linux and Windows are C and D. Until they land, `canvas.systemFaces` is **not** in
+  those targets' `RUNTIME_CALLS`, so a program using the public members fails the
+  build for them with "native backend does not support runtime call" — a compile-time
+  refusal, not a stub. This state lives only on the feature branch: nothing merges to
+  main before plan-147-E.
+- No fuzzy/family matching, no fallback or default font. Man pages and spec prose are
+  E's.
 
 ## 2. Current State
 
@@ -131,26 +146,29 @@ with `kCTFont*Attribute` keys (needs data-symbol imports from CoreText for no ga
       record builder needs (copy from the audio devices arm).
 - [ ] `macos_aarch64/mod.rs` capability list: add `"canvas.systemFaces"`.
 - [ ] `registry/mod.rs:CALLER_ARENA_BLOCK_RESULTS`: add the call.
+- [ ] `func_system_fonts.rs`: public `listSystemFonts` and `loadSystemFont` (§1),
+      `Body::mfb`, with a short working `intro`/`desc`/`example` (E polishes the prose
+      against `.ai/man-content.md`).
 - [ ] Tests: new `tests/canvas/rt_canvas_system_fonts.rs` (macOS-gated with
-      `#[cfg(target_os = "macos")]`), one headless `--app` program that asserts:
-      `count > 0`; every entry has non-empty `name`, `postScript` and `path`; for
-      every entry `loadFontFace(path, postScript, name)` succeeds (this is what catches
-      a named instance or a CFF face slipping through the filters); an entry named
-      `Helvetica` with a path ending `Helvetica.ttc` is present. It prints
-      `system faces: N` for the acceptance log.
+      `#[cfg(target_os = "macos")]`), headless `--app` programs asserting:
+      the list is non-empty, sorted and duplicate-free and contains `Helvetica`;
+      `loadSystemFont(n)` succeeds for **every** listed `n` (this is what catches a
+      named instance or a CFF face slipping through the filters) and prints
+      `system fonts: N loaded: N`; `loadSystemFont("Helvetica")` draws non-empty text;
+      `loadSystemFont("No Such Font")` → 77050004.
 
-Acceptance: every face `systemFaces` lists on this Mac loads.
-  Check: `cargo test --test rt_canvas_system_fonts` → pass; its log line
-  `system faces: N` shows N = 413 on this machine (est. 4 min; loading 413 faces is the
-  point — a smaller sample would miss a bad face).
+Acceptance: every face listed on this Mac loads; an unknown name is `ErrNotFound`.
+  Check: `cargo test --test rt_canvas_system_fonts` → pass; log line
+  `system fonts: N loaded: N` with N = 413 on this machine (est. 4 min; loading every
+  face is the point — a smaller sample would miss a bad face).
 Commit: —
 
 ## Validation Plan
 
 - Tests: `tests/canvas/rt_canvas_system_fonts.rs` (every listed face loads; known face
-  present; no empty fields).
+  present; sorted/unique; unknown name → `ErrNotFound`).
 - Runtime proof: the same test runs a real headless `--app` binary.
-- Doc sync: none public yet; `06_canvas.md` is updated in E.
+- Doc sync: `06_canvas.md` and the final man prose are E's.
 - Final gate: plan-147-E.
 
 ## Open Decisions
@@ -161,6 +179,28 @@ Commit: —
   is ever added).
 
 ## Corrections
+
+- **The native result is one `String`, not a `List OF SystemFace`.** Reading
+  `audio/gen_macos_devices.rs` showed a record list costs a frame of fixed slots, a
+  per-record builder and a pair array per backend — three times over. Instead the
+  internal call is **`canvas::systemFontTable() AS String`**: one record per face
+  separated by U+001E (record separator), fields `name`, `postScript`, `path`
+  separated by U+001F (unit separator) — control characters no font name or font path
+  carries. The MFBASIC members split it. On macOS the table is assembled *inside
+  CoreFoundation* (`CFStringCreateMutable` + `CFStringAppend`, path via
+  `CFURLCopyFileSystemPath`) and converted to an MFBASIC String once
+  (`CFStringGetLength` → `CFStringGetMaximumSizeForEncoding` → arena → `CFStringGetCString`
+  → `strlen`), so no per-field buffers exist. Every mention of `systemFaces` /
+  `SystemFace` / `emit_build_record_list` in B–E means this call now; its
+  `CALLER_ARENA_BLOCK_RESULTS` row is `"canvas.systemFontTable", // String`.
+
+- **The public members moved here from plan-147-E.** `systemFaces` is `internal_only`,
+  and the resolver refuses internal members from test programs
+  (`src/resolver/resolution.rs:1700`), so the plan's "tests call `systemFaces` /
+  `loadFontFace` directly" was impossible. The public members are the only way a test
+  can reach the backend, so they land with the first backend. `loadFontFace` itself was
+  replaced by the public `canvas::loadFont(path, face)` overload (plan-147-A
+  Corrections; user-approved).
 
 ## Summary
 

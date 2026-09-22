@@ -13,7 +13,7 @@ Implements `canvas::systemFaces()` on the Linux targets with fontconfig, loaded 
 time through `dlopen("libfontconfig.so.1")`/`dlsym` — never a `DT_NEEDED`, so a canvas
 program still starts on a machine without fontconfig; there the list is **empty**.
 Checkable outcome: on box 2228 a headless `--app` program prints a positive face count,
-and every listed face loads through `canvas::loadFontFace`.
+and `canvas::loadSystemFont` succeeds for every name `canvas::listSystemFonts` returns.
 
 References: plan-147-A/B; `src/codegen/builtins/audio/gen_alsa_shared.rs`
 (`emit_dlopen`, `emit_dlsym`, `emit_call_fnptr`), `src/codegen/builtins/audio/gen_alsa_devices.rs`
@@ -25,8 +25,8 @@ References: plan-147-A/B; `src/codegen/builtins/audio/gen_alsa_shared.rs`
 - `canvas::systemFaces()` on linux-x86_64 / linux-aarch64 answers one `SystemFace` per
   fontconfig pattern with `fontformat = "TrueType"`, `variable = false`, and
   `index >> 16 = 0` (not a named instance), having a `fullname` and a `file`.
-  `postScript` is `postscriptname` when present, else `""` (A's `loadFontFace` then
-  matches by full name).
+  `postScript` is `postscriptname` when present, else `""` (`loadSystemFont` then
+  passes the full name to `canvas::loadFont(path, face)`).
 - Library absent, or any fontconfig call returning NULL → empty list, no error.
 
 ### Non-goals

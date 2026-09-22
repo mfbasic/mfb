@@ -1,4 +1,4 @@
-# plan-147-E: Public API, docs, and the final gate
+# plan-147-E: Docs and the final gate
 
 Last updated: 2026-09-21
 Effort: medium (1h–2h)
@@ -8,9 +8,9 @@ Prerequisites: see plan-147-A. Additionally plan-147-D is archived
 (`ls planning/completed/plan-147-D-*` → one file). If not, this letter cannot start,
 full stop.
 
-Adds the two public members on top of `canvas::systemFaces` (B/C/D) and
-`canvas::loadFontFace` (A), documents them, rewrites the "no font discovery" contract,
-and runs the feature's one full-suite gate. Checkable outcome: on this Mac,
+Documents the two public members (added in plan-147-B on top of `canvas::systemFaces`
+and the `canvas::loadFont(path, face)` overload from A), rewrites the "no font
+discovery" contract, and runs the feature's one full-suite gate. Checkable outcome: on this Mac,
 `canvas::listSystemFonts()` contains `"Helvetica"` and is sorted with no duplicates, and
 `canvas::loadSystemFont("Helvetica")` draws text; `loadSystemFont("No Such Font")`
 fails `ErrNotFound` (77050004).
@@ -22,7 +22,8 @@ fails `ErrNotFound` (77050004).
 - `canvas::loadSystemFont(name AS String) AS canvas::Font` — among `systemFaces`
   entries with `name = name` (exact, case-sensitive), the first after sorting by
   `(path, postScript)` — deterministic when two files carry the same full name — is
-  loaded with `canvas::loadFontFace(path, postScript, name)`. None →
+  loaded with `canvas::loadFont(path, postScript)` (or `name` when the OS gave no
+  PostScript name). None →
   `FAIL error(77050004, "no system font named: " & name)`. Errors: `ErrNotFound`,
   `ErrBadFontFile`, `ErrOutOfMemory`, and whatever `fs::readBytes` raises
   (`ErrPathNotFound` if the file vanished between listing and loading).
@@ -49,15 +50,16 @@ fails `ErrNotFound` (77050004).
 
 ### Phase 1 — Members
 
-- [ ] `func_system_fonts.rs`: both members with man `intro`/`desc`/`example`
-      (per `.ai/man-content.md`: say the list depends on the machine and that text in a
-      system font can look different on another machine; no memory vocabulary).
-- [ ] Tests (`rt_canvas_system_fonts.rs`, macOS-gated for the host-font cases):
-      list sorted + unique + contains `Helvetica`; `loadSystemFont("Helvetica")` draws
-      non-empty text; `loadSystemFont("No Such Font")` → 77050004 on every target
-      where the program runs (host).
+- [x] ~~`func_system_fonts.rs`: both members, and their tests~~ — moot here: moved into
+      plan-147-B (its Phase 1 tasks and Corrections), because the internal backend is
+      unreachable from a test program without them.
+- [ ] Man prose for `listSystemFonts` / `loadSystemFont` finished against
+      `.ai/man-content.md`: the list depends on the machine; text in a system font can
+      look different on another machine; `loadFont` is the reproducible path; no memory
+      vocabulary.
 
-Acceptance: Check: `cargo test --test rt_canvas_system_fonts` → pass (est. 4 min).
+Acceptance: Check: `scripts/man-census.sh --memory-scope` → 0 unclassified;
+`mfb man canvas loadSystemFont` renders (est. 2 min).
 Commit: —
 
 ### Phase 2 — Docs
@@ -90,6 +92,9 @@ Commit: —
   case-insensitive.
 
 ## Corrections
+
+- The members themselves and their tests moved to plan-147-B (see B's Corrections);
+  this letter keeps the prose, the spec, and the final gate.
 
 ## Summary
 

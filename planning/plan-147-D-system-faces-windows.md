@@ -11,7 +11,7 @@ letter cannot start, full stop.
 
 Implements `canvas::systemFaces()` on windows-x86_64 with DirectWrite's system font
 collection through COM. Checkable outcome: on box 2230 a headless `--app` program prints
-a positive face count and every listed face loads through `canvas::loadFontFace`.
+a positive face count and `canvas::loadSystemFont` succeeds for every listed name.
 
 References: plan-147-A/B/C; `src/codegen/builtins/audio/gen_windows.rs` (`com_call`,
 `ole_call`), `src/codegen/builtins/audio/gen_windows_devices.rs` (COM enumeration →

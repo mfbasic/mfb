@@ -28,7 +28,9 @@ saved.
 
 **What this build reads.** TrueType outlines: an sfnt whose version is `0x00010000`
 or the tag `true`. A font collection (a `.ttc` file, several faces in one) loads its
-first face. It refuses CFF/OpenType-PostScript outlines and WOFF with
+first face; pass `face` to choose another by its PostScript name (`Helvetica-Bold`) or
+its full name (`Helvetica Bold`). A `face` the file does not carry is `ErrNotFound`.
+It refuses CFF/OpenType-PostScript outlines and WOFF with
 `ErrBadFontFile` — a different mistake from a path that does not exist, and it needs a
 different fix. A TrueType file
 whose `head` table puts `unitsPerEm` outside the 16..16384 the format allows is
@@ -97,6 +99,33 @@ FUNC __canvas_loadFontBytes(path AS String, bytes AS List OF Byte, dir AS Intege
     END IF
   END IF
   RETURN canvas::fontFromBytes(face)
+END FUNC"#;
+
+/// `canvas::loadFont(path, face)` — load one named face of a file (plan-147-A).
+///
+/// A collection holds several faces, and the plain `loadFont(path)` takes the first; this
+/// overload finds the one whose `name` table carries `face`. The PostScript name
+/// (nameID 6, `Helvetica-Bold`) is tried across every face before the full name
+/// (nameID 4, `Helvetica Bold`): the PostScript name is the unambiguous one, and it is
+/// what the system-font members pass, because CoreText reports no face *index* to pass
+/// instead. A plain sfnt is its own single face, so the same rule checks that a `.ttf`
+/// is the face the caller meant.
+///
+/// A name no face carries is `ErrNotFound` (77050004), not `ErrBadFontFile`: the file is
+/// a perfectly good font, it is the face that is missing, and the fix is a different name.
+#[rustfmt::skip]
+const LOAD_FONT_NAMED: &str =
+r#"FUNC __canvas_loadFontNamed(path AS String, face AS String) AS canvas::Font
+  LET bytes AS List OF Byte = fs::readBytes(path)
+  LET faces AS List OF Integer = __canvas_sfntFaces(bytes)
+  FOR EACH nameId IN [6, 4]
+    FOR EACH dir IN faces
+      IF __canvas_faceName(bytes, dir, nameId) = face THEN
+        RETURN __canvas_loadFontBytes(path, bytes, dir)
+      END IF
+    NEXT
+  NEXT
+  FAIL error(77050004, "no face named " & face & " in " & path)
 END FUNC"#;
 
 /// TrueType Collections (plan-147-A): which faces a file holds, and one face lifted out
@@ -355,6 +384,27 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::named(super::FONT_TYPE_ID),
             errors: vec!["ErrBadFontFile", "ErrOutOfMemory"],
             body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
+        }, Implementation {
+            params: vec![
+                Parameter {
+                    name: "path",
+                    desc: "The font file to read.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "face",
+                    desc: "The face to load: its PostScript name (`Helvetica-Bold`) \
+                           or its full name (`Helvetica Bold`).",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::named(super::FONT_TYPE_ID),
+            errors: vec!["ErrBadFontFile", "ErrNotFound", "ErrOutOfMemory"],
+            body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
         }],
     });
     pkg.add_helper(RegistryHelper::always("canvas_isTrueType", IS_TRUETYPE));

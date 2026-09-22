@@ -26,8 +26,9 @@ learns TrueType Collections (`.ttc`)**, and gains the two primitives every backe
 to turn "a file plus a name" into a font — reading a face's names out of its `name`
 table, and choosing a collection face by PostScript name. Checkable outcome:
 `canvas::loadFont("x.ttc")` draws face 0 of a collection instead of failing
-`ErrBadFontFile`, and the internal `canvas::loadFontFace(path, postScript, fullName)`
-loads the named face of a collection.
+`ErrBadFontFile`, and the new public overload `canvas::loadFont(path, face)` loads the
+face of a file whose PostScript or full name is `face` (added with the user's approval,
+see Corrections).
 
 References:
 
@@ -59,11 +60,12 @@ B, C and D. No letter may start before the previous letter is archived.
 ## 1. Goal
 
 - `canvas::loadFont(path)` accepts a `ttcf` file and loads its **face 0**.
-- An internal member `canvas::loadFontFace(path AS String, postScript AS String,
-  fullName AS String) AS canvas::Font` loads the face of `path` whose nameID 6 equals
-  `postScript` (or, when `postScript` is `""`, whose nameID 4 equals `fullName`). A
-  plain sfnt file is its own single face; a `ttcf` is searched face by face. No match
-  fails `ErrBadFontFile` naming the file and the wanted name.
+- A public overload `canvas::loadFont(path AS String, face AS String) AS canvas::Font`
+  loads the face of `path` whose nameID 6 (PostScript name) equals `face`, trying every
+  face; failing that, the first whose nameID 4 (full name) equals `face`. A plain sfnt
+  file is its own single face; a `ttcf` is searched face by face. No match fails
+  `ErrNotFound` (77050004) naming the file and the wanted face — the file is a good font,
+  it is the face that is missing.
 - Both go through one validation path, so `unitsPerEm` and the TrueType-outline rule
   apply to the *chosen face*, not the container.
 
@@ -75,7 +77,7 @@ B, C and D. No letter may start before the previous letter is archived.
   change. The face is extracted at load time into a standalone sfnt (§3).
 - No CFF (`OTTO`), WOFF/WOFF2, or variable-font (`gvar`) support. A collection face with
   CFF outlines is refused `ErrBadFontFile` exactly as an `OTTO` file is.
-- No public member is added in this letter (`loadFontFace` is `internal_only`).
+- The only public surface added is the `loadFont(path, face)` overload.
 - Rendering output for every existing TrueType file is unchanged: the bytes handed to
   `fontFromBytes` for a plain sfnt are the file's bytes, as today.
 
@@ -168,9 +170,9 @@ Then:
 - `__canvas_loadFont(path)` = read; if the file is a `ttcf`, `dir` = first face (none →
   `ErrBadFontFile "font collection holds no faces"`); else the existing version check;
   then `__canvas_loadFontBytes`.
-- `canvas::loadFontFace(path, postScript, fullName)` (internal, `Body::mfb`) = read,
-  walk `__canvas_sfntFaces`, pick the first face whose nameID 6 = `postScript` (nameID 4
-  = `fullName` when `postScript = ""`), `__canvas_loadFontBytes`.
+- `canvas::loadFont(path, face)` (public overload, `Body::mfb`
+  `__canvas_loadFontNamed`) = read, walk `__canvas_sfntFaces` for nameID 6 = `face`,
+  then again for nameID 4 = `face`, `__canvas_loadFontBytes`; none → `ErrNotFound`.
 
 **Correctness risk** concentrates in `__canvas_extractFace`: an off-by-one in a rewritten
 offset renders garbage or reads past a table. It is covered by a round-trip test that
@@ -209,8 +211,9 @@ skipped.
 - `loadFont` now **accepts** `ttcf` files (face 0) that it used to refuse with
   `ErrBadFontFile`. A `ttcf` with no faces, or whose face 0 is CFF, is still refused
   with `ErrBadFontFile`.
-- No change to the Font record, the font table, any public signature, or pixels drawn
-  from an existing `.ttf`.
+- New public overload `canvas::loadFont(path, face)`. No change to the Font record, the
+  font table, the existing `loadFont(path)` signature, or pixels drawn from an existing
+  `.ttf`.
 
 ## Phases
 
@@ -242,27 +245,34 @@ Acceptance: a collection's face 0 draws exactly what the standalone file draws, 
 every malformed collection is refused with `ErrBadFontFile`.
   Check: `cargo test --test rt_canvas_font` → all pass, including the three new cases
   (est. 3 min). **Observed: `test result: ok. 22 passed; 0 failed` (150.55 s).**
-Commit: —
+Commit: 5cda42fc7
 
-### Phase 2 — Face names and `loadFontFace`
+### Phase 2 — Face names and `loadFont(path, face)`
 
-The primitives B/C/D feed: read a face's names; load a face by PostScript name.
+The primitives B/C/D feed: read a face's names; load a face by name.
 
-- [ ] New `src/codegen/builtins/canvas/helper_font_name.rs`: `__canvas_faceName`
-      (§3.3, §4), registered in `canvas/mod.rs`.
-- [ ] `func_load_font.rs`: register internal member `canvas::loadFontFace(path,
-      postScript, fullName) AS canvas::Font`, `Body::mfb`, errors `ErrBadFontFile`,
-      `ErrOutOfMemory`; add `"canvas.loadFontFace"` to nothing — it is `Body::mfb`, not a
-      runtime call (confirm: `rg -n '"canvas.loadFont"' src/target` → no hits today).
-- [ ] Tests: extend the Rust fixture builder with a `name` table (platform 3 UTF-16BE
-      nameID 4 and 6, plus a platform-1 Mac Roman nameID 4 on a second face); a two-face
-      collection with distinct PostScript names → `loadFontFace(path, "FaceB", "")`
-      draws face B (distinguish faces by giving them different advance widths and
-      asserting `measureText` width); `loadFontFace(path, "", "Face A Full")` picks face
-      A by full name; an absent name → refused 77050022 with the name in the message.
+- [x] New `src/codegen/builtins/canvas/helper_font_name.rs`: `__canvas_faceName`
+      (§3.3, §4), registered in `canvas/mod.rs`; `helper_font.rs` gains
+      `__canvas_faceTable(b, dir, tag)` and `__canvas_fontTable` delegates to it with
+      `dir = 0` (one directory scanner, not two).
+- [x] ~~`func_load_font.rs`: register internal member `canvas::loadFontFace(path,
+      postScript, fullName)`~~ — moot: an `internal_only` member cannot be called from a
+      test program (`src/resolver/resolution.rs:1700`), so it could never be tested;
+      replaced by the next task with the user's approval.
+- [x] `func_load_font.rs`: public overload `canvas::loadFont(path, face)`
+      (`LOAD_FONT_NAMED`, `__canvas_loadFontNamed`), errors `ErrBadFontFile`,
+      `ErrNotFound`, `ErrOutOfMemory`; man `DESC` and the `face` parameter documented.
+      Check: `mfb man canvas loadFont` → renders both overloads, the `face` parameter
+      and `ErrNotFound` on overload 2.
+- [x] Tests (`rt_canvas_font.rs`): `with_table`/`name_table`/`named_face` fixture
+      builders; `load_font_chooses_a_collection_face_by_name` (PostScript names FaceA/
+      FaceB, full name `Face B Full`, absent → 77050004, Mac-Roman-only `Café`), and the
+      macOS host proof `a_system_collection_face_loads_by_post_script_name`
+      (`Helvetica.ttc`, `Helvetica-Bold` measures wider than face 0).
 
 Acceptance: a named face of a collection loads and is the right face.
   Check: `cargo test --test rt_canvas_font` → all pass incl. the new cases (est. 3 min).
+  **Observed: `test result: ok. 24 passed; 0 failed` (174.82 s).**
 Commit: —
 
 ### Phase 3 — Goldens and docs sync
@@ -309,6 +319,15 @@ Commit: —
   printing a line per case), and the round-trip is `a_collection_loads_its_first_face`;
   "three new cases" = those two negatives plus the round-trip. Test helpers `run` and
   `render_env` gained `run_files` / `render_env_files` variants to drop fixture files.
+- **`canvas::loadFontFace` could not be internal.** The plan made it `internal_only` and
+  had B/C/D tests call it (and `systemFaces`) directly, but the resolver refuses
+  internal members from any non-toolchain file (`src/resolver/resolution.rs:1700`,
+  `builtins::is_internal_only_call(..) && !file.internal`). Asked the user (2026-09-21):
+  **a public overload `canvas::loadFont(path, face)` replaces it** — face matched by
+  PostScript name, then full name; a missing face is `ErrNotFound`, not
+  `ErrBadFontFile`. Knock-on: `systemFaces` is internal too, so B/C/D cannot test it
+  directly either — the public `listSystemFonts`/`loadSystemFont` move from E into B
+  (see plan-147-B/E Corrections).
 - MFBASIC note: `next` is a keyword (FOR … NEXT); the offset cursor in
   `__canvas_extractFace` is named `cursor`.
 

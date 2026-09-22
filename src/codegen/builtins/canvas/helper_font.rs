@@ -46,6 +46,12 @@ END FUNC"#;
 
 /// The table directory: find a table by its four-character tag.
 ///
+/// `__canvas_faceTable` reads the directory at `dir` — `0` for an ordinary sfnt, or one
+/// face's directory inside a collection, whose table offsets still count from the start
+/// of the file (plan-147-A). Every renderer-side reader goes through `__canvas_fontTable`,
+/// which is the directory at `0`: a loaded font is always a standalone face, because the
+/// loader lifts a collection's face out before stamping the resource.
+///
 /// Returns the table's file offset, or `-1` when the font does not carry it. A linear
 /// scan rather than the binary search the header's `searchRange`/`entrySelector` fields
 /// invite: a font has on the order of a dozen tables, and a wrong binary search over a
@@ -55,11 +61,15 @@ END FUNC"#;
 #[rustfmt::skip]
 const FONT_TABLE: &str =
 r#"FUNC __canvas_fontTable(b AS List OF Byte, tag AS String) AS Integer
-  LET numTables AS Integer = __canvas_beU16(b, 4)
+  RETURN __canvas_faceTable(b, 0, tag)
+END FUNC
+
+FUNC __canvas_faceTable(b AS List OF Byte, dir AS Integer, tag AS String) AS Integer
+  LET numTables AS Integer = __canvas_beU16(b, dir + 4)
   LET want AS List OF Integer = encoding::utf32Encode(tag)
   MUT i AS Integer = 0
   WHILE i < numTables
-    LET rec AS Integer = 12 + i * 16
+    LET rec AS Integer = dir + 12 + i * 16
     IF rec + 16 <= len(b) THEN
       MUT same AS Boolean = TRUE
       MUT k AS Integer = 0

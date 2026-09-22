@@ -74,6 +74,7 @@ mod helper_color;
 mod helper_damage;
 mod helper_draw;
 mod helper_font;
+mod helper_font_name;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
@@ -1201,6 +1202,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_shapes::register(&mut pkg);
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
+    helper_font_name::register(&mut pkg);
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
