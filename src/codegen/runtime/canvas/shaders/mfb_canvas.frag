@@ -191,7 +191,10 @@ vec2 inverseMap(vec2 p) {
 float geoDistance(vec2 p) {
     float radius = fx(item.misc.y);
     vec2 c = vec2(fx(item.shape.x), fx(item.shape.y));
-    if (item.misc.x == 0) {
+    // bug-484: a Picture (9) is a rectangle to the distance field — its header carries
+    // the rectangle's centre, half-extent and zero radius — so its coverage, edge, clip
+    // and stroke are a rectangle's. Only its fill colour differs (`pictureColour`).
+    if (item.misc.x == 0 || item.misc.x == 9) {
         return rectDistance(p, c, vec2(fx(item.shape.z), fx(item.shape.w))) - radius;
     }
     if (item.misc.x == 1) {
@@ -233,8 +236,8 @@ float geoDistance(vec2 p) {
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, item.misc.w, p);
     }
-    // The empty kind (5) — `Picture`, which draws nothing until it has an atlas — and
-    // anything unknown. A glyph (6) never reaches here: it has coverage, not a
+    // The empty kind (5) and anything unknown. (`Picture` was once kind 5 and drew
+    // nothing; since bug-484 it is kind 9 and takes the rectangle arm above.) A glyph (6) never reaches here: it has coverage, not a
     // distance, and `main` handles it before asking for one.
     return 1.0e6;
 }
@@ -258,6 +261,35 @@ int glyphCoverage(vec2 p) {
     int iy = int(floor(p.y)) - item.shape.y;
     if (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x) { return 0; }
     return edges.values[GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];
+}
+
+// A picture's fill colour at the SHAPE-space point `q`, as an `ivec4` of 0..255
+// (bug-484) — the oracle's picture arm in `helper_items.rs`, operation for operation.
+//
+// Sampled NEAREST, the plan-116-C §4.5 rule glyphs follow: `floor` and `+ - * /` only,
+// in the oracle's order `(q - x0) * iw / dw`, so every renderer picks the same texel.
+// The index is clamped rather than rejected, because the antialiased edge pixels just
+// outside the destination still take coverage and belong to the border texel.
+//
+// The texels ride the glyph region, one packed `r | g<<8 | b<<16 | a<<24` word each,
+// at `arc.z`; the width is `misc.w` and the height `arc.x`, as a glyph names its
+// bitmap. Each channel is masked AFTER the shift, because an `int` shift is
+// arithmetic and the alpha byte's top bit would otherwise smear down. The texel is
+// then tinted by `fill` integer-wise, alpha included — the fill's alpha is the
+// picture's opacity. A zero width means the emitter had no room: draw nothing.
+ivec4 pictureColour(vec2 q) {
+    int iw = item.misc.w;
+    int ih = item.arc.x;
+    if (iw <= 0 || ih <= 0) { return ivec4(0); }
+    float x0 = fx(item.shape.x) - fx(item.shape.z);
+    float y0 = fx(item.shape.y) - fx(item.shape.w);
+    float dw = fx(item.shape.z) * 2.0;
+    float dh = fx(item.shape.w) * 2.0;
+    int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);
+    int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);
+    int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
+    ivec4 tex = ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
+    return (tex * item.fill) / 255;
 }
 
 float srgbToLinear(float c) {
@@ -464,6 +496,11 @@ void main() {
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
     ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;
+    // bug-484: a picture's image replaces the fill colour the same way — sampled at the
+    // shape-space point, the inverse-mapped one under a transform.
+    if (item.misc.x == 9) {
+        fillRgba = pictureColour(hasTransform() ? inverseMap(p) : p);
+    }
     vec4 colour = covered(fillRgba,
         (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
     float halfWidth = fx(item.misc.z);
