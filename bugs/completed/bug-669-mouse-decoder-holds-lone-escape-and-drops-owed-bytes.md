@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: tests/runtime/rt_native_term_runtime.rs
 (`native_term_mouse_poll_input_keeps_the_byte_after_an_escape`,
 `native_term_mouse_escape_at_end_of_input_is_delivered`,
@@ -28,6 +28,15 @@ it until the next byte decides. Three things go wrong with that:
    their `[A` tails, and the game hung on Esc then `q`.
 3. **An ESC right before EOF is lost.** The pump reads EOF with the ESC still
    buffered, and the held prefix is never handed back.
+
+## STATUS: FIXED (3b8a1994c; goldens 3ee76d56a)
+
+Shipped as designed below, plus two defects the fix exposed: (4) pollInput
+never saw bytes owed inside the decoder, and (5) the drain cursor stayed one
+past the end. Both are in Root Cause. The app goldens moved in 3ee76d56a with
+the same-session app-mode fixes. Validated on 9e728044e plus these commits:
+artifact-gate all 2080 goldens, 0 diffs; cargo test 215 binaries, 5925
+passed, 0 failed.
 
 **Correct behavior:** every byte that is not part of a complete SGR mouse report
 reaches the program, in order. A held escape prefix is handed back once input
@@ -163,7 +172,7 @@ Expected golden shift: only the `.ncode`/`.nir` of fixtures that use the mouse
 - [x] Blast-radius audit done.
 
 Acceptance: the tests fail for the documented reasons.
-Commit: —
+Commit: 3b8a1994c
 
 ### Phase 2 — the fix
 
@@ -183,7 +192,7 @@ Commit: —
       pollInput loop whole. Verified red with the entry check removed.
 
 Acceptance: `cargo test --release --test rt_native_term_runtime`: 19 passed.
-Commit: — (uncommitted, pending the user's go-ahead)
+Commit: 3b8a1994c
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -192,7 +201,8 @@ Commit: — (uncommitted, pending the user's go-ahead)
       is exactly the four new `_poll` imports; the fixture reads no keys, so its
       code moved only through the import table. The Windows golden didn't move
       (no import change). Regenerated with `regen-native-goldens.sh`.
-- [ ] Full suite (`cargo test --release --no-fail-fast`).
+- [x] Full suite (`cargo test --release --no-fail-fast`): 215 binaries, 5925
+      passed, 0 failed.
 - [x] Cross-target execution of the probe (burst / lone ESC held open / `ESC[Z`
       held open / blocking readChar on a lone ESC): macOS aarch64, Linux
       aarch64 glibc (2223), Linux x86_64 musl (2227), Windows x86_64 (2230).
@@ -205,7 +215,7 @@ Commit: — (uncommitted, pending the user's go-ahead)
       document the escape delay; `man-census --memory-scope` 0 unclassified;
       `spec-census --citations` 0 missing.
 
-Commit: —
+Commit: 3ee76d56a
 
 ## Summary
 
