@@ -209,6 +209,23 @@ Commit: `(recorded in the next commit)`
 - **F4 — the kind lines flip at every site C's stores reach** (S3, S4, S10,
   T1–T5, T8), not only S3, S4, T1, T2: it is the same routine at all of them, and
   the harness ran them all.
+- **F5 — a borrowed overwrite source is copied only when it must be.** The first
+  overwrite copied every borrowed value (e.g. `kindSame`'s argument, a view of the
+  field itself) before copying it over the field — one block a run, which the S6
+  harness caught ("2000 more runs allocated 2000 more blocks (want <= 1.125 x the
+  control's 0)"). The snapshot is needed only when another store of the same `WITH`
+  could change the source first: a second overwrite (a swap) or a pointer field's
+  drop. Otherwise the borrowed bytes are copied where they lie.
+- **F6 — a pointer record level.** A nested record that holds a pointer field
+  (`Rec` of two `json::JsonArr`, each a `List OF Json`) is not inlined but a
+  pointer field of its parent, so the peel stopped there and the S6 JsonArr and
+  JsonObj lines rebuilt (7 blocks a run against the control's 3). The store routine
+  now descends a pointer level too (`peel_field_path`'s `pointer_levels`; the
+  record block is loaded from the slot) — the record is owned by its parent, so it
+  is written where it lies. The arms still take inlined levels only: a grow there
+  would have to repoint the parent's slot. `/tmp/p145/jarr`: S6 at 3 blocks a run
+  (the control's), values identical to the plan-145-C compiler's, a `LET` snapshot
+  untouched.
 
 ## Summary
 

@@ -113,6 +113,10 @@ pub(crate) struct FieldLevel<'a> {
     pub(crate) field: &'a str,
     pub(crate) field_index: usize,
     pub(crate) record_type: ParameterType,
+    /// The level is a POINTER record field (its slot holds the record's own
+    /// block) rather than an inlined one; only the store routine descends one
+    /// (`peel_field_path`'s `pointer_levels`).
+    pub(crate) pointer: bool,
 }
 
 /// plan-145-B: which field of which owner a field site updates.
@@ -146,6 +150,9 @@ pub(crate) enum FieldContainer<'a> {
     Record { local: &'a str },
     /// A `RES … STATE` handle, whose resource record holds the payload pointer.
     State { resource: &'a str },
+    /// plan-145-G: a module-level record, whose global slot holds the block
+    /// pointer.
+    Global { name: &'a str },
 }
 
 impl SelfUpdateSite<'_> {
@@ -167,7 +174,12 @@ impl SelfUpdateSite<'_> {
     /// field site that is any read of the owner — conservative, and exactly the
     /// self-alias test the record and `STATE` arms made (`G12`).
     pub(crate) fn read_by(&self, value: &NirValue) -> bool {
-        if self.field.is_some() || !matches!(self.dest, InPlaceDest::Global { .. }) {
+        let global_owner = matches!(self.dest, InPlaceDest::Global { .. })
+            || matches!(
+                self.field.as_ref().map(|field| field.container),
+                Some(FieldContainer::Global { .. })
+            );
+        if !global_owner {
             return crate::codegen::engine::control::nir_value_reads_local(value, self.name);
         }
         struct Finder<'n> {
@@ -196,6 +208,9 @@ impl SelfUpdateSite<'_> {
 pub(crate) fn field_owner_is(value: &NirValue, container: FieldContainer<'_>) -> bool {
     match container {
         FieldContainer::Record { local } => matches!(value, NirValue::Local(n) if n == local),
+        FieldContainer::Global { name } => {
+            matches!(value, NirValue::Global { name: g, .. } if g == name)
+        }
         FieldContainer::State { resource } => matches!(
             value,
             NirValue::MemberAccess { target, member }
@@ -584,6 +599,10 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
             matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
                 && wanted(target)
         }
+        // plan-145-G: `gR = WITH gR { f := g(gR.f, …) }`.
+        NirOp::StoreGlobal {
+            value: Some(value), ..
+        } => with_holds_field_self_update(value, wanted),
         // plan-145-D: a field self-update `r = WITH r { f := g(r.f, …) }` or
         // `h.state = WITH h.state { f := g(h.state.f, …) }`, one field or mixed.
         NirOp::StateAssign { value, .. } => with_holds_field_self_update(value, wanted),
@@ -642,6 +661,8 @@ fn with_holds_field_self_update(value: &NirValue, wanted: &dyn Fn(&str) -> bool)
 fn same_field_owner(a: &NirValue, b: &NirValue) -> bool {
     match (a, b) {
         (NirValue::Local(x), NirValue::Local(y)) => x == y,
+        // plan-145-G: a module-level record.
+        (NirValue::Global { name: x, .. }, NirValue::Global { name: y, .. }) => x == y,
         (
             NirValue::MemberAccess {
                 target: x,
@@ -1833,36 +1854,10 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 /// lands a pair early, without removing its entry, fails. Letter I deletes this.
 #[cfg(test)]
 pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
-    const GLOBAL: &[&str] = &["S5"];
     const ALIAS: &[&str] = &["S7", "T7", "S9"];
     &[
-        // The global record (G), the loop and the capture (H):
+        // The loop and the capture (H):
         // every collection arm.
-        (ArmId::Append, GLOBAL, 'G'),
-        (ArmId::BulkAppend, GLOBAL, 'G'),
-        (ArmId::SetAdd, GLOBAL, 'G'),
-        (ArmId::Insert, GLOBAL, 'G'),
-        (ArmId::Prepend, GLOBAL, 'G'),
-        (ArmId::Set, GLOBAL, 'G'),
-        (ArmId::RemoveKey, GLOBAL, 'G'),
-        (ArmId::RemoveAt, GLOBAL, 'G'),
-        (ArmId::SetRemove, GLOBAL, 'G'),
-        (ArmId::Filter, GLOBAL, 'G'),
-        (ArmId::Take, GLOBAL, 'G'),
-        (ArmId::Drop, GLOBAL, 'G'),
-        (ArmId::Mid, GLOBAL, 'G'),
-        (ArmId::Distinct, GLOBAL, 'G'),
-        (ArmId::Math, GLOBAL, 'G'),
-        (ArmId::Replace, GLOBAL, 'G'),
-        (ArmId::Transform, GLOBAL, 'G'),
-        (ArmId::Sort, GLOBAL, 'G'),
-        (ArmId::SortBy, GLOBAL, 'G'),
-        (ArmId::Union, GLOBAL, 'G'),
-        (ArmId::Intersection, GLOBAL, 'G'),
-        (ArmId::Difference, GLOBAL, 'G'),
-        (ArmId::SymmetricDifference, GLOBAL, 'G'),
-        (ArmId::Merge, GLOBAL, 'G'),
-        (ArmId::MapValues, GLOBAL, 'G'),
         (ArmId::Append, ALIAS, 'H'),
         (ArmId::BulkAppend, ALIAS, 'H'),
         (ArmId::SetAdd, ALIAS, 'H'),

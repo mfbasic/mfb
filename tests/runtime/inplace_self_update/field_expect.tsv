@@ -4,7 +4,7 @@
 # Columns: signature \t site \t expect
 collections::add(value AS Set OF T, item AS T) AS Set OF T	S3	rebuild:not-last-grow
 collections::add(value AS Set OF T, item AS T) AS Set OF T	S4	arm
-collections::add(value AS Set OF T, item AS T) AS Set OF T	S5	copy:G
+collections::add(value AS Set OF T, item AS T) AS Set OF T	S5	arm
 collections::add(value AS Set OF T, item AS T) AS Set OF T	S6	arm
 collections::add(value AS Set OF T, item AS T) AS Set OF T	S7	copy:H
 collections::add(value AS Set OF T, item AS T) AS Set OF T	S9	copy:H
@@ -19,7 +19,7 @@ collections::add(value AS Set OF T, item AS T) AS Set OF T	T7	copy:H
 collections::add(value AS Set OF T, item AS T) AS Set OF T	T8	arm
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	S3	rebuild:not-last-grow
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	S4	arm
-collections::append(value AS List OF T, item AS List OF T) AS List OF T	S5	copy:G
+collections::append(value AS List OF T, item AS List OF T) AS List OF T	S5	arm
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	S6	arm
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	S7	copy:H
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	S9	copy:H
@@ -34,7 +34,7 @@ collections::append(value AS List OF T, item AS List OF T) AS List OF T	T7	copy:
 collections::append(value AS List OF T, item AS List OF T) AS List OF T	T8	arm
 collections::append(value AS List OF T, item AS T) AS List OF T	S3	rebuild:not-last-grow
 collections::append(value AS List OF T, item AS T) AS List OF T	S4	arm
-collections::append(value AS List OF T, item AS T) AS List OF T	S5	copy:G
+collections::append(value AS List OF T, item AS T) AS List OF T	S5	arm
 collections::append(value AS List OF T, item AS T) AS List OF T	S6	arm
 collections::append(value AS List OF T, item AS T) AS List OF T	S7	copy:H
 collections::append(value AS List OF T, item AS T) AS List OF T	S9	copy:H
@@ -49,7 +49,7 @@ collections::append(value AS List OF T, item AS T) AS List OF T	T7	copy:H
 collections::append(value AS List OF T, item AS T) AS List OF T	T8	arm
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	arm
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
-collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
+collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	arm
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	arm
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
@@ -64,7 +64,7 @@ collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	T7	copy:H
 collections::difference(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	arm
 collections::distinct(value AS List OF T) AS List OF T	S3	rebuild:not-last-grow
 collections::distinct(value AS List OF T) AS List OF T	S4	arm
-collections::distinct(value AS List OF T) AS List OF T	S5	copy:G
+collections::distinct(value AS List OF T) AS List OF T	S5	arm
 collections::distinct(value AS List OF T) AS List OF T	S6	arm
 collections::distinct(value AS List OF T) AS List OF T	S7	copy:H
 collections::distinct(value AS List OF T) AS List OF T	S9	copy:H
@@ -79,7 +79,7 @@ collections::distinct(value AS List OF T) AS List OF T	T7	copy:H
 collections::distinct(value AS List OF T) AS List OF T	T8	arm
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	S4	arm
-collections::drop(value AS List OF T, count AS Integer) AS List OF T	S5	copy:G
+collections::drop(value AS List OF T, count AS Integer) AS List OF T	S5	arm
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	S6	arm
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	S7	copy:H
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	S9	copy:H
@@ -94,7 +94,7 @@ collections::drop(value AS List OF T, count AS Integer) AS List OF T	T7	copy:H
 collections::drop(value AS List OF T, count AS Integer) AS List OF T	T8	arm
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S3	arm
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S4	arm
-collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S5	copy:G
+collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S5	arm
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S6	arm
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S7	copy:H
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	S9	copy:H
@@ -109,7 +109,7 @@ collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List
 collections::filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T	T8	arm
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S3	rebuild:not-last-grow
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S4	arm
-collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S5	copy:G
+collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S5	arm
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S6	arm
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S7	copy:H
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	S9	copy:H
@@ -124,7 +124,7 @@ collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF 
 collections::insert(value AS List OF T, index AS Integer, item AS T) AS List OF T	T8	arm
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	arm
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
-collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
+collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	arm
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	arm
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
@@ -139,7 +139,7 @@ collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	T7	copy:H
 collections::intersection(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	arm
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S3	arm
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S4	arm
-collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S5	copy:G
+collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S5	arm
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S6	arm
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S7	copy:H
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	S9	copy:H
@@ -154,7 +154,7 @@ collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO
 collections::mapValues(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U	T8	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S3	rebuild:not-last-grow
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S4	arm
-collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S5	copy:G
+collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S5	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S6	arm
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S7	copy:H
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	S9	copy:H
@@ -169,7 +169,7 @@ collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) A
 collections::merge(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V	T8	arm
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S4	arm
-collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S5	copy:G
+collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S5	arm
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S6	arm
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S7	copy:H
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	S9	copy:H
@@ -184,7 +184,7 @@ collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List
 collections::mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T	T8	arm
 collections::prepend(value AS List OF T, item AS T) AS List OF T	S3	rebuild:not-last-grow
 collections::prepend(value AS List OF T, item AS T) AS List OF T	S4	arm
-collections::prepend(value AS List OF T, item AS T) AS List OF T	S5	copy:G
+collections::prepend(value AS List OF T, item AS T) AS List OF T	S5	arm
 collections::prepend(value AS List OF T, item AS T) AS List OF T	S6	arm
 collections::prepend(value AS List OF T, item AS T) AS List OF T	S7	copy:H
 collections::prepend(value AS List OF T, item AS T) AS List OF T	S9	copy:H
@@ -229,7 +229,7 @@ collections::reduceRight(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U)
 collections::reduceRight(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U	T8	rebuild:new-value
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	S3	rebuild:not-last-grow
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	S4	arm
-collections::remove(value AS Set OF T, item AS T) AS Set OF T	S5	copy:G
+collections::remove(value AS Set OF T, item AS T) AS Set OF T	S5	arm
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	S6	arm
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	S7	copy:H
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	S9	copy:H
@@ -244,7 +244,7 @@ collections::remove(value AS Set OF T, item AS T) AS Set OF T	T7	copy:H
 collections::remove(value AS Set OF T, item AS T) AS Set OF T	T8	arm
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S4	arm
-collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S5	copy:G
+collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S5	arm
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S6	arm
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S7	copy:H
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	S9	copy:H
@@ -259,7 +259,7 @@ collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	T7	copy
 collections::removeAt(value AS List OF T, index AS Integer) AS List OF T	T8	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S3	rebuild:not-last-grow
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S4	arm
-collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S5	copy:G
+collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S5	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S6	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S7	copy:H
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	S9	copy:H
@@ -274,7 +274,7 @@ collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T7	cop
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T8	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S3	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S4	arm
-collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S5	copy:G
+collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S5	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S6	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S7	copy:H
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S9	copy:H
@@ -289,7 +289,7 @@ collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	T7	cop
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	T8	arm
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S3	arm
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S4	arm
-collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S5	copy:G
+collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S5	arm
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S6	arm
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S7	copy:H
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	S9	copy:H
@@ -304,7 +304,7 @@ collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	T
 collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T	T8	arm
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S3	rebuild:not-last-grow
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S4	arm
-collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S5	copy:G
+collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S5	arm
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S6	arm
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S7	copy:H
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	S9	copy:H
@@ -319,7 +319,7 @@ collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V
 collections::set(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V	T8	arm
 collections::sort(value AS List OF T) AS List OF T	S3	arm
 collections::sort(value AS List OF T) AS List OF T	S4	arm
-collections::sort(value AS List OF T) AS List OF T	S5	copy:G
+collections::sort(value AS List OF T) AS List OF T	S5	arm
 collections::sort(value AS List OF T) AS List OF T	S6	arm
 collections::sort(value AS List OF T) AS List OF T	S7	copy:H
 collections::sort(value AS List OF T) AS List OF T	S9	copy:H
@@ -334,7 +334,7 @@ collections::sort(value AS List OF T) AS List OF T	T7	copy:H
 collections::sort(value AS List OF T) AS List OF T	T8	arm
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S3	arm
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S4	arm
-collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S5	copy:G
+collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S5	arm
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S6	arm
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S7	copy:H
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	S9	copy:H
@@ -349,7 +349,7 @@ collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	T7	c
 collections::sortBy(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T	T8	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	rebuild:not-last-grow
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
-collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
+collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	arm
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
@@ -364,7 +364,7 @@ collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T7	co
 collections::symmetricDifference(a AS Set OF T, b AS Set OF T) AS Set OF T	T8	arm
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S3	rebuild:not-last-grow
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S4	arm
-collections::take(value AS List OF T, count AS Integer) AS List OF T	S5	copy:G
+collections::take(value AS List OF T, count AS Integer) AS List OF T	S5	arm
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S6	arm
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S7	copy:H
 collections::take(value AS List OF T, count AS Integer) AS List OF T	S9	copy:H
@@ -379,7 +379,7 @@ collections::take(value AS List OF T, count AS Integer) AS List OF T	T7	copy:H
 collections::take(value AS List OF T, count AS Integer) AS List OF T	T8	arm
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S3	arm
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S4	arm
-collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S5	copy:G
+collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S5	arm
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S6	arm
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S7	copy:H
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	S9	copy:H
@@ -394,7 +394,7 @@ collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	T7	co
 collections::transform(value AS List OF T, f AS FUNC(T) AS U) AS List OF U	T8	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S3	rebuild:not-last-grow
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S4	arm
-collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	copy:G
+collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S5	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S6	arm
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S7	copy:H
 collections::union(a AS Set OF T, b AS Set OF T) AS Set OF T	S9	copy:H
@@ -544,7 +544,7 @@ crypto::shake256(data AS List OF Byte, length AS Integer) AS List OF Byte	T7	reb
 crypto::shake256(data AS List OF Byte, length AS Integer) AS List OF Byte	T8	rebuild:new-value
 math::abs(value AS List OF Fixed) AS List OF Fixed	S3	arm
 math::abs(value AS List OF Fixed) AS List OF Fixed	S4	arm
-math::abs(value AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::abs(value AS List OF Fixed) AS List OF Fixed	S5	arm
 math::abs(value AS List OF Fixed) AS List OF Fixed	S6	arm
 math::abs(value AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::abs(value AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -559,7 +559,7 @@ math::abs(value AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::abs(value AS List OF Fixed) AS List OF Fixed	T8	arm
 math::abs(value AS List OF Float) AS List OF Float	S3	arm
 math::abs(value AS List OF Float) AS List OF Float	S4	arm
-math::abs(value AS List OF Float) AS List OF Float	S5	copy:G
+math::abs(value AS List OF Float) AS List OF Float	S5	arm
 math::abs(value AS List OF Float) AS List OF Float	S6	arm
 math::abs(value AS List OF Float) AS List OF Float	S7	copy:H
 math::abs(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -574,7 +574,7 @@ math::abs(value AS List OF Float) AS List OF Float	T7	copy:H
 math::abs(value AS List OF Float) AS List OF Float	T8	arm
 math::abs(value AS List OF Integer) AS List OF Integer	S3	arm
 math::abs(value AS List OF Integer) AS List OF Integer	S4	arm
-math::abs(value AS List OF Integer) AS List OF Integer	S5	copy:G
+math::abs(value AS List OF Integer) AS List OF Integer	S5	arm
 math::abs(value AS List OF Integer) AS List OF Integer	S6	arm
 math::abs(value AS List OF Integer) AS List OF Integer	S7	copy:H
 math::abs(value AS List OF Integer) AS List OF Integer	S9	copy:H
@@ -589,7 +589,7 @@ math::abs(value AS List OF Integer) AS List OF Integer	T7	copy:H
 math::abs(value AS List OF Integer) AS List OF Integer	T8	arm
 math::acos(value AS List OF Float) AS List OF Float	S3	arm
 math::acos(value AS List OF Float) AS List OF Float	S4	arm
-math::acos(value AS List OF Float) AS List OF Float	S5	copy:G
+math::acos(value AS List OF Float) AS List OF Float	S5	arm
 math::acos(value AS List OF Float) AS List OF Float	S6	arm
 math::acos(value AS List OF Float) AS List OF Float	S7	copy:H
 math::acos(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -604,7 +604,7 @@ math::acos(value AS List OF Float) AS List OF Float	T7	copy:H
 math::acos(value AS List OF Float) AS List OF Float	T8	arm
 math::asin(value AS List OF Float) AS List OF Float	S3	arm
 math::asin(value AS List OF Float) AS List OF Float	S4	arm
-math::asin(value AS List OF Float) AS List OF Float	S5	copy:G
+math::asin(value AS List OF Float) AS List OF Float	S5	arm
 math::asin(value AS List OF Float) AS List OF Float	S6	arm
 math::asin(value AS List OF Float) AS List OF Float	S7	copy:H
 math::asin(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -619,7 +619,7 @@ math::asin(value AS List OF Float) AS List OF Float	T7	copy:H
 math::asin(value AS List OF Float) AS List OF Float	T8	arm
 math::atan(value AS List OF Float) AS List OF Float	S3	arm
 math::atan(value AS List OF Float) AS List OF Float	S4	arm
-math::atan(value AS List OF Float) AS List OF Float	S5	copy:G
+math::atan(value AS List OF Float) AS List OF Float	S5	arm
 math::atan(value AS List OF Float) AS List OF Float	S6	arm
 math::atan(value AS List OF Float) AS List OF Float	S7	copy:H
 math::atan(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -634,7 +634,7 @@ math::atan(value AS List OF Float) AS List OF Float	T7	copy:H
 math::atan(value AS List OF Float) AS List OF Float	T8	arm
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S3	arm
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S4	arm
-math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S5	copy:G
+math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S5	arm
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S6	arm
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S7	copy:H
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	S9	copy:H
@@ -649,7 +649,7 @@ math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	T7	copy:H
 math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float	T8	arm
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S3	arm
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S4	arm
-math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S5	copy:G
+math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S5	arm
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S6	arm
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S7	copy:H
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	S9	copy:H
@@ -664,7 +664,7 @@ math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixe
 math::clamp(value AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed	T8	arm
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S3	arm
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S4	arm
-math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S5	copy:G
+math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S5	arm
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S6	arm
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S7	copy:H
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	S9	copy:H
@@ -679,7 +679,7 @@ math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Floa
 math::clamp(value AS List OF Float, low AS Float, high AS Float) AS List OF Float	T8	arm
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S3	arm
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S4	arm
-math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S5	copy:G
+math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S5	arm
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S6	arm
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S7	copy:H
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	S9	copy:H
@@ -694,7 +694,7 @@ math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List O
 math::clamp(value AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer	T8	arm
 math::cos(value AS List OF Float) AS List OF Float	S3	arm
 math::cos(value AS List OF Float) AS List OF Float	S4	arm
-math::cos(value AS List OF Float) AS List OF Float	S5	copy:G
+math::cos(value AS List OF Float) AS List OF Float	S5	arm
 math::cos(value AS List OF Float) AS List OF Float	S6	arm
 math::cos(value AS List OF Float) AS List OF Float	S7	copy:H
 math::cos(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -709,7 +709,7 @@ math::cos(value AS List OF Float) AS List OF Float	T7	copy:H
 math::cos(value AS List OF Float) AS List OF Float	T8	arm
 math::exp(value AS List OF Float) AS List OF Float	S3	arm
 math::exp(value AS List OF Float) AS List OF Float	S4	arm
-math::exp(value AS List OF Float) AS List OF Float	S5	copy:G
+math::exp(value AS List OF Float) AS List OF Float	S5	arm
 math::exp(value AS List OF Float) AS List OF Float	S6	arm
 math::exp(value AS List OF Float) AS List OF Float	S7	copy:H
 math::exp(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -724,7 +724,7 @@ math::exp(value AS List OF Float) AS List OF Float	T7	copy:H
 math::exp(value AS List OF Float) AS List OF Float	T8	arm
 math::log(value AS List OF Fixed) AS List OF Fixed	S3	arm
 math::log(value AS List OF Fixed) AS List OF Fixed	S4	arm
-math::log(value AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::log(value AS List OF Fixed) AS List OF Fixed	S5	arm
 math::log(value AS List OF Fixed) AS List OF Fixed	S6	arm
 math::log(value AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::log(value AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -739,7 +739,7 @@ math::log(value AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::log(value AS List OF Fixed) AS List OF Fixed	T8	arm
 math::log(value AS List OF Float) AS List OF Float	S3	arm
 math::log(value AS List OF Float) AS List OF Float	S4	arm
-math::log(value AS List OF Float) AS List OF Float	S5	copy:G
+math::log(value AS List OF Float) AS List OF Float	S5	arm
 math::log(value AS List OF Float) AS List OF Float	S6	arm
 math::log(value AS List OF Float) AS List OF Float	S7	copy:H
 math::log(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -754,7 +754,7 @@ math::log(value AS List OF Float) AS List OF Float	T7	copy:H
 math::log(value AS List OF Float) AS List OF Float	T8	arm
 math::log10(value AS List OF Fixed) AS List OF Fixed	S3	arm
 math::log10(value AS List OF Fixed) AS List OF Fixed	S4	arm
-math::log10(value AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::log10(value AS List OF Fixed) AS List OF Fixed	S5	arm
 math::log10(value AS List OF Fixed) AS List OF Fixed	S6	arm
 math::log10(value AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::log10(value AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -769,7 +769,7 @@ math::log10(value AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::log10(value AS List OF Fixed) AS List OF Fixed	T8	arm
 math::log10(value AS List OF Float) AS List OF Float	S3	arm
 math::log10(value AS List OF Float) AS List OF Float	S4	arm
-math::log10(value AS List OF Float) AS List OF Float	S5	copy:G
+math::log10(value AS List OF Float) AS List OF Float	S5	arm
 math::log10(value AS List OF Float) AS List OF Float	S6	arm
 math::log10(value AS List OF Float) AS List OF Float	S7	copy:H
 math::log10(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -784,7 +784,7 @@ math::log10(value AS List OF Float) AS List OF Float	T7	copy:H
 math::log10(value AS List OF Float) AS List OF Float	T8	arm
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S3	arm
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S4	arm
-math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S5	arm
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S6	arm
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -799,7 +799,7 @@ math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::max(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	T8	arm
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S3	arm
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S4	arm
-math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S5	copy:G
+math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S5	arm
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S6	arm
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S7	copy:H
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	S9	copy:H
@@ -814,7 +814,7 @@ math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	T7	copy:H
 math::max(a AS List OF Float, b AS List OF Float) AS List OF Float	T8	arm
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S3	arm
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S4	arm
-math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S5	copy:G
+math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S5	arm
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S6	arm
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S7	copy:H
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S9	copy:H
@@ -829,7 +829,7 @@ math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	T7	copy
 math::max(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	T8	arm
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S3	arm
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S4	arm
-math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S5	arm
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S6	arm
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -844,7 +844,7 @@ math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed	T8	arm
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S3	arm
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S4	arm
-math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S5	copy:G
+math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S5	arm
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S6	arm
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S7	copy:H
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	S9	copy:H
@@ -859,7 +859,7 @@ math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	T7	copy:H
 math::min(a AS List OF Float, b AS List OF Float) AS List OF Float	T8	arm
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S3	arm
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S4	arm
-math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S5	copy:G
+math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S5	arm
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S6	arm
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S7	copy:H
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	S9	copy:H
@@ -874,7 +874,7 @@ math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	T7	copy
 math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer	T8	arm
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S3	arm
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S4	arm
-math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S5	copy:G
+math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S5	arm
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S6	arm
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S7	copy:H
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	S9	copy:H
@@ -889,7 +889,7 @@ math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	T7	
 math::pow(base AS List OF Float, exponent AS List OF Float) AS List OF Float	T8	arm
 math::sin(value AS List OF Float) AS List OF Float	S3	arm
 math::sin(value AS List OF Float) AS List OF Float	S4	arm
-math::sin(value AS List OF Float) AS List OF Float	S5	copy:G
+math::sin(value AS List OF Float) AS List OF Float	S5	arm
 math::sin(value AS List OF Float) AS List OF Float	S6	arm
 math::sin(value AS List OF Float) AS List OF Float	S7	copy:H
 math::sin(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -904,7 +904,7 @@ math::sin(value AS List OF Float) AS List OF Float	T7	copy:H
 math::sin(value AS List OF Float) AS List OF Float	T8	arm
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	S3	arm
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	S4	arm
-math::sqrt(value AS List OF Fixed) AS List OF Fixed	S5	copy:G
+math::sqrt(value AS List OF Fixed) AS List OF Fixed	S5	arm
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	S6	arm
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	S7	copy:H
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	S9	copy:H
@@ -919,7 +919,7 @@ math::sqrt(value AS List OF Fixed) AS List OF Fixed	T7	copy:H
 math::sqrt(value AS List OF Fixed) AS List OF Fixed	T8	arm
 math::sqrt(value AS List OF Float) AS List OF Float	S3	arm
 math::sqrt(value AS List OF Float) AS List OF Float	S4	arm
-math::sqrt(value AS List OF Float) AS List OF Float	S5	copy:G
+math::sqrt(value AS List OF Float) AS List OF Float	S5	arm
 math::sqrt(value AS List OF Float) AS List OF Float	S6	arm
 math::sqrt(value AS List OF Float) AS List OF Float	S7	copy:H
 math::sqrt(value AS List OF Float) AS List OF Float	S9	copy:H
@@ -934,7 +934,7 @@ math::sqrt(value AS List OF Float) AS List OF Float	T7	copy:H
 math::sqrt(value AS List OF Float) AS List OF Float	T8	arm
 math::tan(value AS List OF Float) AS List OF Float	S3	arm
 math::tan(value AS List OF Float) AS List OF Float	S4	arm
-math::tan(value AS List OF Float) AS List OF Float	S5	copy:G
+math::tan(value AS List OF Float) AS List OF Float	S5	arm
 math::tan(value AS List OF Float) AS List OF Float	S6	arm
 math::tan(value AS List OF Float) AS List OF Float	S7	copy:H
 math::tan(value AS List OF Float) AS List OF Float	S9	copy:H

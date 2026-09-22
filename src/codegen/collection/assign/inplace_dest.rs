@@ -67,11 +67,11 @@ pub(crate) enum InPlaceDest {
         /// the block's own record. The field's block-relative offset is the sum
         /// of the offsets stored along the path.
         path: Vec<usize>,
-        /// `RES … STATE` only: that block pointer is *shared* with the resource
-        /// record, so after the mutation the (possibly new) pointer must be
-        /// published back through the resource's STATE slot (§15). A plain
-        /// record local has no second holder and carries `None`.
-        write_back: Option<StateWriteBack>,
+        /// Where the (possibly new) block pointer is published after the
+        /// mutation: nowhere for a record local (its own slot is `block_slot`),
+        /// the resource's STATE slot for a payload (§15), the global's slot for a
+        /// module-level record (plan-145-G).
+        write_back: WriteBack,
     },
     /// A by-ref capture (plan-142-G, site S9): `ref_slot` holds the address of the
     /// parent binding's slot. [`CodeBuilder::open_inplace_ref_dest`] loads the
@@ -95,6 +95,27 @@ pub(crate) enum InPlaceDest {
         /// plan-145-F: as `Inlined::path`.
         path: Vec<usize>,
     },
+    /// plan-145-G: a module-level record's field, NOT yet opened (as
+    /// [`InPlaceDest::StateField`]): [`CodeBuilder::open_inplace_dest`] loads the
+    /// global's block pointer into a working slot — after the gates, so a declined
+    /// statement emits nothing — and [`CodeBuilder::close_inplace_dest`] stores it
+    /// back.
+    GlobalField {
+        name: String,
+        field_index: usize,
+        path: Vec<usize>,
+    },
+}
+
+/// plan-145-G: where an [`InPlaceDest::Inlined`] publishes its block pointer.
+#[derive(Debug, Clone)]
+pub(crate) enum WriteBack {
+    /// A record local: its frame slot is the working slot, with no second holder.
+    None,
+    /// A `RES … STATE` payload (`O4`).
+    State(StateWriteBack),
+    /// A module-level record: the global's slot.
+    Global(String),
 }
 
 impl InPlaceDest {
@@ -107,8 +128,8 @@ impl InPlaceDest {
             InPlaceDest::Inlined { block_slot, .. }
             | InPlaceDest::Ref { block_slot, .. }
             | InPlaceDest::Global { block_slot, .. } => *block_slot,
-            InPlaceDest::StateField { .. } => {
-                unreachable!("an unopened STATE destination has no block slot: open it first")
+            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+                unreachable!("an unopened field destination has no block slot: open it first")
             }
         }
     }
@@ -118,7 +139,9 @@ impl InPlaceDest {
     pub(crate) fn is_field(&self) -> bool {
         matches!(
             self,
-            InPlaceDest::Inlined { .. } | InPlaceDest::StateField { .. }
+            InPlaceDest::Inlined { .. }
+                | InPlaceDest::StateField { .. }
+                | InPlaceDest::GlobalField { .. }
         )
     }
 }
@@ -284,7 +307,12 @@ impl CodeBuilder<'_> {
         // callback writing `g` while the arm walks it). Either would reallocate or
         // free the block under the arm; the copying path keeps bug-496's snapshot
         // semantics instead.
-        if let InPlaceDest::Global { name, .. } = &site.dest {
+        let global_owner = match (&site.dest, site.field.as_ref().map(|f| f.container)) {
+            (InPlaceDest::Global { name, .. }, _) => Some(name.as_str()),
+            (_, Some(FieldContainer::Global { name })) => Some(name),
+            _ => None,
+        };
+        if let Some(name) = global_owner {
             let leaf = crate::codegen::engine::value::store_reach::StoreLeaf::Global(name);
             // A `Body::Mfb` member arrives as its `#collections_X$T` monomorph, whose
             // body calls the callback through a `FUNC` parameter — opaque to the
@@ -365,6 +393,19 @@ impl CodeBuilder<'_> {
                             return None;
                         }
                     }
+                    // plan-145-G: `G10`; `G-global-operand` ran above. No loop can
+                    // hold a pointer into a global's block across a write (bug-665,
+                    // bug-666).
+                    FieldContainer::Global { .. } => {
+                        if !(InPlaceGate {
+                            layout_of: Some(&site.type_),
+                            ..InPlaceGate::default()
+                        })
+                        .admits(self)
+                        {
+                            return None;
+                        }
+                    }
                 }
             }
         }
@@ -392,8 +433,8 @@ impl CodeBuilder<'_> {
     pub(crate) fn inplace_collection_slot(&mut self, dest: &InPlaceDest) -> Result<usize, String> {
         match dest {
             InPlaceDest::Inlined { .. } => self.open_inplace_inlined_subblock(dest),
-            InPlaceDest::StateField { .. } => {
-                Err("native in-place: a STATE field destination must be opened first".to_string())
+            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+                Err("native in-place: a field destination must be opened first".to_string())
             }
             _ => Ok(dest.block_slot()),
         }
@@ -435,8 +476,8 @@ impl CodeBuilder<'_> {
                     },
                 ))
             }
-            InPlaceDest::StateField { .. } => {
-                Err("native in-place: a STATE field destination must be opened first".to_string())
+            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+                Err("native in-place: a field destination must be opened first".to_string())
             }
             _ => Ok(None),
         }
@@ -534,6 +575,23 @@ impl CodeBuilder<'_> {
                 field_index,
                 path,
             } => self.open_inplace_state_dest(resource, *field_index, path.clone()),
+            InPlaceDest::GlobalField {
+                name,
+                field_index,
+                path,
+            } => {
+                let block_slot = self.allocate_stack_object("inline_global_ptr", 8);
+                let address = self.load_global_address(name)?;
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, address.as_str(), 0));
+                self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
+                Ok(InPlaceDest::Inlined {
+                    block_slot,
+                    field_index: *field_index,
+                    path: path.clone(),
+                    write_back: WriteBack::Global(name.clone()),
+                })
+            }
             _ => Ok(dest.clone()),
         }
     }
@@ -568,7 +626,7 @@ impl CodeBuilder<'_> {
             block_slot,
             field_index,
             path,
-            write_back: Some(StateWriteBack {
+            write_back: WriteBack::State(StateWriteBack {
                 resource_slot,
                 resource_type,
             }),
@@ -755,7 +813,8 @@ impl CodeBuilder<'_> {
             }
             InPlaceDest::Direct { .. }
             | InPlaceDest::Inlined { .. }
-            | InPlaceDest::StateField { .. } => return Ok(()),
+            | InPlaceDest::StateField { .. }
+            | InPlaceDest::GlobalField { .. } => return Ok(()),
         };
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, holder.as_str(), 0));
@@ -792,11 +851,23 @@ impl CodeBuilder<'_> {
         }
         let InPlaceDest::Inlined {
             block_slot,
-            write_back: Some(write_back),
+            write_back,
             ..
         } = dest
         else {
             return Ok(());
+        };
+        let write_back = match write_back {
+            WriteBack::None => return Ok(()),
+            // plan-145-G: the global's slot.
+            WriteBack::Global(name) => {
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
+                let address = self.load_global_address(name)?;
+                self.emit(abi::store_u64(&block, address.as_str(), 0));
+                return Ok(());
+            }
+            WriteBack::State(write_back) => write_back,
         };
         let nb = self.allocate_register();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), *block_slot));

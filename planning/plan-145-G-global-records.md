@@ -79,20 +79,52 @@ sound. The four value cases above are their tests.
 
 ### Phase 1: The global holder
 
-- [ ] `WriteBack` enum; `open_inplace_dest`/`close_inplace_dest` for
+- [x] `WriteBack` enum; `open_inplace_dest`/`close_inplace_dest` for
       `WriteBack::Global`.
-- [ ] `StoreGlobal`: `is_global_field_self_update` and the field-site path.
-- [ ] `G-global-operand` over every update value.
-- [ ] Runtime cases (`tests/runtime/rt_inplace_global_record.rs` + stanza): the
+      `WriteBack::{None, State, Global}` on `InPlaceDest::Inlined`; the unopened
+      `InPlaceDest::GlobalField` (as `StateField`) is opened after the gates —
+      the global's block pointer loaded into a working slot — and closed by
+      storing it back. `FieldContainer::Global` is the owner
+      (`emit_field_owner_block` loads the global's slot).
+- [x] `StoreGlobal`: `is_global_field_self_update` and the field-site path.
+      `StoreGlobal` tries the store routine (`try_inplace_scalar_fields` —
+      C's stores, F's overwrite and nested paths), then the field seam
+      (`field_self_update_site` with the `Global` container, `GlobalField`
+      destination), then the mixed `WITH`, before plan-142-H's plain arm. The
+      recognition is `field_owner_is`'s `Global` case (a `WITH` whose target is
+      the global) rather than a separate `is_global_field_self_update` (Correction
+      G1). The self-update scratch prescan and the data-object prescan see it
+      through `with_holds_field_self_update` (Correction G2).
+- [x] `G-global-operand` over every update value.
+      The store routine and the mixed `WITH` decline when any update value can
+      reach a store to the global (`values_reach_store`, `StoreLeaf::Global`);
+      the seam's `resolve_self_update` applies plan-142-H's gate (operands and the
+      call) to a global field site as to a plain global.
+- [x] Runtime cases (`tests/runtime/rt_inplace_global_record.rs` + stanza): the
       four in §1.
-- [ ] Flip every S5 line. Remove the S5 `FIELD_PENDING` entries.
-- [ ] RED proof: skip `G-global-operand` for a scalar update whose operand calls a
+      Plus the operand that writes `gR` (the RED proof's case) and an in-place
+      measurement (a scalar store and an `append` per run: `N` more runs allocate
+      next to nothing more). The global's own final block stays live until exit,
+      as for every global (Correction G3). `MFB_TEST_EXE=target/debug/mfb cargo
+      test --test rt_inplace_global_record` → "2 passed"; on the plan-145-C
+      compiler the values pass (the rebuild) and the in-place test fails ("2000
+      more runs allocated 8000 more blocks — a rebuild").
+- [x] Flip every S5 line. Remove the S5 `FIELD_PENDING` entries.
+      `LANDED += G`: 52 `field_expect.tsv` lines → `arm` at S5; `field_kinds.tsv`
+      S5 → `arm` for the scalar, pointer and fixed kinds (41 lines); 25
+      `GLOBAL` entries removed. `cargo test --bin mfb self_update` → "6 passed".
+- [x] RED proof: skip `G-global-operand` for a scalar update whose operand calls a
       `SUB` that writes `gR`, and confirm the value case fails. Restore.
+      In a copy of the tree under `/tmp`, the store routine's `Global` gate
+      removed: `a_global_record_keeps_value_semantics` → FAILED, `operand 9 n=1`
+      where `WITH` semantics give `operand 8 n=1` (the operand's append survived).
+      The worktree was never changed.
 
 Acceptance: `cargo test --test rt_inplace_global_record` passes, and
 `MFB_SELF_UPDATE_SITES=S5 cargo test --test rt_inplace_self_update` passes (est.
 6 min).
-Commit:
+The S5 harness (`MFB_SELF_UPDATE_SITES=S5,S6,T6`, with F's S6/T6) is recorded in the next commit.
+Commit: `(recorded in the next commit)`
 
 ### Phase 2: Goldens and timing
 
@@ -108,9 +140,24 @@ Commit:
 
 ## Validation Plan
 
-- Tests above. Per-letter unit gate: `cargo test --bin mfb`.
+- Tests above. Per-letter unit gate: `cargo test --bin mfb` — run at plan-145-I's
+  full gate (plan-145-D Correction D6).
 
 ## Corrections
+
+- **G1 — no separate recognizer.** `FieldContainer::Global` makes the existing
+  field-site builders (`peel_field_path`, `field_self_update_site`) recognize
+  `gR = WITH gR { … }` through `field_owner_is`, so the plan's
+  `is_global_field_self_update` was not needed.
+- **G2 — the prescans had to see a global owner.** `same_field_owner` compared
+  only locals and member chains, so a global field self-update got no
+  self-update scratch and, for `replace`, no `ErrIndexOutOfRange` data object —
+  the matrix failed "native code string literal … has no data object while
+  lowering store global gR". It now compares globals too.
+- **G3 — a global's final value is live at exit.** A module-level value has no
+  scope drop (plan-142-H's global tests measure growth for that reason), so the
+  runtime cases require `alloc_calls = free_calls + 1` — the global's own block —
+  and nothing else live.
 
 ## Summary
 

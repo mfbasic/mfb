@@ -1,5 +1,5 @@
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
+use crate::codegen::collection::assign::inplace_dest::{InPlaceDest, WriteBack};
 use crate::codegen::collection::assign::self_update::{
     field_owner_is, field_place_is, is_global_self_update_call, is_self_update_call,
     FieldContainer, FieldLevel, FieldSite, SelfUpdateSite,
@@ -82,8 +82,13 @@ enum FieldStoreKind {
 enum FieldOverwrite {
     /// A register-native vector's lanes, one slot each, in field order.
     Lanes(Vec<usize>),
-    /// An owned block (freed after the copy) and its byte size.
-    Block { slot: usize, size_slot: usize },
+    /// A block and its byte size; `owned` when this store frees it after the copy
+    /// (a fresh value, or a snapshot of a borrowed one).
+    Block {
+        slot: usize,
+        size_slot: usize,
+        owned: bool,
+    },
 }
 
 impl CodeBuilder<'_> {
@@ -186,10 +191,13 @@ impl CodeBuilder<'_> {
     ) -> Result<bool, String> {
         // `G13` — the update must rebuild THIS owner's current value, not install
         // some other record. plan-145-F: through a nested path, each level's.
-        let Some((path, type_, updates)) = self.peel_field_path(owner, value) else {
+        let Some((path, type_, updates)) = self.peel_field_path(owner, value, true) else {
             return Ok(false);
         };
-        let path: Vec<usize> = path.iter().map(|level| level.field_index).collect();
+        let path: Vec<(usize, bool)> = path
+            .iter()
+            .map(|level| (level.field_index, level.pointer))
+            .collect();
         let Some(fields) = self.type_model.record_fields.get(&type_).cloned() else {
             return Ok(false);
         };
@@ -243,18 +251,40 @@ impl CodeBuilder<'_> {
                     return Ok(false);
                 }
             }
+            // plan-145-G: `G-global-operand` over every update value. A value that
+            // writes the global would have its write discarded by the `WITH` (built
+            // from the global's old value); stored in place it would survive.
+            FieldContainer::Global { name } => {
+                let leaf = StoreLeaf::Global(name);
+                if updates.iter().any(|update| {
+                    self.values_reach_store(std::slice::from_ref(&update.value), leaf)
+                }) {
+                    return Ok(false);
+                }
+            }
         }
         // Eligible. Compute every new value first (source order, matching WITH so a
         // field that reads another field's old value sees it), spilling each to a
         // slot; then store them into the existing block.
         let mut stores = Vec::with_capacity(updates.len());
         let mut overwrites = Vec::new();
+        // plan-145-F: a borrowed overwrite source must be snapshotted only when
+        // another store of this `WITH` could change it first.
+        let snapshot = indices
+            .iter()
+            .filter(|(_, kind)| matches!(kind, FieldStoreKind::Overwrite(_)))
+            .count()
+            > 1
+            || indices
+                .iter()
+                .any(|(_, kind)| matches!(kind, FieldStoreKind::Pointer(_)));
         for (update, (index, kind)) in updates.iter().zip(indices) {
             let pointer = match kind {
                 FieldStoreKind::Scalar => None,
                 FieldStoreKind::Pointer(field_type) => Some(field_type),
                 FieldStoreKind::Overwrite(field_type) => {
-                    let spilled = self.spill_field_overwrite(&update.value, &field_type)?;
+                    let spilled =
+                        self.spill_field_overwrite(&update.value, &field_type, snapshot)?;
                     overwrites.push((index, field_type, spilled));
                     continue;
                 }
@@ -274,6 +304,7 @@ impl CodeBuilder<'_> {
                 match owner {
                     FieldContainer::State { .. } => "state_field_inplace",
                     FieldContainer::Record { .. } => "record_field_inplace",
+                    FieldContainer::Global { .. } => "global_field_inplace",
                 },
                 8,
             );
@@ -324,7 +355,9 @@ impl CodeBuilder<'_> {
                         self.emit(abi::store_u64(&value, &sub, 8 * lane));
                     }
                 }
-                FieldOverwrite::Block { slot, size_slot } => {
+                FieldOverwrite::Block {
+                    slot, size_slot, ..
+                } => {
                     let src = self.allocate_register();
                     let len = self.allocate_register();
                     let scratch = self.allocate_register();
@@ -335,7 +368,10 @@ impl CodeBuilder<'_> {
             }
         }
         for (_, field_type, spilled) in overwrites {
-            if let FieldOverwrite::Block { slot, .. } = spilled {
+            if let FieldOverwrite::Block {
+                slot, owned: true, ..
+            } = spilled
+            {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: field_type,
                     stack_offset: slot,
@@ -358,12 +394,16 @@ impl CodeBuilder<'_> {
     /// a register-native vector as its lanes, anything else as an OWNED block and
     /// its byte size (read before any store, while the source is intact). A
     /// borrowed source (a local, a field — possibly of this very owner, as in a
-    /// swap `WITH r { v := r.w, w := r.v }`) is copied first, so no store can
-    /// change a value another update still has to write.
+    /// swap `WITH r { v := r.w, w := r.v }`) is copied first when `snapshot` —
+    /// when another store of the same `WITH` could change it before its copy runs
+    /// (a second overwrite, or a pointer field whose old pointee is dropped). With
+    /// no such store the borrowed bytes are copied where they lie, and nothing
+    /// is allocated or freed for them.
     fn spill_field_overwrite(
         &mut self,
         value: &NirValue,
         field_type: &ParameterType,
+        snapshot: bool,
     ) -> Result<FieldOverwrite, String> {
         let lowered = self.lower_value(value)?;
         if let Some(lanes) = self.vector_native_lanes(&lowered) {
@@ -376,20 +416,29 @@ impl CodeBuilder<'_> {
             }
             return Ok(FieldOverwrite::Lanes(slots));
         }
-        let owned = if self.value_needs_owning_copy(value) {
-            self.copy_flat_block(field_type, &lowered.location)?
-                .render()
-        } else {
+        let (source, owned) = if !self.value_needs_owning_copy(value) {
             // A fresh block: the statement registered it as a temp; this store
             // frees it itself, after the copy.
             self.claim_pending_temp(&lowered);
-            lowered.location.render()
+            (lowered.location.render(), true)
+        } else if snapshot {
+            (
+                self.copy_flat_block(field_type, &lowered.location)?
+                    .render(),
+                true,
+            )
+        } else {
+            (lowered.location.render(), false)
         };
         let slot = self.allocate_stack_object("record_field_overwrite", 8);
-        self.emit(abi::store_u64(owned.as_str(), abi::stack_pointer(), slot));
+        self.emit(abi::store_u64(source.as_str(), abi::stack_pointer(), slot));
         let size_slot = self.allocate_stack_object("record_field_overwrite_size", 8);
         self.emit_inlined_block_size_from_ptr_slot(field_type, slot, size_slot)?;
-        Ok(FieldOverwrite::Block { slot, size_slot })
+        Ok(FieldOverwrite::Block {
+            slot,
+            size_slot,
+            owned,
+        })
     }
 
     /// plan-145-F: an inlined record whose byte size is fixed at compile time —
@@ -410,20 +459,25 @@ impl CodeBuilder<'_> {
     }
 
     /// plan-145-F: the block of the record a field store writes — the owner's
-    /// block, then down `path` (each level's stored offset added). An empty path
-    /// is `emit_field_owner_block`, unchanged.
+    /// block, then down `path`: an inlined level adds its stored offset, a pointer
+    /// level (`true`) loads the record pointer its slot holds. An empty path is
+    /// `emit_field_owner_block`, unchanged.
     fn emit_field_record_block(
         &mut self,
         owner: FieldContainer<'_>,
-        path: &[usize],
+        path: &[(usize, bool)],
     ) -> Result<String, String> {
         let block = self.emit_field_owner_block(owner)?;
         let mut base = block;
-        for index in path {
-            let offset = self.allocate_register();
+        for (index, pointer) in path {
             let inner = self.allocate_register();
-            self.emit(abi::load_u64(&offset, base.as_str(), 8 * index));
-            self.emit(abi::add_registers(&inner, base.as_str(), &offset));
+            if *pointer {
+                self.emit(abi::load_u64(&inner, base.as_str(), 8 * index));
+            } else {
+                let offset = self.allocate_register();
+                self.emit(abi::load_u64(&offset, base.as_str(), 8 * index));
+                self.emit(abi::add_registers(&inner, base.as_str(), &offset));
+            }
             base = inner.render();
         }
         Ok(base)
@@ -455,6 +509,13 @@ impl CodeBuilder<'_> {
                 let state_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
                 Ok(state_ptr.render())
+            }
+            // plan-145-G: the global's slot.
+            FieldContainer::Global { name } => {
+                let address = self.load_global_address(name)?;
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, address.as_str(), 0));
+                Ok(block.render())
             }
         }
     }
@@ -547,6 +608,17 @@ impl CodeBuilder<'_> {
         // call itself is the builtin the arm replaces (a `.mfb`-bodied builtin such
         // as `sortBy` would otherwise read as user code), exactly the operands the
         // single-field seam asks about (`resolve_self_update`).
+        // plan-145-G: `G-global-operand` — nothing the statement runs may store
+        // to the global whose block the arm and the stores write.
+        if let FieldContainer::Global { name } = container {
+            let leaf = StoreLeaf::Global(name);
+            if updates
+                .iter()
+                .any(|update| self.values_reach_store(std::slice::from_ref(&update.value), leaf))
+            {
+                return Ok(false);
+            }
+        }
         if let FieldContainer::State { .. } = container {
             let arm_operands: &[NirValue] = match arm_value {
                 NirValue::Call { args, .. } => args,
@@ -567,13 +639,21 @@ impl CodeBuilder<'_> {
                     block_slot: block_slot.ok_or("native mixed WITH: no record slot")?,
                     field_index: arm_index,
                     path: Vec::new(),
-                    write_back: None,
+                    write_back: WriteBack::None,
                 },
             ),
             FieldContainer::State { resource } => (
                 resource,
                 InPlaceDest::StateField {
                     resource: resource.to_string(),
+                    field_index: arm_index,
+                    path: Vec::new(),
+                },
+            ),
+            FieldContainer::Global { name } => (
+                name,
+                InPlaceDest::GlobalField {
+                    name: name.to_string(),
                     field_index: arm_index,
                     path: Vec::new(),
                 },
@@ -615,20 +695,10 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
-    /// `G13` for a `WITH`: its target is the owner — the record local itself, or
-    /// the handle's `.state`.
+    /// `G13` for a `WITH`: its target is the owner — the record local itself, the
+    /// handle's `.state`, or (plan-145-G) the global.
     fn with_target_is_owner(container: FieldContainer<'_>, target: &NirValue) -> bool {
-        match container {
-            FieldContainer::Record { local } => {
-                matches!(target, NirValue::Local(n) if n == local)
-            }
-            FieldContainer::State { resource } => matches!(
-                target,
-                NirValue::MemberAccess { target: inner, member }
-                    if member == "state"
-                        && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
-            ),
-        }
+        field_owner_is(target, container)
     }
 
     /// plan-145-C: whether the field arm for `target` can raise beyond its
@@ -790,7 +860,7 @@ impl CodeBuilder<'_> {
         container: FieldContainer<'s>,
         value: &'s NirValue,
     ) -> Option<(FieldSite<'s>, ParameterType, &'s NirValue)> {
-        let (path, record_type, updates) = self.peel_field_path(container, value)?;
+        let (path, record_type, updates) = self.peel_field_path(container, value, false)?;
         if updates.len() != 1 {
             return None;
         }
@@ -817,10 +887,16 @@ impl CodeBuilder<'_> {
     /// `WITH` over that field's own place, descend. Returns the levels passed
     /// (outermost first), the innermost `WITH`'s record type, and its updates.
     /// Emits nothing.
+    ///
+    /// `pointer_levels` also descends a POINTER record field (a record holding a
+    /// `json::Json`, which is not inlined but owns its own block): only the
+    /// store routine may, since it writes that block where it lies; an arm's grow
+    /// would have to repoint the parent's slot, so the field seam passes `false`.
     pub(crate) fn peel_field_path<'s>(
         &self,
         container: FieldContainer<'s>,
         value: &'s NirValue,
+        pointer_levels: bool,
     ) -> Option<(Vec<FieldLevel<'s>>, ParameterType, &'s [NirRecordUpdate])> {
         let NirValue::WithUpdate {
             type_,
@@ -856,8 +932,13 @@ impl CodeBuilder<'_> {
                 break;
             };
             let field_type = &fields[field_index].1;
-            if !self.record_field_is_inlined(field_type)
-                || typed_is_collection_type(field_type)
+            let inlined =
+                self.record_field_is_inlined(field_type) && !typed_is_collection_type(field_type);
+            let pointer = pointer_levels
+                && !self.record_field_is_inlined(field_type)
+                && self.record_field_is_pointer(field_type)
+                && self.type_model.record_fields.contains_key(field_type);
+            if !(inlined || pointer)
                 || *field_type != *inner_type
                 || !field_place_is(inner_target, container, &path, update.field.as_str())
             {
@@ -867,6 +948,7 @@ impl CodeBuilder<'_> {
                 field: update.field.as_str(),
                 field_index,
                 record_type: record_type.clone(),
+                pointer,
             });
             record_type = inner_type.clone();
             updates = inner_updates;
@@ -1502,6 +1584,37 @@ impl CodeBuilder<'_> {
                         } else {
                             type_.clone()
                         };
+                        // plan-145-G (site S5): `gR = WITH gR { … }` is a field site
+                        // whose owner block lives in the global's slot — C's stores,
+                        // F's overwrite and nested paths, then the seam's arms, then
+                        // the mixed `WITH`, exactly as for a local record.
+                        if let Some(value) = value {
+                            let container = FieldContainer::Global { name };
+                            if self.try_inplace_scalar_fields(container, value)? {
+                                return Ok(());
+                            }
+                            if let Some((field, field_type, update)) =
+                                self.field_self_update_site(container, value)
+                            {
+                                let site = SelfUpdateSite {
+                                    name,
+                                    type_: field_type,
+                                    dest: InPlaceDest::GlobalField {
+                                        name: name.clone(),
+                                        field_index: field.field_index,
+                                        path: field.path_indices(),
+                                    },
+                                    by_ref: false,
+                                    field: Some(field),
+                                };
+                                if self.try_inplace_self_update(&site, update)? {
+                                    return Ok(());
+                                }
+                            }
+                            if self.try_inplace_mixed_with(container, value, None, false)? {
+                                return Ok(());
+                            }
+                        }
                         // plan-142-H (site S2): `g = f(g, …)` mutates the global's own
                         // block when an arm recognises `f`, exactly as for a local.
                         if let Some(value) = value {
@@ -1690,7 +1803,7 @@ impl CodeBuilder<'_> {
                                             block_slot: stack_offset,
                                             field_index: field.field_index,
                                             path: field.path_indices(),
-                                            write_back: None,
+                                            write_back: WriteBack::None,
                                         },
                                         by_ref,
                                         field: Some(field),
