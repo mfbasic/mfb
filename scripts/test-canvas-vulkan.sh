@@ -234,7 +234,14 @@ SUB main()
   LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
   LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
   LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 705.0, y := 578.0, w := 36.0, h := 60.0] }]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge]
+  ' bug-484: a text run with a SPACE in it, early in the scene. A space has an empty
+  ' bitmap and draws nothing, but `__canvas_blockInstances` counts it as one instance
+  ' like every glyph -- so an emitter that skipped publishing its block shifted every
+  ' later draw one block along (the next item drawn under its neighbour's pipeline, the
+  ' last reading a block never written). "AAAA" above has no space, which is how that
+  ' stayed invisible here; Metal's picture scene is where it was found.
+  LET spaced AS canvas::DrawItem = canvas::Text[x := 470.0, y := 636.0, text := "A A", font := face, size := 20.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

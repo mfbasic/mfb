@@ -794,3 +794,62 @@ fn every_picture_path_matches_the_software_oracle() {
         );
     }
 }
+
+/// A text run containing a space, followed by items whose draw state differs: a
+/// blended circle and a translated group (bug-484, found by the picture scene).
+///
+/// A space has an empty bitmap and draws nothing, but `__canvas_blockInstances` counts
+/// it as one instance like every glyph. The Metal emitter used to skip publishing its
+/// block, so every later draw entry named the block one position on: the circle drew
+/// under the next item's pipeline and the group lost its offset. `TEXT_LINE` above has
+/// spaces too, but nothing after its runs has a draw state of its own, so the shift was
+/// invisible there.
+const SPACE_THEN_SHAPES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 200.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  LET words AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "A B C", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET mul AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 100.0, radius := 40.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
+  LET plain AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 100.0, radius := 40.0, paint := canvas::fill(color::rgb(40, 200, 90))]
+  LET dot AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 30.0, h := 30.0, paint := canvas::fill(color::rgb(20, 60, 230))]
+  canvas::setGroup("g", [dot])
+  canvas::present([ground, words, mul, plain, canvas::Group[name := "g", dx := 600.0, dy := 80.0]])
+END SUB
+"#;
+
+#[test]
+fn a_space_in_a_text_run_does_not_shift_the_draws_after_it() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_space_shift", SPACE_THEN_SHAPES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not draw the scene on Metal: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 200usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) =
+        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
+    {
+        panic!(
+            "items after a text run containing a space draw differently on Metal: {diff}\n\
+             A blank glyph must still publish its item block, or every later draw entry \
+             names its neighbour's."
+        );
+    }
+}
