@@ -228,9 +228,10 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         match owner {
-            // `G1` — a by-ref capture's slot holds the parent's slot address.
+            // `G1` — a by-ref capture's slot holds the parent's slot address;
+            // plan-145-H: `emit_field_owner_block` reads the block through it.
             FieldContainer::Record { local } => {
-                if self.locals.get(local).is_none_or(|l| l.by_ref) {
+                if self.locals.get(local).is_none() {
                     return Ok(false);
                 }
             }
@@ -488,13 +489,20 @@ impl CodeBuilder<'_> {
     fn emit_field_owner_block(&mut self, owner: FieldContainer<'_>) -> Result<String, String> {
         match owner {
             FieldContainer::Record { local } => {
-                let slot = self
+                let local = self
                     .locals
                     .get(local)
-                    .ok_or_else(|| format!("native code field store unknown local '{local}'"))?
-                    .stack_offset;
+                    .ok_or_else(|| format!("native code field store unknown local '{local}'"))?;
+                let (slot, by_ref) = (local.stack_offset, local.by_ref);
                 let block = self.allocate_register();
                 self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+                // plan-145-H: a by-ref capture's slot holds the parent slot's
+                // address; the record pointer is one load further.
+                if by_ref {
+                    let parent_block = self.allocate_register();
+                    self.emit(abi::load_u64(&parent_block, &block, 0));
+                    return Ok(parent_block.render());
+                }
                 Ok(block.render())
             }
             FieldContainer::State { resource } => {
@@ -633,15 +641,27 @@ impl CodeBuilder<'_> {
             }
         }
         let (name, dest) = match container {
-            FieldContainer::Record { local } => (
-                local,
-                InPlaceDest::Inlined {
-                    block_slot: block_slot.ok_or("native mixed WITH: no record slot")?,
-                    field_index: arm_index,
-                    path: Vec::new(),
-                    write_back: WriteBack::None,
-                },
-            ),
+            FieldContainer::Record { local } => {
+                let slot = block_slot.ok_or("native mixed WITH: no record slot")?;
+                (
+                    local,
+                    // plan-145-H: a by-ref owner writes back through its reference.
+                    if by_ref {
+                        InPlaceDest::RefField {
+                            ref_slot: slot,
+                            field_index: arm_index,
+                            path: Vec::new(),
+                        }
+                    } else {
+                        InPlaceDest::Inlined {
+                            block_slot: slot,
+                            field_index: arm_index,
+                            path: Vec::new(),
+                            write_back: WriteBack::None,
+                        }
+                    },
+                )
+            }
             FieldContainer::State { resource } => (
                 resource,
                 InPlaceDest::StateField {
@@ -1799,11 +1819,21 @@ impl CodeBuilder<'_> {
                                     SelfUpdateSite {
                                         name,
                                         type_: field_type,
-                                        dest: InPlaceDest::Inlined {
-                                            block_slot: stack_offset,
-                                            field_index: field.field_index,
-                                            path: field.path_indices(),
-                                            write_back: WriteBack::None,
+                                        // plan-145-H: a by-ref capture's slot
+                                        // holds the parent slot's address.
+                                        dest: if by_ref {
+                                            InPlaceDest::RefField {
+                                                ref_slot: stack_offset,
+                                                field_index: field.field_index,
+                                                path: field.path_indices(),
+                                            }
+                                        } else {
+                                            InPlaceDest::Inlined {
+                                                block_slot: stack_offset,
+                                                field_index: field.field_index,
+                                                path: field.path_indices(),
+                                                write_back: WriteBack::None,
+                                            }
                                         },
                                         by_ref,
                                         field: Some(field),
@@ -3128,7 +3158,28 @@ impl CodeBuilder<'_> {
                 collect_address_taken_locals(body, &mut captured);
                 captured.contains(root)
             });
-        if owns_local_iterable || owns_field_iterable {
+        // plan-145-H (sites S7/T7): `FOR EACH v IN r.b` (or `IN h.state.b`) whose
+        // body writes the owner walks a copy made once here, too. The field's own
+        // block is then free for the body's in-place updates (`G15`/`G16` read
+        // only the tracking lists, which this loop no longer joins), and the
+        // rebuild's free guards no longer keep — and so leak — the displaced
+        // block. A body that never writes the owner keeps borrowing.
+        let owns_owner_field_iterable = match iterable {
+            NirValue::MemberAccess { target, .. } => match target.as_ref() {
+                NirValue::Local(base) => {
+                    self.locals.contains_key(base.as_str()) && ops_write_local(body, base)
+                }
+                NirValue::MemberAccess {
+                    target: inner,
+                    member,
+                } if member == "state" => {
+                    matches!(inner.as_ref(), NirValue::Local(res) if ops_write_state(body, res))
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if owns_local_iterable || owns_field_iterable || owns_owner_field_iterable {
             self.operand_snapshot_wanted
                 .push(iterable as *const NirValue as usize);
         }
@@ -3195,7 +3246,9 @@ impl CodeBuilder<'_> {
         // `resource.state.field = append(...)` in the body must NOT reallocate+free
         // that buffer out from under the live iterator (it falls back to the
         // non-freeing whole-record rebuild instead).
-        let pushed_state_field = if let NirValue::MemberAccess { target, member } = iterable {
+        let pushed_state_field = if owns_owner_field_iterable {
+            false
+        } else if let NirValue::MemberAccess { target, member } = iterable {
             if let NirValue::MemberAccess {
                 target: inner,
                 member: inner_member,
@@ -3221,7 +3274,9 @@ impl CodeBuilder<'_> {
         // bug-430: `FOR EACH x IN local.field` over a MUT record local snapshots an
         // alias into the record's inlined collection buffer — record it so an
         // in-place record-field grow in the body falls back to the rebuild.
-        let pushed_record_field = if let NirValue::MemberAccess { target, member } = iterable {
+        let pushed_record_field = if owns_owner_field_iterable {
+            false
+        } else if let NirValue::MemberAccess { target, member } = iterable {
             if let NirValue::Local(base) = target.as_ref() {
                 self.for_each_iterable_record_fields
                     .push((base.clone(), member.clone()));

@@ -680,6 +680,37 @@ pub(crate) fn ops_write_local(ops: &[NirOp], name: &str) -> bool {
     finder.found
 }
 
+/// plan-145-H: whether `ops` write the `STATE` of the handle `resource` — a
+/// `StateAssign` on it (`h.state = …`, `h.state.f = …`), or a by-reference capture
+/// of the handle, anywhere in them.
+pub(crate) fn ops_write_state(ops: &[NirOp], resource: &str) -> bool {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Finder<'a> {
+        resource: &'a str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::StateAssign { resource, .. } if resource == self.resource) {
+                self.found = true;
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            if matches!(value, NirValue::LocalRef { name, .. } if name == self.resource) {
+                self.found = true;
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder {
+        resource,
+        found: false,
+    };
+    finder.visit_ops(ops);
+    finder.found
+}
+
 /// Mark every local read in a *materializing* position — anything other than a
 /// member read of the local or a direct argument to an inlined vector op.
 fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {

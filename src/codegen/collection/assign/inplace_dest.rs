@@ -105,6 +105,17 @@ pub(crate) enum InPlaceDest {
         field_index: usize,
         path: Vec<usize>,
     },
+    /// plan-145-H (site S9): a field of a record local captured BY REFERENCE —
+    /// `ref_slot` holds the address of the parent binding's slot. NOT yet opened:
+    /// [`CodeBuilder::open_inplace_dest`] loads the parent's record pointer
+    /// through the reference into a working slot, and
+    /// [`CodeBuilder::close_inplace_dest`] stores the (possibly reallocated)
+    /// pointer back through it.
+    RefField {
+        ref_slot: usize,
+        field_index: usize,
+        path: Vec<usize>,
+    },
 }
 
 /// plan-145-G: where an [`InPlaceDest::Inlined`] publishes its block pointer.
@@ -116,6 +127,9 @@ pub(crate) enum WriteBack {
     State(StateWriteBack),
     /// A module-level record: the global's slot.
     Global(String),
+    /// plan-145-H: a by-reference record local — the parent binding's slot,
+    /// whose address `ref_slot` holds.
+    Ref(usize),
 }
 
 impl InPlaceDest {
@@ -128,7 +142,9 @@ impl InPlaceDest {
             InPlaceDest::Inlined { block_slot, .. }
             | InPlaceDest::Ref { block_slot, .. }
             | InPlaceDest::Global { block_slot, .. } => *block_slot,
-            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+            InPlaceDest::StateField { .. }
+            | InPlaceDest::GlobalField { .. }
+            | InPlaceDest::RefField { .. } => {
                 unreachable!("an unopened field destination has no block slot: open it first")
             }
         }
@@ -142,6 +158,7 @@ impl InPlaceDest {
             InPlaceDest::Inlined { .. }
                 | InPlaceDest::StateField { .. }
                 | InPlaceDest::GlobalField { .. }
+                | InPlaceDest::RefField { .. }
         )
     }
 }
@@ -361,10 +378,13 @@ impl CodeBuilder<'_> {
                     return None;
                 }
                 match field.container {
-                    // `G1`/`G15`/`G10`.
+                    // `G1`/`G15`/`G10`. plan-145-H: a by-ref owner reached through
+                    // a `RefField` destination has discharged `G1` — the arm works
+                    // on the parent's block, loaded through the reference.
                     FieldContainer::Record { local } => {
                         if !(InPlaceGate {
-                            by_ref: site.by_ref,
+                            by_ref: site.by_ref
+                                && !matches!(site.dest, InPlaceDest::RefField { .. }),
                             for_each_record_field: Some((local, field.field)),
                             layout_of: Some(&site.type_),
                             ..InPlaceGate::default()
@@ -433,7 +453,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn inplace_collection_slot(&mut self, dest: &InPlaceDest) -> Result<usize, String> {
         match dest {
             InPlaceDest::Inlined { .. } => self.open_inplace_inlined_subblock(dest),
-            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+            InPlaceDest::StateField { .. }
+            | InPlaceDest::GlobalField { .. }
+            | InPlaceDest::RefField { .. } => {
                 Err("native in-place: a field destination must be opened first".to_string())
             }
             _ => Ok(dest.block_slot()),
@@ -476,7 +498,9 @@ impl CodeBuilder<'_> {
                     },
                 ))
             }
-            InPlaceDest::StateField { .. } | InPlaceDest::GlobalField { .. } => {
+            InPlaceDest::StateField { .. }
+            | InPlaceDest::GlobalField { .. }
+            | InPlaceDest::RefField { .. } => {
                 Err("native in-place: a field destination must be opened first".to_string())
             }
             _ => Ok(None),
@@ -590,6 +614,24 @@ impl CodeBuilder<'_> {
                     field_index: *field_index,
                     path: path.clone(),
                     write_back: WriteBack::Global(name.clone()),
+                })
+            }
+            InPlaceDest::RefField {
+                ref_slot,
+                field_index,
+                path,
+            } => {
+                let block_slot = self.allocate_stack_object("inline_ref_ptr", 8);
+                let parent = self.allocate_register();
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
+                self.emit(abi::load_u64(&block, &parent, 0));
+                self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
+                Ok(InPlaceDest::Inlined {
+                    block_slot,
+                    field_index: *field_index,
+                    path: path.clone(),
+                    write_back: WriteBack::Ref(*ref_slot),
                 })
             }
             _ => Ok(dest.clone()),
@@ -814,7 +856,8 @@ impl CodeBuilder<'_> {
             InPlaceDest::Direct { .. }
             | InPlaceDest::Inlined { .. }
             | InPlaceDest::StateField { .. }
-            | InPlaceDest::GlobalField { .. } => return Ok(()),
+            | InPlaceDest::GlobalField { .. }
+            | InPlaceDest::RefField { .. } => return Ok(()),
         };
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, holder.as_str(), 0));
@@ -865,6 +908,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
                 let address = self.load_global_address(name)?;
                 self.emit(abi::store_u64(&block, address.as_str(), 0));
+                return Ok(());
+            }
+            // plan-145-H: through the reference, into the parent binding's slot.
+            WriteBack::Ref(ref_slot) => {
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
+                let parent = self.allocate_register();
+                self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
+                self.emit(abi::store_u64(&block, &parent, 0));
                 return Ok(());
             }
             WriteBack::State(write_back) => write_back,

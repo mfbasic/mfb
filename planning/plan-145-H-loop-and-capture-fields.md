@@ -82,39 +82,79 @@ double-frees), and the by-ref write-back after an `InlineGrow`.
 
 ### Phase 1: S7 and T7
 
-- [ ] `lower_for_each`: the field-write body walk, the owned iterable, and no
+- [x] `lower_for_each`: the field-write body walk, the owned iterable, and no
       tracking push.
-- [ ] Runtime cases (`tests/runtime/rt_inplace_field_loop.rs` + stanza):
+      `owns_owner_field_iterable`: an iterable `r.f` whose body writes `r`
+      (`ops_write_local`) or `h.state.f` whose body writes `h`'s `STATE`
+      (`ops_write_state`, new: a `StateAssign` on `h` or a by-ref capture of it)
+      takes the operand snapshot (plan-142-F's drop, freed with the statement on
+      every exit edge) and pushes neither `for_each_iterable_record_fields` nor
+      `for_each_iterable_state_fields`.
+- [x] Runtime cases (`tests/runtime/rt_inplace_field_loop.rs` + stanza):
   - entry-time elements for four ops × two containers;
   - `EXIT FOR` and `RETURN` from inside the loop;
   - the no-leak assertion.
-- [ ] RED proof: skip the owned lowering, and confirm the no-leak assertion
+  `append`, `removeAt`, `sort`, `filter` × record and `STATE` visit `3,1,2,`;
+  `EXIT FOR`, `RETURN`, a 1,000-element loop that doubles its field, and 100
+  loops over a `STATE` field: `alloc_calls = free_calls`, `live_bytes 0`.
+  `MFB_TEST_EXE=target/debug/mfb cargo test --test rt_inplace_field_loop` → "3
+  passed"; the plan-145-C compiler → FAILED ("a field loop leaked: 8052
+  allocated, 5048 freed, 12344544 B live").
+- [x] RED proof: skip the owned lowering, and confirm the no-leak assertion
       fails with today's leak. Restore.
-- [ ] Flip S7/T7. Remove their `FIELD_PENDING` entries.
+      In a copy of the tree under `/tmp`, `owns_owner_field_iterable` forced
+      `false`: both loop tests fail with the same leak (8052 allocated, 5048 freed,
+      12,344,544 B live). The worktree was never changed.
+- [x] Flip S7/T7. Remove their `FIELD_PENDING` entries.
+      `LANDED += H` (with S9, Phase 2): `field_expect.tsv` S7, T7, S9 → `arm`;
+      the `ALIAS` entries removed — `FIELD_PENDING` is now empty. The S7/T7 kind
+      lines stay `na:TYPE_FOR_EACH_REQUIRES_COLLECTION`. `cargo test --bin mfb
+      self_update` → "6 passed".
 
 Acceptance: `cargo test --test rt_inplace_field_loop` passes, and
 `MFB_SELF_UPDATE_SITES=S7,T7 cargo test --test rt_inplace_self_update` passes
 (est. 8 min).
-Commit:
+The harness (`MFB_SELF_UPDATE_SITES=S7,T7,S9`) is recorded in the next commit.
+Commit: `(recorded in the next commit)`
 
 ### Phase 2: S9
 
-- [ ] `WriteBack::Ref`, and the field site for a by-ref owner.
-- [ ] Runtime cases in `rt_inplace_field_loop.rs`: a scalar, `append` (a grow) and
+- [x] `WriteBack::Ref`, and the field site for a by-ref owner.
+      The unopened `InPlaceDest::RefField { ref_slot, … }` loads the parent's
+      record pointer through the reference; `close_inplace_dest` stores it back
+      through it. The seam's `G1` gives way for a `RefField` site; the store
+      routine reaches the block through the reference (`emit_field_owner_block`),
+      and the mixed `WITH` builds a `RefField` for a by-ref owner.
+- [x] Runtime cases in `rt_inplace_field_loop.rs`: a scalar, `append` (a grow) and
       `filter` on a captured record inside `forEach`.
-- [ ] Flip S9. Remove its `FIELD_PENDING` entries.
+      `a_record_captured_by_reference_is_updated_in_place`: 50 rounds of a
+      scalar and an `append` in `forEach` lambdas, then a `filter`: `1050 151`,
+      `alloc_calls = free_calls`.
+- [x] Flip S9. Remove its `FIELD_PENDING` entries.
+      With Phase 1's flip; `field_kinds.tsv` S9 → `arm` for the scalar, pointer
+      and fixed kinds (41 lines). No `copy:` expectation is left in either file
+      (`grep -c copy: field_expect.tsv field_kinds.tsv` → 0, 0).
 
 Acceptance: the same two commands with `S9` (est. 6 min).
-Commit:
+Recorded with Phase 1's harness run.
+Commit: `(recorded in the next commit)`
 
 ## Validation Plan
 
-- Tests above. Per-letter unit gate: `cargo test --bin mfb`.
+- Tests above. Per-letter unit gate: `cargo test --bin mfb` — run at plan-145-I's
+  full gate (plan-145-D Correction D6).
 - Goldens: loop-over-field fixtures (`rt-behavior/collections/*for-each*`,
   `rt-behavior/resources/*`) are expected to diff. Objdump one of each and
   regenerate the confirmed ones.
 
 ## Corrections
+
+- **H1 — `STATE` writes have their own walk.** `ops_write_local` sees an `Assign`
+  to a local; a `STATE` payload is written by `StateAssign`, so the loop asks the
+  new `ops_write_state` for `IN h.state.f`.
+- **H2 — one harness run for both phases.** S7, T7 and S9 flip together
+  (`LANDED += H`), so one `MFB_SELF_UPDATE_SITES=S7,T7,S9` run is both phases'
+  acceptance.
 
 ## Summary
 

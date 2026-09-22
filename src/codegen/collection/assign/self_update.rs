@@ -1853,38 +1853,7 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 /// `FIELD_NEVER`) must fire, and a pair listed here must NOT — so a letter that
 /// lands a pair early, without removing its entry, fails. Letter I deletes this.
 #[cfg(test)]
-pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
-    const ALIAS: &[&str] = &["S7", "T7", "S9"];
-    &[
-        // The loop and the capture (H):
-        // every collection arm.
-        (ArmId::Append, ALIAS, 'H'),
-        (ArmId::BulkAppend, ALIAS, 'H'),
-        (ArmId::SetAdd, ALIAS, 'H'),
-        (ArmId::Insert, ALIAS, 'H'),
-        (ArmId::Prepend, ALIAS, 'H'),
-        (ArmId::Set, ALIAS, 'H'),
-        (ArmId::RemoveKey, ALIAS, 'H'),
-        (ArmId::RemoveAt, ALIAS, 'H'),
-        (ArmId::SetRemove, ALIAS, 'H'),
-        (ArmId::Filter, ALIAS, 'H'),
-        (ArmId::Take, ALIAS, 'H'),
-        (ArmId::Drop, ALIAS, 'H'),
-        (ArmId::Mid, ALIAS, 'H'),
-        (ArmId::Distinct, ALIAS, 'H'),
-        (ArmId::Math, ALIAS, 'H'),
-        (ArmId::Replace, ALIAS, 'H'),
-        (ArmId::Transform, ALIAS, 'H'),
-        (ArmId::Sort, ALIAS, 'H'),
-        (ArmId::SortBy, ALIAS, 'H'),
-        (ArmId::Union, ALIAS, 'H'),
-        (ArmId::Intersection, ALIAS, 'H'),
-        (ArmId::Difference, ALIAS, 'H'),
-        (ArmId::SymmetricDifference, ALIAS, 'H'),
-        (ArmId::Merge, ALIAS, 'H'),
-        (ArmId::MapValues, ALIAS, 'H'),
-    ]
-};
+pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = { &[] };
 
 /// plan-145-A: `(arm, probe type or "" for every probe, field sites, reason)` — the
 /// probes an arm never fires for at those sites, by design. The matrix asserts
