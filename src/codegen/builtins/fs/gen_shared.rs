@@ -64,6 +64,41 @@ pub(crate) fn emit_cstring_copy(
     ]);
 }
 
+/// Emit the interior-NUL rejection scan a borrowed path needs (plan-146-F).
+///
+/// A `String` block's bytes at `+8` are already NUL-terminated
+/// (`mfb spec` `03_heap-values.md`, "Standalone String"), so a path argument can
+/// be handed to the host as a `const char *` with no copy. What the copy loop
+/// also did — and what a borrow must keep — is reject an embedded NUL, which
+/// would silently truncate the path the host opens. This walks the `len` bytes at
+/// `src` and branches to `invalid` (the caller's `ErrInvalidArgument` path) on the
+/// first zero byte. `src`, `index` and `byte` are caller-owned scratch and are
+/// clobbered; `src` is left one past the end.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_cstring_nul_scan(
+    instructions: &mut Vec<CodeInstruction>,
+    len: &str,
+    src: &str,
+    index: &str,
+    byte: &str,
+    scan_loop: &str,
+    scan_done: &str,
+    invalid: &str,
+) {
+    instructions.extend([
+        abi::label(scan_loop),
+        abi::compare_registers(index, len),
+        abi::branch_eq(scan_done),
+        abi::load_u8(byte, src, 0),
+        abi::compare_immediate(byte, "0"),
+        abi::branch_eq(invalid),
+        abi::add_immediate(src, src, 1),
+        abi::add_immediate(index, index, 1),
+        abi::branch(scan_loop),
+        abi::label(scan_done),
+    ]);
+}
+
 pub(crate) fn emit_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,

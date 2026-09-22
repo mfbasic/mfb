@@ -1965,9 +1965,10 @@ mod tests {
             &call("strings.left", vec![local("t"), text("3")]),
             &root
         ));
-        // A `String` builtin with no arm that changes the length.
+        // A builtin whose arm changes no `String` length: the identity, and a
+        // collection self-update (which keeps its own capacity).
         assert!(!is_string_self_update(
-            &call("strings.upper", vec![local("s")]),
+            &call("collections.append", vec![local("s"), text("x")]),
             &root
         ));
     }

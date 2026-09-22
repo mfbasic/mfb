@@ -49,9 +49,15 @@ Anything outside this list must be written as a numeric reference — `&#945;`
 or `&#x3B1;` for the Greek letter alpha, for instance."#;
 #[rustfmt::skip]
 const BODY: &str =
-r##"FUNC __encoding_htmlUnescape(text AS String) AS String
-  LET chars AS List OF String = strings::graphemes(text)
-  LET n AS Integer = len(chars)
+r##"' plan-146-F: the scan reads `text` a grapheme at a time with `strings::mid`,
+' NOT through `strings::graphemes`. That list holds one heap `String` per
+' grapheme and stays live while `text` does, which costs ~42 bytes per character
+' of `text`: the `exempt` peak-live-bytes bound on this row's `cases.tsv` line
+' rejects it (measured: 2785376 -> 5554272 for |x| 65536 -> 131072, against a
+' bound of 2360320). Reading through `mid` allocates one short-lived grapheme per
+' step instead, so the only thing that scales with `text` is `out`.
+FUNC __encoding_htmlUnescape(text AS String) AS String
+  LET n AS Integer = len(text)
   MUT out AS String = ""
   MUT i AS Integer = 0
   MUT ch AS String = ""
@@ -60,16 +66,16 @@ r##"FUNC __encoding_htmlUnescape(text AS String) AS String
   MUT found AS Boolean = FALSE
   MUT code AS Integer = 0
   WHILE i < n
-    ch = collections::get(chars, i)
+    ch = strings::mid(text, i, 1)
     IF ch = "&" THEN
       body = ""
       j = i + 1
       found = FALSE
       WHILE j < n AND found = FALSE
-        IF collections::get(chars, j) = ";" THEN
+        IF strings::mid(text, j, 1) = ";" THEN
           found = TRUE
         ELSE
-          body = body & collections::get(chars, j)
+          body = body & strings::mid(text, j, 1)
           j = j + 1
         END IF
       END WHILE

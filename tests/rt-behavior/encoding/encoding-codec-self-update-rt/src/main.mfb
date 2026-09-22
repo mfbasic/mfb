@@ -1,0 +1,56 @@
+REM plan-146-F: the five `encoding` codecs that had no rt-behavior fixture —
+REM formUrlEncode, htmlEscape, percentEncode, punycodeDecode, punycodeEncode.
+REM Each is an `Exempt` self-update row, so each is also exercised in the
+REM `s = f(s)` shape the exemption is about: the result must not depend on the
+REM argument block surviving the call.
+REM
+REM htmlEscape is the one plan-146-F rewrote (a grapheme scan replacing five
+REM `strings::replace` passes over a copy of the argument), so its cases pin the
+REM behaviour the rewrite had to preserve: all five metacharacters, exactly one
+REM level of escaping, and non-ASCII passthrough.
+IMPORT encoding
+IMPORT io
+
+FUNC main() AS Integer
+  REM --- htmlEscape ---------------------------------------------------------
+  io::print("esc_all=" & encoding::htmlEscape("&<>\"'"))
+  io::print("esc_mixed=" & encoding::htmlEscape("<a href='#'>Tom & Jerry</a>"))
+  io::print("esc_empty=[" & encoding::htmlEscape("") & "]")
+  io::print("esc_nonascii=" & encoding::htmlEscape("café ☕ 日本"))
+  io::print("esc_once=" & encoding::htmlEscape(encoding::htmlEscape("&")))
+  MUT h AS String = "a<b&c"
+  h = encoding::htmlEscape(h)
+  io::print("esc_self=" & h)
+  h = encoding::htmlUnescape(h)
+  io::print("esc_round=" & h)
+
+  REM --- formUrlEncode ------------------------------------------------------
+  io::print("form=" & encoding::formUrlEncode("name = a b & c"))
+  io::print("form_nonascii=" & encoding::formUrlEncode("café"))
+  MUT f AS String = "a b+c"
+  f = encoding::formUrlEncode(f)
+  io::print("form_self=" & f)
+  f = encoding::formUrlDecode(f)
+  io::print("form_round=" & f)
+
+  REM --- percentEncode ------------------------------------------------------
+  io::print("pct=" & encoding::percentEncode("a b/c?d=e"))
+  io::print("pct_unreserved=" & encoding::percentEncode("aZ0-._~"))
+  MUT p AS String = "a b"
+  p = encoding::percentEncode(p)
+  io::print("pct_self=" & p)
+  p = encoding::percentDecode(p)
+  io::print("pct_round=" & p)
+
+  REM --- punycodeEncode / punycodeDecode ------------------------------------
+  io::print("puny_enc=" & encoding::punycodeEncode("bücher.de"))
+  io::print("puny_dec=" & encoding::punycodeDecode("xn--bcher-kva.de"))
+  io::print("puny_ascii=" & encoding::punycodeEncode("example.com"))
+  io::print("puny_empty=[" & encoding::punycodeEncode("") & "]")
+  MUT d AS String = "münchen.example"
+  d = encoding::punycodeEncode(d)
+  io::print("puny_self=" & d)
+  d = encoding::punycodeDecode(d)
+  io::print("puny_round=" & d)
+  RETURN 0
+END FUNC

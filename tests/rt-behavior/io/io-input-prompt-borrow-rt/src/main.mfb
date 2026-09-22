@@ -1,0 +1,21 @@
+REM plan-146-F: `io::input` writes its prompt to stdout straight out of the
+REM caller's String block and stores it nowhere — the reason its self-update row
+REM `s = io::input(s)` is `Exempt`. This runs that shape. The acceptance harness
+REM feeds an empty stdin, so the read traps at EOF *after* the prompt has been
+REM written: the prompt therefore appears in the captured output, and the binding
+REM it came from is still intact in the TRAP.
+IMPORT io
+
+FUNC main() AS Integer
+  MUT prompt AS String = "prompt> "
+  io::print("before=[" & prompt & "]")
+  prompt = io::input(prompt)
+  io::print("after=[" & prompt & "]")
+  RETURN 0
+  TRAP(err)
+    io::print("")
+    io::print("eof_trap=TRUE")
+    io::print("prompt_intact=[" & prompt & "]")
+    RETURN 0
+  END TRAP
+END FUNC
