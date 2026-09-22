@@ -132,9 +132,14 @@ Commit: `ea14b83e6`
 
 ### Phase 2: Goldens and timing
 
-- [ ] Run `scripts/artifact-gate.sh target/release/mfb all` once. Every diff must
+- [x] Run `scripts/artifact-gate.sh target/release/mfb all` once. Every diff must
       be a global-record fixture: objdump one per directory, then regenerate the
       confirmed ones. Record the count.
+      Run once for G and the letters after it, with the compiler at H/I's source
+      (`1ab6c7d0f` + I's test-only edits): `artifact-gate [all]: 1485 tests, 1660
+      build(s), 2098 golden(s) checked, 0 diff(s)` — no golden holds a global
+      record's field self-update, so the count is 0 and nothing was regenerated
+      (Correction G4). The runtime tests above are the coverage.
 - [x] The timing loop, recorded here.
       plan-141's `/tmp/inplace_probe` (a copy under `/tmp/p145/tprobe`), built by
       the compiler at the H/I source and by the plan-145-C compiler, same machine,
@@ -145,7 +150,8 @@ Commit: `ea14b83e6`
 Acceptance: the artifact gate is clean after regeneration (est. 20 min: global
 records appear in fixtures across directories, and only the full gate finds them
 all).
-Commit:
+Clean (above); timing recorded.
+Commit: `(recorded in the next commit)`
 
 ## Validation Plan
 
@@ -163,6 +169,9 @@ Commit:
   self-update scratch and, for `replace`, no `ErrIndexOutOfRange` data object —
   the matrix failed "native code string literal … has no data object while
   lowering store global gR". It now compares globals too.
+- **G4 — no golden covers a global record update.** The gate's 0 diffs mean no
+  fixture's `.ncodesum` contains `gR = WITH gR { … }` (as plan-121-D found for
+  `STATE` collections); the plan's expected diffs did not exist.
 - **G3 — a global's final value is live at exit.** A module-level value has no
   scope drop (plan-142-H's global tests measure growth for that reason), so the
   runtime cases require `alloc_calls = free_calls + 1` — the global's own block —
