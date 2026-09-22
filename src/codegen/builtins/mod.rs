@@ -221,10 +221,14 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `target` is the canonical, dot-qualified callee (`strings.find`,
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
 /// `toString`, `typeName`).
-pub(crate) fn inline_trap_unsupported(target: &str, arg_types: &[ParameterType]) -> bool {
+pub(crate) fn inline_trap_unsupported(
+    target: &str,
+    arg_types: &[ParameterType],
+    kinds: &dyn TypeKinds,
+) -> bool {
     (native_builtin_target(target).is_some() || matches!(target, "len" | "toString" | "typeName"))
         && !inline_builtin_raw_supported(target, arg_types)
-        && !inline_builtin_is_infallible(target, arg_types)
+        && !inline_builtin_is_infallible(target, arg_types, kinds)
 }
 
 /// The inline built-ins whose fallibility depends on their **argument type**
@@ -281,6 +285,11 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
         Some(ArgFallibility::ReplaceOverAnythingButAList) => {
             !matches!(arg_types.first(), Some(ParameterType::ListOf(_)))
         }
+        // bug-679: `toInt` is already fallible by name, so there is nothing for
+        // this function — which only ever subtracts infallibility — to do. The
+        // enum overload is granted its verdict in `inline_builtin_is_infallible`,
+        // where the `TypeKinds` oracle that can recognise an enum is in scope.
+        Some(ArgFallibility::ToIntOverAnEnum) => false,
     }
 }
 
@@ -290,6 +299,15 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
 enum ArgFallibility {
     ToStringOverAListOfByte,
     ReplaceOverAnythingButAList,
+    /// bug-679, and the one entry that points the other way. The two above
+    /// *remove* infallibility from a name that has it; this one *grants* it to a
+    /// single overload of a name that does not. It is listed here because the
+    /// list's job is "whose verdict turns on an argument type" — which is what
+    /// [`inline_builtin_fallibility_depends_on_args`] gates on, and a caller that
+    /// skipped typing `toInt`'s arguments could never reach the rule.
+    /// [`arg_type_makes_inline_builtin_fallible`] therefore answers `false` for
+    /// it: `toInt` has no name-keyed infallibility to take away.
+    ToIntOverAnEnum,
 }
 
 /// The single list of argument-typed entries, consulted by both
@@ -303,6 +321,9 @@ fn inline_builtin_arg_fallibility_rule(target: &str) -> Option<ArgFallibility> {
     }
     if native_builtin_target(target) == Some("replace") {
         return Some(ArgFallibility::ReplaceOverAnythingButAList);
+    }
+    if target == "toInt" {
+        return Some(ArgFallibility::ToIntOverAnEnum);
     }
     None
 }
@@ -396,12 +417,31 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// `forEach`/`transform`/`filter`/`reduce`/`reduceRight` (a failing callback
 /// raises a real error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
-pub(crate) fn inline_builtin_is_infallible(target: &str, arg_types: &[ParameterType]) -> bool {
+pub(crate) fn inline_builtin_is_infallible(
+    target: &str,
+    arg_types: &[ParameterType],
+    kinds: &dyn TypeKinds,
+) -> bool {
     // bug-486: the verdict is name-keyed *except* for the overloads
     // `arg_type_makes_inline_builtin_fallible` names — today only
     // `toString(<List OF Byte>)`, whose UTF-8 decode raises `ErrEncoding`.
     if arg_type_makes_inline_builtin_fallible(target, arg_types) {
         return false;
+    }
+    // bug-679: the one rule in the *granting* direction. `toInt` is fallible by
+    // name and stays so; its single-enum overload is the lone exception, because
+    // it compiles to a register move of the ordinal the enum value already holds
+    // and declares no error (plan-140-B). The verdict comes from the oracle, never
+    // from a spelling heuristic: a declared type is not an enum just because it is
+    // declared, and a record that answered `true` here would silently delete a
+    // live handler.
+    if matches!(
+        inline_builtin_arg_fallibility_rule(target),
+        Some(ArgFallibility::ToIntOverAnEnum)
+    ) && arg_types.len() == 1
+        && kinds.is_enum(&arg_types[0])
+    {
+        return true;
     }
     // A migrated common-native member is infallible when it declares no error and
     // is not otherwise raw-supported. Every `bits` op qualifies (empty `errors`)
@@ -1215,7 +1255,7 @@ mod tests {
             "collections.removeKey",
         ] {
             assert!(
-                inline_builtin_is_infallible(c, &[]),
+                inline_builtin_is_infallible(c, &[], &NoTypeKinds),
                 "expected infallible: {c}"
             );
         }
@@ -1245,14 +1285,14 @@ mod tests {
             "collections.replace",
         ] {
             assert!(
-                !inline_builtin_is_infallible(c, &[]),
+                !inline_builtin_is_infallible(c, &[], &NoTypeKinds),
                 "expected fallible: {c}"
             );
         }
         // Every inline member is classified one way or the other, and non-inline
         // callees (user functions) are not infallible built-ins.
-        assert!(!inline_builtin_is_infallible("myFunc", &[]));
-        assert!(!inline_builtin_is_infallible("math.sqrt", &[]));
+        assert!(!inline_builtin_is_infallible("myFunc", &[], &NoTypeKinds));
+        assert!(!inline_builtin_is_infallible("math.sqrt", &[], &NoTypeKinds));
     }
 
     /// bug-486: the census answers per OVERLOAD for the names whose fallibility
@@ -1262,9 +1302,9 @@ mod tests {
     #[test]
     fn tostring_is_fallible_only_on_a_byte_list() {
         let bytes = [ParameterType::list_of(ParameterType::Byte)];
-        assert!(!inline_builtin_is_infallible("toString", &bytes));
+        assert!(!inline_builtin_is_infallible("toString", &bytes, &NoTypeKinds));
         assert!(inline_builtin_raw_supported("toString", &bytes));
-        assert!(!inline_trap_unsupported("toString", &bytes));
+        assert!(!inline_trap_unsupported("toString", &bytes, &NoTypeKinds));
 
         // Every other overload — including the two-argument precision form, a
         // list of something else, and the no-types fallback — stays infallible.
@@ -1277,7 +1317,7 @@ mod tests {
             vec![],
         ] {
             assert!(
-                inline_builtin_is_infallible("toString", &args),
+                inline_builtin_is_infallible("toString", &args, &NoTypeKinds),
                 "expected infallible: toString{args:?}"
             );
             assert!(!inline_builtin_raw_supported("toString", &args));
@@ -1308,7 +1348,7 @@ mod tests {
         // error return; `typeName` folds to a string constant at compile time).
         for name in ["len", "typeName"] {
             assert!(
-                inline_builtin_is_infallible(name, &bytes),
+                inline_builtin_is_infallible(name, &bytes, &NoTypeKinds),
                 "expected infallible: {name}(List OF Byte)"
             );
         }
@@ -1349,14 +1389,14 @@ mod tests {
             "strings.padRight",
         ] {
             assert!(
-                !inline_builtin_is_infallible(name, &[]),
+                !inline_builtin_is_infallible(name, &[], &NoTypeKinds),
                 "{name} raises ErrInvalidArgument; an infallible verdict elides a live handler"
             );
             assert!(
                 inline_builtin_raw_supported(name, &[]),
                 "{name} is fallible, so an inline TRAP needs a raw lowering"
             );
-            assert!(!inline_trap_unsupported(name, &[]));
+            assert!(!inline_trap_unsupported(name, &[], &NoTypeKinds));
             // The verdict does not depend on the argument types, so a consumer
             // that skips typing them still gets the fallible answer.
             assert!(!inline_builtin_fallibility_depends_on_args(name));
@@ -1374,7 +1414,7 @@ mod tests {
             "strings.displayWidth",
         ] {
             assert!(
-                inline_builtin_is_infallible(name, &[]),
+                inline_builtin_is_infallible(name, &[], &NoTypeKinds),
                 "{name} raises nothing trappable and must stay infallible"
             );
             assert!(!inline_builtin_raw_supported(name, &[]));
@@ -1396,11 +1436,11 @@ mod tests {
                 ParameterType::String,
             ];
             assert!(
-                !inline_builtin_is_infallible(name, &strings),
+                !inline_builtin_is_infallible(name, &strings, &NoTypeKinds),
                 "expected fallible: {name}(String, String, String)"
             );
             assert!(inline_builtin_raw_supported(name, &strings));
-            assert!(!inline_trap_unsupported(name, &strings));
+            assert!(!inline_trap_unsupported(name, &strings, &NoTypeKinds));
 
             // The `List` overload keeps its infallible verdict, for every element
             // type — including `List OF Byte`, which is `toString`'s fallible
@@ -1416,7 +1456,7 @@ mod tests {
                     element,
                 ];
                 assert!(
-                    inline_builtin_is_infallible(name, &list),
+                    inline_builtin_is_infallible(name, &list, &NoTypeKinds),
                     "expected infallible: {name}{list:?}"
                 );
                 assert!(!inline_builtin_raw_supported(name, &list));
@@ -1425,7 +1465,7 @@ mod tests {
             // Fail closed: an untyped or unknown first argument is fallible.
             for args in [vec![], vec![ParameterType::Unknown]] {
                 assert!(
-                    !inline_builtin_is_infallible(name, &args),
+                    !inline_builtin_is_infallible(name, &args, &NoTypeKinds),
                     "expected fallible (fail closed): {name}{args:?}"
                 );
             }
@@ -1450,6 +1490,68 @@ mod tests {
         ));
     }
 
+    /// An oracle that knows exactly one enum, `Color` — the bug-679 twin of the
+    /// one `general::tests` uses for the plan-140 resolver cases.
+    struct ColorIsAnEnum;
+    impl TypeKinds for ColorIsAnEnum {
+        fn is_enum(&self, t: &ParameterType) -> bool {
+            t.is_named("Color")
+        }
+    }
+
+    /// bug-679: `toInt(<enum>)` is the ordinal the value already holds — a
+    /// register move that declares no error (plan-140-B) — so it is infallible,
+    /// exactly as `toString(<enum>)` is. Every other `toInt` overload really can
+    /// fail (bad parse, overflow) and must stay fallible: the name is fallible by
+    /// default and this one overload is the exception, which is the mirror of
+    /// bug-486's rule rather than a copy of it.
+    #[test]
+    fn toint_is_infallible_only_on_an_enum() {
+        let color = [ParameterType::named("Color")];
+        assert!(
+            inline_builtin_is_infallible("toInt", &color, &ColorIsAnEnum),
+            "toInt(<enum>) cannot fail"
+        );
+
+        // Without an oracle the answer is the over-approximating one: a site that
+        // cannot tell an enum from a record keeps today's verdict.
+        assert!(!inline_builtin_is_infallible("toInt", &color, &NoTypeKinds));
+
+        // Every other overload stays fallible, under either oracle. `Shape` is a
+        // declared type the oracle does NOT call an enum, so a "is a declared
+        // type" spelling heuristic would wrongly pass it.
+        for args in [
+            vec![ParameterType::String],
+            vec![ParameterType::Float],
+            vec![ParameterType::Fixed],
+            vec![ParameterType::Money],
+            vec![ParameterType::Byte],
+            vec![ParameterType::named("Shape")],
+            vec![ParameterType::Unknown],
+            // The two-argument radix form, even over the enum type.
+            vec![ParameterType::String, ParameterType::Integer],
+            vec![ParameterType::named("Color"), ParameterType::Integer],
+            vec![],
+        ] {
+            assert!(
+                !inline_builtin_is_infallible("toInt", &args, &ColorIsAnEnum),
+                "expected fallible: toInt{args:?}"
+            );
+        }
+
+        // The cheap gate every consumer uses to decide whether to type its
+        // arguments must name `toInt`, or a consumer would pass an empty slice
+        // and never reach the rule above.
+        assert!(inline_builtin_fallibility_depends_on_args("toInt"));
+
+        // The rule GRANTS infallibility; it must not also start removing it, or
+        // `inline_builtin_raw_supported` would claim a raw lowering `toInt` does
+        // not have on this path.
+        assert!(!arg_type_makes_inline_builtin_fallible("toInt", &color));
+        assert!(!inline_builtin_raw_supported("toInt", &color));
+        assert!(!inline_trap_unsupported("toInt", &color, &NoTypeKinds));
+    }
+
     #[test]
     fn inline_builtin_raw_supported_set() {
         // The fallible inline members with a raw-`Result` inline lowering
@@ -1471,7 +1573,7 @@ mod tests {
                 "expected raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c, &[]),
+                !inline_trap_unsupported(c, &[], &NoTypeKinds),
                 "raw-supported must not be unsupported: {c}"
             );
         }
@@ -1487,7 +1589,7 @@ mod tests {
                 "expected raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c, &[]),
+                !inline_trap_unsupported(c, &[], &NoTypeKinds),
                 "raw-supported must not be unsupported: {c}"
             );
         }
@@ -1499,7 +1601,7 @@ mod tests {
                 "expected NOT raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c, &[]),
+                !inline_trap_unsupported(c, &[], &NoTypeKinds),
                 "infallible must not be unsupported: {c}"
             );
         }
@@ -1703,7 +1805,7 @@ mod tests {
             "nope",                  // not a builtin at all
         ] {
             assert!(
-                !inline_trap_unsupported(target, &[]),
+                !inline_trap_unsupported(target, &[], &NoTypeKinds),
                 "expected trappable (not unsupported): {target}"
             );
         }

@@ -2361,8 +2361,17 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::codegen::builtins::inline_builtin_is_infallible(target, &inline_arg_types)
-                {
+                // bug-679: `NoTypeKinds` deliberately, and unreachable for the one
+                // name that would care. Every `toInt` form returned above through
+                // `lower_inline_conversion_raw`, so the enum overload never
+                // arrives here; and codegen holds no declaration table anyway, so
+                // the oracle's `false` is both correct and the over-approximating
+                // side for anything that did.
+                if crate::codegen::builtins::inline_builtin_is_infallible(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
@@ -2380,7 +2389,11 @@ impl CodeBuilder<'_> {
                 // so this never fires today; it fails loudly if a *future* inline
                 // builtin is added to `native_builtin_target` without a raw or
                 // infallible lowering, instead of miscompiling.
-                if crate::codegen::builtins::inline_trap_unsupported(target, &inline_arg_types) {
+                if crate::codegen::builtins::inline_trap_unsupported(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
                          without a raw or infallible lowering; add one to \

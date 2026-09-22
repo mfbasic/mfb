@@ -1302,11 +1302,11 @@ mod tests {
         assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
             "crypto.randomInt",
             &integers
-        ));
+        , &crate::codegen::builtins::NoTypeKinds));
         assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
             "crypto.randomInt",
             &bigs
-        ));
+        , &crate::codegen::builtins::NoTypeKinds));
     }
 
     #[test]

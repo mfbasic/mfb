@@ -77,8 +77,19 @@ impl Fallibility {
     /// raises `ErrEncoding`. A site that cannot type its arguments passes an empty
     /// slice and gets the name-keyed verdict — the answer this had before, so such
     /// a site *under*-approximates and must be fixed rather than relied on.
-    pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
-        if builtins::inline_builtin_is_infallible(target, arg_types) {
+    ///
+    /// `kinds` is the declared-kind oracle (plan-140-A), needed because one
+    /// overload's verdict turns on the argument being an `ENUM` rather than on its
+    /// `ParameterType`, which spells every declared type the same: `toInt(<enum>)`
+    /// is the ordinal the value already holds and cannot fail, while every other
+    /// `toInt` can (bug-679). `NoTypeKinds` answers the over-approximating side.
+    pub(super) fn call_is_fallible(
+        &self,
+        target: &str,
+        arg_types: &[ParameterType],
+        kinds: &dyn builtins::TypeKinds,
+    ) -> bool {
+        if builtins::inline_builtin_is_infallible(target, arg_types, kinds) {
             return false;
         }
         if self.declared.contains(target) {
@@ -189,7 +200,9 @@ impl EscapeScope<'_, '_> {
     /// every other callee the verdict is name-decided, so the typing is skipped.
     fn call_is_fallible(&self, callee: &str, arguments: &[HirCallArg]) -> bool {
         if !builtins::inline_builtin_fallibility_depends_on_args(callee) {
-            return self.verdicts.call_is_fallible(callee, &[]);
+            return self
+                .verdicts
+                .call_is_fallible(callee, &[], self.context.type_index());
         }
         let arg_types: Vec<ParameterType> = arguments
             .iter()
@@ -199,7 +212,8 @@ impl EscapeScope<'_, '_> {
                 }
             })
             .collect();
-        self.verdicts.call_is_fallible(callee, &arg_types)
+        self.verdicts
+            .call_is_fallible(callee, &arg_types, self.context.type_index())
     }
 
     /// Record a binding this walk just introduced, so a later `toString(name)`

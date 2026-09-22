@@ -375,7 +375,17 @@ impl LowerContext<'_> {
     /// `arg_types` discriminates the built-ins whose fallibility depends on the
     /// overload rather than the name (bug-486 — `toString(<List OF Byte>)`).
     pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
-        self.fallible.call_is_fallible(target, arg_types)
+        self.fallible
+            .call_is_fallible(target, arg_types, self.type_index())
+    }
+
+    /// The declared-kind oracle (plan-140-A) this context reads, for the built-in
+    /// censuses that answer per overload. bug-679 needs it in `ir::fallible`, where
+    /// `toInt(<enum>)`'s infallibility cannot be seen from the `ParameterType`.
+    /// Returned as the trait object, not the concrete `TypeIndex`, which is
+    /// private to this module: the caller only ever asks it a kind question.
+    pub(super) fn type_index(&self) -> &dyn builtins::TypeKinds {
+        self.type_index
     }
 }
 
@@ -1806,7 +1816,7 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types) == Some(true);
+        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types, context.type_index) == Some(true);
     let check_root = match &root {
         // bug-486: the census is asked with the root call's ARGUMENT types, not
         // its name alone. `toString` is infallible on every argument type but
@@ -1818,6 +1828,7 @@ fn lower_inline_trap(
                 || context.fallible.call_is_fallible(
                     target,
                     &ir_call_arg_types(target, args, locals, &context.binding_types),
+                    context.type_index,
                 )
         }
         _ => hoists.is_empty() || root_operator_raises,
@@ -2285,6 +2296,7 @@ fn hoist_trap_calls(
         context.fallible,
         locals,
         &context.binding_types,
+        context.type_index,
         0,
         &mut fallible,
     );
@@ -2297,7 +2309,7 @@ fn hoist_trap_calls(
     // `len(stringify(parse(a))) + len(stringify(parse(b)))` left the second `len` behind and
     // failed the build with `Checked wraps a call to len`.
     let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(root, context.fallible, locals, &context.binding_types) == Some(true);
+        && trap_hoist_kind(root, context.fallible, locals, &context.binding_types, context.type_index) == Some(true);
     let limit = if root_is_checked_operator {
         fallible.len()
     } else {
@@ -2325,6 +2337,9 @@ fn scan_trap_operands(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
@@ -2340,14 +2355,14 @@ fn scan_trap_operands(
         // captured values are evaluated in this expression.
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                scan_trap_call(capture, fallible, locals, globals, next, out);
+                scan_trap_call(capture, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Call { args, .. }
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                scan_trap_call(arg, fallible, locals, globals, next, out);
+                scan_trap_call(arg, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -2358,33 +2373,33 @@ fn scan_trap_operands(
         | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
-            scan_trap_call(value, fallible, locals, globals, next, out)
+            scan_trap_call(value, fallible, locals, globals, kinds, next, out)
         }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            scan_trap_call(target, fallible, locals, globals, next, out);
+            scan_trap_call(target, fallible, locals, globals, kinds, next, out);
             for update in updates {
-                scan_trap_call(&update.value, fallible, locals, globals, next, out);
+                scan_trap_call(&update.value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                scan_trap_call(value, fallible, locals, globals, next, out);
+                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                scan_trap_call(key, fallible, locals, globals, next, out);
-                scan_trap_call(value, fallible, locals, globals, next, out);
+                scan_trap_call(key, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
-            scan_trap_call(left, fallible, locals, globals, next, out);
+            scan_trap_call(left, fallible, locals, globals, kinds, next, out);
             if !is_short_circuit_operator(*op) {
-                scan_trap_call(right, fallible, locals, globals, next, out);
+                scan_trap_call(right, fallible, locals, globals, kinds, next, out);
             }
         }
     }
@@ -2403,10 +2418,17 @@ fn trap_hoist_kind(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
 ) -> Option<bool> {
     match value {
         IrValue::Call { target, args, .. } => Some(
-            fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals, globals)),
+            fallible.call_is_fallible(
+                target,
+                &ir_call_arg_types(target, args, locals, globals),
+                kinds,
+            ),
         ),
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
@@ -2434,14 +2456,17 @@ fn scan_trap_call(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
-    scan_trap_operands(value, fallible, locals, globals, depth, out);
-    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals) {
+    scan_trap_operands(value, fallible, locals, globals, kinds, depth, out);
+    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals, kinds) {
         out.push(checked);
     }
 }
@@ -2604,7 +2629,7 @@ fn rewrite_trap_call(
     // The scan's fallibility verdict is recomputed here rather than read off
     // `fallible[position]`, because a non-raising operator is not indexed at all
     // and must not consume a position.
-    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types)
+    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types, context.type_index)
     else {
         return;
     };
