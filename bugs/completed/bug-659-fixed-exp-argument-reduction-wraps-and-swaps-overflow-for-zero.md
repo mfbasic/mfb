@@ -199,11 +199,36 @@ relative to `x`. Either way the overflow check must not be skippable by a negati
   multiply, exercised in range); `pow` with integer exponents `3 / -2` (the
   untouched exact-multiply path); and `log`/`log10` over 5000 arguments (the
   third `emit_fixed_mul` caller). Every value printed at `toByte(10)` precision.
-- `scripts/test-accept.sh`: 1513 fixtures, 0 mismatches — no pre-existing golden
-  shifted anywhere in the corpus, including the `Fixed` exp/pow fixtures
-  `func_math_exp_fixed_overflow_rt`, `func_math_pow_fixed_overflow_rt`,
-  `func_math_pow_fixed_domain_rt` and
+- `scripts/test-accept.sh`: 1513 fixtures, 0 mismatches — every behavioral golden
+  held, including the `Fixed` exp/pow fixtures `func_math_exp_fixed_overflow_rt`,
+  `func_math_pow_fixed_overflow_rt`, `func_math_pow_fixed_domain_rt` and
   `bug137-fixed-pow-underflow-overflow-rt`.
+- **`scripts/artifact-gate.sh` is the gate that caught the one golden this fix
+  legitimately moves, and acceptance alone would have missed it.** `.ncodesum` is
+  the artifact-gate's own kind — `test-accept.sh` compares no `.ncodesum` on any
+  path (`scripts/artifact-kinds.sh:69-72`) — so the acceptance suite's clean run
+  was never evidence about emitted code. The gate reported 5 diffs, all of them
+  `tests/byte-identity/math`'s per-target `.ncodesum`, the fixture that pins the
+  math package's emitted native code and which calls `math::exp(Fixed)` and
+  `math::pow(Fixed, Fixed)` directly. Every other package's cover fixture
+  (`general`, `http`, `io`, `json`, …) stayed byte-identical, and this fixture's
+  own `.ast`/`.ir` goldens were unchanged — the change is lowering-only, and its
+  blast radius is exactly the one lowering it touches.
+  - The regeneration was justified before it was done, not after: dumping
+    `-ncode` under both compilers and comparing label sets shows the delta is
+    **purely additive**. The only symbols the new dump introduces are the ones
+    this fix creates — `fixed_exp_within_upper`, `fixed_exp_in_range`,
+    `fixed_exp_done`, the `fixed_exp_result` slot, `fixed_mul_sat_in_range`,
+    `fixed_mul_sat_done` — and **no pre-existing label disappeared**
+    (30632 → 30753 instructions). Each target's new hash was confirmed stable
+    across repeated builds before being written, since these goldens are
+    determinism pins (bug-388).
+  - Re-run after regeneration: 1487 tests, 1662 builds, 2102 goldens, **0 diffs**.
+- `cargo test --release`: `test result: ok` on all 71 suites, 4293 passed in the
+  lib suite, 0 failed. (Run it ALONE: `test-accept.sh` and the `golden` test's
+  `artifact_gate_all` take the same per-tree gate lock, so running them
+  concurrently makes `artifact_gate_all` fail with "another gate run holds the
+  lock" — a refusal that checks nothing, not a regression.)
 - `scripts/spec-census.sh --citations`: 1655 citations, 0 MISS-PATH /
   MISS-LINE / MISS-SYMBOL.
 
