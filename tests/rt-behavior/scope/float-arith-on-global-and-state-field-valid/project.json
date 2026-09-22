@@ -1,0 +1,10 @@
+{
+  "name": "float_arith_on_global_and_state_field_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Float arithmetic whose operands are only a global or a STATE payload field builds and runs.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

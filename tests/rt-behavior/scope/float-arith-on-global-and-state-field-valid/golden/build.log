@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid
+Wrote AST to tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/float_arith_on_global_and_state_field_valid.ast
+Wrote IR to tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/float_arith_on_global_and_state_field_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid
+Wrote executable to tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/build/float_arith_on_global_and_state_field_valid.out
+[exit 0]
+$ tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/build/float_arith_on_global_and_state_field_valid.out
+1.50 3.50 4.00
+-0.25 1.50
+[exit 0]

@@ -345,6 +345,9 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
             _ => {}
         }
     }
+    for global in &module.globals {
+        fields.insert_global(global.name.clone(), global.type_.clone());
+    }
     fields
 }
 

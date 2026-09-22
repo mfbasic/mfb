@@ -29,6 +29,11 @@ pub(crate) struct FieldTypes {
     /// `toString` predicate can type a user call's result (a NIR `Call`
     /// carries none). Read by [`to_string_enum_members`] only.
     function_returns: HashMap<String, ParameterType>,
+    /// bug-675: each module global's declared type. A NIR `Global` read inside a
+    /// function carries an empty type, so without this a `Float` expression over a
+    /// global field (`gR.b + 0.5`) went untyped, the float-error message strings
+    /// were not registered, and lowering failed with "has no data object".
+    globals: HashMap<String, ParameterType>,
 }
 
 impl FieldTypes {
@@ -42,6 +47,11 @@ impl FieldTypes {
 
     pub(crate) fn get(&self, key: &(String, String)) -> Option<&ParameterType> {
         self.fields.get(key)
+    }
+
+    /// Record a module global's declared type (bug-675).
+    pub(crate) fn insert_global(&mut self, name: String, type_: ParameterType) {
+        self.globals.insert(name, type_);
     }
 
     /// Record an enum's member names, in declaration order.
@@ -115,6 +125,11 @@ pub(crate) fn static_nir_value_type(
     fields: &FieldTypes,
 ) -> Option<ParameterType> {
     match value {
+        // bug-675: a global read inside a function reaches NIR untyped; its
+        // declaration has the type.
+        NirValue::Global { name, type_ } if type_.name().is_empty() => {
+            fields.globals.get(name).cloned()
+        }
         NirValue::Const { type_, .. }
         | NirValue::LocalRef { type_, .. }
         | NirValue::Global { type_, .. }
@@ -170,6 +185,13 @@ pub(crate) fn static_nir_value_type(
         NirValue::ResultError { .. } => Some(ParameterType::named("Error")),
         NirValue::MemberAccess { target, member } => {
             let target_type = static_nir_value_type(target, locals, fields)?;
+            // bug-675: `h.state` is the `RES … STATE` handle's payload record, so
+            // `h.state.f` types as the payload's field.
+            if member == "state" {
+                if let Some(state) = target_type.state() {
+                    return Some(state);
+                }
+            }
             if member == "result" {
                 if let ParameterType::ThreadHandle {
                     worker: false, out, ..
