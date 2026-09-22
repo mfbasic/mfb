@@ -119,7 +119,7 @@ fontconfig).
 Acceptance: builds for both app-capable Linux targets, no fontconfig `DT_NEEDED`.
   Check: `cargo test --test rt_canvas_system_fonts linux` → pass (est. 3 min).
   **Observed: `test result: ok. 1 passed` (135.79 s).**
-Commit: (this commit)
+Commit: c73794420
 
 ### Phase 2 — Runtime proof on 2228
 
@@ -132,7 +132,7 @@ Acceptance: positive count; every listed face loads.
   Check: `ssh -p 2228 … ./probe` → `faces=N loaded=N`, N > 0 (est. 5 min; emulated
   box — this is the only fontconfig-bearing app box available).
   **Observed: `exit=0 seconds=281`, `faces=2429 loaded=2429`, `unknown: 77050004`.**
-Commit: (this commit)
+Commit: c73794420
 
 ## Validation Plan
 
