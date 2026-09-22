@@ -33,7 +33,10 @@ Two families are not arms at any site:
 
   * plan-142's `exempt` lines -> `rebuild:new-value` (the result is a new value of
     unrelated size; plan-145-A §3 "Expectations");
-  * `String` (`&`) -> `deferred:string` (Open Decision 1).
+  * `String` (`&`) -> `deferred:string` (Open Decision 1). plan-146-A extends this
+    to every line whose `x` is a `String` or an `AttributedString` (plan-146's
+    arms serve no field site; plan-146-A Open Decision 1), and to its `na` cells:
+    no `FOR EACH` walks either type (S7/T7).
 
 The 11 bug-671 rows (`n/a (does not compile: bug-67x)` in the findings' §2) were
 re-measured against the fixed compiler in plan-145-A Phase 1: every such cell is
@@ -172,6 +175,12 @@ def main():
     for sig, status, decl, statements in cases:
         decl_type = decl.split(" = ")[0]
         for site in SITES:
+            if decl_type in ("String", "AttributedString"):
+                if site in ("S7", "T7"):
+                    print(f"{sig}\t{site}\tna:TYPE_FOR_EACH_REQUIRES_COLLECTION")
+                else:
+                    print(f"{sig}\t{site}\tdeferred:string")
+                continue
             if status == "exempt":
                 expects = [("rebuild", "new-value")]
             else:

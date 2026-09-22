@@ -275,19 +275,40 @@ Acceptance: `cargo test --bin mfb self_update` passes; both RED failure lines ar
 recorded here (est. 5 min).
 Result: `cargo test --bin mfb self_update` → `test result: ok. 8 passed; 0 failed`
 (86.07 s); the RED lines are on the last task above.
-Commit: —
+Commit: e0ac58d30
 
 ### Phase 2: The black-box census and the harness lines
 
-- [ ] `tests/guards/inplace_self_update_census.rs`: the `String`/`AttributedString`
+- [x] `tests/guards/inplace_self_update_census.rs`: the `String`/`AttributedString`
       rule. Record the number of shaped signatures it reads. Expected: 63 + 44 = 107.
-- [ ] `rt_inplace_self_update.rs`: the `pending:<letter>` and `deferred:<tag>`
+      Measured 126 = 63 + 44 + 19: the rule reads the expected 107, and the census
+      also derives the 19 Tier-B forms from the man pages (Correction A3). The
+      census passes, so the shaped set equals the `cases.tsv` lines holding `::`:
+      `grep -v '^#' cases.tsv | cut -f1 | grep -c '::'` → 126.
+- [x] `rt_inplace_self_update.rs`: the `pending:<letter>` and `deferred:<tag>`
       statuses (both assert `count(2N) − count(N) ≥ N`), the stdin feed for
-      `io::input`, and the `cases.tsv` header text for the two statuses.
-- [ ] `cases.tsv`: the 65 new lines.
-- [ ] RED proof: mark the `strings::trim` line `arm` and confirm the bound fails
+      `io::input`, and the `cases.tsv` header text for the two statuses. Also
+      added (Correction A4): automatic `IMPORT`s for a plain-site program
+      (`prelude_for`, shared with the field sites), `len_of` (`len` has no
+      `AttributedString` overload), and `AttributedString` runs at S1/S2 only.
+- [x] `cases.tsv`: the 65 new lines. Plus 975 `field_expect.tsv` lines
+      (Correction A4), from `field_expect_gen.py`, whose output keeps the old 964
+      lines byte-identical (`diff <(head -964 new) old` → no output).
+- [x] RED proof: mark the `strings::trim` line `arm` and confirm the bound fails
       naming it. Mark the `&` line `pending:B` and confirm the "still copies"
-      assertion fails. Restore both.
+      assertion fails. Restore both. `MFB_SELF_UPDATE_SITES=Local,Global
+      MFB_SELF_UPDATE_FILTER='strings::trim(value AS String)|& (value AS String'` →
+      `4 of 4 case/site pair(s) failed`: `strings::trim(value AS String) AS String at
+      Local: marked `arm`, but 2000 more runs allocated 4000 more blocks (4155 at
+      N=2000, 8155 at 2N) — the statement copies` (and at Global), and `& (value AS
+      String, other AS String) AS String at Local: marked `pending`, but 2000 more
+      runs allocated only 1 more blocks (166 at N=2000, 167 at 2N) — the statement no
+      longer copies; flip the line (owner: B)` (and at Global). Restored.
+- [x] Added (Correction A4): a field-site sample of the new expectations —
+      `MFB_SELF_UPDATE_SITES=S3,…,T8` (all 15) with `MFB_SELF_UPDATE_FILTER` =
+      `strings::left(value AS String|io::input|os::getEnv(|strings::trim(value AS
+      AttributedString|fs::canonicalPath` (5 lines, 75 pairs) → `test result: ok`
+      (56.48 s).
 
 Acceptance: `cargo test --test inplace_self_update_census` passes, and the harness
 passes on the new lines:
@@ -297,6 +318,13 @@ every new expectation against today's compiler. `strings::` also matches no
 existing line: the 79 existing lines are `collections::`, `math::`, `compress::`,
 `crypto::` and `&`). Record the pair count each filter ran here; they must sum to
 130.
+Result: `cargo test --test inplace_self_update_census` → `2 passed` (63.16 s). The
+loop (`/tmp/p146_loop.sh Local,Global`, the filter loop above with
+`MFB_SELF_UPDATE_SITES=Local,Global` — Correction A4) → every filter `test result:
+ok`: `strings::` 43 lines (86 pairs, 73.26 s), `encoding::` 8 (16), `fs::` 6 (12),
+`os::` 3 (6), `io::` 1 (2), `net::` 1 (2), `regex::` 1 (2), `astrings::` 4 (8),
+`toString` 1 (2), `&@` 1 (2) — 138 pairs, 130 distinct: `strings::` also matches the
+four `astrings::` lines (the substring), which the `astrings::` filter reran.
 Commit: —
 
 ## Validation Plan
@@ -379,6 +407,37 @@ Commit: —
   Decisions 1–4, and `/follow-plan` executes the plan as written, so each
   `DECISION:` line now records "recommended". A user decision the other way is a
   re-plan, not a correction.
+- **A3 — the black-box census reads the Tier-B forms too.** §3 gave the Tier-B
+  overloads only a unit census (`TIER_B_TRANSFORMS`), since `mfb man` renders no
+  overload for them. But each of their 19 pages says so in one sentence ("value may
+  also be an astrings::AttributedString: it returns an AttributedString";
+  `grep -rln 'may also be an `astrings::AttributedString`: it returns'
+  src/codegen/builtins/strings/` → exactly the 19 `TIER_B_TRANSFORMS` members), so
+  the black-box census derives each such function's `AttributedString` signature
+  from its `String` one and requires a `cases.tsv` line for it, and asserts it found
+  at least 19 (a guard against the wording changing). The Tier-B lines are spelled
+  as those derived signatures (`strings::left(value AS AttributedString, count AS
+  Integer) AS AttributedString`), not with the table's `@AttributedString` suffix;
+  the two non-registry lines have no `::` (`toString(value AS String) AS String`,
+  `&@AttributedString (value AS AttributedString, …)`), which the census skips as
+  it skips `&`. Shaped count: 126, not 107.
+- **A4 — every `cases.tsv` line also runs at the 15 field sites (plan-145).** The
+  plan predates plan-145-A's field harness: `FieldCase::from_case` panics for a
+  line with no `field_expect.tsv` expectation at every field site, so the 65 lines
+  need 975 expectations. `field_expect_gen.py` now gives every line whose `x` is a
+  `String` or an `AttributedString` `deferred:string` (plan-145-A Open Decision 1:
+  no `String` arm serves a field; plan-146's arms are `FieldReach::None`), and
+  `na:TYPE_FOR_EACH_REQUIRES_COLLECTION` at S7/T7 — the `&` line's existing rule,
+  regenerated byte-identically. The acceptance loop above runs S1/S2 only
+  (`MFB_SELF_UPDATE_SITES=Local,Global`), the 130 pairs this letter names; the 975
+  field pairs are part of the full harness in letter H (and a sample ran here:
+  Phase 2's last task). Other harness additions the lines needed: automatic
+  `IMPORT`s for a plain-site program (`prelude_for`; programs whose packages are
+  all in `PRELUDE` are byte-identical), `len_of` (`len` has no `AttributedString`
+  overload: `TYPE_CALL_ARGUMENT_MISMATCH`, so `strings::byteLen`), and
+  `Site::applies` keeping an `AttributedString` line to S1/S2 as a `String` one is.
+  `io::input` gets `STDIN_LINES` empty lines (at EOF it raises `7-702-0003`), and
+  its line starts from `""` so the prompt it echoes is empty.
 
 ## Summary
 
