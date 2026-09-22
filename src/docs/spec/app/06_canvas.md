@@ -458,6 +458,55 @@ whose directory or tables run past the end of the file is dropped or refused wit
 `ErrBadFontFile` — the bug-509 rule that a hostile header costs a comparison, not a
 loop or an out-of-bounds read.
 
+## System fonts are an OS query, then an ordinary load
+
+`canvas::listSystemFonts` and `canvas::loadSystemFont` rest on one native member,
+the internal `canvas::systemFontTable`, which asks the operating system for its
+installed faces and answers a single `String`: per face, the full name, the
+PostScript name and the file path, each ended by U+001F, the record ended by U+001E.
+Everything after that is MFBASIC: the table is split on its UTF-8 bytes (neither
+separator can occur inside a multi-byte sequence), names are sorted and de-duplicated,
+and `loadSystemFont` hands the chosen path and PostScript name to
+`canvas::loadFont(path, face)` — the same load a program can make itself.
+[[src/codegen/builtins/canvas/func_system_fonts.rs:lower_system_font_table]]
+[[src/codegen/builtins/canvas/func_system_fonts.rs:SYSTEM_FONT_FIELDS]]
+
+The table is read once per thread, on first use, and kept: the OS query measured
+0.58 s per call on macOS against 0.08 s for the load itself. A font installed while a
+program runs is seen by the next run.
+
+Each backend lists only faces the loader can draw — TrueType (`glyf`) outlines, not
+a variable font — and only faces with a full name and a file:
+
+- **macOS** — CoreText. `CTFontManagerCopyAvailableFontURLs` answers one URL per
+  face (a collection's URL repeats) and no face index, which is why every backend
+  reports the PostScript name and the loader finds the face by its `name` table.
+  Filters: `CTFontCopyTable(glyf)`, no `CTFontCopyVariation` (CoreText lists a variable
+  font's named instances under PostScript names no face carries), and no full name
+  starting with `.` — macOS's private UI faces, visible to an app process.
+  [[src/codegen/builtins/canvas/gen_system_fonts_macos.rs:emit_system_font_table]]
+- **Linux** — fontconfig, reached through `dlopen("libfontconfig.so.1")`, never a
+  `DT_NEEDED`: without it the table is empty and the program still runs.
+  `FcFontList(NULL, …)` uses the current configuration. Filters: `fontformat` is
+  `TrueType`, `variable` is not true, `index >> 16` is 0 (not a named instance).
+  [[src/codegen/builtins/canvas/gen_system_fonts_linux.rs:emit_system_font_table]]
+- **Windows** — DirectWrite's system font collection through COM; only
+  `DWriteCreateFactory` is imported. Filters: no simulations (DirectWrite synthesises
+  bold/oblique faces no file carries), `TryGetFontTable(glyf)`, no
+  `IDWriteFontFace5::HasVariations`, a local file. Names are taken in `en-us` when
+  present, else the first string.
+  [[src/codegen/builtins/canvas/gen_system_fonts_windows.rs:emit_system_font_table]]
+
+Text drawn in a system font is not reproducible across machines. Text goldens load a
+fixture font with `canvas::loadFont`, never a system font.
+
+A package companion — canvas's included — may call only `collections`' native
+members: the `collections` source is injected from the *program's* imports, so a
+companion calling a source generic such as `collections::sort` links only when the
+program also imports `collections`. canvas sorts the font names with its own
+`__canvas_sortedUnique`, and a registry test fails any companion that breaks the rule.
+[[src/codegen/builtins/canvas/func_system_fonts.rs:SORTED_UNIQUE]]
+
 ## Mode gating
 
 Every `canvas::` call that touches the surface requires `Mode.Canvas` and raises

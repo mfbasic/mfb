@@ -33,7 +33,9 @@ installed while the program runs appears the next time it starts.
 
 Only fonts with TrueType outlines are listed. Fonts in the other common format
 (CFF outlines, usually `.otf` files) and variable fonts are left out, because this
-build draws neither; every name in the list loads."#;
+build draws neither; every name in the list loads. A machine that reports no fonts
+at all — a Linux system without fontconfig installed, for one — answers an empty
+list rather than failing."#;
 
 const LIST_EX: &str = r#"```
 IMPORT app
@@ -54,23 +56,56 @@ const LOAD_INTRO: &str =
 const LOAD_DESC: &str = r#"`loadSystemFont` finds the installed font whose full name is `name` — one of the
 names `canvas::listSystemFonts` returns — and loads it exactly as `canvas::loadFont`
 would, returning a `Font` bound with `RES`. The name must match exactly, including
-case. A name no installed font carries fails with `ErrNotFound`.
+case. A name no installed font carries fails with `ErrNotFound`; so does every name
+on a machine whose list is empty. If the font's file was replaced after the list was
+read and is no longer a font this build can draw, the load fails with
+`ErrBadFontFile`, and if it was removed, with `ErrPathNotFound` — as
+`canvas::loadFont` would.
+
+The installed fonts are read once, the first time a program asks, as
+`canvas::listSystemFonts` describes; loading a second font does not ask the
+operating system again.
 
 Text drawn in a system font depends on the machine: the same name can be a different
 file, or a different version of the same file, somewhere else. When the text must
 look identical everywhere, ship the font file with the program and use
 `canvas::loadFont` instead."#;
 
-const LOAD_EX: &str = r#"```
+const LOAD_EX: &str = r#"Draw with the first font this machine lists, or say there is none:
+
+```
 IMPORT app
 IMPORT canvas
+IMPORT collections
 IMPORT color
+IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  RES face AS canvas::Font = canvas::loadSystemFont("Helvetica")
+  LET names AS List OF String = canvas::listSystemFonts()
+  IF len(names) = 0 THEN
+    io::print("no system fonts")
+    EXIT SUB
+  END IF
+  RES face AS canvas::Font = canvas::loadSystemFont(collections::getOr(names, 0, ""))
   LET label AS canvas::DrawItem = canvas::Text[x := 20.0, y := 60.0, text := "hello", font := face, size := 32.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
+END SUB
+```
+
+A name the machine does not have is `ErrNotFound`:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadSystemFont("No Such Font") TRAP(e)
+    io::print("not installed: " & toString(e.code))
+    EXIT SUB
+  END TRAP
 END SUB
 ```"#;
 
@@ -284,7 +319,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrNotFound", "ErrBadFontFile", "ErrOutOfMemory"],
+            errors: vec!["ErrNotFound", "ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
             body: Body::mfb(LOAD_SYSTEM_FONT, "__canvas_loadSystemFont"),
         }],
     });

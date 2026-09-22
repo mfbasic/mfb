@@ -31,15 +31,16 @@ or the tag `true`. A font collection (a `.ttc` file, several faces in one) loads
 first face; pass `face` to choose another by its PostScript name (`Helvetica-Bold`) or
 its full name (`Helvetica Bold`). A `face` the file does not carry is `ErrNotFound`.
 It refuses CFF/OpenType-PostScript outlines and WOFF with
-`ErrBadFontFile` — a different mistake from a path that does not exist, and it needs a
-different fix. A TrueType file
-whose `head` table puts `unitsPerEm` outside the 16..16384 the format allows is
-refused the same way. When text is drawn, a glyph whose bitmap at the requested size
+`ErrBadFontFile` — a different mistake from a path that does not exist, which is
+`ErrPathNotFound`, and it needs a different fix. A TrueType file whose `head` table puts `unitsPerEm` outside the
+16..16384 the format allows is refused the same way. When text is drawn, a glyph whose bitmap at the requested size
 would exceed 8192 pixels a side or 16,777,216 pixels draws nothing.
 
-There is no font *discovery*: `path` names a file. A program that wants a system
-font names its path, which keeps the rendering reproducible — the same file produces
-the same pixels on every platform, which is what makes text goldens exact-match."#;
+`loadFont` is the reproducible way to get a font: the same file draws the same pixels
+on every platform, so a program that ships its font file looks the same everywhere.
+To use a font already installed on the machine instead, pick a name from
+`canvas::listSystemFonts` and load it with `canvas::loadSystemFont` — convenient,
+but the result depends on the fonts that machine has."#;
 
 const EX: &str = r#"```
 IMPORT app
@@ -382,7 +383,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrBadFontFile", "ErrOutOfMemory"],
+            errors: vec!["ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
             body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
         }, Implementation {
             params: vec![
@@ -403,7 +404,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
-            errors: vec!["ErrBadFontFile", "ErrNotFound", "ErrOutOfMemory"],
+            errors: vec!["ErrBadFontFile", "ErrNotFound", "ErrPathNotFound", "ErrOutOfMemory"],
             body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
         }],
     });

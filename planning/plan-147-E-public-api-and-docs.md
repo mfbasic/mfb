@@ -53,31 +53,45 @@ fails `ErrNotFound` (77050004).
 - [x] ~~`func_system_fonts.rs`: both members, and their tests~~ — moot here: moved into
       plan-147-B (its Phase 1 tasks and Corrections), because the internal backend is
       unreachable from a test program without them.
-- [ ] Man prose for `listSystemFonts` / `loadSystemFont` finished against
-      `.ai/man-content.md`: the list depends on the machine; text in a system font can
-      look different on another machine; `loadFont` is the reproducible path; no memory
-      vocabulary.
+- [x] Man prose for `listSystemFonts` / `loadSystemFont` finished against
+      `.ai/man-content.md`: the list depends on the machine; read once per run; empty
+      list without fontconfig; text in a system font can look different on another
+      machine; `loadFont` is the reproducible path; every raisable error stated
+      (`ErrNotFound`, `ErrBadFontFile`, `ErrPathNotFound`); no memory vocabulary. The
+      `loadSystemFont` example no longer names `Helvetica` (macOS-only) — it loads the
+      first listed name, and a second example shows `ErrNotFound`.
+- [x] `loadFont`'s Errors table lacked `ErrPathNotFound`, which it raises for a
+      missing path (`rt_canvas_font.rs` `a_missing_path_is_not_reported_as_a_bad_font`
+      asserts 77030001) — added to both overloads and named in the prose.
 
 Acceptance: Check: `scripts/man-census.sh --memory-scope` → 0 unclassified;
 `mfb man canvas loadSystemFont` renders (est. 2 min).
-Commit: —
+  **Observed:** `unclassified memory-vocabulary hits: 0`; the page renders the
+  declaration, parameter, description and a four-row Errors table.
+Commit: (this commit)
 
 ### Phase 2 — Docs
 
-- [ ] `func_load_font.rs` `DESC`: replace the "no font discovery" paragraph — `loadFont`
+- [x] `func_load_font.rs` `DESC`: replace the "no font discovery" paragraph — `loadFont`
       is the reproducible path (same file, same pixels everywhere);
       `loadSystemFont` trades that for convenience.
-- [ ] `06_canvas.md`: a *System fonts* section — `systemFaces` per OS (CoreText /
-      fontconfig-dlopen / DirectWrite), the filters (glyf, not variable, not simulated,
-      not a named instance), face resolution by PostScript name, empty list without
-      fontconfig; `[[path:Symbol]]` provenance per `.ai/specifications.md`.
-- [ ] Verify: `mfb man canvas listSystemFonts`, `mfb man canvas loadSystemFont`,
+- [x] `06_canvas.md`: section *System fonts are an OS query, then an ordinary load* —
+      the one-`String` table, per-thread caching, per-OS backends and filters (glyf,
+      not variable, not simulated, not a named instance, not a private `.` face), face
+      resolution by PostScript name, empty list without fontconfig, the companion
+      `collections` rule; `[[path:Symbol]]` provenance. `bash scripts/spec-census.sh
+      --citations` → `MISS-SYMBOL 0`.
+- [x] Verify: `mfb man canvas listSystemFonts`, `mfb man canvas loadSystemFont`,
       `scripts/man-census.sh --memory-scope` → 0 unclassified,
       `scripts/man-run-examples.sh canvas --run` → examples compile and run.
+      Observed: `examples: 28 built: 28 ran: 28 failed: 0`; after the example rewrite,
+      `… canvas --run loadSystemFont listSystemFonts loadFont` → `4 built, 4 ran,
+      0 failed` (`not installed: 77050004`).
 
 Acceptance: Check: `cargo test --bin mfb spec` → pass; the man renders above show the
 new pages (est. 5 min).
-Commit: —
+  **Observed:** `cargo test --bin mfb spec` → `43 passed; 0 failed`.
+Commit: (this commit)
 
 ## Validation Plan
 
