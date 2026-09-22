@@ -53,9 +53,9 @@ These are a precondition on the whole of plan-147, not a dependency to negotiate
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-145 (field self-updates) complete. It extends `SELF_UPDATE_TABLE`, `ENABLED_SITES`, the matrix test and the runtime harness that letters B and E add a site to. It also provides the field arms E needs for record accumulators. | `ls planning/plan-145-* 2>/dev/null` → no matches | NOT MET (2026-09-21: nine letters in `planning/`, in progress in worktree `P-145`) |
-| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | NOT MET (2026-09-21: eight letters in `planning/`) |
-| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | (re-run) |
+| plan-145 (field self-updates) complete. It extends `SELF_UPDATE_TABLE`, `ENABLED_SITES`, the matrix test and the runtime harness that letters B and E add a site to. It also provides the field arms E needs for record accumulators. | `ls planning/plan-145-* 2>/dev/null` → no matches | **MET** (2026-09-22: `ls planning/plan-145-*` -> no matches; all nine letters archived to `planning/completed/plan-145-A..I`, landed on main through `096acb8bd plan-145-I: lock the field guard; docs`) |
+| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | **NOT MET** (2026-09-22: `ls planning/plan-146-*` -> eight letters A-H still in `planning/`. In progress in worktree `P-146`: A has 0 unticked boxes, B has 7, C 8, D 8, E 7, F 9, G 9, H 12 -- 60 unticked boxes remain, measured with `grep -c '^- \[ \]' .claude/worktrees/P-146/planning/plan-146-*.md`) |
+| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | **CHANGED** (2026-09-22: nine commits, all plan-145 landing the field seam -- `6529c1384`, `e5a8b1a9d`, `831e85027`, `4cd54ed9e`, `728210c39`, `b05277aef`, `ea14b83e6`, `1ab6c7d0f`, `096acb8bd`). Sections 2.1 and 2.2 must be re-read and corrected before starting; see Corrections. |
 
 Everything below is written against the world where these hold. This plan does
 not absorb, work around, or hand-roll anything from plan-145 or plan-146.
@@ -306,6 +306,24 @@ Commit: —
   census shows no global-threading helper worth it.
 
 ## Corrections
+
+- **2026-09-22, gate run (`/follow-plan 147`): stopped at Prerequisites; no plan work
+  started.** Re-ran all three commands and updated all three Status cells:
+  - The plan-145 row moved NOT MET -> **MET**. `ls planning/plan-145-*` -> no matches;
+    the nine letters are in `planning/completed/`, landed through `096acb8bd`.
+  - The plan-146 row is still **NOT MET**. `ls planning/plan-146-*` lists A-H, and
+    `grep -c '^- \[ \]'` over worktree `P-146` counts 60 unticked boxes (A done, B
+    partial with 7 remaining, C-H untouched). plan-146 is a precondition of plan-147,
+    never scope for it, so nothing from it was absorbed or hand-rolled here.
+  - The seam-files row moved `(re-run)` -> **CHANGED**. Nine plan-145 commits have
+    touched `src/codegen/collection/assign/self_update.rs` and
+    `src/codegen/engine/analysis/last_use.rs` since `2f55eb184`. Per that row's own
+    instruction, **sections 2.1 and 2.2 of this file are stale and must be re-read and
+    corrected before letter A starts** -- in particular section 2.1's
+    `ENABLED_SITES = [Local, ForEach, Lambda, Global]` line (plan-145 extends both
+    `ENABLED_SITES` and `SELF_UPDATE_TABLE` with field sites) and its `excluded_roots`
+    description. plan-146 will edit the same two files again, so that re-read is best
+    done once plan-146 has landed, not now.
 
 ## Summary
 
