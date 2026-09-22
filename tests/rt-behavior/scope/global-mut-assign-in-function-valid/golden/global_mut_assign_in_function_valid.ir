@@ -1,0 +1,74 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "global_mut_assign_in_function_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "test", "line": 7, "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "bump",
+    "line": 9,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "assignGlobal", "line": 10, "name": "test", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "global", "name": "test" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+    ]
+  },
+  {
+    "name": "setTo",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 13, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "assignGlobal", "line": 14, "name": "test", "value": { "kind": "local", "name": "v" } },
+    { "op": "return", "line": 15, "value": { "kind": "global", "name": "test" } }
+    ]
+  },
+  {
+    "name": "readTest",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 19, "value": { "kind": "global", "name": "test" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "start " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "test" }] } }] } },
+    { "op": "assignGlobal", "line": 24, "name": "test", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "main assign " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "test" }] } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "bump", "args": [] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after SUB " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "test" }] } }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "setTo", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "FUNC returned " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r" }] } }, "right": { "kind": "const", "type": "String", "value": ", global " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "test" }] } }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "read from another FUNC " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "readTest", "args": [] }] } }] } }
+    ]
+  }
+  ]
+}
