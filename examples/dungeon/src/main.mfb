@@ -131,7 +131,10 @@ FUNC main AS Integer
             redraw = TRUE
           END IF
         CASE Turn(t)
-          turns = ((turns + t.quarters) MOD 4 + 4) MOD 4
+          ' turns stays in 0..3 and quarters is +/-1, so the sum is never
+          ' below -1 and one wrap is enough. facingOf needs two, taking any
+          ' Integer.
+          turns = (turns + t.quarters + 4) MOD 4
           redraw = TRUE
         CASE Quit : running = FALSE
         CASE Ignore
