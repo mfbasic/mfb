@@ -114,10 +114,12 @@ Commit: e1194b769
       fixes (`div_ceil`, `sort_by_key`). The run exits 101 on
       `rt_math_fixed_trig_accuracy`'s five `FRAC_PI_2` errors, which predate plan-148
       and are not in its files.
-- [ ] Merge `worktree-system-fonts` into main from the main checkout (clean merge,
-      main tree not entangled), then archive plan-148-E.
+- [x] Merge `worktree-system-fonts` into main from the main checkout (clean merge,
+      main tree not entangled), then archive plan-148-E. main had no commits the
+      branch lacked (`git log HEAD..main` → 0), so the merge is a fast-forward to the
+      commit that archives this file.
 
-Commit: —
+Commit: 9568ca7d0 (gate record); the archive commit is the fast-forward target.
 
 ## Validation Plan
 
