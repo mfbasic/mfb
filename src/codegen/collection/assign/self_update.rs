@@ -1280,10 +1280,186 @@ impl ArmId {
     }
 }
 
-/// The binding sites the matrix test compiles every arm probe at. F, G and H
-/// each append theirs.
+/// plan-145-A: how a record field of a given type is laid out, which decides the
+/// only in-place lowering a self-update of that field can have.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum FieldKindClass {
+    /// Stored by value in its 8-byte slot (`!record_field_is_inlined &&
+    /// !record_field_is_pointer`): the scalars, an enum, `Nothing`, a resource
+    /// handle.
+    Scalar,
+    /// The slot holds an owned pointer to its own block (`record_field_is_pointer`
+    /// and not inlined): `json::Json` and the records that hold one.
+    Pointer,
+    /// Inlined into the owner's data region, with a size fixed at compile time:
+    /// every field is `Scalar` or itself `InlinedFixed`.
+    InlinedFixed,
+    /// Inlined, but its size depends on its value: it holds a `String`, a
+    /// collection, a data union, or an `InlinedVariable` record.
+    InlinedVariable,
+    /// A `List`, `Map` or `Set` — `cases.tsv`'s arms.
+    Collection,
+}
+
+/// Classify `type_` as a record field (plan-145-A census). `model` must know the
+/// record types `type_` reaches.
+#[cfg(test)]
+pub(crate) fn field_kind_class(model: &TypeModel, type_: &ParameterType) -> FieldKindClass {
+    use crate::codegen::collection::layout::{record_field_is_inlined, record_field_is_pointer};
+    if matches!(
+        type_,
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_)
+    ) {
+        return FieldKindClass::Collection;
+    }
+    if !record_field_is_inlined(model, type_) {
+        return if record_field_is_pointer(model, type_) {
+            FieldKindClass::Pointer
+        } else {
+            FieldKindClass::Scalar
+        };
+    }
+    match model.record_fields.get(type_) {
+        Some(fields)
+            if fields.iter().all(|(_, field)| {
+                matches!(
+                    field_kind_class(model, field),
+                    FieldKindClass::Scalar | FieldKindClass::InlinedFixed
+                )
+            }) =>
+        {
+            FieldKindClass::InlinedFixed
+        }
+        _ => FieldKindClass::InlinedVariable,
+    }
+}
+
+/// plan-145-A: a field kind's in-place status (`FIELD_KIND_TABLE`).
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
+pub(crate) enum FieldKindRow {
+    /// Updated in place; the plan-145 letter that lands it (`C` scalar and pointer
+    /// stores, `F` fixed-size overwrites, `E` the last collection arms).
+    Arm(char),
+    /// Rebuilt by design; the proof says why no in-place form exists.
+    Rebuild {
+        reason: &'static str,
+        proof: &'static str,
+    },
+    /// Owned by another plan.
+    Deferred(&'static str),
+}
+
+/// plan-145-A Open Decision 3: an inlined field whose size depends on its value.
+#[cfg(test)]
+const SIZE_VARIES: FieldKindRow = FieldKindRow::Rebuild {
+    reason: "size-varies",
+    proof: "the new value's size is known only after it is built, and an inlined field \
+            without a capacity word cannot take a larger value in place; reallocating the \
+            owner's tail instead copies its prefix, which costs what the rebuild does",
+};
+
+/// plan-145-A Open Decision 1: a `String` field (and an `AttributedString`, whose
+/// text is one) needs a `String` arm at a field, which neither plan-145 nor
+/// plan-146 lands; the follow-up plan written after both owns it (plan-146-A Open
+/// Decision 1). `field_kinds.tsv` and `field_expect.tsv` spell it `deferred:string`.
+#[cfg(test)]
+const STRING_PLAN: FieldKindRow = FieldKindRow::Deferred("string");
+
+/// plan-145-A: one row per field kind a record can hold (`field_kind_census`
+/// enumerates them from the compiler). A new package record type fails
+/// `field_kind_census_covers_every_record_field_type` until it has a row, and so
+/// does a row whose kind no longer exists. The black-box twin is
+/// `tests/guards/inplace_self_update_census.rs`, over `field_kinds.tsv`.
+#[cfg(test)]
+pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
+    ("Integer", FieldKindRow::Arm('C')),
+    ("Float", FieldKindRow::Arm('C')),
+    ("Fixed", FieldKindRow::Arm('C')),
+    ("Money", FieldKindRow::Arm('C')),
+    ("Boolean", FieldKindRow::Arm('C')),
+    ("Byte", FieldKindRow::Arm('C')),
+    ("String", STRING_PLAN),
+    ("AttributedString", STRING_PLAN),
+    ("json.Json", FieldKindRow::Arm('C')),
+    ("List OF Integer", FieldKindRow::Arm('E')),
+    ("Map OF String TO Integer", FieldKindRow::Arm('E')),
+    ("Set OF Integer", FieldKindRow::Arm('E')),
+    ("astrings.AttrFlag", FieldKindRow::Arm('F')),
+    ("astrings.AttrText", SIZE_VARIES),
+    ("astrings.AttrNumber", FieldKindRow::Arm('F')),
+    ("audio.AudioDevice", SIZE_VARIES),
+    ("audio.AudioEnvelope", FieldKindRow::Arm('F')),
+    ("audio.AudioNote", FieldKindRow::Arm('F')),
+    ("big.Int", SIZE_VARIES),
+    ("big.DivResult", SIZE_VARIES),
+    ("canvas.Point", FieldKindRow::Arm('F')),
+    ("canvas.MouseEvent", FieldKindRow::Arm('F')),
+    ("canvas.Size", FieldKindRow::Arm('F')),
+    ("canvas.Bounds", FieldKindRow::Arm('F')),
+    ("canvas.TextMetrics", FieldKindRow::Arm('F')),
+    ("canvas.Transform", FieldKindRow::Arm('F')),
+    ("canvas.GradientStop", FieldKindRow::Arm('F')),
+    ("canvas.Gradient", SIZE_VARIES),
+    ("canvas.Paint", SIZE_VARIES),
+    ("canvas.Rectangle", SIZE_VARIES),
+    ("canvas.RoundedRect", SIZE_VARIES),
+    ("canvas.Line", SIZE_VARIES),
+    ("canvas.Polygon", SIZE_VARIES),
+    ("canvas.Circle", SIZE_VARIES),
+    ("canvas.Arc", SIZE_VARIES),
+    ("canvas.Text", SIZE_VARIES),
+    ("canvas.Picture", SIZE_VARIES),
+    ("canvas.Group", SIZE_VARIES),
+    ("canvas.Ellipse", SIZE_VARIES),
+    ("canvas.DrawLayer", SIZE_VARIES),
+    ("csv.CsvReader", SIZE_VARIES),
+    ("csv.CsvRow", SIZE_VARIES),
+    ("json.JsonNull", FieldKindRow::Arm('F')),
+    ("json.JsonBool", FieldKindRow::Arm('F')),
+    ("json.JsonNum", FieldKindRow::Arm('F')),
+    ("json.JsonStr", SIZE_VARIES),
+    ("json.JsonArr", FieldKindRow::Arm('C')),
+    ("json.JsonObj", FieldKindRow::Arm('C')),
+    ("regex.Group", SIZE_VARIES),
+    ("regex.MatchInfo", SIZE_VARIES),
+    ("term.TermSize", FieldKindRow::Arm('F')),
+    ("term.MouseEvent", FieldKindRow::Arm('F')),
+    ("datetime.Instant", FieldKindRow::Arm('F')),
+    ("datetime.Duration", FieldKindRow::Arm('F')),
+    ("datetime.Date", FieldKindRow::Arm('F')),
+    ("datetime.Time", FieldKindRow::Arm('F')),
+    ("datetime.Zone", SIZE_VARIES),
+    ("datetime.DateTime", SIZE_VARIES),
+    ("crypto.Sealed", SIZE_VARIES),
+    ("crypto.KeyPair", SIZE_VARIES),
+    ("udp.Datagram", SIZE_VARIES),
+    ("vector.Float2", FieldKindRow::Arm('F')),
+    ("vector.Float3", FieldKindRow::Arm('F')),
+    ("vector.Float4", FieldKindRow::Arm('F')),
+    ("vector.Fixed2", FieldKindRow::Arm('F')),
+    ("vector.Fixed3", FieldKindRow::Arm('F')),
+    ("vector.Fixed4", FieldKindRow::Arm('F')),
+    ("vector.Integer2", FieldKindRow::Arm('F')),
+    ("vector.Integer3", FieldKindRow::Arm('F')),
+    ("vector.Integer4", FieldKindRow::Arm('F')),
+    ("http.Response", SIZE_VARIES),
+    ("http.PendingState", SIZE_VARIES),
+    ("http.Request", SIZE_VARIES),
+    ("http.RequestPart", SIZE_VARIES),
+    ("http.Route", SIZE_VARIES),
+    ("net.Url", SIZE_VARIES),
+    ("net.Address", SIZE_VARIES),
+    ("net.PingResult", SIZE_VARIES),
+    ("color.Color", FieldKindRow::Arm('F')),
+    ("color.Hsl", FieldKindRow::Arm('F')),
+];
+
+/// The binding sites the matrix test compiles every arm probe at: plan-142's four
+/// plain sites, and plan-145's fifteen field sites (plan-144's audit legend).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Site {
     /// S1 — a `MUT` local in a function body.
     Local,
@@ -1297,10 +1473,247 @@ pub(crate) enum Site {
     Lambda,
     /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
     Global,
+    /// A local record's not-last field: `r = WITH r { a := f(r.a, …) }`.
+    S3,
+    /// The same record's last field `b`.
+    S4,
+    /// The last field of a module-level record, updated in a `SUB`.
+    S5,
+    /// `b` of `inner AS Rec` in `Out { n, inner }`, through a nested `WITH`.
+    S6,
+    /// S4 inside a `FOR EACH` over the field.
+    S7,
+    /// S4 in a `collections::forEach` lambda capturing the record.
+    S9,
+    /// S4 plus a scalar update in the same `WITH` (`RecN { a, b, n }`).
+    S10,
+    /// Field `a` of an owner handle's `STATE` payload `P { a, b, n }`.
+    T1,
+    /// Field `b` of the same payload.
+    T2,
+    /// T1 through a `RES` parameter (`SUB run1(RES h …)`).
+    T3,
+    /// T2 through a `RES` parameter.
+    T4,
+    /// Two updates over the whole payload (`h.state = WITH h.state { b := …, n := … }`).
+    T5,
+    /// `b` of `inner AS PIn` in `Q { inner, n }`.
+    T6,
+    /// T2 inside a `FOR EACH` over the field.
+    T7,
+    /// T2 on a resource-union handle `RES h AS Stream STATE P`.
+    T8,
 }
 
 #[cfg(test)]
 pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
+
+/// plan-145-A: the field sites the matrix compiles every arm probe at.
+#[cfg(test)]
+pub(crate) const FIELD_SITES: &[Site] = &[
+    Site::S3,
+    Site::S4,
+    Site::S5,
+    Site::S6,
+    Site::S7,
+    Site::S9,
+    Site::S10,
+    Site::T1,
+    Site::T2,
+    Site::T3,
+    Site::T4,
+    Site::T5,
+    Site::T6,
+    Site::T7,
+    Site::T8,
+];
+
+/// plan-145-A: `(arm, field sites, the plan-145 letter that makes the arm fire
+/// there)`. The matrix asserts both ways: a pair not listed here (or in
+/// `FIELD_NEVER`) must fire, and a pair listed here must NOT — so a letter that
+/// lands a pair early, without removing its entry, fails. Letter I deletes this.
+#[cfg(test)]
+pub(crate) const FIELD_PENDING: &[(ArmId, &[&str], char)] = {
+    const LAST: &[&str] = &["S4", "T2", "T4", "T8"];
+    const NOT_LAST: &[&str] = &["S3", "T1", "T3"];
+    const LAST_AND_NOT: &[&str] = &["S3", "S4", "T1", "T2", "T3", "T4", "T8"];
+    const MIXED: &[&str] = &["S10", "T5"];
+    const NESTED: &[&str] = &["S6", "T6"];
+    const GLOBAL: &[&str] = &["S5"];
+    const ALIAS: &[&str] = &["S7", "T7", "S9"];
+    &[
+        // The record/`STATE` arms that exist today, outside the seam until B.
+        (ArmId::Append, LAST, 'B'),
+        (ArmId::BulkAppend, LAST, 'B'),
+        (ArmId::SetAdd, LAST, 'B'),
+        (ArmId::Insert, LAST, 'B'),
+        (ArmId::Prepend, LAST, 'B'),
+        (ArmId::Set, LAST, 'B'),
+        (ArmId::RemoveKey, LAST, 'B'),
+        (ArmId::RemoveAt, LAST, 'B'),
+        (ArmId::SetRemove, LAST, 'B'),
+        (ArmId::Append, MIXED, 'C'),
+        (ArmId::BulkAppend, MIXED, 'C'),
+        (ArmId::SetAdd, MIXED, 'C'),
+        (ArmId::Insert, MIXED, 'C'),
+        (ArmId::Prepend, MIXED, 'C'),
+        (ArmId::Set, MIXED, 'C'),
+        (ArmId::RemoveKey, MIXED, 'C'),
+        (ArmId::RemoveAt, MIXED, 'C'),
+        (ArmId::SetRemove, MIXED, 'C'),
+        // Cannot-reallocate arms reach a not-last field (Open Decision 2).
+        (ArmId::Set, NOT_LAST, 'D'),
+        (ArmId::RemoveKey, NOT_LAST, 'D'),
+        (ArmId::RemoveAt, NOT_LAST, 'D'),
+        (ArmId::SetRemove, NOT_LAST, 'D'),
+        // plan-142's cannot-reallocate arms at a field (letter D).
+        (ArmId::Filter, LAST_AND_NOT, 'D'),
+        (ArmId::Take, LAST_AND_NOT, 'D'),
+        (ArmId::Drop, LAST_AND_NOT, 'D'),
+        (ArmId::Mid, LAST_AND_NOT, 'D'),
+        (ArmId::Distinct, LAST_AND_NOT, 'D'),
+        (ArmId::Math, LAST_AND_NOT, 'D'),
+        (ArmId::Replace, LAST_AND_NOT, 'D'),
+        (ArmId::Transform, LAST_AND_NOT, 'D'),
+        (ArmId::Sort, LAST_AND_NOT, 'D'),
+        (ArmId::SortBy, LAST_AND_NOT, 'D'),
+        (ArmId::Intersection, LAST_AND_NOT, 'D'),
+        (ArmId::Difference, LAST_AND_NOT, 'D'),
+        (ArmId::MapValues, LAST_AND_NOT, 'D'),
+        (ArmId::Filter, MIXED, 'D'),
+        (ArmId::Take, MIXED, 'D'),
+        (ArmId::Drop, MIXED, 'D'),
+        (ArmId::Mid, MIXED, 'D'),
+        (ArmId::Distinct, MIXED, 'D'),
+        (ArmId::Math, MIXED, 'D'),
+        (ArmId::Replace, MIXED, 'D'),
+        (ArmId::Transform, MIXED, 'D'),
+        (ArmId::Sort, MIXED, 'D'),
+        (ArmId::SortBy, MIXED, 'D'),
+        (ArmId::Intersection, MIXED, 'D'),
+        (ArmId::Difference, MIXED, 'D'),
+        (ArmId::MapValues, MIXED, 'D'),
+        // plan-142's reallocating arms at a last-inlined field (letter E).
+        (ArmId::Union, LAST, 'E'),
+        (ArmId::SymmetricDifference, LAST, 'E'),
+        (ArmId::Merge, LAST, 'E'),
+        (ArmId::Union, MIXED, 'E'),
+        (ArmId::SymmetricDifference, MIXED, 'E'),
+        (ArmId::Merge, MIXED, 'E'),
+        // Nested paths (F), the global record (G), the loop and the capture (H):
+        // every collection arm.
+        (ArmId::Append, NESTED, 'F'),
+        (ArmId::BulkAppend, NESTED, 'F'),
+        (ArmId::SetAdd, NESTED, 'F'),
+        (ArmId::Insert, NESTED, 'F'),
+        (ArmId::Prepend, NESTED, 'F'),
+        (ArmId::Set, NESTED, 'F'),
+        (ArmId::RemoveKey, NESTED, 'F'),
+        (ArmId::RemoveAt, NESTED, 'F'),
+        (ArmId::SetRemove, NESTED, 'F'),
+        (ArmId::Filter, NESTED, 'F'),
+        (ArmId::Take, NESTED, 'F'),
+        (ArmId::Drop, NESTED, 'F'),
+        (ArmId::Mid, NESTED, 'F'),
+        (ArmId::Distinct, NESTED, 'F'),
+        (ArmId::Math, NESTED, 'F'),
+        (ArmId::Replace, NESTED, 'F'),
+        (ArmId::Transform, NESTED, 'F'),
+        (ArmId::Sort, NESTED, 'F'),
+        (ArmId::SortBy, NESTED, 'F'),
+        (ArmId::Union, NESTED, 'F'),
+        (ArmId::Intersection, NESTED, 'F'),
+        (ArmId::Difference, NESTED, 'F'),
+        (ArmId::SymmetricDifference, NESTED, 'F'),
+        (ArmId::Merge, NESTED, 'F'),
+        (ArmId::MapValues, NESTED, 'F'),
+        (ArmId::Append, GLOBAL, 'G'),
+        (ArmId::BulkAppend, GLOBAL, 'G'),
+        (ArmId::SetAdd, GLOBAL, 'G'),
+        (ArmId::Insert, GLOBAL, 'G'),
+        (ArmId::Prepend, GLOBAL, 'G'),
+        (ArmId::Set, GLOBAL, 'G'),
+        (ArmId::RemoveKey, GLOBAL, 'G'),
+        (ArmId::RemoveAt, GLOBAL, 'G'),
+        (ArmId::SetRemove, GLOBAL, 'G'),
+        (ArmId::Filter, GLOBAL, 'G'),
+        (ArmId::Take, GLOBAL, 'G'),
+        (ArmId::Drop, GLOBAL, 'G'),
+        (ArmId::Mid, GLOBAL, 'G'),
+        (ArmId::Distinct, GLOBAL, 'G'),
+        (ArmId::Math, GLOBAL, 'G'),
+        (ArmId::Replace, GLOBAL, 'G'),
+        (ArmId::Transform, GLOBAL, 'G'),
+        (ArmId::Sort, GLOBAL, 'G'),
+        (ArmId::SortBy, GLOBAL, 'G'),
+        (ArmId::Union, GLOBAL, 'G'),
+        (ArmId::Intersection, GLOBAL, 'G'),
+        (ArmId::Difference, GLOBAL, 'G'),
+        (ArmId::SymmetricDifference, GLOBAL, 'G'),
+        (ArmId::Merge, GLOBAL, 'G'),
+        (ArmId::MapValues, GLOBAL, 'G'),
+        (ArmId::Append, ALIAS, 'H'),
+        (ArmId::BulkAppend, ALIAS, 'H'),
+        (ArmId::SetAdd, ALIAS, 'H'),
+        (ArmId::Insert, ALIAS, 'H'),
+        (ArmId::Prepend, ALIAS, 'H'),
+        (ArmId::Set, ALIAS, 'H'),
+        (ArmId::RemoveKey, ALIAS, 'H'),
+        (ArmId::RemoveAt, ALIAS, 'H'),
+        (ArmId::SetRemove, ALIAS, 'H'),
+        (ArmId::Filter, ALIAS, 'H'),
+        (ArmId::Take, ALIAS, 'H'),
+        (ArmId::Drop, ALIAS, 'H'),
+        (ArmId::Mid, ALIAS, 'H'),
+        (ArmId::Distinct, ALIAS, 'H'),
+        (ArmId::Math, ALIAS, 'H'),
+        (ArmId::Replace, ALIAS, 'H'),
+        (ArmId::Transform, ALIAS, 'H'),
+        (ArmId::Sort, ALIAS, 'H'),
+        (ArmId::SortBy, ALIAS, 'H'),
+        (ArmId::Union, ALIAS, 'H'),
+        (ArmId::Intersection, ALIAS, 'H'),
+        (ArmId::Difference, ALIAS, 'H'),
+        (ArmId::SymmetricDifference, ALIAS, 'H'),
+        (ArmId::Merge, ALIAS, 'H'),
+        (ArmId::MapValues, ALIAS, 'H'),
+    ]
+};
+
+/// plan-145-A: `(arm, probe type or "" for every probe, field sites, reason)` — the
+/// probes an arm never fires for at those sites, by design. The matrix asserts
+/// they do not fire, and does not require them to.
+#[cfg(test)]
+pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
+    const NOT_LAST: &[&str] = &["S3", "T1", "T3"];
+    const NOT_LAST_GROW: &str = "a grow at a not-last field would shift the next sibling \
+                                 (plan-145-E non-goal)";
+    &[
+        (ArmId::Append, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::BulkAppend, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::SetAdd, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::Insert, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::Prepend, "", NOT_LAST, NOT_LAST_GROW),
+        (
+            ArmId::Set,
+            "Map OF String TO Integer",
+            NOT_LAST,
+            NOT_LAST_GROW,
+        ),
+        (ArmId::Union, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::SymmetricDifference, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::Merge, "", NOT_LAST, NOT_LAST_GROW),
+        (
+            ArmId::Concat,
+            "",
+            &[
+                "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6",
+                "T7", "T8",
+            ],
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+    ]
+};
 
 #[cfg(test)]
 impl Site {
@@ -1308,10 +1721,57 @@ impl Site {
     pub(crate) fn lowers_in(self, name: &str) -> bool {
         match self {
             Site::Local | Site::ForEach => name == "main",
-            Site::Lambda => name.starts_with("$lambda"),
-            Site::Global => name == "run1",
+            Site::Lambda | Site::S9 => name.starts_with("$lambda"),
+            Site::Global | Site::S5 | Site::T3 | Site::T4 => name == "run1",
+            _ => name == "main",
         }
     }
+
+    /// The site's code in `FIELD_PENDING`/`FIELD_NEVER` (`S4`, `T2`, …).
+    pub(crate) fn code(self) -> String {
+        format!("{self:?}")
+    }
+
+    /// The field a field site updates.
+    fn field(self) -> &'static str {
+        match self {
+            Site::S3 => "r.a",
+            Site::S5 => "gR.b",
+            Site::S6 => "o.inner.b",
+            Site::T1 | Site::T3 => "h.state.a",
+            Site::T2 | Site::T4 | Site::T5 | Site::T7 | Site::T8 => "h.state.b",
+            Site::T6 => "h.state.inner.b",
+            _ => "r.b",
+        }
+    }
+}
+
+/// `text` with every whole-word `from` replaced by `to` (outside string literals).
+#[cfg(test)]
+fn replace_word(text: &str, from: &str, to: &str) -> String {
+    let bytes = text.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'"' {
+            in_string = !in_string;
+        }
+        if !in_string
+            && text[i..].starts_with(from)
+            && (i == 0 || !word(bytes[i - 1]))
+            && bytes.get(i + from.len()).is_none_or(|b| !word(*b))
+        {
+            out.push_str(to);
+            i += from.len();
+            continue;
+        }
+        let c = text[i..].chars().next().expect("in bounds");
+        out.push(c);
+        i += c.len_utf8();
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1319,6 +1779,9 @@ impl Probe {
     /// The whole program performing this probe's self-update at `site`, in `main`;
     /// `None` when `site` has no form for the probe's type.
     pub(crate) fn source(&self, site: Site) -> Option<String> {
+        if FIELD_SITES.contains(&site) {
+            return self.field_source(site);
+        }
         let mut src = String::from("IMPORT io\n");
         for import in self.imports {
             src.push_str(&format!("IMPORT {import}\n"));
@@ -1362,7 +1825,109 @@ impl Probe {
                 init = self.init,
                 call = self.call,
             )),
+            _ => unreachable!("field sites return above"),
         }
+        Some(src)
+    }
+
+    /// plan-145-A: the probe's self-update applied to a field at `site`: the same
+    /// templates as the runtime harness (`tests/runtime/rt_inplace_self_update.rs`).
+    fn field_source(&self, site: Site) -> Option<String> {
+        let ty = self.ty;
+        if ty == "String" && matches!(site, Site::S7 | Site::T7) {
+            return None;
+        }
+        let field = site.field();
+        let v = replace_word(self.call, "x", field);
+        let statement = match site {
+            Site::S3 => format!("r = WITH r {{ a := {v} }}"),
+            Site::S5 => format!("gR = WITH gR {{ b := {v} }}"),
+            Site::S6 => format!("o = WITH o {{ inner := WITH o.inner {{ b := {v} }} }}"),
+            Site::S10 => format!("r = WITH r {{ b := {v}, n := r.n + 1 }}"),
+            Site::T5 => format!("h.state = WITH h.state {{ b := {v}, n := h.state.n + 1 }}"),
+            Site::T6 => format!("h.state.inner = WITH h.state.inner {{ b := {v} }}"),
+            Site::T1 | Site::T2 | Site::T3 | Site::T4 | Site::T7 | Site::T8 => {
+                format!("{field} = {v}")
+            }
+            _ => format!("r = WITH r {{ b := {v} }}"),
+        };
+        let owner = match site {
+            Site::S10 => "  MUT r AS RecN = RecN[a := x, b := x, n := 0]\n",
+            Site::S6 => "  MUT o AS Out = Out[n := 1, inner := Rec[a := x, b := x]]\n",
+            Site::S5 => "  gR = Rec[a := x, b := x]\n",
+            Site::T6 => "  h.state = Q[inner := PIn[a := x, b := x], n := 0]\n",
+            Site::T1 | Site::T2 | Site::T3 | Site::T4 | Site::T5 | Site::T7 | Site::T8 => {
+                "  h.state = P[a := x, b := x, n := 0]\n"
+            }
+            _ => "  MUT r AS Rec = Rec[a := x, b := x]\n",
+        };
+        let looped = match site {
+            Site::S7 | Site::T7 => {
+                format!("  FOR EACH each1 IN {field}\n    {statement}\n  NEXT\n")
+            }
+            Site::S9 => format!(
+                "  LET one AS List OF Integer = [0]\n  FOR i = 1 TO 3\n    \
+                 collections::forEach(one, LAMBDA(each1 AS Integer) -> {statement})\n  NEXT\n"
+            ),
+            _ => format!("  FOR i = 1 TO 3\n    {statement}\n  NEXT\n"),
+        };
+        let body = format!(
+            "  MUT x AS {ty} = {init}\n{owner}{looped}  io::print(toString(len({field})))\n",
+            init = self.init
+        );
+        let open = "fs::openFile(\"/dev/null\")";
+        let program = match site {
+            Site::S5 => format!(
+                "MUT gR AS Rec\n\nSUB run1()\n{body}END SUB\n\n\
+                 FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
+            ),
+            Site::T3 | Site::T4 => format!(
+                "SUB run1(RES h AS fs::File STATE P)\n{body}END SUB\n\n\
+                 FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
+                 RETURN 0\nEND FUNC\n"
+            ),
+            Site::T6 => format!(
+                "FUNC main() AS Integer\n  RES h AS fs::File STATE Q = {open}\n{body}  \
+                 RETURN 0\nEND FUNC\n"
+            ),
+            Site::T8 => format!(
+                "FUNC main() AS Integer\n  RES h AS Stream STATE P = {open}\n{body}  \
+                 RETURN 0\nEND FUNC\n"
+            ),
+            Site::T1 | Site::T2 | Site::T5 | Site::T7 => format!(
+                "FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n{body}  \
+                 RETURN 0\nEND FUNC\n"
+            ),
+            _ => format!("FUNC main() AS Integer\n{body}  RETURN 0\nEND FUNC\n"),
+        };
+        let mut src = String::from("IMPORT io\n");
+        let mut imports: Vec<&str> = self.imports.to_vec();
+        imports.push("fs");
+        imports.push("collections");
+        if site == Site::T8 {
+            imports.push("tcp");
+        }
+        let mut seen = Vec::new();
+        for import in imports {
+            if !seen.contains(&import) {
+                seen.push(import);
+                src.push_str(&format!("IMPORT {import}\n"));
+            }
+        }
+        src.push('\n');
+        src.push_str(self.helpers);
+        src.push_str(&format!(
+            "TYPE Rec\n  a AS {ty}\n  b AS {ty}\nEND TYPE\n\n\
+             TYPE RecN\n  a AS {ty}\n  b AS {ty}\n  n AS Integer\nEND TYPE\n\n\
+             TYPE Out\n  n AS Integer\n  inner AS Rec\nEND TYPE\n\n\
+             TYPE P\n  a AS {ty}\n  b AS {ty}\n  n AS Integer\nEND TYPE\n\n\
+             TYPE PIn\n  a AS {ty}\n  b AS {ty}\nEND TYPE\n\n\
+             TYPE Q\n  inner AS PIn\n  n AS Integer\nEND TYPE\n\n"
+        ));
+        if site == Site::T8 {
+            src.push_str("UNION Stream\n  fs::File\n  tcp::Socket\nEND UNION\n\n");
+        }
+        src.push_str(&program);
         Some(src)
     }
 }
@@ -1390,6 +1955,91 @@ mod tests {
             }
         }
         out
+    }
+
+    /// plan-145-A: every field kind a record can hold, classified by the compiler —
+    /// `(kind, class)`, the kind spelled as its type renders (`vector.Float3`).
+    ///
+    /// The population is read off a program that imports every importable package
+    /// (in app mode: `canvas` requires it) and declares one record holding each
+    /// builtin kind: every EXPORTed package record type, the builtin scalars,
+    /// `String`, `AttributedString`, `json::Json` and the three collections.
+    fn field_kind_census() -> Vec<(String, FieldKindClass)> {
+        let mut src = String::new();
+        for package in registry().packages() {
+            if !package.is_unqualified_global() {
+                src.push_str(&format!("IMPORT {}\n", package.import_name()));
+            }
+        }
+        src.push_str(
+            "\nTYPE FieldKinds\n  i AS Integer\n  f AS Float\n  x AS Fixed\n  m AS Money\n  \
+             b AS Boolean\n  y AS Byte\n  s AS String\n  t AS AttributedString\n  \
+             j AS json::Json\n  l AS List OF Integer\n  p AS Map OF String TO Integer\n  \
+             e AS Set OF Integer\nEND TYPE\n\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        let target = CodeTarget::MacosAarch64;
+        let mode = target.app_mode().expect("macOS has an app mode");
+        let nir = crate::testutil::nir_for_src(&src, target, mode).expect("the census lowers");
+        let model = TypeModel::from_module(&nir).expect("the census model builds");
+        let mut kinds = Vec::new();
+        for t in &nir.types {
+            if t.name == "FieldKinds" {
+                for field in &t.fields {
+                    kinds.push((
+                        field.type_.name().into_owned(),
+                        field_kind_class(&model, &field.type_),
+                    ));
+                }
+            } else if t.kind == "type" && t.visibility == "export" {
+                let ty = ParameterType::named(&t.name);
+                kinds.push((t.name.clone(), field_kind_class(&model, &ty)));
+            }
+        }
+        kinds
+    }
+
+    #[test]
+    fn field_kind_census_covers_every_record_field_type() {
+        let census = field_kind_census();
+        let mut failures = Vec::new();
+        for (kind, class) in &census {
+            let Some((_, row)) = FIELD_KIND_TABLE.iter().find(|(k, _)| k == kind) else {
+                failures.push(format!(
+                    "{kind} ({class:?}) has no FIELD_KIND_TABLE row — classify it: `Arm(letter)`, \
+                     `Rebuild {{ reason, proof }}` or `Deferred(plan)`"
+                ));
+                continue;
+            };
+            let consistent = match row {
+                FieldKindRow::Arm(letter) => {
+                    "BCDEFGH".contains(*letter)
+                        && matches!(
+                            class,
+                            FieldKindClass::Scalar
+                                | FieldKindClass::Pointer
+                                | FieldKindClass::InlinedFixed
+                                | FieldKindClass::Collection
+                        )
+                }
+                FieldKindRow::Rebuild { reason, proof } => {
+                    *class == FieldKindClass::InlinedVariable
+                        && !reason.trim().is_empty()
+                        && !proof.trim().is_empty()
+                }
+                FieldKindRow::Deferred(plan) => !plan.trim().is_empty(),
+            };
+            if !consistent {
+                failures.push(format!(
+                    "{kind}: row {row:?} does not fit its class {class:?}"
+                ));
+            }
+        }
+        for (kind, _) in FIELD_KIND_TABLE {
+            if !census.iter().any(|(k, _)| k == kind) {
+                failures.push(format!("FIELD_KIND_TABLE row {kind} names no field kind"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     /// plan-142-B Phase 1: every spelling a shrink self-update's call target has
@@ -1489,13 +2139,29 @@ mod tests {
     #[test]
     fn every_arm_row_fires_at_every_enabled_site() {
         let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _)| *id).collect();
+        let pending = |id: ArmId, site: Site| {
+            FIELD_PENDING
+                .iter()
+                .find(|(arm, sites, _)| *arm == id && sites.contains(&site.code().as_str()))
+                .map(|(_, _, letter)| *letter)
+        };
+        let never = |id: ArmId, probe: &Probe, site: Site| {
+            FIELD_NEVER.iter().any(|(arm, ty, sites, _)| {
+                *arm == id
+                    && (ty.is_empty() || *ty == probe.ty)
+                    && sites.contains(&site.code().as_str())
+            })
+        };
         let mut failures = Vec::new();
         for row in SELF_UPDATE_TABLE {
             let SelfUpdate::Arm(ids) = row.kind else {
                 continue;
             };
-            for &site in ENABLED_SITES {
+            for &site in ENABLED_SITES.iter().chain(FIELD_SITES) {
+                let field = FIELD_SITES.contains(&site);
                 let mut fired = BTreeSet::new();
+                // The ids some compiled probe is expected to be able to fire.
+                let mut reachable = BTreeSet::new();
                 for probe in row.probes {
                     let Some(src) = probe.source(site) else {
                         continue;
@@ -1512,23 +2178,40 @@ mod tests {
                                 .any(|slot| id.markers().contains(&slot.type_.as_str()))
                         })
                         .collect();
-                    if hit.is_empty() {
+                    for id in &hit {
+                        if never(*id, probe, site) {
+                            failures.push(format!(
+                                "{} at {site:?}: `x = {}` fired {id:?}, which FIELD_NEVER says \
+                                 it never does there",
+                                row.function, probe.call
+                            ));
+                        }
+                    }
+                    if !field && hit.is_empty() {
                         failures.push(format!(
                             "{} at {site:?}: `x = {}` fired none of {ids:?}",
                             row.function, probe.call
                         ));
                     }
+                    reachable.extend(ids.iter().copied().filter(|id| !never(*id, probe, site)));
                     fired.extend(hit);
                 }
-                if row.probes.iter().all(|probe| probe.source(site).is_none()) {
-                    continue;
-                }
                 for id in ids {
-                    if !fired.contains(id) {
-                        failures.push(format!(
+                    if !reachable.contains(id) {
+                        continue;
+                    }
+                    match pending(*id, site) {
+                        Some(letter) if fired.contains(id) => failures.push(format!(
+                            "{} at {site:?}: {id:?} fires, but FIELD_PENDING still lists it for \
+                             letter {letter} — remove the entry",
+                            row.function
+                        )),
+                        Some(_) => {}
+                        None if !fired.contains(id) => failures.push(format!(
                             "{} at {site:?}: no probe fired {id:?}",
                             row.function
-                        ));
+                        )),
+                        None => {}
                     }
                     if !arms.contains(id) {
                         failures.push(format!(
@@ -1536,6 +2219,44 @@ mod tests {
                             row.function
                         ));
                     }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// plan-145-A: `FIELD_PENDING` and `FIELD_NEVER` name only field sites, and a
+    /// pair appears at most once across both.
+    #[test]
+    fn field_pending_and_never_name_field_sites_once() {
+        let codes: Vec<String> = FIELD_SITES.iter().map(|s| s.code()).collect();
+        let mut seen = BTreeSet::new();
+        let mut failures = Vec::new();
+        for (arm, sites, letter) in FIELD_PENDING {
+            assert!(
+                "BCDEFGH".contains(*letter),
+                "{arm:?}: letter {letter} is no plan-145 letter"
+            );
+            for site in *sites {
+                if !codes.iter().any(|c| c == site) {
+                    failures.push(format!("FIELD_PENDING {arm:?} names no field site {site}"));
+                }
+                if !seen.insert((*arm, site.to_string(), String::new())) {
+                    failures.push(format!("FIELD_PENDING lists {arm:?} at {site} twice"));
+                }
+            }
+        }
+        for (arm, ty, sites, reason) in FIELD_NEVER {
+            assert!(
+                !reason.trim().is_empty(),
+                "FIELD_NEVER {arm:?} has no reason"
+            );
+            for site in *sites {
+                if !codes.iter().any(|c| c == site) {
+                    failures.push(format!("FIELD_NEVER {arm:?} names no field site {site}"));
+                }
+                if ty.is_empty() && seen.contains(&(*arm, site.to_string(), String::new())) {
+                    failures.push(format!("{arm:?} at {site} is both pending and never"));
                 }
             }
         }

@@ -101,8 +101,8 @@ References:
 |---|---|---|
 | plan-142 is complete and archived | `ls planning/completed/plan-142-I-lock-and-docs.md` → exists | MET (2026-09-21, re-checked) |
 | plan-144 is complete and its findings exist | `ls planning/completed/plan-144-B-state-self-update-audit.md planning/plan-144-findings/record-state-self-update-audit.md` → both exist | MET (2026-09-21, re-checked) |
-| bug-671 fixed: a `STATE` field passed to a source-generic `collections` member type-checks | `ls bugs/completed/bug-671-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/resources/state-field-source-generic-arg-valid'` → passes (the regression test bug-671 names) | NOT MET (2026-09-21 re-check: `ls bugs/completed/bug-671-*.md` → no match; `bugs/bug-671-state-field-arg-to-source-generic-is-unknown.md` Status: Open; the regression test directory does not exist and `test-accept.sh` reports "no tests matched filter"; no `B-671` worktree exists) |
-| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-21) |
+| bug-671 fixed: a `STATE` field passed to a source-generic `collections` member type-checks | `ls bugs/completed/bug-671-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/resources/state-field-source-generic-arg-valid'` → passes (the regression test bug-671 names) | MET (2026-09-21, after fixing it in this session: `bugs/completed/bug-671-state-field-arg-to-source-generic-is-unknown.md` exists, fix `bf85f4900`, merged to `main` at `4e0c50a8b`; `test-accept.sh target/debug/mfb target/accept-actual rt-behavior/resources/state-field-source-generic-arg-valid` → "acceptance tests passed (1 test(s) ran)") |
+| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-21, re-checked) |
 
 Why bug-671 gates the whole plan: 11 `collections` members (`distinct take drop
 sort sortBy union intersection difference symmetricDifference merge mapValues`)
@@ -175,8 +175,8 @@ bug. It is a precondition instead.
 | Record-field arms (non-seam) | 9 | `grep -c 'fn try_inplace_record_field_' src/codegen/collection/assign/builder_inplace_assign.rs` → 9 |
 | `STATE` arms (Layer 1 + dispatcher + 8 Layer 2 + splice) | 11 | `grep -c 'fn try_inplace_state_' src/codegen/collection/assign/builder_inplace_assign.rs src/codegen/engine/control/builder_control.rs` → 8 + 3 |
 | Field kinds among the rows | scalar 4 (`Integer Float Fixed Money`); inlined record 15 (9 `vector`, `color::Color`, `big::Int`, 3 `datetime`, `http::Response`); pointer 1 (`json::Json`); `String`/`AttributedString` 2; collection 3 | findings Appendix B.4 |
-| Which inlined record kinds have a compile-time fixed size | UNMEASURED | Phase 1 |
-| Harness cost per (line, site) pair | 2.7 s | plan-142-I Phase 1: 254 pairs in 679.52 s |
+| Which inlined record kinds have a compile-time fixed size | 31 of the 68 exported package record types (the compiler's `field_kind_class`); 35 inlined but variable-size; 2 pointer (`json::JsonArr`, `json::JsonObj`) | Phase 1 |
+| Harness cost per (line, site) pair | 2.7 s at plan-142's sites; 1 s measured at a field site (Correction A9) | plan-142-I Phase 1: 254 pairs in 679.52 s |
 
 ## 3. Design
 
@@ -285,53 +285,128 @@ Rejected alternatives:
 
 ### Phase 1: Measure
 
-- [ ] Re-run the findings' record and `STATE` probes for the 11 bug-671 rows
+- [x] Re-run the findings' record and `STATE` probes for the 11 bug-671 rows
       against the fixed compiler (`gen_state.py` + `fill_state.py`, findings
       Appendix C.10/C.14) and record their T-site verdicts here. All are expected
       to be `n (no arm)`. A `y` is a finding to investigate, not a pass.
-- [ ] Classify every package record type by compile-time byte size: a record is
+      Run on a copy of the probes (`/tmp/p145-probes`, `exclude.txt` without its 88
+      `TYPE_CALL_ARGUMENT_MISMATCH` lines): `gen_state.py` → "2558 called functions,
+      14 excluded"; `mfb build state --ncode` → "Wrote native code plan", no
+      diagnostic; `markers.py` + `fill_state.py` → "rows 345 cells 2760
+      disagreements 0". `diff` against the findings' `state/table.md` changes exactly
+      the 11 rows (`difference distinct drop intersection merge sort sortBy
+      symmetricDifference take union mapValues`), and every one of their 88 cells
+      (T1–T8) is now `n (no arm)` (`ARM=- L1=- REPL=y`; `FREE=-` at T7, the §3.5
+      leak). No `y`.
+- [x] Classify every package record type by compile-time byte size: a record is
       `InlinedFixed` when every field is a fixed-width scalar or an
       `InlinedFixed` record. Record the list and the command. The list sizes
       letter F.
-- [ ] Write `field_expect_gen.py` and generate `field_expect.tsv`. Record the line
+      Command: `cargo test --bin mfb field_kind_census` (`field_kind_census` in
+      `self_update.rs` classifies every EXPORTed record of a program importing every
+      package with the compiler's own `record_field_is_inlined` /
+      `record_field_is_pointer`; Correction A7). 68 exported record types: **31
+      `InlinedFixed`** — `astrings::AttrFlag AttrNumber`, `audio::AudioEnvelope
+      AudioNote`, `canvas::Bounds GradientStop MouseEvent Point Size TextMetrics
+      Transform`, `color::Color Hsl`, `datetime::Date Duration Instant Time`,
+      `json::JsonBool JsonNull JsonNum`, `term::MouseEvent TermSize`, and the nine
+      `vector::` types; **35 `InlinedVariable`** (a `String`, a collection or a data
+      union inside); **2 `Pointer`** (`json::JsonArr`, `json::JsonObj`: they hold a
+      `json::Json`, which is not memcpy-copyable, so they are not inlined).
+- [x] Write `field_expect_gen.py` and generate `field_expect.tsv`. Record the line
       count, and the count per `expect` value, each with its command.
+      `python3 tests/runtime/inplace_self_update/field_expect_gen.py >
+      tests/runtime/inplace_self_update/field_expect.tsv`; `grep -vc '^#'` → **960**
+      lines (64 `cases.tsv` lines × 15 sites; Correction A2). `grep -v '^#' | cut -f3
+      | sort | uniq -c` → 40 `arm`, 20 `copy:C`, 342 `copy:D`, 18 `copy:E`, 104
+      `copy:F`, 52 `copy:G`, 156 `copy:H`, 165 `rebuild:new-value`, 48
+      `rebuild:not-last-grow` (Correction A3), 13 `deferred:string`, 2
+      `na:TYPE_FOR_EACH_REQUIRES_COLLECTION`. No `copy:B`: B is byte-identical.
 
 Acceptance: the three results are recorded here with their commands (est. 30 min).
-Commit:
+Commit: (recorded in the next commit; the Phase 1 results land with Phase 2's harness)
 
 ### Phase 2: Harness field sites
 
-- [ ] `rt_inplace_self_update.rs`: the 15 field sites and their templates, the `x`
+- [x] `rt_inplace_self_update.rs`: the 15 field sites and their templates, the `x`
       rewrite, the `field_expect.tsv` reader and its four statuses, and
       `MFB_SELF_UPDATE_SITES`. A line or site missing from `field_expect.tsv`
-      panics with its name.
-- [ ] `field_kinds.tsv` and its reader. It includes the `arm+value` control
-      program: the same expression bound to a fresh `LET`.
-- [ ] RED proof: flip one `copy:` line to `arm` (for example
+      panics with its name. (`FieldSite`, `FieldExpect`, `field_frame`/
+      `field_program`/`field_result_program`, `check_field`; the field programs
+      also print a sibling field before and after, and a missing or stale
+      `field_expect.tsv` line panics before any filter applies.)
+- [x] `field_kinds.tsv` and its reader. It includes the `arm+value` control
+      program: ~~the same expression bound to a fresh `LET`~~ the same expression
+      handed to a no-op `SUB kindSink` (Correction A5). 79 kinds (Correction A4);
+      the `canvas::` kinds build `-app` and run headless.
+- [x] RED proof: flip one `copy:` line to `arm` (for example
       `collections::filter` at S4) and confirm the bound fails, naming the line.
       Then flip S4 `collections::append` to `copy:B` and confirm the "still
       copies" assertion fails. Restore both.
+      `MFB_SELF_UPDATE_FILTER='collections::filter|collections::append(value AS
+      List OF T, item AS T)' MFB_SELF_UPDATE_SITES=S4 cargo test --test
+      rt_inplace_self_update every_self_update_case` → "2 of 2 case/site pair(s)
+      failed": "…filter… at S4: marked `arm`, but 2000 more runs allocated 4000
+      more blocks (want < 250) — the statement rebuilds the owner" and "…append…
+      at S4: marked `Copy('B')`, but 2000 more runs allocated only 2 more blocks
+      (< 250) — the update is in place now; flip the line to `arm`". Restored
+      (`diff` against the saved copy empty).
 
 Acceptance: `cargo test --test rt_inplace_self_update` passes, with every field
 pair run (est. 55 min: 1,185 pairs at 2.7 s each. This is the one run that
 checks every expectation against today's compiler. A subset would leave some
 expectations untested, and letters B–H flip them on the assumption they held).
-Commit:
+`MFB_TEST_EXE=target/release/mfb cargo test --test rt_inplace_self_update` (the
+compiler with bug-673/674/675) ran every pair in 5,585.89 s:
+`every_self_update_case_meets_its_allocation_bound … ok` (the 254 plain pairs and
+all 960 field pairs); `every_field_kind_meets_its_expectation` "6 of 1185 case/site
+pair(s) failed", all six the `Byte` line at T1–T5/T8 (Correction A16). With the
+`Byte` bound corrected, `MFB_SELF_UPDATE_FILTER='Byte' … every_field_kind` → ok
+(its 15 pairs); no other line changed.
+Commit: (recorded in the next commit)
 
 ### Phase 3: Unit census and matrix
 
-- [ ] `FIELD_KIND_TABLE` and `field_kind_census_covers_every_record_field_type`
-      in `self_update.rs`.
-- [ ] The black-box twin in `tests/guards/inplace_self_update_census.rs`.
-- [ ] The matrix's field sites and `FIELD_PENDING` (every field pair pending on
-      its letter), with the pending pairs asserted **not** to fire.
-- [ ] RED proof: delete the `vector::Float3` row, and confirm both censuses fail
+- [x] `FIELD_KIND_TABLE` and `field_kind_census_covers_every_record_field_type`
+      in `self_update.rs`. The population is read from the compiler, not listed:
+      `field_kind_census` lowers (in app mode — `canvas` requires it) a program that
+      imports every package and declares one record holding each builtin kind, and
+      classifies every EXPORTed record type plus those fields with
+      `field_kind_class` (`record_field_is_inlined`/`record_field_is_pointer`, then
+      fixed size). 80 rows: 6 scalars `Arm('C')`, `String`/`AttributedString`
+      `Deferred("string")`, `json.Json` and the two json pointer records
+      `Arm('C')`, the three collections `Arm('E')`, 31 fixed-size records
+      `Arm('F')`, 35 variable-size records `SIZE_VARIES`. A row must fit its class
+      (an `Arm` for a variable-size kind fails), and a row naming no kind fails.
+- [x] The black-box twin in `tests/guards/inplace_self_update_census.rs`:
+      `every_package_record_type_has_a_field_kind_line` reads every `mfb man <pkg>
+      types` Records section and requires a `field_kinds.tsv` line per type (and no
+      stale `pkg::` line). `cargo test --test inplace_self_update_census` → "2
+      passed".
+- [x] The matrix's field sites and `FIELD_PENDING` (every field pair pending on
+      its letter), with the pending pairs asserted **not** to fire. The unit
+      `Site` gained the 15 field sites; `Probe::field_source` builds the same
+      templates as the runtime harness. `FIELD_PENDING` lists `(ArmId, sites,
+      letter)`; `FIELD_NEVER` lists the probes an arm never fires for by design
+      (Correction A14). `field_pending_and_never_name_field_sites_once` checks
+      both tables. With every field pair pending, the matrix passing proves no
+      field pair fires today and every pair is listed.
+- [x] RED proof: delete the `vector::Float3` row, and confirm both censuses fail
       naming it. Remove one `FIELD_PENDING` entry, and confirm the matrix fails
       naming the pair. Restore both.
+      Row removed → `cargo test --bin mfb field_kind_census` → "vector.Float3
+      (InlinedFixed) has no FIELD_KIND_TABLE row — classify it: …", FAILED. Line
+      removed from `field_kinds.tsv` → `cargo test --test inplace_self_update_census
+      every_package_record_type` → FAILED listing `vector::Float3`. `(ArmId::Append,
+      LAST, 'B')` removed → `every_arm_row_fires` → "collections::append at S4: no
+      probe fired Append" (and T2, T4, T8), FAILED. All restored (`git diff` of the
+      two files empty against the saved copies).
 
 Acceptance: `cargo test --bin mfb self_update && cargo test --test inplace_self_update_census`
 → pass; RED results recorded here (est. 10 min).
-Commit:
+`cargo test --bin mfb self_update` → "6 passed" (174.70 s);
+`cargo test --test inplace_self_update_census` → "2 passed".
+Commit: (recorded in the next commit)
 
 ## Validation Plan
 
@@ -359,13 +434,18 @@ Commit:
    Alternative: bring `&` on a last-inlined `String` field into this plan with a
    per-field capacity shadow. That is a new hidden slot per field and an
    `InlineGrow` for `String`.
-   DECISION:
+   DECISION: the recommendation (adopted by the executor, 2026-09-21: the user asked
+   for the plan to be run to completion). plan-146-A Open Decision 1 names the
+   owner: a follow-up plan written after plan-145 and plan-146, so the tag is
+   `deferred:string` (`FIELD_KIND_TABLE` row `Deferred("string")`).
 2. **A cannot-reallocate arm at a not-last field (S3/T1/T3).** Recommended: admit
    it if letter D's Phase 1 shows that record size, copy and free read each
    field's stored offset and never sum field sizes. That result is recorded in D.
    Then shrinking or rewriting a middle field leaves slack that nothing reads.
    Otherwise `G17` stays as it is for every arm.
-   DECISION:
+   DECISION: the recommendation (executor, 2026-09-21): admit it iff D's Phase 1
+   measurement shows offsets are read, not summed. A lists those pairs as `copy:D`;
+   if D's measurement fails, D re-files them as `rebuild:not-last` in Corrections.
 3. **A variable-size inlined non-collection field** (`big::Int`,
    `http::Response`, a nested record holding a `String`, and the findings' F5
    replacements of an inlined field). Its new value may differ in size, and it has
@@ -376,19 +456,104 @@ Commit:
    Alternative: at a last-inlined field, reallocate the record's tail to the new
    size. That reallocation copies the record's prefix, which costs about as much
    as the rebuild it replaces.
-   DECISION:
+   DECISION: the recommendation (executor, 2026-09-21): `rebuild:size-varies`, row
+   `SIZE_VARIES` with that proof.
 4. **A pointer field (`json::Json`) in a record.** Recommended: in letter C.
    Compute the new value first, then free the old pointee and store the pointer
    into the slot. That is a type-driven store like Layer 1, with one free added.
    `json::Json` cannot be a `STATE` type (findings §2b), so this is records only.
-   DECISION:
+   DECISION: the recommendation (executor, 2026-09-21), letter C. Measured: the two
+   records holding a `json::Json` (`json::JsonArr`, `json::JsonObj`) ARE valid
+   `STATE` field types (a `STATE` payload with such a field compiles), so C's
+   pointer replace serves `STATE` owners too; `field_kinds.tsv` lists them `copy:C`
+   at the T sites, and only the bare `json::Json` line is `na:TYPE_STATE_INVALID`.
 5. **The `RES` parameter that declares an invalid `STATE` type** (findings §3.5:
    `SUB g(RES h AS fs::File STATE P_json__Json, …)` compiles). This is not a
    self-update problem, so it is not in this plan. Recommended: file it with
    `/write-bug`.
-   DECISION:
+   DECISION: the recommendation (executor, 2026-09-21); the project rule is also to
+   fix a bug once found, so it is filed and fixed as its own bug (Corrections).
 
 ## Corrections
+
+- **A1 — prerequisite satisfied in-session.** bug-671 was Open when the plan was
+  started; the user directed it fixed first. It was fixed and merged to `main`
+  (`bf85f4900`, `4e0c50a8b`) before any plan-145 work, and the row re-checked MET.
+- **A2 — `field_expect.tsv` has 960 lines, not 1,185.** `cases.tsv` has 79 lines of
+  which 15 are the comment header (`grep -vc '^#' cases.tsv` → 64), so the file is
+  64 × 15 = 960 (`grep -vc '^#' field_expect.tsv` → 960). The plan's "79 × 15"
+  counted the header.
+- **A3 — multi-statement lines take their worst statement.** 22 `cases.tsv` lines
+  run two statements (`grep -v "^#" cases.tsv | awk -F"\t" "$4 ~ / ; /" | wc -l` → 22;
+  `x = append(x, 1) ; x = distinct(x)`). Each statement is
+  matched to its own findings row and the line gets the worst verdict. A line whose
+  helper statement is a growing arm (`append`, `add`, Map `set`) is
+  `rebuild:not-last-grow` at S3/T1/T3 (48 lines), because a grow at a not-last
+  field is letter E's non-goal — the partner op there is never measured in place.
+- **A4 — `field_kinds.tsv` has two more columns and 79 lines.** Columns `build`
+  (`console`/`app`: `canvas` requires app mode; the harness builds `-app --debug`
+  and runs headless with `MFB_MACAPP_HEADLESS` etc.) and `check` (the value
+  check needs an expression per kind). Lines: 6 builtin scalars (the census's
+  scalar population is `Integer Float Fixed Money Boolean Byte`, not the four
+  among the findings' rows), `String`, `AttributedString`, `json::Json`, the 68
+  package record types, and the user records `KFix`/`KVar`. It is generated by
+  `field_kinds_gen.py` from `mfb man`, committed beside it.
+- **A5 — the `arm+value` control is a sink call, not a `LET`.** Measured: a `LET`
+  (or an assignment to `x`) of a value borrowed from the field copies it, one
+  allocation per iteration — exactly what the owner's rebuild adds — so the control
+  equalled the rebuild (`json::JsonNum at S4: … 2000 more blocks (<= 1.125 x the
+  control's 2000)`) and the bound passed a rebuild. The control hands the value to
+  a no-op `SUB kindSink(v AS T)`, which counts the value's own allocations only.
+  The bound itself is the plan's (`<= 1.125 ×` the control's growth).
+- **A6 — kind statements must make the bound decidable.** `json::parse(json::stringify(x))`
+  allocates about 49 blocks per iteration, so the 12.5 % slack swallowed the
+  rebuild's extra one or two. Every record kind uses `x = kindSame(x)` (returns its
+  argument; a vector kind uses `vector::max(x, x)`), a pointer kind `x =
+  kindFresh(x)` (a freshly built default value: storing a borrowed pointer value
+  deep-copies it under any lowering), and `json::Json`, which has no default,
+  `x = kindJson(x)` (`json::JsonNum[1.0]`).
+- **A7 — the fixed-size classification is the compiler's.** A script over the
+  `mfb man` field lists first found 30 fixed-size types; the compiler's
+  `field_kind_class` finds 31 (`json::JsonNull`'s `value AS Nothing` is an 8-byte
+  scalar slot) and classes `json::JsonArr`/`JsonObj` as pointer fields (a
+  `json::Json` inside is not memcpy-copyable, so they are not inlined). The census
+  and `field_kinds_gen.py` now apply the same rules.
+- **A8 — three compiler bugs found by the harness, fixed as their own commits.**
+  bug-673 (`364b2131a`): a builtin package's globals initialized after the
+  program's, so a top-level `json::parse` failed ("nested too deeply"); the S5
+  `json::Json` line hit it. bug-674 (`b3790a364`): Open Decision 5's parameter
+  `STATE` check. bug-675 (`ff66de4ec`): `Float` arithmetic on a global's or a
+  `STATE` field failed to build ("has no data object"); the `Float` kind at S5 and
+  every T site hit it. Each has a RED-then-GREEN fixture and a bug record in
+  `bugs/completed/`; the artifact gate stayed at 0 diffs across all three.
+- **A9 — a field pair costs about 1 s, not 2.7 s.** `append` at all 15 field sites
+  ran in 14.12 s; the full field run is recorded in Phase 2.
+- **A10 — `In` is a keyword.** The `STATE` nested payload's inner type is `PIn`,
+  not `In`.
+- **A11 — Open Decisions adopted as recommended** (recorded under each).
+- **A12 — the `String` deferral tag stays `string`.** plan-146-A Open Decision 1
+  puts `String` fields in a follow-up plan written after plan-145 and plan-146, so
+  the rows are `Deferred("string")` / `deferred:string`, not plan-146.
+- **A13 — the T sites open `/dev/null`**, which every Unix host has (the harness
+  is `#![cfg(unix)]`).
+- **A14 — `FIELD_NEVER` beside `FIELD_PENDING`.** Some (arm, probe, site) triples
+  never fire by design: a growing arm at a not-last field (Open Decision 2's
+  non-goal half, E's non-goal) and the `String` concat arm at any field (Open
+  Decision 1). A pending entry needs a letter that lands it, so these are a second
+  table, asserted not to fire. `collections::set`'s Map probe is listed per probe
+  type: its List probe is `copy:D` at S3.
+- **A15 — non-defaultable and unconstructible kinds.** A `STATE` payload must be
+  defaultable, so the kinds whose type has no default (16: the three `astrings`
+  attributes, `http::Route`, `net::PingResult`, `term::MouseEvent`, 10 canvas
+  records) are `na:TYPE_STATE_INVALID` at every T site. `canvas::Text` and
+  `canvas::Picture` hold a live `RES` font/image: no default, and no literal can
+  name the resource, so every site is `na:TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` —
+  both are `SIZE_VARIES` kinds, which rebuild by design anyway.
+- **A16 — the `Byte` kind's bound is `arm+value`.** Its statement
+  `x = toByte(len(toString(x)))` allocates a `String` each run on its own, so the
+  plain `arm` bound failed at the T sites although Layer 1 stores the field in
+  place ("Byte at T2: marked `arm`, but 2000 more runs allocated 2000 more
+  blocks"); the value's allocation is exactly what `arm+value` accounts for.
 
 ## Summary
 

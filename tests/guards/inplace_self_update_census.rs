@@ -307,3 +307,93 @@ fn every_self_update_shaped_overload_has_a_runtime_case() {
             .join("\n  ")
     );
 }
+
+/// plan-145-A: the record types on a package page's `types` Records section
+/// (`pkg::Name`, in order).
+fn record_types(pkg: &str) -> Vec<String> {
+    let page = man(&[pkg, "types"]);
+    let lines: Vec<&str> = page.lines().collect();
+    let heading = |j: usize| {
+        !lines[j].trim().is_empty()
+            && j + 1 < lines.len()
+            && !lines[j + 1].trim().is_empty()
+            && lines[j + 1].trim().chars().all(|c| c == '─')
+    };
+    let Some(start) = (0..lines.len()).find(|&j| lines[j].trim() == "Records" && heading(j)) else {
+        return Vec::new();
+    };
+    let prefix = format!("{pkg}::");
+    let mut out = Vec::new();
+    for j in start + 2..lines.len() {
+        if heading(j) {
+            break;
+        }
+        let line = lines[j].trim();
+        if line.starts_with(&prefix)
+            && line[prefix.len()..]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            out.push(line.to_string());
+        }
+    }
+    out
+}
+
+/// plan-145-A: the kind column of `field_kinds.tsv`.
+fn field_kinds_tsv() -> BTreeSet<String> {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/runtime/inplace_self_update/field_kinds.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("read field_kinds.tsv");
+    text.lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .map(|l| l.split('\t').next().unwrap_or("").to_string())
+        .collect()
+}
+
+/// plan-145-A: every record type a package documents is a field kind with a line in
+/// `field_kinds.tsv` — its measured expectation at every field site. The unit twin
+/// is `field_kind_census_covers_every_record_field_type` (`self_update.rs`), over
+/// `FIELD_KIND_TABLE`.
+#[test]
+fn every_package_record_type_has_a_field_kind_line() {
+    let kinds = field_kinds_tsv();
+    let mut records = BTreeSet::new();
+    for pkg in packages() {
+        records.extend(record_types(&pkg));
+    }
+    assert!(
+        records.len() > 50,
+        "the `mfb man <pkg> types` census read only {} record types — the page format \
+         changed and this guard is no longer reading it",
+        records.len()
+    );
+    let missing: Vec<&String> = records.iter().filter(|r| !kinds.contains(*r)).collect();
+    assert!(
+        missing.is_empty(),
+        "package record type(s) documented by `mfb man` with no line in \
+         tests/runtime/inplace_self_update/field_kinds.tsv — regenerate it with \
+         field_kinds_gen.py and classify each:\n  {}",
+        missing
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+    let stale: Vec<&String> = kinds
+        .iter()
+        .filter(|k| k.contains("::") && !records.contains(*k) && *k != "json::Json")
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "field_kinds.tsv line(s) naming a package type `mfb man` does not document as a \
+         record:\n  {}",
+        stale
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}
