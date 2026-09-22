@@ -83,6 +83,8 @@ pub(crate) enum ArmId {
     Merge,
     /// `m = mapValues(m, f)` with `f` returning the value type (plan-142-D).
     MapValues,
+    /// `s = toString(s)` on a `String` — the identity (plan-146-B).
+    StrIdentity,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -402,6 +404,13 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
         ArmId::MapValues,
         |b, s, v| b.try_inplace_map_values_assign(s, v),
         FieldReach::NoRealloc,
+    ),
+    // plan-146: the `String` arms. Each declines every field site (a `String`
+    // field is `deferred:string`, plan-145-A Open Decision 1).
+    (
+        ArmId::StrIdentity,
+        |b, s, v| b.try_inplace_string_identity_assign(s, v),
+        FieldReach::None,
     ),
 ];
 
@@ -1581,7 +1590,7 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
     // --- plan-146: `String` self-updates (Pending until their letter lands) ---
     SelfUpdateRow {
         function: "toString",
-        kind: SelfUpdate::Pending("B"),
+        kind: SelfUpdate::Arm(&[ArmId::StrIdentity]),
         probes: &[str_probe(&[], STR, "toString(x)")],
     },
     SelfUpdateRow {
@@ -2018,6 +2027,7 @@ impl ArmId {
             ArmId::SymmetricDifference => &["inplace_symmetricDifference_other"],
             ArmId::Merge => &["inplace_merge_prefer"],
             ArmId::MapValues => &["inplace_mapvalues_action"],
+            ArmId::StrIdentity => &["inplace_str_identity"],
         }
     }
 }
@@ -2276,6 +2286,10 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 #[cfg(test)]
 pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
     const NOT_LAST: &[&str] = &["S3", "T1", "T3"];
+    /// plan-146-B: every field site — a `String` arm serves none.
+    const ALL_FIELD_SITES: &[&str] = &[
+        "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+    ];
     const NOT_LAST_GROW: &str = "a grow at a not-last field would shift the next sibling \
                                  (plan-145-E non-goal)";
     &[
@@ -2296,10 +2310,13 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         (
             ArmId::Concat,
             "",
-            &[
-                "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6",
-                "T7", "T8",
-            ],
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrIdentity,
+            "",
+            ALL_FIELD_SITES,
             "a `String` field is deferred:string (plan-145-A Open Decision 1)",
         ),
     ]

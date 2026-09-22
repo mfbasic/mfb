@@ -59,6 +59,17 @@ SUB freshArgumentLoop()
   io::print(toString(len(s)))
 END SUB
 
+' plan-146-B: `s = toString(s)` is the identity arm now — it emits nothing, at a
+' local and at a global alike. The value must survive a loop of it either way.
+SUB identityLoopGlobal()
+  g = strings::repeat("mn", 4)
+  FOR i = 1 TO 3
+    g = toString(g)
+  NEXT
+  LET junk AS String = strings::repeat("#", 8)
+  io::print(g & " " & junk)
+END SUB
+
 SUB literalThenAppend()
   MUT s AS String = toString("lit")
   s = s & "!"
@@ -72,6 +83,7 @@ FUNC main() AS Integer
   bindThenReassignSource()
   returnedFromFunction()
   freshArgumentLoop()
+  identityLoopGlobal()
   literalThenAppend()
   RETURN 0
 END FUNC

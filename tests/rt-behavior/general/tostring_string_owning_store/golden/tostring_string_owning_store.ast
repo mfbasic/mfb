@@ -136,15 +136,41 @@
       "kind": "sub",
       "visibility": "public",
       "isolated": false,
-      "name": "literalThenAppend",
-      "line": 62,
+      "name": "identityLoopGlobal",
+      "line": 64,
       "params": [
       ],
       "returnType": null,
       "body": [
-      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "string", "value": "lit" }] }, "line": 63 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "!" } }, "line": 64 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 65 }
+      { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "mn" }, { "kind": "number", "value": "4" }] }, "line": 65 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "3" },
+        "step": null,
+        "line": 66,
+        "body": [
+        { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 67 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "#" }, { "kind": "number", "value": "8" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "g" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "junk" } }] }, "line": 70 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "literalThenAppend",
+      "line": 73,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "string", "value": "lit" }] }, "line": 74 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "!" } }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 76 }
       ]
     },
     {
@@ -152,19 +178,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 68,
+      "line": 79,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignLocal", "arguments": [] }, "line": 69 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignGlobal", "arguments": [] }, "line": 70 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignCaptured", "arguments": [] }, "line": 71 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "bindThenReassignSource", "arguments": [] }, "line": 72 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "returnedFromFunction", "arguments": [] }, "line": 73 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "freshArgumentLoop", "arguments": [] }, "line": 74 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "literalThenAppend", "arguments": [] }, "line": 75 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 76 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignLocal", "arguments": [] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignGlobal", "arguments": [] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "reassignCaptured", "arguments": [] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "bindThenReassignSource", "arguments": [] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "returnedFromFunction", "arguments": [] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "freshArgumentLoop", "arguments": [] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "identityLoopGlobal", "arguments": [] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "literalThenAppend", "arguments": [] }, "line": 87 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 88 }
       ]
     }
     ]

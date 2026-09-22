@@ -132,36 +132,66 @@
     ]
   },
   {
-    "name": "literalThenAppend",
-    "line": 62,
+    "name": "identityLoopGlobal",
+    "line": 64,
     "visibility": "public",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 63, "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "String", "value": "lit" }] } },
-    { "op": "assign", "line": 64, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "!" } } },
-    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } }
+    { "op": "assignGlobal", "line": 65, "name": "g", "value": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "mn" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 66,
+      "name": "$for_iter3",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end4" },
+      "step": { "kind": "local", "name": "$for_step5" },
+      "body": [
+      { "op": "bind", "line": 66, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+      { "op": "assignGlobal", "line": 67, "name": "g", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "g" }] } }
+      ]
+    },
+    { "op": "bind", "line": 69, "mutable": false, "name": "junk", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "#" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "global", "name": "g" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "local", "name": "junk" } }] } }
+    ]
+  },
+  {
+    "name": "literalThenAppend",
+    "line": 73,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 74, "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "String", "value": "lit" }] } },
+    { "op": "assign", "line": 75, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "!" } } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } }
     ]
   },
   {
     "name": "main",
-    "line": 68,
+    "line": 79,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "reassignLocal", "args": [] } },
-    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "reassignGlobal", "args": [] } },
-    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "reassignCaptured", "args": [] } },
-    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "bindThenReassignSource", "args": [] } },
-    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "returnedFromFunction", "args": [] } },
-    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "freshArgumentLoop", "args": [] } },
-    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "literalThenAppend", "args": [] } },
-    { "op": "return", "line": 76, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "reassignLocal", "args": [] } },
+    { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "reassignGlobal", "args": [] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "reassignCaptured", "args": [] } },
+    { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "bindThenReassignSource", "args": [] } },
+    { "op": "eval", "line": 84, "value": { "kind": "call", "type": "Nothing", "target": "returnedFromFunction", "args": [] } },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "freshArgumentLoop", "args": [] } },
+    { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "identityLoopGlobal", "args": [] } },
+    { "op": "eval", "line": 87, "value": { "kind": "call", "type": "Nothing", "target": "literalThenAppend", "args": [] } },
+    { "op": "return", "line": 88, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

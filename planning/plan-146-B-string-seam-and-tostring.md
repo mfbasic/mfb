@@ -219,17 +219,27 @@ Commit: —
 
 ### Phase 3: The identity arm
 
-- [ ] `ArmId::StrIdentity`, `try_inplace_string_identity_assign`, its marker
+- [x] `ArmId::StrIdentity`, `try_inplace_string_identity_assign`, its marker
       `inplace_str_identity`, and its entry in `SELF_UPDATE_ARMS` after the
-      collection arms.
-- [ ] The `toString` row: `Pending("B")` → `Arm([StrIdentity])`. Its `cases.tsv`
+      collection arms. `FieldReach::None`, plus its `FIELD_NEVER` row at all 15
+      field sites (Correction B4).
+- [x] The `toString` row: `Pending("B")` → `Arm([StrIdentity])`. Its `cases.tsv`
       line: `pending:B` → `arm`.
-- [ ] Runtime: `tests/rt-behavior/general/tostring_string_owning_store` (bug-667's
+- [x] Runtime: `tests/rt-behavior/general/tostring_string_owning_store` (bug-667's
       fixture) passes unchanged. Its statements are now arm sites at S1 and S2. Add
       one case to it that prints `s` after `s = toString(s)` in a loop of 3 at a
-      global.
-- [ ] RED proof: make the arm return `false` and confirm the matrix and the harness
-      line fail. Restore.
+      global. Added `identityLoopGlobal`; the fixture's `build.log` diff is exactly
+      one added line (`mnmnmnmn ########` — the value and its neighbour junk both
+      intact), so the seven existing cases are unchanged. `.ast`/`.ir`/`build.log`
+      re-baselined for the added case (`scripts/sync-goldens.sh target/release/mfb
+      'rt-behavior/general/tostring_string_owning_store'` → `synced 3 golden
+      file(s)`).
+- [x] RED proof: make the arm return `false` and confirm the matrix and the harness
+      line fail. Restore. Matrix: `toString at Local: `x = toString(x)` fired none
+      of [StrIdentity]` (and at Global) → `test result: FAILED`. Harness: `2 of 2
+      case/site pair(s) failed` — `toString(value AS String) AS String at Local:
+      marked `arm`, but 2000 more runs allocated 2000 more blocks (2155 at N=2000,
+      4155 at 2N) — the statement copies` (and at Global). Restored.
 
 Acceptance: `cargo test --bin mfb self_update && MFB_SELF_UPDATE_FILTER=toString cargo test --test rt_inplace_self_update && scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/general/tostring_string_owning_store'`
 → pass (est. 5 min).
@@ -238,6 +248,12 @@ Acceptance: `cargo test --bin mfb self_update && MFB_SELF_UPDATE_FILTER=toString
   `cargo test --test golden` after this phase only if that fixture has a committed
   `.ncode` golden (`ls tests/rt-behavior/general/tostring_string_owning_store/`).
   Otherwise the acceptance run above covers it.
+Result: `cargo test --bin mfb self_update` → `10 passed`;
+`MFB_SELF_UPDATE_SITES=Local,Global MFB_SELF_UPDATE_FILTER=toString cargo test
+--test rt_inplace_self_update` → `2 passed`; `scripts/test-accept.sh … → acceptance
+tests passed (1 test(s) ran)`. That fixture has no `.ncode` golden
+(`golden/` holds `build.log`, `.ast`, `.ir`, `.run`), so the acceptance run covers
+it; the artifact gate ran green in Phase 2 and again over letter C's window split.
 Commit: —
 
 ## Validation Plan
@@ -268,6 +284,12 @@ None beyond plan-146-A's.
   and labels plus a `fill` hook for what follows the copied bytes; the concat arm
   passes its own (unchanged order) and `emit_string_reserve` passes its own. The
   artifact gate confirms it: 2098 goldens, 0 diffs.
+- **B4 — a `String` arm needs a `FIELD_NEVER` row at every field site.** plan-145-I's
+  `an_arm_with_no_field_reach_is_deferred_at_every_field_site` requires every
+  `FieldReach::None` arm to be listed in `FIELD_NEVER` at all 15 field sites and
+  every `field_expect.tsv` line of its rows to be a deferral. The concat arm already
+  is; each plan-146 arm is added the same way (`ALL_FIELD_SITES`), and its rows'
+  lines are `deferred:string` (plan-146-A Correction A4).
 - **B3 — Phase 1's new spellings move no golden.** Naming `toString`,
   `#strings_pad*ToWidth` and `os.resourcePath` makes S2/S9 build a self-update site
   for them (observation O1's dead load) even before an arm exists. The only in-tree

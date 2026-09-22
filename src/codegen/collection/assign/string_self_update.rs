@@ -325,6 +325,32 @@ impl CodeBuilder<'_> {
         ));
         Ok(())
     }
+
+    /// plan-146-B: `s = toString(s)` on a `String`. `toString` of a `String` is the
+    /// identity (`.ai/codegen-invariants.md`: "`toString(String)` is the IDENTITY
+    /// arm — it hands back its own argument"), so in place it is a no-op: the block
+    /// stays, nothing is freed, nothing is stored. The copying path allocated a
+    /// block, copied the bytes into it (bug-667) and freed the old one, every
+    /// statement. Emits one marker slot, so the matrix can see the arm fired.
+    pub(crate) fn try_inplace_string_identity_assign(
+        &mut self,
+        site: &SelfUpdateSite<'_>,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        // No `G-shadow`: the length does not change, so the block keeps whatever
+        // spare bytes it had, and the shadow still describes it.
+        if self
+            .resolve_string_self_update(site, value, "toString", 1..=1, false)
+            .is_none()
+        {
+            return Ok(false);
+        }
+        self.allocate_stack_object("inplace_str_identity", 8);
+        if let Some(local) = self.locals.get_mut(site.name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
