@@ -61,4 +61,9 @@ established for `callable_value_return_type`.
 - RED: the fixture against the pre-fix compiler → the build error (build.log mismatch).
 - GREEN: `scripts/test-accept.sh target/release/mfb target/accept-actual
   typename_user_call func_typename_builtin_calls` → passed.
-- Full: see the commit message.
+- `scripts/artifact-gate.sh target/release/mfb all` → `1478 tests, 1653 build(s),
+  2088 golden(s) checked, 0 diff(s)`.
+- `scripts/test-accept.sh target/release/mfb target/accept-actual` →
+  `acceptance tests passed (1504 test(s) ran)`.
+- `cargo test --bin mfb` → `test result: ok. 4286 passed; 0 failed; 1 ignored`.
+- `cargo fmt --all -- --check` (both workspaces) → exit 0.
