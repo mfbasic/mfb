@@ -805,11 +805,24 @@ FUNC __canvas_hashLayers(layers AS List OF DrawLayer) AS List OF Integer
   RETURN out
 END FUNC"#;
 
-/// Start the graphics thread on the first present, and settle sync mode with it.
+/// Start the graphics thread on the first present, and settle sync mode and the
+/// renderer with it.
 ///
 /// The guard makes this one `os::getEnvOr` per program rather than per frame, and it
 /// keeps the environment read in MFBASIC — where it is already portable — instead of
 /// putting a per-platform `getenv` on the spawn path.
+///
+/// **The renderer.** A program in a real window draws on the GPU (Metal on macOS,
+/// Vulkan on Linux, where a pipeline exists); a headless run — any of the three
+/// `MFB_*_HEADLESS` switches the tests use — draws in software.
+/// `MFB_CANVAS_GPU` overrides both ways: `0` forces software, any other value
+/// forces the GPU. The software renderer is the exact-match oracle the goldens and
+/// the GPU backends are measured against, and every test that renders runs
+/// headless, so it stays the default *there*; a window is where frame rate is
+/// felt — a full-window canvas redraw in software runs at about 8 frames a second
+/// on Apple silicon, against about 55 on Metal. A GPU that is unavailable, or a
+/// scene it declines, still falls back to software per frame
+/// (`__canvas_renderFrame`).
 #[rustfmt::skip]
 const ENSURE_GRAPHICS: &str =
 r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
@@ -817,10 +830,19 @@ r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
 FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
-    canvas::setGpuMode(len(os::getEnvOr("MFB_CANVAS_GPU", "")) > 0)
+    canvas::setGpuMode(__canvas_wantGpu())
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF
+END FUNC
+
+FUNC __canvas_wantGpu() AS Boolean
+  LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
+  IF len(choice) > 0 THEN RETURN choice <> "0"
+  IF len(os::getEnvOr("MFB_MACAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  IF len(os::getEnvOr("MFB_GTKAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  IF len(os::getEnvOr("MFB_WINAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  RETURN TRUE
 END FUNC"#;
 
 // `__canvas_renderLoop`/`__canvas_renderFrame` are one body in both builds except for
@@ -927,7 +949,7 @@ END FUNC"#
 /// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
 /// when all three of its conditions hold: the program asked for a GPU
 /// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
-/// is set by `MFB_CANVAS_GPU`), a pipeline exists (`canvas::metalReady` /
+/// is set by `__canvas_wantGpu`), a pipeline exists (`canvas::metalReady` /
 /// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
 ///
 /// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
@@ -941,8 +963,9 @@ END FUNC"#
 /// primitive, so the only scene still declined is one carrying a polygon with more
 /// edges than a `setFragmentBytes:` payload holds.
 ///
-/// The software path stays the default regardless: it is the oracle the GPU path is
-/// measured against, so it cannot become the thing being measured.
+/// The software path stays the default for headless runs, which is every test that
+/// renders: it is the oracle the GPU path is measured against, so it cannot become
+/// the thing being measured. A real window asks for the GPU (`__canvas_wantGpu`).
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
 /// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is

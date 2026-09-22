@@ -107,6 +107,17 @@ The software rasteriser fixes them; the GPU backends match them within a
 documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
+**Which renderer draws is chosen once, at the first present.** A program in a
+real window draws on the GPU (Metal on macOS, Vulkan on Linux); a headless run,
+meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
+`MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
+`0` forces software, any other value forces the GPU. The software rasteriser is
+the exact-match oracle, and every test that renders runs headless, so the goldens
+keep measuring it. A GPU frame is used only when a pipeline exists and the scene
+is one the backend draws correctly; otherwise that frame falls back to software.
+Windows has no GPU backend, so it always draws in software.
+[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
 transfer function is the standard one — `c / 12.92` below `0.04045`, else

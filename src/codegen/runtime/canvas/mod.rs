@@ -123,11 +123,13 @@ pub(crate) const GRAPHICS_OFFSET_WIDTH: usize = 224;
 pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
 /// Non-zero when the Metal renderer is selected (plan-98-E).
 ///
-/// **Opt-in, not the default.** The software path is the *oracle* the GPU backends
-/// are measured against (plan-98-A invariant 7), and its goldens are exact-match; a
-/// GPU frame only matches within a tolerance. Making Metal the default would turn
-/// every exact-match golden into a tolerance test and destroy the reference they are
-/// compared to. `MFB_CANVAS_GPU=1` selects it; plan-98-E's own tests set it.
+/// **The default for a real window, never for a headless run.** The software path is
+/// the *oracle* the GPU backends are measured against (plan-98-A invariant 7), and its
+/// goldens are exact-match; a GPU frame only matches within a tolerance. Every test
+/// that renders runs headless, and a headless run keeps software, so the oracle and
+/// its goldens are untouched; a window, where frame rate is what the user sees, gets
+/// the GPU. `MFB_CANVAS_GPU` overrides either way (`0` = software, anything else =
+/// GPU); plan-98-E's own tests set it to `1`. Chosen by `__canvas_wantGpu`.
 pub(crate) const GRAPHICS_OFFSET_GPU: usize = 296;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
