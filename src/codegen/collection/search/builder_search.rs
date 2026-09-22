@@ -7,6 +7,36 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
+/// plan-146-C: the registers [`CodeBuilder::lower_mid`] allocates for the `String`
+/// branch, handed to its window half so both paths keep one allocation order.
+pub(crate) struct MidStringRegs<'a> {
+    pub(crate) value_ptr: &'a VirtualRegister,
+    pub(crate) string_len: &'a VirtualRegister,
+    pub(crate) cursor: &'a VirtualRegister,
+    pub(crate) remaining: &'a VirtualRegister,
+    pub(crate) scalar_index: &'a VirtualRegister,
+    pub(crate) start_index: &'a VirtualRegister,
+    pub(crate) count_value: &'a VirtualRegister,
+    pub(crate) end_index: &'a VirtualRegister,
+    pub(crate) byte: &'a VirtualRegister,
+    pub(crate) mask: &'a VirtualRegister,
+    pub(crate) start_ptr: &'a VirtualRegister,
+    pub(crate) end_ptr: &'a VirtualRegister,
+    pub(crate) byte_len: &'a VirtualRegister,
+}
+
+/// plan-146-C: what `strings::mid`'s window half leaves for its caller.
+pub(crate) struct MidWindow {
+    /// The copying path's result block slot.
+    pub(crate) result_slot: usize,
+    pub(crate) start_ptr_slot: usize,
+    pub(crate) byte_len_slot: usize,
+    /// The copying path's post-allocation label.
+    pub(crate) alloc_ok: String,
+    /// Where every range check branches; the caller emits the raise at it.
+    pub(crate) invalid_range: String,
+}
+
 impl CodeBuilder<'_> {
     /// plan-77 U4: fast-forward a scalar-walk loop over runs of ASCII bytes.
     /// While at least 8 more scalars are needed to reach `target`, at least 8
@@ -660,128 +690,36 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(crate) fn lower_mid(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let scratch8 = self.temporary_vreg();
-        let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
-        let scratch11 = self.temporary_vreg();
-        let scratch12 = self.temporary_vreg();
-        let scratch13 = self.temporary_vreg();
-        let scratch14 = self.temporary_vreg();
-        let scratch15 = self.temporary_vreg();
-        let scratch16 = self.temporary_vreg();
-        let scratch17 = self.temporary_vreg();
-        let scratch20 = self.temporary_vreg();
-        let scratch21 = self.temporary_vreg();
-        let scratch22 = self.temporary_vreg();
-        let scratch23 = self.temporary_vreg();
-        let scratch24 = self.temporary_vreg();
-        let scratch25 = self.temporary_vreg();
-        let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = typed_list_element_type(&value.type_).cloned() {
-            let value_slot = self.allocate_stack_object("mid_list_value", 8);
-            self.emit(abi::store_u64(
-                &value.location,
-                abi::stack_pointer(),
-                value_slot,
-            ));
-            let start = self.lower_value(&args[1])?;
-            if start.type_ != ParameterType::Integer {
-                return Err(format!(
-                    "native list mid start must be Integer, got {}",
-                    start.type_
-                ));
-            }
-            let start_slot = self.allocate_stack_object("mid_list_start", 8);
-            self.emit(abi::store_u64(
-                &start.location,
-                abi::stack_pointer(),
-                start_slot,
-            ));
-            let count = self.lower_value(&args[2])?;
-            if count.type_ != ParameterType::Integer {
-                return Err(format!(
-                    "native list mid count must be Integer, got {}",
-                    count.type_
-                ));
-            }
-            let count_slot = self.allocate_stack_object("mid_list_count", 8);
-            self.emit(abi::store_u64(
-                &count.location,
-                abi::stack_pointer(),
-                count_slot,
-            ));
-            let result = self.lower_list_mid(
-                value_slot,
-                start_slot,
-                count_slot,
-                &value.type_,
-                &element_type,
-            )?;
-            // plan-134-E: the sub-list owns its elements' graphs.
-            return self.own_collection_payload_edges(result);
-        }
-        if value.type_ != ParameterType::String {
-            return Err(format!(
-                "native string mid value must be String, got {}",
-                value.type_
-            ));
-        }
-        let value_slot = self.allocate_stack_object("mid_value", 8);
-        self.emit(abi::store_u64(
-            &value.location,
-            abi::stack_pointer(),
-            value_slot,
-        ));
-
-        let start = self.lower_value(&args[1])?;
-        if start.type_ != ParameterType::Integer {
-            return Err(format!(
-                "native string mid start must be Integer, got {}",
-                start.type_
-            ));
-        }
-        let start_slot = self.allocate_stack_object("mid_start", 8);
-        self.emit(abi::store_u64(
-            &start.location,
-            abi::stack_pointer(),
-            start_slot,
-        ));
-
-        let count = self.lower_value(&args[2])?;
-        if count.type_ != ParameterType::Integer {
-            return Err(format!(
-                "native string mid count must be Integer, got {}",
-                count.type_
-            ));
-        }
-        let count_slot = self.allocate_stack_object("mid_count", 8);
-        self.emit(abi::store_u64(
-            &count.location,
-            abi::stack_pointer(),
-            count_slot,
-        ));
-
+    /// plan-146-C: `strings::mid`'s window half — the range checks and the scalar
+    /// walk that locates the selected span, left in `start_ptr_slot`/`byte_len_slot`.
+    /// Everything that can raise branches to `invalid_range`, which the caller
+    /// raises at after building its result (that is where the copying lowering has
+    /// always emitted it, and the arm keeps the same shape). `result_slot` and
+    /// `alloc_ok` belong to the copying path; they are created here so both paths
+    /// keep one slot and label order.
+    pub(crate) fn lower_mid_string_window(
+        &mut self,
+        value_slot: usize,
+        start_slot: usize,
+        count_slot: usize,
+        r: &MidStringRegs<'_>,
+    ) -> Result<MidWindow, String> {
         let result_slot = self.allocate_stack_object("mid_result", 8);
+        let value_ptr = r.value_ptr;
+        let string_len = r.string_len;
+        let cursor = r.cursor;
+        let remaining = r.remaining;
+        let scalar_index = r.scalar_index;
+        let start_index = r.start_index;
+        let count_value = r.count_value;
+        let end_index = r.end_index;
+        let byte = r.byte;
+        let mask = r.mask;
+        let start_ptr = r.start_ptr;
+        let end_ptr = r.end_ptr;
+        let byte_len = r.byte_len;
         let start_ptr_slot = self.allocate_stack_object("mid_start_ptr", 8);
         let byte_len_slot = self.allocate_stack_object("mid_byte_len", 8);
-        let value_ptr = &scratch8;
-        let string_len = &scratch9;
-        let cursor = &scratch10;
-        let remaining = &scratch11;
-        let scalar_index = &scratch12;
-        let start_index = &scratch13;
-        let count_value = &scratch14;
-        let end_index = &scratch15;
-        let byte = &scratch16;
-        let mask = &scratch17;
-        let start_ptr = &scratch20;
-        let end_ptr = &scratch21;
-        let copy_src = &scratch22;
-        let copy_dst = &scratch23;
-        let copy_remaining = &scratch24;
-        let byte_len = &scratch25;
-
         let locate_start = self.label("mid_locate_start");
         let locate_start_continue = self.label("mid_locate_start_continue");
         let locate_start_advanced = self.label("mid_locate_start_advanced");
@@ -895,6 +833,151 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             byte_len_slot,
         ));
+        Ok(MidWindow {
+            result_slot,
+            start_ptr_slot,
+            byte_len_slot,
+            alloc_ok,
+            invalid_range,
+        })
+    }
+
+    pub(crate) fn lower_mid(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let scratch15 = self.temporary_vreg();
+        let scratch16 = self.temporary_vreg();
+        let scratch17 = self.temporary_vreg();
+        let scratch20 = self.temporary_vreg();
+        let scratch21 = self.temporary_vreg();
+        let scratch22 = self.temporary_vreg();
+        let scratch23 = self.temporary_vreg();
+        let scratch24 = self.temporary_vreg();
+        let scratch25 = self.temporary_vreg();
+        let value = self.lower_value(&args[0])?;
+        if let Some(element_type) = typed_list_element_type(&value.type_).cloned() {
+            let value_slot = self.allocate_stack_object("mid_list_value", 8);
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
+            let start = self.lower_value(&args[1])?;
+            if start.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native list mid start must be Integer, got {}",
+                    start.type_
+                ));
+            }
+            let start_slot = self.allocate_stack_object("mid_list_start", 8);
+            self.emit(abi::store_u64(
+                &start.location,
+                abi::stack_pointer(),
+                start_slot,
+            ));
+            let count = self.lower_value(&args[2])?;
+            if count.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native list mid count must be Integer, got {}",
+                    count.type_
+                ));
+            }
+            let count_slot = self.allocate_stack_object("mid_list_count", 8);
+            self.emit(abi::store_u64(
+                &count.location,
+                abi::stack_pointer(),
+                count_slot,
+            ));
+            let result = self.lower_list_mid(
+                value_slot,
+                start_slot,
+                count_slot,
+                &value.type_,
+                &element_type,
+            )?;
+            // plan-134-E: the sub-list owns its elements' graphs.
+            return self.own_collection_payload_edges(result);
+        }
+        if value.type_ != ParameterType::String {
+            return Err(format!(
+                "native string mid value must be String, got {}",
+                value.type_
+            ));
+        }
+        let value_slot = self.allocate_stack_object("mid_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+
+        let start = self.lower_value(&args[1])?;
+        if start.type_ != ParameterType::Integer {
+            return Err(format!(
+                "native string mid start must be Integer, got {}",
+                start.type_
+            ));
+        }
+        let start_slot = self.allocate_stack_object("mid_start", 8);
+        self.emit(abi::store_u64(
+            &start.location,
+            abi::stack_pointer(),
+            start_slot,
+        ));
+
+        let count = self.lower_value(&args[2])?;
+        if count.type_ != ParameterType::Integer {
+            return Err(format!(
+                "native string mid count must be Integer, got {}",
+                count.type_
+            ));
+        }
+        let count_slot = self.allocate_stack_object("mid_count", 8);
+        self.emit(abi::store_u64(
+            &count.location,
+            abi::stack_pointer(),
+            count_slot,
+        ));
+
+        let window = self.lower_mid_string_window(
+            value_slot,
+            start_slot,
+            count_slot,
+            &MidStringRegs {
+                value_ptr: &scratch8,
+                string_len: &scratch9,
+                cursor: &scratch10,
+                remaining: &scratch11,
+                scalar_index: &scratch12,
+                start_index: &scratch13,
+                count_value: &scratch14,
+                end_index: &scratch15,
+                byte: &scratch16,
+                mask: &scratch17,
+                start_ptr: &scratch20,
+                end_ptr: &scratch21,
+                byte_len: &scratch25,
+            },
+        )?;
+        let MidWindow {
+            result_slot,
+            start_ptr_slot,
+            byte_len_slot,
+            alloc_ok,
+            invalid_range,
+        } = window;
+        let byte = &scratch16;
+        let start_ptr = &scratch20;
+        let copy_src = &scratch22;
+        let copy_dst = &scratch23;
+        let copy_remaining = &scratch24;
+        let byte_len = &scratch25;
+
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
         self.emit(abi::add_immediate(abi::c_arg(0), byte_len, 9));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));

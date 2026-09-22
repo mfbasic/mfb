@@ -16,7 +16,7 @@ use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::collection::assign::self_update::{self_update_builtin, SelfUpdateSite};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::control::string_self_append_operands_of;
-use crate::codegen::engine::operand::VirtualRegister;
+use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -26,7 +26,23 @@ use crate::types::ParameterType;
 /// and so needs the binding's capacity shadow ([`is_string_self_update`]). Each
 /// plan-146 arm letter adds its names. `toString`'s identity arm changes nothing,
 /// so it needs none.
-pub(crate) const STRING_SHADOW_ARMS: &[&str] = &[];
+pub(crate) const STRING_SHADOW_ARMS: &[&str] = &[
+    // plan-146-C, the window arm: a shrink leaves spare bytes only a shadow can
+    // describe (plan-143 findings B.3 fact 1).
+    "left",
+    "right",
+    "mid",
+    "stripPrefix",
+    "stripSuffix",
+    "trim",
+    "trimStart",
+    "trimEnd",
+    "trimChars",
+    "graphemeAt",
+    "pathBaseName",
+    "pathDirName",
+    "pathExtension",
+];
 
 /// Whether `value` is a `String` self-update of the binding `root` recognises
 /// whose arm needs a capacity shadow: a left-associated `&` chain rooted at it
@@ -41,6 +57,73 @@ pub(crate) fn is_string_self_update(value: &NirValue, root: &dyn Fn(&NirValue) -
         if self_update_builtin(target).is_some_and(|bare| STRING_SHADOW_ARMS.contains(&bare))
             && args.first().is_some_and(root))
 }
+
+/// plan-146-C: how a window row locates the result inside its first argument.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowKind {
+    /// `strings::left` / `right`.
+    LeftRight {
+        right: bool,
+    },
+    /// `strings::stripPrefix` / `stripSuffix`.
+    Strip {
+        suffix: bool,
+    },
+    /// `strings::trim` / `trimStart` / `trimEnd`.
+    Trim {
+        start: bool,
+        end: bool,
+    },
+    TrimChars,
+    GraphemeAt,
+    /// `strings::mid`.
+    Mid,
+    PathBaseName,
+    /// The one row whose window can be longer than the binding (`.`), and the one
+    /// whose window can lie outside it (the same constant).
+    PathDirName,
+    PathExtension,
+}
+
+/// plan-146-C: the thirteen `String` builtins whose result is a contiguous window
+/// of their first argument — `(bare name, arity, how to find the window)`. One arm
+/// (`ArmId::StrWindow`) serves them all.
+pub(crate) const STRING_WINDOW_FNS: &[(&str, RangeInclusive<usize>, WindowKind)] = &[
+    ("left", 2..=2, WindowKind::LeftRight { right: false }),
+    ("right", 2..=2, WindowKind::LeftRight { right: true }),
+    ("mid", 3..=3, WindowKind::Mid),
+    ("stripPrefix", 2..=2, WindowKind::Strip { suffix: false }),
+    ("stripSuffix", 2..=2, WindowKind::Strip { suffix: true }),
+    (
+        "trim",
+        1..=1,
+        WindowKind::Trim {
+            start: true,
+            end: true,
+        },
+    ),
+    (
+        "trimStart",
+        1..=1,
+        WindowKind::Trim {
+            start: true,
+            end: false,
+        },
+    ),
+    (
+        "trimEnd",
+        1..=1,
+        WindowKind::Trim {
+            start: false,
+            end: true,
+        },
+    ),
+    ("trimChars", 2..=2, WindowKind::TrimChars),
+    ("graphemeAt", 2..=2, WindowKind::GraphemeAt),
+    ("pathBaseName", 1..=1, WindowKind::PathBaseName),
+    ("pathDirName", 1..=1, WindowKind::PathDirName),
+    ("pathExtension", 1..=1, WindowKind::PathExtension),
+];
 
 /// A binding's capacity shadow, opened for one statement: `slot` holds the spare
 /// bytes past the block's length. For a global it is a working copy of the hidden
@@ -326,6 +409,283 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Make the `String` block at `name_slot` hold at least the byte count in
+    /// `need_slot`: it already fits in `len + spare`, or it regrows geometrically
+    /// ([`emit_string_regrow`](Self::emit_string_regrow)), keeping its length and
+    /// bytes. Allocates before any write, so an `ErrOutOfMemory` leaves the
+    /// binding unchanged.
+    pub(crate) fn emit_string_reserve(
+        &mut self,
+        name_slot: usize,
+        shadow_slot: usize,
+        need_slot: usize,
+    ) -> Result<(), String> {
+        let len_slot = self.allocate_stack_object("str_reserve_len", 8);
+        let newcap_slot = self.allocate_stack_object("str_reserve_newcap", 8);
+        let newbuf_slot = self.allocate_stack_object("str_reserve_newbuf", 8);
+        let oldsize_slot = self.allocate_stack_object("str_reserve_oldsize", 8);
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let cap = self.temporary_vreg();
+        let spare = self.temporary_vreg();
+        let newcap = self.temporary_vreg();
+        let step_scratch = self.temporary_vreg();
+        let newlen = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let oldsize = self.temporary_vreg();
+        let need = self.temporary_vreg();
+        let regrow = self.label("str_reserve_regrow");
+        let alloc_ok = self.label("str_reserve_alloc_ok");
+        let cap_keep = self.label("str_reserve_cap_keep");
+        let done = self.label("str_reserve_done");
+
+        // Fits when need <= len + spare.
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0));
+        self.emit(abi::store_u64(&len, abi::stack_pointer(), len_slot));
+        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot));
+        self.emit(abi::add_registers(&cap, &len, &spare));
+        self.emit(abi::load_u64(&need, abi::stack_pointer(), need_slot));
+        self.emit(abi::compare_registers(&need, &cap));
+        self.emit(abi::branch_hi(&regrow));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&regrow));
+        self.emit_string_regrow(
+            &StringRegrow {
+                name_slot,
+                shadow_slot,
+                need_slot,
+                len_after_slot: len_slot,
+                newcap_slot,
+                newbuf_slot,
+                oldsize_slot,
+                ptr: &ptr,
+                len: &len,
+                cap: &cap,
+                spare: &spare,
+                newcap: &newcap,
+                step_scratch: &step_scratch,
+                newlen: &newlen,
+                dst: &dst,
+                oldsize: &oldsize,
+                alloc_ok: &alloc_ok,
+                cap_keep: &cap_keep,
+                step_prefix: "str_reserve_step",
+                copy_prefix: "str_reserve_old",
+            },
+            &mut |b, dst| {
+                // The block stays a valid `String` of its old length.
+                let zero = b.temporary_vreg();
+                b.emit(abi::move_immediate(&zero, "Integer", "0"));
+                b.emit(abi::store_u8(&zero, dst, 0));
+                Ok(())
+            },
+        )?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// Set the length of the `String` block at `name_slot` to the byte count in
+    /// `new_len_slot` (no more than `len + spare`): add the bytes it gives up to the
+    /// shadow (`shadow += oldLen - newLen`, which a grow makes negative), store the
+    /// length, and write the NUL.
+    pub(crate) fn emit_string_set_len(
+        &mut self,
+        name_slot: usize,
+        shadow_slot: usize,
+        new_len_slot: usize,
+    ) {
+        let ptr = self.temporary_vreg();
+        let old_len = self.temporary_vreg();
+        let new_len = self.temporary_vreg();
+        let spare = self.temporary_vreg();
+        let zero = self.temporary_vreg();
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&old_len, &ptr, 0));
+        self.emit(abi::load_u64(&new_len, abi::stack_pointer(), new_len_slot));
+        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot));
+        self.emit(abi::add_registers(&spare, &spare, &old_len));
+        self.emit(abi::subtract_registers(&spare, &spare, &new_len));
+        self.emit(abi::store_u64(&spare, abi::stack_pointer(), shadow_slot));
+        self.emit(abi::store_u64(&new_len, &ptr, 0));
+        self.emit(abi::add_registers(&ptr, &ptr, &new_len));
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u8(&zero, &ptr, 8));
+    }
+
+    /// plan-146-C: `s = f(s, …)` for a builtin whose result is a contiguous window
+    /// of `s`'s own bytes ([`STRING_WINDOW_FNS`]). The window step is the code the
+    /// copying lowering runs (every check and raise happens there, before a byte
+    /// moves); then the window is moved down to offset 8 of `s`'s own block, the
+    /// length and NUL are stored, and the bytes it gave up become spare capacity in
+    /// the binding's shadow.
+    pub(crate) fn try_inplace_string_window_assign(
+        &mut self,
+        site: &SelfUpdateSite<'_>,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let NirValue::Call { target, .. } = value else {
+            return Ok(false);
+        };
+        let Some(bare) = self_update_builtin(target) else {
+            return Ok(false);
+        };
+        let Some((name, arity, kind)) = STRING_WINDOW_FNS
+            .iter()
+            .find(|(name, _, _)| *name == bare)
+            .map(|(name, arity, kind)| (*name, arity.clone(), *kind))
+        else {
+            return Ok(false);
+        };
+        let Some(args) = self.resolve_string_self_update(site, value, name, arity, true) else {
+            return Ok(false);
+        };
+        let args: Vec<NirValue> = args.to_vec();
+
+        let block_slot = site.dest.block_slot();
+        let shadow = self
+            .string_shadow_slot(site)?
+            .ok_or("native String window self-update lost its capacity shadow")?;
+        // The window step reads the binding's block and the remaining arguments,
+        // which `G21-string` proved do not read the binding.
+        let mut rest = Vec::new();
+        for arg in &args[1..] {
+            rest.push(self.lower_value(arg)?);
+        }
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+        let value_result = ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(block.render()),
+            text: String::new(),
+        };
+        let (ptr, len) = self.emit_string_window(kind, &value_result, &rest)?;
+        // The marker slot: its presence proves this arm fired (`ArmId::markers`).
+        let ptr_slot = self.allocate_stack_object("inplace_str_window", 8);
+        let len_slot = self.allocate_stack_object("inplace_str_window_len", 8);
+        self.emit(abi::store_u64(&ptr, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::store_u64(&len, abi::stack_pointer(), len_slot));
+        // `fs::pathDirName("")` is `.` — one byte where the binding had none — and
+        // its window points at the constant, never into the block, so a regrow
+        // cannot invalidate it. Every other row's window is inside the block and no
+        // longer than it.
+        if kind == WindowKind::PathDirName {
+            self.emit_string_reserve(block_slot, shadow.slot, len_slot)?;
+        }
+        // Move the window to `block + 8`. The destination is never after the
+        // source, so a forward copy reads each byte before it is overwritten.
+        let dst = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        self.emit(abi::load_u64(&dst, abi::stack_pointer(), block_slot));
+        self.emit(abi::add_immediate(&dst, &dst, 8));
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), len_slot));
+        self.emit_copy_bytes(&dst, &src, &count, "inplace_str_window_move");
+        self.emit_string_set_len(block_slot, shadow.slot, len_slot);
+        self.publish_string_shadow(&shadow)?;
+        if let Some(local) = self.locals.get_mut(site.name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// The window step of one [`STRING_WINDOW_FNS`] row: the copying lowering's own
+    /// half, except `graphemeAt`'s, whose copying path reads its span out of a
+    /// freshly built `List OF String` (plan-146-C Correction C1).
+    fn emit_string_window(
+        &mut self,
+        kind: WindowKind,
+        value: &ValueResult,
+        rest: &[ValueResult],
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
+        use crate::codegen::builtins::strings::{
+            gen_graphemes, gen_left_right, gen_strip, gen_trim,
+        };
+        let arg = |i: usize| -> Result<&ValueResult, String> {
+            rest.get(i)
+                .ok_or_else(|| "native String window self-update lost an argument".to_string())
+        };
+        match kind {
+            WindowKind::LeftRight { right } => {
+                gen_left_right::lower_strings_left_right_window(self, value, arg(0)?, right)
+            }
+            WindowKind::Strip { suffix } => {
+                gen_strip::lower_strings_strip_window(self, value, arg(0)?, suffix)
+            }
+            WindowKind::Trim { start, end } => {
+                gen_trim::lower_strings_trim_window(self, value, start, end)
+            }
+            WindowKind::TrimChars => {
+                crate::codegen::builtins::strings::func_trim_chars::window(self, value, arg(0)?)
+            }
+            WindowKind::GraphemeAt => gen_graphemes::grapheme_at_window(self, value, arg(0)?),
+            WindowKind::Mid => self.emit_string_mid_window(value, arg(0)?, arg(1)?),
+            WindowKind::PathBaseName => self.fs_path_base_name_window(value),
+            WindowKind::PathDirName => self.fs_path_dir_name_window(value),
+            WindowKind::PathExtension => {
+                let (start, span, _done) = self.fs_path_extension_window(value)?;
+                Ok((start, span))
+            }
+        }
+    }
+
+    /// `strings::mid`'s window, with its `ErrIndexOutOfRange` raise emitted right
+    /// after it (the copying lowering emits the same raise after its copy; nothing
+    /// has written to the binding at either point).
+    fn emit_string_mid_window(
+        &mut self,
+        value: &ValueResult,
+        start: &ValueResult,
+        count: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
+        use crate::codegen::collection::search::builder_search::MidStringRegs;
+        let value_slot = self.spill_to_slot("inplace_str_mid_value", &value.location);
+        let start_slot = self.spill_to_slot("inplace_str_mid_start", &start.location);
+        let count_slot = self.spill_to_slot("inplace_str_mid_count", &count.location);
+        let regs: Vec<VirtualRegister> = (0..13).map(|_| self.temporary_vreg()).collect();
+        let window = self.lower_mid_string_window(
+            value_slot,
+            start_slot,
+            count_slot,
+            &MidStringRegs {
+                value_ptr: &regs[0],
+                string_len: &regs[1],
+                cursor: &regs[2],
+                remaining: &regs[3],
+                scalar_index: &regs[4],
+                start_index: &regs[5],
+                count_value: &regs[6],
+                end_index: &regs[7],
+                byte: &regs[8],
+                mask: &regs[9],
+                start_ptr: &regs[10],
+                end_ptr: &regs[11],
+                byte_len: &regs[12],
+            },
+        )?;
+        let ok = self.label("inplace_str_mid_ok");
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&window.invalid_range));
+        self.raise_error("strings.mid", "ErrIndexOutOfRange")?;
+        self.emit(abi::label(&ok));
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &ptr,
+            abi::stack_pointer(),
+            window.start_ptr_slot,
+        ));
+        self.emit(abi::load_u64(
+            &len,
+            abi::stack_pointer(),
+            window.byte_len_slot,
+        ));
+        Ok((ptr, len))
+    }
+
     /// plan-146-B: `s = toString(s)` on a `String`. `toString` of a `String` is the
     /// identity (`.ai/codegen-invariants.md`: "`toString(String)` is the IDENTITY
     /// arm — it hands back its own argument"), so in place it is a no-op: the block
@@ -473,8 +833,11 @@ mod tests {
         assert!(resolve(&builder, &global, &global_left, false));
     }
 
+    /// The shadow rule: the `&` chain, and the calls whose arm changes the block's
+    /// length ([`STRING_SHADOW_ARMS`]). `toString`'s identity arm changes nothing,
+    /// so it is not one.
     #[test]
-    fn is_string_self_update_accepts_exactly_the_self_append_today() {
+    fn is_string_self_update_accepts_the_self_append_and_the_length_changing_arms() {
         let root = |v: &NirValue| matches!(v, NirValue::Local(n) if n == "s");
         let append = NirValue::Binary {
             op: BinaryOp::Concat,
@@ -487,8 +850,18 @@ mod tests {
             &call("toString", vec![local("s")]),
             &root
         ));
-        assert!(!is_string_self_update(
+        assert!(is_string_self_update(
             &call("strings.left", vec![local("s"), text("3")]),
+            &root
+        ));
+        // Another binding's self-update is not this one's.
+        assert!(!is_string_self_update(
+            &call("strings.left", vec![local("t"), text("3")]),
+            &root
+        ));
+        // A `String` builtin with no arm that changes the length.
+        assert!(!is_string_self_update(
+            &call("strings.upper", vec![local("s")]),
             &root
         ));
     }

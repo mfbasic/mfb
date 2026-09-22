@@ -6,12 +6,15 @@ use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-pub(crate) fn lower_strings_left_right(
+/// plan-146-C: the window half — everything up to the `(ptr, len)` of the result
+/// inside `value`'s bytes, with every argument check and raise. The copying
+/// lowering materializes it; the in-place arm moves it down where it lies.
+pub(crate) fn lower_strings_left_right_window(
     builder: &mut CodeBuilder,
     value: &ValueResult,
     count: &ValueResult,
     right: bool,
-) -> Result<ValueResult, String> {
+) -> Result<(VirtualRegister, VirtualRegister), String> {
     let scratch16 = builder.temporary_vreg();
     let scratch10 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
@@ -133,7 +136,17 @@ pub(crate) fn lower_strings_left_right(
     builder.emit(abi::label(&build));
     builder.emit(abi::load_u64(&scratch13, abi::stack_pointer(), ptr_slot));
     builder.emit(abi::load_u64(&scratch12, abi::stack_pointer(), len_slot));
-    let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
+    Ok((scratch13, scratch12))
+}
+
+pub(crate) fn lower_strings_left_right(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    count: &ValueResult,
+    right: bool,
+) -> Result<ValueResult, String> {
+    let (ptr, len) = lower_strings_left_right_window(builder, value, count, right)?;
+    let result = builder.emit_materialize_string_from_bytes(&ptr, &len)?;
     let label = if right {
         "strings.right"
     } else {

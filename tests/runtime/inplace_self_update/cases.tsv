@@ -83,19 +83,19 @@ math::sqrt(value AS List OF Float) AS List OF Float	arm	List OF Float = [0.1, 0.
 math::tan(value AS List OF Float) AS List OF Float	arm	List OF Float = [0.1, 0.2, 0.3]	x = math::tan(x) ; x = math::clamp(x, 0.1, 0.3)	showFloats(before)
 & (value AS String, other AS String) AS String	arm	String = "a"	x = x & "b"	before
 toString(value AS String) AS String	arm	String = "abc"	x = toString(x)	before
-strings::left(value AS String, count AS Integer) AS String	pending:C	String = "abc"	x = x & "ab" ; x = strings::left(x, 3)	before
-strings::right(value AS String, count AS Integer) AS String	pending:C	String = "abc"	x = x & "ab" ; x = strings::right(x, 3)	before
-strings::mid(value AS String, start AS Integer, count AS Integer) AS String	pending:C	String = "abc"	x = x & "ab" ; x = strings::mid(x, 1, 3)	before
-strings::stripPrefix(value AS String, prefix AS String) AS String	pending:C	String = "aaa"	x = x & "a" ; x = strings::stripPrefix(x, "a")	before
-strings::stripSuffix(value AS String, suffix AS String) AS String	pending:C	String = "abc"	x = x & "z" ; x = strings::stripSuffix(x, "z")	before
-strings::trim(value AS String) AS String	pending:C	String = "abc"	x = x & " " ; x = strings::trim(x)	before
-strings::trimStart(value AS String) AS String	pending:C	String = ""	x = x & " " ; x = strings::trimStart(x)	before
-strings::trimEnd(value AS String) AS String	pending:C	String = "abc"	x = x & " " ; x = strings::trimEnd(x)	before
-strings::trimChars(value AS String, chars AS String) AS String	pending:C	String = "abc"	x = x & "z" ; x = strings::trimChars(x, "z")	before
-strings::graphemeAt(value AS String, index AS Integer) AS String	pending:C	String = "abc"	x = x & "b" ; x = strings::graphemeAt(x, 0)	before
-fs::pathBaseName(path AS String) AS String	pending:C	String = "b"	x = x & "/b" ; x = fs::pathBaseName(x)	before
-fs::pathDirName(path AS String) AS String	pending:C	String = "a"	x = x & "/b" ; x = fs::pathDirName(x)	before
-fs::pathExtension(path AS String) AS String	pending:C	String = "txt"	x = x & ".txt" ; x = fs::pathExtension(x)	before
+strings::left(value AS String, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::left(x, 3)	before
+strings::right(value AS String, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::right(x, 3)	before
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::mid(x, 1, 3)	before
+strings::stripPrefix(value AS String, prefix AS String) AS String	arm	String = "aaa"	x = x & "a" ; x = strings::stripPrefix(x, "a")	before
+strings::stripSuffix(value AS String, suffix AS String) AS String	arm	String = "abc"	x = x & "z" ; x = strings::stripSuffix(x, "z")	before
+strings::trim(value AS String) AS String	arm	String = "abc"	x = x & " " ; x = strings::trim(x)	before
+strings::trimStart(value AS String) AS String	arm	String = ""	x = x & " " ; x = strings::trimStart(x)	before
+strings::trimEnd(value AS String) AS String	arm	String = "abc"	x = x & " " ; x = strings::trimEnd(x)	before
+strings::trimChars(value AS String, chars AS String) AS String	arm	String = "abc"	x = x & "z" ; x = strings::trimChars(x, "z")	before
+strings::graphemeAt(value AS String, index AS Integer) AS String	arm	String = "abc"	x = x & "b" ; x = strings::graphemeAt(x, 0)	before
+fs::pathBaseName(path AS String) AS String	arm	String = "b"	x = x & "/b" ; x = fs::pathBaseName(x)	before
+fs::pathDirName(path AS String) AS String	arm	String = "a"	x = x & "/b" ; x = fs::pathDirName(x)	before
+fs::pathExtension(path AS String) AS String	arm	String = "txt"	x = x & ".txt" ; x = fs::pathExtension(x)	before
 strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padLeft(x, 8) ; x = strings::right(x, 3)	before
 strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padRight(x, 8) ; x = strings::left(x, 3)	before
 strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	pending:D	String = "abc"	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	before

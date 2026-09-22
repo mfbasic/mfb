@@ -85,6 +85,9 @@ pub(crate) enum ArmId {
     MapValues,
     /// `s = toString(s)` on a `String` — the identity (plan-146-B).
     StrIdentity,
+    /// `s = f(s, …)` for the 13 `String` builtins whose result is a window of `s`
+    /// (plan-146-C).
+    StrWindow,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -410,6 +413,13 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
     (
         ArmId::StrIdentity,
         |b, s, v| b.try_inplace_string_identity_assign(s, v),
+        FieldReach::None,
+    ),
+    // After the collection `Mid` arm, which declines a `String` at G10: the two
+    // share the bare name `mid`, and both decline without emitting.
+    (
+        ArmId::StrWindow,
+        |b, s, v| b.try_inplace_string_window_assign(s, v),
         FieldReach::None,
     ),
 ];
@@ -1595,67 +1605,67 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
     },
     SelfUpdateRow {
         function: "strings::left",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::left(x, 3)")],
     },
     SelfUpdateRow {
         function: "strings::right",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::right(x, 3)")],
     },
     SelfUpdateRow {
         function: "strings::mid",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::mid(x, 1, 3)")],
     },
     SelfUpdateRow {
         function: "strings::stripPrefix",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::stripPrefix(x, \"a\")")],
     },
     SelfUpdateRow {
         function: "strings::stripSuffix",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::stripSuffix(x, \"f\")")],
     },
     SelfUpdateRow {
         function: "strings::trim",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::trim(x)")],
     },
     SelfUpdateRow {
         function: "strings::trimStart",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::trimStart(x)")],
     },
     SelfUpdateRow {
         function: "strings::trimEnd",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::trimEnd(x)")],
     },
     SelfUpdateRow {
         function: "strings::trimChars",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::trimChars(x, \"a\")")],
     },
     SelfUpdateRow {
         function: "strings::graphemeAt",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(ST, STR, "strings::graphemeAt(x, 0)")],
     },
     SelfUpdateRow {
         function: "fs::pathBaseName",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(FS, PATH, "fs::pathBaseName(x)")],
     },
     SelfUpdateRow {
         function: "fs::pathDirName",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(FS, PATH, "fs::pathDirName(x)")],
     },
     SelfUpdateRow {
         function: "fs::pathExtension",
-        kind: SelfUpdate::Pending("C"),
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
         probes: &[str_probe(FS, PATH, "fs::pathExtension(x)")],
     },
     SelfUpdateRow {
@@ -2028,6 +2038,7 @@ impl ArmId {
             ArmId::Merge => &["inplace_merge_prefer"],
             ArmId::MapValues => &["inplace_mapvalues_action"],
             ArmId::StrIdentity => &["inplace_str_identity"],
+            ArmId::StrWindow => &["inplace_str_window"],
         }
     }
 }
@@ -2315,6 +2326,12 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         ),
         (
             ArmId::StrIdentity,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrWindow,
             "",
             ALL_FIELD_SITES,
             "a `String` field is deferred:string (plan-145-A Open Decision 1)",

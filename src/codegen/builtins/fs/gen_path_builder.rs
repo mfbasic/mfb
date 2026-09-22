@@ -105,7 +105,12 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_fs_path_base_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the base name inside
+    /// `path`'s bytes (the whole `/` for an all-separator path).
+    pub(crate) fn fs_path_base_name_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         let path = path.clone();
         self.require_string("fs.pathBaseName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_base_name_path", &path.location);
@@ -161,6 +166,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&range_ready));
         self.emit(abi::add_registers(&start, &bytes, &index));
         self.emit(abi::subtract_registers(&span, &length, &index));
+        Ok((start, span))
+    }
+
+    fn lower_fs_path_base_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, span) = self.fs_path_base_name_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             origin: None,
@@ -170,7 +180,13 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the directory part.
+    /// Unlike the other windows it can point OUTSIDE `path`: the `.` constant
+    /// (bug-667's read-only-data route, for a path with no directory part).
+    pub(crate) fn fs_path_dir_name_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         let path = path.clone();
         self.require_string("fs.pathDirName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_dir_name_path", &path.location);
@@ -233,6 +249,11 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&materialize));
         self.emit(abi::move_register(&start, &bytes));
+        Ok((start, length))
+    }
+
+    fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, length) = self.fs_path_dir_name_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &length)?;
         self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
@@ -243,7 +264,14 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_fs_path_extension(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the extension inside
+    /// `path`'s bytes (an empty span when it has none), and the name of the `done`
+    /// label the caller emits after building its result (nothing branches to it;
+    /// it is in the goldens).
+    pub(crate) fn fs_path_extension_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister, String), String> {
         let path = path.clone();
         self.require_string("fs.pathExtension path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_extension_path", &path.location);
@@ -297,6 +325,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&start, &bytes));
         self.emit(abi::move_immediate(&span, "Integer", "0"));
         self.emit(abi::label(&materialize));
+        Ok((start, span, done))
+    }
+
+    fn lower_fs_path_extension(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, span, done) = self.fs_path_extension_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         self.emit(abi::label(&done));
         Ok(ValueResult {
