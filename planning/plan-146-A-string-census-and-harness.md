@@ -325,7 +325,7 @@ ok`: `strings::` 43 lines (86 pairs, 73.26 s), `encoding::` 8 (16), `fs::` 6 (12
 `os::` 3 (6), `io::` 1 (2), `net::` 1 (2), `regex::` 1 (2), `astrings::` 4 (8),
 `toString` 1 (2), `&@` 1 (2) — 138 pairs, 130 distinct: `strings::` also matches the
 four `astrings::` lines (the substring), which the `astrings::` filter reran.
-Commit: —
+Commit: bca4ebacb
 
 ## Validation Plan
 

@@ -186,7 +186,7 @@ Rejected alternatives:
 
 Acceptance: `cargo test --bin mfb self_update_builtin_names_every_spelling` passes
 with the new assertions (est. 5 min).
-Commit: —
+Commit: 29931286f
 
 ### Phase 2: Resolver and shadow helpers, byte-identical
 
@@ -215,7 +215,7 @@ Acceptance: codegen is unchanged.
   objdump one fixture and fix it.
 Result: `artifact-gate [all]: 1485 tests, 1660 build(s), 2098 golden(s) checked,
 0 diff(s)`; `test result: ok. 1 passed` (191.08 s).
-Commit: —
+Commit: 29931286f
 
 ### Phase 3: The identity arm
 
@@ -254,7 +254,7 @@ Result: `cargo test --bin mfb self_update` → `10 passed`;
 tests passed (1 test(s) ran)`. That fixture has no `.ncode` golden
 (`golden/` holds `build.log`, `.ast`, `.ir`, `.run`), so the acceptance run covers
 it; the artifact gate ran green in Phase 2 and again over letter C's window split.
-Commit: —
+Commit: a3a0ffa15
 
 ## Validation Plan
 

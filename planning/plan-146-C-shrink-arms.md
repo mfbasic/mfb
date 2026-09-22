@@ -134,7 +134,7 @@ Rejected alternatives:
       route is the only window that does not point into the binding — it points at
       `load_string_constant(".")` — and the only one that can be LONGER than the
       binding (`""` → `.`).
-Commit: —
+Commit: 5d31fe314
 
 ### Phase 2: Split the lowerings at the window, byte-identical
 
@@ -156,7 +156,7 @@ Acceptance: codegen is unchanged.
   split bug: objdump one fixture and fix it.
 Result: `artifact-gate [all]: 1485 tests, 1660 build(s), 2098 golden(s) checked,
 0 diff(s)` (204.82 s).
-Commit: —
+Commit: 5d31fe314
 
 ### Phase 3: The arm
 
@@ -209,7 +209,7 @@ functions, `#http_multipartBoundary` (`b = strings::trim(b)`,
 `http/helper_multipart_boundary.rs:22`). The five `.ncodesum` goldens were
 regenerated for that fixture alone; the gate then reported `2100 golden(s)
 checked, 0 diff(s)`. The predicted `json` producer did NOT move (Correction C2).
-Commit: —
+Commit: 5d31fe314
 
 ## Validation Plan
 

@@ -151,7 +151,7 @@ Rejected alternatives:
         — `(1, "")` for Console/WindowsApp, `(2, "Resources")` for MacApp,
         `(2, "share/<module>")` for LinuxApp. `newLen = prefix_len + byteLen(relative)
         + extra`, `extra = 1` for an empty suffix else `suffix.len() + 2`.
-Commit: —
+Commit: 3fcd54a2c
 
 ### Phase 2: Split measure from build, byte-identical
 
@@ -172,7 +172,7 @@ Acceptance: `cargo build --release && cargo test --test golden` → 0 `.ncode` d
 Result: `artifact-gate.sh target/release/mfb strings` → `1 tests, 6 build(s), 7
 golden(s) checked, 0 diff(s)` after each split; the full gate ran green at the end
 of Phase 3 (below).
-Commit: —
+Commit: 3fcd54a2c
 
 ### Phase 3: The arm
 
@@ -215,7 +215,7 @@ result: ok`; `scripts/test-accept.sh … 'rt-behavior/strings/self-update-grow-v
 → `acceptance tests passed`. Golden: `artifact-gate [all]: 1487 tests, 1662
 build(s), 2102 golden(s) checked, 0 diff(s)` — no fixture holds a grow-row
 self-update, exactly as predicted.
-Commit: —
+Commit: 3fcd54a2c
 
 ## Validation Plan
 
