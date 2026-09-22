@@ -723,11 +723,25 @@ pub(crate) const GRADIENT_STOP_WORDS: usize = 5;
 /// Where Metal's gradient region starts, in 32-bit words — after the items and edges.
 pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
     CANVAS_ITEM_BUFFER_BYTES / 4 + METAL_MAX_FRAME_EDGES * 4;
+/// The most coverage samples one **frame**'s glyphs may carry on the Metal path — the
+/// same number, and the same one-sample-per-word layout, as
+/// `VULKAN_MAX_FRAME_GLYPH_SAMPLES` (bug-670).
+///
+/// Metal's glyph bitmaps used to ride a per-glyph `setFragmentBytes:` payload. Once
+/// plan-116-H made a text item ONE instanced draw, that payload was overwritten by each
+/// glyph's publish before the draw ran, and every glyph drew the run's last bitmap. A
+/// frame-wide region, each glyph's slice named by the offset in its own block, is what
+/// Vulkan always did, and it is the only shape an instanced run can read.
+pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
+/// Where Metal's glyph region starts, in 32-bit words — after the gradient stops.
+pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
+    METAL_GRADIENT_BASE_WORDS + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// gradient stops (five each).
+/// gradient stops (five each), then glyph coverage (one sample a word).
 pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
-    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
+    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///
@@ -755,16 +769,6 @@ pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
 pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
     + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
-
-/// The most coverage samples one glyph may carry on the **Metal** path.
-///
-/// Metal's glyph bitmap rides `setFragmentBytes:` exactly as its edges do, so the bound
-/// is the same 4 KiB payload and it is per glyph rather than per frame. That is about a
-/// 64x64 bitmap, which is a glyph at roughly 200 px. `__canvas_metalRenderable` declines
-/// a scene containing a bigger one rather than clipping it, for the reason it declines
-/// an over-long polygon: a clipped glyph is a *different glyph*, and would read as a
-/// rasteriser bug rather than as a backend limit.
-pub(crate) const METAL_MAX_GLYPH_SAMPLES: usize = 4096;
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
 /// elsewhere. It sits at the BOTTOM of the frame, so the saves above it are out of reach

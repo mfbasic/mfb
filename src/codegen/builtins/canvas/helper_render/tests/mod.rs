@@ -2,7 +2,7 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
     CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0,
-    MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES,
+    MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
     VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 
@@ -142,9 +142,10 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
              region cannot hold",
     );
     assert_eq!(
-        declared("__CANVAS_METAL_MAX_GLYPH_SAMPLES"),
-        METAL_MAX_GLYPH_SAMPLES,
-        "the predicate admits a glyph bigger than `setFragmentBytes:` will carry",
+        declared("__CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES"),
+        METAL_MAX_FRAME_GLYPH_SAMPLES,
+        "the predicate admits a frame whose glyph bitmaps Metal's glyph region \
+             cannot hold",
     );
     // plan-116-F. One number for both backends, because the gradient region is
     // sized identically on each -- and the failure it prevents is worse than a
@@ -169,7 +170,7 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 ///
 /// | | Metal | Vulkan |
 /// |---|---|---|
-/// | the glyph-run walk (`__canvas_runLargestGlyph` / `__canvas_runSamples`) | 1 | 1 |
+/// | the glyph-run walk (`__canvas_runSamples`, one function both call) | 1 (shared) | |
 /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
 /// | the frame edge sum | 1 | 1 |
 /// | ~~the frame quad count, a glyph run's glyphs~~ | — | — |
@@ -180,6 +181,11 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 /// does this block become" and is what the draw list asks too; it reads the glyph
 /// count as `__canvas_geoAt(offset, 20)`, which this census's `offset + 20` pattern
 /// does not match by construction.
+///
+/// It went 5 → 4 in bug-670, and that read moved too: Metal had its own walk,
+/// `__canvas_runLargestGlyph`, for a per-glyph cap. Metal's glyphs now share a
+/// frame-wide region the way Vulkan's always did, so both predicates call the one
+/// `__canvas_runSamples`, whose read is counted once.
 ///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
@@ -194,7 +200,7 @@ fn the_predicates_read_the_edge_count_slot() {
         RENDER_METAL
             .matches(&format!("offset + {HEADER_AUX0}"))
             .count(),
-        5,
+        4,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \

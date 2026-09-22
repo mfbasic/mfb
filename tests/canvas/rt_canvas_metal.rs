@@ -650,3 +650,62 @@ fn a_group_naming_an_absent_group_draws_nothing_on_the_gpu() {
         );
     }
 }
+
+/// A line of distinct glyphs, drawn with a real system font. The fixture font the
+/// other text tests use gives every character one glyph shape, which is exactly
+/// what hid the bug below.
+const TEXT_LINE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET bg AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(20, 24, 30))]
+  LET a AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "LEVEL 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET b AS canvas::DrawItem = canvas::Text[x := 300.0, y := 40.0, text := "BUGS quick", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 214, 90))]
+  canvas::present([bg, a, b])
+END SUB
+"#;
+
+/// Each glyph of a text run samples its OWN bitmap on the GPU.
+///
+/// plan-116-H made a text item one instanced draw, but left each glyph's bitmap as a
+/// per-glyph `setFragmentBytes:` at index 2 set in the publish loop — so by the time
+/// the draw ran, only the run's LAST glyph was bound, and every glyph drew that
+/// glyph's pixels at its own width: "LEVEL 01" came out as hatching and a clean "1".
+/// It passed every existing test because those compare whole frames within a 2%
+/// pixel budget, and a line of 22 px text is far less than 2% of 900x640.
+///
+/// So this compares only the rows the text occupies, where garbled glyphs are most of
+/// the pixels.
+#[test]
+fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_text_line", TEXT_LINE);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not select the Metal renderer: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 60usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) = compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the Metal backend draws a text run differently from the software oracle: \
+             {diff}\nA glyph drawn with ANOTHER glyph's bitmap (hatching, or one letter \
+             repeated) is the per-glyph payload being overwritten before the draw."
+        );
+    }
+}

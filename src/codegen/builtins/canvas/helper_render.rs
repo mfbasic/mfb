@@ -110,12 +110,12 @@ END FUNC"#;
 /// polygon and Vulkan caps their sum. The two really are different conditions, and a
 /// scene can be GPU-renderable on one backend and not the other.
 ///
-/// **A glyph run is bounded rather than refused**, and the two bounds have different
-/// shapes for a real reason. Metal's bitmap rides `setFragmentBytes:`, copied into the
-/// command buffer per draw, so its cap is 4 KiB **per glyph** — about 64x64, a glyph at
-/// roughly 200 px. Vulkan's bitmaps are copied into one buffer that serves the whole
-/// recording, so its cap is a **frame** total. Neither truncates: a clipped glyph is a
-/// different glyph and would read as a rasteriser bug.
+/// **A glyph run is bounded rather than refused**, and on both backends the bound is a
+/// **frame** total: each glyph's bitmap is copied into a region of one buffer that
+/// serves the whole frame, and its block names its slice (bug-670 moved Metal onto
+/// Vulkan's design — its per-glyph `setFragmentBytes:` payload, capped at 4 KiB, was
+/// overwritten before the instanced draw read it). Neither truncates: a clipped glyph is
+/// a different glyph and would read as a rasteriser bug.
 ///
 /// Both predicates declined `__CANVAS_GEO_TEXT` outright for as long as neither backend
 /// could draw one, and that was not caution — the version before it *accepted* a kind
@@ -582,29 +582,10 @@ LET __CANVAS_MAX_FRAME_ITEMS AS Integer = 4096
 
 LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
 
-LET __CANVAS_METAL_MAX_GLYPH_SAMPLES AS Integer = 4096
-
-' The largest bitmap in a glyph run. Metal's cap is PER GLYPH, not per frame, because
-' its bitmaps ride `setFragmentBytes:` -- the same payload its edges ride -- and that is
-' copied into the command buffer per draw. Vulkan's is per frame for the opposite
-' reason: one buffer serves the whole recording.
-FUNC __canvas_runLargestGlyph(offset AS Integer) AS Integer
-  LET glyphs AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-  MUT worst AS Integer = 0
-  MUT g AS Integer = 0
-  WHILE g < glyphs
-    LET entry AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + g * 3, 0.0))
-    IF entry >= 0 THEN
-      LET base AS Integer = entry * 5
-      LET samples AS Integer = collections::getOr(__CANVAS_GLYPH_META, base + 2, 0) * collections::getOr(__CANVAS_GLYPH_META, base + 3, 0)
-      IF samples > worst THEN
-        worst = samples
-      END IF
-    END IF
-    g = g + 1
-  END WHILE
-  RETURN worst
-END FUNC
+' The glyph samples one frame may carry on Metal, summed over its runs -- a frame-wide
+' region like Vulkan's, and the same size (bug-670). `__canvas_runSamples` below counts
+' a run's share.
+LET __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = 1048576
 
 LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
 
@@ -615,14 +596,13 @@ LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = 4096
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
+  MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
-      IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
-        RETURN FALSE
-      END IF
+      samples = samples + __canvas_runSamples(offset)
     END IF
     ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
     ' asks. A blended item that both strokes and fills publishes two
@@ -648,6 +628,11 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     END IF
   NEXT
   IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
+  ' The glyph region serves the whole frame, so overflowing it would make one glyph
+  ' read another's coverage -- declined rather than drawn wrongly (bug-670).
+  IF samples > __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES THEN
     RETURN FALSE
   END IF
   ' The FRAME cap, new in plan-116-A and the one scene class Metal newly declines: its

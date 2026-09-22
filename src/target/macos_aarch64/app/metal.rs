@@ -74,7 +74,8 @@ use crate::codegen::runtime::canvas::{
     ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
     ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
-    MAX_FRAME_GRADIENT_STOPS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_GLYPH_SAMPLES,
+    MAX_FRAME_GRADIENT_STOPS, METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS,
+    METAL_MAX_FRAME_GLYPH_SAMPLES,
 };
 
 /// The one-time setup helper's symbol.
@@ -130,6 +131,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // buffer that is entirely valid memory.
     "constant int METAL_EDGE_BASE = 212992;\n",
     "constant int METAL_GRADIENT_BASE = 278528;\n",
+    "constant int METAL_GLYPH_BASE = 299008;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -444,12 +446,12 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // cast because the edge region is reached by a word index and the block region by a
     // struct index, and letting each keep its own element type is what stops a packing
     // mistake -- the class of bug that yields a plausible wrong picture, not a fault.
-    // The glyph bitmap stays a per-glyph `setFragmentBytes:` payload: a text item is
-    // already N separate draws, so its payload never has to survive an instanced run.
+    // Glyph coverage is the fourth region of the same buffer (bug-670): a text item is
+    // ONE instanced draw, so a per-glyph payload bound before it would be overwritten
+    // by the next glyph's; each glyph's block names its own slice instead.
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant uchar *glyph [[buffer(2)]],\n",
     "                            constant int2 &drawOffset [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
     // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
@@ -484,7 +486,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    int ix = int(floor(gp.x)) - item.shape.x;\n",
     "    int iy = int(floor(gp.y)) - item.shape.y;\n",
     "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
-    "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
+    "      ? 0 : edges[METAL_GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];\n",
     "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
     // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
@@ -1161,6 +1163,9 @@ const OFF_SAVED_STROKE: usize = 552;
 /// The frame's gradient-stop cursor, in STOPS — the third region's twin of
 /// `OFF_EDGE_CURSOR` (plan-116-F).
 const OFF_GRAD_CURSOR: usize = 560;
+/// The frame's glyph-sample cursor — the glyph region's twin of `OFF_EDGE_CURSOR`
+/// (bug-670).
+const OFF_GLYPH_CURSOR: usize = 616;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1176,7 +1181,9 @@ const OFF_GRAD_CURSOR: usize = 560;
 /// attributes in `METAL_SHADER_SOURCE`.
 ///
 /// The vertex stage has only `items` at 0, so the offset takes 1. The fragment stage
-/// already has items, edges and the glyph bitmap at 0..2, so it takes 3. They differ,
+/// has items and edges at 0 and 1 and takes 3 — index 2 held the per-glyph bitmap until
+/// bug-670 moved glyphs into the frame buffer, and is left unused rather than renumbering
+/// a binding the tests pin. They differ,
 /// and `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it` is what
 /// keeps each equal to its shader — sending to the wrong index binds nothing and the
 /// stage reads whatever was there, which is a wrong picture rather than a fault.
@@ -1577,6 +1584,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         // frame's stops past the region's end on the very first gradient, and the
         // over-cap arm then stores a count of 0 -- which draws the flat fill.
         OFF_GRAD_CURSOR,
+        // bug-670: the glyph region is per frame, like the edge and gradient ones.
+        OFF_GLYPH_CURSOR,
         OFF_BOUND_MODE,
     ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
@@ -1922,12 +1931,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 /// header already stores. Nothing here rounds a colour, so a fill is exact.
 /// One quad per glyph, for a `__CANVAS_GEO_TEXT` item.
 ///
-/// The Metal twin of `emit_glyph_draws` in `runtime/canvas/vulkan.rs`, and simpler for
-/// one reason: `setFragmentBytes:` copies into the command buffer at record time, so a
-/// glyph's bitmap can be handed over **in place** — a pointer into the coverage cache —
-/// where Vulkan has to copy it into a frame-wide buffer and pass an offset. The price is
-/// the payload's 4 KiB cap, which is `METAL_MAX_GLYPH_SAMPLES` and is why
-/// `__canvas_metalRenderable` declines a scene with a glyph bigger than about 64x64.
+/// The Metal twin of `emit_glyph_publish` in `runtime/canvas/vulkan.rs`, and now the
+/// same design (bug-670): each glyph's bitmap is copied into the frame buffer's glyph
+/// region at `OFF_GLYPH_CURSOR`, one sample a word, and the cursor goes into the
+/// glyph's block at `ITEM_ARC_EDGE_BASE`, where the shader finds it as `arc.z`. It used
+/// to bind the bitmap with a per-glyph `setFragmentBytes:`, which was right while each
+/// glyph was its own draw; once plan-116-H made the run ONE instanced draw, every glyph
+/// read whichever bitmap was bound last.
 ///
 /// The item block is built once for the run — fill, stroke and surface are the same for
 /// every glyph in it — and then edited per glyph.
@@ -2156,20 +2166,89 @@ fn emit_glyph_publish(asm: &mut Asm) {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
     asm.push(abi::branch_le(&next));
-    // Bigger than the payload is a scene `__canvas_metalRenderable` should already have
-    // declined. Skipping rather than truncating: a clipped glyph is a different glyph.
+    // samples = w * h, and the frame's remaining room for them. The predicate has
+    // already declined a frame that does not fit, so this bound is the emitter refusing
+    // to write past its buffer if the two ever disagree — not a policy of its own.
+    // Skipping rather than truncating: a clipped glyph is a different glyph.
     asm.push(abi::multiply_registers(
         abi::SCRATCH[6],
         abi::SCRATCH[5],
         abi::SCRATCH[6],
     ));
-    asm.push(abi::move_immediate(
+    asm.push(abi::load_u64(
         abi::SCRATCH[7],
-        "Integer",
-        &METAL_MAX_GLYPH_SAMPLES.to_string(),
+        abi::stack_pointer(),
+        OFF_GLYPH_CURSOR,
     ));
-    asm.push(abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[7]));
+    // Only SCRATCH[0..8] here: on AArch64 indices 10 and up realise to x20..x28, the
+    // callee-saved registers this function keeps its loop state in, and 9 is x18,
+    // which Apple reserves. SCRATCH[0..5] are free at this point — everything after
+    // the copy reloads what it needs from the stack.
+    asm.push(abi::add_registers(
+        abi::SCRATCH[8],
+        abi::SCRATCH[7],
+        abi::SCRATCH[6],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &METAL_MAX_FRAME_GLYPH_SAMPLES.to_string(),
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[8], abi::SCRATCH[0]));
     asm.push(abi::branch_gt(&next));
+
+    // --- copy the bitmap into the frame buffer's glyph region --------------------------
+    // dst = contents + (GLYPH_BASE + cursor) * 4, src = the cached bitmap; one byte of
+    // coverage widens to one 32-bit word, which is what `edges` indexes.
+    {
+        let copy_head = format!("{METAL_DRAW_SYMBOL}_glyph_copy_head");
+        let copy_done = format!("{METAL_DRAW_SYMBOL}_glyph_copy_done");
+        let (src, dst, i, byte, at) = (
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+            abi::SCRATCH[2],
+            abi::SCRATCH[3],
+            abi::SCRATCH[4],
+        );
+        asm.push(abi::load_u64(src, abi::stack_pointer(), OFF_GLYPH_SRC));
+        asm.push(abi::load_u64(dst, abi::stack_pointer(), OFF_CONTENTS));
+        asm.push(abi::move_immediate(
+            at,
+            "Integer",
+            &METAL_GLYPH_BASE_WORDS.to_string(),
+        ));
+        asm.push(abi::add_registers(at, at, abi::SCRATCH[7]));
+        asm.push(abi::shift_left_immediate(at, at, 2));
+        asm.push(abi::add_registers(dst, dst, at));
+        asm.push(abi::move_immediate(i, "Integer", "0"));
+        asm.push(abi::label(&copy_head));
+        asm.push(abi::compare_registers(i, abi::SCRATCH[6]));
+        asm.push(abi::branch_ge(&copy_done));
+        asm.push(abi::add_registers(at, src, i));
+        asm.push(abi::load_u8(byte, at, 0));
+        asm.push(abi::shift_left_immediate(at, i, 2));
+        asm.push(abi::add_registers(at, dst, at));
+        asm.push(abi::store_u32(byte, at, 0));
+        asm.push(abi::add_immediate(i, i, 1));
+        asm.push(abi::branch(&copy_head));
+        asm.push(abi::label(&copy_done));
+        // The block names its slice; then the cursor moves past it.
+        asm.push(abi::store_u32(
+            abi::SCRATCH[7],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+        ));
+        asm.push(abi::add_registers(
+            abi::SCRATCH[7],
+            abi::SCRATCH[7],
+            abi::SCRATCH[6],
+        ));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[7],
+            abi::stack_pointer(),
+            OFF_GLYPH_CURSOR,
+        ));
+    }
 
     // --- the glyph's own item block ------------------------------------------------
     // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
@@ -2271,35 +2350,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
     ));
     emit_item_publish(asm, &next);
 
-    // The edge binding needs no per-glyph send any more: the frame buffer is bound at
-    // fragment index 1 once for the whole frame, and the glyph arm returns before
-    // `geoDistance` would read it anyway. The bitmap below is the ONLY per-draw payload
-    // left on this path — it stays, because a text item is already N separate draws
-    // (`GEO_KIND_TEXT`), so it never has to survive an instanced run.
-    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
-    asm.push(abi::load_u64(
-        abi::c_arg(2),
-        abi::stack_pointer(),
-        OFF_GLYPH_SRC,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[5],
-        abi::stack_pointer(),
-        OFF_GLYPH_W,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[6],
-        abi::stack_pointer(),
-        OFF_GLYPH_H,
-    ));
-    asm.push(abi::multiply_registers(
-        abi::c_arg(3),
-        abi::SCRATCH[5],
-        abi::SCRATCH[6],
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "2"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // No per-glyph payload: the bitmap is already in the frame buffer's glyph region,
+    // named by this block's `arc.z` (bug-670).
 
     // plan-116-H: no draw here any more. A glyph run is still N quads, one block each,
     // but the draw that issues them is now the draw list's — a `Text` item is its own
@@ -3545,6 +3597,7 @@ mod tests {
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 8, "drawPair"),
+            (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 
@@ -3572,8 +3625,9 @@ mod tests {
     /// The draw offset is bound where the shader declares it, in both stages.
     ///
     /// The emitter sends `setVertexBytes:...atIndex:` and `setFragmentBytes:...atIndex:`
-    /// with two *different* indices, because the fragment stage already has items,
-    /// edges and the glyph bitmap at 0..2 while the vertex stage has only items at 0.
+    /// with two *different* indices, because the fragment stage has items and edges at
+    /// 0 and 1 (index 2, the old per-glyph bitmap, is unused since bug-670) while the
+    /// vertex stage has only items at 0.
     /// The shader is a string the Rust compiler never parses, so nothing else checks
     /// that the two agree — and a mismatch does not fault: the stage reads whatever was
     /// bound at that index, which is a wrong picture reported as success.
@@ -3677,10 +3731,24 @@ mod tests {
             METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
             "the gradient region must start where the edge region ends"
         );
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};"
+            )),
+            "the MSL declares a glyph-region base that is not METAL_GLYPH_BASE_WORDS \
+             ({METAL_GLYPH_BASE_WORDS}); every glyph would read its coverage from the \
+             wrong offset of a buffer that is entirely valid memory"
+        );
+        // bug-670 added the fourth region; the chain grows by one link.
+        assert_eq!(
+            METAL_GLYPH_BASE_WORDS * 4,
+            METAL_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
+            "the glyph region must start where the gradient region ends"
+        );
         assert_eq!(
             METAL_BUFFER_BYTES,
-            METAL_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
-            "the buffer must be exactly its three regions, with nothing past the last"
+            METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4,
+            "the buffer must be exactly its four regions, with nothing past the last"
         );
     }
 
