@@ -95,10 +95,18 @@ Commit: e1194b769
 
 ### Phase 3 — Final gate and landing
 
-- [ ] `cargo test --no-fail-fast > /tmp/p147_full.log 2>&1; echo EXIT=$?` → `EXIT=0`,
+- [x] `cargo test --no-fail-fast > /tmp/p147_full.log 2>&1; echo EXIT=$?` → `EXIT=0`,
       `grep -c '^failures:'` → 0 (includes `artifact_gate_all`, the full cross-target
-      golden sweep).
-- [ ] `cargo clippy --all-targets` → no warnings in files plan-147 touched.
+      golden sweep). Observed on the tree with main merged in (`/tmp/p147_full2.log`):
+      `EXIT=0`, `failures:` 0, 216 `test result: ok`, 0 FAILED; unit tests `4287
+      passed; 0 failed`; `artifact-gate [all]: 1480 tests, 1655 build(s), 2092
+      golden(s) checked, 0 diff(s)`. (The first run, before the fix recorded in
+      Corrections, had 1 failure.)
+- [x] `cargo clippy --all-targets` → no warnings in files plan-147 touched. Observed:
+      no diagnostic in any plan-147 file after the `rt_canvas_font.rs` fixture-builder
+      fixes (`div_ceil`, `sort_by_key`). The run exits 101 on
+      `rt_math_fixed_trig_accuracy`'s five `FRAC_PI_2` errors, which predate plan-147
+      and are not in its files.
 - [ ] Merge `worktree-system-fonts` into main from the main checkout (clean merge,
       main tree not entangled), then archive plan-147-E.
 
