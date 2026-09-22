@@ -351,6 +351,14 @@ const TIER_B_TRANSFORMS: &[(&str, &str)] = &[
     ("strings.normalizeNfc", "__astrings_normalizeNfc"),
 ];
 
+/// plan-146-A: the Tier-B table, for the self-update census
+/// (`tier_b_transforms_have_rows`), which must see every `AttributedString`
+/// transform the registry does not list.
+#[cfg(test)]
+pub(crate) fn tier_b_transforms() -> &'static [(&'static str, &'static str)] {
+    TIER_B_TRANSFORMS
+}
+
 pub(crate) fn is_tier_b_transform(name: &str) -> bool {
     TIER_B_TRANSFORMS.iter().any(|(member, _)| *member == name)
 }

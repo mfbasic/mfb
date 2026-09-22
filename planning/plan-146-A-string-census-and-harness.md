@@ -90,10 +90,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-142 is complete and archived | `ls planning/completed/plan-142-I-lock-and-docs.md` → exists | MET (2026-09-21) |
-| plan-143 is complete and its findings exist | `ls planning/completed/plan-143-string-self-update-audit.md planning/plan-143-findings/string-self-update-audit.md` → both exist | MET (2026-09-21) |
-| bug-667 fixed: `toString(<String>)`, `fs::pathDirName` and a default global `String` hand an owning store a block it owns (findings F1, F3) | `ls bugs/completed/bug-667-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/general/tostring_string_owning_store'` and `… 'rt-behavior/fs/pathdirname_constant_owned'` → pass | MET for the file (2026-09-21: `bugs/completed/bug-667-bound-tostring-boolean-self-append-sigbus.md`); fixtures: re-run before starting |
-| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | re-run before starting |
+| plan-142 is complete and archived | `ls planning/completed/plan-142-I-lock-and-docs.md` → exists | MET (2026-09-22, re-run at `549506901`) |
+| plan-143 is complete and its findings exist | `ls planning/completed/plan-143-string-self-update-audit.md planning/plan-143-findings/string-self-update-audit.md` → both exist | MET (2026-09-22) |
+| bug-667 fixed: `toString(<String>)`, `fs::pathDirName` and a default global `String` hand an owning store a block it owns (findings F1, F3) | `ls bugs/completed/bug-667-*.md` → exists, **and** `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/general/tostring_string_owning_store'` and `… 'rt-behavior/fs/pathdirname_constant_owned'` → pass | MET (2026-09-22: the file exists; both fixtures `acceptance tests passed (1 test(s) ran)` in the P-146 worktree) |
+| The release compiler exists for `--ncode` probes | `ls target/release/mfb` → exists | MET (2026-09-22: built in the P-146 worktree) |
 
 Why bug-667 gates the whole plan: every arm here writes into `s`'s block. That is
 sound only if `s` owns its block. F1 (`s = toString(s)` stored the block it freed)
@@ -242,22 +242,39 @@ Rejected alternatives:
 
 ### Phase 1: The census rule and the table rows
 
-- [ ] `registry::self_update_shaped`: accept a `String` or `AttributedString` first
+- [x] `registry::self_update_shaped`: accept a `String` or `AttributedString` first
       parameter whose return type is the same type. Run the census and record the
       new failure list here. It must name exactly the 44 literal rows (40 + 4
       `astrings`). Any other name is a finding to record in Corrections before
       continuing.
-- [ ] `SelfUpdate::Pending(&'static str)` and `SelfUpdate::Deferred(&'static str)`;
+      `cargo test --bin mfb self_update_census_covers_every_registry_overload` →
+      44 names: `astrings::{addAttribute, clearAttributes, removeAttribute, writeSpans}`,
+      `encoding::{formUrlDecode, formUrlEncode, htmlEscape, htmlUnescape, percentDecode,
+      percentEncode, punycodeDecode, punycodeEncode}`, `fs::{canonicalPath, pathBaseName,
+      pathDirName, pathExtension, pathNormalize, readText}`, `io::input`,
+      `net::percentDecode`, `os::{getEnv, getEnvOr, resourcePath}`, `regex::replace`,
+      and the 20 `strings::` names. The 44 are *functions*; the plan's 44 are
+      *overloads* (`clearAttributes` has two). `astrings::writeSpans` is the one
+      unexpected name: Correction A1.
+- [x] `SelfUpdate::Pending(&'static str)` and `SelfUpdate::Deferred(&'static str)`;
       the stale-row test requires a non-empty string for both.
-- [ ] 44 rows + 19 Tier-B rows + `toString` + `&@AttributedString`, with the kinds
-      in §3 and one probe each.
-- [ ] `tier_b_transforms_have_rows`, and the `NON_REGISTRY` list.
-- [ ] RED proof (`.ai/testing-gates.md:809`): delete the `strings::trim` row and
+- [x] 44 rows + 19 Tier-B rows + `toString` + `&@AttributedString`, with the kinds
+      in §3 and one probe each. (43 function rows after Correction A1: 40 `String`
+      + 3 `astrings`, whose `clearAttributes` row carries a probe per overload.)
+- [x] `tier_b_transforms_have_rows`, and the `NON_REGISTRY` list.
+- [x] RED proof (`.ai/testing-gates.md:809`): delete the `strings::trim` row and
       confirm the census fails naming it. Delete the `strings::trim@AttributedString`
       row and confirm the Tier-B test fails naming it. Restore both.
+      Both deleted at once, `cargo test --bin mfb -- self_update_census_covers
+      tier_b_transforms_have_rows` → `2 failed`:
+      `self-update-shaped builtin(s) with no SELF_UPDATE_TABLE row … ["strings::trim"]`
+      and `Tier-B AttributedString transform(s) with no SELF_UPDATE_TABLE row:
+      ["strings::trim@AttributedString"]`. Restored.
 
 Acceptance: `cargo test --bin mfb self_update` passes; both RED failure lines are
 recorded here (est. 5 min).
+Result: `cargo test --bin mfb self_update` → `test result: ok. 8 passed; 0 failed`
+(86.07 s); the RED lines are on the last task above.
 Commit: —
 
 ### Phase 2: The black-box census and the harness lines
@@ -304,7 +321,7 @@ Commit: —
    starting census.
    Alternative: land `AttributedString` here, after plan-145. That makes plan-145 a
    prerequisite of plan-146 and adds a letter.
-   DECISION:
+   DECISION: recommended (Correction A2).
 2. **The 10 MFBASIC-body rewrites** (`encoding::formUrlDecode formUrlEncode
    htmlEscape htmlUnescape percentDecode percentEncode punycodeDecode
    punycodeEncode`, `net::percentDecode`, `regex::replace`). Recommended: `Exempt`
@@ -318,7 +335,7 @@ Commit: —
    for functions rarely applied to a binding in a loop (in-tree uses:
    `examples/browser/display/src/lib.mfb:49-51`, three `regex::replace` lines, from
    the fixture grep in B's Measured populations).
-   DECISION:
+   DECISION: recommended (Correction A2).
 3. **S9 for `String`.** Recommended: letter G, a capacity shadow shared by the
    creator and the lambda through the closure environment, the way the
    self-update scratch is shared (`scratch_closure_captures`,
@@ -327,7 +344,7 @@ Commit: —
    and rewrite arm here has the same need, so the gap is no longer one row.
    Alternative: keep S9 as a recorded gate (`G1`) for every `String` arm, each with
    a harness line asserting the copy. That is plan-142's answer for `&`.
-   DECISION:
+   DECISION: recommended (Correction A2).
 4. **What an in-place shrink does with the freed bytes.** Recommended: keep them as
    spare capacity in the binding's shadow (`shadow += oldLen − newLen`), as the
    collection shrink arms keep `dataCapacity`. B gives every `String` arm target a
@@ -337,9 +354,31 @@ Commit: —
    the 16-aligned tail looks legal, but nothing in-tree frees part of a chunk
    (UNVERIFIED), and it saves memory only for a binding shrunk and never grown
    again.
-   DECISION:
+   DECISION: recommended (Correction A2).
 
 ## Corrections
+
+- **A1 — the census names `astrings::writeSpans`, a function user source cannot
+  call.** Phase 1's first census run listed 44 functions, one more than the 43
+  functions behind the plan's 44 overloads: `astrings::writeSpans(value AS
+  AttributedString, spans AS …) AS AttributedString`
+  (`src/codegen/builtins/astrings/func_write_spans.rs`) is `internal_only: true` —
+  "a native primitive the package's own injected companion calls that user source
+  must never reach" (`RegistryFunction::internal_only`, `src/codegen/registry/mod.rs`),
+  so it has no man page (`mfb man astrings writeSpans` → `unknown astrings
+  function`) and no user program can write `a = astrings::writeSpans(a, …)`. The
+  unit census now skips `internal_only` functions (`shaped_functions`); no
+  existing row is `internal_only` (the census still passes with every plan-142 row).
+  The black-box census reads `mfb man`, which never lists it. Row counts:
+  `SELF_UPDATE_TABLE` gains 43 registry rows (40 `String`, 3 `astrings`), 19 Tier-B
+  rows and 2 non-registry rows (`toString`, `&@AttributedString`) = 64 rows; the
+  harness gains one line per overload, 65 (the `clearAttributes` row covers two).
+- **A2 — the Open Decisions were blank; the plan runs on the recommended options.**
+  Every letter (C's shadow arithmetic, F's `Exempt` set, G's shared shadow, the
+  `Deferred` rows here) is written for the recommended option of each of Open
+  Decisions 1–4, and `/follow-plan` executes the plan as written, so each
+  `DECISION:` line now records "recommended". A user decision the other way is a
+  re-plan, not a correction.
 
 ## Summary
 

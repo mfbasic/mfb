@@ -945,6 +945,12 @@ pub(crate) enum SelfUpdate {
         reason: &'static str,
         proof: &'static str,
     },
+    /// plan-146-A: still copies; the plan-146 letter named here lands its arm or
+    /// its proven exemption. Letter H deletes this variant again, as plan-142-I did.
+    Pending(&'static str),
+    /// Still copies; the named plan owns it (plan-146-A Open Decision 1: the
+    /// `AttributedString` forms, `attributed-string`).
+    Deferred(&'static str),
 }
 
 /// A program fragment that performs one self-update of `x`, for the matrix test.
@@ -983,6 +989,22 @@ const M: &[&str] = &["math"];
 const Z: &[&str] = &["compress", "encoding"];
 #[cfg(test)]
 const K: &[&str] = &["crypto", "encoding"];
+#[cfg(test)]
+const ST: &[&str] = &["strings"];
+#[cfg(test)]
+const FS: &[&str] = &["fs"];
+#[cfg(test)]
+const OS: &[&str] = &["os"];
+#[cfg(test)]
+const EN: &[&str] = &["encoding"];
+#[cfg(test)]
+const NET: &[&str] = &["net"];
+#[cfg(test)]
+const RE: &[&str] = &["regex"];
+#[cfg(test)]
+const AS: &[&str] = &["astrings"];
+#[cfg(test)]
+const AST: &[&str] = &["astrings", "strings"];
 
 #[cfg(test)]
 const fn probe(
@@ -1017,6 +1039,24 @@ const fn probe_with(
     }
 }
 
+/// plan-146-A: a `String` probe.
+#[cfg(test)]
+const fn str_probe(
+    imports: &'static [&'static str],
+    init: &'static str,
+    call: &'static str,
+) -> Probe {
+    probe(imports, "String", init, call)
+}
+
+#[cfg(test)]
+const STR: &str = "\"abcdef\"";
+#[cfg(test)]
+const PATH: &str = "\"/tmp/a/b.txt\"";
+#[cfg(test)]
+const ATTR: &str = "AttributedString";
+#[cfg(test)]
+const ATTR_INIT: &str = "astrings::fromString(\"abcdef\")";
 #[cfg(test)]
 const LI: &str = "List OF Integer";
 #[cfg(test)]
@@ -1515,6 +1555,366 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
             proof: SHAKE_PROOF,
         },
         probes: &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
+    },
+    // --- plan-146: `String` self-updates (Pending until their letter lands) ---
+    SelfUpdateRow {
+        function: "toString",
+        kind: SelfUpdate::Pending("B"),
+        probes: &[str_probe(&[], STR, "toString(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::left",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::left(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::right",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::right(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::mid",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::mid(x, 1, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripPrefix",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::stripPrefix(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripSuffix",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::stripSuffix(x, \"f\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::trim",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::trim(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimStart",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::trimStart(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimEnd",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::trimEnd(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimChars",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::trimChars(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::graphemeAt",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(ST, STR, "strings::graphemeAt(x, 0)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathBaseName",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(FS, PATH, "fs::pathBaseName(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathDirName",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(FS, PATH, "fs::pathDirName(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathExtension",
+        kind: SelfUpdate::Pending("C"),
+        probes: &[str_probe(FS, PATH, "fs::pathExtension(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeft",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(ST, STR, "strings::padLeft(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRight",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(ST, STR, "strings::padRight(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeftToWidth",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(ST, STR, "strings::padLeftToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRightToWidth",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(ST, STR, "strings::padRightToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::repeat",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(ST, STR, "strings::repeat(x, 2)")],
+    },
+    SelfUpdateRow {
+        function: "os::resourcePath",
+        kind: SelfUpdate::Pending("D"),
+        probes: &[str_probe(OS, STR, "os::resourcePath(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::upper",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(ST, STR, "strings::upper(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::lower",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(ST, STR, "strings::lower(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::caseFold",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(ST, STR, "strings::caseFold(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::normalizeNfc",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(ST, STR, "strings::normalizeNfc(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::replace",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(ST, STR, "strings::replace(x, \"a\", \"b\")")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathNormalize",
+        kind: SelfUpdate::Pending("E"),
+        probes: &[str_probe(FS, PATH, "fs::pathNormalize(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::formUrlDecode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::formUrlDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::formUrlEncode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::formUrlEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::htmlEscape",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::htmlEscape(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::htmlUnescape",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::htmlUnescape(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::percentDecode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::percentDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::percentEncode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::percentEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::punycodeDecode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::punycodeDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::punycodeEncode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(EN, STR, "encoding::punycodeEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::canonicalPath",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(FS, PATH, "fs::canonicalPath(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::readText",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(FS, PATH, "fs::readText(x)")],
+    },
+    SelfUpdateRow {
+        function: "io::input",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(&[], STR, "io::input(x)")],
+    },
+    SelfUpdateRow {
+        function: "net::percentDecode",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(NET, STR, "net::percentDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::getEnv",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(OS, STR, "os::getEnv(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::getEnvOr",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(OS, STR, "os::getEnvOr(x, \"x\")")],
+    },
+    SelfUpdateRow {
+        function: "regex::replace",
+        kind: SelfUpdate::Pending("F"),
+        probes: &[str_probe(RE, STR, "regex::replace(x, \"a\", \"b\")")],
+    },
+    // --- plan-146-A Open Decision 1: `AttributedString`, deferred ---
+    SelfUpdateRow {
+        function: "astrings::addAttribute",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "astrings::addAttribute(x, 0, 1, astrings::bold())",
+        )],
+    },
+    SelfUpdateRow {
+        function: "astrings::clearAttributes",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[
+            probe(AS, ATTR, ATTR_INIT, "astrings::clearAttributes(x)"),
+            probe(AS, ATTR, ATTR_INIT, "astrings::clearAttributes(x, 0, 1)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "astrings::removeAttribute",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "astrings::removeAttribute(x, 0, 1, astrings::bold())",
+        )],
+    },
+    SelfUpdateRow {
+        function: "&@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "x & astrings::fromString(\"b\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::left@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::left(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::right@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::right(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::mid@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::mid(x, 1, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trim@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trim(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimStart@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimStart(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimEnd@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimEnd(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimChars@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimChars(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripPrefix@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::stripPrefix(x, \"a\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::stripSuffix@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::stripSuffix(x, \"f\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeft@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padLeft(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeftToWidth@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padLeftToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRight@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padRight(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRightToWidth@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::padRightToWidth(x, 8)",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::repeat@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::repeat(x, 2)")],
+    },
+    SelfUpdateRow {
+        function: "strings::replace@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::replace(x, \"a\", \"b\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::upper@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::upper(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::lower@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::lower(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::caseFold@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::caseFold(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::normalizeNfc@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::normalizeNfc(x)")],
     },
 ];
 
@@ -2115,15 +2515,28 @@ mod tests {
     use crate::target::NativeBuildMode::Console;
     use crate::testutil::{code_for_src_cached, CodeTarget};
 
-    /// Operator self-updates: rows with no registry function behind them.
-    const OPERATORS: &[&str] = &["&"];
+    /// Rows with no registry function behind them: the operator self-updates, the
+    /// unqualified `toString` (plan-146-A), and `&` on two `AttributedString`s,
+    /// which reaches NIR as a call to `#astrings_concat` (plan-143 findings F5).
+    const NON_REGISTRY: &[&str] = &["&", "toString", "&@AttributedString"];
+
+    /// The `@AttributedString` row spelling of a Tier-B transform: the
+    /// `AttributedString` "overload" of a `strings::` member, typed by
+    /// `strings::resolve_return_type` rather than registered (plan-143 Correction 1).
+    fn tier_b_row(member: &str) -> String {
+        format!("{}@AttributedString", member.replacen('.', "::", 1))
+    }
 
     /// Every function with at least one self-update-shaped overload, as `pkg::name`.
+    /// An `internal_only` member is outside it: user source can never call it
+    /// (`astrings::writeSpans`, plan-146-A Correction A1).
     fn shaped_functions() -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for package in registry().packages() {
             for function in package.functions() {
-                if function.implementations.iter().any(self_update_shaped) {
+                if !function.internal_only
+                    && function.implementations.iter().any(self_update_shaped)
+                {
                     out.insert(format!("{}::{}", package.import_name(), function.name));
                 }
             }
@@ -2265,9 +2678,29 @@ mod tests {
         );
     }
 
+    /// plan-146-A: the Tier-B `AttributedString` transforms are a second census
+    /// source — `mfb man` and the registry cannot see them.
+    #[test]
+    fn tier_b_transforms_have_rows() {
+        let rows: BTreeSet<&str> = SELF_UPDATE_TABLE.iter().map(|r| r.function).collect();
+        let missing: Vec<String> = crate::codegen::builtins::strings::tier_b_transforms()
+            .iter()
+            .map(|(member, _)| tier_b_row(member))
+            .filter(|row| !rows.contains(row.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "Tier-B AttributedString transform(s) with no SELF_UPDATE_TABLE row: {missing:?}"
+        );
+    }
+
     #[test]
     fn self_update_table_has_no_stale_rows() {
         let shaped = shaped_functions();
+        let tier_b: BTreeSet<String> = crate::codegen::builtins::strings::tier_b_transforms()
+            .iter()
+            .map(|(member, _)| tier_b_row(member))
+            .collect();
         let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
         assert_eq!(
             arms.len(),
@@ -2279,7 +2712,9 @@ mod tests {
         for row in SELF_UPDATE_TABLE {
             assert!(seen.insert(row.function), "duplicate row {}", row.function);
             assert!(
-                shaped.contains(row.function) || OPERATORS.contains(&row.function),
+                shaped.contains(row.function)
+                    || NON_REGISTRY.contains(&row.function)
+                    || tier_b.contains(row.function),
                 "row {} names no registry function with a self-update-shaped overload",
                 row.function
             );
@@ -2289,6 +2724,14 @@ mod tests {
                     !reason.trim().is_empty() && !proof.trim().is_empty(),
                     "row {} is Exempt without a reason and a proof",
                     row.function
+                );
+            }
+            if let SelfUpdate::Pending(owner) | SelfUpdate::Deferred(owner) = row.kind {
+                assert!(
+                    !owner.trim().is_empty(),
+                    "row {} is {:?} without naming who lands it",
+                    row.function,
+                    row.kind
                 );
             }
             if let SelfUpdate::Arm(ids) = row.kind {

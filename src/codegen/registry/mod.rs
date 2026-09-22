@@ -2881,8 +2881,9 @@ fn substitute(
 }
 
 /// Whether an overload has a **self-update form** `x = f(x, …)` for a collection `x`
-/// (plan-142-A): its first parameter is, or can be instantiated to, a `List`, `Map`
-/// or `Set`, and its return type can equal that first parameter under one
+/// (plan-142-A) or a `String` `x` (plan-146-A): its first parameter is, or can be
+/// instantiated to, a `List`, `Map` or `Set` — or is a `String` or an
+/// `AttributedString` — and its return type can equal that first parameter under one
 /// substitution of the signature's type variables. An `Arg(n)` return echoes
 /// parameter `n`'s type. The census in `collection::assign::self_update` requires a
 /// `SELF_UPDATE_TABLE` row for every function with such an overload.
@@ -2914,7 +2915,16 @@ pub(crate) fn self_update_shaped(imp: &Implementation) -> bool {
     ) || matches!(
         resolve_bound(strip_res(&first.ty), &bindings),
         ParameterType::Var(_)
-    )
+    ) || is_string_self_update_type(strip_res(&first.ty))
+}
+
+/// plan-146-A: a `String` (or `astrings::AttributedString`) first parameter whose
+/// return type is the same type is a `String` self-update form `s = f(s, …)`.
+/// The declared type itself, not a binding: no generic overload's result can be
+/// the first argument's `String` type (plan-143 findings, the generic census).
+#[cfg(test)]
+fn is_string_self_update_type(ty: &ParameterType) -> bool {
+    *ty == ParameterType::String || ty.is_named("AttributedString")
 }
 
 #[cfg(test)]
