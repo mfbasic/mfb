@@ -325,13 +325,17 @@ enum Site {
 const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
 
 impl Site {
-    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`, and
-    /// a by-ref `String` has no capacity shadow to append into (plan-142-G
-    /// Correction G1). A global's lives in a hidden global (plan-142-H). An
-    /// `AttributedString` (plan-146-A, deferred) runs where a `String` does.
+    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`
+    /// (`TYPE_FOR_EACH_REQUIRES_COLLECTION`). A global's shadow lives in a hidden
+    /// global (plan-142-H), and a by-ref capture shares its owner's through the
+    /// closure environment (plan-146-G), so a `String` runs everywhere but S7. An
+    /// `AttributedString` (plan-146-A, deferred) runs at S1 and S2 only.
     fn applies(self, case: &Case) -> bool {
-        matches!(self, Site::Local | Site::Global)
-            || !matches!(case.ty(), "String" | "AttributedString")
+        match case.ty() {
+            "String" => !matches!(self, Site::ForEach),
+            "AttributedString" => matches!(self, Site::Local | Site::Global),
+            _ => true,
+        }
     }
 }
 

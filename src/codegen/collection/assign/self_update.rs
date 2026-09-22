@@ -799,6 +799,13 @@ pub(crate) fn module_self_updates_with(module: &NirModule, bare: &str) -> bool {
     })
 }
 
+/// plan-146-D/G: whether `ops` hold `s = os::resourcePath(s)`.
+pub(crate) fn ops_hold_resource_path_self_update(ops: &[NirOp]) -> bool {
+    ops_hold_self_update(ops, &|target| {
+        self_update_builtin(target) == Some("resourcePath")
+    })
+}
+
 /// Whether the module holds a `collections::replace` self-update (plan-142-C).
 /// Its arm writes through `lower_list_set_in_place`, whose rebuild path — never
 /// taken from that arm, but always emitted — raises `ErrIndexOutOfRange`, so the
@@ -896,12 +903,17 @@ impl CodeBuilder<'_> {
     /// null guard and prologue zeroing that drop brings), exactly as the self-update
     /// scratch is.
     pub(crate) fn prescan_string_resource_base(&mut self, ops: &[NirOp]) {
-        if self.string_resource_base.is_some() {
+        if self.string_resource_base.is_some() || self.string_resource_base_env.is_some() {
             return;
         }
-        if !ops_hold_self_update(ops, &|target| {
-            self_update_builtin(target) == Some("resourcePath")
-        }) {
+        // plan-146-G: a function that lends the cache to a lambda needs one too.
+        let lends = self.closures_created_in(ops).into_iter().any(|lambda| {
+            crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+                self.functions,
+                &lambda,
+            )
+        });
+        if !ops_hold_resource_path_self_update(ops) && !lends {
             return;
         }
         let slot = self.allocate_stack_object("str_resource_base", 8);
@@ -915,6 +927,88 @@ impl CodeBuilder<'_> {
                 loop_alias_slot: None,
                 result_wrapper: None,
             }));
+        // The prologue zeroes it from here: without that, a second call to this
+        // function reads the block the first one cached AND freed (a lambda runs
+        // once per element, and the third call died on the reused memory).
+        self.owned_value_slots.push(slot);
+    }
+
+    /// plan-146-G: in a lambda, the closure-environment word holding the address
+    /// of the creator's `os::resourcePath` base-path cache, after the shadow words.
+    pub(crate) fn prescan_string_resource_base_env(&mut self, function: &str) {
+        if !crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+            self.functions,
+            function,
+        ) {
+            return;
+        }
+        let Some(total) = self.closure_capture_count(function) else {
+            return;
+        };
+        let scratch_words = usize::from(self.scratch_closure_captures(function).is_some());
+        let shadow_words =
+            crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                self.functions,
+                function,
+            )
+            .len();
+        self.string_resource_base_env = Some(total + scratch_words + shadow_words);
+    }
+
+    /// plan-146-G: in a lambda, record which closure-environment word holds the
+    /// address of each by-ref-captured `String`'s OWNER shadow slot. The layout is
+    /// `[captures…][the borrowed scratch, if any][one word per shadowed capture]`,
+    /// and the creator writes the same words in the same order
+    /// (`string_shadow_captures`).
+    pub(crate) fn prescan_string_shadow_env(&mut self, function: &str) {
+        let captures =
+            crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                self.functions,
+                function,
+            );
+        if captures.is_empty() {
+            return;
+        }
+        let Some(total) = self.closure_capture_count(function) else {
+            return;
+        };
+        // The same predicate the creator uses to decide whether it lends its
+        // scratch (`borrowed_scratch`), NOT `self_update_scratch_env` — that field
+        // is set by a later prescan, and reading it here put the shadow word on top
+        // of the scratch word (both sides then wrote through word 1: the scratch
+        // pointer landed in the owner's shadow and the scratch leaked).
+        let scratch_words = usize::from(self.scratch_closure_captures(function).is_some());
+        for (position, (local, _)) in captures.into_iter().enumerate() {
+            self.string_shadow_env
+                .insert(local, total + scratch_words + position);
+        }
+    }
+
+    /// The number of values the closure creating `lambda` captures, or `None` when
+    /// no closure does (or it captures nothing, so there is no environment).
+    pub(crate) fn closure_capture_count(&self, lambda: &str) -> Option<usize> {
+        struct Finder<'n> {
+            lambda: &'n str,
+            captures: Option<usize>,
+        }
+        impl NirVisitor for Finder<'_> {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { name, captures, .. } = value {
+                    if name == self.lambda && !captures.is_empty() {
+                        self.captures = Some(captures.len());
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder {
+            lambda,
+            captures: None,
+        };
+        for function in self.functions.values() {
+            finder.visit_ops(&function.body);
+        }
+        finder.captures
     }
 
     /// Make the self-update scratch hold at least the byte count in `need_slot`,
@@ -2359,9 +2453,9 @@ pub(crate) enum Site {
     /// is not a collection, so no `FOR EACH` walks one: the `&` row has no S7.
     ForEach,
     /// S9 — a `MUT` captured by reference in a `collections::forEach` lambda
-    /// (plan-142-G). The self-update lowers in the lifted lambda. A by-ref
-    /// `String` has no capacity shadow to append into (Correction G1), so the `&`
-    /// row has no S9.
+    /// (plan-142-G). The self-update lowers in the lifted lambda. plan-146-G gave a
+    /// by-ref `String` the owner's capacity shadow, shared through the closure
+    /// environment, so every `String` arm and `&` fire here too.
     Lambda,
     /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
     Global,
@@ -2565,7 +2659,12 @@ impl Probe {
                 init = self.init,
                 call = self.call,
             )),
-            Site::ForEach | Site::Lambda if self.ty == "String" => return None,
+            // plan-146-G: `Site::Lambda` (S9) is a `String` site now — the lambda
+            // shares the owner's capacity shadow. `FOR EACH` still cannot walk a
+            // `String` (`TYPE_FOR_EACH_REQUIRES_COLLECTION`).
+            Site::ForEach if self.ty == "String" => return None,
+            Site::Lambda if self.ty == "AttributedString" => return None,
+            Site::ForEach if self.ty == "AttributedString" => return None,
             Site::ForEach => src.push_str(&format!(
                 "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR EACH each1 IN x\n    \
                  x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",

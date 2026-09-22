@@ -265,12 +265,148 @@ pub(crate) fn target_needs_string_scratch(target: &str) -> bool {
     )
 }
 
+/// plan-146-G: the by-ref `String` captures of `lambda` that share their owner's
+/// capacity shadow, in capture order — `(local, capture index)`.
+///
+/// A lambda that self-updates a by-ref-captured `String` writes through the
+/// reference into the OWNER's block, so the spare bytes it leaves are the owner's
+/// to know about. The closure environment carries the address of the owner's
+/// shadow slot exactly as it already carries the address of its self-update
+/// scratch (plan-142-G Correction G4), and both sides compute this list the same
+/// way — from the NIR of the lambda and of the function that creates it — so the
+/// layout is decided in one place.
+///
+/// A capture is included when EITHER side can leave spare bytes in the block: the
+/// lambda's own self-updates, or the owner's. Including it for the owner's alone
+/// matters as much as for the lambda's — a lambda that merely REASSIGNS the
+/// capture frees the owner's block through the reference, and that free must be
+/// sized by the shadow and reset it (an under-free plus a stale shadow is the
+/// heap overflow `rt_byref_string_capture_capacity` was written for).
+pub(crate) fn string_shadow_captures(
+    functions: &std::collections::HashMap<String, &NirFunction>,
+    lambda: &str,
+) -> Vec<(String, usize)> {
+    let Some(function) = functions.get(lambda) else {
+        return Vec::new();
+    };
+    let creator = creator_body(functions, lambda);
+    let mut out = Vec::new();
+    for op in &function.body {
+        // The lambda binds each capture at the top of its body.
+        let NirOp::Bind {
+            name,
+            value:
+                Some(NirValue::Capture {
+                    index,
+                    type_,
+                    by_ref: true,
+                }),
+            ..
+        } = op
+        else {
+            continue;
+        };
+        if *type_ != ParameterType::String {
+            continue;
+        }
+        let shared = ops_hold_string_self_update(&function.body, name)
+            || creator.is_some_and(|body| ops_hold_string_self_update(body, name));
+        if shared {
+            out.push((name.clone(), *index));
+        }
+    }
+    out
+}
+
+/// plan-146-G: whether `lambda` self-updates a binding with `os::resourcePath`,
+/// and so wants its creator's cached base path — one further environment word,
+/// after the shadow words. A lambda runs once per element, so a cache of its own
+/// would re-ask the host on every call (one allocation per statement, which the
+/// self-update measure rejects).
+pub(crate) fn lambda_shares_resource_base(
+    functions: &std::collections::HashMap<String, &NirFunction>,
+    lambda: &str,
+) -> bool {
+    functions.get(lambda).is_some_and(|function| {
+        crate::codegen::collection::assign::self_update::ops_hold_resource_path_self_update(
+            &function.body,
+        )
+    })
+}
+
+/// The body of the function whose `Closure` node creates `lambda`.
+fn creator_body<'f>(
+    functions: &'f std::collections::HashMap<String, &'f NirFunction>,
+    lambda: &str,
+) -> Option<&'f [NirOp]> {
+    use crate::target::shared::nir::visit::{walk_value, NirVisitor};
+    struct Finder<'n> {
+        lambda: &'n str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Closure { name, captures, .. } = value {
+                if name == self.lambda && !captures.is_empty() {
+                    self.found = true;
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    for function in functions.values() {
+        let mut finder = Finder {
+            lambda,
+            found: false,
+        };
+        finder.visit_ops(&function.body);
+        if finder.found {
+            return Some(&function.body);
+        }
+    }
+    None
+}
+
+/// Whether `ops` hold a `String` self-update of the local `name` whose arm needs
+/// the binding's capacity shadow ([`is_string_self_update`]), at any depth.
+pub(crate) fn ops_hold_string_self_update(ops: &[NirOp], name: &str) -> bool {
+    use crate::target::shared::nir::visit::{walk_op, NirVisitor};
+    struct Finder<'n> {
+        name: &'n str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Assign { name, value } = op {
+                if name == self.name
+                    && is_string_self_update(
+                        value,
+                        &|root| matches!(root, NirValue::Local(local) if local == self.name),
+                    )
+                {
+                    self.found = true;
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut finder = Finder { name, found: false };
+    finder.visit_ops(ops);
+    finder.found
+}
+
 /// A binding's capacity shadow, opened for one statement: `slot` holds the spare
 /// bytes past the block's length. For a global it is a working copy of the hidden
 /// global `publish`, stored back by [`CodeBuilder::publish_string_shadow`].
 pub(crate) struct StringShadow {
     pub(crate) slot: usize,
     pub(crate) publish: Option<String>,
+    /// plan-146-G: a frame slot holding the ADDRESS of the owner's shadow slot,
+    /// for a by-ref capture. Read out of the closure environment once, before any
+    /// call: `%closure_env` is a call-boundary token, not a pinned register, so a
+    /// helper call inside an arm can clobber it (`os::resourcePath`'s arm calls
+    /// one, and re-reading it afterwards stored through a wild pointer).
+    pub(crate) publish_holder: Option<usize>,
 }
 
 /// The slots, registers and labels one regrow of a `String` block uses
@@ -352,9 +488,12 @@ impl CodeBuilder<'_> {
         if args[1..].iter().any(|arg| site.read_by(arg)) {
             return None;
         }
-        // G1 — a by-ref capture has no shadow it shares with its owner (plan-142-G
-        // Correction G1); letter G lifts this.
-        if site.by_ref {
+        // G1 — a by-ref capture reaches the owner's block only through the opened
+        // `Ref` destination. An arm that changes the block's length additionally
+        // needs the owner's capacity shadow, which `G-shadow` below requires: the
+        // lambda shares it through the closure environment (plan-146-G; before
+        // that, plan-142-G Correction G1 declined every by-ref site).
+        if site.by_ref && !matches!(site.dest, InPlaceDest::Ref { .. }) {
             return None;
         }
         // G-shadow.
@@ -372,12 +511,14 @@ impl CodeBuilder<'_> {
         Some(args)
     }
 
-    /// Whether `site`'s binding has a capacity shadow: the local's frame slot, or
-    /// the global's hidden global.
+    /// Whether `site`'s binding has a capacity shadow: the local's frame slot, the
+    /// global's hidden global, or — for a by-ref capture (plan-146-G) — the
+    /// owner's, reached through the closure environment.
     pub(crate) fn string_shadow_exists(&self, site: &SelfUpdateSite<'_>) -> bool {
         match &site.dest {
             InPlaceDest::Global { name, .. } => self.global_string_capacity(name).is_some(),
             InPlaceDest::Direct { .. } => self.string_capacity_slots.contains_key(site.name),
+            InPlaceDest::Ref { .. } => self.string_shadow_env.contains_key(site.name),
             _ => false,
         }
     }
@@ -390,6 +531,27 @@ impl CodeBuilder<'_> {
         &mut self,
         site: &SelfUpdateSite<'_>,
     ) -> Result<Option<StringShadow>, String> {
+        // plan-146-G: a by-ref capture works on a copy of the OWNER's shadow, read
+        // through the closure environment and stored back by the publish, exactly
+        // as a global's hidden shadow is.
+        if let InPlaceDest::Ref { .. } = &site.dest {
+            let Some(index) = self.string_shadow_env.get(site.name).copied() else {
+                return Ok(None);
+            };
+            let slot = self.allocate_stack_object("su_ref_strcap", 8);
+            let holder_slot = self.allocate_stack_object("su_ref_strcap_owner", 8);
+            let holder = self.allocate_register();
+            let spare = self.allocate_register();
+            self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+            self.emit(abi::store_u64(&holder, abi::stack_pointer(), holder_slot));
+            self.emit(abi::load_u64(&spare, &holder, 0));
+            self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+            return Ok(Some(StringShadow {
+                slot,
+                publish: None,
+                publish_holder: Some(holder_slot),
+            }));
+        }
         let shadow_global = match &site.dest {
             InPlaceDest::Global { name, .. } => match self.global_string_capacity(name) {
                 Some(shadow) => Some(shadow),
@@ -411,11 +573,13 @@ impl CodeBuilder<'_> {
                 StringShadow {
                     slot,
                     publish: Some(shadow),
+                    publish_holder: None,
                 }
             }
             None => StringShadow {
                 slot: frame_shadow.ok_or("native self-append lost its capacity shadow")?,
                 publish: None,
+                publish_holder: None,
             },
         }))
     }
@@ -423,6 +587,17 @@ impl CodeBuilder<'_> {
     /// Store a global's working shadow back into its hidden global. Nothing for a
     /// local's frame slot.
     pub(crate) fn publish_string_shadow(&mut self, shadow: &StringShadow) -> Result<(), String> {
+        if let Some(holder_slot) = shadow.publish_holder {
+            // plan-146-G: store the working copy back into the owner's slot, so the
+            // owner's next append — and its drop — see the block's real spare bytes.
+            // The owner's slot address comes from the frame, not from
+            // `%closure_env`: an arm may have called a helper since.
+            let spare = self.allocate_register();
+            let holder = self.allocate_register();
+            self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow.slot));
+            self.emit(abi::load_u64(&holder, abi::stack_pointer(), holder_slot));
+            self.emit(abi::store_u64(&spare, &holder, 0));
+        }
         if let Some(hidden) = &shadow.publish {
             let spare = self.allocate_register();
             self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow.slot));
@@ -1193,9 +1368,35 @@ impl CodeBuilder<'_> {
     ///
     /// Returns `(prefix_ptr_slot, prefix_len_slot)`.
     fn emit_resource_prefix(&mut self) -> Result<(usize, usize), String> {
-        let slot = self
-            .string_resource_base
-            .ok_or("native os.resourcePath self-update in a function with no base slot")?;
+        // In a lambda the cache is the CREATOR's, reached through the closure
+        // environment (a lambda's own would be re-acquired on every element). The
+        // holder address is spilled once, before any call: `%closure_env` is a
+        // call-boundary token, not a pinned register.
+        let holder_slot = match self.string_resource_base_env {
+            Some(index) => {
+                let slot = self.allocate_stack_object("str_resource_base_owner", 8);
+                let holder = self.allocate_register();
+                self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+                self.emit(abi::store_u64(&holder, abi::stack_pointer(), slot));
+                Some(slot)
+            }
+            None => None,
+        };
+        let slot = match holder_slot {
+            // A working copy of the creator's cached block; stored back below.
+            Some(holder_slot) => {
+                let slot = self.allocate_stack_object("str_resource_base_copy", 8);
+                let holder = self.allocate_register();
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&holder, abi::stack_pointer(), holder_slot));
+                self.emit(abi::load_u64(&block, &holder, 0));
+                self.emit(abi::store_u64(&block, abi::stack_pointer(), slot));
+                slot
+            }
+            None => self
+                .string_resource_base
+                .ok_or("native os.resourcePath self-update in a function with no base slot")?,
+        };
         let have = self.label("inplace_str_respath_have");
         let block = self.temporary_vreg();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
@@ -1205,7 +1406,21 @@ impl CodeBuilder<'_> {
             .ok_or("os.executablePath has no runtime helper spec")?
             .helper;
         let base = self.lower_runtime_helper_call(helper, "os.executablePath", &[], false)?;
+        // The helper's result is a fresh block the statement scope would free at the
+        // end of this statement; the cache slot takes it over instead, and the
+        // function's scope drop frees it (`prescan_string_resource_base`). Without
+        // this claim the cached pointer dangled from the next statement on — the
+        // third lambda call read freed memory and died.
+        self.claim_pending_temp(&base);
         self.emit(abi::store_u64(&base.location, abi::stack_pointer(), slot));
+        if let Some(holder_slot) = holder_slot {
+            // Publish it to the creator, which owns and frees it.
+            let holder = self.allocate_register();
+            let block = self.allocate_register();
+            self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+            self.emit(abi::load_u64(&holder, abi::stack_pointer(), holder_slot));
+            self.emit(abi::store_u64(&block, &holder, 0));
+        }
         self.emit(abi::label(&have));
 
         let module_name = self.module_name.clone();

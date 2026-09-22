@@ -1093,6 +1093,8 @@ pub(crate) fn lower_function(
         move_sites: None,
         current_op_key: None,
         string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
         module_name: module_name.to_string(),
     };
     let mut thread_param_slots = Vec::new();
@@ -1174,6 +1176,10 @@ pub(crate) fn lower_function(
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
+    // plan-146-G: which by-ref captures share their owner's capacity shadow —
+    // before the self-append prescan, which skips those (they need no slot here).
+    builder.prescan_string_shadow_env(&function.name);
+    builder.prescan_string_resource_base_env(&function.name);
     builder.prescan_string_self_appends(&function.body);
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
     builder.prescan_self_update_scratch(&function.name, &function.body);
@@ -1598,6 +1604,8 @@ pub(crate) fn lower_abi_function_helper(
         move_sites: None,
         current_op_key: None,
         string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
         module_name: String::new(),
     };
 
@@ -1774,6 +1782,8 @@ pub(crate) fn lower_thread_copy_function(
         move_sites: None,
         current_op_key: None,
         string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
         module_name: String::new(),
     };
 

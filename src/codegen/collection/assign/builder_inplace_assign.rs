@@ -472,8 +472,16 @@ impl CodeBuilder<'_> {
         value: &NirValue,
     ) -> Result<bool, String> {
         let name = site.name;
-        // G1 — a by-ref slot holds the parent's slot address, not the buffer.
-        if site.by_ref {
+        // G1 — a by-ref slot holds the parent's slot address, not the buffer. The
+        // arm may still fire when the destination is the opened `Ref` (so the block
+        // pointer is in `block_slot`) AND the lambda shares the owner's capacity
+        // shadow through the closure environment (plan-146-G). Without the shared
+        // shadow this frame would claim spare bytes the owner's block may not have
+        // (`rt_byref_string_capture_capacity`).
+        if site.by_ref
+            && !(matches!(site.dest, InPlaceDest::Ref { .. })
+                && self.string_shadow_env.contains_key(name))
+        {
             return Ok(false);
         }
         let stack_offset = site.dest.block_slot();
