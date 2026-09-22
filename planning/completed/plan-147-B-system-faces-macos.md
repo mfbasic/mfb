@@ -178,7 +178,7 @@ Acceptance: every face listed on this Mac loads; an unknown name is `ErrNotFound
   `#canvas_listSystemFonts`, `loadSystemFont`, `readSystemFontFields`,
   `systemFontFields`, `sortedUnique`, `#CANVAS_SYSFONT_FIELDS`/`READ`);
   `test-accept.sh … 'canvas*' 'app*'` → 8 passed.
-Commit: —
+Commit: 8166a1be6
 
 ## Validation Plan
 
