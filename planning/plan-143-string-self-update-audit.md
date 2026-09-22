@@ -191,22 +191,29 @@ three representation facts, each with a citation.
   Measured: `awk '/^### B.2/,/^### B.3/' … | grep -c '^| r'` → 63 (one per §1 row;
   `clearAttributes`' two overloads have different bodies, so rows, not functions);
   B.3 holds four representation facts, each cited.
-Commit: —
+Commit: db25ecfc7
 
 ### Phase 3 — Fill the table
 
-- [ ] For each row: the form (§4) and S1/S2/S7/S9 verdicts with the first
-      declining gate or path.
-- [ ] One `--ncode` build in `/tmp/plan-143-probes/` with one SUB per (row, site),
+- [x] For each row: the form (§4) and S1/S2/S7/S9 verdicts with the first
+      declining gate or path. → 63 rows filled by `table.py rows` (findings C.5):
+      S1/S2/S9 `n (no arm)` except `strings::mid`/`replace` (`String`) `n (G10)`;
+      S7 `n/a (not iterable)` everywhere.
+- [x] One `--ncode` build in `/tmp/plan-143-probes/` with one SUB per (row, site),
       read with plan-141's `markers.py` (arm marker slots, `store_global_*`); record
       the marker line next to each verdict. Reading vs dump disagreements: record
-      both, the dump wins.
-- [ ] For `not-derived` rows, record whether `s` is copied (read the lowering; a
-      copy is a finding).
+      both, the dump wins. → `str/`: 201 SUBs (67 cases × S1/S2/S9), built
+      without diagnostics; marker line quoted in every evidence cell; `table.py`
+      checks each reading against the dump and found no disagreement (C.2).
+- [x] For `not-derived` rows, record whether `s` is copied (read the lowering; a
+      copy is a finding). → 5 rows: `io::input` only reads `s`; `fs::readText`,
+      `fs::canonicalPath`, `os::getEnv`, `os::getEnvOr` copy it into a
+      helper-scratch C string (finding F4). Runtime sweep (C.3) added:
+      198/201 pass, the 3 failures are F1.
 
 Acceptance: no empty cell in the table.
   Check: `grep -E '^\| `(strings|astrings|encoding|fs|os|io|net|regex)::' planning/plan-143-findings/string-self-update-audit.md | grep -cE '\|\s*\|'`
-  → 0 (est. 1 min).
+  → 0 (est. 1 min). Measured: `0` (and 63 rows).
 Commit: —
 
 ### Phase 4 — The `&` operator and the summary
