@@ -502,6 +502,26 @@ pub(crate) const GEO_KIND_TEXT: &str = "6";
 /// about groups cannot compile until the attribute comes off.
 #[cfg(test)]
 pub(crate) const GEO_KIND_GROUP: &str = "8";
+/// `__CANVAS_GEO_PICTURE` — a `canvas::Picture` (bug-484).
+///
+/// To the shaders a rectangle whose fill colour is sampled from an image; to the
+/// emitters the third kind with a payload, after the polygon's edges and the glyph's
+/// coverage. Its texels ride the frame buffer's **glyph region**, one packed RGBA word
+/// per texel (`r | g << 8 | b << 16 | a << 24`, the shadow's own byte order), and the
+/// block names its slice exactly as a glyph's does: width in `misc.w`, height in
+/// `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), base in `arc.z` (`ITEM_ARC_EDGE_BASE`). Sharing
+/// the glyph region rather than adding a fourth means sharing its cursor and its frame
+/// cap, and the predicates count a picture's texels against that cap.
+pub(crate) const GEO_KIND_PICTURE: &str = "9";
+/// The header slots holding a picture's pixel-block address, high and low 24 bits.
+///
+/// Split because every header slot is hashed through `__canvas_hashFloat`, which
+/// scales by 65536 before `toInt` — a whole 48-bit address overflows it. The emitters
+/// rebuild the address as `hi << PICTURE_SHADOW_SPLIT_BITS | lo`; the block is a
+/// `List OF Byte`, so the texels start `COLLECTION_HEADER_SIZE` bytes in.
+pub(crate) const HEADER_PICTURE_SHADOW_HI: usize = 35;
+pub(crate) const HEADER_PICTURE_SHADOW_LO: usize = 36;
+pub(crate) const PICTURE_SHADOW_SPLIT_BITS: usize = 24;
 /// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
 pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
 /// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.

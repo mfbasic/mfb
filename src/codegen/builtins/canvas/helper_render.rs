@@ -615,11 +615,11 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
-    ' bug-484: neither shader samples an image yet, so a picture scene is the oracle's.
-    ' Accepting it would draw the picture as nothing and report success -- the lie this
-    ' predicate exists to prevent.
+    ' bug-484: a picture's texels ride the same frame-wide region as glyph coverage, one
+    ' word each, so they are counted against the same cap -- the region overflowing would
+    ' make one picture read another's texels, a plausible wrong image.
     IF kind = __CANVAS_GEO_PICTURE THEN
-      RETURN FALSE
+      samples = samples + __canvas_pictureSamples(offset)
     END IF
     ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
     ' asks. A blended item that both strokes and fills publishes two
@@ -719,6 +719,12 @@ FUNC __canvas_runSamples(offset AS Integer) AS Integer
   RETURN total
 END FUNC
 
+' The words one picture puts in the frame's glyph region: its image's texel count, from
+' the aux pair its header carries (bug-484).
+FUNC __canvas_pictureSamples(offset AS Integer) AS Integer
+  RETURN toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 21, 0.0))
+END FUNC
+
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
@@ -729,9 +735,9 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
-    ' bug-484: as in `__canvas_metalRenderable` -- no shader samples an image yet.
+    ' bug-484: as in `__canvas_metalRenderable` -- texels share the glyph region's cap.
     IF kind = __CANVAS_GEO_PICTURE THEN
-      RETURN FALSE
+      samples = samples + __canvas_pictureSamples(offset)
     END IF
     ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
     ' list asks. A blended item that both strokes and fills publishes two
