@@ -1115,8 +1115,8 @@ impl CodeBuilder<'_> {
                             // copy it into the arena so the global owns a block its
                             // next store can free, exactly as a local's `Bind` does.
                             if default.type_ == ParameterType::String {
-                                let copied =
-                                    self.copy_flat_block(&ParameterType::String, &default.location)?;
+                                let copied = self
+                                    .copy_flat_block(&ParameterType::String, &default.location)?;
                                 ValueResult {
                                     origin: None,
                                     type_: ParameterType::String,

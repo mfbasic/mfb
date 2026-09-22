@@ -5,7 +5,14 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
+Status: **FIXED** (2026-09-21, `122a51561`; goldens `168e00f46`)
+
+STATUS: FIXED (122a51561). Deviations from the original doc: the scope grew from
+one producer to four (A `toString(<Boolean>)`, B `toString(<String>)`, C
+`fs::pathDirName`, D a default global `String`; see "Scope extension"). B keeps the
+identity for the statement's own fresh temporary, so `toString(<expr>)` of a fresh
+value costs nothing extra (pinned by
+`codegen_string_return_freshness::the_tostring_identity_adds_no_owner`).
 Regression Tests:
 - `tests/rt-behavior/general/tostring_boolean_self_append` (A)
 - `tests/rt-behavior/general/tostring_string_owning_store` (B)
@@ -172,20 +179,35 @@ Commit: b56b5bd6c
 - [x] D: copy the default empty `String` into the arena in `StoreGlobal`'s
       no-value path, as the local `Bind` does.
 
-Acceptance: the Phase 1 test passes. → `scripts/test-accept.sh target/release/mfb
+Acceptance: the Phase 1 tests pass. → `scripts/test-accept.sh target/release/mfb
 target/accept-actual <the 4 fixtures>` → `acceptance tests passed (4 test(s) ran)`;
 plan-143's runtime sweep (`/tmp/plan-143-probes/rt_run.sh`, 67 self-update forms ×
 S1/S2/S9, `pathDirName` now on a path with no directory part) → 201/201 pass
 (3 failed before: `toString(s)` at every site).
-Commit: —
+Commit: 122a51561
 
 ### Phase 3 — full validation
 
-- [ ] `bash scripts/artifact-gate.sh target/release/mfb all`: diffs only where
-      `toString(<Boolean>)` codegen changed, each inspected.
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual` → all pass.
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all`: diffs only where
+      `toString(<Boolean>)` codegen changed, each inspected. → first run `66 diff(s)`,
+      all native `.ncode`/`.ncodesum` (no `.ast`/`.ir`/`.run`), in 15 fixtures. Each
+      fixture's macos-aarch64 `.ncode` was diffed per function against the pre-fix
+      compiler (`/tmp/b667/regen.py check`): every changed function gains exactly
+      `flat_copy_{result,size,source}` + one `pending_temp` (the fresh copy and its
+      statement-scope free) and its source calls `toString` (`fs` also
+      `pathDirName`). Regenerated; re-run → `1477 tests, 1652 build(s), 2086
+      golden(s) checked, 0 diff(s)`.
+- [x] `scripts/test-accept.sh target/debug/mfb target/accept-actual` → all pass. →
+      run with the release compiler: `acceptance tests passed (1503 test(s) ran)`.
+- [x] `cargo test --bin mfb` → `test result: ok. 4286 passed; 0 failed; 1 ignored`.
+- [x] `cargo test --release --test codegen_string_return_freshness` → `11 passed`.
+- [x] `scripts/man-examples-gate.sh target/release/mfb` → `1092 checked, 1 failed`:
+      `http::server#2`, which binds 127.0.0.1:8080 while an unrelated process holds
+      it (`lsof -nP -iTCP:8080 -sTCP:LISTEN` → `learn-ser 34477`); no http code
+      changed. (A first run also timed `fs::isWithin#3` out at 60 s under load; it
+      runs in well under a second alone and passed on the re-run.)
 
-Commit: —
+Commit: 168e00f46
 
 ## Summary
 
