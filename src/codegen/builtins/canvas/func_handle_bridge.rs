@@ -95,7 +95,12 @@ fn lower_handle(
     args: &[ValueResult],
     what: &str,
 ) -> Result<ValueResult, String> {
-    lower_field(builder, args, &format!("{what}Handle"), RESOURCE_OFFSET_HANDLE)
+    lower_field(
+        builder,
+        args,
+        &format!("{what}Handle"),
+        RESOURCE_OFFSET_HANDLE,
+    )
 }
 
 /// bug-484: `canvas::imageShadow`, `canvas::imageWidthOf`, `canvas::imageHeightOf` —

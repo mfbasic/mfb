@@ -84,8 +84,14 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
 /// another block, or the middle of one — and draws a plausible wrong image.
 #[test]
 fn the_picture_layout_constants_match_their_rust_counterparts() {
-    assert_eq!(declared("__CANVAS_GEO_PICTURE_SHADOW_HI"), HEADER_PICTURE_SHADOW_HI);
-    assert_eq!(declared("__CANVAS_GEO_PICTURE_SHADOW_LO"), HEADER_PICTURE_SHADOW_LO);
+    assert_eq!(
+        declared("__CANVAS_GEO_PICTURE_SHADOW_HI"),
+        HEADER_PICTURE_SHADOW_HI
+    );
+    assert_eq!(
+        declared("__CANVAS_GEO_PICTURE_SHADOW_LO"),
+        HEADER_PICTURE_SHADOW_LO
+    );
     assert_eq!(
         declared("__CANVAS_GEO_PICTURE_SPLIT"),
         1usize << PICTURE_SHADOW_SPLIT_BITS,
