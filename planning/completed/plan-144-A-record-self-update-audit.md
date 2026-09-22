@@ -258,7 +258,7 @@ Acceptance: every census row exists in §1.
   states (est. 1 min).
   Measured 2026-09-21: → `326` = 63 + 44 + 6 + 206 + 7, the §0 total. (The F4
   term is 206, not 20: Correction A1.)
-Commit: —
+Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
 
 ### Phase 2: Map the record paths
 
@@ -311,7 +311,7 @@ F4 guard result, the seam answer and the inlined table are each cited.
   Check: `grep -cE '^\| try_inplace_record_field_' planning/plan-144-findings/record-state-self-update-audit.md`
   → 9, plus `grep -c 'F4 guard' …` ≥ 1 (est. 1 min).
   Measured 2026-09-21: → `9`, and `grep -c 'F4 guard'` → `4`.
-Commit: —
+Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
 
 ### Phase 3: Fill the record table
 
@@ -352,7 +352,7 @@ Acceptance: no empty cell in §1, and every `y`/`n` cell has a probe marker.
   → 0 (est. 1 min).
   Measured 2026-09-21: → `0`. Every `y`/`n` cell's marker is in its row's
   evidence, and `fill_rec.py` checked all of them against the dump.
-Commit: —
+Commit: 20988bdcd (Phases 1–3 landed together: one findings file)
 
 ## Validation Plan
 

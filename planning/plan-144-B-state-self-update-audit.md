@@ -47,7 +47,7 @@ The plan-144-A prerequisites apply (see plan-144-A). In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-144-A is complete: §0 census and §1 table filled | `ls planning/completed/plan-144-A-*` → one file | NOT MET (2026-09-21; plan-144-A not started) |
+| plan-144-A is complete: §0 census and §1 table filled | `ls planning/completed/plan-144-A-*` → one file | MET (2026-09-21, worktree `P-144`: `planning/completed/plan-144-A-record-self-update-audit.md`; A's two rows re-checked at the same HEAD `efdb54bb7` and binary: MET) |
 
 If plan-144-A is not complete, this plan cannot start.
 
