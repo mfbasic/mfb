@@ -146,3 +146,52 @@ END SUB
         ],
     );
 }
+
+/// `mfb build -app -target <target> -nplan` of a program that lists the system fonts,
+/// returning the plan text.
+fn cross_plan(name: &str, target: &str) -> String {
+    let project = common::temp_project(
+        name,
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  io::print(toString(len(canvas::listSystemFonts())))
+END SUB
+"#,
+    );
+    let out = Command::new(common::mfb_exe())
+        .args(["build", "-app", "-target", target, "-nplan"])
+        .arg(&project)
+        .output()
+        .expect("run mfb build");
+    assert!(
+        out.status.success(),
+        "mfb build -app -target {target} failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let plan = std::fs::read_to_string(project.join(format!("{name}.nplan"))).expect("read nplan");
+    let _ = std::fs::remove_dir_all(&project);
+    plan
+}
+
+/// On Linux, fontconfig is loaded at run time and never linked (plan-147-C): a canvas
+/// program must start on a machine without it, where the font list is simply empty.
+/// So the plan imports `dlopen`/`dlsym` and names no fontconfig library — a
+/// `DT_NEEDED` on `libfontconfig.so.1` would make every canvas app fail to exec there.
+#[test]
+fn linux_reaches_fontconfig_through_dlopen_not_a_link() {
+    for target in ["linux-x86_64", "linux-aarch64"] {
+        let plan = cross_plan(&format!("canvas_sysfont_plan_{}", target.replace('-', "_")), target);
+        assert!(
+            !plan.contains("fontconfig"),
+            "{target}: the plan names fontconfig as a library to link",
+        );
+        for symbol in ["\"dlopen\"", "\"dlsym\""] {
+            assert!(plan.contains(symbol), "{target}: the plan does not import {symbol}");
+        }
+    }
+}

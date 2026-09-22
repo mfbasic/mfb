@@ -95,34 +95,44 @@ fontconfig).
 
 ### Phase 1 — Emitter, plan, capability
 
-- [ ] Resolve the `FcConfigDestroy` question (§2) and record it in Corrections.
-- [ ] `gen_system_faces_linux.rs` (§3); the linux arm in `func_system_faces.rs`.
-- [ ] `linux_common/plan.rs` imports; `linux_common/mod.rs:RUNTIME_CALLS` entry.
-- [ ] Tests: `tests/canvas/rt_canvas_system_fonts.rs` gains a cross-build assertion
-      that `mfb build --app --target linux-x86_64` and `linux-aarch64` of the probe
-      program succeed and the binary has no `DT_NEEDED` on libfontconfig
-      (`readelf -d`/object inspection helper already used by Vulkan tests —
-      `rg -n 'libvulkan' tests/` names it).
-
-- [ ] Restore the Linux canvas-app build broken since plan-147-B (every canvas app
+- [x] ~~Resolve the `FcConfigDestroy` question (§2)~~ — moot: the emitter calls
+      `FcFontList(NULL, …)`, which lists against fontconfig's *current* configuration
+      (loading it on first use), so no config is created and none is destroyed. That
+      also reuses the configuration a GTK app has already loaded.
+- [x] `gen_system_fonts_linux.rs` (§3) and the `PlatformFamily::Linux` arm in
+      `func_system_fonts.rs`; the call helpers shared with macOS moved to
+      `gen_system_fonts_shared.rs` (macOS `.app.ncodesum` unchanged after the move —
+      `/tmp/p147_regen_app.sh` → `same macos-aarch64 ncodesum`).
+- [x] `linux_common/plan.rs` imports (`dlopen`, `dlsym`, `strlen`, `strcmp`, `memcpy`
+      from libc); `linux_common/mod.rs:RUNTIME_CALLS` entry.
+- [x] Tests: `tests/canvas/rt_canvas_system_fonts.rs`
+      `linux_reaches_fontconfig_through_dlopen_not_a_link` — `mfb build -app -target
+      linux-x86_64|linux-aarch64 -nplan` succeeds, the plan imports `dlopen`/`dlsym` and
+      names no fontconfig library (the nplan's import table *is* what becomes
+      `DT_NEEDED`; see Corrections).
+- [x] Restore the Linux canvas-app build broken since plan-147-B (every canvas app
       reaches `canvas.systemFontTable`): `mfb build -ncode -target linux-x86_64 --app`
       and `-target linux-aarch64` of `tests/syntax/app/app-mouse-surface` succeed, and
-      their `.app.ncodesum` goldens are regenerated after checking the diff is only the
-      plan-147 members.
+      their `.app.ncodesum` goldens are regenerated (the target-shared `.ir` already
+      shows the diff is only the plan-147 members). Re-check → `same` for both.
+
 Acceptance: builds for both app-capable Linux targets, no fontconfig `DT_NEEDED`.
   Check: `cargo test --test rt_canvas_system_fonts linux` → pass (est. 3 min).
-Commit: —
+  **Observed: `test result: ok. 1 passed` (135.79 s).**
+Commit: (this commit)
 
 ### Phase 2 — Runtime proof on 2228
 
-- [ ] Ship the x86_64 build of the probe program (list, then load every face) to 2228
-      with `scripts/remote-common.sh` helpers; run headless (`MFB_GTKAPP_HEADLESS=1`).
-- [ ] Record count and result in Corrections.
+- [x] Ship the x86_64 build of the probe program (list, then load every face) to 2228;
+      run headless (`MFB_GTKAPP_HEADLESS=1`). Shipped with `scp` plus a runner script
+      (`/tmp/p147-run.sh`), not `scripts/remote-common.sh` — one program, one run.
+- [x] Record count and result in Corrections.
 
 Acceptance: positive count; every listed face loads.
   Check: `ssh -p 2228 … ./probe` → `faces=N loaded=N`, N > 0 (est. 5 min; emulated
   box — this is the only fontconfig-bearing app box available).
-Commit: —
+  **Observed: `exit=0 seconds=281`, `faces=2429 loaded=2429`, `unknown: 77050004`.**
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -134,6 +144,19 @@ Commit: —
 - Absent fontconfig → empty list (recommended, agreed with the user) vs. an error.
 
 ## Corrections
+
+- **Runtime proof (2228, Ubuntu x86_64 GTK, fontconfig 2.15.0, 2026-09-21):** the
+  glibc AppImage of the smoke program listed **2429** faces and loaded **all 2429**;
+  `loadSystemFont("No Such Font")` → `77050004`; 281 s wall on the emulated box.
+- **No aarch64 runtime proof.** The app-capable aarch64 boxes (2224 musl GTK, 2226
+  glibc GTK) refused connections on 2026-09-21; 2223 has no GTK. linux-aarch64 is
+  covered by the cross-build plan test and the `.app.ncodesum` golden; its emitter is
+  the same shared Linux code as x86_64, which differs only in ABI lowering already
+  exercised by every other dlopen'd call (ALSA, Vulkan).
+- **The DT_NEEDED check reads the nplan, not `readelf`.** There is no Vulkan test that
+  inspects `DT_NEEDED` (`rg -n libvulkan tests/` → nothing). The plan's import table is
+  the source of the ELF's dynamic section, so "no fontconfig library in the nplan"
+  is the same fact one step earlier and needs no Linux tooling on the macOS host.
 
 ## Summary
 

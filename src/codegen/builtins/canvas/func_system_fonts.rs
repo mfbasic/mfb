@@ -214,7 +214,7 @@ pub(crate) fn lower_system_font_table(
     match ctx.platform.family() {
         PlatformFamily::MacOS => super::gen_system_fonts_macos::emit_system_font_table(builder, ctx)?,
         PlatformFamily::Linux => {
-            return Err("canvas.systemFontTable has no linux backend".to_string())
+            super::gen_system_fonts_linux::emit_system_font_table(builder, ctx)?
         }
         PlatformFamily::Windows => {
             return Err("canvas.systemFontTable has no windows backend".to_string())

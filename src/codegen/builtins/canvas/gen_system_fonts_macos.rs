@@ -23,6 +23,7 @@
 //! CoreFoundation call clobbers every caller-saved register (`.ai/compiler.md`, the
 //! register-lifetime rules).
 
+use super::gen_system_fonts_shared::{call, load_arg, store_result};
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::AbiCtx;
@@ -58,25 +59,6 @@ struct Slots {
     unichar: usize,
     result: usize,
     capacity: usize,
-}
-
-fn call(builder: &mut CodeBuilder, ctx: &AbiCtx, name: &str) -> Result<(), String> {
-    let from = builder.current_symbol.clone();
-    ctx.platform.emit_external_call(
-        name,
-        &from,
-        ctx.platform_imports,
-        &mut builder.instructions,
-        &mut builder.relocations,
-    )
-}
-
-fn load_arg(builder: &mut CodeBuilder, arg: usize, slot: usize) {
-    builder.emit(abi::load_u64(abi::c_arg(arg), abi::stack_pointer(), slot));
-}
-
-fn store_result(builder: &mut CodeBuilder, slot: usize) {
-    builder.emit(abi::store_u64(abi::c_return(0), abi::stack_pointer(), slot));
 }
 
 /// `CFRelease(slot)` when the slot holds a non-NULL reference.
