@@ -357,7 +357,9 @@ golden was recording the bug.
 **3. "`examples/dungeon` returns to 9 fallible functions" — it returns to 12, and
 12 is correct.** The `9` was measured on the file as it stood *before* commit
 `df455c0e`, which is not the file being fixed. Measured with
-`mfb audit examples/dungeon | grep -c "(fallible)"`: 38 before, 12 after. The
+`mfb audit examples/dungeon | grep -c "(fallible)"`: 38 before, 12 after — both
+re-measured after merging `main`, which had meanwhile split that example into
+four files (`7cc6a5ca`); the split changes neither number. The
 difference from 9 is three functions that the same commit `df455c0e` introduced
 or changed, none of which reaches `toInt`: `insetX` and `insetY` are new and
 fallible via `toFloat`, and `generateDungeon` gained an explicit `FAIL`. Confirmed
