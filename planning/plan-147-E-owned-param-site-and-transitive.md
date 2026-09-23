@@ -138,7 +138,7 @@ Acceptance: every `Arm` row fires at `OwnedParam`, and every `arm` line is flat 
   Check 2: `MFB_SELF_UPDATE_SITES=OwnedParam cargo test --test rt_inplace_self_update`
   → **`ok. 3 passed; 0 failed` (66.67 s)** over 52 case/site pairs. (`SITES` selects the site exactly;
   the plan's `FILTER` matches label substrings.)
-Commit: (this commit)
+Commit: 95d0fe733
 
 ### Phase 2 — Transitive hand-over
 
