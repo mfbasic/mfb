@@ -171,8 +171,17 @@ fn unchanged() -> String {
     )
 }
 
-/// A scene whose coordinates move every frame, presented `{N}` times. Every present
-/// publishes.
+/// A scene whose coordinates move every frame, presented **twice** per frame with
+/// different content each time — back to back, with the frame's sleep after the pair.
+///
+/// Two publishes inside one rendered frame is the trigger leak 2 needs, and pairing
+/// them like this is what makes it deterministic rather than a race against the
+/// renderer. One paced present per frame does *not* reproduce it with a scene this
+/// light: the renderer finishes well inside 16 ms, the frame counter advances between
+/// presents, the gate fires every time and the single retired slot was enough. The bug
+/// report hit it at one present per frame only because its scene — 95 polygons of 400
+/// points — took the renderer longer than a frame to draw. Two presents in a row need
+/// no such assumption about how fast anything is.
 fn changing() -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
@@ -188,6 +197,8 @@ fn changing() -> String {
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
+         canvas::present(items)\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
          canvas::present(items)\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
@@ -196,7 +207,7 @@ fn changing() -> String {
     )
 }
 
-/// The same moving scene in the layered shape, presented `{N}` times through
+/// The same moving scene, paired the same way, in the layered shape through
 /// `canvas::presentLayers`.
 fn changing_layers() -> String {
     format!(
@@ -214,7 +225,9 @@ fn changing_layers() -> String {
          i = i + 1\n    \
          END WHILE\n    \
          LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := items]\n    \
-         canvas::presentLayers([layer])\n    os::sleep({FRAME_MS})\n    \
+         canvas::presentLayers([layer])\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
+         canvas::presentLayers([canvas::DrawLayer[items := items]])\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"presented\")\n\

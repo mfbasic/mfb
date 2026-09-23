@@ -267,7 +267,8 @@ pub(crate) fn emit_publish(
     // The free happens on the worker, which is also what allocated the block. An
     // arena is per-thread, so the graphics thread must never do it.
     emit_reclaim_retired(builder, &scene, &symbol)?;
-    emit_retire_displaced(builder, &scene, copy_slot, &list_type, &symbol)?;
+    let oom = builder.label(&format!("{tag}_retire_oom"));
+    emit_retire_displaced(builder, &scene, &oom, &symbol)?;
 
     // Publish: this shape's pointer and count, the other shape's pair cleared, then
     // the revision. The revision is written LAST and is what a reader gates on, so a
@@ -298,6 +299,20 @@ pub(crate) fn emit_publish(
         RESULT_OK_TAG,
     ));
     builder.emit(abi::return_());
+
+    // The cold path, laid out after the publish exit: the retirement node could not be
+    // allocated, so this call publishes nothing and raises. Out of line because it ends
+    // in a `ret`, and a second `ret` between the publish label and the exit reporting
+    // TRUE would make "what does the publish return" ambiguous to read — in the emitted
+    // code and in `the_skip_reports_false_and_the_publish_reports_true`.
+    //
+    // The fresh copy goes back first. This is the one path that leaves `emit_publish`
+    // between the copy and the publish, and leaving it without either publishing the
+    // copy or freeing it would trade bug-683's leak for a rarer one. The scene region is
+    // untouched, so the installed scene is still whole.
+    builder.emit(abi::label(&oom));
+    emit_free_block(builder, &list_type, copy_slot, &symbol)?;
+    builder.raise_error_bare("ErrOutOfMemory")?;
 
     // The mode gate is spliced in at the very top, before the manual prologue, so a
     // wrong-mode call returns before allocating anything at all.
@@ -495,15 +510,13 @@ fn emit_reclaim_retired(
 /// — displaces nothing and allocates no node, so a program that presents once pays for
 /// none of this.
 ///
-/// `copy_slot` names the fresh scene copy, which is freed if the node allocation fails.
-/// This is the one path between the copy and the publish that can bail out, and leaving
-/// by it without either publishing the copy or freeing it would trade bug-683's leak
-/// for a rarer one.
+/// A failed node allocation branches to `oom`, which the caller lays out **after** its
+/// own `ret`: it is the cold path, and inlining it here would put a second `ret` inside
+/// the publish body between the publish label and the exit that reports TRUE.
 fn emit_retire_displaced(
     builder: &mut CodeBuilder,
     scene: &VirtualRegister,
-    copy_slot: usize,
-    list_type: &ParameterType,
+    oom: &str,
     symbol: &str,
 ) -> Result<(), String> {
     let nothing = builder.label("canvas_retire_nothing");
@@ -533,9 +546,7 @@ fn emit_retire_displaced(
     ));
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     builder.emit_arena_alloc_call();
-    builder.emit(abi::branch_eq(&allocated));
-    emit_free_block(builder, list_type, copy_slot, symbol)?;
-    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::branch_ne(oom));
     builder.emit(abi::label(&allocated));
 
     let node = builder.temporary_vreg();
