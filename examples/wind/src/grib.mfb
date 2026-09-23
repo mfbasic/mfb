@@ -1,0 +1,437 @@
+' grib - just enough GRIB2 to read NCEP's forecast fields.
+'
+' A GRIB2 file is a sequence of self-describing messages. Each one is a header,
+' a run of numbered sections, and the terminator "7777":
+'
+'   section 0   "GRIB", the discipline, and the message length
+'   section 1   when the forecast was made
+'   section 3   the grid the values sit on            (gridOf)
+'   section 4   which parameter this message carries  (parameterOf)
+'   section 5   how the values were packed            (unpackValues)
+'   section 6   the bitmap, saying which points are present
+'   section 7   the packed values themselves
+'
+' The awkward part is section 5. NCEP writes its winds with data
+' representation template 5.3 — "complex packing with spatial differencing" —
+' which is three nested encodings: the values are second differences, the
+' differences are split into runs that each carry their own reference value and
+' bit width, and the run descriptors are themselves bit-packed. unpackComplex
+' undoes all three. Template 5.0, plain bit-packing at one width, is the other
+' one a field here can arrive in, and unpackSimple reads it.
+'
+' Two conventions of the format to keep in mind while reading this file:
+'
+'   * A negative number is sign-bit magnitude, not two's complement: the top bit
+'     is the sign and the rest is the magnitude. signMag undoes it. That is why
+'     a latitude of -90 degrees arrives as 0x85F0F6C0 rather than 0xFA9C4B40.
+'   * Section and octet numbers in the comments are 1-based, as the WMO manual
+'     writes them. The offsets in the code are 0-based, so octet N of a section
+'     is at index N - 1 of the byte list that section was sliced into.
+
+IMPORT bits
+IMPORT collections
+IMPORT math
+
+' A regular latitude/longitude grid of values - section 3, grid template 3.0 -
+' together with what section 4 says the values are.
+'
+' The rows run north to south and the columns west to east, which is scanning
+' mode 0 and the only mode gridOf accepts. So the value at row j, column i is at
+' index j * ni + i, and it sits at latitude lat1 - j * dlat, longitude
+' lon1 + i * dlon.
+TYPE Field
+  ni AS Integer          ' columns: points along a parallel
+  nj AS Integer          ' rows: points along a meridian
+  lat1 AS Float          ' latitude of row 0, degrees
+  lon1 AS Float          ' longitude of column 0, degrees
+  dlat AS Float          ' degrees between rows, southward and positive
+  dlon AS Float          ' degrees between columns, eastward and positive
+  category AS Integer    ' section 4's parameter category
+  parameter AS Integer   ' section 4's parameter number within that category
+  surface AS Integer     ' section 4's type of first fixed surface
+  height AS Integer      ' the value of that surface, in its own units
+  values AS List OF Float
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Reading numbers out of a byte list
+' ---------------------------------------------------------------------------
+
+' The unsigned big-endian integer in n bytes at index at.
+FUNC beInt(data AS List OF Byte, at AS Integer, n AS Integer) AS Integer
+  MUT v AS Integer = 0
+  FOR i = 0 TO n - 1
+    v = v * 256 + toInt(collections::get(data, at + i))
+  NEXT
+  RETURN v
+END FUNC
+
+' An nbits-wide sign-bit-magnitude number as an ordinary signed Integer. The
+' format uses this everywhere a field may be negative, so 0x8005 in 16 bits is
+' -5 rather than the -32763 two's complement would read.
+FUNC signMag(v AS Integer, nbits AS Integer) AS Integer
+  LET sign AS Integer = 2 ^ (nbits - 1)
+  IF v >= sign THEN RETURN -(v - sign)
+  RETURN v
+END FUNC
+
+' The signed big-endian integer in n bytes at index at, in that same
+' representation.
+FUNC beSigned(data AS List OF Byte, at AS Integer, n AS Integer) AS Integer
+  RETURN signMag(beInt(data, at, n), n * 8)
+END FUNC
+
+' The IEEE 754 binary32 value of a 32-bit pattern. Section 5 stores its
+' reference value this way and there is no bit-pattern-to-Float conversion to
+' lean on, so this is the decode written out: sign, biased exponent, and the
+' 23-bit fraction under an implicit leading 1.
+FUNC ieee32(raw AS Integer) AS Float
+  LET biased AS Integer = bits::band(bits::sr(raw, 23), 255)
+  LET fraction AS Integer = bits::band(raw, 8388607)
+  IF biased = 255 THEN FAIL error(77050003, "grib: the reference value is not a finite number")
+
+  MUT mag AS Float = 0.0
+  IF biased = 0 THEN
+    ' Subnormal, which for a reference value means zero in every file seen in
+    ' practice. 2^-149 is the smallest positive binary32.
+    mag = toFloat(fraction) * math::pow(2.0, -149.0)
+  ELSE
+    mag = (1.0 + toFloat(fraction) / 8388608.0) * math::pow(2.0, toFloat(biased - 127))
+  END IF
+
+  IF bits::band(bits::sr(raw, 31), 1) = 1 THEN RETURN -mag
+  RETURN mag
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Reading numbers out of a bit stream
+' ---------------------------------------------------------------------------
+'
+' Section 7 is a bit stream, not a byte stream: a run of 13-bit values is 13
+' bits each, not 13 bits padded to 16. There is no reader object to carry the
+' position because a record cannot be mutated in place, so the position is an
+' ordinary Integer the caller advances itself - every call site here reads
+' `pos = pos + n` on the line after the read.
+
+' The unsigned n-bit value starting at bit position pos. n of 0 reads nothing
+' and gives 0, which is what a zero-width group in unpackComplex wants.
+FUNC readBits(data AS List OF Byte, pos AS Integer, n AS Integer) AS Integer
+  MUT v AS Integer = 0
+  MUT p AS Integer = pos
+  FOR i = 1 TO n
+    LET byte AS Integer = toInt(collections::get(data, p / 8))
+    v = v * 2 + bits::band(bits::sr(byte, 7 - (p MOD 8)), 1)
+    p = p + 1
+  NEXT
+  RETURN v
+END FUNC
+
+' The next byte boundary at or after bit position pos. Each of section 7's four
+' runs - the spatial-differencing extras, the group references, the group
+' widths, the group lengths - starts on one.
+FUNC alignByte(pos AS Integer) AS Integer
+  IF pos MOD 8 = 0 THEN RETURN pos
+  RETURN pos + (8 - (pos MOD 8))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Section 5: how the values were packed
+' ---------------------------------------------------------------------------
+
+' The three numbers every data representation template shares, which turn a
+' packed integer X back into the value it stands for:
+'
+'   value = (reference + X * 2^binaryScale) / 10^decimalScale
+TYPE Scaling
+  reference AS Float
+  binary AS Float     ' 2^E, already worked out
+  decimal AS Float    ' 10^D, ditto
+END TYPE
+
+FUNC scalingOf(s5 AS List OF Byte) AS Scaling
+  LET binaryScale AS Integer = beSigned(s5, 15, 2)
+  LET decimalScale AS Integer = beSigned(s5, 17, 2)
+  RETURN Scaling[reference := ieee32(beInt(s5, 11, 4)), binary := math::pow(2.0, toFloat(binaryScale)), decimal := math::pow(10.0, toFloat(decimalScale))]
+END FUNC
+
+FUNC scaled(s AS Scaling, x AS Integer) AS Float
+  RETURN (s.reference + toFloat(x) * s.binary) / s.decimal
+END FUNC
+
+' Template 5.0 - simple packing. Every value is one unsigned integer of the same
+' width, in grid order, with nothing between them.
+FUNC unpackSimple(s5 AS List OF Byte, s7 AS List OF Byte, count AS Integer) AS List OF Float
+  LET s AS Scaling = scalingOf(s5)
+  LET width AS Integer = toInt(collections::get(s5, 19))
+
+  MUT out AS List OF Float = []
+  MUT pos AS Integer = 5 * 8
+  FOR n = 1 TO count
+    LET value AS Float = scaled(s, readBits(s7, pos, width))
+    out = collections::append(out, value)
+    pos = pos + width
+  NEXT
+  RETURN out
+END FUNC
+
+' Template 5.3 - complex packing with spatial differencing, which is what NCEP
+' writes its wind components in.
+'
+' Undoing it runs the three encodings backwards. Section 5 describes the shape
+' (octets 1-based, from the WMO manual's table):
+'
+'   32-35  NG, the number of groups
+'   36-37  the reference the group widths are offsets from, and their bit width
+'   38-42  the reference the group lengths are offsets from, and their increment
+'   43-46  the length of the last group, which is stated rather than encoded
+'   47     the bit width of a scaled group length
+'   48     the order of spatial differencing: 1 for first differences, 2 second
+'   49     how many octets each spatial-differencing extra takes
+'
+' and section 7 then holds, each starting on a byte boundary:
+'
+'   the extras      the first `order` values, verbatim, plus the minimum
+'                   difference - all sign-bit magnitude
+'   references      NG of them, one per group, at the section's own bit width
+'   widths          NG of them, each an offset from the width reference
+'   lengths         NG of them, each an offset-and-multiple of the length one
+'   the values      group by group, each at its own group's width
+FUNC unpackComplex(s5 AS List OF Byte, s7 AS List OF Byte, count AS Integer) AS List OF Float
+  LET s AS Scaling = scalingOf(s5)
+  LET refWidth AS Integer = toInt(collections::get(s5, 19))
+
+  LET groups AS Integer = beInt(s5, 31, 4)
+  LET widthRef AS Integer = toInt(collections::get(s5, 35))
+  LET widthBits AS Integer = toInt(collections::get(s5, 36))
+  LET lengthRef AS Integer = beInt(s5, 37, 4)
+  LET lengthStep AS Integer = toInt(collections::get(s5, 41))
+  LET lastLength AS Integer = beInt(s5, 42, 4)
+  LET lengthBits AS Integer = toInt(collections::get(s5, 46))
+  LET order AS Integer = toInt(collections::get(s5, 47))
+  LET extraOctets AS Integer = toInt(collections::get(s5, 48))
+
+  IF order <> 1 AND order <> 2 THEN FAIL error(77050007, "grib: spatial differencing of order " & toString(order) & " is not one this reader undoes")
+  IF count < order THEN FAIL error(77050003, "grib: the field is shorter than its own spatial-differencing prologue")
+  ' Every count below is read out of the file, and the group loop allocates from
+  ' them. A file whose descriptors do not add up must fail here rather than
+  ' where the allocation lands: the groups together cover the field exactly, so
+  ' anything that cannot is malformed, and asking for it is how a bad header
+  ' turns into an out-of-memory kill instead of an error message.
+  IF groups < 0 OR groups > count THEN FAIL error(77050003, "grib: section 5 claims " & toString(groups) & " groups for " & toString(count) & " values")
+
+  MUT pos AS Integer = 5 * 8
+  LET extraBits AS Integer = extraOctets * 8
+
+  ' The values the differences are rebuilt from: the first `order` values of the
+  ' field, then the minimum difference that was subtracted off all the rest.
+  MUT seed AS List OF Integer = []
+  FOR i = 1 TO order
+    LET first AS Integer = signMag(readBits(s7, pos, extraBits), extraBits)
+    seed = collections::append(seed, first)
+    pos = pos + extraBits
+  NEXT
+  LET minDiff AS Integer = signMag(readBits(s7, pos, extraBits), extraBits)
+  pos = pos + extraBits
+  pos = alignByte(pos)
+
+  MUT references AS List OF Integer = []
+  FOR g = 1 TO groups
+    LET reference AS Integer = readBits(s7, pos, refWidth)
+    references = collections::append(references, reference)
+    pos = pos + refWidth
+  NEXT
+  pos = alignByte(pos)
+
+  MUT widths AS List OF Integer = []
+  FOR g = 1 TO groups
+    LET width AS Integer = widthRef + readBits(s7, pos, widthBits)
+    widths = collections::append(widths, width)
+    pos = pos + widthBits
+  NEXT
+  pos = alignByte(pos)
+
+  MUT lengths AS List OF Integer = []
+  FOR g = 1 TO groups
+    LET runLength AS Integer = lengthRef + readBits(s7, pos, lengthBits) * lengthStep
+    lengths = collections::append(lengths, runLength)
+    pos = pos + lengthBits
+  NEXT
+  pos = alignByte(pos)
+  ' The last group's length is stated outright, because the encoder had no
+  ' freedom left over it: it is whatever is left of the field.
+  lengths = collections::set(lengths, groups - 1, lastLength)
+
+  ' Undo the group splitting. A group of width 0 is a run of one repeated value,
+  ' which is how a flat patch of the field - the calm middle of an ocean, say -
+  ' costs almost nothing to store.
+  MUT diffs AS List OF Integer = []
+  FOR g = 0 TO groups - 1
+    LET ref AS Integer = collections::get(references, g)
+    LET width AS Integer = collections::get(widths, g)
+    LET runLength AS Integer = collections::get(lengths, g)
+    IF runLength < 0 OR len(diffs) + runLength > count THEN FAIL error(77050003, "grib: the groups overrun the field - group " & toString(g) & " of " & toString(groups) & " asks for " & toString(runLength) & " values past " & toString(len(diffs)) & " of " & toString(count))
+    IF width < 0 OR width > 63 THEN FAIL error(77050003, "grib: group " & toString(g) & " declares a width of " & toString(width) & " bits")
+    IF width = 0 THEN
+      FOR n = 1 TO runLength
+        diffs = collections::append(diffs, ref)
+      NEXT
+    ELSE
+      FOR n = 1 TO runLength
+        LET value AS Integer = ref + readBits(s7, pos, width)
+        diffs = collections::append(diffs, value)
+        pos = pos + width
+      NEXT
+    END IF
+  NEXT
+
+  IF len(diffs) <> count THEN FAIL error(77050003, "grib: the groups hold " & toString(len(diffs)) & " values where section 5 promised " & toString(count))
+
+  ' Undo the spatial differencing. Everything after the seed had the minimum
+  ' difference subtracted from it, so add it back, then integrate: once for
+  ' first differences, twice for second.
+  FOR i = 0 TO order - 1
+    diffs = collections::set(diffs, i, collections::get(seed, i))
+  NEXT
+  FOR n = order TO count - 1
+    diffs = collections::set(diffs, n, collections::get(diffs, n) + minDiff)
+  NEXT
+  IF order = 1 THEN
+    FOR n = 1 TO count - 1
+      diffs = collections::set(diffs, n, collections::get(diffs, n) + collections::get(diffs, n - 1))
+    NEXT
+  ELSE
+    FOR n = 2 TO count - 1
+      diffs = collections::set(diffs, n, collections::get(diffs, n) + 2 * collections::get(diffs, n - 1) - collections::get(diffs, n - 2))
+    NEXT
+  END IF
+
+  MUT out AS List OF Float = []
+  FOR EACH d IN diffs
+    LET value AS Float = scaled(s, d)
+    out = collections::append(out, value)
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Sections 3 and 4: the grid, and what is on it
+' ---------------------------------------------------------------------------
+
+' A grid angle, which the format stores as millionths of a degree.
+FUNC angle(data AS List OF Byte, at AS Integer) AS Float
+  RETURN toFloat(beSigned(data, at, 4)) / 1000000.0
+END FUNC
+
+' The grid section 3 describes. Only grid template 3.0 - a regular
+' latitude/longitude grid - and scanning mode 0 - rows north to south, columns
+' west to east - are accepted, because those are what the whole of this reader's
+' indexing assumes, and a file in another one would otherwise be drawn upside
+' down rather than refused.
+FUNC gridOf(s3 AS List OF Byte) AS Field
+  LET template AS Integer = beInt(s3, 12, 2)
+  IF template <> 0 THEN FAIL error(77050007, "grib: grid template 3." & toString(template) & " is not the regular latitude/longitude grid this reader draws")
+
+  LET scanning AS Integer = toInt(collections::get(s3, 71))
+  IF scanning <> 0 THEN FAIL error(77050007, "grib: scanning mode " & toString(scanning) & " is not the north-to-south, west-to-east order this reader assumes")
+
+  RETURN Field[ni := beInt(s3, 30, 4), nj := beInt(s3, 34, 4), lat1 := angle(s3, 46), lon1 := angle(s3, 50), dlat := angle(s3, 67), dlon := angle(s3, 63), category := 0, parameter := 0, surface := 0, height := 0, values := []]
+END FUNC
+
+' What section 4 says the message carries. Product templates 4.0 and 4.8 - an
+' instant and an interval - agree on every octet this reads, which is all the
+' agreement needed to tell UGRD at 10 m from everything else.
+FUNC describedBy(f AS Field, s4 AS List OF Byte) AS Field
+  RETURN WITH f { category := toInt(collections::get(s4, 9)), parameter := toInt(collections::get(s4, 10)), surface := toInt(collections::get(s4, 22)), height := beInt(s4, 24, 4) }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The message loop
+' ---------------------------------------------------------------------------
+
+' One message, starting at byte `at`, as a Field. Returns the message's own
+' length alongside it so the caller knows where the next one begins.
+TYPE Decoded
+  field AS Field
+  length AS Integer
+END TYPE
+
+FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
+  ' Section 0: "GRIB", then the edition at octet 8 and the length at 9-16.
+  IF beInt(data, at, 4) <> 1196575042 THEN FAIL error(77050003, "grib: no GRIB message at byte " & toString(at))
+  LET edition AS Integer = toInt(collections::get(data, at + 7))
+  IF edition <> 2 THEN FAIL error(77050007, "grib: this is edition " & toString(edition) & ", and only edition 2 is read here")
+  LET length AS Integer = beInt(data, at + 8, 8)
+  IF at + length > len(data) THEN FAIL error(77050003, "grib: the message at byte " & toString(at) & " runs past the end of the file")
+
+  MUT field AS Field = Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
+  MUT packing AS List OF Byte = []
+  MUT count AS Integer = 0
+  MUT template AS Integer = -1
+  MUT haveGrid AS Boolean = FALSE
+
+  ' Sections 1 through 7, each a 4-byte length and a 1-byte number, up to the
+  ' four "7777" bytes that close the message.
+  MUT pos AS Integer = at + 16
+  DO WHILE pos < at + length - 4
+    LET sectionLength AS Integer = beInt(data, pos, 4)
+    IF sectionLength < 5 THEN FAIL error(77050003, "grib: a section at byte " & toString(pos) & " declares an impossible length")
+    LET number AS Integer = toInt(collections::get(data, pos + 4))
+    LET section AS List OF Byte = collections::mid(data, pos, sectionLength)
+
+    MATCH number
+      CASE 3
+        field = gridOf(section)
+        haveGrid = TRUE
+      CASE 4
+        field = describedBy(field, section)
+      CASE 5
+        count = beInt(section, 5, 4)
+        template = beInt(section, 9, 2)
+        packing = section
+      CASE 6
+        ' Octet 6 is the bitmap indicator; 255 means every point is present.
+        ' A field with absent points would need the bitmap threaded through
+        ' the unpackers, and NCEP's surface winds never carry one.
+        LET indicator AS Integer = toInt(collections::get(section, 5))
+        IF indicator <> 255 THEN FAIL error(77050007, "grib: this message has a bitmap, and this reader only decodes fields where every point is present")
+      CASE 7
+        IF NOT haveGrid THEN FAIL error(77050003, "grib: the data section arrived before the grid that shapes it")
+        MATCH template
+          CASE 0 : field = WITH field { values := unpackSimple(packing, section, count) }
+          CASE 3 : field = WITH field { values := unpackComplex(packing, section, count) }
+          CASE ELSE : FAIL error(77050007, "grib: data representation template 5." & toString(template) & " is not one this reader unpacks")
+        END MATCH
+      CASE ELSE
+        ' Sections 1 and 2 - the reference time and any local use - say nothing
+        ' this program draws.
+    END MATCH
+
+    pos = pos + sectionLength
+  LOOP
+
+  IF len(field.values) <> field.ni * field.nj THEN FAIL error(77050003, "grib: the message decoded to " & toString(len(field.values)) & " values for a " & toString(field.ni) & " by " & toString(field.nj) & " grid")
+  RETURN Decoded[field := field, length := length]
+END FUNC
+
+' Every message in a GRIB2 file, in the order they appear.
+FUNC decodeFile(data AS List OF Byte) AS List OF Field
+  MUT out AS List OF Field = []
+  MUT at AS Integer = 0
+  DO WHILE at + 16 <= len(data)
+    LET one AS Decoded = decodeMessage(data, at)
+    out = collections::append(out, one.field)
+    at = at + one.length
+  LOOP
+  RETURN out
+END FUNC
+
+' The first field carrying a given parameter at a given fixed surface. The
+' numbers are WMO's: discipline 0 category 2 is momentum, where parameter 2 is
+' the u wind component and 3 is v, and surface type 103 is "height above
+' ground", measured in metres.
+FUNC pick(fields AS List OF Field, category AS Integer, parameter AS Integer, surface AS Integer, height AS Integer) AS Field
+  FOR EACH f IN fields
+    IF f.category = category AND f.parameter = parameter AND f.surface = surface AND f.height = height THEN RETURN f
+  NEXT
+  FAIL error(77050004, "grib: the file holds no parameter " & toString(category) & "." & toString(parameter) & " at " & toString(height) & " m above ground")
+END FUNC

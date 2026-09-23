@@ -1,0 +1,328 @@
+' wind - NOAA's global 10 m wind field, drawn as streamlines on an Equal Earth
+' map.
+'
+' The program downloads the latest GFS analysis from NOAA NOMADS, decodes the
+' GRIB2 it arrives in, and animates a few thousand massless tracers through the
+' field. Nothing is bundled but the coastline.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/wind
+'   open examples/wind/build/wind.app          (macOS)
+'   ./examples/wind/build/wind.AppImage        (Linux)
+'
+' Controls:
+'   q e            zoom in, zoom out
+'   w a s d        pan up, left, down, right
+'   arrow keys     the same
+'   r              back to the whole world
+'   h              hide or show the captions
+'   esc            quit
+'
+' The program is in six files:
+'   grib.mfb    GRIB2: messages, sections, and the two packings NCEP writes
+'   fetch.mfb   which GFS cycle to ask NOMADS for, and the on-disk cache
+'   earth.mfb   the Equal Earth projection, and the window onto it
+'   land.mfb    the coastline resource, and the blue-and-green underlay
+'   flow.mfb    sampling the field, and the swarm of tracers over it
+'   main.mfb    the font, the keys, and the frame loop
+'
+' The first run downloads about half a megabyte and takes a few seconds to
+' decode; later runs read the cached file and start straight away.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT math
+IMPORT os
+
+' ---------------------------------------------------------------------------
+' The font
+' ---------------------------------------------------------------------------
+
+' canvas::loadFont reads TrueType outlines, so every candidate here is a plain
+' .ttf - not a .ttc collection and not an .otf with PostScript outlines. The
+' captions are the only text in the program, so a missing font is fatal but
+' cheap to diagnose.
+FUNC systemFontPath AS String
+  MUT candidates AS List OF String = []
+  IF os::name() = "macos" THEN
+    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
+  ELSE
+    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
+  END IF
+
+  FOR EACH path IN candidates
+    IF fs::fileExists(path) THEN RETURN path
+  NEXT
+  RETURN ""
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Input
+' ---------------------------------------------------------------------------
+
+FUNC pending(ms AS Integer) AS Boolean
+  RETURN io::pollInput(ms)
+
+  TRAP(e)
+    RETURN FALSE
+  END TRAP
+END FUNC
+
+FUNC nextChar AS String
+  RETURN io::readChar()
+
+  TRAP(e)
+    RETURN ""
+  END TRAP
+END FUNC
+
+' One key press, with the arrow keys named.
+'
+' An arrow arrives as an escape sequence - escape, then "[" or "O", then a
+' letter - so a lone escape byte with nothing behind it is the Esc key and one
+' with more behind it is the start of a sequence. Anything else in a sequence is
+' read off and reported as "", which does nothing.
+FUNC readKey AS String
+  LET first AS String = nextChar()
+  IF first = "" THEN RETURN "EOF"
+  IF first <> "\u{1B}" THEN RETURN first
+  IF NOT pending(20) THEN RETURN "ESC"
+
+  LET bracket AS String = nextChar()
+  IF bracket <> "[" AND bracket <> "O" THEN RETURN ""
+  IF NOT pending(20) THEN RETURN ""
+
+  MATCH nextChar()
+    CASE "A" : RETURN "UP"
+    CASE "B" : RETURN "DOWN"
+    CASE "C" : RETURN "RIGHT"
+    CASE "D" : RETURN "LEFT"
+    CASE ELSE : RETURN ""
+  END MATCH
+END FUNC
+
+' Hold the window open until the reader has had a chance to read something off
+' it. Used only for the failure screen, where returning would close the window
+' before the message could be read.
+SUB waitForKey
+  DO WHILE TRUE
+    IF pending(200) THEN
+      IF readKey() <> "" THEN EXIT SUB
+    END IF
+  LOOP
+END SUB
+
+' ---------------------------------------------------------------------------
+' Commands
+' ---------------------------------------------------------------------------
+
+TYPE Pan
+  dx AS Float          ' fractions of the window
+  dy AS Float
+END TYPE
+
+TYPE Zoom
+  factor AS Float
+END TYPE
+
+TYPE Reset
+END TYPE
+
+TYPE ToggleCaptions
+END TYPE
+
+TYPE Quit
+END TYPE
+
+TYPE Ignore
+END TYPE
+
+UNION Command
+  Pan
+  Zoom
+  Reset
+  ToggleCaptions
+  Quit
+  Ignore
+END UNION
+
+' How far one press pans, as a fraction of the window.
+FUNC panStep AS Float
+  RETURN 0.09
+END FUNC
+
+' What one press of the zoom keys multiplies the scale by.
+FUNC zoomStep AS Float
+  RETURN 1.18
+END FUNC
+
+FUNC commandFor(key AS String) AS Command
+  MATCH key
+    CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := panStep()]
+    CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -panStep()]
+    CASE "a", "A", "LEFT" : RETURN Pan[dx := -panStep(), dy := 0.0]
+    CASE "d", "D", "RIGHT" : RETURN Pan[dx := panStep(), dy := 0.0]
+    CASE "q", "Q" : RETURN Zoom[factor := zoomStep()]
+    CASE "e", "E" : RETURN Zoom[factor := 1.0 / zoomStep()]
+    CASE "r", "R" : RETURN Reset[]
+    CASE "h", "H" : RETURN ToggleCaptions[]
+    CASE "ESC", "EOF" : RETURN Quit[]
+    CASE ELSE : RETURN Ignore[]
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The captions
+' ---------------------------------------------------------------------------
+
+FUNC captionColor AS color::Color
+  RETURN color::rgb(198, 214, 226)
+END FUNC
+
+FUNC hintColor AS color::Color
+  RETURN color::rgb(120, 140, 158)
+END FUNC
+
+' A caption size that holds still at any window size, within readable bounds.
+FUNC captionSize(v AS View) AS Float
+  RETURN math::clamp(v.height * 0.022, 12.0, 20.0)
+END FUNC
+
+FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(tint)]
+END FUNC
+
+' A full-window message on the void colour - the loading screen, and the one
+' that says why there is nothing to show.
+FUNC noticeScene(size AS canvas::Size, face AS canvas::Font, headline AS String, detail AS String) AS List OF canvas::DrawItem
+  LET width AS Float = toFloat(size.width)
+  LET height AS Float = toFloat(size.height)
+  LET big AS Float = math::clamp(height * 0.030, 14.0, 24.0)
+  LET small AS Float = big * 0.75
+
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(voidColor())]]
+
+  LET headlineWidth AS Float = canvas::measureText(face, big, headline).width
+  items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, captionColor(), headline))
+
+  IF detail <> "" THEN
+    LET detailWidth AS Float = canvas::measureText(face, small, detail).width
+    items = collections::append(items, textItem(face, (width - detailWidth) / 2.0, height / 2.0 + big * 1.8, small, hintColor(), detail))
+  END IF
+
+  RETURN items
+END FUNC
+
+' How far in the view is, written the way a map says it.
+FUNC zoomCaption(v AS View, size AS canvas::Size) AS String
+  LET times AS Float = v.scale / fitScale(size)
+  RETURN "zoom " & toString(times, toByte(1)) & "x"
+END FUNC
+
+' One frame: the map, the streamlines, and the captions over them.
+FUNC frameScene(world AS Ring, coast AS List OF Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = mapItems(world, coast, v)
+
+  FOR EACH item IN trailItems(v)
+    items = collections::append(items, item)
+  NEXT
+
+  IF captions THEN
+    LET size1 AS Float = captionSize(v)
+    LET margin AS Float = size1 * 1.2
+    items = collections::append(items, textItem(face, margin, margin + size1, size1, captionColor(), w.label))
+    items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, hintColor(), zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
+    LET hint AS String = "q e zoom  \u{00B7}  wasd or arrows pan  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, hintColor(), hint))
+  END IF
+
+  RETURN items
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The frame loop
+' ---------------------------------------------------------------------------
+
+' The frame budget in milliseconds. canvas::present installs a scene rather than
+' waiting for the screen, so nothing here blocks on the display and the loop
+' would otherwise spin as fast as the machine allows - burning a core to compute
+' frames nobody sees.
+FUNC frameMillis AS Integer
+  RETURN 16
+END FUNC
+
+' The longest step the simulation will take at once. Without it, a window
+' dragged to another desktop or a machine that went to sleep comes back with a
+' multi-second dt and every tracer teleports across an ocean.
+FUNC maxStepSeconds AS Float
+  RETURN 0.05
+END FUNC
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+
+  LET fontPath AS String = systemFontPath()
+  IF fontPath = "" THEN
+    io::printError("wind: no TrueType font found in the usual system locations.")
+    RETURN 1
+  END IF
+  RES face AS canvas::Font = canvas::loadFont(fontPath)
+
+  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS 10 m wind from NOAA NOMADS", "about half a megabyte of GRIB2, then a moment to unpack it"))
+
+  LET winds AS Winds = loadWinds() TRAP(e)
+    canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
+    waitForKey()
+    RETURN 1
+  END TRAP
+
+  LET world AS Ring = worldOutline()
+  LET coast AS List OF Ring = loadCoastline()
+
+  MUT size AS canvas::Size = canvas::getSize()
+  MUT view AS View = wholeWorld(size)
+  MUT captions AS Boolean = TRUE
+  MUT running AS Boolean = TRUE
+  seedSwarm(countFor(view), view)
+
+  MUT lastNanos AS Integer = datetime::monotonicNanos()
+  DO WHILE running
+    IF canvas::didResize() THEN
+      size = canvas::getSize()
+      view = resized(view, size)
+      ' The swarm is sized for the window, so a resize that wants a different
+      ' number of tracers rebuilds it. Reseeding throws away every trail, which
+      ' is why it is only done when the count actually changes rather than on
+      ' every pixel of a drag.
+      IF particleCount() <> countFor(view) THEN seedSwarm(countFor(view), view)
+    END IF
+
+    DO WHILE pending(0)
+      MATCH commandFor(readKey())
+        CASE Pan(p) : view = panned(view, p.dx, p.dy)
+        CASE Zoom(z) : view = zoomed(view, z.factor, size)
+        CASE Reset : view = wholeWorld(size)
+        CASE ToggleCaptions : captions = NOT captions
+        CASE Quit : running = FALSE
+        CASE Ignore
+      END MATCH
+    LOOP
+
+    LET startNanos AS Integer = datetime::monotonicNanos()
+    LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, maxStepSeconds())
+    lastNanos = startNanos
+
+    stepSwarm(winds, view, elapsed)
+    canvas::present(frameScene(world, coast, view, winds, face, size, captions))
+
+    LET spentMillis AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
+    IF spentMillis < frameMillis() THEN os::sleep(frameMillis() - spentMillis)
+  LOOP
+
+  RETURN 0
+END FUNC

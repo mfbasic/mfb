@@ -1,0 +1,139 @@
+' fetch - getting the forecast.
+'
+' The data is NOAA's Global Forecast System, served by NOMADS. The whole GFS
+' output for one hour is hundreds of megabytes, so this asks NOMADS' filter CGI
+' for the two fields it actually draws - UGRD and VGRD, the eastward and
+' northward components of the wind at 10 metres above the ground - on the half
+' degree grid. That comes back as a two-message GRIB2 file of about half a
+' megabyte.
+'
+' GFS runs four times a day, at 00, 06, 12 and 18 UTC, and the analysis hour of
+' a run appears on NOMADS roughly four hours after the run's nominal time. So
+' the newest cycle that should exist is the one before now minus four hours,
+' and if it is not there yet - NCEP is late, the mirror is behind, a run was
+' skipped - the next one back is tried, up to two days into the past. The first
+' cycle that answers with a GRIB file wins.
+'
+' Downloads are cached in the host temporary directory under the cycle they
+' came from, so the second run of the program starts instantly and a rebuild
+' while working on the drawing costs nothing.
+
+IMPORT datetime
+IMPORT fs
+IMPORT http
+IMPORT net
+
+' One GFS run, in the spellings the URL and the caption each need.
+TYPE Cycle
+  day AS String        ' yyyymmdd, as the NOMADS directory names it
+  hour AS String       ' HH, ditto
+  caption AS String    ' how the run is written on screen
+END TYPE
+
+' The outcome of trying one cycle. A cycle that is simply not published yet is
+' an ordinary answer rather than a failure - that is the common case on the
+' first attempt, several times a day - so the walk back through the cycles is
+' written over a value, not over a TRAP.
+TYPE Attempt
+  data AS List OF Byte
+  problem AS String
+END TYPE
+
+' Seconds in a GFS cycle, and how long after one its analysis hour shows up.
+FUNC cycleSeconds AS Integer
+  RETURN 21600
+END FUNC
+
+FUNC publishDelaySeconds AS Integer
+  RETURN 14400
+END FUNC
+
+' How many cycles back to look before giving up - eight is two days.
+FUNC cyclesToTry AS Integer
+  RETURN 8
+END FUNC
+
+' The grid NOMADS is asked for. The half-degree file is 720 by 361 points and
+' about half a megabyte, which is more detail than the picture can show at a
+' world-sized zoom and enough to hold up when zoomed in.
+FUNC gridName AS String
+  RETURN "0p50"
+END FUNC
+
+FUNC cycleAt(epochSeconds AS Integer) AS Cycle
+  LET stamp AS datetime::DateTime = datetime::inZone(datetime::instant(epochSeconds), datetime::utc())
+  RETURN Cycle[day := datetime::format(stamp, "yyyyMMdd"), hour := datetime::format(stamp, "HH"), caption := datetime::format(stamp, "yyyy-MM-dd HH") & "Z"]
+END FUNC
+
+' The NOMADS filter URL for one cycle's 10 m wind. The %2F are literal: the
+' CGI's dir parameter carries a path, and it has to arrive percent-encoded
+' rather than as slashes in the query string.
+FUNC filterUrl(c AS Cycle) AS String
+  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & gridName() & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & gridName() & ".f000&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+END FUNC
+
+' Where a cycle's file is kept between runs.
+FUNC cachePath(c AS Cycle) AS String
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-wind-gfs"])
+  IF NOT fs::directoryExists(dir) THEN fs::createDirectories(dir)
+  RETURN fs::pathJoin([dir, "gfs-" & c.day & "-" & c.hour & "-10m-" & gridName() & ".grb2"])
+END FUNC
+
+' "GRIB" as a big-endian 32-bit number, which is how decodeMessage recognises a
+' message and how this recognises a real answer.
+FUNC gribMagic AS Integer
+  RETURN 1196575042
+END FUNC
+
+' One cycle's file, from the cache if it is there and from NOMADS if it is not.
+'
+' The status code is not enough on its own: the filter CGI answers 200 with a
+' short HTML page when the cycle's directory exists but the requested field is
+' not in it, which is exactly what a run still being written looks like. So the
+' body is checked for the GRIB magic, and a cached file is only trusted if it
+' starts with it too.
+FUNC cycleData(c AS Cycle) AS List OF Byte
+  LET path AS String = cachePath(c)
+  IF fs::fileExists(path) THEN
+    LET cached AS List OF Byte = fs::readBytes(path)
+    IF len(cached) > 16 AND beInt(cached, 0, 4) = gribMagic() THEN RETURN cached
+  END IF
+
+  LET response AS http::Response = http::read(net::toUrl(filterUrl(c)))
+  IF NOT response.ok THEN FAIL error(77050004, "NOMADS answered " & toString(response.status) & " for the " & c.caption & " run")
+  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> gribMagic() THEN FAIL error(77050004, "the " & c.caption & " run is not published yet")
+
+  fs::writeBytes(path, response.body)
+  RETURN response.body
+END FUNC
+
+FUNC attemptCycle(c AS Cycle) AS Attempt
+  RETURN Attempt[data := cycleData(c), problem := ""]
+
+  TRAP(e)
+    RETURN Attempt[data := [], problem := e.message]
+  END TRAP
+END FUNC
+
+' The two wind components out of one cycle's file. Discipline 0, category 2 is
+' momentum; parameter 2 is the u component and 3 the v. Surface type 103 is
+' "specified height above ground", and 10 is the metres.
+FUNC windsFrom(data AS List OF Byte, c AS Cycle) AS Winds
+  LET fields AS List OF Field = decodeFile(data)
+  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), label := "GFS 10 m wind  " & c.caption]
+END FUNC
+
+' The most recent GFS 10 m wind analysis this machine can get hold of.
+FUNC loadWinds AS Winds
+  LET newest AS Integer = (datetime::now().seconds - publishDelaySeconds()) / cycleSeconds()
+  MUT firstProblem AS String = ""
+
+  FOR back = 0 TO cyclesToTry() - 1
+    LET c AS Cycle = cycleAt((newest - back) * cycleSeconds())
+    LET tried AS Attempt = attemptCycle(c)
+    IF len(tried.data) > 0 THEN RETURN windsFrom(tried.data, c)
+    IF firstProblem = "" THEN firstProblem = tried.problem
+  NEXT
+
+  FAIL error(77050004, "no GFS run in the last two days could be fetched: " & firstProblem)
+END FUNC

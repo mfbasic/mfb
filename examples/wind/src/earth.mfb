@@ -1,0 +1,297 @@
+' earth - the Equal Earth projection, and the window onto it.
+'
+' Equal Earth (Savric, Patterson and Jenny, 2018) is an equal-area pseudo-
+' cylindrical projection: every square centimetre of the map covers the same
+' number of square kilometres of the world, whichever one. That property is the
+' reason to use it here. A wind streamline is a picture of how much air is
+' moving where, and on a Mercator map the Southern Ocean's westerlies - the
+' strongest steady winds on the planet - would be smeared across a third of the
+' image while the tropics, where most of the atmosphere actually is, shrink into
+' a band. On an equal-area map, a dense patch of streamlines means dense wind.
+'
+' The projection is a pair of polynomials in theta, the authalic-like latitude:
+'
+'   theta = asin(M * sin(lat))
+'   x     = lon * cos(theta) / (M * (A1 + 3*A2*t^2 + t^6*(7*A3 + 9*A4*t^2)))
+'   y     = theta * (A1 + A2*t^2 + t^6*(A3 + A4*t^2))              where t = theta
+'
+' with M = sqrt(3)/2 and the four A coefficients the authors fitted. The whole
+' world lands inside x of +/- 2.7066 and y of +/- 1.3173, and this file calls
+' those units "plane" coordinates: metres, pixels and degrees all mean something
+' else here, so the projected space gets its own name and its own record.
+'
+' The inverse has no closed form for y, so unproject solves that one polynomial
+' by Newton's method - it converges in three or four steps from theta = y - and
+' then reads lon straight off x. It is needed for exactly one thing: choosing
+' where to drop a new particle. Dropping them uniformly in longitude and
+' latitude would crowd them at the poles and empty the tropics, and would go on
+' scattering them across the whole world after you had zoomed into one ocean.
+' Picking a uniform point in the *window* and asking which place that is puts
+' them where they will be seen, at the density they will be seen at.
+
+IMPORT canvas
+IMPORT math
+
+' A place on the world.
+TYPE Geo
+  lon AS Float         ' degrees east, -180 through 180
+  lat AS Float         ' degrees north, -90 through 90
+END TYPE
+
+' A point on the projected map, before the window has had any say. Pan and zoom
+' move the window across this plane; they never re-project, so anything worth
+' keeping between frames - a coastline, a particle's trail - is kept in these
+' coordinates and costs one multiply and one add to put on screen.
+TYPE Plane
+  x AS Float
+  y AS Float
+END TYPE
+
+' An axis-aligned box in the plane, for deciding whether a shape is worth
+' drawing at all.
+TYPE Box
+  minX AS Float
+  minY AS Float
+  maxX AS Float
+  maxY AS Float
+END TYPE
+
+' The four coefficients of the projection's polynomials.
+FUNC eeA1 AS Float
+  RETURN 1.340264
+END FUNC
+
+FUNC eeA2 AS Float
+  RETURN -0.081106
+END FUNC
+
+FUNC eeA3 AS Float
+  RETURN 0.000893
+END FUNC
+
+FUNC eeA4 AS Float
+  RETURN 0.003796
+END FUNC
+
+' M = sqrt(3)/2, the sine of the latitude the projection holds true.
+FUNC eeM AS Float
+  RETURN 0.8660254037844386
+END FUNC
+
+' The largest theta the projection reaches, at the poles. asin(sqrt(3)/2) is
+' exactly 60 degrees, so this is pi/3 - not an approximation, and the reason
+' unproject can clamp to it and still hand asin a value it accepts.
+FUNC thetaMax AS Float
+  RETURN 1.0471975511965976
+END FUNC
+
+' Half the width of the projected world, which is x at the equator on the
+' antimeridian.
+FUNC planeHalfWidth AS Float
+  RETURN 2.7066299836960748
+END FUNC
+
+' Half its height, which is y at a pole.
+FUNC planeHalfHeight AS Float
+  RETURN 1.3173627591574133
+END FUNC
+
+' The derivative of the y polynomial, which both the forward x and the inverse
+' need.
+FUNC eeDenominator(theta AS Float) AS Float
+  LET t2 AS Float = theta * theta
+  LET t6 AS Float = t2 * t2 * t2
+  RETURN eeA1() + 3.0 * eeA2() * t2 + t6 * (7.0 * eeA3() + 9.0 * eeA4() * t2)
+END FUNC
+
+' The y polynomial itself.
+FUNC eeY(theta AS Float) AS Float
+  LET t2 AS Float = theta * theta
+  LET t6 AS Float = t2 * t2 * t2
+  RETURN theta * (eeA1() + eeA2() * t2 + t6 * (eeA3() + eeA4() * t2))
+END FUNC
+
+FUNC radians(degrees AS Float) AS Float
+  RETURN degrees * math::pi / 180.0
+END FUNC
+
+FUNC degrees(radians AS Float) AS Float
+  RETURN radians * 180.0 / math::pi
+END FUNC
+
+' Fold a longitude into -180 through 180, so that a particle that has drifted
+' four times round the world still projects onto the map.
+'
+' project deliberately does NOT call this. A coastline ring may run from -180
+' to +180 along the bottom of the map - Antarctica's does - and wrapping its
+' last point would send it back to the left edge and drag a band of green across
+' the whole picture. Anything whose longitude can genuinely run away, which
+' here means a particle, wraps itself before it is projected.
+FUNC wrapLon(lon AS Float) AS Float
+  MUT v AS Float = lon + 180.0
+  v = v - 360.0 * toFloat(math::floor(v / 360.0))
+  RETURN v - 180.0
+END FUNC
+
+' Where a place lands on the projected plane.
+FUNC project(g AS Geo) AS Plane
+  LET lam AS Float = radians(math::clamp(g.lon, -180.0, 180.0))
+  LET phi AS Float = radians(math::clamp(g.lat, -90.0, 90.0))
+  LET theta AS Float = math::asin(math::clamp(eeM() * math::sin(phi), -1.0, 1.0))
+  RETURN Plane[x := lam * math::cos(theta) / (eeM() * eeDenominator(theta)), y := eeY(theta)]
+END FUNC
+
+' Which place a point on the plane is. A point outside the projected world -
+' off the end of the map, in the corner beside Antarctica - comes back clamped
+' onto the edge, so the caller checks `inside` rather than the coordinates.
+TYPE Unprojected
+  place AS Geo
+  inside AS Boolean
+END TYPE
+
+FUNC unproject(p AS Plane) AS Unprojected
+  ' y = theta * (A1 + A2 t^2 + t^6 (A3 + A4 t^2)) has no closed-form inverse,
+  ' so solve it. The polynomial is monotonic and nearly linear over the range
+  ' theta can take, and theta = y is already within a few per cent of the
+  ' answer, so four Newton steps are far more than it takes to converge to the
+  ' precision of a Float.
+  MUT theta AS Float = math::clamp(p.y, -thetaMax(), thetaMax())
+  FOR pass = 1 TO 8
+    LET delta AS Float = (eeY(theta) - p.y) / eeDenominator(theta)
+    theta = math::clamp(theta - delta, -thetaMax(), thetaMax())
+    IF math::abs(delta) < 0.000000000001 THEN EXIT FOR
+  NEXT
+
+  LET lat AS Float = degrees(math::asin(math::clamp(math::sin(theta) / eeM(), -1.0, 1.0)))
+  LET lon AS Float = degrees(eeM() * p.x * eeDenominator(theta) / math::cos(theta))
+  LET inside AS Boolean = math::abs(lon) <= 180.0 AND math::abs(p.y) <= planeHalfHeight()
+  RETURN Unprojected[place := Geo[lon := math::clamp(lon, -180.0, 180.0), lat := lat], inside := inside]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The window onto the plane
+' ---------------------------------------------------------------------------
+
+' Which part of the projected plane the window is showing. Pan moves the centre,
+' zoom changes the scale, and nothing here re-projects anything: the map is
+' made once and then looked at.
+TYPE View
+  scale AS Float       ' pixels per plane unit
+  cx AS Float          ' the plane x at the middle of the window
+  cy AS Float          ' the plane y at the middle of the window
+  width AS Float       ' the window, in pixels
+  height AS Float
+END TYPE
+
+' The scale at which the whole world just fits the window, with a little air
+' around it.
+FUNC fitScale(size AS canvas::Size) AS Float
+  LET byWidth AS Float = toFloat(size.width) / (2.0 * planeHalfWidth())
+  LET byHeight AS Float = toFloat(size.height) / (2.0 * planeHalfHeight())
+  RETURN math::min(byWidth, byHeight) * 0.94
+END FUNC
+
+FUNC wholeWorld(size AS canvas::Size) AS View
+  RETURN View[scale := fitScale(size), cx := 0.0, cy := 0.0, width := toFloat(size.width), height := toFloat(size.height)]
+END FUNC
+
+' The same view on a window of a new shape. The centre and the zoom are kept -
+' resizing a window should not throw away where you had got to - but the scale
+' is nudged up if the window grew past what the old one filled, and the centre
+' re-clamped against the new extent.
+FUNC resized(v AS View, size AS canvas::Size) AS View
+  LET grown AS View = WITH v { width := toFloat(size.width), height := toFloat(size.height) }
+  RETURN clampedView(WITH grown { scale := math::max(grown.scale, fitScale(size)) })
+END FUNC
+
+' Where a plane point lands in the window. The y axis flips: north is up on the
+' map and down the screen.
+FUNC toScreen(v AS View, p AS Plane) AS canvas::Point
+  RETURN canvas::Point[x := v.width * 0.5 + (p.x - v.cx) * v.scale, y := v.height * 0.5 - (p.y - v.cy) * v.scale]
+END FUNC
+
+' Which plane point a window pixel is - the inverse of toScreen, used to scatter
+' new particles across what is actually on screen.
+FUNC toPlane(v AS View, sx AS Float, sy AS Float) AS Plane
+  RETURN Plane[x := v.cx + (sx - v.width * 0.5) / v.scale, y := v.cy - (sy - v.height * 0.5) / v.scale]
+END FUNC
+
+' The part of the plane the window covers, grown by a margin so that a shape
+' whose vertices are all off screen but whose edges cross it is still drawn.
+FUNC viewBox(v AS View, margin AS Float) AS Box
+  LET halfX AS Float = v.width * 0.5 / v.scale + margin
+  LET halfY AS Float = v.height * 0.5 / v.scale + margin
+  RETURN Box[minX := v.cx - halfX, minY := v.cy - halfY, maxX := v.cx + halfX, maxY := v.cy + halfY]
+END FUNC
+
+FUNC overlaps(a AS Box, b AS Box) AS Boolean
+  IF a.maxX < b.minX OR a.minX > b.maxX THEN RETURN FALSE
+  IF a.maxY < b.minY OR a.minY > b.maxY THEN RETURN FALSE
+  RETURN TRUE
+END FUNC
+
+' The box around a run of plane points.
+FUNC boxOf(points AS List OF Plane) AS Box
+  MUT b AS Box = Box[minX := 0.0, minY := 0.0, maxX := 0.0, maxY := 0.0]
+  MUT first AS Boolean = TRUE
+  FOR EACH p IN points
+    IF first THEN
+      b = Box[minX := p.x, minY := p.y, maxX := p.x, maxY := p.y]
+      first = FALSE
+    ELSE
+      b = Box[minX := math::min(b.minX, p.x), minY := math::min(b.minY, p.y), maxX := math::max(b.maxX, p.x), maxY := math::max(b.maxY, p.y)]
+    END IF
+  NEXT
+  RETURN b
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Moving the view
+' ---------------------------------------------------------------------------
+
+' How far out you may pull back, as a multiple of the fitted scale, and how far
+' in you may push.
+FUNC minZoom AS Float
+  RETURN 0.9
+END FUNC
+
+FUNC maxZoom AS Float
+  RETURN 60.0
+END FUNC
+
+' Keep the view over the map. The centre may not leave the projected world, so
+' the map cannot be pushed off the edge of the window and lost; when the whole
+' width already fits, the centre is pinned to it instead, which is what stops a
+' zoomed-out map sliding around under the arrow keys.
+FUNC clampedView(v AS View) AS View
+  LET halfX AS Float = v.width * 0.5 / v.scale
+  LET halfY AS Float = v.height * 0.5 / v.scale
+  MUT cx AS Float = v.cx
+  MUT cy AS Float = v.cy
+  IF halfX >= planeHalfWidth() THEN
+    cx = 0.0
+  ELSE
+    cx = math::clamp(cx, -(planeHalfWidth() - halfX), planeHalfWidth() - halfX)
+  END IF
+  IF halfY >= planeHalfHeight() THEN
+    cy = 0.0
+  ELSE
+    cy = math::clamp(cy, -(planeHalfHeight() - halfY), planeHalfHeight() - halfY)
+  END IF
+  RETURN WITH v { cx := cx, cy := cy }
+END FUNC
+
+' Zoom about the middle of the window by a factor - above 1 to move in.
+FUNC zoomed(v AS View, factor AS Float, size AS canvas::Size) AS View
+  LET fitted AS Float = fitScale(size)
+  LET scale AS Float = math::clamp(v.scale * factor, fitted * minZoom(), fitted * maxZoom())
+  RETURN clampedView(WITH v { scale := scale })
+END FUNC
+
+' Pan by a fraction of the window - so a keypress moves the map the same
+' apparent distance however far in you are zoomed.
+FUNC panned(v AS View, fractionX AS Float, fractionY AS Float) AS View
+  LET dx AS Float = fractionX * v.width / v.scale
+  LET dy AS Float = fractionY * v.height / v.scale
+  RETURN clampedView(WITH v { cx := v.cx + dx, cy := v.cy + dy })
+END FUNC
