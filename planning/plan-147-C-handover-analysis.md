@@ -68,7 +68,7 @@ no matches.
 
 | What | Count | Command |
 |---|---|---|
-| Unit-table rows plan-134-C needed for the same kind of analysis | read `rg -c '#\[test\]' src/codegen/engine/analysis/last_use.rs` | run before Phase 1; sets the size of Phase 2's table |
+| Unit-table rows plan-134-C needed for the same kind of analysis | **6** `#[test]` functions (measured 2026-09-23) | `rg -c '#\[test\]' src/codegen/engine/analysis/last_use.rs` → `6`. Each is a multi-shape table rather than one shape per test, so §3.3's 16 rows fit comfortably in a similar handful. |
 | Corpus call sites approved by `collect_handover_args` | UNMEASURED — this letter's Phase 3 measures it | Phase 3 |
 
 ## 3. Design
@@ -161,18 +161,23 @@ separate module keeps plan-134's behaviour byte-identical by construction.
 
 ### Phase 1 — The analyses
 
-- [ ] Fill the first measured-populations row.
-- [ ] `src/codegen/engine/analysis/handover.rs`: `HandOverArgs`, `ParamSet`,
+- [x] Fill the first measured-populations row: `rg -c '#[test]' src/codegen/engine/analysis/last_use.rs` → **6**.
+- [x] `src/codegen/engine/analysis/handover.rs`: `HandOverArgs`, `ParamSet`,
       `collect_handover_args`, `consumable_params` (§3.1–§3.2). It reuses `last_use.rs`'s
-      liveness (`ops_in`, `trap_live`, `excluded_roots`); expose them `pub(super)` if
-      they are private.
-- [ ] Register the module in `src/codegen/engine/analysis/mod.rs`. Nothing calls it
-      outside tests.
+      liveness through a new `pub(crate) fn live_out_of(function, model) -> LiveOut`
+      that returns the per-op live-out map, `trap_live` and `excluded_roots` in one
+      value, plus `pub(crate)` on `Places`, `Place::root`, `reads_of`, `kill`,
+      `place_live` and `read_count`.
+- [x] Register the module in `src/codegen/engine/analysis/mod.rs`. Nothing calls it
+      outside tests — the module carries a documented `#![allow(dead_code)]` saying so,
+      which **letter D removes** when it wires the consumers up.
 
 Acceptance: it builds, and nothing but tests uses it.
   Check: `cargo build --release && rg -n 'collect_handover_args|consumable_params' src --glob '!**/handover.rs'`
-  → only `analysis/mod.rs` (est. 4 min).
-Commit: —
+  → **builds clean (no warnings), and `rg` returns nothing** (2026-09-23). The plan
+  said "only `analysis/mod.rs`"; `mod.rs` declares the module but never names either
+  function, so **no** match is the correct result. See Corrections.
+Commit: (this commit)
 
 ### Phase 2 — The unit table
 
@@ -214,6 +219,43 @@ Commit: —
   is to move a free.
 
 ## Corrections
+
+- **A call is identified by its address, not by a `call_path`.** §3.1 describes a
+  hand-over triple as `(op_key, call_path, arg_index)`. It is `(op_key, call_key,
+  arg_index)`, where `call_key(value)` is the address of the `NirValue::Call` node —
+  the same device `op_key` already uses, and for the reason `last_use.rs`'s module doc
+  gives for it: an address "cannot drift the way a counted index could". A path of
+  child indices into a value tree would have to be rebuilt in step with every
+  desugar that rewrites the tree.
+
+- **Phase 1's check expects no match, not `analysis/mod.rs`.** `mod.rs` declares
+  `pub(crate) mod handover;` and nothing else, so it never names `collect_handover_args`
+  or `consumable_params`. The acceptance is "`rg` returns nothing", which is the
+  stronger reading of the same intent: no production caller anywhere.
+
+- **The reuse is one function, not three `pub(super)` exports.** Phase 1 asked for
+  `ops_in`, `trap_live` and `excluded_roots` to be exposed. `Liveness` is built from
+  `ViewShape`, `Canon` and the exhaustive-`MATCH` set, all computed inside
+  `collect_last_use_moves`, so exposing the three pieces would have meant exporting
+  that whole construction. Instead `last_use.rs` gained one
+  `pub(crate) fn live_out_of(function, model) -> LiveOut` that performs the
+  construction and returns exactly what a second analysis needs: the per-op live-out
+  map, `trap_live`, and the exclusion set.
+
+  It differs from `collect_last_use_moves` in one deliberate way, documented at the
+  function: **every `MATCH` view is treated as borrowed**, so a read through a view is
+  charged to the view's source and keeps that source live. `collect_last_use_moves`
+  narrows to a fixed point to discover which views may own; hand-over does not need
+  that extra reach, and borrowing only ever ADDS liveness — so the simplification can
+  only refuse a hand-over, never license a wrong one. That is the fail-closed
+  direction.
+
+- **`NirVisitor` cannot collect borrows, so two walks are hand-written.** The trait's
+  methods take `&NirValue`/`&NirOp` with no lifetime parameter of their own, so a
+  visitor cannot return `Vec<&NirValue>`. `for_each_call` therefore does its work
+  *during* the traversal (a callback, still going through the shared `walk_value`, so
+  it cannot drift), and `ops_of` is an explicit recursion whose `match` has no
+  wildcard — a new `NirOp` variant is a build error there, exactly as in `last_use.rs`.
 
 ## Summary
 
