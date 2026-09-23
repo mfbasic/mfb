@@ -764,3 +764,7 @@ The member-access check (`src/ir/verify/values.rs`) skipped unions as "unchecked
 ## `toFloat(String)` is correctly rounded
 
 It is an Eisel-Lemire parser with an exact big-integer fallback (`src/codegen/string/format/float_parse.rs`), fuzzed against Rust's `str::parse::<f64>` through `float_parse_ref.rs`. Don't add tolerance or `+ 0.5` workarounds for an assumed rounding error; they introduce one. Hand-written NIR of that size gets the same treatment: write the algorithm in Rust under `cfg(test)`, pin it against a real oracle, then transliterate.
+
+## Inside the compiler a BARE type spelling is always a USER type
+
+Since bug-480 Phase 4b a built-in VALUE type's declared identity is package-qualified — `net.Url`, `vector.Float2`, `color.Color`. A consumer writing the bare leaf gets `SYMBOL_UNKNOWN_TYPE`, and a package's injected companions are qualified by the parser (`qualify_own_builtin_type`, `src/ast/expr.rs`). So any bare spelling that reaches a registry or codegen lookup can only name a USER type, and a registry table keyed on the bare leaf is a latent hijack of the user type that happens to share the name: `registry::general_override_target` (`src/codegen/registry/mod.rs`) matched a user `TYPE Color` against the `color` package's `toString` override row, type-checked the call, then failed the build with `NIR call target '#color_toString' does not resolve` (bug-668). Key such tables by the package-qualified identity, never by the leaf.

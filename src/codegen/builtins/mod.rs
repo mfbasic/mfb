@@ -123,9 +123,9 @@ pub(crate) fn builtin_qualified_bare_leaf(name: &str) -> &str {
 /// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument
 /// has such a type routes to this `__pkg_name` helper instead of the scalar
 /// builtin; the name is internalized at lowering so it never collides with the
-/// builtin dispatch symbol. Keyed by `(builtin, arg_type)`. The `toString(net::Url)`
-/// renderer now rides on the migrated `net` package's `add_override`
-/// (`registry::general_override_target`); the remaining hand row is `vector`'s.
+/// builtin dispatch symbol. Keyed by `(builtin, arg_type)`, where `arg_type` is the
+/// type's PACKAGE-QUALIFIED identity (`net.Url`, `vector.Float2`) — a bare leaf is a
+/// user type and never selects a package override (bug-668).
 pub(crate) fn general_override_target(
     builtin: &str,
     arg_type: &crate::types::ParameterType,
@@ -1744,22 +1744,36 @@ mod tests {
 
     #[test]
     fn general_override_target_cases() {
+        // Keyed by the type's package-qualified IDENTITY. `URL_TYPE` is the bare
+        // member id the descriptor row declares (`Url`); the identity a `net::Url`
+        // value carries is `net.Url` (bug-480 Phase 4b).
+        assert_eq!(
+            general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse(&format!(
+                    "net.{}",
+                    crate::codegen::builtins::net::URL_TYPE
+                )),
+            ),
+            Some("__net_urlToString")
+        );
+        // bug-668: the BARE leaf is not the override's key. A bare `Url` can only
+        // be a user `TYPE Url` — a consumer cannot spell the built-in type that
+        // way — and answering `net`'s helper for it routed a program that never
+        // imported `net` to a symbol no package emitted.
         assert_eq!(
             general_override_target(
                 "toString",
                 &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
             ),
-            Some("__net_urlToString")
+            None
         );
         assert_eq!(
             general_override_target("toString", &crate::types::ParameterType::parse("Integer")),
             None
         );
         assert_eq!(
-            general_override_target(
-                "len",
-                &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
-            ),
+            general_override_target("len", &crate::types::ParameterType::parse("net.Url")),
             None
         );
     }
