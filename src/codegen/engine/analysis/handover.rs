@@ -59,6 +59,11 @@ pub(crate) fn call_key(value: &NirValue) -> usize {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HandOverArgs {
     sites: HashMap<(usize, usize), Site>,
+    /// plan-147-E: the `op_key`s of `MUT y = p` / `LET y = p` binds whose source is
+    /// an owned PARAMETER at its last use, so the bind may move the block instead of
+    /// copying it. That is the `__json_parseArrayItems` shape — `MUT acc = items`
+    /// followed by a loop of in-place appends — where the copy is the whole cost.
+    param_binds: HashSet<usize>,
 }
 
 /// One approved call site: the callee, and which of its parameters this site hands
@@ -113,6 +118,16 @@ impl HandOverArgs {
             .values()
             .map(|site| (site.target.clone(), site.mask))
             .collect()
+    }
+
+    /// Whether the bind at `op` moves an owned parameter instead of copying it.
+    pub(crate) fn moves_owned_param(&self, op: usize) -> bool {
+        self.param_binds.contains(&op)
+    }
+
+    /// How many such binds there are, for the tests.
+    pub(crate) fn param_bind_count(&self) -> usize {
+        self.param_binds.len()
     }
 
     /// How many arguments are approved in total, for the census and the tests.
@@ -235,6 +250,7 @@ pub(crate) fn collect_handover_args(
     let mut consumable: HashMap<String, ParamSet> = HashMap::new();
 
     let mut sites: HashMap<(usize, usize), Site> = HashMap::new();
+    let mut param_binds: HashSet<usize> = HashSet::new();
     for (key, (op, out)) in &live.after {
         // Only a simple statement is a site, exactly as in `collect_last_use_moves`:
         // a compound op's value is a loop condition or a branch test, which the
@@ -275,6 +291,27 @@ pub(crate) fn collect_handover_args(
             kill(&mut after, name);
         }
         after.extend(live.trap_live.iter().cloned());
+
+        // plan-147-E: `MUT y = p` on an owned parameter at its last use. The same H1-H3
+        // questions as a call argument, asked of a bind: the parameter must be one
+        // this lowering owns, of a hand-over type, read exactly once here, and dead
+        // afterwards (including in any handler).
+        if let NirOp::Bind {
+            value: Some(NirValue::Local(source)),
+            ..
+        } = op
+        {
+            let place = Place::Local(source.clone());
+            if owned_params.contains(source.as_str())
+                && types
+                    .get(source.as_str())
+                    .is_some_and(|type_| handover_type(model, type_))
+                && read_count(&all_reads, &place) == 1
+                && !place_live(&after, &place)
+            {
+                param_binds.insert(*key);
+            }
+        }
 
         for value in &values {
             for_each_call(value, &mut |call| {
@@ -390,7 +427,7 @@ pub(crate) fn collect_handover_args(
             });
         }
     }
-    HandOverArgs { sites }
+    HandOverArgs { sites, param_binds }
 }
 
 /// The parameters of `function` an owned variant would consume — use up rather than
@@ -470,10 +507,9 @@ fn is_captured_or_address_taken(function: &NirFunction, name: &str) -> bool {
 }
 
 /// P3: whether any op ends `name`'s life by consuming it — `RETURN OP(name, …)`
-/// (letter B's site S11) or `RETURN name` (`plan_returned_move`'s move).
-///
-/// `MUT y = p` and passing `p` on to another owned variant are letter E, so a read
-/// of any other shape does not count here.
+/// (letter B's site S11), `RETURN name` (`plan_returned_move`'s move), or
+/// plan-147-E's `MUT y = name` / `LET y = name`, which moves the block into the new
+/// binding instead of copying it.
 fn consuming_use(
     function: &NirFunction,
     live: &crate::codegen::engine::analysis::last_use::LiveOut<'_>,
@@ -481,6 +517,16 @@ fn consuming_use(
 ) -> bool {
     let place = Place::Local(name.to_string());
     for op in ops_of(function) {
+        // plan-147-E: a bind of the bare parameter consumes it.
+        if let NirOp::Bind {
+            value: Some(NirValue::Local(source)),
+            ..
+        } = op
+        {
+            if source == name && !place_live(&live.trap_live, &place) {
+                return true;
+            }
+        }
         let NirOp::Return { value: Some(value) } = op else {
             continue;
         };
@@ -931,6 +977,12 @@ END FUNC
 
 FUNC onlyReads(xs AS List OF Integer) AS Integer
   RETURN len(xs)
+END FUNC
+
+FUNC bindsIt(xs AS List OF Integer, v AS Integer) AS List OF Integer
+  MUT acc AS List OF Integer = xs
+  acc = collections::append(acc, v)
+  RETURN acc
 END FUNC",
         );
         assert_eq!(consumable_of(&source, "setter"), vec!["xs".to_string()]);
@@ -939,6 +991,8 @@ END FUNC",
             vec!["xs".to_string()]
         );
         assert_eq!(consumable_of(&source, "onlyReads"), Vec::<String>::new());
+        // plan-147-E: `MUT y = p` is a consuming use too — the bind takes the block.
+        assert_eq!(consumable_of(&source, "bindsIt"), vec!["xs".to_string()]);
         // The shared helpers, for the same reason the caller table calls them.
         assert_eq!(consumable_of(&source, "consume"), vec!["xs".to_string()]);
         assert_eq!(consumable_of(&source, "peek"), Vec::<String>::new());

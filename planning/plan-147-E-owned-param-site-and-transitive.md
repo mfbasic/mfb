@@ -170,18 +170,26 @@ Commit: d689d8506
 
 ### Phase 3 — `MUT y = p`
 
-- [ ] `builder_values.rs` `lower_value_owned`: move an owned parameter at its last use
-      (§3 point 4). Add P3's new consuming use and its unit rows.
-- [ ] `rt_owned_argument.rs`: add `bind-param`. The helper is
-      `MUT acc = items; FOR … acc = collections::append(acc, …) NEXT; RETURN acc`, called
-      as `x = helper(x, …)`, and it must be flat in N.
-- [ ] Re-run the semantics fixture.
+- [x] `builder_values.rs` `lower_value_owned`: an owned parameter at its last use is
+      moved into the new binding rather than copied — `owned_param_bind_moves` asks
+      the analysis, and `release_owned_param_to_binding` retires the parameter's
+      `OwnedValue` cleanup and nulls its slot, the same transfer
+      `plan_returned_move` makes. P3 counts `MUT y = p` as a consuming use, with a
+      unit row (`bindsIt` → `{xs}`). The last-use question is answered by a new
+      `param_binds` set on `HandOverArgs`, for the same reason the argument rules
+      needed the owned-parameter set: `collect_last_use_moves` excludes every
+      parameter, so `store_is_last_use` could not answer it.
+- [x] `rt_owned_argument.rs`: `bind-param` added and flat in N — `MUT acc = items`
+      then an append, called as `xs = extend(xs, i)`.
+- [x] Re-run the semantics fixture — **0 diffs**, unchanged.
 
 Acceptance: `bind-param` passes, and the fixture has 0 diffs.
-  Check 1: `cargo test --test rt_owned_argument bind_param` → passed (est. 2 min).
+  Check 1: `cargo test --test rt_owned_argument bind_param` → **passed**; the whole
+  file → **`ok. 10 passed; 0 failed; 0 ignored`** (2026-09-23).
   Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
-  → 0 diffs (est. 2 min).
-Commit: —
+  → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs.
+  `cargo test --bin mfb handover` → **`ok. 6 passed; 0 failed`**.
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -201,6 +209,14 @@ Commit: —
   It belongs in its own plan, next to plan-134's graph-type moves.
 
 ## Corrections
+
+- **The owned-parameter bind needs its own last-use answer.** §3 point 4 says to
+  mirror `plan_returned_move`, which it does — but it cannot ask
+  `store_is_last_use`, because that reads `collect_last_use_moves`, which excludes
+  every parameter (`excluded_roots`) for the same reason letter C's H1 did. So the
+  analysis records the qualifying binds itself, as a `param_binds` set of `op_key`s
+  on `HandOverArgs`, asking the same H1-H3 questions of a bind that it asks of a call
+  argument. Same root cause as the owned-parameter correction above, one shape over.
 
 - **Handing the temporary over is not enough: the temporary has to be BUILT in
   place.** §3 point 3 says of `fill`: "`RETURN xs` makes `xs` consumable directly, and

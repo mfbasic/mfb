@@ -800,6 +800,43 @@ impl CodeBuilder<'_> {
     ///
     /// Fresh-producing nodes (`Call`, `Constructor`, literals, `Binary`, …) and
     /// non-freeable types (scalars, resources, threads) are returned unchanged.
+    /// plan-147-E: whether the bind being lowered moves an owned parameter rather
+    /// than copying it (`handover`'s `param_binds`, computed once per function).
+    ///
+    /// Answers `false` in a synthesized builder, at an op the analysis never saw, and
+    /// for anything but a bare `Local` — the fail-closed direction, where the copy
+    /// stands.
+    fn owned_param_bind_moves(&self, value: &NirValue) -> bool {
+        if !matches!(value, NirValue::Local(_)) {
+            return false;
+        }
+        let Some(op) = self.current_op_key else {
+            return false;
+        };
+        self.handover
+            .as_ref()
+            .is_some_and(|handover| handover.moves_owned_param(op))
+    }
+
+    /// Retire `name`'s owned-value cleanup and null its slot: the block now belongs
+    /// to the binding being lowered.
+    fn release_owned_param_to_binding(&mut self, name: &str) {
+        let Some(local) = self.locals.get(name) else {
+            return;
+        };
+        let stack_offset = local.stack_offset;
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == stack_offset)
+        }) {
+            self.active_cleanups.remove(index);
+        }
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
+    }
+
     pub(crate) fn lower_value_owned(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let result = self.lower_value(value)?;
         // A register-native vector reaching an owner boundary (a binding, global,
@@ -810,6 +847,23 @@ impl CodeBuilder<'_> {
             let block = self.vector_value_as_block(result)?;
             self.claim_pending_temp(&block);
             return Ok(block);
+        }
+        // plan-147-E: `MUT y = p` where `p` is an owned PARAMETER at its last use hands
+        // the block to the new binding instead of copying it. That is the
+        // `__json_parseArrayItems` shape (`MUT acc = items`, then a loop of in-place
+        // appends), where the entry copy is the whole cost.
+        //
+        // The transfer is the same one `plan_returned_move` makes: retire the
+        // parameter's own `OwnedValue` cleanup and null its slot, so the block has
+        // exactly one owner — the new binding, whose own cleanup the bind registers.
+        // A null slot is "moved-from, not dropped" (§14.7), which every drop already
+        // handles.
+        if self.owned_param_bind_moves(value) {
+            if let NirValue::Local(name) = value {
+                let name = name.clone();
+                self.release_owned_param_to_binding(&name);
+                return Ok(result);
+            }
         }
         if self.value_needs_owning_copy(value)
             && self.is_freeable_flat_value(&result.type_)

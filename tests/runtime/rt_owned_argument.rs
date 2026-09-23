@@ -33,7 +33,8 @@
 //! * `helper-concat` — **landed**, plan-147-D, but asserting `Expect::StillCopies`:
 //!   the hand-over happens and buys nothing, because a `String` block must be tight
 //!   to leave its frame. See the case's doc comment for the measurement.
-//! * `recursive-fill` — **landed**, plan-147-E (transitive hand-over).
+//! * `recursive-fill`, `bind-param` — **landed**, plan-147-E (transitive hand-over,
+//!   and the owned-parameter bind).
 //!
 //! Nothing is ignored: the guard asserts the ignored set is empty.
 
@@ -159,6 +160,26 @@ END FUNC",
                       2N=4000, identical to without it. Flattening this needs the String \
                       block to carry its own capacity, which is another plan's change",
             },
+        },
+        // E: `MUT acc = items` at an owned parameter's last use. The
+        // `__json_parseArrayItems` shape: bind the parameter to a mutable local, then
+        // append into it. The bind is the whole cost if it copies.
+        Case {
+            name: "bind-param",
+            letter: "E",
+            n: FLAT_N,
+            module: "FUNC extend(items AS List OF Integer, v AS Integer) AS List OF Integer
+  MUT acc AS List OF Integer = items
+  acc = collections::append(acc, v)
+  RETURN acc
+END FUNC",
+            body: "MUT xs AS List OF Integer = []
+  FOR i = 1 TO {N}
+    xs = extend(xs, i)
+  NEXT
+  io::print(\"len=\" & toString(len(xs)))",
+            want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
         // E: transitive hand-over. The argument is a fresh temp
         // (`collections::append(xs, n)`), and the callee is the function itself, so
@@ -348,6 +369,13 @@ fn helper_concat() {
     check("helper-concat");
 }
 
+/// plan-147-E: `MUT acc = items` at an owned parameter's last use moves the block
+/// into the new binding instead of copying it.
+#[test]
+fn bind_param() {
+    check("bind-param");
+}
+
 /// plan-147-E: transitive hand-over. `fill(collections::append(xs, n), n - 1)`
 /// needed two things beyond letter D — the fresh temporary argument handed over, and
 /// the temporary BUILT by updating `xs` in place rather than copying it — and both
@@ -418,7 +446,8 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
         "helper_append",
         "helper_concat",
         "helper_map_set",
-        // plan-147-E, transitive hand-over.
+        // plan-147-E, transitive hand-over and the owned-parameter bind.
+        "bind_param",
         "recursive_fill",
     ];
     let declared: BTreeSet<String> = cases().iter().map(|c| c.name.replace('-', "_")).collect();
