@@ -810,8 +810,17 @@ impl CodeBuilder<'_> {
         else {
             return false;
         };
-        crate::codegen::builtins::inline_builtin_is_infallible(target, &arg_types)
-            && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
+        // bug-679: `NoTypeKinds` deliberately. This is a codegen optimizer running
+        // on NIR, where no declaration table is in scope to tell an enum from a
+        // record, and the oracle's `false` is the over-approximating side — a
+        // `toInt(<enum>)` here simply stays "can fail" and the value is not
+        // treated as effect-free. Losing an optimization is the safe direction;
+        // the other one would let a failing call be elided.
+        crate::codegen::builtins::inline_builtin_is_infallible(
+            target,
+            &arg_types,
+            &crate::codegen::builtins::NoTypeKinds,
+        ) && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
     }
 
     /// If `field` is a **collection** field of `record_type` that is inlined AND

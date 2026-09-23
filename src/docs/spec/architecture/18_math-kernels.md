@@ -133,6 +133,39 @@ Before bug-615-C all four ran a 31-step Q32.32 CORDIC **vectoring** loop and kep
 its residue: `atan(2.0F)` was 4.27 units out, `atan2(3.0F, -4.0F)` 2.69,
 `asin(0.8F)` 1.61. The loop has no callers left and is deleted.
 
+### `Fixed` `exp` and fractional `pow`
+
+`exp` on a `Fixed` is `2^n · exp(r)` with `n = round(x / ln2)` and `r = x − n·ln2`,
+the reduced `exp(r)` coming from an 18-term Taylor series and the `2^n` recombination
+from a doubling/halving loop that raises `ErrOverflow` on the way up.
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_exp]]
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_scale_by_power_of_two]]
+
+That recombination **dispatches on the sign of `n`** — non-negative doubles with the
+overflow check, negative halves without one — so the reduction's sign is load-bearing
+in a way its magnitude is not. `x / ln2` is an unchecked Q32.32 multiply, and past
+`|x| = 2^31·ln2 ≈ 1.4885e9` it left `Fixed` range and wrapped, handing the loop a
+sign-flipped `n`: that selected the opposite arm and skipped the overflow check
+entirely, so overflow and underflow silently swapped (bug-659). The kernel therefore
+gates the argument **before** reducing it. `Fixed` spans just under `[−2^31, 2^31)`,
+so the result overflows above `ln(2^31) = 21.4876` and rounds to zero below
+`−33·ln2 = −22.8742`; the gate sits at `|x| = 64`, outside both thresholds (no
+in-range result moves) and far inside the wrap point (the reduction can no longer
+leave range). Above `+64` the kernel raises `ErrOverflow` (`77050010`) and below
+`−64` it returns `0.00`, decided from the sign of `x` itself.
+
+`pow` on a `Fixed` with a **fractional** exponent is `exp(exponent · ln(base))`, which
+inherits that sensitivity one level up: `|ln(base)|` reaches about 22 across the
+`Fixed` domain, so an exponent past roughly `1e8` drives the product itself out of
+Q32.32 range. A wrapped product flips the sign `exp`'s gate then reads its answer off,
+so that multiply **saturates** to `i64::MAX`/`i64::MIN` instead of wrapping — bit-identical
+to the plain multiply in range, and past the gate in the correct direction outside it,
+which is the true result since `|exponent · ln(base)| > 2^31` cannot land inside `Fixed`
+range. The whole-number-exponent path is a separate exact multiply loop and never
+reaches either seam.
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_mul_saturating]]
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_general]]
+
 ### The `Float` `acos` half-angle identity
 
 The **`Float`** `acos` kernel deliberately uses the half-angle identity rather than `π/2 − asin(x)`: the

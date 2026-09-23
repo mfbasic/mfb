@@ -10,6 +10,7 @@ pub(super) fn collect_source(
 ) {
     let fallible = fallible_functions(ast);
     let aliases = link_aliases(ast);
+    let enums = declared_enums(ast);
 
     let mut flow = Vec::new();
     let mut permissions = Vec::new();
@@ -38,52 +39,58 @@ pub(super) fn collect_source(
             };
 
             let has_trap = function.trap.is_some();
+            // bug-679: this function's enum tables, so the per-call-site rows agree
+            // with the per-declaration verdict above. A `toInt(<enum>)` row listed
+            // under a function the fixpoint just called total would contradict it.
+            let enum_locals = enum_valued_bindings(function, &enums);
 
             let mut calls = Vec::new();
             {
-                let mut visit =
-                    |callee: &str, line: usize, in_trap: bool, arguments: &[CallArg]| {
-                        // Where this call's error actually goes (bug-280). The label
-                        // used to be chosen from the *function's* trap alone, so a
-                        // call fully recovered by an inline `TRAP … RECOVER` was
-                        // reported as `return` — auto-propagates to the caller — which
-                        // is the opposite of what happens.
-                        let propagation = if in_trap || has_trap {
-                            "trap"
-                        } else {
-                            "return"
-                        };
-                        let capability = builtin_capability(callee, &aliases);
-                        if let Some(capability) = capability {
-                            permissions.push(PermissionEntry {
-                                capability: capability.to_string(),
-                                package: package_of(callee).to_string(),
-                                function: callee.to_string(),
-                                path: file.path.clone(),
-                                line,
-                                kind: if capability == "native" {
-                                    "native".to_string()
-                                } else {
-                                    "standard".to_string()
-                                },
-                            });
-                        }
-                        if relaxes_certificate_trust(callee, arguments) {
-                            relaxed_trust.push(RelaxedTrustEntry {
-                                function: callee.to_string(),
-                                path: file.path.clone(),
-                                line,
-                            });
-                        }
-                        if is_fallible_call(callee, &fallible.names) {
-                            calls.push(CallSite {
-                                callee: callee.to_string(),
-                                line,
-                                propagation: propagation.to_string(),
-                                capability: capability.map(str::to_string),
-                            });
-                        }
+                let mut visit = |callee: &str,
+                                 line: usize,
+                                 in_trap: bool,
+                                 arguments: &[CallArg]| {
+                    // Where this call's error actually goes (bug-280). The label
+                    // used to be chosen from the *function's* trap alone, so a
+                    // call fully recovered by an inline `TRAP … RECOVER` was
+                    // reported as `return` — auto-propagates to the caller — which
+                    // is the opposite of what happens.
+                    let propagation = if in_trap || has_trap {
+                        "trap"
+                    } else {
+                        "return"
                     };
+                    let capability = builtin_capability(callee, &aliases);
+                    if let Some(capability) = capability {
+                        permissions.push(PermissionEntry {
+                            capability: capability.to_string(),
+                            package: package_of(callee).to_string(),
+                            function: callee.to_string(),
+                            path: file.path.clone(),
+                            line,
+                            kind: if capability == "native" {
+                                "native".to_string()
+                            } else {
+                                "standard".to_string()
+                            },
+                        });
+                    }
+                    if relaxes_certificate_trust(callee, arguments) {
+                        relaxed_trust.push(RelaxedTrustEntry {
+                            function: callee.to_string(),
+                            path: file.path.clone(),
+                            line,
+                        });
+                    }
+                    if is_fallible_call(callee, &fallible.names, arguments, &enums, &enum_locals) {
+                        calls.push(CallSite {
+                            callee: callee.to_string(),
+                            line,
+                            propagation: propagation.to_string(),
+                            capability: capability.map(str::to_string),
+                        });
+                    }
+                };
                 walk_statements(&function.body, false, &mut visit);
                 if let Some(trap) = &function.trap {
                     walk_statements(&trap.body, false, &mut visit);
@@ -499,6 +506,138 @@ fn relevant_block(function: &Function) -> &[Statement] {
     }
 }
 
+/// The names of every `ENUM` declared anywhere in the project (bug-679).
+///
+/// Keyed on the declaration's KIND, never on "is a declared type": a record or a
+/// union that answered here would make `toInt` of one look total, deleting the
+/// report of a call that really can fail. Every file is scanned, including the
+/// injected package sources, for the same reason `fallible_functions` does — this
+/// is a lookup table, and a missing entry silently costs a verdict.
+fn declared_enums(ast: &ast::AstProject) -> HashSet<String> {
+    let mut enums = HashSet::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Type(decl) = item {
+                if decl.kind == ast::TypeDeclKind::Enum {
+                    enums.insert(decl.name.clone());
+                }
+            }
+        }
+    }
+    enums
+}
+
+/// The bindings in one function that provably hold an enum value (bug-679): its
+/// enum-typed parameters, plus every `LET`/`MUT` with an explicit enum annotation.
+///
+/// Fails closed on shadowing. A name bound ANYWHERE in the function to something
+/// that is not an annotated enum is removed from the set, because this walk has no
+/// block scoping and would otherwise let a `LET n AS String` in one branch be read
+/// as the enum parameter of the same name in another — turning a real
+/// `toInt(<String>)` into an unreported failure. Losing the verdict for a shadowed
+/// name only costs an over-report, which is the side this census already takes.
+fn enum_valued_bindings(function: &Function, enums: &HashSet<String>) -> HashSet<String> {
+    let mut held = HashSet::new();
+    let mut shadowed = HashSet::new();
+    for param in &function.params {
+        match param.type_name.as_deref() {
+            Some(type_name) if enums.contains(type_name) => {
+                held.insert(param.name.clone());
+            }
+            _ => {
+                shadowed.insert(param.name.clone());
+            }
+        }
+    }
+    collect_enum_lets(&function.body, enums, &mut held, &mut shadowed);
+    if let Some(trap) = &function.trap {
+        collect_enum_lets(&trap.body, enums, &mut held, &mut shadowed);
+    }
+    held.retain(|name| !shadowed.contains(name));
+    held
+}
+
+/// Walks every nested block for `LET`/`MUT` bindings, recording each name as
+/// enum-annotated or not. A name that appears both ways ends up in `shadowed` and
+/// is dropped by the caller.
+fn collect_enum_lets(
+    body: &[Statement],
+    enums: &HashSet<String>,
+    held: &mut HashSet<String>,
+    shadowed: &mut HashSet<String>,
+) {
+    for statement in body {
+        match statement {
+            Statement::Let {
+                name, type_name, ..
+            } => match type_name.as_deref() {
+                Some(annotated) if enums.contains(annotated) => {
+                    held.insert(name.clone());
+                }
+                // An unannotated `LET` is not read as an enum even when its
+                // initializer is one: inferring it needs the type oracle this
+                // AST-level census does not have, and guessing is how a
+                // `toInt(<String>)` would go unreported.
+                _ => {
+                    shadowed.insert(name.clone());
+                }
+            },
+            // A loop variable's type comes from the iterable, which needs the same
+            // oracle, so it is never read as an enum.
+            Statement::ForEach { name, body, .. } => {
+                shadowed.insert(name.clone());
+                collect_enum_lets(body, enums, held, shadowed);
+            }
+            Statement::For { name, body, .. } => {
+                shadowed.insert(name.clone());
+                collect_enum_lets(body, enums, held, shadowed);
+            }
+            // An assignment can replace an enum binding's value, but the language
+            // types an assignment by the binding, so the declared type still holds.
+            Statement::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_enum_lets(then_body, enums, held, shadowed);
+                collect_enum_lets(else_body, enums, held, shadowed);
+            }
+            Statement::Match { cases, .. } => {
+                for case in cases {
+                    collect_enum_lets(&case.body, enums, held, shadowed);
+                }
+            }
+            Statement::While { body, .. } | Statement::DoUntil { body, .. } => {
+                collect_enum_lets(body, enums, held, shadowed)
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether `expression` provably evaluates to an enum value (bug-679).
+///
+/// Two shapes answer yes and nothing else does: a binding this function declared
+/// with an enum type, and an enum member path `Color.Blue` (including the
+/// qualified `pkg::Enum.Member`, which parses to the same `MemberAccess` over a
+/// dotted name). Everything else — a call result, a field read, an element of a
+/// list — needs the type oracle an AST walk does not have, and answers `false`,
+/// which is this census's existing over-reporting side.
+fn expression_is_enum_valued(
+    expression: &Expression,
+    enums: &HashSet<String>,
+    enum_locals: &HashSet<String>,
+) -> bool {
+    match expression {
+        Expression::Identifier(name) => enum_locals.contains(name),
+        Expression::MemberAccess { target, .. } => match target.as_ref() {
+            Expression::Identifier(type_name) => enums.contains(type_name),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// Computes which user functions let errors escape to callers, per declaration.
 fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
     // Every declaration, in source order — a name-keyed map would drop all but
@@ -517,13 +656,25 @@ fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
     // is such a call is fallible. The fixpoint below then propagates that to its
     // callers (bug-211).
     let mut names: HashSet<String> = link_fallible_calls(ast);
+    // bug-679: the enum tables. Computed once per declaration rather than per
+    // fixpoint pass — the declarations do not change as the verdicts converge.
+    let enums = declared_enums(ast);
+    let enum_locals: Vec<HashSet<String>> = functions
+        .iter()
+        .map(|(_, function)| enum_valued_bindings(function, &enums))
+        .collect();
     loop {
         let mut changed = false;
-        for (_, function) in &functions {
+        for (index, (_, function)) in functions.iter().enumerate() {
             if names.contains(&function.name) {
                 continue;
             }
-            if block_escapes(relevant_block(function), &names) {
+            if block_escapes(
+                relevant_block(function),
+                &names,
+                &enums,
+                &enum_locals[index],
+            ) {
                 names.insert(function.name.clone());
                 changed = true;
             }
@@ -538,8 +689,16 @@ fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
     // already marked by a sibling.
     let declarations = functions
         .iter()
-        .filter(|(_, function)| block_escapes(relevant_block(function), &names))
-        .map(|(path, function)| ((*path).to_string(), function.line))
+        .enumerate()
+        .filter(|(index, (_, function))| {
+            block_escapes(
+                relevant_block(function),
+                &names,
+                &enums,
+                &enum_locals[*index],
+            )
+        })
+        .map(|(_, (path, function))| ((*path).to_string(), function.line))
         .collect();
 
     Fallibility {
@@ -551,14 +710,23 @@ fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
 /// Returns true if the block can let an error escape: a `FAIL`, a `PROPAGATE`,
 /// or a call to a fallible builtin or fallible user function. `fallible` is the
 /// name-union set, so a call resolves conservatively across overloads.
-fn block_escapes(body: &[Statement], fallible: &HashSet<String>) -> bool {
+///
+/// `enums` names the project's declared `ENUM`s, and `enum_locals` the bindings
+/// in *this* function that provably hold one, so `toInt(<enum>)` — the one
+/// conversion overload that cannot fail (bug-679) — is not counted.
+fn block_escapes(
+    body: &[Statement],
+    fallible: &HashSet<String>,
+    enums: &HashSet<String>,
+    enum_locals: &HashSet<String>,
+) -> bool {
     let mut escapes = false;
     // A call whose error an inline `TRAP … RECOVER` fully handles does not escape
     // the function, so it must not make the function fallible (bug-280).
     // Previously every fallible call counted regardless, so a fully-recovered
     // call marked its function — and transitively every caller — fallible.
-    let mut check = |callee: &str, _line: usize, in_trap: bool, _arguments: &[CallArg]| {
-        if !in_trap && is_fallible_call(callee, fallible) {
+    let mut check = |callee: &str, _line: usize, in_trap: bool, arguments: &[CallArg]| {
+        if !in_trap && is_fallible_call(callee, fallible, arguments, enums, enum_locals) {
             escapes = true;
         }
     };
@@ -793,7 +961,27 @@ fn link_fallible_calls(ast: &ast::AstProject) -> HashSet<String> {
     names
 }
 
-fn is_fallible_call(callee: &str, fallible: &HashSet<String>) -> bool {
+fn is_fallible_call(
+    callee: &str,
+    fallible: &HashSet<String>,
+    arguments: &[CallArg],
+    enums: &HashSet<String>,
+    enum_locals: &HashSet<String>,
+) -> bool {
+    // bug-679: `toInt(<enum>)` is the ordinal the enum value already holds — a
+    // register move that declares no error (plan-140-B) — so it is total, exactly
+    // as `toString(<enum>)` is. It is the ONE `toInt` overload that cannot fail;
+    // every other one (bad parse, overflow) stays in the fallible list below, and
+    // an argument this cannot prove to be an enum falls through to it. This is the
+    // mirror of the inline-`TRAP` census's rule, kept here because `mfb audit`
+    // answers over the AST with its own hand-curated census (see `ir::fallible`'s
+    // module doc on why the two are deliberately separate).
+    if callee == "toInt" && arguments.len() == 1 {
+        let (CallArg::Positional(value) | CallArg::Named { value, .. }) = &arguments[0];
+        if expression_is_enum_valued(value, enums, enum_locals) {
+            return false;
+        }
+    }
     // Whole-package fallible surfaces — every call raises a trappable host error.
     // `tls`/`http` join the original set: they are network I/O like `net`
     // (bug-96).
@@ -1009,6 +1197,59 @@ mod tests {
             "the String overload calls a fallible builtin"
         );
         assert!(at(7).fallible, "main calls the fallible overload");
+    }
+
+    /// bug-679: `toInt(<enum>)` is the ordinal the value already holds and cannot
+    /// fail (plan-140-B), so a function whose only `toInt` is over an enum is
+    /// total and must not be reported — nor must its callers, which is where the
+    /// over-reporting actually hurt (one `toInt(f)` marked 29 further functions).
+    /// `toString(<enum>)` is already right, and the two halves of the same enum
+    /// bridge must agree.
+    #[test]
+    fn toint_over_an_enum_is_not_fallible() {
+        let source = concat!(
+            "ENUM Color\n",
+            "  Red, Green, Blue\n",
+            "END ENUM\n",
+            "FUNC ordinalOf(c AS Color) AS Integer\n",
+            "  RETURN toInt(c)\n",
+            "END FUNC\n",
+            "FUNC nameOf(c AS Color) AS String\n",
+            "  RETURN toString(c)\n",
+            "END FUNC\n",
+            "FUNC literalOrdinal() AS Integer\n",
+            "  RETURN toInt(Color.Blue)\n",
+            "END FUNC\n",
+            "FUNC viaLet(c AS Color) AS Integer\n",
+            "  LET held AS Color = c\n",
+            "  RETURN toInt(held)\n",
+            "END FUNC\n",
+            "FUNC parseIt(s AS String) AS Integer\n",
+            "  RETURN toInt(s)\n",
+            "END FUNC\n",
+            "FUNC caller(c AS Color) AS Integer\n",
+            "  RETURN ordinalOf(c) + 1\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _, ..) = collect_source(&project(source));
+        let at = |line: usize| {
+            flow.iter()
+                .find(|entry| entry.line == line)
+                .unwrap_or_else(|| panic!("no function declared at line {line}"))
+        };
+        assert!(!at(4).fallible, "toInt of an enum parameter cannot fail");
+        assert!(!at(7).fallible, "toString of an enum already cannot fail");
+        assert!(
+            !at(10).fallible,
+            "toInt of an enum member literal cannot fail"
+        );
+        assert!(!at(13).fallible, "toInt of an enum-typed LET cannot fail");
+        // The non-goal half: every other overload really can fail, and a caller of
+        // one stays fallible. Marking the name infallible outright would delete the
+        // only guard between a bad parse and a dead process.
+        assert!(at(17).fallible, "toInt of a String can fail on a bad parse");
+        // The transitive half — the actual blast radius of the over-report.
+        assert!(!at(20).fallible, "a caller of a total function is total");
     }
 
     #[test]

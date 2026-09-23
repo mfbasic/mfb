@@ -54,15 +54,45 @@ FUNC readKey AS String
   RETURN ""
 END FUNC
 
-' The screen direction a movement key walks in, as a view direction: w is
-' up-right, d down-right, s down-left and a up-left. [] is not a movement key.
-FUNC keyDirection(key AS String) AS List OF Facing
+' What a key press means. Move carries a view direction, not a map one: w is
+' up-right, d down-right, s down-left and a up-left on the screen, whichever
+' way the view is turned, so main turns it through mapDirection. Turn carries
+' quarter turns clockwise, so -1 is counterclockwise. Quit and Ignore carry
+' nothing: they are named cases, not an absent direction.
+TYPE Move
+  dir AS Facing
+END TYPE
+
+TYPE Turn
+  quarters AS Integer
+END TYPE
+
+TYPE Quit
+END TYPE
+
+TYPE Ignore
+END TYPE
+
+UNION Command
+  Move
+  Turn
+  Quit
+  Ignore
+END UNION
+
+' The command a key press stands for. Every key the program reads is one of
+' the four, so adding a key is a compile error at main's MATCH until it is
+' handled there.
+FUNC commandFor(key AS String) AS Command
   MATCH key
-    CASE "w", "W" : RETURN [Facing.North]
-    CASE "d", "D" : RETURN [Facing.East]
-    CASE "s", "S" : RETURN [Facing.South]
-    CASE "a", "A" : RETURN [Facing.West]
-    CASE ELSE : RETURN []
+    CASE "w", "W" : RETURN Move[Facing.North]
+    CASE "d", "D" : RETURN Move[Facing.East]
+    CASE "s", "S" : RETURN Move[Facing.South]
+    CASE "a", "A" : RETURN Move[Facing.West]
+    CASE "q", "Q" : RETURN Turn[-1]
+    CASE "e", "E" : RETURN Turn[1]
+    CASE "ESC", "EOF" : RETURN Quit[]
+    CASE ELSE : RETURN Ignore[]
   END MATCH
 END FUNC
 
@@ -92,24 +122,22 @@ FUNC main AS Integer
     END IF
 
     IF ready(16) THEN
-      LET key AS String = readKey()
-      FOR EACH toward IN keyDirection(key)
-        LET dir AS Facing = mapDirection(toward, turns)
-        IF canMove(m, px, py, dir) THEN
-          px = px + stepX(dir)
-          py = py + stepY(dir)
+      MATCH commandFor(readKey())
+        CASE Move(mv)
+          LET dir AS Facing = mapDirection(mv.dir, turns)
+          IF canMove(m, px, py, dir) THEN
+            px = px + stepX(dir)
+            py = py + stepY(dir)
+            redraw = TRUE
+          END IF
+        CASE Turn(t)
+          ' turns stays in 0..3 and quarters is +/-1, so the sum is never
+          ' below -1 and one wrap is enough. facingOf needs two, taking any
+          ' Integer.
+          turns = (turns + t.quarters + 4) MOD 4
           redraw = TRUE
-        END IF
-      NEXT
-      MATCH key
-        CASE "q", "Q"
-          turns = (turns + 3) MOD 4
-          redraw = TRUE
-        CASE "e", "E"
-          turns = (turns + 1) MOD 4
-          redraw = TRUE
-        CASE "ESC", "EOF" : running = FALSE
-        CASE ELSE
+        CASE Quit : running = FALSE
+        CASE Ignore
       END MATCH
     END IF
   LOOP
