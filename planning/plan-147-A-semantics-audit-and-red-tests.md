@@ -232,7 +232,7 @@ fails.
 
 Pins every observable rule in §2.3 before any code changes.
 
-- [ ] Add `tests/rt-behavior/memory/owned-argument-semantics-rt/`, with the same
+- [x] Add `tests/rt-behavior/memory/owned-argument-semantics-rt/`, with the same
       layout as `tests/rt-behavior/arithmetic/float-call-boundary-finite-rt/`:
       `project.json`, `src/main.mfb`, and `golden/` holding `build.log`,
       `owned_argument_semantics_rt.{ast,ir,run}`. Generate the goldens with the
@@ -250,15 +250,33 @@ Pins every observable rule in §2.3 before any code changes.
         site and at a lent site; print `err.source.line`/`char`;
       - `res-in-list-arg` (S8): a `List OF RES` threaded through a helper; the
         resource is closed once, at its owner's exit.
-- [ ] Also add `function-value-call` (S13): the same helper called through
-      `LET f = helper` and directly, with equal output.
+- [x] Also add `function-value-call` (S13): the same helper called through
+      `LET f = helper` and directly, with equal output. Prints
+      `function-value-call equal=TRUE n=3 x=2` — equal results either way, and `x`
+      intact after both calls.
 
 Acceptance: the fixture passes at HEAD, and its `.run` golden shows the values §2.3
 expects: the old value where a handler or a later read sees it, the global's value
 at the call, and equal `err.source` lines.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
-  → 1 fixture, 0 diffs (est. 2 min: one fixture build and run).
-Commit: —
+  → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs (2026-09-22, at HEAD with
+  no compiler change). The twelve printed lines, each verified by hand against §2.3:
+
+  ```
+  after-call-read x=2 y=3                              S2  x intact after the call
+  trap-reads-old x=2 code=7                            S3  handler sees the OLD x (helper had grown it to 3, then failed)
+  trap-reads-old y=2                                   S3  RECOVER x yields the old value
+  recover-old x=3                                      S3  x unchanged across the failed RHS
+  fn-trap-reads-old x=4 code=7                         S3  function-level handler sees the old x
+  fn-trap-reads-old ret=4
+  same-arg-twice x=3                                   S6  pair([1,2],[1,2]) = append([1,2], 2)
+  global-arg n=2 g=5                                   S7  the argument is the global's value AT THE CALL, not the 5 the callee stored
+  captured-arg f=2 y=3                                 S9  the lambda's captured copy is unaffected
+  error-source-same same=TRUE bLen=2 r=0               S11 identical origin from the hand-over and the lent site; b intact
+  res-in-list-arg n=2                                  S8  two handles, closed once at the owner's exit (exit 0)
+  function-value-call equal=TRUE n=3 x=2               S13 same result through `LET f = addOne` and directly
+  ```
+Commit: (this commit)
 
 ### Phase 2 — The RED allocation tests
 
@@ -378,6 +396,25 @@ Commit: —
     This **moves four builtin sites from letter D/E's population into letter B's** —
     B's in-place `RETURN OP(local, …)` now covers four builtin hot paths it was not
     credited with. No letter is re-split: the work still scales with shapes.
+
+- **Phase 1 acceptance corrected: the values are pinned by `build.log`, not by the
+  `.run` golden.** The phase text says to "read the `.run` by hand against the
+  expected values". That is not what the harness compares: `scripts/test-accept.sh:575`
+  states outright that a `<pkg>.run` golden "is a MERGE TRIGGER" whose "contents are
+  never [compared]" — its only job is to force the full `mfb build` + execute path.
+  The program's stdout is captured into `build.log`, which **is** an exact-compared
+  golden (`:319`). So the twelve semantics lines are pinned by
+  `golden/build.log`; `golden/owned_argument_semantics_rt.run` carries the same text
+  only for readability, matching the model fixture
+  `tests/rt-behavior/arithmetic/float-call-boundary-finite-rt/`. The acceptance
+  criterion is unchanged in strength — it is still an exact comparison of every
+  printed value, just against the file that is actually diffed.
+
+- **S9's fixture uses `LET x`, not `MUT x`.** The first draft captured a `MUT` local
+  in the lambda and the compiler refused it:
+  `error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: Lambda captures mutable local
+  \`x\`; mutable captures are invalid`. §14.4 is about closures capturing **`LET`s**
+  by value, so `LET` is the shape S9 is actually about; the fixture matches the rule.
 
 ## Summary
 

@@ -1,0 +1,12 @@
+after-call-read x=2 y=3
+trap-reads-old x=2 code=7
+trap-reads-old y=2
+recover-old x=3
+fn-trap-reads-old x=4 code=7
+fn-trap-reads-old ret=4
+same-arg-twice x=3
+global-arg n=2 g=5
+captured-arg f=2 y=3
+error-source-same same=TRUE bLen=2 r=0
+res-in-list-arg n=2
+function-value-call equal=TRUE n=3 x=2

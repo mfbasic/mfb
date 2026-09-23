@@ -1,0 +1,182 @@
+IMPORT io
+IMPORT collections
+IMPORT fs
+
+' plan-147-A Phase 1: the GREEN semantics fixtures.
+'
+' plan-147 hands a collection the caller no longer needs over to the callee
+' instead of lending it, so the callee can update it in place. That is a codegen
+' optimization only: no program may observe it except by timing or allocation
+' counts. This fixture pins every rule in plan-147-A §2.3 whose violation WOULD
+' be observable. It is GREEN at HEAD, before any compiler change, and every
+' later letter of plan-147 must keep it green. A regression here is a
+' correctness bug in the hand-over analysis, not a golden to re-baseline.
+'
+' One SUB per §2.3 fixture name; each prints exactly one line.
+
+MUT gxs AS List OF Integer = []
+
+' --- the helper shapes plan-147 hands arguments over to ---------------------
+
+FUNC addOne(xs AS List OF Integer, v AS Integer) AS List OF Integer
+  RETURN collections::append(xs, v)
+END FUNC
+
+' The same local reaches both parameters: two reads, so hand-over is refused.
+FUNC pair(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  RETURN collections::append(a, len(b))
+END FUNC
+
+' Appends and then fails. §14.2: on the failure path the caller's old value must
+' still be exactly what it was, so a callee that mutated in place and then raised
+' would be visible to any handler that reads it.
+FUNC growThenFail(xs AS List OF Integer, v AS Integer) AS List OF Integer
+  LET grown AS List OF Integer = collections::append(xs, v)
+  FAIL error(7, "grew to " & toString(len(grown)) & " then failed")
+END FUNC
+
+' Fails from one fixed source position, whichever site called it.
+FUNC boom(xs AS List OF Integer) AS Integer
+  FAIL error(11, "boom " & toString(len(xs)))
+END FUNC
+
+' Reassigns the global it was also handed. §14.3: the argument keeps the value
+' the global had AT THE CALL, not the value the callee stores into it.
+FUNC clobberGlobal(xs AS List OF Integer) AS Integer
+  gxs = [9, 9, 9, 9, 9]
+  RETURN len(xs)
+END FUNC
+
+FUNC countHandles(hs AS List OF RES fs::File) AS Integer
+  RETURN len(hs)
+END FUNC
+
+' --- S2: a read after the call still sees the caller's value ----------------
+
+SUB afterCallRead()
+  MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = addOne(x, 3)
+  io::print("after-call-read x=" & toString(len(x)) & " y=" & toString(len(y)))
+END SUB
+
+' --- S3: §14.2, the old value remains live when the RHS fails ---------------
+
+' An inline handler reads `x` after a helper that appended and then failed.
+SUB trapReadsOld()
+  MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = growThenFail(x, 3) TRAP(e)
+    io::print("trap-reads-old x=" & toString(len(x)) & " code=" & toString(e.code))
+    RECOVER x
+  END TRAP
+  io::print("trap-reads-old y=" & toString(len(y)))
+END SUB
+
+' `RECOVER x` names the old value itself as the recovered result.
+SUB recoverOld()
+  MUT x AS List OF Integer = [1, 2, 3]
+  x = growThenFail(x, 9) TRAP(e)
+    RECOVER x
+  END TRAP
+  io::print("recover-old x=" & toString(len(x)))
+END SUB
+
+' A function-level handler reads `x`, so `x` is live after every op in the body.
+FUNC fnTrapReadsOld() AS Integer
+  MUT x AS List OF Integer = [1, 2, 3, 4]
+  LET y AS List OF Integer = growThenFail(x, 5)
+  RETURN len(y)
+TRAP(e)
+  io::print("fn-trap-reads-old x=" & toString(len(x)) & " code=" & toString(e.code))
+  RETURN len(x)
+END TRAP
+END FUNC
+
+' --- S6: the same binding reaching two parameters is two reads --------------
+
+SUB sameArgTwice()
+  MUT x AS List OF Integer = [1, 2]
+  x = pair(x, x)
+  io::print("same-arg-twice x=" & toString(len(x)))
+END SUB
+
+' --- S7: a global argument keeps its value at the call ----------------------
+
+SUB globalArg()
+  gxs = [1, 2]
+  LET n AS Integer = clobberGlobal(gxs)
+  io::print("global-arg n=" & toString(n) & " g=" & toString(len(gxs)))
+END SUB
+
+' --- S9: a local a closure captures is never handed over --------------------
+
+SUB capturedArg()
+  LET x AS List OF Integer = [1, 2]
+  LET f AS FUNC(Integer) AS Integer = LAMBDA(k AS Integer) -> len(x) + k
+  LET y AS List OF Integer = addOne(x, 3)
+  io::print("captured-arg f=" & toString(f(0)) & " y=" & toString(len(y)))
+END SUB
+
+' --- S11: §8.5a, Error.source is stamped at the origin and never rewritten --
+' The same failing helper is called at a would-be hand-over site (`a` is dead
+' after) and at a lent site (`b` is read after). Both errors must carry the
+' identical origin position, because the origin is inside `boom`.
+
+SUB errorSourceSame()
+  MUT a AS List OF Integer = [1]
+  MUT b AS List OF Integer = [1, 2]
+  MUT l1 AS Integer = -1
+  MUT c1 AS Integer = -1
+  MUT l2 AS Integer = -2
+  MUT c2 AS Integer = -2
+
+  LET r1 AS Integer = boom(a) TRAP(e)
+    l1 = e.source.line
+    c1 = e.source.char
+    RECOVER 0
+  END TRAP
+
+  LET r2 AS Integer = boom(b) TRAP(e)
+    l2 = e.source.line
+    c2 = e.source.char
+    RECOVER 0
+  END TRAP
+
+  io::print("error-source-same same=" & toString(l1 = l2 AND c1 = c2) & " bLen=" & toString(len(b)) & " r=" & toString(r1 + r2))
+END SUB
+
+' --- S8: a resource-bearing value is excluded by type -----------------------
+' The `List OF RES` owns its handles. Threading it through a helper must not
+' change close-once or drop order: the handles are closed exactly once, at
+' their owner's exit.
+
+SUB resInListArg()
+  RES a AS fs::File = fs::createTempFile()
+  RES b AS fs::File = fs::createTempFile()
+  LET hs AS List OF RES fs::File = [a, b]
+  LET n AS Integer = countHandles(hs)
+  io::print("res-in-list-arg n=" & toString(n))
+END SUB
+
+' --- S13: function identity is unchanged ------------------------------------
+
+SUB functionValueCall()
+  MUT x AS List OF Integer = [1, 2]
+  LET f AS FUNC(List OF Integer, Integer) AS List OF Integer = addOne
+  LET viaValue AS List OF Integer = f(x, 3)
+  LET viaDirect AS List OF Integer = addOne(x, 3)
+  io::print("function-value-call equal=" & toString(len(viaValue) = len(viaDirect)) & " n=" & toString(len(viaDirect)) & " x=" & toString(len(x)))
+END SUB
+
+FUNC main() AS Integer
+  afterCallRead()
+  trapReadsOld()
+  recoverOld()
+  io::print("fn-trap-reads-old ret=" & toString(fnTrapReadsOld()))
+  sameArgTwice()
+  globalArg()
+  capturedArg()
+  errorSourceSame()
+  resInListArg()
+  functionValueCall()
+  RETURN 0
+END FUNC
