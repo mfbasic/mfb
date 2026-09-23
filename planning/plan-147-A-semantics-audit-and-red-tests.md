@@ -54,8 +54,8 @@ These are a precondition on the whole of plan-147, not a dependency to negotiate
 | Must be true | Command | Status |
 |---|---|---|
 | plan-145 (field self-updates) complete. It extends `SELF_UPDATE_TABLE`, `ENABLED_SITES`, the matrix test and the runtime harness that letters B and E add a site to. It also provides the field arms E needs for record accumulators. | `ls planning/plan-145-* 2>/dev/null` → no matches | **MET** (2026-09-22: `ls planning/plan-145-*` -> no matches; all nine letters archived to `planning/completed/plan-145-A..I`, landed on main through `096acb8bd plan-145-I: lock the field guard; docs`) |
-| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | **NOT MET** (2026-09-22: `ls planning/plan-146-*` -> eight letters A-H still in `planning/`. In progress in worktree `P-146`: A has 0 unticked boxes, B has 7, C 8, D 8, E 7, F 9, G 9, H 12 -- 60 unticked boxes remain, measured with `grep -c '^- \[ \]' .claude/worktrees/P-146/planning/plan-146-*.md`) |
-| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | **CHANGED** (2026-09-22: nine commits, all plan-145 landing the field seam -- `6529c1384`, `e5a8b1a9d`, `831e85027`, `4cd54ed9e`, `728210c39`, `b05277aef`, `ea14b83e6`, `1ab6c7d0f`, `096acb8bd`). Sections 2.1 and 2.2 must be re-read and corrected before starting; see Corrections. |
+| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | **MET** (2026-09-22: `ls planning/plan-146-*` -> no matches; all eight letters A-H archived to `planning/completed/`, landed on main through `13f2e9fcc plan-146: archive A-H to planning/completed`) |
+| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | **CHANGED** (2026-09-22: 19 commits -- nine from plan-145 landing the field seam, ten from plan-146 landing the `String` seam, newest `d648d0231`). §2.1 and §2.2 re-read and corrected below; see Corrections. |
 
 Everything below is written against the world where these hold. This plan does
 not absorb, work around, or hand-roll anything from plan-145 or plan-146.
@@ -133,7 +133,15 @@ not absorb, work around, or hand-roll anything from plan-145 or plan-146.
   `NirOp::StoreGlobal`. `RETURN OP(x, …)` is never a site: `NirOp::Return` →
   `emit_return_exit` → `lower_returned_value`, and `ops_hold_self_update`
   (`self_update.rs`) matches only the two assignment ops.
-  `ENABLED_SITES = [Local, ForEach, Lambda, Global]` (`self_update.rs:1303`).
+  `ENABLED_SITES = [Local, ForEach, Lambda, Global]` (`self_update.rs:2496` after
+  plan-145/146; the value is unchanged, the line moved). plan-145 added a
+  **test-only** `FIELD_SITES` next to it (`self_update.rs:2500`) that the matrix
+  iterates with `ENABLED_SITES.iter().chain(FIELD_SITES)` (`:3102`); it is not a
+  production site list. `ops_hold_self_update` (`self_update.rs:656`) now also
+  matches plan-145's field form (`with_holds_field_self_update`, and `gR = WITH gR
+  { f := g(gR.f, …) }` at `:676`), but still **only** under `NirOp::Assign` and
+  `NirOp::StoreGlobal` — so `RETURN OP(x, …)` is still never a site, as this plan
+  assumes.
 - **Last-use analysis.**
   - `collect_last_use_moves` (`src/codegen/engine/analysis/last_use.rs:912`) yields
     sites only for simple statements, and only for recursive-graph types at the
@@ -155,8 +163,8 @@ not absorb, work around, or hand-roll anything from plan-145 or plan-146.
 
 | What | Count | Command |
 |---|---|---|
-| `FUNC`s whose `RETURN collections::<mutating op>(p, …)` has a **parameter** first argument (the D/E shape) | examples 4, packages 5, tests 7, benchmark 485, builtins 6 | `R='RETURN\s+collections::(append\|set\|insert\|prepend\|removeAt\|removeKey\|add\|remove)\(\s*\w+\s*[,)]'; rg -P -g '*.mfb' "$R" <tree>`, then an awk pass comparing the first argument with the enclosing `FUNC`'s parameter names (census agent, 2026-09-21) |
-| …with a **local** first argument (the B shape) | examples 14, packages 5, tests 2, benchmark 0, builtins 0 | same pass |
+| `FUNC`s whose `RETURN collections::<mutating op>(p, …)` has a **parameter** first argument (the D/E shape) | examples 4, packages 5, tests **12**, benchmark 485, builtins **2** (re-measured 2026-09-22) | `R='RETURN\s+collections::(append\|set\|insert\|prepend\|removeAt\|removeKey\|add\|remove)\(\s*\w+\s*[,)]'; rg -P -g '*.mfb' "$R" <tree>`, then an awk pass comparing the first argument with the enclosing `FUNC`'s parameter names (census agent, 2026-09-21) |
+| …with a **local** first argument (the B shape) | examples 14, packages 5, tests **0**, benchmark 0, builtins **4** (re-measured 2026-09-22) | same pass |
 | `NAME = f(NAME, …)` call sites with a non-builtin callee | examples 55, packages 205, tests 92, benchmark 5, builtins 301 | `rg -P -g '*.mfb' '^\s*(\w+)\s*=\s*[\w:]+\(\s*\1\s*[,)]' <tree> \| rg -v -P '=\s*(collections\|strings\|math\|bits)::' \| wc -l` (`-g '*.rs'` for `src/codegen/builtins`) |
 | …of those, threading a collection or `String` (not an `Integer` or a record) | UNMEASURED: the type needs the compiler | Letter C's corpus census task measures it. It does not set the split: the work scales with shapes, not with call sites. |
 | Self-recursive functions threading a collection accumulator | 1 pure (`src/codegen/builtins/canvas/helper_render.rs:162` `__canvas_appendDraw`), plus 2 record accumulators (`packages/json_schema/src/index.mfb:195` `walkSchema`, `examples/browser/dom/src/lib.mfb:300` `gatherSpecs`) | census agent's awk scan for self-calls in `x = f(…x…)` / `RETURN f(…append…)` (heuristic; misses mutual recursion) |
@@ -324,6 +332,52 @@ Commit: —
     `ENABLED_SITES` and `SELF_UPDATE_TABLE` with field sites) and its `excluded_roots`
     description. plan-146 will edit the same two files again, so that re-read is best
     done once plan-146 has landed, not now.
+
+- **2026-09-22, gate re-run (`/follow-plan 147`): all three rows now pass; the plan
+  starts.** Re-ran all three commands in worktree `P-147` (merged up to main
+  `13f2e9fcc`):
+  - plan-145 row: **MET**, unchanged (`ls planning/plan-145-*` -> no matches).
+  - plan-146 row: NOT MET -> **MET**. `ls planning/plan-146-*` -> no matches; the
+    eight letters are archived under `planning/completed/`, landed on main through
+    `13f2e9fcc plan-146: archive A-H to planning/completed`. The 60 unticked boxes
+    the previous gate run counted are all resolved.
+  - Seam-files row: **CHANGED**, now 19 commits since `2f55eb184` (the nine plan-145
+    ones plus ten from plan-146, newest `d648d0231`). Per that row's instruction §2.1
+    and §2.2 were re-read and corrected; see the two entries below.
+
+- **§2.1 corrected (seam files moved under plan-145/146).** Two claims were stale:
+  - `ENABLED_SITES` is at `self_update.rs:2496`, not `:1303`. Its **value is
+    unchanged** (`[Local, ForEach, Lambda, Global]`), so nothing this plan rests on
+    moved. plan-145 added a test-only `FIELD_SITES` list beside it.
+  - `ops_hold_self_update` (`self_update.rs:656`) gained plan-145's field arms
+    (`with_holds_field_self_update`; the `gR = WITH gR { f := g(gR.f, …) }` arm at
+    `:676`). It still matches **only** `NirOp::Assign` and `NirOp::StoreGlobal`, so
+    §2.1's load-bearing claim — `RETURN OP(x, …)` is never a self-update site — holds
+    at HEAD and letter B's premise is intact.
+  - Everything else in §2.1 verified unchanged at its stated line:
+    `last_use.rs:912` `collect_last_use_moves`, `:647` `excluded_roots`, `:214`/`:230`
+    `trap_live`, and `inplace_dest.rs`'s G3 guard (`:287`, `:296`).
+
+- **§2.2 populations re-measured (2026-09-22), two cells corrected.** Re-ran the
+  regex plus an enclosing-`FUNC` parameter-name pass
+  (`rg -P -g '*.mfb' -g '*.rs' 'RETURN\s+collections::(append|set|insert|prepend|removeAt|removeKey|add|remove)\(\s*\w+\s*[,)]'`,
+  then a Python pass matching the first argument against the nearest enclosing
+  `(?:FUNC|SUB)\s+\w+\s*\(([^)]*)\)`'s `(\w+)\s+AS` names). examples (4 param /
+  14 local), packages (5/5) and benchmark (485/0) reproduce the plan's numbers
+  exactly. Two cells were wrong:
+  - **tests: 7 param / 2 local -> 12 param / 0 local.** plan-146 added `String`
+    fixtures. This grows letter D/E's test-corpus shape count, not their design.
+  - **builtins: 6 param / 0 local -> 2 param / 4 local.** The original pass could not
+    see the enclosing `FUNC` because the builtin bodies live inside Rust raw strings
+    (`r#"FUNC …`), so it attributed all six to the parameter shape. Checked by hand:
+    parameter-shape are `__http_addPart` (`builtins/http/helper_add_part.rs:25`,
+    `parts`) and `__regex_setCap` (`builtins/regex/helper_set_cap.rs:12`, `caps`);
+    local-shape are `__canvas_glyphFlags` (`helper_glyph.rs:88`, `flags`),
+    `__canvas_glyphCoords` (`:125`, `out`), `__canvas_lineEdge` (`:295`, `out`) and
+    `__crypto_keccakRound` (`helper_keccak_round.rs:53`, `out`, a `MUT out` local).
+    This **moves four builtin sites from letter D/E's population into letter B's** —
+    B's in-place `RETURN OP(local, …)` now covers four builtin hot paths it was not
+    credited with. No letter is re-split: the work still scales with shapes.
 
 ## Summary
 
