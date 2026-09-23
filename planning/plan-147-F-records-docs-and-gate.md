@@ -218,7 +218,7 @@ Acceptance: the spec builds, and its tests and citations pass.
   Check: `cargo build --release && cargo test --bin mfb spec && bash scripts/spec-census.sh --citations`
   → builds clean; **`ok. 43 passed; 0 failed`**; citations
   **`TOTAL unique=1664 … MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`** (2026-09-23).
-Commit: (this commit)
+Commit: 8bc3b7d33
 
 ### Phase 4 — Full gate (run once)
 
