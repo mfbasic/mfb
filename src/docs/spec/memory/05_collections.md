@@ -515,7 +515,12 @@ threaded through a helper without copying:
 
 A `String` is the exception at a `RETURN`: its block must be tight to leave the
 frame it was grown in, so a `String` returned from a helper is copied to its exact
-length. Every other property is unchanged.
+length. Every other property is unchanged. For the same reason there is nothing to
+gain by handing a bare `String` argument over, and it is never handed over — see the
+calling convention, which also gives the soundness reason.
+
+`acc = helper(acc, …)` on a `String` therefore still costs a copy per call, while
+`acc = acc & piece` in the function that owns `acc` is amortized O(1).
 
 For a `String` the builtins fall into four families, and every one of them writes
 into `s`'s own block:

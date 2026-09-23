@@ -437,15 +437,16 @@ A self-update is in place at a function local, a module-level `MUT` global (S2, 
 
 Three sites carry it: **S11** `RETURN OP(x, …)` on an owned local at its last use (plan-147-B), **S12** the same inside an owned parameter's variant (plan-147-E), and **S11F** the field form `RETURN WITH r { f := OP(r.f, …) }` for record accumulators (plan-147-F). Mechanically, codegen emits an extra internal symbol per `(function, owned-parameter mask)` — `<base>$own<mask>` — which is the same NIR function lowered with those parameters owned; at an approved site the caller nulls its own slot and calls the variant. The base symbol and its ABI are untouched, so function values, `LINK` and `.mfp` packages see no change.
 
-Measured on `/tmp/owned` at N = 20,000 (2026-09-23), against the same program before plan-147:
+Measured on `/tmp/owned` at N = 20,000 (2026-09-23, quietest of two runs), against the same program before plan-147:
 
 | Shape | Inline, before | **Through a helper**, before | Inline, now | **Through a helper**, now |
 |---|---|---|---|---|
-| `append` to `List OF Integer` | 1 ms | 19,224 ms | 543 µs | **462 µs** |
-| `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,672 µs | **3,526 µs** |
-| recursive `fill` (N = 5,000) | — | 1,252 ms | — | **303 µs** |
+| `append` to `List OF Integer` | 1 ms | 19,224 ms | 530 µs | **440 µs** |
+| `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,382 µs | **3,295 µs** |
+| recursive `fill` (N = 5,000) | — | 1,252 ms | — | **247 µs** |
+| `s & "x"` — hand-over REFUSED | 0 ms | 841 ms | 210 µs | 82,760 µs |
 
-The helper is now *faster* than the inline form for the first two — the hand-over skips the caller's own drop of the old value — so **write whichever reads better**. What used to be a 4,000× penalty is gone.
+The helper is now *faster* than the inline form for the first two — the hand-over skips the caller's own drop of the old value — so **write whichever reads better**. What used to be a 4,000× penalty is gone. The `String` row is in the table to show where it is NOT: that one is still O(n²) through a helper, because a bare `String` is refused (below). Its `before` column was recorded on a busy machine, so read the row as "still quadratic", not as a 10× win.
 
 **When it is refused.** The analysis is `collect_handover_args` / `consumable_params` (`src/codegen/engine/analysis/handover.rs`), and every condition is a refusal:
 

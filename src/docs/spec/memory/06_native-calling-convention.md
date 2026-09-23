@@ -59,9 +59,22 @@ owns the block and frees it exactly once. After the store the caller's own
 scope-drop reads a null slot and skips it, which is the ordinary treatment of a
 moved-from binding. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_raw_call_handing_over]]
 
+An argument that is a **fresh temporary** rather than a local has no caller slot to
+null: it is a value the statement just built. It is instead removed from the
+statement's pending-temporary list as that one argument is lowered, which is the
+only point at which it is that list's most recent entry. A claim deferred until the
+whole argument list is lowered would silently miss any position a later argument's
+own temporary shadowed, and the statement's end-of-scope drop would then free a
+block the callee owns.
+[[src/codegen/engine/builder/builder_emit_helpers.rs:emit_prepared_call_args_with_site]]
+
 Which arguments qualify is decided before any code is emitted, and every condition
 is a refusal — an argument that is read again on any path, including by a `TRAP`
-handler, is lent. [[src/codegen/engine/analysis/handover.rs:collect_handover_args]]
+handler, is lent. So is anything carrying a resource, and so is a bare `String`: a
+`String` binding may hold a pointer to a static literal rather than to an arena
+block, and freeing that is not permitted. A `String` *field* of a record is
+unaffected, because it travels by value inside the record's own block.
+[[src/codegen/engine/analysis/handover.rs:collect_handover_args]]
 
 **The base symbol is unchanged.** It is lowered first, with every parameter lent,
 and keeps its name, its arity and its ABI. A variant is an additional internal
