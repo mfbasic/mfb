@@ -72,21 +72,38 @@ a pointer. The three that exist are:
 
 ```
 items / hashes / layers          the published scene   (what the renderer reads)
-retiredItems / retiredHashes /
-retiredLayers + retiredFrame     the block just displaced
+retiredHead                      -> node { next, items, hashes, layers, frame }
+                                    one node per publish still waiting for a frame
                                  (plus a fresh block being built inside present)
 ```
+
+The retirement side is a **list**, not a slot (bug-683). It was one slot, and a second
+publish inside one rendered frame overwrote the pointer already there and lost a whole
+scene copy — 16 KB a present on the program that found it. One slot cannot be enough:
+`present` is not rate-limited to one call per frame, every block displaced since the
+last frame tick may be the one a render in flight is reading, and freeing the older one
+to make room is the exact use-after-free retirement exists to prevent. So the number of
+blocks held is whatever the schedule produced. Nodes are newest-first and carry the
+frame they were retired at; the list is bounded in practice by presents per rendered
+frame, and the first publish after a frame completes drains it to empty.
 
 ### Ordering
 
 **Worker, in `canvas::present`:**
 
 1. Deep-copy the caller's scene into a fresh block.
-2. Compare against the published block; if the content is identical, stop — the
-   frame skip (§3.1).
-3. **Reclaim**: if a previous retirement exists and `frames > retiredFrame`, free it.
-4. **Retire**: move the currently-published pointers into the retired slots and stamp
-   `retiredFrame = frames`.
+2. Compare against the published block; if the content is identical, **free the fresh
+   copy** and stop — the frame skip (§3.1). The free is step 2's own, and it is the
+   only one ahead of the drain gate: the block was allocated in this call and never
+   published, so no renderer can have seen it. Omitting it leaked one whole scene per
+   no-op re-present (bug-683), which is the case `mfb man canvas` calls free.
+3. **Reclaim**: if the retirement list is non-empty and `frames > head.frame`, free
+   every node on it. Testing the head alone suffices because the head carries the
+   largest stamp, so that one comparison proves a frame has completed since every node
+   behind it.
+4. **Retire**: allocate a node, move the currently-published pointers into it, stamp
+   `frame = frames`, and link it at the head. A publish that displaces nothing — the
+   first of a program, and the first of each shape — allocates no node.
 5. Publish the new pointers, then the revision **last**.
 6. Signal the redraw condition.
 
@@ -95,8 +112,8 @@ retiredLayers + retiredFrame     the block just displaced
 ### Why retirement rather than an immediate free
 
 The block a publish replaces may be the one the renderer is copying *right now*.
-Freeing it there is a use-after-free. Waiting until the frame counter has passed
-`retiredFrame` means a frame has **completed** since the retirement, so no render can
+Freeing it there is a use-after-free. Waiting until the frame counter has passed a
+node's stamp means a frame has **completed** since the retirement, so no render can
 still hold it — the same drain gate plan-98-D once specified for textures in §7
 (which bug-484 found no texture to apply to) and §13 applies to group buffers.
 

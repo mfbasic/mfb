@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
+Status: FIXED
 Regression Test: `tests/canvas/` — an RSS/allocation-flatness test over repeated presents; see Phases
 
 Every `canvas::present` deep-copies the caller's scene into a fresh block
@@ -168,11 +168,19 @@ bypasses it entirely.
 - `canvas::presentLayers` — shares this code path via `SceneShape::Layered`
   (the same retire loop covers `CANVAS_SCENE_RETIRED_LAYERS_OFFSET`), so
   **same hazard, fixed by the same change**. Needs its own test row.
-- `gen_group.rs` — `canvas::setGroup` has a structurally identical
-  retire/reclaim (`CANVAS_GROUP_RETIRED_FRAME`, `:304`, `:485-521`), with the
-  same single retired slot and the same gate. **Latent, same hazard**; a
-  program calling `setGroup` per frame should be measured. In scope for the
-  audit, and for the fix if it shares the mechanism.
+- `gen_group.rs` — `canvas::setGroup` has a structurally similar retire/reclaim
+  (`CANVAS_GROUP_RETIRED_FRAME`, `:304`, `:485-521`). **Audited and NOT the same
+  mechanism — unchanged by this fix.** It does not overwrite an occupied retired
+  slot: `emit_retire_current_items` frees the prior retirement before storing the
+  new one, so it holds at most one buffer per slot. Measured on a program calling
+  `setGroup` every frame at 60 Hz: `arena.0.live_bytes` 52,992 at 120 frames and
+  52,992 at 240 — exactly flat.
+
+  The audit did turn up a **separate** leak, filed as `bugs/bug-684-*`: a program
+  that calls `setGroup` per frame *and* presents a scene naming that group grows
+  48 bytes (one block) per present, identically under `MFB_CANVAS_SYNC` and
+  free-running. Neither half does it alone, and both `present` paths are flat after
+  this fix, so it is not this bug's mechanism and is not fixed here.
 - Every `Mode.Canvas` program that presents per frame — `examples/wind`
   (blocked), and any animation.
 - Static programs that present once — **unaffected**, one leaked copy at most.
@@ -204,42 +212,109 @@ cross-thread free, and the reclaim logic is unchanged apart from looping.
 
 ### Phase 1 — failing test (no behavior change)
 
-- [ ] Add a canvas test presenting a fixed scene N times (`static`) and a
+- [x] Add a canvas test presenting a fixed scene N times (`static`) and a
       changing one (`moving`), asserting allocation/RSS flat after warm-up.
       Confirm both fail today.
-- [ ] Add the `presentLayers` row.
-- [ ] Measure `setGroup`-per-frame and record the verdict in Blast Radius.
+- [x] Add the `presentLayers` row.
+- [x] Measure `setGroup`-per-frame and record the verdict in Blast Radius.
 
-Acceptance: both rows fail, for the two documented reasons.
-Commit: —
+The test is `tests/canvas/rt_canvas_present_leak.rs`, and it reads
+`arena.0.live_bytes` from the `--debug` report rather than sampling RSS: the leak is
+an exact byte count, so the signal is exact and the assertion needs no smoothing.
+
+Two deviations from the plan as written, both forced by measurement:
+
+- **The programs animate at 60 Hz (`os::sleep(16)`), not in a tight loop.** A present
+  cannot free what it displaces until a frame has *completed*, so an unpaced loop
+  presents thousands of times per rendered frame and legitimately holds thousands of
+  scenes — 905 KB over 200 presents on the *fixed* compiler. That is the design, not a
+  leak, and a test that called it one would have been unfixable.
+- **The `moving` row presents twice per frame.** At one paced present per frame the
+  renderer keeps up with a 40-item scene, the gate fires every time, and leak 2 does
+  **not** reproduce — that row went green on the unfixed compiler. The bug report hit
+  it at one present per frame only because its scene (95 polygons × 400 points) took
+  longer than a frame to draw. Two back-to-back presents are the documented trigger
+  ("two presents inside one rendered frame") and need no assumption about how fast
+  anything is.
+
+RED on the unfixed compiler, each for its own documented reason: `unchanged`
+16,048 B/present, `changing` 21,060 B/present, `layers` 41,657 B/present.
+
+Acceptance: met — all three rows fail, for the documented reasons.
+Commit: 58f72a602
 
 ### Phase 2 — the skip-path free (leak 1)
 
-- [ ] Free the fresh copy before returning at `gen_present.rs:232`.
+- [x] Free the fresh copy before returning at `gen_present.rs:232`.
 
-Acceptance: the `static` row passes; `moving` still fails.
-Commit: —
+Acceptance: met — the `unchanged` row passes and the other two still fail.
+Commit: 58f72a602
 
 ### Phase 3 — bounded retirement (leak 2)
 
-- [ ] Replace the single retired slot with a frame-stamped retirement list;
+- [x] Replace the single retired slot with a frame-stamped retirement list;
       reclaim every entry the frame counter has passed.
-- [ ] Apply to `presentLayers`, and to `gen_group.rs` if the audit says it
-      shares the mechanism.
+- [x] Apply to `presentLayers` — it shares `emit_publish`, so it shares the fix.
+- [x] `gen_group.rs`: audited, does **not** share the mechanism, left alone (see
+      Blast Radius).
 
-Acceptance: the `moving` row passes; no use-after-free under
-`MFB_CANVAS_SYNC` and under a free-running renderer.
-Commit: —
+The four scene words `RETIRED_ITEMS/HASHES/LAYERS/FRAME` become one
+`CANVAS_SCENE_RETIRED_HEAD_OFFSET`, pointing at a list of arena-allocated nodes
+`{next, items, hashes, layers, frame}`. Nodes are **newest-first**, which is what
+keeps the drain a single gate rather than a search: the head carries the largest
+stamp, so `frame_now > head.frame` proves a frame has completed since every node
+behind it and the whole chain goes at once. That is never more eager than a per-node
+gate — no node is freed before its own stamp allows — and it holds an older node at
+most one extra frame.
+
+The gate itself is byte-for-byte the one that was there (`branch_ls` away when
+`frame_now <= stamped`), which is the non-goal this had to respect.
+
+One addition the plan did not anticipate: the node allocation can fail. That path
+frees the fresh copy and raises `ErrOutOfMemory`, and it is emitted **out of line**,
+after the publish's `ret` — an inline second `ret` inside the publish body made "what
+does the publish return" ambiguous and broke
+`the_skip_reports_false_and_the_publish_reports_true`.
+
+Acceptance: met — all three rows pass, under `MFB_CANVAS_SYNC` and free-running;
+`rt_canvas_graphics_thread` and `rt_canvas_group_ownership` green.
+Commit: 58f72a602 (+ 8a1b0e0 for the out-of-line OOM path)
 
 ### Phase 4 — validation
 
-- [ ] `cargo test --test 'rt_canvas_*'` green, every golden reference image
+- [x] `cargo test --test 'rt_canvas_*'` green, every golden reference image
       unchanged — this fix must not move a pixel.
-- [ ] `tests/canvas/rt_canvas_present_deep_copy.rs` still green (it pins the
+- [x] `tests/canvas/rt_canvas_present_deep_copy.rs` still green (it pins the
       copy semantics this must not change).
-- [ ] Re-run the reproduction: all three modes flat.
-- [ ] `examples/wind` holds steady RSS for five minutes.
+- [x] Re-run the reproduction: all three modes flat.
+- [ ] `examples/wind` holds steady RSS for five minutes — **not run**; see
+      Deviations in the STATUS block.
 Commit: —
+
+Re-run of the reproduction on the fixed compiler, `arena.0.live_bytes`, paced at
+60 Hz:
+
+| mode | N=120 | N=240 | N=480 | verdict |
+| --- | --- | --- | --- | --- |
+| `unchanged` (`MFB_CANVAS_SYNC`) | 37,072 | 37,072 | 37,072 | flat ✓ |
+| `changing` (`MFB_CANVAS_SYNC`) | 53,536 | 53,536 | 53,536 | flat ✓ |
+| `changing` (free-running) | 53,536 | 70,000 | — | flat ✓ (137 B/frame: one copy held at exit) |
+
+Three tests had to be corrected, each proven wrong by the layout change rather than
+re-baselined:
+
+- `retired_scene_blocks_are_freed_only_after_a_frame_completes` — counted 3 frees
+  behind the gate and 0 before. Now 4 behind it (three blocks plus the node), 1 on the
+  skip path and 1 on the cold OOM path, each asserted **by region** rather than as one
+  total. The invariant it protects — nothing on the *publish* path is freed before the
+  gate — is now stated directly instead of being implied by a zero.
+- `every_publish_retires_the_displaced_blocks_and_stamps_the_frame` — looked for four
+  scene offsets that no longer exist; now checks the list head, its ordering against
+  the revision, and all five node fields.
+- `rt_canvas_present_deep_copy.rs`'s `scene_stores` — filtered retirement bookkeeping
+  out **by offset** (48..72). Node fields live at 0/8/16/24/32, numerically identical
+  to the scene's revision/count/items, so the filter read four node stores as a second
+  out-of-order publish. It now skips the retire span by region.
 
 ## Validation Plan
 

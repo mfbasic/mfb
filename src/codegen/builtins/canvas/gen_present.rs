@@ -433,7 +433,11 @@ fn emit_reclaim_retired(
     let loop_top = builder.label("canvas_reclaim_loop");
 
     let head = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&head, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+    builder.emit(abi::load_u64(
+        &head,
+        scene,
+        CANVAS_SCENE_RETIRED_HEAD_OFFSET,
+    ));
     builder.emit(abi::compare_immediate(&head, "0"));
     builder.emit(abi::branch_eq(&done));
 
@@ -567,9 +571,17 @@ fn emit_retire_displaced(
     // Linked LAST: the node is fully written before it is reachable from the scene
     // region, so a drain can never walk into a half-built node.
     let head = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&head, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+    builder.emit(abi::load_u64(
+        &head,
+        scene,
+        CANVAS_SCENE_RETIRED_HEAD_OFFSET,
+    ));
     builder.emit(abi::store_u64(&head, &node, CANVAS_RETIRE_NODE_NEXT));
-    builder.emit(abi::store_u64(&node, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+    builder.emit(abi::store_u64(
+        &node,
+        scene,
+        CANVAS_SCENE_RETIRED_HEAD_OFFSET,
+    ));
 
     builder.emit(abi::label(&nothing));
     Ok(())

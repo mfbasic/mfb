@@ -186,13 +186,29 @@ fn the_revision_is_published_after_the_items_and_count() {
 fn scene_stores(ins: &[Value]) -> Vec<i64> {
     let publish =
         label_at(ins, "canvas_present_publish").expect("the publish path must have its own label");
-    ins[publish..]
+    // Retirement bookkeeping runs between the publish label and `canvas_retire_nothing`,
+    // and is skipped wholesale rather than filtered by offset.
+    //
+    // It used to be enough to drop offsets 48..72, because retirement was four words of
+    // the scene region itself. bug-683 made it a **list**: the displaced pointers and
+    // the frame stamp are now fields of an arena-allocated node (`CANVAS_RETIRE_NODE_*`,
+    // at 0/8/16/24/32), written through the node pointer. Those offsets are numerically
+    // the same as the scene's own revision/count/items, so an offset filter can no
+    // longer tell a node store from a scene store — it read four node fields as a
+    // second, out-of-order publish. Only the region is still able to tell them apart.
+    //
+    // This does not weaken what the two callers assert. Every scene store the publish
+    // makes is after this span, the span itself touches the scene region only at the
+    // list head (+48, never a `PUBLISHED_OFFSET`), and the skip path's "writes nothing"
+    // half is checked separately against the skip..publish span.
+    let start = label_at(&ins[publish..], "canvas_retire_nothing")
+        .map(|at| publish + at)
+        .expect("the retire path must end at its own label");
+    ins[start..]
         .iter()
         .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
-        // Only the LIVE scene fields. The publish path also writes the retirement
-        // bookkeeping (48..72, plan-98-D Phase 3), which is not part of the scene a
-        // reader sees and has no ordering requirement against the revision.
+        // Only the LIVE scene fields a reader observes.
         .filter(|offset| PUBLISHED_OFFSETS.contains(offset))
         .collect()
 }

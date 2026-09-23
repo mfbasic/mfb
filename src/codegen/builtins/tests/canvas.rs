@@ -368,7 +368,6 @@ fn the_wrong_mode_gate_precedes_the_scene_copys_allocation() {
     }
 }
 
-
 /// Retired blocks are freed only once a frame has completed since retirement.
 ///
 /// The gate is `frame_now > retired_frame`, emitted as "branch away when
@@ -417,9 +416,7 @@ fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
                 .count()
         };
         let cold = stream.index_of("the retire-OOM cold path", |i| {
-            i.op == CodeOp::Label
-                && i.get("name")
-                    .is_some_and(|n| n.contains("_retire_oom"))
+            i.op == CodeOp::Label && i.get("name").is_some_and(|n| n.contains("_retire_oom"))
         });
         assert_eq!(
             frees(gate, cold),
@@ -513,7 +510,6 @@ fn every_publish_retires_the_displaced_blocks_and_stamps_the_frame() {
         }
     }
 }
-
 
 /// The canvas program lowers on every backend that has an `-app` mode.
 ///
