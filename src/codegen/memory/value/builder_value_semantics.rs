@@ -1186,10 +1186,76 @@ impl CodeBuilder<'_> {
     /// element, key or collection type and re-checks the lowered type, and no
     /// call is an aliasing source (`value_is_aliasing_source`), so this admits
     /// nothing a user function's result was not already admitted with.
+    ///
+    /// This query is **not** the one the in-place gates ask — since bug-681 they
+    /// ask [`Self::static_operand_type`], which widens it once more. Keep this
+    /// one's answers exactly as they are: its other consumer is
+    /// `nir_call_is_infallible_builtin` (`engine/control/builder_control.rs`),
+    /// which types a builtin's arguments to decide whether the call can fail, so
+    /// answering here for an expression it used to give up on changes which
+    /// failure paths the optimizer may elide — in programs that contain no
+    /// self-update at all. That is a separate change with its own risk and its
+    /// own measurement; it does not belong in a fix to a collection gate.
     pub(crate) fn static_item_type(&self, value: &NirValue) -> Option<ParameterType> {
         if let Some(type_) = self.static_type_name(value) {
             return Some(type_);
         }
+        self.static_call_type(value, &|builder, arg| builder.static_item_type(arg))
+    }
+
+    /// The static type of a self-update's **operand** — the item appended, the
+    /// element added or removed, the key removed — for the `G11` gates, and for
+    /// nothing else.
+    ///
+    /// bug-681: [`Self::static_item_type`]'s widening applied only at the value's
+    /// own top level. A `Binary`, `Unary`, `MemberAccess` or `ResultValue` around
+    /// the call was matched by `static_type_name`, whose composite arms recurse
+    /// into *itself*, so the call underneath hit the builtin-name table and
+    /// answered `None` — `G11` declined and the statement rebuilt the whole
+    /// collection. One `* 2` was the difference between `append(xs, f(i))` (in
+    /// place, 1 ms at n=16000) and `append(xs, f(i) * 2)` (2798 ms and quadratic;
+    /// a 259,920-element decode was killed by the OOM killer), and it was never
+    /// `append`-specific: `add`, `remove` and `removeKey` all lost the path the
+    /// same way.
+    ///
+    /// So the composite arms are re-run here — via
+    /// [`Self::static_composite_type`], the one implementation `static_type_name`
+    /// also uses — with the recursion pointed back at this query, so every leaf
+    /// gets the same call lookups the top level gets. **Widen this one, not its
+    /// two parents**: `static_type_name` also gates float-arithmetic lowering and
+    /// `is_function_value`, and `static_item_type` also feeds the
+    /// infallible-builtin oracle; this query has exactly six callers, all of them
+    /// `G11` (`grep -n static_operand_type src/codegen/collection/assign/`).
+    ///
+    /// It is a widening of the *query*, never of a gate: every caller still
+    /// compares the answer for equality with the element, key or collection type,
+    /// which is what keeps the single-element and bulk `append` arms apart.
+    pub(crate) fn static_operand_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        if let Some(type_) =
+            self.static_call_type(value, &|builder, arg| builder.static_operand_type(arg))
+        {
+            return Some(type_);
+        }
+        self.static_composite_type(value, &|builder, operand| {
+            builder.static_operand_type(operand)
+        })
+    }
+
+    /// The declared return type of a call — a user (or `LINK`) function's
+    /// `returns`, a package's, else the registry resolver over argument types
+    /// `arg_type` supplies. `None` for any value that is not a call.
+    ///
+    /// Split out of [`Self::static_item_type`] (bug-681) so
+    /// [`Self::static_operand_type`] performs the same lookup with its own,
+    /// wider, argument query rather than a copy of this one.
+    fn static_call_type(
+        &self,
+        value: &NirValue,
+        arg_type: &dyn Fn(&Self, &NirValue) -> Option<ParameterType>,
+    ) -> Option<ParameterType> {
         match value {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
@@ -1206,9 +1272,61 @@ impl CodeBuilder<'_> {
                 }
                 let arg_types = args
                     .iter()
-                    .map(|arg| self.static_item_type(arg))
+                    .map(|arg| arg_type(self, arg))
                     .collect::<Option<Vec<_>>>()?;
                 builtins::resolve_call_return_type_typed(target, &arg_types, false)
+            }
+            _ => None,
+        }
+    }
+
+    /// The static type of a **composite** value — one whose type is derived from
+    /// its operands' — with `operand_type` the query used for those operands.
+    ///
+    /// Split out of [`Self::static_type_name`] (bug-681) so the one set of
+    /// derivation rules serves both queries: `static_type_name` passes itself and
+    /// keeps its exact answers, while [`Self::static_operand_type`] passes
+    /// *itself* and so reaches the user-`FUNC` and registry call lookups from
+    /// inside a `Binary`, `Unary`, `MemberAccess` or `ResultValue`. Answers
+    /// `None` for any value that is not composite — the caller has already
+    /// handled the leaves. A new composite `NirValue` belongs here, so the two
+    /// queries cannot drift apart again.
+    fn static_composite_type(
+        &self,
+        value: &NirValue,
+        operand_type: &dyn Fn(&Self, &NirValue) -> Option<ParameterType>,
+    ) -> Option<ParameterType> {
+        match value {
+            NirValue::ResultValue { value } => match operand_type(self, value)? {
+                // A non-`Result` operand answers with its own type, as the
+                // `strip_prefix(…).or_else(…)` this replaces did.
+                ParameterType::ResultOf(success) => Some(*success),
+                other => Some(other),
+            },
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
+                if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+                {
+                    return Some(ParameterType::Boolean);
+                }
+                if *op == BinaryOp::Concat {
+                    return Some(ParameterType::String);
+                }
+                let left = operand_type(self, left)?;
+                let right = operand_type(self, right)?;
+                Some(promoted_binary_type(*op, &left, &right))
+            }
+            NirValue::Unary { op, operand, .. } => {
+                if *op == UnaryOp::Not {
+                    Some(ParameterType::Boolean)
+                } else {
+                    operand_type(self, operand)
+                }
+            }
+            NirValue::MemberAccess { target, member } => {
+                let target_type = operand_type(self, target)?;
+                self.member_type_of(&target_type, member)
             }
             _ => None,
         }
@@ -1237,12 +1355,6 @@ impl CodeBuilder<'_> {
             NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
             NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
             NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
-            NirValue::ResultValue { value } => match self.static_type_name(value)? {
-                // A non-`Result` operand answers with its own type, as the
-                // `strip_prefix(…).or_else(…)` this replaces did.
-                ParameterType::ResultOf(success) => Some(*success),
-                other => Some(other),
-            },
             NirValue::ResultError { .. } => Some(error_type()),
             // bug-471: the success type, matching the `CallResult` arm below.
             NirValue::Checked { type_, .. } => Some(type_.clone()),
@@ -1292,31 +1404,13 @@ impl CodeBuilder<'_> {
                 "thread.start" => self.thread_runtime_return_type("thread.start", args),
                 _ => None,
             },
-            NirValue::Binary {
-                op, left, right, ..
-            } => {
-                if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
-                {
-                    return Some(ParameterType::Boolean);
-                }
-                if *op == BinaryOp::Concat {
-                    return Some(ParameterType::String);
-                }
-                let left = self.static_type_name(left)?;
-                let right = self.static_type_name(right)?;
-                Some(promoted_binary_type(*op, &left, &right))
-            }
-            NirValue::Unary { op, operand, .. } => {
-                if *op == UnaryOp::Not {
-                    Some(ParameterType::Boolean)
-                } else {
-                    self.static_type_name(operand)
-                }
-            }
-            NirValue::MemberAccess { target, member } => {
-                let target_type = self.static_type_name(target)?;
-                self.member_type_of(&target_type, member)
-            }
+            // The composite arms (`ResultValue`, `Binary`, `Unary`,
+            // `MemberAccess`) derive their type from their operands'; the
+            // derivation lives in one place (bug-681) and here recurses into this
+            // same query, so every answer is exactly what it was.
+            _ => self.static_composite_type(value, &|builder, operand| {
+                builder.static_type_name(operand)
+            }),
         }
     }
 

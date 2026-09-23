@@ -136,6 +136,12 @@ and re-presenting an unchanged scene is a no-op. Animated content does call it
 every frame, which is why the runtime caches each item's geometry on a content
 hash: re-presenting an item that did not change is free.
 
+An item whose content *did* change costs one geometry build, and nothing beyond
+it. The cache holds a bounded number of entries and reclaims the storage an
+evicted one owned, so a program presenting items with new coordinates every
+frame reaches a steady memory size — set by how much is on screen, not by how
+long it has been running — and can animate indefinitely at that size.
+
 `present` **copies the whole scene** — item fields, polygon point lists, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
 its own, so you are free to change or discard whatever you built the list

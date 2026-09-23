@@ -5,9 +5,9 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/runtime/rt_inplace_self_update.rs` (allocation-flatness row), plus a
-`tests/guards/` census row — see Phases
+Status: FIXED
+Regression Test: `tests/runtime/rt_inplace_item_operand.rs` — one allocation-flatness
+row per `G11` call site with a composite item operand, plus three contrast rows
 
 `xs = collections::append(xs, f(i) * 2)`, where `f` is a `FUNC` declared in the
 program, does **not** take the in-place append path. Every iteration rebuilds the
@@ -218,20 +218,47 @@ by reading the two type queries' callers
 - `src/codegen/collection/assign/builder_inplace_assign.rs:24`
   `try_inplace_append_assign` (`G11`) — **fixed by this bug**, via the query.
   No change to the arm itself is expected.
-- Every other `SELF_UPDATE_ARMS` member that gates on `static_item_type` /
-  `static_type_name` (the `set`/map arms in `builder_inplace_setmap.rs`, the
-  shrink/sort/rewrite arms) — **same hazard, and fixed by the same one-place
-  change**. Each needs its own census row asserting flatness with a user-`FUNC`
-  call under a binary; Phase 1 enumerates them.
+- Every other arm that gates on `static_item_type` — **same hazard, confirmed by
+  measurement, and fixed by the same one-place change.** Phase 1's audit found
+  the query has exactly six `G11` call sites
+  (`grep -n static_item_type src/codegen/collection/assign/builder_inplace_assign.rs`),
+  and every one of them reachable with a composite operand reproduces. Measured
+  as `alloc_calls` growth over an extra 2000 iterations
+  (`tests/runtime/rt_inplace_item_operand.rs`), before → after:
+
+  | arm | item operand | before | after |
+  | --- | --- | --- | --- |
+  | `append(list, item)` (`:48`) | `twice(i) * 2` | +4000 | +2 |
+  | `append(list, item)` | `-twice(i)` | +4000 | +2 |
+  | `append(list, item)` | `mkBox(i).n` | +8000 | +4002 (control +4000) |
+  | `append(list, sublist)` (`:234`) | `mkBox(i).items` | +6000 | +4002 (control +4000) |
+  | `add(set, item)` (`:125`) | `twice(i) * 2` | +4000 | +2 |
+  | `remove(set, item)` (`:769`) | `twice(i) * 2` | +2000 | +0 |
+  | `removeKey(map, key)` (`:186`) | `twice(i) * 2` | +2000 | +0 |
+
+  The sixth site, `lower_field_splice` (`:1299`), is the field-site spelling of
+  the same `G11` and takes the fix through the same query. So the bug was never
+  `append`-specific: `add`, `remove` and `removeKey` all lost the path too, each
+  as unboundedly as `append`.
+- `collections::set` (`:278`) and `try_inplace_insert_assign` (`:805`) —
+  **unaffected**: neither has a static `G11` gate (`insert` has no bulk form to
+  distinguish), so neither consults the query.
 - `examples/wind/src/grib.mfb` — **the discovery site, already worked around**
   (seven hoists). Unaffected once fixed; the hoists stay valid.
 - Map-value reads (`collections.get` on a `Map`) deliberately return `None` from
   `static_type_name` — **unaffected**, that is a separate conservative choice
   documented in place, not this bug.
-- `NirValue::Unary` and other recursive arms of `static_type_name` — **latent,
-  same mechanism** (they too recurse into `static_type_name`). In scope only to
-  the extent the one-place fix covers them; Phase 1 records whether a `-f(i)`
-  item reproduces.
+- `NirValue::Unary` and the other composite arms — **confirmed, not latent, and
+  fixed.** `-twice(i)` reproduces exactly as `twice(i) * 2` does (+4000 blocks),
+  and so does `NirValue::MemberAccess`: `mkBox(i).n` was +8000 against a +4000
+  control, a shape the original write-up did not anticipate. `MemberAccess` is
+  also the one composite that reaches the **bulk** `append` arm, since no
+  operator yields a `List`: `append(xs, mkBox(i).items)` was +6000 against the
+  same +4000 control. All four composite arms (`Binary`, `Unary`,
+  `MemberAccess`, `ResultValue`) now share one implementation,
+  `static_composite_type`, so the reach cannot drift apart again.
+- `static_type_name`'s other consumers — **deliberately untouched**, which is
+  where the fix deviates from the Fix Design below. See the `STATUS` block.
 
 ## Fix Design
 
@@ -265,48 +292,93 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a `tests/runtime/inplace_self_update/cases.tsv` line and the matching
-      `rt_inplace_self_update.rs` row for `append` with item `f(i) * 2` where
-      `f` is a program `FUNC`; confirm it fails the allocation-flatness
-      assertion today.
-- [ ] Add the three contrast rows (`f(i)`, `3 + i * 2`, `toFloat(i) + 1.0`) as
-      guards that must stay flat.
-- [ ] Determine whether `-f(i)` (the `Unary` arm) and the `set`/map arms
-      reproduce the same decline; write each verdict into Blast Radius.
-- [ ] Confirm with the plan-147 owner whether that plan absorbs this; record the
-      answer here.
+- [x] Add the allocation-flatness rows for a self-update whose item operand is a
+      composite expression over a program `FUNC`, and confirm they fail today.
+      They live in a new `tests/runtime/rt_inplace_item_operand.rs` rather than a
+      `cases.tsv` line: `cases.tsv` is a census keyed by *builtin signature* and
+      each row is also run at 15 field sites out of `field_expect.tsv`, so a
+      second row for an already-listed signature would collide with the field
+      expectations of the first. The new file reuses the same measure (build at
+      `N` and `2N` with `--debug`, read the arenas' `alloc_calls`).
+- [x] Add the three contrast rows (`f(i)`, `3 + i * 2`, `toFloat(i) + 1.0`) as
+      guards that must stay flat. All three were flat before and after (+2).
+- [x] Determine whether `-f(i)` (the `Unary` arm) and the `set`/map arms
+      reproduce the same decline; write each verdict into Blast Radius. **They
+      do** — and so does `MemberAccess`, which the write-up missed, including on
+      the bulk-`append` arm. The table is in Blast Radius.
+- [x] Confirm with the plan-147 owner whether that plan absorbs this. Landed
+      **independently**, per this doc's Open Decision: plan-147's sites are
+      S11/S12 (hand-over through a helper) and nothing in plan-147-A..F's text
+      covers an item-operand shape. No file this fix touches is a plan-147 file.
 
-Acceptance: the new row fails for the documented reason (`G11` declines because
-`static_item_type` answers `None`); the audit has a verdict per site.
-Commit: —
+Acceptance: met — the rows fail for the documented reason (`G11` declines
+because `static_item_type` answers `None`), and the audit has a verdict per site.
+Commit: `01f3ecaf6`
 
 ### Phase 2 — the fix
 
-- [ ] Move the `self.functions` / `package_return_types` return-type lookup into
-      `static_type_name`'s `Call` arm
-      (`src/codegen/memory/value/builder_value_semantics.rs:1217`), after the
-      builtin allowlist.
-- [ ] Simplify `static_item_type` (`:1189`) to whatever remains once its
-      duplicate lookup is redundant, without changing its answers.
+- [x] Reach the `self.functions` / `package_return_types` return-type lookup
+      from inside a composite operand. **Deviation:** the lookup was *not* moved
+      into `static_type_name`'s `Call` arm as designed, and it was not put on
+      `static_item_type` either. Both have consumers outside the gates:
+      `static_type_name` gates float-arithmetic lowering
+      (`builder_numeric.rs:192`) and `is_function_value`
+      (`operand_snapshot.rs:338`), and three in-code comments (bug-561, bug-626,
+      the fold twin at `:1441`) warn against widening it; `static_item_type`
+      feeds `nir_call_is_infallible_builtin`
+      (`engine/control/builder_control.rs:808`), which types a builtin's
+      arguments to decide whether a call can fail, so widening it changes which
+      failure paths the optimizer may elide in programs with no self-update in
+      them at all. The reach therefore went onto a new `static_operand_type`
+      whose only callers are the six `G11` sites, with the shared derivations
+      factored out so no query carries a copy: `static_composite_type` (the
+      `Binary`/`Unary`/`MemberAccess`/`ResultValue` rules, shared with
+      `static_type_name`) and `static_call_type` (the call lookups, shared with
+      `static_item_type`).
+- [x] Leave `static_item_type`'s answers exactly as they were — verified by the
+      artifact gate, whose 18 diffs are unchanged with and without that query
+      widened, i.e. none of them came from it.
 
-Acceptance: Phase 1's row passes; the three contrast rows stay flat; no
-diagnostic or program output changes anywhere.
-Commit: —
+Acceptance: met — every Phase 1 row passes, the three contrast rows stay flat,
+and no diagnostic or program output changes anywhere (full suite below).
+Commit: `2fe6c1e39`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-run the byte-identity / `.ncode` fixtures; for every shifted fixture,
+- [x] Re-run the byte-identity / `.ncode` fixtures; for every shifted fixture,
       confirm by inspection that it contains an item operand of exactly this
-      shape before re-baselining, per `AGENTS.md`.
-- [ ] `cargo test` full suite, plus the collection suites named in
-      `.ai/collections.md`.
-- [ ] Re-run the reproduction above and confirm the failing row drops to ~1 ms.
-- [ ] Re-run `examples/wind` end to end and confirm the GRIB decode is unchanged
-      (125 ms for two 259,920-point fields) with the hoists still in place.
+      shape before re-baselining. **18 `.ncode` sums shifted across four
+      fixtures** — the Fix Design predicted exactly this. Each was localized
+      first: the gate is clean on the pre-fix compiler (`0 diff(s)`), and
+      instrumenting the gates showed 1–4 newly-committed `G11` operands per
+      fixture, every one a `Binary` over a call. The NIR names them, all in
+      package-internal helpers whose `FUNC` `static_type_name`'s table does not
+      name:
 
-Acceptance: full suite green; every expected-output delta is a program of this
-shape; the reproduction is linear everywhere it was quadratic.
-Commit: —
+      | fixture | the newly in-place statement |
+      | --- | --- |
+      | `byte-identity/compress` | `o = append(o, #compress_reverseBits(c, l) * k + …)` — deflate's Huffman tables |
+      | `byte-identity/crypto`, `rt-behavior/crypto-ec-valid` | `o = append(o, lo + bits.sl(hi, 8))` — `#crypto_unpack25519` |
+      | `syntax/app/app-mouse-surface` | `o = append(o, #canvas_geoAt(offset, 16) + …)` — `#canvas_rememberScene` |
+
+      So the delta is the fix working, and it means deflate, curve arithmetic and
+      canvas scene accumulation were themselves rebuilding a list per element.
+      Only `.ncode` moved: every `.run` behavior golden is unchanged, which is
+      the "in-place is unobservable" contract holding. Re-baselined with the
+      gate's own write half, `scripts/regen-native-goldens.sh`, over those four
+      fixtures only.
+- [x] `cargo test` full suite, plus the collection suites.
+- [x] Re-run the reproduction and confirm the failing row drops to ~1 ms:
+      **3759 ms → 1 ms** at `n = 16000`, release, macos-aarch64, alongside the
+      contrast rows at 2 ms and 1 ms.
+- [ ] Re-run `examples/wind` end to end. **Not runnable here:** `examples/wind`
+      is not in this repository (the discovery site was an external project), so
+      this step is unverified. The equivalent in-repo proof is the
+      `mkBox(i).items` bulk-append row, the same shape the decoder hoisted.
+
+Acceptance: full suite green; no expected-output delta to inspect; the
+reproduction is linear everywhere it was quadratic.
+Commit: see STATUS
 
 ## Validation Plan
 
@@ -333,3 +405,44 @@ between two functions, but it turns declines into commits, and every emitted-byt
 fixture covering an affected program shifts. The gates, the semantics, and the
 `G11` type check all stay exactly as they are — only the type *query* gets
 smarter, and only about a return type the compiler already knows.
+
+## STATUS: FIXED (154dfb91b)
+
+Landed on `main` from `worktree-B-681`. Commits: `01f3ecaf6` (Phase 1, the RED
+rows), `2fe6c1e39` (Phase 2, the fix), `55753bd61` (audit + `.ai/collections.md`),
+`995f7f5f1` (containment + golden re-baseline), `154dfb91b` (`cargo fmt` + this
+record).
+
+**Result.** `collections::append(xs, f(i) * 2)` at `n = 16000` went from 2798 ms
+(measured 3759 ms on the run that reproduced it) to **1 ms**, release,
+macos-aarch64. Full suite green: 223 targets, `test result: ok`, `cargo test`
+exit 0, including the artifact gate at `2116 golden(s) checked, 0 diff(s)` and
+the in-place census `rt_inplace_self_update` (8064 s).
+
+**Deviations from the plan as written.**
+
+1. *Not* `static_type_name`, and *not* `static_item_type` either. Both have
+   consumers outside the gates — float-arithmetic lowering and
+   `is_function_value` for the first, `nir_call_is_infallible_builtin` for the
+   second — so the reach went onto a new `static_operand_type` with exactly six
+   callers, all `G11`. The shared derivations were factored out
+   (`static_composite_type`, `static_call_type`) so no query carries a copy.
+2. The regression rows live in a new `tests/runtime/rt_inplace_item_operand.rs`,
+   not in `cases.tsv`: that file is a census keyed by builtin signature whose
+   rows also run at 15 field sites out of `field_expect.tsv`, so a second row for
+   an already-listed signature would collide with the first's expectations.
+3. `examples/wind` is not in this repository, so that Phase 3 step is
+   **unverified** rather than done.
+
+**What the write-up underestimated.** The bug was never `append`-specific:
+`add`, `remove` and `removeKey` lost the path identically, and `MemberAccess` on
+a call reproduces it too — a shape the doc did not anticipate, and the only
+composite that reaches the bulk-`append` arm, since no operator yields a `List`.
+Seven rows, each unbounded. The fix also lands in library code: the 18 shifted
+`.ncode` sums are deflate's Huffman tables, `#crypto_unpack25519` and
+`#canvas_rememberScene`, all of which were rebuilding a list per element.
+
+**Watch for.** The reach is one query with one shared composite table. A new
+composite `NirValue` added to `static_type_name` but not to
+`static_composite_type` puts the two back out of step, which is exactly how this
+bug arose.
