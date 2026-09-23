@@ -319,17 +319,25 @@ Commit: `01f3ecaf6`
 
 - [x] Reach the `self.functions` / `package_return_types` return-type lookup
       from inside a composite operand. **Deviation:** the lookup was *not* moved
-      into `static_type_name`'s `Call` arm as designed. Instead the composite
-      arms moved into one shared `static_composite_type`, parameterized by the
-      query used for the operands: `static_type_name` passes itself and keeps
-      its exact answers, `static_item_type` passes itself and so reaches the
-      lookup at every leaf. Three in-code comments (bug-561, bug-626 and the
-      fold twin at `:1441`) warn against widening `static_type_name`, which also
-      gates float-arithmetic lowering (`builder_numeric.rs:192`),
-      `is_function_value` (`operand_snapshot.rs:338`) and module analysis; the
-      contained widening fixes every measured row without that reach.
-- [x] Simplify `static_item_type` without changing its answers — it keeps its
-      call arm and gains only the composite delegation.
+      into `static_type_name`'s `Call` arm as designed, and it was not put on
+      `static_item_type` either. Both have consumers outside the gates:
+      `static_type_name` gates float-arithmetic lowering
+      (`builder_numeric.rs:192`) and `is_function_value`
+      (`operand_snapshot.rs:338`), and three in-code comments (bug-561, bug-626,
+      the fold twin at `:1441`) warn against widening it; `static_item_type`
+      feeds `nir_call_is_infallible_builtin`
+      (`engine/control/builder_control.rs:808`), which types a builtin's
+      arguments to decide whether a call can fail, so widening it changes which
+      failure paths the optimizer may elide in programs with no self-update in
+      them at all. The reach therefore went onto a new `static_operand_type`
+      whose only callers are the six `G11` sites, with the shared derivations
+      factored out so no query carries a copy: `static_composite_type` (the
+      `Binary`/`Unary`/`MemberAccess`/`ResultValue` rules, shared with
+      `static_type_name`) and `static_call_type` (the call lookups, shared with
+      `static_item_type`).
+- [x] Leave `static_item_type`'s answers exactly as they were — verified by the
+      artifact gate, whose 18 diffs are unchanged with and without that query
+      widened, i.e. none of them came from it.
 
 Acceptance: met — every Phase 1 row passes, the three contrast rows stay flat,
 and no diagnostic or program output changes anywhere (full suite below).
@@ -337,10 +345,28 @@ Commit: `2fe6c1e39`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [x] Re-run the byte-identity / `.ncode` fixtures. **No fixture shifted**, so
-      nothing was re-baselined — the Fix Design's predicted emitted-byte delta
-      did not materialize, because no fixture program has an item operand of
-      this shape.
+- [x] Re-run the byte-identity / `.ncode` fixtures; for every shifted fixture,
+      confirm by inspection that it contains an item operand of exactly this
+      shape before re-baselining. **18 `.ncode` sums shifted across four
+      fixtures** — the Fix Design predicted exactly this. Each was localized
+      first: the gate is clean on the pre-fix compiler (`0 diff(s)`), and
+      instrumenting the gates showed 1–4 newly-committed `G11` operands per
+      fixture, every one a `Binary` over a call. The NIR names them, all in
+      package-internal helpers whose `FUNC` `static_type_name`'s table does not
+      name:
+
+      | fixture | the newly in-place statement |
+      | --- | --- |
+      | `byte-identity/compress` | `o = append(o, #compress_reverseBits(c, l) * k + …)` — deflate's Huffman tables |
+      | `byte-identity/crypto`, `rt-behavior/crypto-ec-valid` | `o = append(o, lo + bits.sl(hi, 8))` — `#crypto_unpack25519` |
+      | `syntax/app/app-mouse-surface` | `o = append(o, #canvas_geoAt(offset, 16) + …)` — `#canvas_rememberScene` |
+
+      So the delta is the fix working, and it means deflate, curve arithmetic and
+      canvas scene accumulation were themselves rebuilding a list per element.
+      Only `.ncode` moved: every `.run` behavior golden is unchanged, which is
+      the "in-place is unobservable" contract holding. Re-baselined with the
+      gate's own write half, `scripts/regen-native-goldens.sh`, over those four
+      fixtures only.
 - [x] `cargo test` full suite, plus the collection suites.
 - [x] Re-run the reproduction and confirm the failing row drops to ~1 ms:
       **3759 ms → 1 ms** at `n = 16000`, release, macos-aarch64, alongside the

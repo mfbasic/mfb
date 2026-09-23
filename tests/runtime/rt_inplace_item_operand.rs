@@ -288,8 +288,8 @@ fn run(name: &str, source: &str) -> Result<(String, u64), String> {
 
 /// `count(2N) - count(N)` for the row, or for its control.
 fn growth(tag: &str, case: &Case, form: Form) -> Result<(u64, String, String), String> {
-    let (len_n, once) = run(&format!("{tag}_n"), &program(case, N, form))
-        .map_err(|e| format!("(N={N}): {e}"))?;
+    let (len_n, once) =
+        run(&format!("{tag}_n"), &program(case, N, form)).map_err(|e| format!("(N={N}): {e}"))?;
     let (len_2n, twice) = run(&format!("{tag}_2n"), &program(case, 2 * N, form))
         .map_err(|e| format!("(N={}): {e}", 2 * N))?;
     Ok((twice.saturating_sub(once), len_n, len_2n))

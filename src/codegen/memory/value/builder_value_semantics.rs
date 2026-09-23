@@ -1239,7 +1239,9 @@ impl CodeBuilder<'_> {
         {
             return Some(type_);
         }
-        self.static_composite_type(value, &|builder, operand| builder.static_operand_type(operand))
+        self.static_composite_type(value, &|builder, operand| {
+            builder.static_operand_type(operand)
+        })
     }
 
     /// The declared return type of a call — a user (or `LINK`) function's
