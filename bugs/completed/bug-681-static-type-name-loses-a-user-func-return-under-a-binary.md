@@ -5,9 +5,9 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/runtime/rt_inplace_self_update.rs` (allocation-flatness row), plus a
-`tests/guards/` census row — see Phases
+Status: FIXED
+Regression Test: `tests/runtime/rt_inplace_item_operand.rs` — one allocation-flatness
+row per `G11` call site with a composite item operand, plus three contrast rows
 
 `xs = collections::append(xs, f(i) * 2)`, where `f` is a `FUNC` declared in the
 program, does **not** take the in-place append path. Every iteration rebuilds the
@@ -405,3 +405,44 @@ between two functions, but it turns declines into commits, and every emitted-byt
 fixture covering an affected program shifts. The gates, the semantics, and the
 `G11` type check all stay exactly as they are — only the type *query* gets
 smarter, and only about a return type the compiler already knows.
+
+## STATUS: FIXED (154dfb91b)
+
+Landed on `main` from `worktree-B-681`. Commits: `01f3ecaf6` (Phase 1, the RED
+rows), `2fe6c1e39` (Phase 2, the fix), `55753bd61` (audit + `.ai/collections.md`),
+`995f7f5f1` (containment + golden re-baseline), `154dfb91b` (`cargo fmt` + this
+record).
+
+**Result.** `collections::append(xs, f(i) * 2)` at `n = 16000` went from 2798 ms
+(measured 3759 ms on the run that reproduced it) to **1 ms**, release,
+macos-aarch64. Full suite green: 223 targets, `test result: ok`, `cargo test`
+exit 0, including the artifact gate at `2116 golden(s) checked, 0 diff(s)` and
+the in-place census `rt_inplace_self_update` (8064 s).
+
+**Deviations from the plan as written.**
+
+1. *Not* `static_type_name`, and *not* `static_item_type` either. Both have
+   consumers outside the gates — float-arithmetic lowering and
+   `is_function_value` for the first, `nir_call_is_infallible_builtin` for the
+   second — so the reach went onto a new `static_operand_type` with exactly six
+   callers, all `G11`. The shared derivations were factored out
+   (`static_composite_type`, `static_call_type`) so no query carries a copy.
+2. The regression rows live in a new `tests/runtime/rt_inplace_item_operand.rs`,
+   not in `cases.tsv`: that file is a census keyed by builtin signature whose
+   rows also run at 15 field sites out of `field_expect.tsv`, so a second row for
+   an already-listed signature would collide with the first's expectations.
+3. `examples/wind` is not in this repository, so that Phase 3 step is
+   **unverified** rather than done.
+
+**What the write-up underestimated.** The bug was never `append`-specific:
+`add`, `remove` and `removeKey` lost the path identically, and `MemberAccess` on
+a call reproduces it too — a shape the doc did not anticipate, and the only
+composite that reaches the bulk-`append` arm, since no operator yields a `List`.
+Seven rows, each unbounded. The fix also lands in library code: the 18 shifted
+`.ncode` sums are deflate's Huffman tables, `#crypto_unpack25519` and
+`#canvas_rememberScene`, all of which were rebuilding a list per element.
+
+**Watch for.** The reach is one query with one shared composite table. A new
+composite `NirValue` added to `static_type_name` but not to
+`static_composite_type` puts the two back out of step, which is exactly how this
+bug arose.
