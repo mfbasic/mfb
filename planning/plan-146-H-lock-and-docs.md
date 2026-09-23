@@ -132,6 +132,26 @@ Result: MET. All three ran on the tree with main merged in at `e9c1fa167`
 reported no churn.
 Commit: c50a69861
 
+**Re-run after main moved again** (the skill's drift check). Between the gate
+above and the merge back, main advanced from `e9c1fa167` to `8ae7cccf9` with
+bug-659 (a real codegen fix to `math::exp`/`pow`'s argument reduction, which
+re-pinned `.ncodesum` goldens), bug-679's archive and two doc-sync commits.
+`git merge main` was clean (`ded7a1a9f`), and all three gates ran again on the
+merged tree:
+
+- `cargo test` -> `222` suites `ok`, exit 0, zero `FAILED`.
+- `scripts/artifact-gate.sh target/release/mfb all` ->
+  `artifact-gate [all]: 1494 tests, 1669 build(s), 2116 golden(s) checked, 0 diff(s)`
+  (two more fixtures and four more goldens than the first run: bug-659's
+  `bug659_fixed_exp_large_argument_reduction` and
+  `bug659_fixed_pow_fractional_product_wrap`).
+- `scripts/test-accept.sh target/debug/mfb target/accept-actual` ->
+  `acceptance tests passed (1520 test(s) ran)`.
+
+Zero diffs across both runs is the evidence that main's `exp`/`pow` change and
+plan-146's `String` self-update arms do not interact.
+Commit: (this one)
+
 ## Validation Plan
 
 - The full gate above is the plan's only full-suite run. Every earlier letter ran
