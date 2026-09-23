@@ -181,14 +181,42 @@ Commit: (this commit)
 
 ### Phase 2 — The unit table
 
-- [ ] Every §3.3 row as a `#[test]` in `handover.rs`.
-- [ ] Prove each refusal row can fail. For S2, S3, S6 and S13, temporarily delete
-      the condition, see the row go red, and restore it. Record the four failure lines
-      here.
+- [x] Every §3.3 row as a `#[test]` in `handover.rs`: 4 tests carrying all 16 rows —
+      `collect_handover_args_follows_the_hand_derived_table` (12 caller rows, including
+      a positive twin for the function-level `TRAP`), `a_global_argument_is_never_handed_over`
+      (S7), `a_resource_bearing_argument_is_never_handed_over` (S8), and
+      `consumable_params_follows_the_hand_derived_table` (the callee rows).
+- [x] Prove each refusal row can fail. Each condition was removed, the suite run, and
+      the file restored byte-for-byte (`diff -q` against a saved copy). The four
+      failure lines, verbatim:
+
+      1. **S2/S3 — delete H3's "dead after the op"** (`|| place_live(&after, &place)`):
+         ```
+         read again after the call (S2): 1 argument(s) approved, want 0
+         an inline TRAP handler reads it (S3): 1 argument(s) approved, want 0
+         a function-level TRAP READS it (S3, trap_live): 1 argument(s) approved, want 0
+         ```
+      2. **S6 — delete H3's "read exactly once"** (`read_count(&all_reads, &place) != 1 ||`):
+         ```
+         the same local reaches two parameters (S6): 1 argument(s) approved, want 0
+         ```
+      3. **S3 — delete the `trap_live` extension** (`after.extend(live.trap_live…)`):
+         ```
+         a function-level TRAP READS it (S3, trap_live): 1 argument(s) approved, want 0
+         ```
+      4. **S13/H5 — let the indirect target resolve.** H5's guard is
+         `callees.get(target)`, and an indirect call's NIR target is the LOCAL's name
+         (`{ "kind": "call", "target": "f", … }`, dumped with `mfb build -ir`), so the
+         lookup misses. The proof is therefore test-side, which is stronger than
+         deleting a compiler condition: adding `"f" -> consume` to the probe's callee
+         map makes H5 accept, and the row goes red:
+         ```
+         called through a function value (S13, H5): 1 argument(s) approved, want 0
+         ```
 
 Acceptance: all rows pass, and the four RED proofs are recorded.
-  Check: `cargo test --bin mfb handover` → all passed (est. 3 min).
-Commit: —
+  Check: `cargo test --bin mfb handover` → **`ok. 4 passed; 0 failed`** (2026-09-23).
+Commit: f1ce00da6
 
 ### Phase 3 — Corpus census and neutrality
 
@@ -249,6 +277,17 @@ Commit: —
   that extra reach, and borrowing only ever ADDS liveness — so the simplification can
   only refuse a hand-over, never license a wrong one. That is the fail-closed
   direction.
+
+- **The analysis has to recognise the TRAPPED call form, `NirValue::CallResult`.**
+  §3.1 says "every direct user call in an op", and the first implementation matched
+  only `NirValue::Call`. The §3.3 row "`RECOVER` names something else" then came back
+  refused when it should be approved, and dumping the NIR showed why: the inline-`TRAP`
+  desugar rewrites `x = f(x) TRAP(e) …` into
+  `Bind $trap_res0 = { "kind": "callResult", "target": "consume", … }`. Matching only
+  `Call` means **never looking at a call under a handler at all** — precisely the
+  shape §2.3's S3 rows exist to constrain, so the gap would have hidden itself: every
+  such call would have been silently refused, which looks like correct conservatism.
+  `for_each_call` now matches `Call | CallResult`, and `call_key` names either.
 
 - **`NirVisitor` cannot collect borrows, so two walks are hand-written.** The trait's
   methods take `&NirValue`/`&NirOp` with no lifetime parameter of their own, so a
