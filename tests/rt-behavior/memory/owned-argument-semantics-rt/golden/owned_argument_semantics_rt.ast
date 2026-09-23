@@ -290,20 +290,79 @@
       ]
     },
     {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Acc",
+      "line": 165,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 166 },
+      { "visibility": null, "name": "seen", "type": "Integer", "line": 167 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addThenFail",
+      "line": 170,
+      "params": [
+      { "name": "a", "type": "Acc", "default": null, "line": 170 },
+      { "name": "v", "type": "Integer", "default": null, "line": 170 }
+      ],
+      "returnType": "Acc",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "0" } },
+        "line": 171,
+        "then": [
+        { "kind": "return", "value": { "kind": "with", "target": { "kind": "identifier", "value": "a" }, "updates": [{ "field": "items", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "items" }, { "kind": "identifier", "value": "v" }] } }] }, "line": 171 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "13" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "acc had " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "items" }] }] } }] }, "line": 172 }
+      ]
+    },
+    {
       "kind": "sub",
       "visibility": "public",
       "isolated": false,
-      "name": "functionValueCall",
-      "line": 162,
+      "name": "recordTrapReadsOld",
+      "line": 175,
       "params": [
       ],
       "returnType": null,
       "body": [
-      { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 163 },
-      { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(List OF Integer, Integer) AS List OF Integer", "value": { "kind": "identifier", "value": "addOne" }, "line": 164 },
-      { "kind": "binding", "mutable": false, "name": "viaValue", "type": "List OF Integer", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "3" }] }, "line": 165 },
-      { "kind": "binding", "mutable": false, "name": "viaDirect", "type": "List OF Integer", "value": { "kind": "call", "callee": "addOne", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "3" }] }, "line": 166 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "function-value-call equal=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaValue" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaDirect" }] } }] } }, "right": { "kind": "string", "value": " n=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaDirect" }] }] } }, "right": { "kind": "string", "value": " x=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "x" }] }] } }] }, "line": 167 }
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Acc", "value": { "kind": "constructor", "type": "Acc", "arguments": [{ "kind": "named", "name": "items", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }, { "kind": "named", "name": "seen", "value": { "kind": "number", "value": "7" } }] }, "line": 176 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Acc", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 177,
+        "expression": { "kind": "call", "callee": "addThenFail", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "1" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record-trap-reads-old items=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "items" }] }] } }, "right": { "kind": "string", "value": " seen=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "seen" }] } }, "right": { "kind": "string", "value": " code=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 178 },
+        { "kind": "recover", "value": { "kind": "identifier", "value": "a" }, "line": 179 }
+        ]
+      }, "line": 177 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record-trap-reads-old b=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "items" }] }] } }] }, "line": 181 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "functionValueCall",
+      "line": 186,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 187 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(List OF Integer, Integer) AS List OF Integer", "value": { "kind": "identifier", "value": "addOne" }, "line": 188 },
+      { "kind": "binding", "mutable": false, "name": "viaValue", "type": "List OF Integer", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "3" }] }, "line": 189 },
+      { "kind": "binding", "mutable": false, "name": "viaDirect", "type": "List OF Integer", "value": { "kind": "call", "callee": "addOne", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "3" }] }, "line": 190 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "function-value-call equal=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaValue" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaDirect" }] } }] } }, "right": { "kind": "string", "value": " n=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaDirect" }] }] } }, "right": { "kind": "string", "value": " x=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "x" }] }] } }] }, "line": 191 }
       ]
     },
     {
@@ -311,22 +370,23 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 170,
+      "line": 194,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "afterCallRead", "arguments": [] }, "line": 171 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "trapReadsOld", "arguments": [] }, "line": 172 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "recoverOld", "arguments": [] }, "line": 173 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fn-trap-reads-old ret=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fnTrapReadsOld", "arguments": [] }] } }] }, "line": 174 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sameArgTwice", "arguments": [] }, "line": 175 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "globalArg", "arguments": [] }, "line": 176 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "capturedArg", "arguments": [] }, "line": 177 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "errorSourceSame", "arguments": [] }, "line": 178 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "resInListArg", "arguments": [] }, "line": 179 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "functionValueCall", "arguments": [] }, "line": 180 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 181 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "afterCallRead", "arguments": [] }, "line": 195 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "trapReadsOld", "arguments": [] }, "line": 196 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "recoverOld", "arguments": [] }, "line": 197 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fn-trap-reads-old ret=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fnTrapReadsOld", "arguments": [] }] } }] }, "line": 198 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sameArgTwice", "arguments": [] }, "line": 199 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "globalArg", "arguments": [] }, "line": 200 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "capturedArg", "arguments": [] }, "line": 201 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "errorSourceSame", "arguments": [] }, "line": 202 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "resInListArg", "arguments": [] }, "line": 203 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "recordTrapReadsOld", "arguments": [] }, "line": 204 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "functionValueCall", "arguments": [] }, "line": 205 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 206 }
       ]
     }
     ]

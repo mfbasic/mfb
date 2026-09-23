@@ -2,8 +2,10 @@
 use crate::arch::ops::CodeOp;
 // plan-147-B (site S11): `RETURN f(x, …)` runs the same self-update seam as
 // `x = f(x, …)` and then moves `x`'s block out.
-use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
-use crate::codegen::collection::assign::self_update::{returned_self_update_local, SelfUpdateSite};
+use crate::codegen::collection::assign::inplace_dest::{InPlaceDest, WriteBack};
+use crate::codegen::collection::assign::self_update::{
+    returned_field_self_update_local, returned_self_update_local, FieldContainer, SelfUpdateSite,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::value::builder_values::EscapingValue;
@@ -460,6 +462,48 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-147-F: run `RETURN WITH r { f := OP(r.f, …) }`'s arm against the field in
+    /// `r`'s own block — the FIELD form of S11.
+    ///
+    /// Composes two landed mechanisms: plan-145's field seam builds the
+    /// `InPlaceDest::Inlined` destination, and letter B's move then hands `r`'s block
+    /// out. The error path is plan-145's: every arm raises before its first write, so
+    /// a failure cannot leave a half-updated record behind.
+    fn try_returned_field_self_update(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        if !self.returned_move_admits(name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let (stack_offset, by_ref) = (local.stack_offset, local.by_ref);
+        if by_ref {
+            return Ok(false);
+        }
+        let container = FieldContainer::Record { local: name };
+        let Some((field, field_type, update)) = self.field_self_update_site(container, value)
+        else {
+            return Ok(false);
+        };
+        let site = SelfUpdateSite {
+            name,
+            type_: field_type,
+            dest: InPlaceDest::Inlined {
+                block_slot: stack_offset,
+                field_index: field.field_index,
+                path: field.path_indices(),
+                write_back: WriteBack::None,
+            },
+            by_ref: false,
+            field: Some(field),
+        };
+        self.try_inplace_self_update(&site, update)
+    }
+
     /// plan-147-B (site S11): run `RETURN f(x, …)`'s arm against `x`'s own block.
     ///
     /// `true` = an arm fired and `x`'s slot now holds the result, so the caller
@@ -605,6 +649,14 @@ impl CodeBuilder<'_> {
             if let Some(name) = returned_self_update_local(value) {
                 let name = name.to_string();
                 if self.try_returned_self_update(&name, value)? {
+                    let moved = NirValue::Local(name);
+                    return self.emit_return_exit(Some(&moved), interior_temp_watermark);
+                }
+            }
+            // plan-147-F: the same reduction for a record's field.
+            if let Some(name) = returned_field_self_update_local(value) {
+                let name = name.to_string();
+                if self.try_returned_field_self_update(&name, value)? {
                     let moved = NirValue::Local(name);
                     return self.emit_return_exit(Some(&moved), interior_temp_watermark);
                 }

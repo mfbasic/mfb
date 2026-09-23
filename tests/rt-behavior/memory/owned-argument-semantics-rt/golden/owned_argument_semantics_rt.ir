@@ -11,6 +11,16 @@
   { "name": "gxs", "line": 17, "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } }
   ],
   "types": [
+  {
+    "kind": "type",
+    "line": 165,
+    "visibility": "public",
+    "name": "Acc",
+    "fields": [
+    { "visibility": null, "line": 166, "name": "items", "type": "List OF Integer" },
+    { "visibility": null, "line": 167, "name": "seen", "type": "Integer" }
+    ]
+  }
   ],
   "functions": [
   {
@@ -301,41 +311,95 @@
     ]
   },
   {
-    "name": "functionValueCall",
-    "line": 162,
+    "name": "addThenFail",
+    "line": 170,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 170, "type": "Acc", "default": null },
+    { "name": "v", "line": 170, "type": "Integer", "default": null }
+    ],
+    "returns": "Acc",
+    "body": [
+    {
+      "op": "if",
+      "line": 171,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "v" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 171, "value": { "kind": "with", "type": "Acc", "target": { "kind": "local", "name": "a" }, "updates": [{ "field": "items", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "a" }, "member": "items" }, { "kind": "local", "name": "v" }] } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "fail", "line": 172, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "13" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "acc had " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "a" }, "member": "items" }] }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "172" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "recordTrapReadsOld",
+    "line": 175,
     "visibility": "public",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 163, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "line": 164, "mutable": false, "name": "f", "type": "FUNC(List OF Integer, Integer) AS List OF Integer", "value": { "kind": "functionRef", "name": "addOne", "type": "FUNC(List OF Integer, Integer) AS List OF Integer" } },
-    { "op": "bind", "line": 165, "mutable": false, "name": "viaValue", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "f", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "line": 166, "mutable": false, "name": "viaDirect", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "addOne", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "eval", "line": 167, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "function-value-call equal=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaValue" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaDirect" }] } }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaDirect" }] }] } }, "right": { "kind": "const", "type": "String", "value": " x=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "x" }] }] } }] } }
+    { "op": "bind", "line": 176, "mutable": true, "name": "a", "type": "Acc", "value": { "kind": "constructor", "type": "Acc", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 177, "mutable": false, "name": "$trap_res8", "type": "Result OF Acc", "value": { "kind": "callResult", "type": "Acc", "target": "addThenFail", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 177, "mutable": true, "name": "$trap_val9", "type": "Acc", "value": null },
+    {
+      "op": "if",
+      "line": 177,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res8" } },
+      "then": [
+      { "op": "assign", "line": 177, "name": "$trap_val9", "value": { "kind": "resultValue", "type": "Acc", "value": { "kind": "local", "name": "$trap_res8" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 177, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res8" } } },
+      { "op": "eval", "line": 178, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "record-trap-reads-old items=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "a" }, "member": "items" }] }] } }, "right": { "kind": "const", "type": "String", "value": " seen=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "seen" }] } }, "right": { "kind": "const", "type": "String", "value": " code=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "assign", "line": 179, "name": "$trap_val9", "value": { "kind": "local", "name": "a" } }
+      ]
+    },
+    { "op": "bind", "line": 177, "mutable": false, "name": "b", "type": "Acc", "value": { "kind": "local", "name": "$trap_val9" } },
+    { "op": "eval", "line": 181, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "record-trap-reads-old b=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "b" }, "member": "items" }] }] } }] } }
+    ]
+  },
+  {
+    "name": "functionValueCall",
+    "line": 186,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 187, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 188, "mutable": false, "name": "f", "type": "FUNC(List OF Integer, Integer) AS List OF Integer", "value": { "kind": "functionRef", "name": "addOne", "type": "FUNC(List OF Integer, Integer) AS List OF Integer" } },
+    { "op": "bind", "line": 189, "mutable": false, "name": "viaValue", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "f", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 190, "mutable": false, "name": "viaDirect", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "addOne", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "eval", "line": 191, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "function-value-call equal=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaValue" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaDirect" }] } }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "viaDirect" }] }] } }, "right": { "kind": "const", "type": "String", "value": " x=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "x" }] }] } }] } }
     ]
   },
   {
     "name": "main",
-    "line": 170,
+    "line": 194,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 171, "value": { "kind": "call", "type": "Nothing", "target": "afterCallRead", "args": [] } },
-    { "op": "eval", "line": 172, "value": { "kind": "call", "type": "Nothing", "target": "trapReadsOld", "args": [] } },
-    { "op": "eval", "line": 173, "value": { "kind": "call", "type": "Nothing", "target": "recoverOld", "args": [] } },
-    { "op": "eval", "line": 174, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fn-trap-reads-old ret=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fnTrapReadsOld", "args": [] }] } }] } },
-    { "op": "eval", "line": 175, "value": { "kind": "call", "type": "Nothing", "target": "sameArgTwice", "args": [] } },
-    { "op": "eval", "line": 176, "value": { "kind": "call", "type": "Nothing", "target": "globalArg", "args": [] } },
-    { "op": "eval", "line": 177, "value": { "kind": "call", "type": "Nothing", "target": "capturedArg", "args": [] } },
-    { "op": "eval", "line": 178, "value": { "kind": "call", "type": "Nothing", "target": "errorSourceSame", "args": [] } },
-    { "op": "eval", "line": 179, "value": { "kind": "call", "type": "Nothing", "target": "resInListArg", "args": [] } },
-    { "op": "eval", "line": 180, "value": { "kind": "call", "type": "Nothing", "target": "functionValueCall", "args": [] } },
-    { "op": "return", "line": 181, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 195, "value": { "kind": "call", "type": "Nothing", "target": "afterCallRead", "args": [] } },
+    { "op": "eval", "line": 196, "value": { "kind": "call", "type": "Nothing", "target": "trapReadsOld", "args": [] } },
+    { "op": "eval", "line": 197, "value": { "kind": "call", "type": "Nothing", "target": "recoverOld", "args": [] } },
+    { "op": "eval", "line": 198, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fn-trap-reads-old ret=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fnTrapReadsOld", "args": [] }] } }] } },
+    { "op": "eval", "line": 199, "value": { "kind": "call", "type": "Nothing", "target": "sameArgTwice", "args": [] } },
+    { "op": "eval", "line": 200, "value": { "kind": "call", "type": "Nothing", "target": "globalArg", "args": [] } },
+    { "op": "eval", "line": 201, "value": { "kind": "call", "type": "Nothing", "target": "capturedArg", "args": [] } },
+    { "op": "eval", "line": 202, "value": { "kind": "call", "type": "Nothing", "target": "errorSourceSame", "args": [] } },
+    { "op": "eval", "line": 203, "value": { "kind": "call", "type": "Nothing", "target": "resInListArg", "args": [] } },
+    { "op": "eval", "line": 204, "value": { "kind": "call", "type": "Nothing", "target": "recordTrapReadsOld", "args": [] } },
+    { "op": "eval", "line": 205, "value": { "kind": "call", "type": "Nothing", "target": "functionValueCall", "args": [] } },
+    { "op": "return", "line": 206, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

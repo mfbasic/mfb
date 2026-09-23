@@ -567,6 +567,31 @@ pub(crate) fn returned_self_update_local(value: &NirValue) -> Option<&str> {
     }
 }
 
+/// plan-147-F: the owner local of a `RETURN WITH r { f := OP(r.f, …) }` whose `OP`
+/// has a self-update arm — the FIELD form of letter B's site S11.
+///
+/// The census's record accumulators are threaded exactly like the collection ones
+/// (`state = walkSchema(…, state, depth + 1)`), and the helper returns
+/// `WITH s { items := collections::append(s.items, i) }`. Without this the whole
+/// record is copied to update one field.
+pub(crate) fn returned_field_self_update_local(value: &NirValue) -> Option<&str> {
+    let NirValue::WithUpdate { target, .. } = value else {
+        return None;
+    };
+    let NirValue::Local(name) = target.as_ref() else {
+        return None;
+    };
+    // The same spellings letter B's plain form accepts, field-form.
+    with_holds_field_self_update(value, &|target| {
+        self_update_builtin(target).is_some()
+            || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
+                target,
+            )
+            .is_some()
+    })
+    .then_some(name.as_str())
+}
+
 /// [`is_self_update_call`] for the module-level global `name` (plan-142-H).
 pub(crate) fn is_global_self_update_call(value: &NirValue, name: &str) -> bool {
     self_update_call_parts(value).is_some_and(|(target, args)| {
@@ -715,6 +740,10 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
             returned_self_update_local(value).is_some_and(|_| {
                 self_update_call_parts(value).is_some_and(|(target, _)| wanted(target))
             })
+                // plan-147-F: the field form of S11 runs the same arms, so a function
+                // whose only self-update is `RETURN WITH r { f := OP(r.f, …) }` must
+                // reserve the scratch those arms need.
+                || with_holds_field_self_update(value, wanted)
         }
         NirOp::If {
             then_body,
@@ -2480,7 +2509,8 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
 ];
 
 /// plan-147-B: `(arm, reason)` — the arms that never fire at `Site::Return` (S11),
-/// nor at `Site::OwnedParam` (S12, which is S11 inside an owned variant), by design. The matrix asserts they do NOT fire there, and does not require them
+/// nor at `Site::OwnedParam` (S12, S11 inside an owned variant), nor at `Site::S11F`
+/// (S11's field form), by design. The matrix asserts they do NOT fire there, and does not require them
 /// to; an arm that starts firing fails the matrix, so the exclusion cannot rot.
 ///
 /// Every entry is a `String` arm, and they all share one cause. A `String` block
@@ -2551,6 +2581,11 @@ pub(crate) enum Site {
     /// through every level instead of being rebuilt: a copying `RETURN` allocates
     /// once per level.
     Return,
+    /// S11F — the FIELD form of S11 (plan-147-F): `RETURN WITH r { b := OP(r.b, …) }`
+    /// on an owned record. The probe threads the record through a helper, exactly as
+    /// the census's `state = walkSchema(…, state, …)` does, so the self-update lowers
+    /// inside the helper's owned variant against the record's own block.
+    S11F,
     /// S12 — `RETURN OP(x, …)` on an owned PARAMETER, inside the owned variant an
     /// approved caller calls (plan-147-E). The probe is `x = handOver(x, …)` in a
     /// loop: the caller hands `x` over, so inside `handOver$own1` the parameter is an
@@ -2621,6 +2656,8 @@ pub(crate) const FIELD_SITES: &[Site] = &[
     Site::T6,
     Site::T7,
     Site::T8,
+    // plan-147-F: the field form of S11.
+    Site::S11F,
 ];
 
 /// plan-145-A: `(arm, probe type or "" for every probe, field sites, reason)` — the
@@ -2632,6 +2669,10 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
     /// plan-146-B: every field site — a `String` arm serves none.
     const ALL_FIELD_SITES: &[&str] = &[
         "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+        // plan-147-F: S11's field form is a field site too, so plan-145's own field
+        // exclusions (a `String` field is `deferred:string`, a grow at a not-last
+        // field would shift its sibling) apply there unchanged.
+        "S11F",
     ];
     const NOT_LAST_GROW: &str = "a grow at a not-last field would shift the next sibling \
                                  (plan-145-E non-goal)";
@@ -2696,6 +2737,8 @@ impl Site {
             // plan-147-E: it lowers in the owned VARIANT of `step`, never in `step`
             // itself — the base lowering still lends its parameter.
             Site::OwnedParam => name.starts_with("handOver$own"),
+            // plan-147-F: likewise, in the record helper's owned variant.
+            Site::S11F => name.starts_with("handOverRec$own"),
             _ => name == "main",
         }
     }
@@ -2839,6 +2882,23 @@ impl Probe {
         if ty == "String" && matches!(site, Site::S7 | Site::T7) {
             return None;
         }
+        // plan-147-F: S11F is not one of plan-145's owner shapes — it threads the
+        // record through a helper — so it writes its own program rather than going
+        // through the owner/looped assembly below.
+        if site == Site::S11F {
+            let v = replace_word(self.call, "x", "r.b");
+            return Some(self.field_program(
+                site,
+                &format!(
+                    "FUNC handOverRec(r AS Rec) AS Rec\n  RETURN WITH r {{ b := {v} }}\nEND FUNC\n\n\
+                     FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  \
+                     MUT r AS Rec = Rec[a := x, b := x]\n  FOR i = 1 TO 3\n    \
+                     r = handOverRec(r)\n  NEXT\n  io::print(toString(len(r.b)))\n  \
+                     RETURN 0\nEND FUNC\n",
+                    init = self.init
+                ),
+            ));
+        }
         let field = site.field();
         let v = replace_word(self.call, "x", field);
         let statement = match site {
@@ -2908,6 +2968,13 @@ impl Probe {
             ),
             _ => format!("FUNC main() AS Integer\n{body}  RETURN 0\nEND FUNC\n"),
         };
+        Some(self.field_program(site, &program))
+    }
+
+    /// The shared prelude of a field probe — imports, the line's helpers, and
+    /// plan-145's record types — with `program` appended.
+    fn field_program(&self, site: Site, program: &str) -> String {
+        let ty = self.ty;
         let mut src = String::from("IMPORT io\n");
         let mut imports: Vec<&str> = self.imports.to_vec();
         imports.push("fs");
@@ -2935,8 +3002,8 @@ impl Probe {
         if site == Site::T8 {
             src.push_str("UNION Stream\n  fs::File\n  tcp::Socket\nEND UNION\n\n");
         }
-        src.push_str(&program);
-        Some(src)
+        src.push_str(program);
+        src
     }
 }
 
@@ -3227,8 +3294,10 @@ mod tests {
         let never = |id: ArmId, probe: &Probe, site: Site| {
             // plan-147-B: S11's exclusions are their own list — `FIELD_NEVER` is
             // about field sites, and `Return` is not one.
-            // S12 is S11 inside an owned variant, so it inherits S11's exclusions.
-            if matches!(site, Site::Return | Site::OwnedParam)
+            // S12 is S11 inside an owned variant and S11F is its field form, so both
+            // inherit S11's exclusions: a `String` block must be tight to leave its
+            // frame however the return is spelled.
+            if matches!(site, Site::Return | Site::OwnedParam | Site::S11F)
                 && RETURN_NEVER.iter().any(|(arm, _)| *arm == id)
             {
                 return true;

@@ -17,5 +17,7 @@ global-arg n=2 g=5
 captured-arg f=2 y=3
 error-source-same same=TRUE bLen=2 r=0
 res-in-list-arg n=2
+record-trap-reads-old items=2 seen=7 code=13
+record-trap-reads-old b=2
 function-value-call equal=TRUE n=3 x=2
 [exit 0]

@@ -35,6 +35,7 @@
 //!   to leave its frame. See the case's doc comment for the measurement.
 //! * `recursive-fill`, `bind-param` — **landed**, plan-147-E (transitive hand-over,
 //!   and the owned-parameter bind).
+//! * `record-field` — **landed**, plan-147-F (record accumulators).
 //!
 //! Nothing is ignored: the guard asserts the ignored set is empty.
 
@@ -160,6 +161,29 @@ END FUNC",
                       2N=4000, identical to without it. Flattening this needs the String \
                       block to carry its own capacity, which is another plan's change",
             },
+        },
+        // F: a RECORD accumulator threaded through a helper, whose body updates one
+        // FIELD. The census shape: `json_schema`'s `walkSchema(…, state, depth + 1)`
+        // and the `addError`/`addText` helpers that return `WITH state { … }`.
+        Case {
+            name: "record-field",
+            letter: "F",
+            n: FLAT_N,
+            module: "TYPE St
+  items AS List OF Integer
+  seen AS Integer
+END TYPE
+
+FUNC addItem(s AS St, i AS Integer) AS St
+  RETURN WITH s { items := collections::append(s.items, i) }
+END FUNC",
+            body: "MUT st AS St = St[items := [], seen := 0]
+  FOR i = 1 TO {N}
+    st = addItem(st, i)
+  NEXT
+  io::print(\"len=\" & toString(len(st.items)))",
+            want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
         // E: `MUT acc = items` at an owned parameter's last use. The
         // `__json_parseArrayItems` shape: bind the parameter to a mutable local, then
@@ -369,6 +393,14 @@ fn helper_concat() {
     check("helper-concat");
 }
 
+/// plan-147-F: a record accumulator is handed over and one of its fields updated in
+/// place, instead of the whole record being copied per call. alloc_calls 6004 -> 15
+/// at N = 2000.
+#[test]
+fn record_field() {
+    check("record-field");
+}
+
 /// plan-147-E: `MUT acc = items` at an owned parameter's last use moves the block
 /// into the new binding instead of copying it.
 #[test]
@@ -449,6 +481,8 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
         // plan-147-E, transitive hand-over and the owned-parameter bind.
         "bind_param",
         "recursive_fill",
+        // plan-147-F, record accumulators.
+        "record_field",
     ];
     let declared: BTreeSet<String> = cases().iter().map(|c| c.name.replace('-', "_")).collect();
     let ignored: BTreeSet<String> = found.iter().map(|(n, _)| n.clone()).collect();

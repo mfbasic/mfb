@@ -166,15 +166,64 @@ fn is_fresh_temporary(value: &NirValue) -> bool {
 /// and never one that carries a resource (plan-147-A §2.3 row S8: resources keep
 /// pointer semantics, close-once and drop order, so they are excluded by type).
 fn handover_type(model: &TypeModel, type_: &ParameterType) -> bool {
+    handover_type_within(model, type_, &mut HashSet::new())
+}
+
+/// [`handover_type`], carrying the record types already being examined so a
+/// self-referential record cannot recurse forever.
+fn handover_type_within(
+    model: &TypeModel,
+    type_: &ParameterType,
+    seen: &mut HashSet<ParameterType>,
+) -> bool {
+    // Row S8: a resource keeps pointer semantics, close-once and drop order, so
+    // anything carrying one is excluded by type. This also covers a record with a
+    // `RES` field, and a `RES … STATE` payload.
     if type_contains_resource(model, type_) {
         return false;
     }
-    matches!(
+    if matches!(
         type_,
         ParameterType::String
             | ParameterType::ListOf(_)
             | ParameterType::MapOf(_, _)
             | ParameterType::SetOf(_)
+    ) {
+        return true;
+    }
+    // plan-147-F: a RECORD is handed over when every field is, recursively. The
+    // census's accumulators are records of collections — `json_schema`'s `Acc` holds
+    // three `Map OF String TO String`, threaded as `state = walkSchema(…, state, …)` —
+    // and the whole point is to stop copying the record to update one field.
+    //
+    // A scalar field is fine: it lives in the record's own block and moves with it.
+    // What must be refused is anything the record does not solely own, which
+    // `type_contains_resource` above already answers for resources and threads.
+    let Some(fields) = model.record_fields.get(type_) else {
+        return false;
+    };
+    if !seen.insert(type_.clone()) {
+        // Already on the stack: a cycle, which is only reachable through a pointer
+        // field the record does not inline. Refuse rather than reason about it.
+        return false;
+    }
+    let ok = fields
+        .iter()
+        .all(|(_, field)| is_scalar_field(field) || handover_type_within(model, field, seen));
+    seen.remove(type_);
+    ok
+}
+
+/// A field that lives in the record's own block and therefore moves with it.
+fn is_scalar_field(type_: &ParameterType) -> bool {
+    matches!(
+        type_,
+        ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Nothing
     )
 }
 
@@ -366,14 +415,19 @@ pub(crate) fn collect_handover_args(
                         // place, and that block is what is handed over — the same
                         // reduction letter B made for `RETURN OP(x, …)`, one position
                         // over.
-                        let arg_update = returned_self_update_local(arg).is_some_and(|name| {
-                            (!live.excluded.contains(name) || owned_params.contains(name))
-                                && types
-                                    .get(name)
-                                    .is_some_and(|type_| handover_type(model, type_))
-                                && read_count(&all_reads, &Place::Local(name.to_string())) == 1
-                                && !place_live(&after, &Place::Local(name.to_string()))
-                        });
+                        let arg_update = returned_self_update_local(arg)
+                            .or_else(|| {
+                                crate::codegen::collection::assign::self_update::
+                                    returned_field_self_update_local(arg)
+                            })
+                            .is_some_and(|name| {
+                                (!live.excluded.contains(name) || owned_params.contains(name))
+                                    && types
+                                        .get(name)
+                                        .is_some_and(|type_| handover_type(model, type_))
+                                    && read_count(&all_reads, &Place::Local(name.to_string())) == 1
+                                    && !place_live(&after, &Place::Local(name.to_string()))
+                            });
                         let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
                             target: target.clone(),
                             mask: 0,
@@ -530,20 +584,31 @@ fn consuming_use(
         let NirOp::Return { value: Some(value) } = op else {
             continue;
         };
-        let consumes = match value {
-            NirValue::Local(local) => local == name,
-            _ => {
-                crate::codegen::collection::assign::self_update::returned_self_update_local(value)
-                    == Some(name)
-            }
-        };
+        // plan-147-F: the FIELD form reads its owner TWICE by construction — once as
+        // the `WITH`'s base and once as the field's source (`WITH r { f := OP(r.f,
+        // …) }`) — so the "read exactly once" question below is the wrong one to ask
+        // of it. Both reads belong to the one statement that consumes `r`, which is
+        // what the shape itself guarantees; the liveness check still applies.
+        let field_form =
+            crate::codegen::collection::assign::self_update::returned_field_self_update_local(
+                value,
+            ) == Some(name);
+        let consumes = field_form
+            || match value {
+                NirValue::Local(local) => local == name,
+                _ => {
+                    crate::codegen::collection::assign::self_update::returned_self_update_local(
+                        value,
+                    ) == Some(name)
+                }
+            };
         if !consumes {
             continue;
         }
         // The `RETURN` must be the parameter's last read on this path: a handler that
         // reads it afterwards would see a consumed value (row S3).
         let reads: Vec<Place> = reads_of(value);
-        if read_count(&reads, &place) != 1 {
+        if !field_form && read_count(&reads, &place) != 1 {
             continue;
         }
         if place_live(&live.trap_live, &place) {
@@ -960,6 +1025,58 @@ END FUNC",
         // variant `xs` is this lowering's own block and `append` updates it.
         assert_eq!(arg_updates(&source, "fill", &[]), 0);
         assert_eq!(arg_updates(&source, "fill", &["xs"]), 1);
+    }
+
+    /// plan-147-F: a record is handed over when every field is, and never when one
+    /// carries a resource (row S8).
+    #[test]
+    fn a_record_is_handed_over_only_when_every_field_is() {
+        let ok = probe(
+            "TYPE St
+  items AS List OF Integer
+  seen AS Integer
+END TYPE
+
+FUNC addItem(s AS St, i AS Integer) AS St
+  RETURN WITH s { items := collections::append(s.items, i) }
+END FUNC
+
+FUNC main() AS Integer
+  MUT st AS St = St[items := [], seen := 0]
+  FOR i = 1 TO 3
+    st = addItem(st, i)
+  NEXT
+  io::print(toString(len(st.items)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(consumable_of(&ok, "addItem"), vec!["s".to_string()]);
+        assert_eq!(approved(&ok, "main"), 1);
+
+        // A `RES` field makes the whole record ineligible: resources keep pointer
+        // semantics, close-once and drop order (row S8).
+        let res = probe(
+            "TYPE Holder
+  handle AS RES fs::File
+  items AS List OF Integer
+END TYPE
+
+FUNC addItem(h AS Holder, i AS Integer) AS Holder
+  RETURN WITH h { items := collections::append(h.items, i) }
+END FUNC
+
+FUNC main() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  MUT h AS Holder = Holder[handle := f, items := []]
+  FOR i = 1 TO 3
+    h = addItem(h, i)
+  NEXT
+  io::print(toString(len(h.items)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(consumable_of(&res, "addItem"), Vec::<String>::new());
+        assert_eq!(approved(&res, "main"), 0);
     }
 
     /// plan-147-C §3.3, the callee side.

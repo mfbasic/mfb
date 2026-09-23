@@ -157,6 +157,30 @@ SUB resInListArg()
   io::print("res-in-list-arg n=" & toString(n))
 END SUB
 
+' --- S3, record form (plan-147-F) -------------------------------------------
+' A record accumulator whose field helper fails. §14.2 again: the handler must see
+' the record exactly as it was, not a half-updated one. plan-145's failure-atomicity
+' rule is what makes that true of the field arm; this pins it at a hand-over site.
+
+TYPE Acc
+  items AS List OF Integer
+  seen AS Integer
+END TYPE
+
+FUNC addThenFail(a AS Acc, v AS Integer) AS Acc
+  IF v < 0 THEN RETURN WITH a { items := collections::append(a.items, v) }
+  FAIL error(13, "acc had " & toString(len(a.items)))
+END FUNC
+
+SUB recordTrapReadsOld()
+  MUT a AS Acc = Acc[items := [1, 2], seen := 7]
+  LET b AS Acc = addThenFail(a, 1) TRAP(e)
+    io::print("record-trap-reads-old items=" & toString(len(a.items)) & " seen=" & toString(a.seen) & " code=" & toString(e.code))
+    RECOVER a
+  END TRAP
+  io::print("record-trap-reads-old b=" & toString(len(b.items)))
+END SUB
+
 ' --- S13: function identity is unchanged ------------------------------------
 
 SUB functionValueCall()
@@ -177,6 +201,7 @@ FUNC main() AS Integer
   capturedArg()
   errorSourceSame()
   resInListArg()
+  recordTrapReadsOld()
   functionValueCall()
   RETURN 0
 END FUNC

@@ -149,22 +149,45 @@ Commit: 2d502e735
 
 ### Phase 2 — Records
 
-- [ ] `analysis/handover.rs`: H2 and P3 for records (§3 step 1), with unit rows: record
-      with collection fields approved; record with a `RES` field refused.
-- [ ] `builder_exits.rs`: the S11 field form (§3 step 2).
-- [ ] `rt_owned_argument.rs`: `record-field`, plus the per-field-kind cases or the site
-      axis from Phase 1.
-- [ ] Semantics fixture: add `record-trap-reads-old` (a handler reads the record after a
-      failing field helper). Regenerate only that case's `.run` lines and review them by
-      hand.
+- [x] `analysis/handover.rs`: H2 admits a record when every field is admissible,
+      recursively (`handover_type_within`, with a `seen` set so a self-referential
+      record cannot recurse forever, and scalars accepted because they live in the
+      record's own block). P3 counts `RETURN WITH r { f := OP(r.f, …) }` as a
+      consuming use, and the argument-position rule accepts the field form too.
+      Unit rows: `a_record_is_handed_over_only_when_every_field_is` — a record of a
+      `List` and an `Integer` is approved, a record with a `RES` field is refused
+      (row S8, via `type_contains_resource`).
+- [x] `builder_exits.rs`: `try_returned_field_self_update` builds plan-145's field
+      `SelfUpdateSite` (`InPlaceDest::Inlined` on the owner's block) via the now
+      `pub(crate)` `field_self_update_site`, runs the arm, and then takes letter B's
+      existing move — the same "S1, then the move" reduction, one level down.
+      `ops_hold_self_update`'s `Return` arm also matches the field form, so a
+      function whose only self-update is `RETURN WITH r { … }` reserves the scratch
+      its arms need.
+- [x] `rt_owned_argument.rs`: `record-field` added and flat — **alloc_calls 6004 → 15
+      at N = 2000**, slope 6000 → 2, with `addItem$own1` in the emitted code. The site
+      axis from Phase 1 is added to the **matrix** as `Site::S11F`; see Corrections
+      for why the runtime axis is served by this case rather than by a second
+      `field_expect.tsv` column.
+- [x] Semantics fixture: `record-trap-reads-old` added. The handler reads the record
+      after a failing field helper and sees it **exactly as it was**:
+      `record-trap-reads-old items=2 seen=7 code=13`, and `RECOVER a` yields the old
+      record (`b=2`). The `build.log` diff against the previous golden is exactly
+      those two lines — every other printed value is unchanged — and the goldens were
+      then accepted.
 
 Acceptance: `record-field` is flat in N. The fixture's new case shows the old record.
 Every other line of the fixture is unchanged.
-  Check 1: `cargo test --bin mfb handover && cargo test --test rt_owned_argument` → all
-  passed (est. 6 min).
+  Check 1: `cargo test --bin mfb handover` → **`ok. 7 passed; 0 failed`**;
+  `cargo test --test rt_owned_argument` → **`ok. 11 passed; 0 failed; 0 ignored`**
+  (2026-09-23).
   Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
-  → the only diff is the new case, which is then accepted into the golden (est. 2 min).
-Commit: —
+  → the only `build.log` diff was the two new lines; goldens accepted, and the
+  fixture now reports **`acceptance tests passed (1 test(s) ran)`**.
+  Check 3 (the Goal's second bullet): `cargo test --bin mfb
+  every_arm_row_fires_at_every_enabled_site` → **`ok. 1 passed; 0 failed`** (154.63 s)
+  with `Site::S11F` in `FIELD_SITES` — every field arm fires at the field form of S11.
+Commit: (this commit)
 
 ### Phase 3 — Docs and spec
 
@@ -210,6 +233,36 @@ Commit: —
   puts it.
 
 ## Corrections
+
+- **The S11 field form reads its owner TWICE, so P3 cannot ask "read exactly
+  once".** `WITH r { f := OP(r.f, …) }` reads `r` as the `WITH`'s base and again as the
+  field's source, so `read_count(reads, Place::Local("r")) == 2` and P3 refused every
+  record helper — `record-field` measured 6004 → 12004, untouched. Both reads belong to
+  the one statement that consumes `r`, which the shape itself guarantees, so P3 skips
+  the count for the field form and keeps the liveness check. With that: 6004 → **15**.
+
+- **S11F is added to the MATRIX axis only; the runtime axis is served by
+  `record-field`.** Phase 1's decision said "both axes". The matrix half is what the
+  Goal's second bullet actually states — *the field form of S11 fires for every
+  plan-145 field arm* — and `Site::S11F` in `FIELD_SITES` asserts exactly that, for all
+  66 arm rows, in both directions (`RETURN_NEVER` and plan-145's own `FIELD_NEVER`
+  exclusions apply there unchanged, which is why `ALL_FIELD_SITES` gained the code).
+
+  The runtime half would mean a second `field_expect.tsv` column: **1,939 rows today,
+  one per (line, site)**, so ~130 new rows whose expected outcome is not knowable in
+  advance — each would have to be measured, and each measurement is a program build.
+  That is a large mechanical exercise which would restate, per arm, what the matrix
+  already asserts per arm; the allocation property it would add is what `record-field`
+  measures directly (6004 → 15). Recorded here rather than done silently: if the
+  per-arm ALLOCATION behaviour at S11F is ever wanted, the column is the way to get
+  it, and `field_expect_gen.py` is where it would start.
+
+- **S11F inherits S11's `String` exclusions.** The first matrix run failed 27 rows at
+  S11F, every one a `String` arm — the same tightness reason letter B measured (a
+  `String` block must be tight to leave its frame). `RETURN_NEVER` now covers
+  `Site::S11F` alongside `Return` and `OwnedParam`. The 28th, `StrIdentity`, was
+  already excluded at every field site by plan-145's own `deferred:string` row; it
+  needed only the new site code in `ALL_FIELD_SITES`.
 
 ## Summary
 
