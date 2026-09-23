@@ -43,7 +43,7 @@ use crate::types::ParameterType;
 
 /// The identity of a call inside an op: its address, for the same reason
 /// [`op_key`] uses one — an index into a value tree would drift as the tree is
-/// rebuilt, an address cannot.
+/// rebuilt, an address cannot. Names a `Call` or a `CallResult` node alike.
 pub(crate) fn call_key(value: &NirValue) -> usize {
     value as *const NirValue as usize
 }
@@ -87,7 +87,12 @@ fn handover_type(model: &TypeModel, type_: &ParameterType) -> bool {
     )
 }
 
-/// Call `visit` with every `NirValue::Call` inside `value`, at any depth.
+/// Call `visit` with every direct user call inside `value`, at any depth.
+///
+/// Two spellings count, and missing the second is a real hole: the inline-`TRAP`
+/// desugar rewrites `x = f(x) TRAP(e) …` into a `Bind $trap_res = CallResult{…}`, so
+/// a walk that matched only `NirValue::Call` would never even look at a call under a
+/// handler — precisely the shape plan-147-A §2.3's S3 rows are about.
 ///
 /// A callback rather than a returned `Vec<&NirValue>`: [`NirVisitor`]'s methods take
 /// `&NirValue` with no lifetime of their own, so a visitor cannot hand back borrows
@@ -99,7 +104,7 @@ fn for_each_call(value: &NirValue, visit: &mut impl FnMut(&NirValue)) {
     }
     impl<F: FnMut(&NirValue)> NirVisitor for Calls<'_, F> {
         fn visit_value(&mut self, value: &NirValue) {
-            if matches!(value, NirValue::Call { .. }) {
+            if matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. }) {
                 (self.visit)(value);
             }
             walk_value(self, value);
@@ -193,11 +198,16 @@ pub(crate) fn collect_handover_args(
 
         for value in &values {
             for_each_call(value, &mut |call| {
-                let NirValue::Call {
+                let (NirValue::Call {
                     target,
                     args: call_args,
                     ..
-                } = call
+                }
+                | NirValue::CallResult {
+                    target,
+                    args: call_args,
+                    ..
+                }) = call
                 else {
                     return;
                 };
@@ -409,4 +419,316 @@ fn ops_of(function: &NirFunction) -> Vec<&NirOp> {
     let mut out = Vec::new();
     walk(&function.body, &mut out);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::engine::builder::TypeModel;
+    use crate::target::shared::nir::NirModule;
+    use crate::testutil::{nir_for_src, CodeTarget};
+
+    fn lower(source: &str) -> NirModule {
+        nir_for_src(
+            source,
+            CodeTarget::MacosAarch64,
+            crate::target::NativeBuildMode::Console,
+        )
+        .unwrap_or_else(|error| panic!("the probe lowers to NIR: {error}"))
+    }
+
+    fn function<'m>(module: &'m NirModule, name: &str) -> &'m NirFunction {
+        module
+            .functions
+            .iter()
+            .find(|f| {
+                f.name == name || f.name.rsplit(|c| c == '.' || c == ':').next() == Some(name)
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "no function `{name}` in {:?}",
+                    module
+                        .functions
+                        .iter()
+                        .map(|f| f.name.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+    }
+
+    /// Every function of the module, by name — the `callees` map H5 resolves against.
+    fn callees(module: &NirModule) -> HashMap<String, &NirFunction> {
+        module
+            .functions
+            .iter()
+            .map(|f| (f.name.clone(), f))
+            .collect()
+    }
+
+    /// The helpers every caller-side probe calls. `consume` consumes its collection
+    /// (S11's shape, so `consumable_params` says so); `peek` only reads it.
+    const HELPERS: &str = "
+FUNC consume(xs AS List OF Integer, v AS Integer) AS List OF Integer
+  RETURN collections::append(xs, v)
+END FUNC
+
+FUNC peek(xs AS List OF Integer) AS Integer
+  RETURN len(xs)
+END FUNC
+
+FUNC pair(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  RETURN collections::append(a, len(b))
+END FUNC
+";
+
+    fn probe(body: &str) -> String {
+        format!("IMPORT collections\nIMPORT io\nIMPORT fs\n{HELPERS}\n{body}\n")
+    }
+
+    /// How many arguments of `name`'s body may be handed over.
+    fn approved(source: &str, name: &str) -> usize {
+        let module = lower(source);
+        let model = TypeModel::from_module(&module).expect("the probe's type model builds");
+        let map = callees(&module);
+        collect_handover_args(function(&module, name), &model, &map).len()
+    }
+
+    /// `consumable_params` of `name`, as a sorted list for comparison.
+    fn consumable_of(source: &str, name: &str) -> Vec<String> {
+        let module = lower(source);
+        let model = TypeModel::from_module(&module).expect("the probe's type model builds");
+        let mut names: Vec<String> = consumable_params(function(&module, name), &model)
+            .into_iter()
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// plan-147-C §3.3, the caller side: one row per shape, each naming the
+    /// plan-147-A §2.3 row it pins.
+    #[test]
+    fn collect_handover_args_follows_the_hand_derived_table() {
+        // `(what, the body, how many arguments may be handed over)`.
+        let rows: Vec<(&str, &str, usize)> = vec![
+            (
+                "accumulator threaded through a consuming helper",
+                "FUNC main() AS Integer
+  MUT acc AS List OF Integer = []
+  FOR i = 1 TO 3
+    acc = consume(acc, i)
+  NEXT
+  io::print(toString(len(acc)))
+  RETURN 0
+END FUNC",
+                1,
+            ),
+            (
+                "read again after the call (S2)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = consume(x, 1)
+  io::print(toString(len(x)) & toString(len(y)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "an inline TRAP handler reads it (S3)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  x = consume(x, 1) TRAP(e)
+    io::print(toString(len(x)))
+    RECOVER x
+  END TRAP
+  io::print(toString(len(x)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "RECOVER names the old value (S3)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  x = consume(x, 1) TRAP(e)
+    RECOVER x
+  END TRAP
+  io::print(toString(len(x)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "RECOVER names something else: the old value is never read",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET other AS List OF Integer = [9]
+  x = consume(x, 1) TRAP(e)
+    RECOVER other
+  END TRAP
+  io::print(toString(len(x)))
+  RETURN 0
+END FUNC",
+                1,
+            ),
+            (
+                "a function-level TRAP READS it (S3, trap_live)",
+                "FUNC run() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  x = consume(x, 1)
+  RETURN 0
+TRAP(e)
+  RETURN len(x)
+END TRAP
+END FUNC",
+                0,
+            ),
+            (
+                "a function-level TRAP that does NOT read it: the positive twin",
+                "FUNC run() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  x = consume(x, 1)
+  RETURN len(x)
+TRAP(e)
+  RETURN 0
+END TRAP
+END FUNC",
+                1,
+            ),
+            (
+                "the same local reaches two parameters (S6)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  x = pair(x, x)
+  io::print(toString(len(x)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "the helper only reads it (H6)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET n AS Integer = peek(x)
+  io::print(toString(n))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "a lambda captures it (S9)",
+                "FUNC main() AS Integer
+  LET x AS List OF Integer = [1, 2]
+  LET f AS FUNC(Integer) AS Integer = LAMBDA(k AS Integer) -> len(x) + k
+  LET y AS List OF Integer = consume(x, 1)
+  io::print(toString(f(0)) & toString(len(y)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "called through a function value (S13, H5)",
+                "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET f AS FUNC(List OF Integer, Integer) AS List OF Integer = consume
+  x = f(x, 1)
+  io::print(toString(len(x)))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+            (
+                "a FOR EACH element is not an owned local (H1)",
+                "FUNC main() AS Integer
+  LET rows AS List OF List OF Integer = [[1], [2]]
+  MUT total AS Integer = 0
+  FOR EACH row IN rows
+    total = total + peek(consume(row, 1))
+  NEXT
+  io::print(toString(total))
+  RETURN 0
+END FUNC",
+                0,
+            ),
+        ];
+
+        let mut failures = Vec::new();
+        for (what, body, want) in rows {
+            let source = probe(body);
+            let name = if body.contains("FUNC run(") {
+                "run"
+            } else {
+                "main"
+            };
+            let got = approved(&source, name);
+            if got != want {
+                failures.push(format!("{what}: {got} argument(s) approved, want {want}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// A global argument keeps the value the global had at the call (S7). `Place`
+    /// names no globals, so this is structural — the row exists so a future `Place`
+    /// that DID name globals would fail here instead of silently handing one over.
+    #[test]
+    fn a_global_argument_is_never_handed_over() {
+        let source = probe(
+            "MUT g AS List OF Integer = [1, 2]
+
+FUNC main() AS Integer
+  g = consume(g, 1)
+  io::print(toString(len(g)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(approved(&source, "main"), 0);
+    }
+
+    /// A resource-bearing value is excluded by type (S8).
+    #[test]
+    fn a_resource_bearing_argument_is_never_handed_over() {
+        let source = probe(
+            "FUNC countHandles(hs AS List OF RES fs::File) AS List OF RES fs::File
+  RETURN collections::append(hs, fs::createTempFile())
+END FUNC
+
+FUNC main() AS Integer
+  RES a AS fs::File = fs::createTempFile()
+  MUT hs AS List OF RES fs::File = [a]
+  hs = countHandles(hs)
+  io::print(toString(len(hs)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(approved(&source, "main"), 0);
+    }
+
+    /// plan-147-C §3.3, the callee side.
+    #[test]
+    fn consumable_params_follows_the_hand_derived_table() {
+        let source = probe(
+            "FUNC setter(xs AS List OF Integer, i AS Integer, v AS Integer) AS List OF Integer
+  RETURN collections::set(xs, i, v)
+END FUNC
+
+FUNC onePathConsumes(xs AS List OF Integer, n AS Integer) AS List OF Integer
+  IF n = 0 THEN RETURN xs
+  RETURN []
+END FUNC
+
+FUNC onlyReads(xs AS List OF Integer) AS Integer
+  RETURN len(xs)
+END FUNC",
+        );
+        assert_eq!(consumable_of(&source, "setter"), vec!["xs".to_string()]);
+        assert_eq!(
+            consumable_of(&source, "onePathConsumes"),
+            vec!["xs".to_string()]
+        );
+        assert_eq!(consumable_of(&source, "onlyReads"), Vec::<String>::new());
+        // The shared helpers, for the same reason the caller table calls them.
+        assert_eq!(consumable_of(&source, "consume"), vec!["xs".to_string()]);
+        assert_eq!(consumable_of(&source, "peek"), Vec::<String>::new());
+        assert_eq!(consumable_of(&source, "pair"), vec!["a".to_string()]);
+    }
 }
