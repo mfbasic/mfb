@@ -145,7 +145,7 @@ Acceptance: the decision is recorded with the file and symbol it rests on.
   `rt_inplace_self_update.rs:1256 FIELD_SITES`. (The plan's own wording, `rg -n
   'Decision:'`, matches this Check line too, so it can never return one; the
   pattern is anchored to the bolded decision itself.)
-Commit: (this commit)
+Commit: 2d502e735
 
 ### Phase 2 — Records
 
