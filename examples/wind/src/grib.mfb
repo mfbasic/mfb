@@ -113,21 +113,6 @@ END FUNC
 ' ordinary Integer the caller advances itself - every call site here reads
 ' `pos = pos + n` on the line after the read.
 
-' Every append below hands collections::append a plain local rather than the
-' expression that produced it:
-'
-'   LET value AS Integer = reference + readBits(s7, pos, width)
-'   diffs = collections::append(diffs, value)
-'
-' rather than the one line that says the same thing. `xs = collections::append(xs,
-' ...)` updates xs in place, which is what makes building a 260,000-element list
-' linear - but only while the compiler can see that the item does not reach xs.
-' Arithmetic wrapped around a call to a function in this package is a shape it
-' does not see through, and the append then rebuilds the list every time: the
-' loop goes quadratic and the decode takes gigabytes. Naming the value first
-' costs nothing and keeps it linear. (Measured: 20,000 appends of
-' `twice(i) * 2` never finish inside 1.5 GB; of `value`, 0 ms.)
-
 ' The unsigned n-bit value starting at bit position pos. n of 0 reads nothing
 ' and gives 0, which is what a zero-width group in unpackComplex wants.
 FUNC readBits(data AS List OF Byte, pos AS Integer, n AS Integer) AS Integer
