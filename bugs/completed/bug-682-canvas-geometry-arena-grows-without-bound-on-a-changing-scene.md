@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: `tests/canvas/` — a new RSS/arena-growth test; see Phases
+Status: FIXED (881863fe6)
+Regression Test: `tests/canvas/rt_canvas_geo_arena.rs`
 
 A `Mode.Canvas` program that re-presents a scene whose items have **new content
 every frame** — the ordinary shape of any animation — grows its resident memory
@@ -159,10 +159,18 @@ The contrast case is immune because 95 identical-content items against a
 - `helper_geometry.rs:__canvas_geometryFor` / `__canvas_geoEvict` — **the bug**.
 - Every `Mode.Canvas` program that animates — `examples/wind` (works around it,
   see below), and any future one. Static scenes are unaffected.
-- `planning/plan-150-*` `canvas::ParticleSystem` — **interacts**. Expansion on
-  the graphics thread produces ordinary draw entries, so if those entries probe
-  this same cache, a particle system of N moving particles hits this bug by
-  another route. Plan-150's cost letter (B) should be checked against this.
+- `planning/plan-150-*` `canvas::ParticleSystem` — **interacts; verdict recorded
+  Phase 1.** Plan-150 is written but **not landed** (`grep -rn Particle src/
+  --include='*.rs'` → no hits), so nothing in the tree reaches this bug by that
+  route today. Its design does route particles through this cache: §3 piece 4 /
+  Phase 4 emit each particle "through the ordinary `__canvas_geometryFor` path
+  precisely so that B measures the real thing", and §2 lists "the geometry
+  cache's behaviour under N distinct per-particle transforms" as UNVERIFIED and
+  letter B's opening measurement. N particles have N distinct hashes against a
+  256-entry cache, so a particle system is exactly the changing-content case —
+  it would have hit this bug by the second route, and letter B would have
+  measured this bug rather than the cache. This fix bounds that path in advance;
+  B's measurement is now of the cache.
 - `__CANVAS_GEO_LIVE` (`:117`) — already exists to track offsets a frame holds;
   a reclamation design should reuse it rather than invent a second mechanism.
 - The glyph cache (`__canvas_glyphEntry`, eviction renumbering) — separate
@@ -197,54 +205,132 @@ Note that (1) alone converts the failure from "OOM in 18 s" to "OOM in minutes"
 
 ### Phase 1 — failing test (no behavior change)
 
-- [ ] Add a canvas test that presents a scene of N items with new coordinates
+- [x] Add a canvas test that presents a scene of N items with new coordinates
       each frame for ~300 frames and asserts `len(__CANVAS_GEO_DATA)` (via the
       `MFB_CANVAS_STATS` line, extending it if needed) is flat after warm-up.
       Confirm it fails today.
-- [ ] Record whether plan-150's expansion path probes the same cache; write the
+- [x] Record whether plan-150's expansion path probes the same cache; write the
       verdict into Blast Radius.
 
-Acceptance: the test fails showing unbounded arena growth.
-Commit: —
+Acceptance: the test fails showing unbounded arena growth. **Met.**
+`tests/canvas/rt_canvas_geo_arena.rs` failed with `floats=42300` at frame 15 and
+`floats=84600` at frame 30 — exactly linear in the frame number while
+`entries=256` stayed pinned, which is the documented mechanism and not merely
+the symptom.
+
+Deviation: **30 frames, not 300.** The unfixed cost is quadratic, so 100 frames
+of this program took 75 s and 21.6 GB peak RSS; 300 would not have completed on
+a normal machine. Thirty separates the two behaviours by 2x, and the quantity is
+a deterministic count of floats rather than a measurement, so there is no noise
+for a larger sample to average out. The `MFB_CANVAS_STATS` line already carried
+`floats=`; it gained `geoCompactions=` for the second test.
+
+Commit: 881863fe6
 
 ### Phase 2 — O(entry) misses
 
-- [ ] Remove the whole-arena copy at `helper_geometry.rs:1007`.
+- [x] Remove the whole-arena copy at `helper_geometry.rs:1007`.
 
-Acceptance: frame time stops growing with frame number; the arena still grows
-(Phase 1's test still fails, but linearly rather than quadratically).
-Commit: —
+Acceptance: frame time stops growing with frame number. **Met**, and the arena
+copy is gone outright rather than merely bounded: the miss now appends straight
+into `__CANVAS_GEO_DATA`.
+
+The Fix Design's fallback ("hold the arena in a local for the whole of a
+present") was not needed, because **the premise the local rested on is stale**.
+The comment at `:1002` said `collections::append` is in-place only for a local,
+so appending into a global copies per element. That was true when it was
+written and is not now: `x = collections::append(x, e)` on a module-level global
+is site **S2** of the in-place self-update table (plan-121-A / plan-142,
+`.ai/collections.md`). Measured before relying on it — 2,000,000 appends into a
+global, 0.05 s user, linear in N. The element is hoisted into a `LET` first so
+the operand cannot be something the S2 gate `G-global-operand` declines on.
+
+Commit: 881863fe6
 
 ### Phase 3 — reclamation
 
-- [ ] Reclaim evicted entries' floats at a point where no offset is live,
+- [x] Reclaim evicted entries' floats at a point where no offset is live,
       renumbering survivors; keep `__CANVAS_GEO_LIVE` correct.
 
-Acceptance: Phase 1's test passes; RSS is flat.
-Commit: —
+Acceptance: Phase 1's test passes; RSS is flat. **Met.** `__canvas_geoCompact`
+rebuilds `__CANVAS_GEO_DATA` from what the surviving slots own and renumbers
+`__CANVAS_GEO_OFFSETS`, called from the top of `__canvas_sceneOffsets` — the one
+point in a frame where no offset is live, which is also where
+`__CANVAS_GEO_LIVE` is cleared, so the two invariants are re-established
+together. The frame-boundary reset of the Open Decision, as recommended.
+
+That point is safe because **nothing carries an offset across a frame**: the
+damage diff's `__canvas_rememberScene` stores the *bounds values* it read
+through each offset, not the offsets. The old design's "never compact" rule was
+right about the where — compacting mid-frame draws one item's geometry for
+another — and wrong only in concluding there was nowhere.
+
+Gated on 2x slack rather than running unconditionally, which is load-bearing
+rather than a micro-optimisation: an all-hit static scene holds an arena that is
+*exactly* its live entries, so an ungated pass would add an O(arena) rebuild to
+every frame of every static canvas program — a cost the bug itself never had.
+`an_all_hit_scene_never_pays_for_reclamation` pins that. The same gate spaces an
+animating scene's rebuilds geometrically, so their amortised cost per miss is
+O(1).
+
+Commit: 881863fe6
 
 ### Phase 4 — validation
 
-- [ ] `cargo test --test 'rt_canvas_*'` green, including every golden reference
+- [x] `cargo test --test 'rt_canvas_*'` green, including every golden reference
       image unchanged (this fix must not move a single pixel).
-- [ ] Re-run the reproduction: `examples/wind` at full particle count holds
-      steady RSS for several minutes.
-Commit: —
+- [x] Re-run the reproduction at the documented scale and hold steady RSS.
+      **Deviation: `examples/wind` is not in the tree** — it was never
+      committed, and this doc is the only thing that references it (`ls
+      examples/` has no `wind`). The substitute is a standalone program at the
+      scale the Failing Reproduction documents: 660 `canvas::Line` items with
+      new endpoint coordinates every frame, 600 frames, RSS sampled every 15 s.
+
+      RSS reached 93,936 KB at t+45 s and was **still exactly 93,936 KB at
+      t+180 s**, over 306 frames, with `floats=74072` flat from frame 20 through
+      frame 600 and a 96.6 MB process peak. The doc's table for the same item
+      count reads 706 MB at 2 s and 3.4 GB at 18 s.
+
+All twelve `rt_canvas_*` suites green: golden 6, rasteriser 19, damage 60,
+font 2, graphics_thread 24, debug_hooks 11, group_ownership 11, metal 17,
+picture 10, present_deep_copy 10, image_decode 8, system_fonts 4, geo_arena 2.
+No reference image moved.
+
+Commit: 881863fe6
 
 ## Validation Plan
 
-- Regression test: the arena-flatness test from Phase 1.
-- Runtime proof: `examples/wind` at its intended particle count, RSS sampled
-  over 5 minutes, flat.
-- Doc sync: `mfb man canvas`'s paragraph on the per-frame present should say
-  what the changed case costs once it is bounded.
-- Full suite: `cargo test`, and the canvas goldens in particular.
+- Regression test: `tests/canvas/rt_canvas_geo_arena.rs` — the arena-flatness
+  test, plus `an_all_hit_scene_never_pays_for_reclamation` pinning that a static
+  scene never runs the new pass. **Done.**
+- Runtime proof: 660 changing `canvas::Line` items, 600 frames — flat at 92 MB
+  (Phase 4). **Done**, with `examples/wind` substituted for as recorded there.
+- Doc sync: `mfb man canvas` gained a paragraph after the caching one, saying
+  what a *changed* item costs and that a program can animate indefinitely at a
+  steady size (`src/codegen/builtins/canvas/mod.rs`, `MODULE_DESC`). **Done.**
+- Full suite: `cargo test` green, and `scripts/artifact-gate.sh <mfb> all`
+  **1495 tests, 2116 goldens, 0 diffs** after regenerating the seven
+  `syntax/app/app-mouse-surface` goldens the canvas helper change moves — the
+  one fixture `.ai/testing-gates.md` names as the canvas change-sentinel, and
+  the only thing in the tree that moved. Its `.ast` was **byte-identical**, so
+  the front end held still and the change is lowering-only.
+
+  The `.ir` delta was inspected with line numbers normalised before
+  regenerating: 116 lines, and all of it accounted for — the new
+  `#CANVAS_GEO_COMPACTIONS` global, the new `#canvas_geoCompact` sub, its one
+  call site in `sceneOffsets`, the `buffer` local replaced by direct
+  `assignGlobal` appends in `geometryFor`, and `ErrorLoc` source lines shifted
+  by the insertion (`4568` → `4642`). Nothing unexplained.
 
 ## Open Decisions
 
 - Frame-boundary reset vs. a free list — recommended: **frame-boundary reset**,
   because it reuses the point at which no offset is live and mirrors the glyph
   cache's existing renumbering, rather than adding a second allocator. (§Fix Design)
+
+  **Settled as recommended.** `__canvas_geoCompact` at the top of
+  `__canvas_sceneOffsets`, gated on 2x slack. No second allocator, no release
+  path on any draw.
 
 ## Summary
 
@@ -253,3 +339,49 @@ invariant the current design leans on, and getting it wrong reads freed
 geometry rather than merely leaking. Phase 2 is small and safe. Nothing about
 what a scene draws changes; the canvas reference images are the guard that
 proves it.
+
+## STATUS: FIXED (881863fe6)
+
+Both defects fixed; every phase met its acceptance. Measured, 60 changing
+`canvas::Line` items over 100 frames:
+
+| | arena at frame 100 | peak RSS |
+| --- | --- | --- |
+| before | `floats=282000`, growing 2820/frame | 21.6 GB |
+| after | `floats=14852`, flat from frame 10 | 45 MB |
+
+The canvas reference images did not move: all thirteen `rt_canvas_*` suites
+green, and the tree-wide artifact gate reports 0 diffs over 2116 goldens.
+
+Deviations from the written plan, each recorded in full at its phase:
+
+1. **Phase 1's test is 30 frames, not ~300.** The unfixed cost is quadratic, so
+   300 frames would not have completed. The quantity is a deterministic count of
+   floats, so there is no noise a larger sample would average out.
+2. **Phase 2 needed no fallback, because the premise the bug doc inherited from
+   the code was stale.** The comment at `:1002` said appending into a global
+   copies per element; that has not been true since the in-place self-update
+   table gained site S2 (plan-121-A / plan-142). Measured before relying on it —
+   2,000,000 appends into a global, 0.05 s user, linear in N. So the miss appends
+   straight into the arena and the "hold it in a local for the whole present"
+   fallback was unnecessary.
+3. **Phase 4's `examples/wind` does not exist in the tree.** Substituted a
+   standalone program at the documented 660-item scale; see Phase 4.
+
+Two things worth knowing that the fix revealed:
+
+- **The gate's canvas blindness has exactly one hole, and this change found it.**
+  `.ai/testing-gates.md` records that no `tests/byte-identity/` fixture emits the
+  canvas runtime, so a canvas change can move zero hashes there. It moved seven
+  goldens in `tests/syntax/app/app-mouse-surface`, which is the correction that
+  file already carries from bug-484. A canvas MFBASIC helper edit should expect
+  exactly that fixture and nothing else; anything more is a real blast radius.
+- **Compaction frequency scales with how far the scene overruns the cache, and
+  that is the intended shape rather than a residual cost.** At 60 items against
+  256 slots it runs about once every five frames; at 660 it runs every frame,
+  because one frame's misses alone exceed the 2x threshold. Even then it is one
+  O(arena) pass over ~74,000 floats (~590 KB) per frame, against the 660
+  whole-arena copies per frame it replaced — and the space is bounded either way.
+  A program animating far more items than the cache holds pays a per-frame
+  rebuild; if that ever matters, the lever is `__CANVAS_GEO_CAPACITY`, not the
+  threshold.

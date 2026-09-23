@@ -563,6 +563,11 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   ' silently, because their cache indices were renumbered out from under the offsets
   ' this function had already returned.
   __CANVAS_GEO_LIVE = []
+  ' bug-682: and this is therefore the one point in a frame where NO geometry offset is
+  ' live -- the previous frame's are dead and this frame's do not exist yet -- so it is
+  ' the only place the arena's evicted floats can be reclaimed. `__canvas_geoCompact`
+  ' declines unless there is slack, so an all-hit scene pays nothing for it.
+  __canvas_geoCompact()
   ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
   ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
   ' resolved before the call writes into the block that pass released
