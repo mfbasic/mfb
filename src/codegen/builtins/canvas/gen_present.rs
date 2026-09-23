@@ -229,6 +229,16 @@ pub(crate) fn emit_publish(
     // Skipped: report FALSE so the caller does not re-render. That is what makes the
     // skip worth anything — the publish itself is cheap, the render is not.
     builder.emit(abi::label(&skip));
+    // ...and give the comparison's copy back (bug-683). The copy is made before the
+    // comparison because the comparison needs something to compare, and this exit used
+    // to return without freeing it — so every re-present of an UNCHANGED scene leaked a
+    // whole scene copy, the case `mfb man canvas` calls a no-op. Measured at 16,048
+    // bytes per present for a 40-rectangle scene, linear in the frame count.
+    //
+    // Unambiguously safe, and the only free on this side of the retirement gate: the
+    // block was allocated in this call and control reaches here only when it was never
+    // stored into the scene region, so no renderer can have seen it.
+    emit_free_block(builder, &list_type, copy_slot, &symbol)?;
     builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -248,31 +258,16 @@ pub(crate) fn emit_publish(
     // Without this every publish abandoned its predecessor: a 200-frame animation
     // grew by ~0.11 MB a frame with nothing ever reclaiming it.
     //
+    // Retirement is a **list**, not one slot (bug-683). Presents are not rate-limited
+    // to one per rendered frame, and every block displaced since the last frame tick is
+    // one a render in flight may be reading — so the number that has to be held is the
+    // number the schedule produced. The single slot this replaced was overwritten by
+    // the second present inside a frame, at one whole scene copy lost per present.
+    //
     // The free happens on the worker, which is also what allocated the block. An
     // arena is per-thread, so the graphics thread must never do it.
     emit_reclaim_retired(builder, &scene, &symbol)?;
-    for (retired, live) in [
-        (CANVAS_SCENE_RETIRED_ITEMS_OFFSET, CANVAS_SCENE_ITEMS_OFFSET),
-        (
-            CANVAS_SCENE_RETIRED_HASHES_OFFSET,
-            CANVAS_SCENE_HASHES_OFFSET,
-        ),
-        (
-            CANVAS_SCENE_RETIRED_LAYERS_OFFSET,
-            CANVAS_SCENE_LAYERS_OFFSET,
-        ),
-    ] {
-        let displaced = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&displaced, &scene, live));
-        builder.emit(abi::store_u64(&displaced, &scene, retired));
-    }
-    let frame_now = builder.temporary_vreg();
-    emit_load_frame_counter(builder, &frame_now, &symbol);
-    builder.emit(abi::store_u64(
-        &frame_now,
-        &scene,
-        CANVAS_SCENE_RETIRED_FRAME_OFFSET,
-    ));
+    emit_retire_displaced(builder, &scene, copy_slot, &list_type, &symbol)?;
 
     // Publish: this shape's pointer and count, the other shape's pair cleared, then
     // the revision. The revision is written LAST and is what a reader gates on, so a
@@ -344,63 +339,227 @@ pub(crate) fn emit_load_frame_counter(
     builder.emit(abi::load_u64(dst, &base, GRAPHICS_OFFSET_FRAMES));
 }
 
-/// Free the retired blocks if a frame has completed since they were retired.
+/// Free one block named by a pointer **stack slot**, and zero the slot.
 ///
-/// Each is a collection block, so its size comes from its own header — the same
-/// computation `copy_flat_block` used to allocate it. Getting that size wrong frees
-/// the wrong number of bytes and corrupts the arena free list, which is why it is
-/// derived rather than remembered.
+/// The size comes from the block's own header — the same computation
+/// `copy_flat_block` used to allocate it. Getting that size wrong frees the wrong
+/// number of bytes and corrupts the arena free list, which is why it is derived rather
+/// than remembered (bug-560).
+///
+/// A zero pointer frees nothing, so the caller does not have to prove the slot is
+/// occupied.
+fn emit_free_block(
+    builder: &mut CodeBuilder,
+    type_: &ParameterType,
+    slot: usize,
+    symbol: &str,
+) -> Result<(), String> {
+    let empty = builder.label("canvas_free_block_empty");
+    let block = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&empty));
+
+    let size_slot = builder.allocate_stack_object("canvas_free_block_size", 8);
+    builder.emit_inlined_block_size_from_ptr_slot(type_, slot, size_slot)?;
+    builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
+    builder.emit(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        size_slot,
+    ));
+    emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+    builder.emit(abi::label(&empty));
+    Ok(())
+}
+
+/// The three block types a retirement node can hold, paired with the node offset each
+/// is stored at. A node carries whichever of them the publish it displaced had
+/// installed; the others are zero and cost only their `emit_free_block` guard.
+fn retired_block_types() -> [(usize, ParameterType); 3] {
+    [
+        (
+            CANVAS_RETIRE_NODE_ITEMS,
+            ParameterType::list_of(ParameterType::named("DrawItem")),
+        ),
+        (
+            CANVAS_RETIRE_NODE_HASHES,
+            ParameterType::list_of(ParameterType::Integer),
+        ),
+        (
+            CANVAS_RETIRE_NODE_LAYERS,
+            ParameterType::list_of(ParameterType::named("DrawLayer")),
+        ),
+    ]
+}
+
+/// Drain the retirement list once a frame has completed since its **newest** node.
+///
+/// The gate is unchanged from the single slot this replaces — `frame_now > stamped`,
+/// emitted as "branch away when `frame_now <= stamped`" — and it is the one thing here
+/// that must not be relaxed. Retirement exists because `__canvas_sceneDraws` and
+/// `__canvas_sceneOffsets` re-read the installed pointer through
+/// `canvas::installedItems` at arbitrary points inside a frame, so a block displaced
+/// during the frame in progress may be mid-copy right now. Only a *completed* frame
+/// proves otherwise.
+///
+/// Testing the head alone is what the list's newest-first order buys: the head carries
+/// the largest stamp, so `frame_now > head.frame` proves the same thing about every
+/// node behind it and the whole chain goes at once. That is never more eager than a
+/// per-node gate — no node is freed before its own stamp would allow — and it holds an
+/// older node at most one extra frame.
 fn emit_reclaim_retired(
     builder: &mut CodeBuilder,
     scene: &VirtualRegister,
     symbol: &str,
 ) -> Result<(), String> {
     let done = builder.label("canvas_reclaim_done");
+    let loop_top = builder.label("canvas_reclaim_loop");
+
+    let head = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&head, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+    builder.emit(abi::compare_immediate(&head, "0"));
+    builder.emit(abi::branch_eq(&done));
+
     let retired_frame = builder.temporary_vreg();
     let frame_now = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &retired_frame,
-        scene,
-        CANVAS_SCENE_RETIRED_FRAME_OFFSET,
+        &head,
+        CANVAS_RETIRE_NODE_FRAME,
     ));
     emit_load_frame_counter(builder, &frame_now, symbol);
     builder.emit(abi::compare_registers(&frame_now, &retired_frame));
     builder.emit(abi::branch_ls(&done));
 
-    for (offset, type_) in [
-        (
-            CANVAS_SCENE_RETIRED_ITEMS_OFFSET,
-            ParameterType::list_of(ParameterType::named("DrawItem")),
-        ),
-        (
-            CANVAS_SCENE_RETIRED_HASHES_OFFSET,
-            ParameterType::list_of(ParameterType::Integer),
-        ),
-        (
-            CANVAS_SCENE_RETIRED_LAYERS_OFFSET,
-            ParameterType::list_of(ParameterType::named("DrawLayer")),
-        ),
-    ] {
-        let skip = builder.label("canvas_reclaim_skip");
-        let block = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&block, scene, offset));
-        builder.emit(abi::compare_immediate(&block, "0"));
-        builder.emit(abi::branch_eq(&skip));
+    // Detach the whole chain BEFORE freeing any of it, so the head never names a block
+    // that has already gone back to the arena.
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        scene,
+        CANVAS_SCENE_RETIRED_HEAD_OFFSET,
+    ));
 
-        let slot = builder.allocate_stack_object("canvas_reclaim_block", 8);
-        let size_slot = builder.allocate_stack_object("canvas_reclaim_size", 8);
-        builder.emit(abi::store_u64(&block, abi::stack_pointer(), slot));
-        builder.emit_inlined_block_size_from_ptr_slot(&type_, slot, size_slot)?;
-        builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
-        builder.emit(abi::load_u64(
-            abi::c_arg(1),
-            abi::stack_pointer(),
-            size_slot,
-        ));
-        emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
-        builder.emit(abi::store_u64(abi::ZERO, scene, offset));
-        builder.emit(abi::label(&skip));
+    // The cursor lives in a stack slot rather than a register: each iteration makes up
+    // to four `_mfb_arena_free` calls, the last of which frees the very node being
+    // walked, so `next` has to be read out and parked before that happens.
+    let cursor = builder.allocate_stack_object("canvas_reclaim_cursor", 8);
+    let next = builder.allocate_stack_object("canvas_reclaim_next", 8);
+    let block = builder.allocate_stack_object("canvas_reclaim_block", 8);
+    builder.emit(abi::store_u64(&head, abi::stack_pointer(), cursor));
+
+    builder.emit(abi::label(&loop_top));
+    let node = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&node, abi::stack_pointer(), cursor));
+    builder.emit(abi::compare_immediate(&node, "0"));
+    builder.emit(abi::branch_eq(&done));
+
+    let successor = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&successor, &node, CANVAS_RETIRE_NODE_NEXT));
+    builder.emit(abi::store_u64(&successor, abi::stack_pointer(), next));
+
+    for (offset, type_) in retired_block_types() {
+        let walking = builder.temporary_vreg();
+        let held = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&walking, abi::stack_pointer(), cursor));
+        builder.emit(abi::load_u64(&held, &walking, offset));
+        builder.emit(abi::store_u64(&held, abi::stack_pointer(), block));
+        emit_free_block(builder, &type_, block, symbol)?;
     }
+
+    // Then the node itself. Its size is a compile-time constant rather than a header
+    // read — a node is not a collection block, so `_mfb_arena_free` has to be handed
+    // exactly the `CANVAS_RETIRE_NODE_SIZE` the matching alloc asked for (bug-560).
+    builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), cursor));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &CANVAS_RETIRE_NODE_SIZE.to_string(),
+    ));
+    emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
+
+    let advance = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&advance, abi::stack_pointer(), next));
+    builder.emit(abi::store_u64(&advance, abi::stack_pointer(), cursor));
+    builder.emit(abi::branch(&loop_top));
+
     builder.emit(abi::label(&done));
+    Ok(())
+}
+
+/// Push the blocks this publish displaces onto the retirement list, stamped with the
+/// frame counter.
+///
+/// Nothing installed yet — the first publish of a program, and the first of each shape
+/// — displaces nothing and allocates no node, so a program that presents once pays for
+/// none of this.
+///
+/// `copy_slot` names the fresh scene copy, which is freed if the node allocation fails.
+/// This is the one path between the copy and the publish that can bail out, and leaving
+/// by it without either publishing the copy or freeing it would trade bug-683's leak
+/// for a rarer one.
+fn emit_retire_displaced(
+    builder: &mut CodeBuilder,
+    scene: &VirtualRegister,
+    copy_slot: usize,
+    list_type: &ParameterType,
+    symbol: &str,
+) -> Result<(), String> {
+    let nothing = builder.label("canvas_retire_nothing");
+    let allocated = builder.label("canvas_retire_allocated");
+
+    let live = [
+        (CANVAS_RETIRE_NODE_ITEMS, CANVAS_SCENE_ITEMS_OFFSET),
+        (CANVAS_RETIRE_NODE_HASHES, CANVAS_SCENE_HASHES_OFFSET),
+        (CANVAS_RETIRE_NODE_LAYERS, CANVAS_SCENE_LAYERS_OFFSET),
+    ];
+
+    // `items | hashes | layers == 0` is "this publish displaces nothing".
+    let any = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&any, "Integer", "0"));
+    for (_, offset) in live {
+        let installed = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&installed, scene, offset));
+        builder.emit(abi::or_registers(&any, &any, &installed));
+    }
+    builder.emit(abi::compare_immediate(&any, "0"));
+    builder.emit(abi::branch_eq(&nothing));
+
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &CANVAS_RETIRE_NODE_SIZE.to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_eq(&allocated));
+    emit_free_block(builder, list_type, copy_slot, symbol)?;
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::label(&allocated));
+
+    let node = builder.temporary_vreg();
+    builder.emit(abi::move_register(&node, abi::mfb_return(1)));
+
+    // The displaced pointers are read AFTER the allocation: the call clobbers the
+    // argument and return banks, and reading them first would park three values across
+    // it for nothing.
+    for (node_offset, scene_offset) in live {
+        let displaced = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&displaced, scene, scene_offset));
+        builder.emit(abi::store_u64(&displaced, &node, node_offset));
+    }
+    let frame_now = builder.temporary_vreg();
+    emit_load_frame_counter(builder, &frame_now, symbol);
+    builder.emit(abi::store_u64(&frame_now, &node, CANVAS_RETIRE_NODE_FRAME));
+
+    // Linked LAST: the node is fully written before it is reachable from the scene
+    // region, so a drain can never walk into a half-built node.
+    let head = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&head, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+    builder.emit(abi::store_u64(&head, &node, CANVAS_RETIRE_NODE_NEXT));
+    builder.emit(abi::store_u64(&node, scene, CANVAS_SCENE_RETIRED_HEAD_OFFSET));
+
+    builder.emit(abi::label(&nothing));
     Ok(())
 }
