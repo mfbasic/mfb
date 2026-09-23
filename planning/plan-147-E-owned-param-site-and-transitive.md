@@ -116,20 +116,29 @@ but Phase 1 runs the matrix first to find out cheaply.
 
 ### Phase 1 — Site S12 in the guard
 
-- [ ] `self_update.rs`: `Site::OwnedParam`, `ENABLED_SITES`, `lowers_in`, and
-      `Probe::source` (§3 point 1).
-- [ ] `tests/runtime/rt_inplace_self_update.rs`: `at_site(OwnedParam)`, with the result
-      check only (§3 point 1).
-- [ ] Any arm that does not fire: find the cause and fix it at the variant's
-      parameter registration, not in the arm. Record each in Corrections.
+- [x] `self_update.rs`: `Site::OwnedParam`, `ENABLED_SITES`, `lowers_in`
+      (`name.starts_with("handOver$own")` — it must lower in the VARIANT, never in the
+      base) and `Probe::source`. S12 also inherits S11's `RETURN_NEVER` exclusions,
+      since it IS S11 inside an owned variant. The helper is `handOver`, not `step`;
+      see Corrections.
+- [x] `tests/runtime/rt_inplace_self_update.rs`: a dedicated `owned_param_program`
+      rather than an `at_site` arm, since the site needs its own `handOver` function
+      beside `main`. It keeps **both** checks, not the result check alone — see
+      Corrections. Being an ordinary loop in one frame, it needs no idle twin and
+      takes the plain N/8 bound.
+- [x] Any arm that does not fire: **none**. §3's "Design uncertainty" — whether every
+      arm fires at `OwnedParam` without an arm-specific change — resolves YES on the
+      first run: the arms see an ordinary `Direct` destination on the variant's
+      parameter slot, exactly as they see a local's, and no arm needed touching.
 
 Acceptance: every `Arm` row fires at `OwnedParam`, and every `arm` line is flat there.
-  Check 1: `cargo test --bin mfb every_arm_row_fires_at_every_enabled_site` → passed
-  (est. 3 min).
-  Check 2: `MFB_SELF_UPDATE_FILTER=OwnedParam cargo test --test rt_inplace_self_update`
-  → passed. Estimate it from plan-147-B Phase 2's measured time for one site; over 10
-  min because this is the only check that runs every arm at the site.
-Commit: —
+  Check 1: `cargo test --bin mfb every_arm_row_fires_at_every_enabled_site` →
+  **`ok. 1 passed; 0 failed`** (136.62 s, 2026-09-23), with `Site::OwnedParam` in
+  `ENABLED_SITES` and zero `at OwnedParam` failures.
+  Check 2: `MFB_SELF_UPDATE_SITES=OwnedParam cargo test --test rt_inplace_self_update`
+  → **`ok. 3 passed; 0 failed` (66.67 s)** over 52 case/site pairs. (`SITES` selects the site exactly;
+  the plan's `FILTER` matches label substrings.)
+Commit: (this commit)
 
 ### Phase 2 — Transitive hand-over
 
@@ -180,6 +189,52 @@ Commit: —
   It belongs in its own plan, next to plan-134's graph-type moves.
 
 ## Corrections
+
+- **A scratch arm costs one allocation per CALL at S12, and that is the site's
+  shape.** The first run failed 37 of 52 pairs, every one a scratch arm (27 `math::`
+  array rows, 10 `collections::` rows — exactly the compiler's `SCRATCH_ARMS`), all at
+  a slope of one block per call. The cause is structural: at S12 the statement runs
+  inside the callee's owned variant, a FRESH FRAME per call, so each call allocates
+  its own self-update scratch. Every other site runs its `N` statements in one frame
+  and allocates the scratch once.
+
+  It is the scratch and not a copy, measured on `collections::difference(x, ys)`:
+
+  | | N = 2000 | 2N = 4000 | Slope |
+  |---|---|---|---|
+  | handed over, arm fires | 2006 | 4006 | 2000 — **one** block per call |
+  | lent, copying (`MUT y = difference(x, ys)` / `RETURN y`) | 4006 | 8006 | 4000 — **two** per call |
+
+  So the hand-over halves it, and the bound at S12 for these lines is `N + N/8` — one
+  block per call for the scratch, plus the usual slack — which still separates the arm
+  (1/call) from the copy (2/call). The harness's `SCRATCH_ARMS` duplicates the
+  compiler's, and `scratch_arms_match_the_compiler` parses the compiler's source and
+  fails if the two drift. (S11 has the same per-frame cost from its recursion and
+  removes it with an idle twin instead; at S12 no twin can isolate it, because a twin
+  that does not hand over also does not allocate the scratch.)
+
+- **The probe helper cannot be called `step`.** §3 point 1 writes the S12 probe as
+  `FUNC step(x AS T, …) AS T`. `STEP` is a keyword (`FOR i = 1 TO 10 STEP 2`) and
+  MFB keywords are case-insensitive, so every probe failed to parse with
+  `main.mfb:4 error[1-102-0003 MFB_PARSE_INVALID_IDENTIFIER]: Function name must be an
+  identifier` (`src/lexer.rs:1223`). Renamed to `handOver` in both the matrix probe and
+  the runtime harness, and `lowers_in` matches `handOver$own` accordingly.
+
+- **S12's harness program keeps the `before` check, which §3 point 1 said to drop.**
+  The plan reasoned that `LET before = x` would make `x` live after the op and so make
+  plan-147-C refuse the hand-over. It does not: `before` is bound ONCE before the
+  loop, and what H3 asks about is whether `x` is live after the *self-update op* —
+  which the op's own store target kills. The hand-over is approved and the bound is
+  met with the check in place, so the site keeps the stronger pair of checks (the
+  value-semantics `before` comparison AND the chained-`LET` result comparison) rather
+  than the result comparison alone.
+
+- **S12 gets its own program builder, not an `at_site` arm.** `at_site` rewrites the
+  body of `main`; S12 needs a second top-level function (`handOver`) beside it, which
+  `frame` cannot express. `owned_param_program` mirrors `return_program`'s shape:
+  auxiliary setup `LET`s become the helper's parameters, built once in `main` and lent
+  down, and a line's head statements stay in the loop as ordinary S1 assignments so a
+  balanced pair stays balanced.
 
 ## Summary
 

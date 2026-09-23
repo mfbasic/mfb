@@ -321,6 +321,11 @@ enum Site {
     /// all `N` levels and a copying `RETURN` allocates once per level. `N` is the
     /// depth.
     Return,
+    /// S12 — `RETURN OP(x, …)` on an owned PARAMETER (plan-147-E): the ordinary
+    /// `N`-iteration loop, but each iteration goes `x = step(x)`, so the caller hands
+    /// `x` over and the statement lowers inside `step`'s owned variant. Back to one
+    /// frame, so none of S11's per-frame costs apply and the plain N/8 bound holds.
+    OwnedParam,
 }
 
 const ENABLED_SITES: &[Site] = &[
@@ -329,6 +334,7 @@ const ENABLED_SITES: &[Site] = &[
     Site::Lambda,
     Site::Global,
     Site::Return,
+    Site::OwnedParam,
 ];
 
 impl Site {
@@ -343,7 +349,7 @@ impl Site {
         // at a `RETURN` the local is gone by definition, so that comparison has
         // nothing to compare. A `deferred:` line is owned by another plan and its
         // "still copies" assertion is about ITS site, not this one.
-        if matches!(self, Site::Return) && !matches!(case.status, Status::Arm) {
+        if matches!(self, Site::Return | Site::OwnedParam) && !matches!(case.status, Status::Arm) {
             return false;
         }
         // plan-147-B: no `String` line runs at S11. A `String` block that leaves its
@@ -356,7 +362,8 @@ impl Site {
         // shape over `strings::left(x, 150)` allocates 603 blocks at N=600 and 1203
         // at 2N=1200 whether the arm fires or declines. The compiler-side pin is
         // `RETURN_NEVER` in `self_update.rs`, which asserts these arms do not fire.
-        if matches!(self, Site::Return) && case.ty() == "String" {
+        // S12 is S11 inside an owned variant, so it inherits S11's `String` exclusion.
+        if matches!(self, Site::Return | Site::OwnedParam) && case.ty() == "String" {
             return false;
         }
         match case.ty() {
@@ -390,6 +397,7 @@ fn at_site(site: Site, body: &str, live: bool) -> String {
         // repetition, so `return_program` builds the whole program and `program`
         // and `result_program` both dispatch to it before reaching here.
         Site::Return => unreachable!("S11 builds its program in `return_program`"),
+        Site::OwnedParam => unreachable!("S12 builds its program in `owned_param_program`"),
         Site::Local | Site::Global => body.to_string(),
         Site::Lambda => {
             let one = if live { "[0]" } else { "[]" };
@@ -608,9 +616,205 @@ fn return_program(case: &Case, n: u64, result: bool, live: bool) -> String {
     format!("{}\n{src}", prelude_for(&src))
 }
 
+/// plan-147-B/E: the arms that keep their working state in the function's
+/// self-update scratch — the compiler's `SCRATCH_ARMS`, plus every `math::` array arm
+/// (which redirects the member's own result list into the scratch). Kept in step with
+/// the compiler by [`scratch_arms_match_the_compiler`].
+///
+/// This matters at **S12**. Every other site runs its `N` statements inside one frame,
+/// so the scratch is allocated once; at S12 the statement runs inside the callee's
+/// owned variant, a FRESH FRAME per call, so each call allocates its own scratch —
+/// one block per call that the site's shape imposes, not the statement. Measured on
+/// `collections::difference(x, ys)` at N = 2000 / 2N = 4000:
+///
+/// | | N | 2N | Slope |
+/// |---|---|---|---|
+/// | handed over, arm fires | 2006 | 4006 | 2000 — **one** block per call (the scratch) |
+/// | lent, copying (`MUT y = difference(x, ys)` / `RETURN y`) | 4006 | 8006 | 4000 — **two** per call |
+///
+/// So the bound at S12 for these lines is one block per call plus the usual slack,
+/// which still separates the arm (1/call) from the copy (2/call).
+const SCRATCH_ARMS: &[&str] = &[
+    "filter",
+    "distinct",
+    "transform",
+    "sort",
+    "sortBy",
+    "union",
+    "intersection",
+    "difference",
+    "symmetricDifference",
+    "mapValues",
+    "merge",
+];
+
+/// The qualified builtin a statement self-updates through:
+/// `x = collections::sort(x)` -> `collections::sort`. `None` for an operator
+/// self-update (`x = x & t`).
+fn statement_target(statement: &str) -> Option<&str> {
+    let rhs = statement.split_once("= ")?.1;
+    Some(rhs.split_once('(')?.0.trim())
+}
+
+/// Whether any of `case`'s statements dispatches an arm that needs the scratch —
+/// the compiler's `target_needs_self_update_scratch`.
+fn case_needs_scratch(case: &Case) -> bool {
+    case.statements
+        .iter()
+        .filter_map(|statement| statement_target(statement))
+        .any(|target| {
+            target.starts_with("math::")
+                || target
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+        })
+}
+
+/// plan-147-B/E: [`SCRATCH_ARMS`] here must name exactly the compiler's
+/// `SCRATCH_ARMS` (`src/codegen/collection/assign/self_update.rs`). The harness is an
+/// integration test and cannot see a `pub(crate)` const, so the list is duplicated —
+/// this reads the compiler's source and fails if the two ever drift, which would
+/// silently give some line the wrong bound at S12.
+#[test]
+fn scratch_arms_match_the_compiler() {
+    const SOURCE: &str = include_str!("../../src/codegen/collection/assign/self_update.rs");
+    let start = SOURCE
+        .find("pub(crate) const SCRATCH_ARMS: &[&str] = &[")
+        .expect("the compiler's SCRATCH_ARMS declaration");
+    let body = &SOURCE[start..];
+    let body = &body[..body.find("];").expect("the end of SCRATCH_ARMS")];
+    let theirs: Vec<&str> = body
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.trim().strip_prefix('"'))
+        .filter_map(|line| line.split('"').next())
+        .collect();
+    assert!(
+        !theirs.is_empty(),
+        "parsed no names out of the compiler's SCRATCH_ARMS"
+    );
+    assert_eq!(
+        theirs, SCRATCH_ARMS,
+        "this harness's SCRATCH_ARMS has drifted from the compiler's; a line given \
+         the wrong bound at S12 would pass or fail for the wrong reason"
+    );
+}
+
+/// plan-147-E (S12): `x = handOver(x, …)` run `n` times in ONE frame.
+///
+/// The caller hands `x` over at its last use, so inside `handOver`'s owned variant
+/// the parameter is an owned local and letter B's S11 updates it in place. Unlike
+/// S11's own probe this is an ordinary loop, not recursion, so none of S11's
+/// per-frame costs apply and the plain N/8 bound holds with no idle twin.
+///
+/// The helper is not called `step`: `STEP` is a keyword (`FOR i = 1 TO 10 STEP 2`)
+/// and keywords are case-insensitive, so `FUNC step(…)` does not parse.
+///
+/// A line's head statements stay in the loop as ordinary S1 assignments — that keeps
+/// a balanced pair balanced — and only the LAST statement is dispatched through the
+/// hand-over. `result` swaps the bound program for the chained-`LET` comparison.
+fn owned_param_program(case: &Case, n: u64, result: bool) -> String {
+    let ty = case.ty();
+    let decl = sized(&case.decl, VALUE_M);
+    let (head, last) = case
+        .statements
+        .split_at(case.statements.len().saturating_sub(1));
+    let last_rhs = last
+        .first()
+        .and_then(|statement| statement.strip_prefix("x = "))
+        .unwrap_or_else(|| panic!("{}: the last statement is not `x = …`", case.signature));
+
+    // The setup's auxiliary `LET`s are the statement's other operands, so the helper
+    // takes them as parameters — built once in `main` and lent down, exactly as
+    // `return_program` does and for the same reason.
+    let aux: Vec<String> = case
+        .setup
+        .iter()
+        .map(|line| sized(line, VALUE_M).trim().to_string())
+        .collect();
+    let aux_params: Vec<(String, String)> = aux
+        .iter()
+        .map(|line| {
+            let rest = line.strip_prefix("LET ").unwrap_or_else(|| {
+                panic!(
+                    "{}: auxiliary setup line is not a `LET`: `{line}`",
+                    case.signature
+                )
+            });
+            let (name, rest) = rest
+                .split_once(" AS ")
+                .unwrap_or_else(|| panic!("{}: no `AS` in `{line}`", case.signature));
+            let (ty, _) = rest
+                .split_once(" = ")
+                .unwrap_or_else(|| panic!("{}: no `=` in `{line}`", case.signature));
+            (name.trim().to_string(), ty.trim().to_string())
+        })
+        .collect();
+    let param_decls: String = aux_params
+        .iter()
+        .map(|(name, ty)| format!(", {name} AS {ty}"))
+        .collect();
+    let param_args: String = aux_params
+        .iter()
+        .map(|(name, _)| format!(", {name}"))
+        .collect();
+
+    let mut src = String::new();
+    src.push_str(&format!(
+        "FUNC handOver(x AS {ty}{param_decls}) AS {ty}\n  RETURN {last_rhs}\nEND FUNC\n\n"
+    ));
+    src.push_str("FUNC main() AS Integer\n");
+    src.push_str(&format!("  MUT x AS {decl}\n"));
+    for line in &aux {
+        src.push_str(&format!("  {line}\n"));
+    }
+    if result {
+        // The copying twin: every statement as a chained `LET`.
+        src.push_str(&format!("  LET e0 AS {ty} = x\n"));
+        for (k, statement) in case.statements.iter().enumerate() {
+            let rhs = statement.strip_prefix("x = ").unwrap_or_else(|| {
+                panic!("{}: statement `{statement}` is not `x = …`", case.signature)
+            });
+            let rhs = replace_ident(rhs, "x", &format!("e{k}"));
+            src.push_str(&format!("  LET e{} AS {ty} = {rhs}\n", k + 1));
+        }
+        let last_e = format!("e{}", case.statements.len());
+        for statement in head {
+            src.push_str(&format!("  {}\n", statement.trim()));
+        }
+        src.push_str(&format!("  x = handOver(x{param_args})\n"));
+        src.push_str(&format!(
+            "  io::print({})\n",
+            replace_ident(&case.check, "before", "x")
+        ));
+        src.push_str(&format!(
+            "  io::print({})\n",
+            replace_ident(&case.check, "before", &last_e)
+        ));
+    } else {
+        src.push_str(&format!("  LET before AS {ty} = x\n"));
+        src.push_str(&format!("  io::print({})\n", case.check));
+        src.push_str(&format!("  FOR i = 1 TO {n}\n"));
+        for statement in head {
+            src.push_str(&format!("    {}\n", statement.trim()));
+        }
+        src.push_str(&format!("    x = handOver(x{param_args})\n"));
+        src.push_str("  NEXT\n");
+        src.push_str(&format!("  io::print({})\n", case.check));
+        src.push_str(&format!("  io::print({})\n", len_of(ty, "x")));
+    }
+    src.push_str("  RETURN 0\nEND FUNC\n");
+
+    format!("{}\n{src}", prelude_for(&src))
+}
+
 fn program(case: &Case, site: Site, n: u64, live: bool) -> String {
     if matches!(site, Site::Return) {
         return return_program(case, n, false, live);
+    }
+    if matches!(site, Site::OwnedParam) {
+        return owned_param_program(case, n, false);
     }
     let mut src = String::new();
     for line in &case.setup {
@@ -664,6 +868,9 @@ fn result_program(case: &Case, site: Site) -> String {
     if matches!(site, Site::Return) {
         return return_program(case, 1, true, true);
     }
+    if matches!(site, Site::OwnedParam) {
+        return owned_param_program(case, 1, true);
+    }
     let ty = case.ty();
     let mut src = String::new();
     for line in &case.setup {
@@ -710,6 +917,7 @@ fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> Stri
         // plan-147-B: `Site::applies` refuses every non-`arm` line at S11, and only
         // an `exempt` line reaches this program.
         Site::Return => unreachable!("S11 runs `arm` lines only"),
+        Site::OwnedParam => unreachable!("S12 runs `arm` lines only"),
         Site::Local | Site::Global => {
             if with_statement {
                 src.push_str(&format!("  {}\n", case.statements[0]));
@@ -969,12 +1177,24 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
     // scratch arm's scratch, a head statement's own allocations — are gone and the
     // plain N/8 bound applies to what is left: the cost of dispatching at a `RETURN`
     // over dispatching as an assignment.
-    let bound = n / 8;
+    // plan-147-E: at S12 the statement runs inside the callee's owned variant, a fresh
+    // FRAME per call, so a scratch arm allocates one scratch per call — the site's
+    // shape, not the statement. The copying form measures TWO per call there, so this
+    // bound still separates them. Every other site, and every non-scratch arm, keeps
+    // the plain N/8 bound. (S11's own per-frame costs are removed by its idle twin
+    // instead; see `return_program`.)
+    let scratch_per_call = matches!(site, Site::OwnedParam) && case_needs_scratch(case);
+    let bound = if scratch_per_call { n + n / 8 } else { n / 8 };
     match &case.status {
         Status::Arm if extra >= bound => Err(format!(
             "{label}: marked `arm`, but {n} more runs allocated {extra} more blocks \
-             ({once} at N={n}, {twice} at 2N), which is not below the bound of {bound} \
-             — the statement copies"
+             ({once} at N={n}, {twice} at 2N), which is not below the bound of {bound}\
+             {} — the statement copies",
+            if scratch_per_call {
+                " (N for the per-call scratch S12's fresh frame forces, plus N/8)"
+            } else {
+                ""
+            }
         )),
         Status::Exempt => exempt_check(index, case, site, &label),
         Status::Arm => Ok(()),

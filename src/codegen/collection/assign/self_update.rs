@@ -2480,7 +2480,7 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
 ];
 
 /// plan-147-B: `(arm, reason)` — the arms that never fire at `Site::Return` (S11),
-/// by design. The matrix asserts they do NOT fire there, and does not require them
+/// nor at `Site::OwnedParam` (S12, which is S11 inside an owned variant), by design. The matrix asserts they do NOT fire there, and does not require them
 /// to; an arm that starts firing fails the matrix, so the exclusion cannot rot.
 ///
 /// Every entry is a `String` arm, and they all share one cause. A `String` block
@@ -2551,6 +2551,16 @@ pub(crate) enum Site {
     /// through every level instead of being rebuilt: a copying `RETURN` allocates
     /// once per level.
     Return,
+    /// S12 — `RETURN OP(x, …)` on an owned PARAMETER, inside the owned variant an
+    /// approved caller calls (plan-147-E). The probe is `x = handOver(x, …)` in a
+    /// loop: the caller hands `x` over, so inside `handOver$own1` the parameter is an
+    /// owned local and S11 applies to it. The self-update lowers in the VARIANT, not
+    /// in `handOver` itself, which is what `lowers_in` pins.
+    ///
+    /// The helper is NOT called `step`, as plan-147-E §3 wrote it: `STEP` is a
+    /// keyword (`FOR i = 1 TO 10 STEP 2`) and keywords are case-insensitive, so
+    /// `FUNC step(…)` is `MFB_PARSE_INVALID_IDENTIFIER`.
+    OwnedParam,
     /// A local record's not-last field: `r = WITH r { a := f(r.a, …) }`.
     S3,
     /// The same record's last field `b`.
@@ -2590,6 +2600,7 @@ pub(crate) const ENABLED_SITES: &[Site] = &[
     Site::Lambda,
     Site::Global,
     Site::Return,
+    Site::OwnedParam,
 ];
 
 /// plan-145-A: the field sites the matrix compiles every arm probe at.
@@ -2682,6 +2693,9 @@ impl Site {
             Site::Global | Site::S5 | Site::T3 | Site::T4 => name == "run1",
             // plan-147-B: the self-update is the `chain` function's own `RETURN`.
             Site::Return => name == "chain",
+            // plan-147-E: it lowers in the owned VARIANT of `step`, never in `step`
+            // itself — the base lowering still lends its parameter.
+            Site::OwnedParam => name.starts_with("handOver$own"),
             _ => name == "main",
         }
     }
@@ -2785,6 +2799,18 @@ impl Probe {
                  LET one AS List OF Integer = [0]\n  FOR i = 1 TO 3\n    \
                  collections::forEach(one, LAMBDA(each1 AS Integer) -> x = {call})\n  \
                  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
+            // plan-147-E (S12): `x = handOver(x, …)` in a loop. The caller hands `x`
+            // over, so inside `handOver`'s owned variant the parameter is an owned
+            // local and S11 applies to it. Everything the statement needs is a
+            // literal, so the helper takes only `x`.
+            Site::OwnedParam => src.push_str(&format!(
+                "FUNC handOver(x AS {ty}) AS {ty}\n  RETURN {call}\nEND FUNC\n\n\
+                 FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR i = 1 TO 3\n    \
+                 x = handOver(x)\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
                 ty = self.ty,
                 init = self.init,
                 call = self.call,
@@ -3201,7 +3227,10 @@ mod tests {
         let never = |id: ArmId, probe: &Probe, site: Site| {
             // plan-147-B: S11's exclusions are their own list — `FIELD_NEVER` is
             // about field sites, and `Return` is not one.
-            if matches!(site, Site::Return) && RETURN_NEVER.iter().any(|(arm, _)| *arm == id) {
+            // S12 is S11 inside an owned variant, so it inherits S11's exclusions.
+            if matches!(site, Site::Return | Site::OwnedParam)
+                && RETURN_NEVER.iter().any(|(arm, _)| *arm == id)
+            {
                 return true;
             }
             FIELD_NEVER.iter().any(|(arm, ty, sites, _)| {

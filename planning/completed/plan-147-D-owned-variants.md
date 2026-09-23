@@ -250,7 +250,7 @@ inline.
   The helper/inline ratios are **0.85×** (`append`) and **0.75×** (`set`), both inside
   the 2× bar. `s & "x"` is outside it and is the documented `Expect::StillCopies`
   case; recursive `fill` belongs to letter E.
-Commit: PENDING
+Commit: 9502c1bac
 
 ## Validation Plan
 
