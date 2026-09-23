@@ -189,7 +189,7 @@ Acceptance: `bind-param` passes, and the fixture has 0 diffs.
   Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
   → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs.
   `cargo test --bin mfb handover` → **`ok. 6 passed; 0 failed`**.
-Commit: (this commit)
+Commit: 1c5cf4e7b
 
 ## Validation Plan
 
@@ -209,6 +209,23 @@ Commit: (this commit)
   It belongs in its own plan, next to plan-134's graph-type moves.
 
 ## Corrections
+
+- **Runtime proof (this letter's Validation Plan).** `/tmp/owned` re-timed on an
+  otherwise idle machine, 2026-09-23, against plan-147-A §2.2's baseline:
+
+  | Shape | Baseline | After letter D | After letter E |
+  |---|---|---|---|
+  | recursive `fill` (N = 5,000) | 1,252 ms | 145,247 µs | **303 µs** |
+
+  That is the transitive hand-over and the argument-position self-update together:
+  about **4,100×** faster than the baseline, and **480×** faster than letter D left it.
+  The allocation slope is 1200 → 1 at N = 600.
+
+  The other rows are unchanged by this letter. `concat.helper` is worth one note:
+  it times between 124 ms and 235 ms across runs, because it is still the O(n²)
+  copying path (letter D's `Expect::StillCopies`) and its cost swings with allocator
+  state. Its ALLOCATION count is deterministic and unchanged, which is what
+  `helper-concat` actually asserts — the timing variance is not a regression.
 
 - **The owned-parameter bind needs its own last-use answer.** §3 point 4 says to
   mirror `plan_returned_move`, which it does — but it cannot ask
