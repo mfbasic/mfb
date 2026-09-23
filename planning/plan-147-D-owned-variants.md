@@ -201,7 +201,7 @@ fixture is unchanged.
   asserted so.
   Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
   → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs.
-Commit: (this commit)
+Commit: c88af3239
 
 ### Phase 3 — Blast radius
 
