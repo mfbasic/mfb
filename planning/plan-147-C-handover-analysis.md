@@ -220,17 +220,37 @@ Commit: f1ce00da6
 
 ### Phase 3 — Corpus census and neutrality
 
-- [ ] One-off probe (in `/tmp`, not committed): run both analyses over the NIR of
-      `examples/*`, `packages/*` and `benchmark/mfb`. Record approved call sites and
-      consumable parameters per tree in plan-147-A §2.2's UNMEASURED row, with the
-      command.
-- [ ] Byte-identity: nothing reads the sets.
+- [x] One-off probe: a temporary `MFB_HANDOVER_CENSUS=1` hook at the end of
+      `target/shared/lower.rs:lower_project`, which ran both analyses over the real
+      merged `NirModule` of each project and then **was removed again** (the tree is
+      back to its committed state; `grep -c MFB_HANDOVER_CENSUS src/target/shared/lower.rs`
+      → `0`). It had to go through the real pipeline: `nir_for_src` takes a single
+      source string and cannot resolve a project's `IMPORT`s. Results, recorded in
+      plan-147-A §2.2:
+
+      | Tree | Projects | NIR functions | Approved arguments | Consumable parameters |
+      |---|---|---|---|---|
+      | `examples/*` | 12 | 1,932 | **35** | **40** |
+      | `benchmark/mfb` | 1 | 1,346 | **504** | **509** |
+      | `packages/*` | — | — | counted inside consumers | counted inside consumers |
+
+      `examples/audio` and `examples/yaml-json` do not build and are excluded.
+      **`packages/*` gets no row of its own**: a package build emits a `.mfp` and never
+      reaches `lower_project`, so package bodies are censused where they are actually
+      compiled — folded into each importing consumer by `merge_packages`. That is why
+      `examples/network-server` alone reports 420 functions. The benchmark's 504
+      approved arguments line up with plan-147-A §2.2's 485 `RETURN
+      collections::<op>(param, …)` sites in that tree, which is the shape letters D and E
+      exist to serve.
+- [x] Byte-identity: nothing reads the sets, and the gate confirms it —
+      `artifact-gate.sh target/release/mfb collections` → **0 diffs**, with the census
+      hook removed and the compiler rebuilt.
 
 Acceptance: census recorded, and codegen unchanged.
-  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est.
-  1 min). The analysis has no caller, so one package's gate is enough to catch an
-  accidental one.
-Commit: —
+  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` →
+  **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`** (2026-09-23). The analysis
+  has no caller, so one package's gate is enough to catch an accidental one.
+Commit: (this commit)
 
 ## Validation Plan
 
