@@ -1,0 +1,44 @@
+IMPORT io
+IMPORT math
+
+' bug-659 (blast radius): math::pow on a Fixed with a FRACTIONAL exponent
+' evaluates exp(exponent * ln(base)), and that product was an unchecked Q32.32
+' multiply. |ln(base)| reaches ~22 across the Fixed domain, so an exponent past
+' ~1e8 drove the product out of Fixed range, where it wrapped and flipped sign —
+' turning a genuine overflow into 0.00 and a genuine underflow into ErrOverflow,
+' exactly the swap bug-659 documents for exp itself.
+'
+' The contract this pins: a fractional-exponent pow raises ErrOverflow whenever
+' the true result leaves Fixed range and returns 0.00 whenever it underflows to
+' zero, for every base/exponent magnitude. The integer-exponent path and the
+' ordinary fractional range are unchanged.
+FUNC probe(b AS Float, e AS Float) AS String
+  LET base AS Fixed = toFixed(b)
+  LET exponent AS Fixed = toFixed(e)
+  LET r = toString(math::pow(base, exponent)) TRAP(er)
+    RECOVER "RAISED " & toString(er.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+SUB main()
+  ' Ordinary fractional range — must stay byte-identical.
+  io::print("pow(2, 10.5)         = " & probe(2.0, 10.5))
+  io::print("pow(1.5, 20.5)       = " & probe(1.5, 20.5))
+  io::print("pow(2, 40.5)         = " & probe(2.0, 40.5))
+  io::print("pow(0.5, 40.5)       = " & probe(0.5, 40.5))
+  ' base > 1 with a huge fractional exponent: the true result is astronomically
+  ' large, so every one of these must raise ErrOverflow.
+  io::print("pow(2e9, 1e8+.5)     = " & probe(2000000000.0, 100000000.5))
+  io::print("pow(2e9, 2e8+.5)     = " & probe(2000000000.0, 200000000.5))
+  io::print("pow(2e9, 4e8+.5)     = " & probe(2000000000.0, 400000000.5))
+  io::print("pow(2e9, 1e9+.5)     = " & probe(2000000000.0, 1000000000.5))
+  io::print("pow(2e9, 2147483646.5)=" & probe(2000000000.0, 2147483646.5))
+  ' base < 1 with a huge fractional exponent: the true result underflows, so
+  ' every one of these must return 0.00.
+  io::print("pow(0.5, 2e8+.5)     = " & probe(0.5, 200000000.5))
+  io::print("pow(0.5, 1e9+.5)     = " & probe(0.5, 1000000000.5))
+  io::print("pow(1e-9, 2e8+.5)    = " & probe(0.000000001, 200000000.5))
+  io::print("pow(1e-9, 4e8+.5)    = " & probe(0.000000001, 400000000.5))
+  io::print("pow(1e-9, 2147483646.5)=" & probe(0.000000001, 2147483646.5))
+END SUB
