@@ -191,14 +191,34 @@ Commit: 7da7b8417
 
 ### Phase 3 — Docs and spec
 
-- [ ] The four docs in §3 step 3.
-- [ ] Re-run the man check from §2. Any hit that now describes wrong behaviour is fixed
-      at its registry descriptor (`.ai/man-content.md` rules).
+- [x] The four docs in §3 step 3:
+      - **`.ai/collections.md`** — the accumulator section is rewritten and retitled
+        ("An accumulator threaded through a helper is handed over, not copied"). It
+        names the three sites (S11, S12, S11F), the `<base>$own<mask>` variant and the
+        null-store, lists the refusals H1—H6, cites `analysis/handover.rs`, carries the
+        re-measured `/tmp/owned` table, and keeps `String` as the documented exception
+        with its bug-560 reason.
+      - **`05_collections.md` `### Self-updates`** — the site list gains the `RETURN`
+        forms (local, owned parameter, and the record field form), with `[[…]]` citations
+        to `try_returned_self_update` and `try_returned_field_self_update`, and the
+        `String`-must-be-tight exception.
+      - **`06_native-calling-convention.md`** — a new "Owned-parameter variants"
+        subsection: the `$own<mask>` symbol, what an owned parameter is inside it, the
+        null-store's ordering and why it is load-bearing, and that the base symbol,
+        arity and ABI are unchanged.
+      - **Language spec §14.6** — the `MUT`-only sentence replaced with plan-147-A
+        §2.3's amendment text, verbatim.
+- [x] Re-run the man check from §2 — **no man change needed**, as §2 predicted. The
+      `rg` returns the package intro ("List, Map, and Set helper functions"),
+      `types/{list,map}.md`'s "Collection helper functions such as…", and
+      `func_transform.rs`'s "through a function" (which describes `transform`'s
+      callback, not copying). None of them describes a helper copying.
 
 Acceptance: the spec builds, and its tests and citations pass.
   Check: `cargo build --release && cargo test --bin mfb spec && bash scripts/spec-census.sh --citations`
-  → passed, and 0 dangling citations in the four edited files (est. 6 min).
-Commit: —
+  → builds clean; **`ok. 43 passed; 0 failed`**; citations
+  **`TOTAL unique=1664 … MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`** (2026-09-23).
+Commit: (this commit)
 
 ### Phase 4 — Full gate (run once)
 

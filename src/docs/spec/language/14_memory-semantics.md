@@ -66,7 +66,7 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 Ordinary containers cannot store thread handles, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
-No two live mutable bindings may refer to the same collection buffer. A `MUT` collection buffer may be destructively updated only while it is owned by that single live `MUT` binding. Reads produce owned values, not aliases into the buffer.
+No two live mutable bindings may refer to the same collection buffer. A collection buffer may be destructively updated only while exactly one binding owns it and that binding's current value is not read again after the update — a single live `MUT` binding, or any owned binding (including a parameter the caller handed over) at its last use. No program can observe the difference from a copy. Reads produce owned values, not aliases into the buffer.
 
 ## 14.7 Drop order
 

@@ -431,13 +431,34 @@ easy to get wrong:
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
 
-## An accumulator must not be threaded through a helper
+## An accumulator threaded through a helper is handed over, not copied
 
-A self-update is in place at the four sites above — a function local, a module-level `MUT` global (S2, plan-142-H), a local inside a `FOR EACH` over itself, a `MUT` captured by a `forEach` lambda. It is **not** in place when the collection goes through a helper's parameter and back out as its return: a parameter cannot be assigned, so `RETURN collections::set(xs, …)` inside the helper is not `x = OP(x, …)` at any site and builds a new collection, and the caller's `acc = helper(acc, …)` copies the whole thing on every call. Measured 2026-09-21 on 20,000 `collections::set` writes into a 200,000-byte `List OF Byte` (release `mfb` built after `77a9255b1`, three runs): 0 ms as a local, 0 ms as a global, 4.1–4.3 s through a one-line helper. Write the self-update inline in the function that owns the collection (or keep it in a global); wrap only the parts that do not rebuild it.
+A self-update is in place at a function local, a module-level `MUT` global (S2, plan-142-H), a local inside a `FOR EACH` over itself, and a `MUT` captured by a `forEach` lambda. Since plan-147 it is **also** in place when the collection goes through a helper's parameter and back out as its return: the caller's `acc = helper(acc, …)` **hands `acc`'s block over** instead of lending it, and the helper's `RETURN collections::set(xs, …)` updates that block in place.
 
-A call as the written item used to miss it too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
+Three sites carry it: **S11** `RETURN OP(x, …)` on an owned local at its last use (plan-147-B), **S12** the same inside an owned parameter's variant (plan-147-E), and **S11F** the field form `RETURN WITH r { f := OP(r.f, …) }` for record accumulators (plan-147-F). Mechanically, codegen emits an extra internal symbol per `(function, owned-parameter mask)` — `<base>$own<mask>` — which is the same NIR function lowered with those parameters owned; at an approved site the caller nulls its own slot and calls the variant. The base symbol and its ABI are untouched, so function values, `LINK` and `.mfp` packages see no change.
 
-`String` behaves the same way: `out = out & piece` on the same local is amortized O(1) (`try_inplace_concat_assign`), but returning it through a recursive helper copies it at every level (`packages/mustache`: over 120 s, versus 0.18 s once each level returned only its own output). And `out = out & ch` in a loop beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.
+Measured on `/tmp/owned` at N = 20,000 (2026-09-23), against the same program before plan-147:
+
+| Shape | Inline, before | **Through a helper**, before | Inline, now | **Through a helper**, now |
+|---|---|---|---|---|
+| `append` to `List OF Integer` | 1 ms | 19,224 ms | 543 µs | **462 µs** |
+| `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,672 µs | **3,526 µs** |
+| recursive `fill` (N = 5,000) | — | 1,252 ms | — | **303 µs** |
+
+The helper is now *faster* than the inline form for the first two — the hand-over skips the caller's own drop of the old value — so **write whichever reads better**. What used to be a 4,000× penalty is gone.
+
+**When it is refused.** The analysis is `collect_handover_args` / `consumable_params` (`src/codegen/engine/analysis/handover.rs`), and every condition is a refusal:
+
+- **H1** the argument is not an owned local of the caller — a parameter the caller does not own, a `by_ref` or captured local, an address-taken local, a `FOR`/`FOR EACH` variable;
+- **H2** the type is not a collection, `String`, or a record all of whose fields qualify — anything carrying a resource is excluded outright;
+- **H3** the value is read again: more than once in the statement (`x = pair(x, x)`), live after it, or read by any `TRAP` handler (`RECOVER x`). This is what keeps `mfb spec language memory-semantics` §14.2's "the old value remains live" true on a failure path;
+- **H4** it is a global — structural: a global argument keeps the value the global had at the call (§14.3);
+- **H5** the call is not a direct call to a user function — a builtin, a `LINK` function, a call through a function value, or an `ISOLATED` thread entry;
+- **H6** the callee only *reads* the parameter, so handing it over would move a free and nothing else.
+
+**`String` is the one shape this does not help.** A `String` block must be TIGHT to leave its frame (`arena_free` is caller-sized and bins by size class, and a caller frees a returned `String` by `byteLength` alone — bug-560), while every in-place `String` update leaves capacity spare. So the variant's `RETURN s & t` has to copy tight, which costs exactly the allocation the copying helper would have made. Measured with the hand-over forced: identical, 2003 blocks at N = 2000 either way. `out = out & piece` on the same local is still amortized O(1) (`try_inplace_concat_assign`); through a helper it is still O(n²), so **keep a `String` accumulator in the function that owns it**. (And `out = out & ch` in a loop still beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.)
+
+A call as the written item used to miss the in-place gate too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

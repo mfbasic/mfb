@@ -499,6 +499,24 @@ in a `collections::forEach` lambda. The operation's result and every other value
 are exactly what the copying form would give; the difference is that no second
 copy of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
+The same mutation happens at a `RETURN`, which is what lets a collection be
+threaded through a helper without copying:
+
+- `RETURN f(x, …)` where `x` is an owned local read for the last time updates
+  `x`'s block and then moves that block out as the return value, exactly as
+  `RETURN x` already moves it.
+  [[src/codegen/engine/control/builder_exits.rs:try_returned_self_update]]
+- The same `RETURN` inside an owned-parameter variant (see the calling
+  convention) updates the parameter's block, so
+  `acc = helper(acc, …)` costs what the inline self-update costs.
+- `RETURN WITH r { f := g(r.f, …) }` updates the field inside `r`'s own block and
+  moves `r` out, which is the same mutation for a record accumulator.
+  [[src/codegen/engine/control/builder_exits.rs:try_returned_field_self_update]]
+
+A `String` is the exception at a `RETURN`: its block must be tight to leave the
+frame it was grown in, so a `String` returned from a helper is copied to its exact
+length. Every other property is unchanged.
+
 For a `String` the builtins fall into four families, and every one of them writes
 into `s`'s own block:
 
