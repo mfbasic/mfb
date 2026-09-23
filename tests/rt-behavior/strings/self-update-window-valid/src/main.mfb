@@ -1,0 +1,310 @@
+IMPORT io
+IMPORT strings
+IMPORT fs
+IMPORT errorCode
+
+' plan-146-C: `s = f(s, …)` for the thirteen String builtins whose result is a
+' window of `s` mutates `s`'s own block in place. Each case computes the same
+' result twice — once through a LET (the copying lowering) and once as a
+' self-update (the arm) — and prints whether they agree, so a window the arm
+' moves wrongly shows up as a MISMATCH. Every case runs at a local and at a
+' module-level global (site S1 and S2), and the raising rows also run under a
+' TRAP, which must leave `s` exactly as it was.
+
+MUT g AS String = ""
+
+SUB show(tag AS String, got AS String, want AS String)
+  IF got = want THEN
+    io::print(tag & " ok [" & got & "]")
+  ELSE
+    io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
+  END IF
+END SUB
+
+' --- shrink windows at a local (S1) ------------------------------------------
+
+SUB windowsLocal()
+  MUT s AS String = "héllo😀"
+  LET w0 AS String = strings::left(s, 0)
+  s = strings::left(s, 0)
+  show("left0", s, w0)
+
+  s = "héllo😀"
+  LET w1 AS String = strings::left(s, 3)
+  s = strings::left(s, 3)
+  show("left3", s, w1)
+
+  s = "héllo😀"
+  LET w2 AS String = strings::left(s, 99)
+  s = strings::left(s, 99)
+  show("leftAll", s, w2)
+
+  s = "héllo😀"
+  LET r1 AS String = strings::right(s, 2)
+  s = strings::right(s, 2)
+  show("right2", s, r1)
+
+  s = "héllo😀"
+  LET r2 AS String = strings::right(s, 0)
+  s = strings::right(s, 0)
+  show("right0", s, r2)
+
+  s = "héllo😀"
+  LET m1 AS String = strings::mid(s, 1, 3)
+  s = strings::mid(s, 1, 3)
+  show("mid1-3", s, m1)
+
+  s = "héllo😀"
+  LET m2 AS String = strings::mid(s, 0, 6)
+  s = strings::mid(s, 0, 6)
+  show("midAll", s, m2)
+
+  s = "héllo😀"
+  LET m3 AS String = strings::mid(s, 2, 0)
+  s = strings::mid(s, 2, 0)
+  show("midEmpty", s, m3)
+
+  s = "ééabcéé"
+  LET p1 AS String = strings::stripPrefix(s, "éé")
+  s = strings::stripPrefix(s, "éé")
+  show("stripPrefix", s, p1)
+
+  s = "ééabcéé"
+  LET p2 AS String = strings::stripPrefix(s, "zz")
+  s = strings::stripPrefix(s, "zz")
+  show("stripPrefixNone", s, p2)
+
+  s = "ééabcéé"
+  LET p3 AS String = strings::stripSuffix(s, "éé")
+  s = strings::stripSuffix(s, "éé")
+  show("stripSuffix", s, p3)
+
+  s = "  héllo  "
+  LET t1 AS String = strings::trim(s)
+  s = strings::trim(s)
+  show("trim", s, t1)
+
+  s = "  héllo  "
+  LET t2 AS String = strings::trimStart(s)
+  s = strings::trimStart(s)
+  show("trimStart", s, t2)
+
+  s = "  héllo  "
+  LET t3 AS String = strings::trimEnd(s)
+  s = strings::trimEnd(s)
+  show("trimEnd", s, t3)
+
+  s = "   "
+  LET t4 AS String = strings::trim(s)
+  s = strings::trim(s)
+  show("trimAll", s, t4)
+
+  s = "xxéhélloéxx"
+  LET c1 AS String = strings::trimChars(s, "xé")
+  s = strings::trimChars(s, "xé")
+  show("trimChars", s, c1)
+
+  s = "abc"
+  LET c2 AS String = strings::trimChars(s, "")
+  s = strings::trimChars(s, "")
+  show("trimCharsNone", s, c2)
+END SUB
+
+' --- graphemeAt: the cluster walk, including a combining sequence ------------
+
+SUB graphemesLocal()
+  MUT s AS String = "e" & "́" & "😀z"
+  LET g0 AS String = strings::graphemeAt(s, 0)
+  s = strings::graphemeAt(s, 0)
+  show("graphemeAt0", s, g0)
+
+  s = "e" & "́" & "😀z"
+  LET g1 AS String = strings::graphemeAt(s, 1)
+  s = strings::graphemeAt(s, 1)
+  show("graphemeAt1", s, g1)
+
+  s = "e" & "́" & "😀z"
+  LET g2 AS String = strings::graphemeAt(s, 2)
+  s = strings::graphemeAt(s, 2)
+  show("graphemeAtLast", s, g2)
+
+  s = "a"
+  LET g3 AS String = strings::graphemeAt(s, 0)
+  s = strings::graphemeAt(s, 0)
+  show("graphemeAtOnly", s, g3)
+END SUB
+
+' --- the three fs path windows, including pathDirName's constants ------------
+
+SUB pathsLocal()
+  MUT s AS String = "a/b/c.txt"
+  LET b1 AS String = fs::pathBaseName(s)
+  s = fs::pathBaseName(s)
+  show("baseName", s, b1)
+
+  s = "/"
+  LET b2 AS String = fs::pathBaseName(s)
+  s = fs::pathBaseName(s)
+  show("baseNameRoot", s, b2)
+
+  s = "a/b/c.txt"
+  LET d1 AS String = fs::pathDirName(s)
+  s = fs::pathDirName(s)
+  show("dirName", s, d1)
+
+  s = "abc"
+  LET d2 AS String = fs::pathDirName(s)
+  s = fs::pathDirName(s)
+  show("dirNameDot", s, d2)
+
+  s = ""
+  LET d3 AS String = fs::pathDirName(s)
+  s = fs::pathDirName(s)
+  show("dirNameEmptyDot", s, d3)
+
+  s = "/abc"
+  LET d4 AS String = fs::pathDirName(s)
+  s = fs::pathDirName(s)
+  show("dirNameRoot", s, d4)
+
+  s = "a/b/c.txt"
+  LET e1 AS String = fs::pathExtension(s)
+  s = fs::pathExtension(s)
+  show("extension", s, e1)
+
+  s = "a/b/c"
+  LET e2 AS String = fs::pathExtension(s)
+  s = fs::pathExtension(s)
+  show("extensionNone", s, e2)
+END SUB
+
+' --- the same windows at a module-level global (S2) --------------------------
+
+SUB windowsGlobal()
+  g = "héllo😀"
+  LET w AS String = strings::left(g, 3)
+  g = strings::left(g, 3)
+  show("g.left3", g, w)
+
+  g = "héllo😀"
+  LET r AS String = strings::right(g, 2)
+  g = strings::right(g, 2)
+  show("g.right2", g, r)
+
+  g = "héllo😀"
+  LET m AS String = strings::mid(g, 1, 3)
+  g = strings::mid(g, 1, 3)
+  show("g.mid1-3", g, m)
+
+  g = "  héllo  "
+  LET t AS String = strings::trim(g)
+  g = strings::trim(g)
+  show("g.trim", g, t)
+
+  g = "e" & "́" & "😀z"
+  LET a AS String = strings::graphemeAt(g, 1)
+  g = strings::graphemeAt(g, 1)
+  show("g.graphemeAt1", g, a)
+
+  g = "a/b/c.txt"
+  LET d AS String = fs::pathDirName(g)
+  g = fs::pathDirName(g)
+  show("g.dirName", g, d)
+
+  g = "abc"
+  LET dd AS String = fs::pathDirName(g)
+  g = fs::pathDirName(g)
+  show("g.dirNameDot", g, dd)
+END SUB
+
+' --- a shrink then a grow: the freed bytes are spare capacity, not lost ------
+
+SUB shrinkThenGrow()
+  MUT s AS String = "abcdefghij"
+  s = strings::left(s, 3)
+  s = s & "XYZ"
+  show("shrinkThenAppend", s, "abcXYZ")
+
+  g = "abcdefghij"
+  g = strings::left(g, 3)
+  g = g & "XYZ"
+  show("g.shrinkThenAppend", g, "abcXYZ")
+
+  MUT t AS String = "abcdefghij"
+  FOR i = 1 TO 5
+    t = strings::left(t, 3)
+    t = t & "de"
+  NEXT
+  show("shrinkGrowLoop", t, "abcde")
+END SUB
+
+' --- failure atomicity: a raised error leaves `s` exactly as it was ----------
+
+SUB trapLeft()
+  MUT s AS String = "abcdef"
+  s = strings::left(s, -1)
+  io::print("trap.left NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.left raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapRight()
+  MUT s AS String = "abcdef"
+  s = strings::right(s, -1)
+  io::print("trap.right NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.right raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapMid()
+  MUT s AS String = "abcdef"
+  s = strings::mid(s, 3, 99)
+  io::print("trap.mid NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.mid raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapGraphemeAt()
+  MUT s AS String = "abcdef"
+  s = strings::graphemeAt(s, 99)
+  io::print("trap.graphemeAt NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.graphemeAt raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB trapGlobalMid()
+  g = "abcdef"
+  g = strings::mid(g, 3, 99)
+  io::print("trap.g.mid NOT RAISED [" & g & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.g.mid raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " g=[" & g & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+FUNC main() AS Integer
+  windowsLocal()
+  graphemesLocal()
+  pathsLocal()
+  windowsGlobal()
+  shrinkThenGrow()
+  trapLeft()
+  trapRight()
+  trapMid()
+  trapGraphemeAt()
+  trapGlobalMid()
+  RETURN 0
+END FUNC

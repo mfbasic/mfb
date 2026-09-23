@@ -28,6 +28,22 @@ The `byte-identity/<pkg>` fixtures are a per-package SMOKE test, not the whole g
 ### The gate is BLIND to diagnostic prose (run test-accept for those)
 The gate checks CODEGEN; it cannot see the error message of an *invalid* program. A metadata/diagnostics migration (e.g. collapsing `expected_arguments`, which dropped the `[optional]` bracket: `strings.find` → `"String, String, Integer"` instead of `"String, String[, Integer]"`) is INVISIBLE to the gate — only `test-accept.sh` catches it. Also, deleting dead wrappers can break CROSS-MODULE tests invisibly to `cargo build --bin mfb` warnings; `cargo build --bin mfb --tests` is the real check.
 
+### A green `test-accept.sh` run is NOT evidence emitted code held still
+`test-accept.sh` compares **no `.ncodesum` on any path** — that extension is the
+artifact-gate's own kind and nothing in the acceptance harness reads it
+(`scripts/artifact-kinds.sh:69-72`). The `tests/byte-identity/<pkg>` fixtures do run
+under acceptance, which is what makes the green misleading: they build, and their native
+goldens are never looked at. So a clean FULL acceptance run says nothing about whether a
+lowering change moved a byte of emitted code. Gate any codegen-lowering change with
+`scripts/artifact-gate.sh <mfb> all` (or `cargo test --test golden`, whose
+`artifact_gate_all` drives the same script) — the cover fixtures are the only thing
+pinning emitted code per target.
+Corollary when a cover DOES move: the per-package split makes blast radius legible. If
+only the touched package's cover shifts, every sibling package's cover stays
+byte-identical, and that fixture's own `.ast`/`.ir` are unchanged, the change is
+lowering-only and confined — front end and IR held still, so nothing upstream was
+perturbed (bug-659, the Fixed `exp`/`pow` overflow gate).
+
 ### Concurrency & macOS hazards
 - **The two harnesses lock against each other PER TREE (bug-470).** Both
   `artifact-gate.sh` and `test-accept.sh` regenerate and delete the same fixture
@@ -43,6 +59,12 @@ The gate checks CODEGEN; it cannot see the error message of an *invalid* program
   so got both answers wrong at once: they missed the sibling script in the same
   tree, and they serialized unrelated trees. Exit 98 is a REFUSAL, not a gate
   result — nothing was checked, so re-run; do not read it as a diff.
+  **This includes `cargo test --test golden`:** its `artifact_gate_all` shells out to the
+  same script and takes the same lock, so running it alongside `test-accept.sh` does NOT
+  queue — it fails in ~0.2s with "another gate run holds the lock", a refusal that
+  checked nothing but reads like a golden regression. Run the two serially. The same
+  collision can also SIGKILL a fixture's build mid-run, surfacing on the acceptance side
+  as a bogus `[exit 137]` mismatch.
 - Do NOT run two artifact-gates at once (yours + another session/worktree): they saturate cores and one gets KILLED mid-run. Exit 144 / 0-byte output = infrastructure kill, NOT a codegen regression — re-run alone, don't treat it as a diff (a real diff prints `artifact-gate: N tests … M diff(s)` + DIFF lines). Check `pgrep -f artifact-gate` (and `ps -o command=`) first. A killed run leaves stray untracked dump files (`tests/byte-identity/.../*.ncode`) — clean before re-running.
 - Never run `cargo` (even `cargo check`) while the gate/acceptance is using `target/debug/mfb`: macOS invalidates the in-place-modified Mach-O's signature, so every subsequent harness exec is SIGKILLed and the suite silently stops producing actuals (looks like a pile of "missing actual"). If the binary's mtime changed mid-run (`stat -f "%m" target/debug/mfb`), discard that run's actuals.
 

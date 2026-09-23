@@ -6,6 +6,177 @@ use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+/// plan-146-D: the registers [`lower_strings_pad`] allocates, handed to its
+/// measure half so the copying path and the in-place arm keep one allocation
+/// order.
+pub(crate) struct PadScratch<'a> {
+    pub(crate) scratch9: &'a VirtualRegister,
+    pub(crate) scratch10: &'a VirtualRegister,
+    pub(crate) scratch11: &'a VirtualRegister,
+    pub(crate) scratch12: &'a VirtualRegister,
+    pub(crate) scratch13: &'a VirtualRegister,
+    pub(crate) scratch14: &'a VirtualRegister,
+    pub(crate) scratch15: &'a VirtualRegister,
+    pub(crate) scratch16: &'a VirtualRegister,
+    pub(crate) scratch17: &'a VirtualRegister,
+}
+
+/// plan-146-D: what the pad measure half leaves for its caller — every argument
+/// check has run and raised, and the result's byte length is known.
+pub(crate) struct PadMeasure {
+    /// Pad characters to prepend/append.
+    pub(crate) pad_count_slot: usize,
+    /// One padChar's byte length.
+    pub(crate) pad_len_slot: usize,
+    /// The result's byte length, `valueLen + padCount * padLen`.
+    pub(crate) total_slot: usize,
+    /// The copying path's result block.
+    pub(crate) result_slot: usize,
+    /// Where every argument check branches; the caller raises there.
+    pub(crate) invalid: String,
+    /// The copying path's post-allocation label.
+    pub(crate) alloc_ok: String,
+}
+
+/// plan-146-D: the measure half of `strings::{padLeft,padRight}` — validate
+/// `width` and `padChar`, count `value`'s scalars, and compute the padded byte
+/// length. Emits every raise this row has, before any output byte exists.
+pub(crate) fn pad_measure(
+    builder: &mut CodeBuilder,
+    value_slot: usize,
+    width_slot: usize,
+    pad_slot: usize,
+    r: &PadScratch<'_>,
+) -> Result<PadMeasure, String> {
+    let scratch9 = r.scratch9;
+    let scratch10 = r.scratch10;
+    let scratch11 = r.scratch11;
+    let scratch12 = r.scratch12;
+    let scratch13 = r.scratch13;
+    let scratch14 = r.scratch14;
+    let scratch15 = r.scratch15;
+    let scratch16 = r.scratch16;
+    let scratch17 = r.scratch17;
+    // Number of pad chars to prepend/append.
+    let pad_count_slot = builder.allocate_stack_object("strings_pad_count", 8);
+    // Byte length of one padChar.
+    let pad_len_slot = builder.allocate_stack_object("strings_pad_char_len", 8);
+    let total_slot = builder.allocate_stack_object("strings_pad_total", 8);
+    let result_slot = builder.allocate_stack_object("strings_pad_result", 8);
+
+    let invalid = builder.label("strings_pad_invalid");
+    let alloc_ok = builder.label("strings_pad_alloc_ok");
+
+    // Validate width >= 0.
+    builder.emit(abi::load_u64(scratch10, abi::stack_pointer(), width_slot));
+    builder.emit(abi::compare_immediate(scratch10, "0"));
+    builder.emit(abi::branch_lt(&invalid));
+
+    // Validate padChar is exactly one scalar (len>0 and scalar count == 1).
+    builder.emit(abi::load_u64(scratch17, abi::stack_pointer(), pad_slot));
+    builder.emit(abi::load_u64(scratch9, scratch17, 0));
+    builder.emit(abi::compare_immediate(scratch9, "0"));
+    builder.emit(abi::branch_eq(&invalid));
+    builder.emit(abi::store_u64(scratch9, abi::stack_pointer(), pad_len_slot));
+    {
+        let loop_label = builder.label("strings_pad_scalars_loop");
+        let not_cont = builder.label("strings_pad_scalars_not_cont");
+        let after = builder.label("strings_pad_scalars_after");
+        let done = builder.label("strings_pad_scalars_done");
+        builder.emit(abi::add_immediate(scratch11, scratch17, 8));
+        builder.emit_scalar_count_loop(
+            scratch11,
+            scratch12,
+            scratch14,
+            scratch15,
+            scratch13,
+            scratch16,
+            scratch9,
+            &loop_label,
+            &not_cont,
+            &after,
+            &done,
+        );
+        builder.emit(abi::compare_immediate(scratch14, "1"));
+        builder.emit(abi::branch_ne(&invalid));
+        // The count above is byte-structural (non-continuation bytes == 1);
+        // additionally require the scalar to be well-formed UTF-8
+        // (audit-unicode #7). The validating decoder substitutes U+FFFD with
+        // width 1 for any malformed sequence, so a valid single scalar — the
+        // only padChar constructible from source — is exactly one that
+        // decodes across the whole padChar and re-encodes at the same width.
+        builder.emit_utf8_decode_next(scratch11, scratch12, scratch14);
+        builder.emit(abi::compare_registers(scratch14, scratch9));
+        builder.emit(abi::branch_ne(&invalid));
+        builder.emit_utf8_encoded_width(scratch12, scratch13);
+        builder.emit(abi::compare_registers(scratch13, scratch9));
+        builder.emit(abi::branch_ne(&invalid));
+    }
+
+    // Count scalars in value into x14.
+    builder.emit(abi::load_u64(scratch16, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(scratch9, scratch16, 0));
+    {
+        let loop_label = builder.label("strings_pad_value_loop");
+        let not_cont = builder.label("strings_pad_value_not_cont");
+        let after = builder.label("strings_pad_value_after");
+        let done = builder.label("strings_pad_value_done");
+        builder.emit(abi::add_immediate(scratch11, scratch16, 8));
+        builder.emit_scalar_count_loop(
+            scratch11,
+            scratch12,
+            scratch14,
+            scratch15,
+            scratch13,
+            scratch17,
+            scratch9,
+            &loop_label,
+            &not_cont,
+            &after,
+            &done,
+        );
+    }
+    // pad_count = max(0, width - scalarLen).
+    builder.emit(abi::load_u64(scratch10, abi::stack_pointer(), width_slot));
+    {
+        let no_pad = builder.label("strings_pad_no_pad");
+        let have_pad = builder.label("strings_pad_have_pad");
+        builder.emit(abi::compare_registers(scratch10, scratch14));
+        builder.emit(abi::branch_le(&no_pad));
+        builder.emit(abi::subtract_registers(scratch10, scratch10, scratch14));
+        builder.emit(abi::branch(&have_pad));
+        builder.emit(abi::label(&no_pad));
+        builder.emit(abi::move_immediate(scratch10, "Integer", "0"));
+        builder.emit(abi::label(&have_pad));
+    }
+    builder.emit(abi::store_u64(
+        scratch10,
+        abi::stack_pointer(),
+        pad_count_slot,
+    ));
+
+    // total = valueLen + pad_count * padLen, rejecting sizes that do not fit
+    // in 64 bits: an unchecked wrap here allocated small while the pad loop
+    // wrote the full pad_count*padLen bytes (audit-unicode #2, heap
+    // overflow). Unrepresentable widths raise the same catchable 77050002 as
+    // the other argument rejections.
+    builder.emit(abi::load_u64(scratch16, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(scratch9, scratch16, 0));
+    builder.emit(abi::load_u64(scratch11, abi::stack_pointer(), pad_len_slot));
+    builder.emit_checked_size_multiply(scratch12, scratch10, scratch11, &invalid);
+    builder.emit_checked_size_add(scratch11, scratch9, scratch12, &invalid);
+    builder.emit(abi::store_u64(scratch11, abi::stack_pointer(), total_slot));
+
+    Ok(PadMeasure {
+        pad_count_slot,
+        pad_len_slot,
+        total_slot,
+        result_slot,
+        invalid,
+        alloc_ok,
+    })
+}
+
 pub(crate) fn lower_strings_pad(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -62,124 +233,32 @@ pub(crate) fn lower_strings_pad(
         builder.register_fresh_string_temp(Operand::from(space.render()));
         builder.spill_to_slot("strings_pad_char", &space.render())
     };
-    // Number of pad chars to prepend/append.
-    let pad_count_slot = builder.allocate_stack_object("strings_pad_count", 8);
-    // Byte length of one padChar.
-    let pad_len_slot = builder.allocate_stack_object("strings_pad_char_len", 8);
-    let total_slot = builder.allocate_stack_object("strings_pad_total", 8);
-    let result_slot = builder.allocate_stack_object("strings_pad_result", 8);
-
-    let invalid = builder.label("strings_pad_invalid");
-    let alloc_ok = builder.label("strings_pad_alloc_ok");
-
-    // Validate width >= 0.
-    builder.emit(abi::load_u64(&scratch10, abi::stack_pointer(), width_slot));
-    builder.emit(abi::compare_immediate(&scratch10, "0"));
-    builder.emit(abi::branch_lt(&invalid));
-
-    // Validate padChar is exactly one scalar (len>0 and scalar count == 1).
-    builder.emit(abi::load_u64(&scratch17, abi::stack_pointer(), pad_slot));
-    builder.emit(abi::load_u64(&scratch9, &scratch17, 0));
-    builder.emit(abi::compare_immediate(&scratch9, "0"));
-    builder.emit(abi::branch_eq(&invalid));
-    builder.emit(abi::store_u64(
-        &scratch9,
-        abi::stack_pointer(),
-        pad_len_slot,
-    ));
-    {
-        let loop_label = builder.label("strings_pad_scalars_loop");
-        let not_cont = builder.label("strings_pad_scalars_not_cont");
-        let after = builder.label("strings_pad_scalars_after");
-        let done = builder.label("strings_pad_scalars_done");
-        builder.emit(abi::add_immediate(&scratch11, &scratch17, 8));
-        builder.emit_scalar_count_loop(
-            &scratch11,
-            &scratch12,
-            &scratch14,
-            &scratch15,
-            &scratch13,
-            &scratch16,
-            &scratch9,
-            &loop_label,
-            &not_cont,
-            &after,
-            &done,
-        );
-        builder.emit(abi::compare_immediate(&scratch14, "1"));
-        builder.emit(abi::branch_ne(&invalid));
-        // The count above is byte-structural (non-continuation bytes == 1);
-        // additionally require the scalar to be well-formed UTF-8
-        // (audit-unicode #7). The validating decoder substitutes U+FFFD with
-        // width 1 for any malformed sequence, so a valid single scalar — the
-        // only padChar constructible from source — is exactly one that
-        // decodes across the whole padChar and re-encodes at the same width.
-        builder.emit_utf8_decode_next(&scratch11, &scratch12, &scratch14);
-        builder.emit(abi::compare_registers(&scratch14, &scratch9));
-        builder.emit(abi::branch_ne(&invalid));
-        builder.emit_utf8_encoded_width(&scratch12, &scratch13);
-        builder.emit(abi::compare_registers(&scratch13, &scratch9));
-        builder.emit(abi::branch_ne(&invalid));
-    }
-
-    // Count scalars in value into x14.
-    builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
-    builder.emit(abi::load_u64(&scratch9, &scratch16, 0));
-    {
-        let loop_label = builder.label("strings_pad_value_loop");
-        let not_cont = builder.label("strings_pad_value_not_cont");
-        let after = builder.label("strings_pad_value_after");
-        let done = builder.label("strings_pad_value_done");
-        builder.emit(abi::add_immediate(&scratch11, &scratch16, 8));
-        builder.emit_scalar_count_loop(
-            &scratch11,
-            &scratch12,
-            &scratch14,
-            &scratch15,
-            &scratch13,
-            &scratch17,
-            &scratch9,
-            &loop_label,
-            &not_cont,
-            &after,
-            &done,
-        );
-    }
-    // pad_count = max(0, width - scalarLen).
-    builder.emit(abi::load_u64(&scratch10, abi::stack_pointer(), width_slot));
-    {
-        let no_pad = builder.label("strings_pad_no_pad");
-        let have_pad = builder.label("strings_pad_have_pad");
-        builder.emit(abi::compare_registers(&scratch10, &scratch14));
-        builder.emit(abi::branch_le(&no_pad));
-        builder.emit(abi::subtract_registers(&scratch10, &scratch10, &scratch14));
-        builder.emit(abi::branch(&have_pad));
-        builder.emit(abi::label(&no_pad));
-        builder.emit(abi::move_immediate(&scratch10, "Integer", "0"));
-        builder.emit(abi::label(&have_pad));
-    }
-    builder.emit(abi::store_u64(
-        &scratch10,
-        abi::stack_pointer(),
+    let measure = pad_measure(
+        builder,
+        value_slot,
+        width_slot,
+        pad_slot,
+        &PadScratch {
+            scratch9: &scratch9,
+            scratch10: &scratch10,
+            scratch11: &scratch11,
+            scratch12: &scratch12,
+            scratch13: &scratch13,
+            scratch14: &scratch14,
+            scratch15: &scratch15,
+            scratch16: &scratch16,
+            scratch17: &scratch17,
+        },
+    )?;
+    let PadMeasure {
         pad_count_slot,
-    ));
-
-    // total = valueLen + pad_count * padLen, rejecting sizes that do not fit
-    // in 64 bits: an unchecked wrap here allocated small while the pad loop
-    // wrote the full pad_count*padLen bytes (audit-unicode #2, heap
-    // overflow). Unrepresentable widths raise the same catchable 77050002 as
-    // the other argument rejections.
-    builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
-    builder.emit(abi::load_u64(&scratch9, &scratch16, 0));
-    builder.emit(abi::load_u64(
-        &scratch11,
-        abi::stack_pointer(),
         pad_len_slot,
-    ));
-    builder.emit_checked_size_multiply(&scratch12, &scratch10, &scratch11, &invalid);
-    builder.emit_checked_size_add(&scratch11, &scratch9, &scratch12, &invalid);
-    builder.emit(abi::store_u64(&scratch11, abi::stack_pointer(), total_slot));
-
+        total_slot,
+        result_slot,
+        invalid,
+        alloc_ok,
+    } = measure;
+    // `scratch11` still holds the total the measure half computed into it.
     // allocate total + 9.
     builder.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &invalid);
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));

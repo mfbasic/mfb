@@ -16,10 +16,11 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
 
 
-## In-place mutation: one table, four sites (plan-121-A, plan-142), and every field (plan-145)
+## In-place mutation: one table, four sites (plan-121-A, plan-142), every field (plan-145), and every `String` builtin (plan-146)
 
-`x = OP(x, …)` — a *self-update* of a `List`/`Map`/`Set` (and `s = s & t` on a
-`String`) — mutates `x`'s own block instead of building a new one, at every
+`x = OP(x, …)` — a *self-update* of a `List`/`Map`/`Set` (and, since plan-146, of
+a `String`: `s = s & t` and every `String` builtin whose result is derived from
+`s`) — mutates `x`'s own block instead of building a new one, at every
 binding site that can hold one: a function local (S1), a module-level global
 (S2), a local inside a `FOR EACH` over itself (S7), and a `MUT` captured by
 reference in a `collections::forEach` lambda (S9). A **field** of a record or of a
@@ -39,7 +40,11 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
 * `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
   function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
   from `x`'s block, and `proof` cites the lowering that shows `x` is only read).
-  **There is no third kind.** A new builtin with a self-update form needs a row, or
+  **There is no third kind** — `Deferred(plan)` exists only for the
+  `AttributedString` rows a named follow-up plan owns (plan-146-A Open Decision 1).
+  Since plan-146 the census counts a `String`/`AttributedString` first parameter
+  too, and a second source (`TIER_B_TRANSFORMS`) covers the 19 `AttributedString`
+  transforms `mfb man` renders no overload for. A new builtin with a self-update form needs a row, or
   `self_update_census_covers_every_registry_overload` fails naming it; and it needs
   a line in `tests/runtime/inplace_self_update/cases.tsv`, or
   `tests/guards/inplace_self_update_census.rs` fails naming it. The matrix test
@@ -52,6 +57,31 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   (`tests/runtime/rt_inplace_failure_atomic.rs`). Per-element state lives in the
   function's self-update scratch (`emit_reserve_self_update_scratch`), not in a
   per-statement allocation.
+* **The `String` half** (plan-146, `collection/assign/string_self_update.rs`) is a
+  second resolver, `resolve_string_self_update`: plan-142's gates on a
+  `CollectionTypeLayout` (G10), which no `String` has. Four arms —
+  `StrIdentity` (`toString`), `StrWindow` (13 rows whose result is a run of `s`'s
+  bytes), `StrGrow` (6 rows that add bytes) and `StrRewrite` (6 rows built in the
+  scratch and copied back) — plus the concat arm. Three things a new `String` arm
+  must respect:
+  - **The capacity shadow is the rule, not the exception.** A block whose length
+    changed in place is no longer `byteLength + 9`, so its drop would free the
+    wrong size. `is_string_self_update` is the ONE predicate that decides which
+    bindings get a shadow, and both prescans (`prescan_string_self_appends`,
+    `add_global_string_capacities`) ask it; `STRING_SHADOW_ARMS` is the list of
+    arms that need one. An arm that changes the length and is not in that list is
+    a silent wrong-sized free.
+  - **A by-ref capture shares its OWNER's shadow** through a closure-environment
+    word (`string_shadow_captures`), as a lambda already shares its creator's
+    scratch. Every store through the reference — including a plain reassign — must
+    size its free by that shadow and reset it. The word is read into a frame slot
+    at first use: `%closure_env` is a call-boundary token, not a pinned register,
+    so an arm that calls a helper (`os::resourcePath`) cannot re-read it
+    afterwards. `closure_env_free_types` must count every extra word, or the env
+    free is short.
+  - **A `String` arm serves no field site** (`FieldReach::None`): a `String` record
+    field is `deferred:string` until the follow-up plan. Each such arm needs its
+    `FIELD_NEVER` row at all 15 field sites.
 
 Where the destination lives is `InPlaceDest`
 (`src/codegen/collection/assign/inplace_dest.rs`):

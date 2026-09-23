@@ -2,12 +2,11 @@
 //! `Body::abi_function` lowering ([`lower_has_env`]).
 
 use super::gen_env::{emit_env_lock, emit_env_unlock_return};
-use super::gen_shared::{marshal_cstring, push_alloc_error, void_result};
+use super::gen_shared::{borrow_cstring, void_result};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -24,19 +23,12 @@ pub(crate) fn lower_has_env(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let present = format!("{symbol}_present");
-    let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
     let mut instructions = vec![abi::move_register(&name, abi::c_arg(0))];
     let mut relocations = Vec::new();
-    // bug-574: the marshalled C-string arguments below are this helper's own
-    // scratch — handed to the host `getenv`/`setenv` and never returned to
-    // MFBASIC — so they are released at `done`. Declared (and nulled) HERE,
-    // ahead of every branch that can reach `done`: the second marshal is only
-    // reached when the first succeeded.
-    let name_scratch = HelperScratch::declare_for(&cname, &mut vregs, &mut instructions);
     emit_env_lock(&mut EmitCtx {
         symbol: symbol.as_str(),
         platform_imports: ctx.platform_imports,
@@ -44,16 +36,9 @@ pub(crate) fn lower_has_env(
         instructions: &mut instructions,
         relocations: &mut relocations,
     })?;
-    marshal_cstring(
-        &symbol,
-        &name,
-        &alloc_error,
-        &format!("{symbol}_name"),
-        &name_scratch,
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
+    // plan-146-F: the host reads `name`'s own NUL-terminated bytes at `+8`; no
+    // copy, so nothing to release at `done` and no OOM path here.
+    instructions.push(borrow_cstring(&name, &cname));
     instructions.push(abi::move_register(abi::c_arg(0), &cname));
     // Windows: GetEnvironmentVariableW (via emit_env_get) leaves a non-zero UTF-8
     // value pointer when the variable exists, 0 when unset — the same
@@ -84,18 +69,8 @@ pub(crate) fn lower_has_env(
         abi::label(&present),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&alloc_error),
     ]);
-    push_alloc_error(&symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
-    emit_helper_scratch_release(
-        &symbol,
-        &[name_scratch],
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol: symbol.as_str(),

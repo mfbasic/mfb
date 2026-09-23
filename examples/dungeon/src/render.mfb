@@ -1,0 +1,267 @@
+' render - turning a map into a picture. The map is drawn isometrically, back
+' to front, with the view turned any number of quarter turns clockwise: a
+' ViewCell names a cell by where it lands on screen and which map cell it
+' shows, and sceneFor lays the sprites out in draw order.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+IMPORT os
+IMPORT strings
+
+' ---------------------------------------------------------------------------
+' Rotation
+' ---------------------------------------------------------------------------
+
+' A direction's sprite suffix: the initial of its name, which is how every
+' tile in resources/dungeon is named.
+FUNC facingSuffix(f AS Facing) AS String
+  RETURN strings::left(toString(f), 1)
+END FUNC
+
+' The file suffix for a piece facing f once the view is turned `turns`
+' quarter turns clockwise.
+FUNC suffixFor(f AS Facing, turns AS Integer) AS String
+  RETURN facingSuffix(turned(f, turns))
+END FUNC
+
+' The map direction that shows on screen as view direction v.
+FUNC mapDirection(v AS Facing, turns AS Integer) AS Facing
+  RETURN turned(v, -turns)
+END FUNC
+
+' On screen the cell's back edges are the ones an East- and a South-facing
+' wall stand on. A wall on either front edge covers what is in the cell, and so
+' does every corner piece and column but the South-facing ones, which stand at
+' the cell's back.
+FUNC isFrontWall(w AS Piece, turns AS Integer) AS Boolean
+  LET f AS Facing = turned(w.facing, turns)
+  IF w.tile = "stoneWallCorner" THEN RETURN f <> Facing.South
+  RETURN f = Facing.North OR f = Facing.West
+END FUNC
+
+' A cell in view coordinates, where the map lands once it is turned `turns`
+' quarter turns clockwise, alongside the map cell it shows.
+TYPE ViewCell
+  x AS Integer
+  y AS Integer
+  mapX AS Integer
+  mapY AS Integer
+END TYPE
+
+' Each turn sends (x, y) in a w x h map to (h - 1 - y, x) in an h x w one.
+FUNC toView(m AS DungeonMap, mapX AS Integer, mapY AS Integer, turns AS Integer) AS ViewCell
+  MUT x AS Integer = mapX
+  MUT y AS Integer = mapY
+  MUT w AS Integer = m.width
+  MUT h AS Integer = m.height
+  FOR i = 1 TO turns
+    LET nx AS Integer = h - 1 - y
+    y = x
+    x = nx
+    LET nw AS Integer = h
+    h = w
+    w = nw
+  NEXT
+  RETURN ViewCell[x, y, mapX, mapY]
+END FUNC
+
+' The inverse of toView: each turn back sends (x, y) in a w x h view to
+' (y, w - 1 - x) in an h x w one.
+FUNC fromView(m AS DungeonMap, viewX AS Integer, viewY AS Integer, turns AS Integer) AS ViewCell
+  MUT x AS Integer = viewX
+  MUT y AS Integer = viewY
+  MUT w AS Integer = m.width
+  MUT h AS Integer = m.height
+  IF turns MOD 2 = 1 THEN
+    w = m.height
+    h = m.width
+  END IF
+  FOR i = 1 TO turns
+    LET nx AS Integer = y
+    y = w - 1 - x
+    x = nx
+    LET nw AS Integer = h
+    h = w
+    w = nw
+  NEXT
+  RETURN ViewCell[viewX, viewY, x, y]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Tiles
+' ---------------------------------------------------------------------------
+
+FUNC tileWidth AS Float
+  RETURN 256.0
+END FUNC
+
+FUNC tileHeight AS Float
+  RETURN 512.0
+END FUNC
+
+' The top of the tallest piece (a corner) sits this far down its sprite.
+FUNC tileTop AS Float
+  RETURN 224.0
+END FUNC
+
+' The centre of the floor's top face in the sprite.
+FUNC floorCentreY AS Float
+  RETURN 428.0
+END FUNC
+
+' Every sprite the map names, keyed by file name without ".png".
+FUNC loadTiles(names AS List OF String) AS Map OF String TO RES canvas::Image
+  MUT tiles AS Map OF String TO RES canvas::Image = Map OF String TO RES canvas::Image {}
+  FOR EACH name IN names
+    FOR EACH f IN compass()
+      LET key AS String = name & "_" & facingSuffix(f)
+      RES img AS canvas::Image = canvas::loadImage(os::resourcePath("dungeon/" & key & ".png"))
+      tiles = collections::set(tiles, key, img)
+    NEXT
+  NEXT
+  RETURN tiles
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The scene
+' ---------------------------------------------------------------------------
+
+' Where the map sits on the window: the scale, the screen position of view
+' cell (0, 0)'s sprite, the turn, the view's size in cells and the window's in
+' pixels.
+TYPE View
+  scale AS Float
+  originX AS Float
+  originY AS Float
+  turns AS Integer
+  columns AS Integer
+  rows AS Integer
+  winW AS Float
+  winH AS Float
+END TYPE
+
+' About eight cells across the window, centred on the player.
+FUNC viewFor(m AS DungeonMap, turns AS Integer, size AS canvas::Size, px AS Integer, py AS Integer) AS View
+  LET winW AS Float = toFloat(size.width)
+  LET winH AS Float = toFloat(size.height)
+  LET s AS Float = winW / (tileWidth() * 8.0)
+  LET halfW AS Float = tileWidth() / 2.0 * s
+  LET halfH AS Float = tileWidth() / 4.0 * s
+  LET p AS ViewCell = toView(m, px, py, turns)
+  LET ox AS Float = winW / 2.0 - toFloat(p.x - p.y) * halfW - halfW
+  LET oy AS Float = winH / 2.0 - toFloat(p.x + p.y) * halfH - floorCentreY() * s
+  MUT columns AS Integer = m.width
+  MUT rows AS Integer = m.height
+  IF turns MOD 2 = 1 THEN
+    columns = m.height
+    rows = m.width
+  END IF
+  RETURN View[s, ox, oy, turns, columns, rows, winW, winH]
+END FUNC
+
+' The cells whose sprites reach the window, back to front: by x + y in view
+' coordinates.
+FUNC visibleOrder(m AS DungeonMap, v AS View) AS List OF ViewCell
+  LET halfW AS Float = tileWidth() / 2.0 * v.scale
+  LET halfH AS Float = tileWidth() / 4.0 * v.scale
+  MUT out AS List OF ViewCell = []
+  FOR depth = 0 TO v.columns + v.rows - 2
+    LET top AS Float = v.originY + toFloat(depth) * halfH
+    IF top + tileHeight() * v.scale > 0.0 AND top + tileTop() * v.scale < v.winH THEN
+      FOR x = math::max(0, depth - v.rows + 1) TO math::min(v.columns - 1, depth)
+        LET left AS Float = v.originX + toFloat(2 * x - depth) * halfW
+        IF left + tileWidth() * v.scale > 0.0 AND left < v.winW THEN
+          out = collections::append(out, fromView(m, x, depth - x, v.turns))
+        END IF
+      NEXT
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC spriteX(v AS View, c AS ViewCell) AS Float
+  RETURN v.originX + toFloat(c.x - c.y) * tileWidth() / 2.0 * v.scale
+END FUNC
+
+FUNC spriteY(v AS View, c AS ViewCell) AS Float
+  RETURN v.originY + toFloat(c.x + c.y) * tileWidth() / 4.0 * v.scale
+END FUNC
+
+' How far an inner corner piece moves out of its own cell, in cells: one wall's
+' thickness along each of the two edges it stands on, which lines both of its
+' arms up with the walls running into them.
+FUNC insetX(p AS Piece) AS Float
+  IF NOT p.inner THEN RETURN 0.0
+  MUT steps AS Integer = 0
+  FOR EACH e IN cornerEdges(p)
+    steps = steps + stepX(e)
+  NEXT
+  RETURN toFloat(steps) * wallThickness()
+END FUNC
+
+FUNC insetY(p AS Piece) AS Float
+  IF NOT p.inner THEN RETURN 0.0
+  MUT steps AS Integer = 0
+  FOR EACH e IN cornerEdges(p)
+    steps = steps + stepY(e)
+  NEXT
+  RETURN toFloat(steps) * wallThickness()
+END FUNC
+
+FUNC sprite(tiles AS Map OF String TO RES canvas::Image, v AS View, c AS ViewCell, p AS Piece) AS canvas::DrawItem
+  RES img AS canvas::Image = collections::get(tiles, p.tile & "_" & suffixFor(p.facing, v.turns))
+  ' The inset is in map directions, which the view turns like anything else.
+  LET inMap AS Piece = WITH p { facing := turned(p.facing, v.turns) }
+  LET dx AS Float = insetX(inMap)
+  LET dy AS Float = insetY(inMap)
+  LET x AS Float = spriteX(v, c) + (dx - dy) * tileWidth() / 2.0 * v.scale
+  LET y AS Float = spriteY(v, c) + (dx + dy) * tileWidth() / 4.0 * v.scale
+  RETURN canvas::Picture[x := x, y := y, w := tileWidth() * v.scale, h := tileHeight() * v.scale, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+END FUNC
+
+' The player: a red pawn with a shadow, standing in the middle of its cell.
+FUNC playerFigure(v AS View, c AS ViewCell) AS List OF canvas::DrawItem
+  LET s AS Float = v.scale
+  LET cx AS Float = spriteX(v, c) + tileWidth() / 2.0 * s
+  LET cy AS Float = spriteY(v, c) + floorCentreY() * s
+  RETURN [canvas::Ellipse[x := cx, y := cy, radiusX := 44.0 * s, radiusY := 22.0 * s, angle := 0.0, paint := canvas::fill(color::rgba(0, 0, 0, 110))], canvas::Ellipse[x := cx, y := cy - 40.0 * s, radiusX := 30.0 * s, radiusY := 44.0 * s, angle := 0.0, paint := canvas::fill(color::rgb(190, 40, 36))], canvas::Circle[x := cx, y := cy - 100.0 * s, radius := 24.0 * s, paint := canvas::fill(color::rgb(236, 196, 160))]]
+END FUNC
+
+' Whether a wall piece would hide the player, who stands in view cell p: a
+' front wall of the player's own cell, or a wall of the cell just in front
+' standing on the edge it shares with the player's cell. Those are left out.
+FUNC hidesPlayer(w AS Piece, c AS ViewCell, p AS ViewCell, turns AS Integer) AS Boolean
+  IF c.x = p.x AND c.y = p.y THEN RETURN isFrontWall(w, turns)
+  IF c.x = p.x + 1 AND c.y = p.y THEN RETURN blocksEdge(w, mapDirection(Facing.West, turns)) OR w.tile = "stoneWallArchway" AND turned(w.facing, turns) = Facing.East
+  IF c.x = p.x AND c.y = p.y + 1 THEN RETURN blocksEdge(w, mapDirection(Facing.North, turns)) OR w.tile = "stoneWallArchway" AND turned(w.facing, turns) = Facing.South
+  RETURN FALSE
+END FUNC
+
+' Floors first, so nothing standing on one cell is covered by the floor of the
+' cell in front of it. Then cell by cell, back to front: the back walls, the
+' props and the player, and the front walls.
+FUNC sceneFor(m AS DungeonMap, tiles AS Map OF String TO RES canvas::Image, v AS View, px AS Integer, py AS Integer) AS List OF canvas::DrawItem
+  LET order AS List OF ViewCell = visibleOrder(m, v)
+  LET player AS ViewCell = toView(m, px, py, v.turns)
+  MUT scene AS List OF canvas::DrawItem = []
+  FOR EACH c IN order
+    LET cell AS Cell = cellAt(m, c.mapX, c.mapY)
+    IF cell.floor.tile <> "" THEN scene = collections::append(scene, sprite(tiles, v, c, cell.floor))
+  NEXT
+  FOR EACH c IN order
+    LET cell AS Cell = cellAt(m, c.mapX, c.mapY)
+    FOR EACH w IN cell.walls
+      IF NOT isFrontWall(w, v.turns) AND NOT hidesPlayer(w, c, player, v.turns) THEN scene = collections::append(scene, sprite(tiles, v, c, w))
+    NEXT
+    FOR EACH p IN cell.props
+      scene = collections::append(scene, sprite(tiles, v, c, p))
+    NEXT
+    IF c.x = player.x AND c.y = player.y THEN scene = collections::append(scene, playerFigure(v, c))
+    FOR EACH w IN cell.walls
+      IF isFrontWall(w, v.turns) AND NOT hidesPlayer(w, c, player, v.turns) THEN scene = collections::append(scene, sprite(tiles, v, c, w))
+    NEXT
+  NEXT
+  RETURN scene
+END FUNC

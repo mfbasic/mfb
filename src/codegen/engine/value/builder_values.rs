@@ -1624,6 +1624,22 @@ impl CodeBuilder<'_> {
         if self.scratch_closure_captures(lambda).is_some() {
             types.push(ParameterType::Integer);
         }
+        // plan-146-G: one further word per by-ref `String` capture that shares its
+        // owner's capacity shadow. The env free is sized from this list, so a word
+        // missing here under-frees the block — the allocator then hands part of it
+        // out again while the closure still holds the rest.
+        for _ in crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+            self.functions,
+            lambda,
+        ) {
+            types.push(ParameterType::Integer);
+        }
+        if crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+            self.functions,
+            lambda,
+        ) {
+            types.push(ParameterType::Integer);
+        }
         types
     }
 
@@ -1900,13 +1916,29 @@ impl CodeBuilder<'_> {
                         }
                     },
                 };
+                // plan-146-G: a lambda that self-updates a by-ref-captured `String`
+                // works on the OWNER's block, so it shares the owner's capacity
+                // shadow through one further environment word per such capture.
+                let shared_shadows: Vec<(String, usize)> =
+                    crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                        self.functions,
+                        name,
+                    );
                 let env_slot = if captures.is_empty() {
                     None
                 } else {
                     let env_register = self.allocate_register();
                     let env_slot = self.allocate_stack_object("closure_env", 8);
                     let alloc_ok = self.label("closure_env_alloc_ok");
-                    let env_words = captures.len() + usize::from(borrowed_scratch.is_some());
+                    let shares_resource_base =
+                        crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+                            self.functions,
+                            name,
+                        );
+                    let env_words = captures.len()
+                        + usize::from(borrowed_scratch.is_some())
+                        + shared_shadows.len()
+                        + usize::from(shares_resource_base);
                     let env_size = (env_words * 8).to_string();
                     self.emit(abi::move_immediate(
                         abi::return_register(),
@@ -1952,6 +1984,47 @@ impl CodeBuilder<'_> {
                         let env_register = self.allocate_register();
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&holder, &env_register, captures.len() * 8));
+                    }
+                    for (position, (local, _)) in shared_shadows.iter().enumerate() {
+                        // The owner's shadow slot, which its own prescan allocated
+                        // for exactly this capture (`prescan_string_self_appends`).
+                        let Some(shadow_slot) = self.string_capacity_slots.get(local).copied()
+                        else {
+                            return Err(format!(
+                                "native closure `{name}` shares the capacity shadow of `{local}`, \
+                                 which its creator does not have"
+                            ));
+                        };
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(
+                            &holder,
+                            abi::stack_pointer(),
+                            shadow_slot,
+                        ));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        let index =
+                            captures.len() + usize::from(borrowed_scratch.is_some()) + position;
+                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
+                    }
+                    if shares_resource_base {
+                        // plan-146-G: the address of this frame's `os::resourcePath`
+                        // base cache, which the lambda fills on its first call and
+                        // this frame owns and frees.
+                        let Some(base_slot) = self.string_resource_base else {
+                            return Err(format!(
+                                "native closure `{name}` shares an os.resourcePath base cache \
+                                 its creator does not have"
+                            ));
+                        };
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(&holder, abi::stack_pointer(), base_slot));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        let index = captures.len()
+                            + usize::from(borrowed_scratch.is_some())
+                            + shared_shadows.len();
+                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
                     }
                     Some(env_slot)
                 };
@@ -2361,8 +2434,17 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::codegen::builtins::inline_builtin_is_infallible(target, &inline_arg_types)
-                {
+                // bug-679: `NoTypeKinds` deliberately, and unreachable for the one
+                // name that would care. Every `toInt` form returned above through
+                // `lower_inline_conversion_raw`, so the enum overload never
+                // arrives here; and codegen holds no declaration table anyway, so
+                // the oracle's `false` is both correct and the over-approximating
+                // side for anything that did.
+                if crate::codegen::builtins::inline_builtin_is_infallible(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
@@ -2380,7 +2462,11 @@ impl CodeBuilder<'_> {
                 // so this never fires today; it fails loudly if a *future* inline
                 // builtin is added to `native_builtin_target` without a raw or
                 // infallible lowering, instead of miscompiling.
-                if crate::codegen::builtins::inline_trap_unsupported(target, &inline_arg_types) {
+                if crate::codegen::builtins::inline_trap_unsupported(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
                          without a raw or infallible lowering; add one to \

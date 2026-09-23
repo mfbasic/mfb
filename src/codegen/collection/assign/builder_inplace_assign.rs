@@ -1,9 +1,9 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::assign::inplace_dest::*;
 use crate::codegen::collection::assign::self_update::SelfUpdateSite;
+use crate::codegen::collection::assign::string_self_update::StringRegrow;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::control::string_self_append_operands_of;
-use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -472,8 +472,16 @@ impl CodeBuilder<'_> {
         value: &NirValue,
     ) -> Result<bool, String> {
         let name = site.name;
-        // G1 — a by-ref slot holds the parent's slot address, not the buffer.
-        if site.by_ref {
+        // G1 — a by-ref slot holds the parent's slot address, not the buffer. The
+        // arm may still fire when the destination is the opened `Ref` (so the block
+        // pointer is in `block_slot`) AND the lambda shares the owner's capacity
+        // shadow through the closure environment (plan-146-G). Without the shared
+        // shadow this frame would claim spare bytes the owner's block may not have
+        // (`rt_byref_string_capture_capacity`).
+        if site.by_ref
+            && !(matches!(site.dest, InPlaceDest::Ref { .. })
+                && self.string_shadow_env.contains_key(name))
+        {
             return Ok(false);
         }
         let stack_offset = site.dest.block_slot();
@@ -481,15 +489,7 @@ impl CodeBuilder<'_> {
         // target discovered by the prescan — for a global, the hidden global
         // `add_global_string_capacities` declared); the shadow is reset on every
         // other bind/assign so it always reflects the live buffer's spare bytes.
-        let shadow_global = match &site.dest {
-            InPlaceDest::Global { name, .. } => match self.global_string_capacity(name) {
-                Some(shadow) => Some(shadow),
-                None => return Ok(false),
-            },
-            _ => None,
-        };
-        let frame_shadow = self.string_capacity_slots.get(name).copied();
-        if shadow_global.is_none() && frame_shadow.is_none() {
+        if !self.string_shadow_exists(site) {
             return Ok(false);
         }
         let Some(operands) = string_self_append_operands_of(value, &|root| site.is_self(root))
@@ -514,26 +514,13 @@ impl CodeBuilder<'_> {
                 return Ok(false);
             }
         }
-        let shadow_slot = match &shadow_global {
-            Some(shadow) => {
-                let slot = self.allocate_stack_object("concat_global_strcap", 8);
-                let address = self.load_global_address(shadow)?;
-                let spare = self.allocate_register();
-                self.emit(abi::load_u64(&spare, address.as_str(), 0));
-                self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
-                slot
-            }
-            None => frame_shadow.ok_or("native self-append lost its capacity shadow")?,
-        };
+        let shadow = self
+            .string_shadow_slot(site)?
+            .ok_or("native self-append lost its capacity shadow")?;
         for operand in operands {
-            self.lower_string_self_append_one(stack_offset, shadow_slot, operand)?;
+            self.lower_string_self_append_one(stack_offset, shadow.slot, operand)?;
         }
-        if let Some(shadow) = &shadow_global {
-            let spare = self.allocate_register();
-            self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot));
-            let address = self.load_global_address(shadow)?;
-            self.emit(abi::store_u64(&spare, address.as_str(), 0));
-        }
+        self.publish_string_shadow(&shadow)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -604,93 +591,41 @@ impl CodeBuilder<'_> {
 
         // --- Regrow: alloc newcap_payload + 9; copy old + operand; install. ---
         self.emit(abi::label(&regrow));
-        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64(&len, &ptr, 0)); // len
-        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot)); // spare
-        self.emit(abi::add_registers(&right_ptr, &len, &spare)); // current payload capacity
-                                                                 // bug-77: oldsize = payload_capacity + 9 ([len:8][bytes][NUL]). The
-                                                                 // headroom is tracked only in the shadow slot, so a tight len+9 free
-                                                                 // would under-free; capture the real size now before it is clobbered.
-        self.emit(abi::add_immediate(&oldsize, &right_ptr, 9));
-        self.emit(abi::store_u64(&oldsize, abi::stack_pointer(), oldsize_slot));
-        self.emit_geometric_step(
-            &right_ptr,
-            &newcap,
-            &step_scratch,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "concat_self_step",
-        );
-        // newcap_payload = max(step, newlen).
-        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::compare_registers(&newcap, &newlen));
-        self.emit(abi::branch_hi(&cap_keep));
-        self.emit(abi::branch_eq(&cap_keep));
-        self.emit(abi::move_register(&newcap, &newlen));
-        self.emit(abi::label(&cap_keep));
-        self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
-        // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
-        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::c_arg(0), &newcap, 9));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            newbuf_slot,
-        ));
-        // newbuf[0] = newlen.
-        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64(&newlen, abi::mfb_return(1), 0));
-        // Copy the current bytes (len) to newbuf+8.
-        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64(&len, &ptr, 0)); // len
-        self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
-        self.emit(abi::add_immediate(&dst, abi::mfb_return(1), 8)); // new data
-        self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
-        // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
-        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
-        self.emit(abi::add_immediate(&right_ptr, &right_ptr, 8)); // operand data
-        self.emit_copy_bytes(&dst, &right_ptr, &rlen, "concat_self_new");
-        // NUL terminator at newbuf+8+newlen.
-        self.emit(abi::move_immediate(&zero, "Integer", "0"));
-        self.emit(abi::store_u8(&zero, &dst, 0));
-        // bug-77: free the old buffer before installing the new pointer. The
-        // old buffer pointer is still live at name_slot (overwritten just
-        // below) and its size is in oldsize_slot; the new buffer is already
-        // spilled in newbuf_slot, so it survives this call. arena_free clobbers
-        // all caller-saved registers. This free runs exactly once per regrow.
-        // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
-        self.emit(abi::load_u64(
-            abi::c_arg(0),
-            abi::stack_pointer(),
-            name_slot,
-        ));
-        self.emit(abi::load_u64(
-            abi::c_arg(1),
-            abi::stack_pointer(),
-            oldsize_slot,
-        ));
-        self.emit_arena_free_call();
-        // Install new buffer; spare = newcap_payload - newlen.
-        self.emit(abi::load_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            newbuf_slot,
-        ));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            name_slot,
-        ));
-        self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
-        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));
-        self.emit(abi::store_u64(&newcap, abi::stack_pointer(), shadow_slot));
+        self.emit_string_regrow(
+            &StringRegrow {
+                name_slot,
+                shadow_slot,
+                need_slot: newlen_slot,
+                len_after_slot: newlen_slot,
+                newcap_slot,
+                newbuf_slot,
+                oldsize_slot,
+                ptr: &ptr,
+                len: &len,
+                cap: &right_ptr,
+                spare: &spare,
+                newcap: &newcap,
+                step_scratch: &step_scratch,
+                newlen: &newlen,
+                dst: &dst,
+                oldsize: &oldsize,
+                alloc_ok: &alloc_ok,
+                cap_keep: &cap_keep,
+                step_prefix: "concat_self_step",
+                copy_prefix: "concat_self_old",
+            },
+            &mut |b, dst| {
+                // Copy the operand bytes (rlen) to newbuf+8+len.
+                b.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+                b.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
+                b.emit(abi::add_immediate(&right_ptr, &right_ptr, 8)); // operand data
+                b.emit_copy_bytes(dst, &right_ptr, &rlen, "concat_self_new");
+                // NUL terminator at newbuf+8+newlen.
+                b.emit(abi::move_immediate(&zero, "Integer", "0"));
+                b.emit(abi::store_u8(&zero, dst, 0));
+                Ok(())
+            },
+        )?;
         self.emit(abi::branch(&done));
 
         // --- In place: write operand bytes into the spare tail. ---

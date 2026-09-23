@@ -36,7 +36,7 @@ mod func_byte_len;
 mod func_case_fold;
 mod func_contains;
 mod func_count;
-mod func_display_width;
+pub(crate) mod func_display_width;
 mod func_ends_with;
 mod func_ends_with_any;
 mod func_find;
@@ -54,12 +54,12 @@ mod func_join;
 mod func_left;
 mod func_lower;
 mod func_mid;
-mod func_normalize_nfc;
+pub(crate) mod func_normalize_nfc;
 mod func_pad_left;
 mod func_pad_left_to_width;
 mod func_pad_right;
 mod func_pad_right_to_width;
-mod func_repeat;
+pub(crate) mod func_repeat;
 mod func_replace;
 mod func_right;
 mod func_split;
@@ -70,18 +70,18 @@ mod func_strip_suffix;
 mod func_to_bytes;
 mod func_to_scalars;
 mod func_trim;
-mod func_trim_chars;
+pub(crate) mod func_trim_chars;
 mod func_trim_end;
 mod func_trim_start;
 mod func_upper;
 
-mod gen_case_map;
-mod gen_graphemes;
-mod gen_left_right;
-mod gen_pad;
+pub(crate) mod gen_case_map;
+pub(crate) mod gen_graphemes;
+pub(crate) mod gen_left_right;
+pub(crate) mod gen_pad;
 mod gen_strings_support;
-mod gen_strip;
-mod gen_trim;
+pub(crate) mod gen_strip;
+pub(crate) mod gen_trim;
 mod gen_with_any;
 mod helper_pad_to_width;
 mod helper_scalar_seam;
@@ -350,6 +350,14 @@ const TIER_B_TRANSFORMS: &[(&str, &str)] = &[
     ("strings.caseFold", "__astrings_caseFold"),
     ("strings.normalizeNfc", "__astrings_normalizeNfc"),
 ];
+
+/// plan-146-A: the Tier-B table, for the self-update census
+/// (`tier_b_transforms_have_rows`), which must see every `AttributedString`
+/// transform the registry does not list.
+#[cfg(test)]
+pub(crate) fn tier_b_transforms() -> &'static [(&'static str, &'static str)] {
+    TIER_B_TRANSFORMS
+}
 
 pub(crate) fn is_tier_b_transform(name: &str) -> bool {
     TIER_B_TRANSFORMS.iter().any(|(member, _)| *member == name)

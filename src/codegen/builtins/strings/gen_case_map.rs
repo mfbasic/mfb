@@ -2,12 +2,13 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::builtins::strings::UnicodeCaseMap;
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-fn emit_ascii_case_transform(
+pub(crate) fn emit_ascii_case_transform(
     builder: &mut CodeBuilder,
     map: UnicodeCaseMap,
     reg: impl Into<Operand>,
@@ -38,6 +39,23 @@ pub(crate) fn lower_strings_case_map(
     value: &ValueResult,
     map: UnicodeCaseMap,
 ) -> Result<ValueResult, String> {
+    let (result, _) = lower_strings_case_map_out(builder, value, map, StringOut::Block)?;
+    Ok(result)
+}
+
+/// plan-146-E: [`lower_strings_case_map`] with the destination chosen by the
+/// caller. `StringOut::Block` is the copying lowering, byte for byte;
+/// `StringOut::Scratch` writes the mapped bytes into the function's self-update
+/// scratch instead and returns `(pointer slot, length slot)` for the in-place arm
+/// to publish. The ASCII quick path is the caller's business in that mode — the
+/// mapping is same-length there, so the arm rewrites the binding's own bytes and
+/// never reaches this function.
+pub(crate) fn lower_strings_case_map_out(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    map: UnicodeCaseMap,
+    out: StringOut,
+) -> Result<(ValueResult, usize), String> {
     let scratch20 = builder.temporary_vreg();
     let scratch21 = builder.temporary_vreg();
     let scratch22 = builder.temporary_vreg();
@@ -90,6 +108,10 @@ pub(crate) fn lower_strings_case_map(
     // Bit-identical to the slow path for ASCII input (same
     // emit_ascii_case_transform, same byte_len + 9 allocation); any byte
     // >= 0x80 falls through to the slow path below.
+    if matches!(out, StringOut::Scratch) {
+        // plan-146-E: the arm has already handled the all-ASCII case in place.
+        builder.emit(abi::branch(&case_slow));
+    }
     builder.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
     builder.emit(abi::load_u64(&scratch21, &scratch20, 0));
     builder.emit(abi::add_immediate(&scratch22, &scratch20, 8));
@@ -224,29 +246,46 @@ pub(crate) fn lower_strings_case_map(
 
     // bug-175 B: header (+9) add routed through the checked helper so a
     // pathological byte length cannot wrap the allocation size.
-    let size_overflow = builder.label("strings_case_map_size_overflow");
-    builder.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-    builder.emit_arena_alloc_call();
-    builder.emit(abi::branch_eq(&alloc_ok));
-    builder.raise_error_bare("ErrOutOfMemory")?;
-    builder.emit(abi::label(&size_overflow));
-    builder.raise_error_bare("ErrOutOfMemory")?;
-    builder.emit(abi::label(&alloc_ok));
-    builder.emit(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        result_slot,
-    ));
-    builder.emit(abi::load_u64(&scratch24, abi::stack_pointer(), length_slot));
-    builder.emit(abi::store_u64(&scratch24, abi::mfb_return(1), 0));
+    let mut out_slot = result_slot;
+    match out {
+        StringOut::Block => {
+            let size_overflow = builder.label("strings_case_map_size_overflow");
+            builder.emit_checked_size_add_immediate(
+                abi::return_register(),
+                &scratch24,
+                9,
+                &size_overflow,
+            );
+            builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            builder.emit_arena_alloc_call();
+            builder.emit(abi::branch_eq(&alloc_ok));
+            builder.raise_error_bare("ErrOutOfMemory")?;
+            builder.emit(abi::label(&size_overflow));
+            builder.raise_error_bare("ErrOutOfMemory")?;
+            builder.emit(abi::label(&alloc_ok));
+            builder.emit(abi::store_u64(
+                abi::mfb_return(1),
+                abi::stack_pointer(),
+                result_slot,
+            ));
+            builder.emit(abi::load_u64(&scratch24, abi::stack_pointer(), length_slot));
+            builder.emit(abi::store_u64(&scratch24, abi::mfb_return(1), 0));
+        }
+        StringOut::Scratch => {
+            // plan-146-E: the mapped bytes go to the reused scratch; the arm copies
+            // them into the binding's block once they are complete.
+            out_slot = builder.emit_string_out_scratch(length_slot)?;
+        }
+    }
 
     builder.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
     builder.emit(abi::load_u64(&scratch21, &scratch20, 0));
     builder.emit(abi::add_immediate(&scratch22, &scratch20, 8));
     builder.emit(abi::move_immediate(&scratch23, "Integer", "0"));
-    builder.emit(abi::load_u64(&scratch28, abi::stack_pointer(), result_slot));
-    builder.emit(abi::add_immediate(&scratch28, &scratch28, 8));
+    builder.emit(abi::load_u64(&scratch28, abi::stack_pointer(), out_slot));
+    if matches!(out, StringOut::Block) {
+        builder.emit(abi::add_immediate(&scratch28, &scratch28, 8));
+    }
     builder.emit(abi::label(&write_loop));
     builder.emit(abi::compare_registers(&scratch23, &scratch21));
     builder.emit(abi::branch_ge(&write_done));
@@ -285,25 +324,32 @@ pub(crate) fn lower_strings_case_map(
     builder.emit(abi::label(&write_done));
     // audit-unicode #9: the write pass must end exactly at the byte length
     // the counting pass allocated; a divergence is a silent heap overflow.
-    builder.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+    builder.emit(abi::load_u64(&scratch10, abi::stack_pointer(), out_slot));
     builder.emit(abi::load_u64(&scratch11, abi::stack_pointer(), length_slot));
     builder.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
-    builder.emit(abi::add_immediate(&scratch10, &scratch10, 8));
+    if matches!(out, StringOut::Block) {
+        builder.emit(abi::add_immediate(&scratch10, &scratch10, 8));
+    }
     builder.emit_write_cursor_assert(&scratch28, &scratch10, "strings_case_map");
-    builder.emit(abi::move_immediate(&scratch10, "Integer", "0"));
-    builder.emit(abi::store_u8(&scratch10, &scratch28, 0));
+    if matches!(out, StringOut::Block) {
+        builder.emit(abi::move_immediate(&scratch10, "Integer", "0"));
+        builder.emit(abi::store_u8(&scratch10, &scratch28, 0));
+    }
 
     builder.emit(abi::label(&case_done));
     let result = builder.allocate_register();
-    builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    builder.emit(abi::load_u64(&result, abi::stack_pointer(), out_slot));
     // bug-536 shape B: the case-mapped output is this lowering's own
     // `emit_arena_alloc_call` block (`result_slot`), written by the pass above —
     // never the input's storage.
     builder.mark_fresh_string(Operand::from(result.render()));
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::String,
-        location: Operand::from(result.render()),
-        text: map.name().to_string(),
-    })
+    Ok((
+        ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(result.render()),
+            text: map.name().to_string(),
+        },
+        length_slot,
+    ))
 }

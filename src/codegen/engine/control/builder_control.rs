@@ -810,8 +810,17 @@ impl CodeBuilder<'_> {
         else {
             return false;
         };
-        crate::codegen::builtins::inline_builtin_is_infallible(target, &arg_types)
-            && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
+        // bug-679: `NoTypeKinds` deliberately. This is a codegen optimizer running
+        // on NIR, where no declaration table is in scope to tell an enum from a
+        // record, and the oracle's `false` is the over-approximating side — a
+        // `toInt(<enum>)` here simply stays "can fail" and the value is not
+        // treated as effect-free. Losing an optimization is the safe direction;
+        // the other one would let a failing call be elided.
+        crate::codegen::builtins::inline_builtin_is_infallible(
+            target,
+            &arg_types,
+            &crate::codegen::builtins::NoTypeKinds,
+        ) && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
     }
 
     /// If `field` is a **collection** field of `record_type` that is inlined AND
@@ -1794,7 +1803,15 @@ impl CodeBuilder<'_> {
                         // reassignment path entirely. A by-ref capture (S9,
                         // plan-142-G) mutates the parent's block through the
                         // reference.
-                        let dest = if by_ref && is_self_update_call(value, name) {
+                        let dest = if by_ref
+                            && (is_self_update_call(value, name)
+                                // plan-146-G: `s = s & t` is a `Binary`, not a
+                                // call, and it is an arm at S9 now too.
+                                || string_self_append_operands_of(value, &|root| {
+                                    matches!(root, NirValue::Local(local) if local == name)
+                                })
+                                .is_some())
+                        {
                             InPlaceDest::Ref {
                                 ref_slot: stack_offset,
                                 block_slot: self.allocate_stack_object("su_ref_block", 8),
@@ -1930,16 +1947,25 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     slot,
                                 ));
-                                // The owner of a by-ref-captured `String` keeps no
-                                // capacity shadow, so its block is tight.
+                                // plan-146-G: the owner's block may carry spare
+                                // bytes an arm in this lambda left there, so the
+                                // free is sized by the SHARED shadow — and the
+                                // shadow is reset to 0 below, because the block
+                                // being installed is a fresh tight one.
+                                let shared = self.string_shadow_working_copy(name);
+                                let (shared_slot, shared_holder) = match shared {
+                                    Some((slot, holder)) => (Some(slot), Some(holder)),
+                                    None => (None, None),
+                                };
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
                                     type_: result.type_.clone(),
                                     stack_offset: old_slot,
                                     closure_captures: None,
-                                    capacity_slot: None,
+                                    capacity_slot: shared_slot,
                                     loop_alias_slot: None,
                                     result_wrapper: None,
                                 })?;
+                                self.reset_shared_string_shadow(shared_holder);
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
@@ -2965,6 +2991,34 @@ impl CodeBuilder<'_> {
         self.string_capacity_slots.get(name).copied()
     }
 
+    /// plan-146-G: a working copy of the OWNER's capacity shadow for the by-ref
+    /// capture `name`, read through the closure environment — the size a free of
+    /// its block must use. `None` when this lambda shares no shadow for it.
+    pub(crate) fn string_shadow_working_copy(&mut self, name: &str) -> Option<(usize, usize)> {
+        let index = self.string_shadow_env.get(name).copied()?;
+        let slot = self.allocate_stack_object("ref_strcap_free", 8);
+        let holder_slot = self.allocate_stack_object("ref_strcap_owner", 8);
+        let holder = self.allocate_register();
+        let spare = self.allocate_register();
+        self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+        self.emit(abi::store_u64(&holder, abi::stack_pointer(), holder_slot));
+        self.emit(abi::load_u64(&spare, &holder, 0));
+        self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+        Some((slot, holder_slot))
+    }
+
+    /// plan-146-G: store 0 into the OWNER's shadow through the closure
+    /// environment — every store that installs a fresh (tight) block through the
+    /// reference does this, exactly as a plain local's store resets its own.
+    pub(crate) fn reset_shared_string_shadow(&mut self, holder_slot: Option<usize>) {
+        let Some(holder_slot) = holder_slot else {
+            return;
+        };
+        let holder = self.allocate_register();
+        self.emit(abi::load_u64(&holder, abi::stack_pointer(), holder_slot));
+        self.emit(abi::store_u64(abi::ZERO, &holder, 0));
+    }
+
     pub(crate) fn reset_string_capacity_shadow(&mut self, name: &str) {
         let zero = self.temporary_vreg();
         if let Some(&slot) = self.string_capacity_slots.get(name) {
@@ -2978,16 +3032,42 @@ impl CodeBuilder<'_> {
     /// nested blocks. Done before lowering so bind/assign sites can reset the shadow
     /// and the prologue can zero it (plan-02 §4.1).
     pub(crate) fn prescan_string_self_appends(&mut self, ops: &[NirOp]) {
+        // plan-146-G: a `String` this frame lends a lambda by reference needs a
+        // shadow HERE, because the lambda's self-update leaves its spare bytes in
+        // this frame's block; the lambda reads and publishes it through the closure
+        // environment (`string_shadow_captures`).
+        for lambda in self.closures_created_in(ops) {
+            for (local, _) in
+                crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                    self.functions,
+                    &lambda,
+                )
+            {
+                if !self.string_capacity_slots.contains_key(&local) {
+                    let slot = self.allocate_stack_object(&format!("strcap_{local}"), 8);
+                    self.string_capacity_slots.insert(local, slot);
+                }
+            }
+        }
         for op in ops {
             match op {
                 NirOp::Assign { name, value } => {
-                    // A local captured by reference gets none: a callback can
-                    // replace its buffer through the reference without seeing this
-                    // frame's shadow, which would then claim spare bytes the new
-                    // buffer does not have (`rt_byref_string_capture_capacity`).
-                    if string_self_append_operands(value, name).is_some()
-                        && !self.string_capacity_slots.contains_key(name)
-                        && !self.address_taken_locals.contains(name)
+                    // plan-146-G: a local captured by reference gets one too — and
+                    // shares it with every lambda that self-updates it, through the
+                    // closure environment. Before that it got none, because a
+                    // callback could replace the buffer through the reference
+                    // without seeing this frame's shadow, which would then claim
+                    // spare bytes the new buffer does not have
+                    // (`rt_byref_string_capture_capacity`); the shared word is what
+                    // keeps the two in step.
+                    if crate::codegen::collection::assign::string_self_update::is_string_self_update(
+                        value,
+                        &|root| matches!(root, NirValue::Local(local) if local == name),
+                    ) && !self.string_capacity_slots.contains_key(name)
+                        // plan-146-G observation O2: a by-ref capture that shares
+                        // its owner's shadow needs no slot of its own — the one it
+                        // used to get was never read.
+                        && !self.string_shadow_env.contains_key(name)
                     {
                         let slot = self.allocate_stack_object(&format!("strcap_{name}"), 8);
                         self.string_capacity_slots.insert(name.clone(), slot);
@@ -3016,6 +3096,27 @@ impl CodeBuilder<'_> {
                 _ => {}
             }
         }
+    }
+
+    /// plan-146-G: the lambdas `ops` create a closure for, in source order.
+    pub(crate) fn closures_created_in(&self, ops: &[NirOp]) -> Vec<String> {
+        use crate::target::shared::nir::visit::{walk_value, NirVisitor};
+        struct Finder {
+            names: Vec<String>,
+        }
+        impl NirVisitor for Finder {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { name, captures, .. } = value {
+                    if !captures.is_empty() && !self.names.contains(name) {
+                        self.names.push(name.clone());
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder { names: Vec::new() };
+        finder.visit_ops(ops);
+        finder.names
     }
 
     /// Begin loop-carried promotion of safe float-accumulator locals for a loop
@@ -3588,23 +3689,11 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// If `value` is a left-associated string-concat chain `name & a & b …` whose
-/// leftmost leaf is `Local(name)`, return the operands to append in source order
-/// (`[a, b, …]`); otherwise `None`. Used to recognize the in-place self-append
-/// idiom `name = name & …` (plan-02 §4.1). `&` is string concatenation, so a
-/// match guarantees `name` is a `String` local.
-pub(crate) fn string_self_append_operands<'v>(
-    value: &'v NirValue,
-    name: &str,
-) -> Option<Vec<&'v NirValue>> {
-    string_self_append_operands_of(
-        value,
-        &|root| matches!(root, NirValue::Local(local) if local == name),
-    )
-}
-
-/// [`string_self_append_operands`] for a chain whose leftmost operand satisfies
-/// `is_self` — the local, or a global (plan-142-H).
+/// If `value` is a left-associated string-concat chain whose leftmost leaf
+/// satisfies `is_self` — the local, or a global (plan-142-H) — return the operands
+/// to append in source order (`[a, b, …]`); otherwise `None`. This is the in-place
+/// self-append idiom `name = name & …` (plan-02 §4.1); `&` is string
+/// concatenation, so a match guarantees the binding is a `String`.
 pub(crate) fn string_self_append_operands_of<'v>(
     value: &'v NirValue,
     is_self: &dyn Fn(&NirValue) -> bool,

@@ -20,9 +20,8 @@ pub(crate) fn lower_fs_canonical_path_helper(
     // held across a later `arena_alloc`/`realpath` become spilled/callee-saved vregs.
     const PATH_MAX_PLUS_NUL: usize = 4097;
 
-    let path_alloc_ok = format!("{symbol}_path_alloc_ok");
-    let copy_loop = format!("{symbol}_copy_loop");
-    let copy_done = format!("{symbol}_copy_done");
+    let scan_loop = format!("{symbol}_scan_loop");
+    let scan_done = format!("{symbol}_scan_done");
     let buffer_alloc_ok = format!("{symbol}_buffer_alloc_ok");
     let realpath_ok = format!("{symbol}_realpath_ok");
     let length_loop = format!("{symbol}_length_loop");
@@ -42,28 +41,26 @@ pub(crate) fn lower_fs_canonical_path_helper(
     let length = vregs.next();
     let result = vregs.next();
     let len0 = vregs.next();
-    let c_path_size = vregs.next();
     let buffer_size = vregs.next();
     let mut instructions = vec![
-        // bug-574: `c_path` (the marshalled argument) and `buffer` (the PATH_MAX
-        // `realpath` output) are both this helper's own scratch — the `String` it
-        // hands back is `result`, a third allocation — so both are released at
-        // `done`. Nulled FIRST: the empty-path rejection reaches `done` with
-        // neither allocated, and each `alloc_error` with only the earlier ones.
-        abi::move_immediate(&c_path, "Integer", "0"),
-        abi::move_immediate(&c_path_size, "Integer", "0"),
+        // bug-574: `buffer` (the PATH_MAX `realpath` output) is this helper's own
+        // scratch — the `String` it hands back is `result`, a separate allocation
+        // — so it is released at `done`. Nulled FIRST: the empty-path rejection
+        // and the first `alloc_error` reach `done` with nothing allocated.
+        //
+        // plan-146-F: `c_path` is the caller's `path` block borrowed at `+8`,
+        // where its bytes already end in a NUL — no copy, and so no scratch. An
+        // empty path, and an interior NUL that would truncate what `realpath`
+        // resolves, are still rejected.
         abi::move_immediate(&buffer, "Integer", "0"),
         abi::move_immediate(&buffer_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(&c_path_size, &len0, 1),
-        abi::move_register(abi::return_register(), &c_path_size),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::add_immediate(&c_path, &path, 8),
     ];
-    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
+    let mut relocations = Vec::new();
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -71,26 +68,18 @@ pub(crate) fn lower_fs_canonical_path_helper(
     let byte = vregs.next();
     let cursor = vregs.next();
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&path_alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&path_alloc_ok),
-        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
-        abi::add_immediate(&src, &path, 8),
-        abi::move_register(&dst, &c_path),
+        abi::move_register(&src, &c_path),
         abi::move_immediate(&index, "Integer", "0"),
     ]);
-    emit_cstring_copy(
+    emit_cstring_nul_scan(
         &mut instructions,
-        true,
         &len,
         &src,
-        &dst,
         &index,
         &byte,
-        &copy_loop,
-        &copy_done,
+        &scan_loop,
+        &scan_done,
         &invalid,
     );
     instructions.extend([
@@ -193,10 +182,7 @@ pub(crate) fn lower_fs_canonical_path_helper(
     instructions.push(abi::label(&done));
     emit_helper_scratch_release(
         symbol,
-        &[
-            HelperScratch::new(&c_path, &c_path_size),
-            HelperScratch::new(&buffer, &buffer_size),
-        ],
+        &[HelperScratch::new(&buffer, &buffer_size)],
         &mut vregs,
         &mut instructions,
         &mut relocations,

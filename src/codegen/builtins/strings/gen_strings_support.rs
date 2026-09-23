@@ -263,7 +263,7 @@ impl CodeBuilder<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UnicodeCaseMap {
     Upper,
     Lower,

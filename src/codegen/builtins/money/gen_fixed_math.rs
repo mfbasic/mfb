@@ -19,6 +19,14 @@ const FIXED_ONE: u64 = 1u64 << 32;
 const FIXED_HALF: u64 = 1u64 << 31;
 /// Mask selecting the fractional 32 bits of a Q32.32 value.
 const FIXED_FRACTION_MASK: u64 = 0xFFFF_FFFF;
+/// Raw Q32.32 value of `64.0`: the magnitude past which [`CodeBuilder::emit_fixed_exp`]
+/// decides its result from the SIGN of the argument instead of running the
+/// `x / ln2` argument reduction (bug-659). `Fixed` spans just under `[-2^31, 2^31)`,
+/// so `exp` overflows above `ln(2^31) = 21.4876` and rounds to zero below
+/// `-33*ln2 = -22.8742`; `64` is outside both, so no in-range result moves, and
+/// well inside the reduction's wrap point `2^31*ln2 = 1.4885e9`, so the unchecked
+/// Q32.32 product downstream can no longer leave range.
+const FIXED_EXP_ARGUMENT_BOUND: u64 = 64u64 << 32;
 /// `2^63`: the value `1.0` in the unsigned Q1.63 format of the trig series.
 const Q63_ONE: u64 = 1u64 << 63;
 /// Horner levels of the `sin`/`cos` Taylor series (terms through `r^18`); see
@@ -309,6 +317,81 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_left_immediate(s0.clone(), s0.clone(), 63));
         self.emit(abi::shift_right_immediate(s0.clone(), s0.clone(), 63));
         self.emit(abi::add_registers(dst.clone(), dst.clone(), s0.clone()));
+    }
+
+    /// Round-to-nearest Q32.32 multiply that SATURATES rather than wraps: a
+    /// product outside `Fixed` range yields `i64::MAX`/`i64::MIN` carrying the
+    /// product's true sign (bug-659). In range it is bit-identical to
+    /// [`Self::emit_fixed_mul`].
+    ///
+    /// Use this wherever the product's SIGN, not just its value, steers a later
+    /// branch. `emit_fixed_mul` wraps, and a wrapped sign does not merely
+    /// misreport a magnitude — it sends the consumer down the opposite arm. That
+    /// is how `pow`'s `exponent * ln(base)` turned a genuine overflow into `0.00`
+    /// and a genuine underflow into `ErrOverflow`. Saturating keeps the sign, so
+    /// `emit_fixed_exp`'s range gate still reads the correct outcome off it.
+    ///
+    /// `a` and `b` must not be the returned register (it is freshly allocated, so
+    /// only a caller re-using the result as an input could violate that).
+    fn emit_fixed_mul_saturating(
+        &mut self,
+        a: impl Into<Operand>,
+        b: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
+        let a = a.into();
+        let b = b.into();
+        let result = self.allocate_register();
+        let saved = self.next_register;
+        let lo = self.allocate_register();
+        let hi = self.allocate_register();
+        let probe = self.allocate_register();
+        let in_range = self.label("fixed_mul_sat_in_range");
+        let done = self.label("fixed_mul_sat_done");
+        // Low and high halves of the 128-bit signed product.
+        self.emit(abi::multiply_registers(&lo, a.clone(), b.clone()));
+        self.emit(abi::signed_multiply_high_registers(&hi, a, b));
+        // The Q32.32 result is bits[95:32] of that product, so it fits a signed
+        // 64-bit word exactly when bits[127:95] are all sign bits — that is, when
+        // `hi >> 31` (arithmetic; == product >> 95) is 0 or -1. Biasing by one maps
+        // that pair to {1, 0}, which a single unsigned `<= 1` test covers.
+        self.emit(abi::arithmetic_shift_right_immediate(&probe, &hi, 31));
+        self.emit(abi::add_immediate(&probe, &probe, 1));
+        self.emit(abi::compare_immediate(&probe, "1"));
+        self.emit(abi::branch_ls(&in_range));
+        // Out of range: saturate toward the product's true sign. `result` is 0 for
+        // a non-negative product and all-ones for a negative one, so XOR with
+        // `i64::MAX` gives `i64::MAX` and `i64::MIN` respectively.
+        self.emit(abi::arithmetic_shift_right_immediate(&result, &hi, 63));
+        self.emit(abi::move_immediate(
+            &probe,
+            "Integer",
+            &(i64::MAX as u64).to_string(),
+        ));
+        self.emit(abi::exclusive_or_registers(&result, &result, &probe));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&in_range));
+        // Combined middle word = (hi << 32) | (lo >>u 32) = bits[95:32].
+        self.emit(abi::shift_left_immediate(&hi, &hi, 32));
+        self.emit(abi::shift_right_immediate(&result, &lo, 32));
+        self.emit(abi::or_registers(&result, &result, &hi));
+        // Round half up using bit 31 of the low word (the top discarded bit).
+        self.emit(abi::shift_right_immediate(&lo, &lo, 31));
+        self.emit(abi::shift_left_immediate(&lo, &lo, 63));
+        self.emit(abi::shift_right_immediate(&lo, &lo, 63));
+        // That carry is the one way an in-range combine can still wrap: rounding
+        // `i64::MAX` up yields `i64::MIN`, flipping the sign this routine exists to
+        // preserve. `i64::MAX` is already the saturated answer, so hold it there.
+        self.emit(abi::move_immediate(
+            &probe,
+            "Integer",
+            &(i64::MAX as u64).to_string(),
+        ));
+        self.emit(abi::compare_registers(&result, &probe));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::add_registers(&result, &result, &lo));
+        self.emit(abi::label(&done));
+        self.next_register = saved;
+        Ok(result)
     }
 
     /// `atan(num/den)` for unsigned 64-bit `num` and `den`, as an unsigned Q3.61
@@ -1160,10 +1243,53 @@ impl CodeBuilder<'_> {
         src: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let x_slot = self.allocate_stack_object("fixed_exp_x", 8);
+        let result_slot = self.allocate_stack_object("fixed_exp_result", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
         let x = self.allocate_register();
         self.emit(abi::load_u64(&x, abi::stack_pointer(), x_slot));
+        // bug-659: gate the argument BEFORE the reduction below. `x / ln2` is an
+        // unchecked Q32.32 multiply, so for |x| > 2^31*ln2 = 1.4885e9 the product
+        // leaves `Fixed` range and wraps, and `n` comes out with the WRONG SIGN.
+        // `emit_fixed_scale_by_power_of_two` dispatches on that sign — the n >= 0
+        // arm doubles with an `ErrOverflow` check, the n < 0 arm halves with no
+        // check at all — so a wrapped sign selected the opposite arm and silently
+        // swapped overflow with underflow (exp(-2e9) raised, exp(2e9) returned
+        // 0.00). Both outcomes are already settled far below the wrap point:
+        // `Fixed` tops out just under 2^31, so the result overflows for
+        // x > ln(2^31) = 21.4876 and rounds to zero for x < -33*ln2 = -22.8742.
+        // Gating at |x| = 64 sits comfortably outside both thresholds, so no
+        // in-range result changes, and comfortably inside the wrap point, so the
+        // reduction can no longer wrap (|64/ln2| < 93).
+        let bound = self.allocate_register();
+        let within_upper = self.label("fixed_exp_within_upper");
+        let in_range = self.label("fixed_exp_in_range");
+        let done = self.label("fixed_exp_done");
+        // Compare through a register, never `compare_immediate`: the raw bound is
+        // 64*2^32, far past the x86 CMP imm32 field (bug-74).
+        self.emit(abi::move_immediate(
+            &bound,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_EXP_ARGUMENT_BOUND.to_string(),
+        ));
+        self.emit(abi::compare_registers(&x, &bound));
+        self.emit(abi::branch_le(&within_upper));
+        self.raise_error_bare("ErrOverflow")?;
+        self.emit(abi::label(&within_upper));
+        // Re-materialise the bound rather than negating the register: the raise
+        // above is a non-returning tail that the allocator treats as clobbering.
+        self.emit(abi::move_immediate(
+            &bound,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &(FIXED_EXP_ARGUMENT_BOUND.wrapping_neg()).to_string(),
+        ));
+        self.emit(abi::compare_registers(&x, &bound));
+        self.emit(abi::branch_ge(&in_range));
+        // x < -64: e^x is below half a Q32.32 unit, so it rounds to exactly 0.00.
+        self.emit(abi::move_immediate(&bound, abi::IMMEDIATE_CLASS_FIXED, "0"));
+        self.emit(abi::store_u64(&bound, abi::stack_pointer(), result_slot));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&in_range));
         // n = round(x / ln2).
         let inv_ln2 = self.allocate_register();
         self.emit_const_i64(&inv_ln2, fixed_inv_ln2());
@@ -1212,7 +1338,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&series_done));
         // result = sum << n (n >= 0) or sum >> -n (n < 0), with overflow guard.
         self.emit_fixed_scale_by_power_of_two(&sum, &n)?;
-        Ok(sum)
+        self.emit(abi::store_u64(&sum, abi::stack_pointer(), result_slot));
+        self.emit(abi::label(&done));
+        self.reset_temporary_registers();
+        let result = self.allocate_register();
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
     }
 
     /// Multiply `value` (a `Fixed`) by `2^n` in place where `n` is a runtime
@@ -1576,7 +1707,14 @@ impl CodeBuilder<'_> {
         let ln_reg = self.allocate_register();
         self.emit(abi::load_u64(&exp_reg, abi::stack_pointer(), exp_slot));
         self.emit(abi::load_u64(&ln_reg, abi::stack_pointer(), ln_slot));
-        let product = self.emit_fixed_mul(&exp_reg, &ln_reg)?;
+        // bug-659: saturate, never wrap. `|ln(base)|` reaches ~22 across the Fixed
+        // domain, so an exponent past ~1e8 drives this product out of Q32.32 range;
+        // a wrapped product flips sign, and `emit_fixed_exp` reads its outcome
+        // (ErrOverflow vs 0.00) off exactly that sign — so the wrap did not blur a
+        // magnitude, it inverted the answer. A saturated `i64::MAX`/`i64::MIN` is
+        // past exp's argument gate in the correct direction, which is the true
+        // result: `|exponent * ln(base)| > 2^31` cannot land inside Fixed range.
+        let product = self.emit_fixed_mul_saturating(&exp_reg, &ln_reg)?;
         let frac_result = self.emit_fixed_exp(&product)?;
         self.emit(abi::store_u64(
             &frac_result,

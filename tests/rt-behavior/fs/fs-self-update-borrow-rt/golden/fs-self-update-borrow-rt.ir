@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs-self-update-borrow-rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 10, "mutable": false, "name": "dir", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "leaf", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "dir" }, { "kind": "const", "type": "String", "value": "mfb_p146f_leaf.txt" }] }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "link", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "dir" }, { "kind": "const", "type": "String", "value": "mfb_p146f_link.txt" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "leaf" }, { "kind": "const", "type": "String", "value": "leaf payload" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "link" }, { "kind": "local", "name": "leaf" }] } },
+    { "op": "bind", "line": 16, "mutable": true, "name": "p", "type": "String", "value": { "kind": "local", "name": "link" } },
+    { "op": "assign", "line": 17, "name": "p", "value": { "kind": "call", "type": "String", "target": "fs.canonicalPath", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "assign", "line": 18, "name": "p", "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] }] } },
+    { "op": "assign", "line": 22, "name": "p", "value": { "kind": "call", "type": "String", "target": "fs.canonicalPath", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "leaf" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "link" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.exists", "args": [{ "kind": "local", "name": "leaf" }] }] }] } },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

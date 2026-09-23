@@ -7,3 +7,4 @@ pub(crate) mod builder_inplace_shrink;
 pub(crate) mod builder_inplace_sort;
 pub(crate) mod inplace_dest;
 pub(crate) mod self_update;
+pub(crate) mod string_self_update;

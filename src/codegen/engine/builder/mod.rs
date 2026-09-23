@@ -572,6 +572,22 @@ pub(crate) struct CodeBuilder<'a> {
     /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
     /// asks `move_sites` about.
     pub(crate) current_op_key: Option<usize>,
+    /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
+    /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
+    /// no `s = os::resourcePath(s)`.
+    pub(crate) string_resource_base: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates with `os::resourcePath`, the
+    /// closure-environment word holding the address of the CREATOR's base-path
+    /// cache slot.
+    pub(crate) string_resource_base_env: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates a by-ref-captured `String`, the
+    /// closure-environment word holding the address of the OWNER's capacity shadow,
+    /// per captured local (`string_shadow_captures`). Empty everywhere else.
+    pub(crate) string_shadow_env: std::collections::HashMap<String, usize>,
+    /// plan-146-D: the module (project) name, which `os::resourcePath`'s app-mode
+    /// resource suffix embeds (`share/<module>`). Empty in a synthesized function,
+    /// which lowers no NIR statement and so no self-update.
+    pub(crate) module_name: String,
 }
 
 impl<'a> CodeBuilder<'a> {
@@ -683,6 +699,10 @@ impl<'a> CodeBuilder<'a> {
             graph_copy_walker: None,
             move_sites: None,
             current_op_key: None,
+            string_resource_base: None,
+            string_shadow_env: std::collections::HashMap::new(),
+            string_resource_base_env: None,
+            module_name: String::new(),
         }
     }
 }
@@ -1903,6 +1923,7 @@ pub(crate) fn lower_module_for_platform(
                     &callback_referenced_functions,
                     &synthesized_constructors,
                     type_model.clone(),
+                    &module.project,
                 )
             },
         )?);

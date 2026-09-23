@@ -1,0 +1,39 @@
+' plan-146-F: every `os` environment call reads its `String` argument straight
+' out of the caller's block (`borrow_cstring`) instead of copying it into arena
+' scratch. The self-update form `s = os::getEnv(s)` is the case that would break
+' if the borrow outlived the call, or if the old release freed the caller's
+' value, so each read below is chained: the name it looks up is the value the
+' previous call returned.
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  os::setEnv("MFB_P146F_A", "MFB_P146F_B")
+  os::setEnv("MFB_P146F_B", "MFB_P146F_C")
+  os::setEnv("MFB_P146F_C", "done")
+
+  MUT s AS String = "MFB_P146F_A"
+  FOR i = 1 TO 3
+    s = os::getEnv(s)
+  NEXT
+  io::print(s)
+
+  MUT t AS String = "MFB_P146F_A"
+  FOR i = 1 TO 3
+    t = os::getEnvOr(t, "fallback")
+  NEXT
+  io::print(t)
+
+  ' The fallback is still an owned copy, so a missing name returns it intact.
+  MUT u AS String = "MFB_P146F_MISSING_ZZZ"
+  u = os::getEnvOr(u, "fallback")
+  io::print(u)
+
+  ' `hasEnv` and `unsetEnv` borrow their name the same way.
+  MUT v AS String = "MFB_P146F_A"
+  io::print(toString(os::hasEnv(v)))
+  os::unsetEnv(v)
+  io::print(toString(os::hasEnv(v)))
+  io::print(v)
+  RETURN 0
+END FUNC

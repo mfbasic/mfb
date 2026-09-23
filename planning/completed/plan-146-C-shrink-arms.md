@@ -108,43 +108,86 @@ Rejected alternatives:
 
 ### Phase 1: Read the raise points
 
-- [ ] For each of the 13 rows, read its lowering and record here every error it
+- [x] For each of the 13 rows, read its lowering and record here every error it
       can raise and whether each is raised before the window is known (e.g. a
       negative `count`, `graphemeAt` out of range). Record the `pathDirName` inputs
       that take `.` and `/`.
 
-Acceptance: the list is recorded with a `file:symbol` per raise point (est. 30 min).
-Commit: —
+      | row | raises | before the window? |
+      |---|---|---|
+      | `left`, `right` | `ErrInvalidArgument` for `count < 0` (`strings/gen_left_right.rs:lower_strings_left_right`, label `strings_lr_invalid`, `builder.raise_error("strings.left"/"strings.right", …)`) | yes — the first two instructions after loading `count` |
+      | `mid` | `ErrIndexOutOfRange` (`collection/search/builder_search.rs:lower_mid`, label `mid_invalid_range`) for `start < 0`, `count < 0`, `start + count` wrapping, or a range past the end | yes — every branch to `mid_invalid_range` is taken before the span is known; the raise is *emitted* after the copy, so the arm emits it after its move the same way |
+      | `stripPrefix`, `stripSuffix` | none (`strings/gen_strip.rs:lower_strings_strip`) | — |
+      | `trim`, `trimStart`, `trimEnd` | none (`strings/gen_trim.rs:lower_strings_trim`) | — |
+      | `trimChars` | none (`strings/func_trim_chars.rs:lower`) | — |
+      | `graphemeAt` | `ErrIndexOutOfRange` (`strings/func_grapheme_at.rs:lower`, label `strings_grapheme_at_invalid`) for `index < 0` or `index >= count`; the copying path also inherits `ErrOutOfMemory` from the `List OF String` it builds (`gen_graphemes.rs:lower_strings_graphemes`) | yes for the range check; the arm's own walk raises before it moves a byte and allocates nothing (Correction C1) |
+      | `pathBaseName`, `pathExtension` | none (`fs/gen_path_builder.rs:lower_fs_path_base_name` / `_extension`) | — |
+      | `pathDirName` | none (`fs/gen_path_builder.rs:lower_fs_path_dir_name`) | — |
+
+      Every row also inherits `ErrOutOfMemory` from `emit_materialize_string_from_bytes`
+      — the copying path's allocation, which the arm does not make.
+
+      `pathDirName`'s constants (`lower_fs_path_dir_name`, labels `dot` and `root`):
+      `.` for `length == 0` (`fs::pathDirName("")`) and for a path whose backward
+      scan finds no `/` (`"abc"`); `/` for `length == 1` with the byte `/`
+      (`fs::pathDirName("/")`) and for a slash found at index 0 (`"/abc"`). The `.`
+      route is the only window that does not point into the binding — it points at
+      `load_string_constant(".")` — and the only one that can be LONGER than the
+      binding (`""` → `.`).
+Commit: 5d31fe314
 
 ### Phase 2: Split the lowerings at the window, byte-identical
 
-- [ ] `*_window` halves in `gen_left_right.rs`, `gen_strip.rs`, `gen_trim.rs`,
-      `func_trim_chars.rs`, `func_grapheme_at.rs`, `gen_path_builder.rs` (three
+- [x] `*_window` halves in `gen_left_right.rs`, `gen_strip.rs`, `gen_trim.rs`,
+      `func_trim_chars.rs`, ~~`func_grapheme_at.rs`~~, `gen_path_builder.rs` (three
       functions), and `lower_mid`'s `String` branch. Each copying lowering calls
       its half and then materializes.
+      `func_grapheme_at.rs` is NOT split: its window comes out of a freshly built
+      `List OF String`, so the arm gets a new non-allocating walk instead
+      (Correction C1). `lower_mid`'s half takes the registers `lower_mid` allocated
+      (`MidStringRegs`) and returns the copying path's own `result_slot`/`alloc_ok`
+      (`MidWindow`), so both paths keep one slot, register and label order;
+      `fs_path_extension_window` likewise returns its `done` label.
 
 Acceptance: codegen is unchanged.
   Check: `cargo build --release && cargo test --test golden` → 0 `.ncode` diffs
   (est. 20 min: every fixture that calls one of the 13 copies through the split
   code, and the artifact gate is the only check that sees them all). A diff is a
   split bug: objdump one fixture and fix it.
-Commit: —
+Result: `artifact-gate [all]: 1485 tests, 1660 build(s), 2098 golden(s) checked,
+0 diff(s)` (204.82 s).
+Commit: 5d31fe314
 
 ### Phase 3: The arm
 
-- [ ] `ArmId::StrWindow`, `STRING_WINDOW_FNS`, `try_inplace_string_window_assign`,
-      the marker, and the `SELF_UPDATE_ARMS` entry after `Mid`.
-- [ ] Add the 13 names to `is_string_self_update`.
-- [ ] The 13 rows → `Arm([StrWindow])`; 13 `cases.tsv` lines → `arm`.
-- [ ] Runtime: `tests/rt-behavior/strings/self-update-window-valid/` holds the
+- [x] `ArmId::StrWindow`, `STRING_WINDOW_FNS`, `try_inplace_string_window_assign`,
+      the marker, and the `SELF_UPDATE_ARMS` entry after `Mid`. (Its `FIELD_NEVER`
+      row at all 15 field sites too, plan-146-B Correction B4.)
+- [x] Add the 13 names to `is_string_self_update` (`STRING_SHADOW_ARMS`).
+- [x] The 13 rows → `Arm([StrWindow])`; 13 `cases.tsv` lines → `arm`.
+- [x] Runtime: `tests/rt-behavior/strings/self-update-window-valid/` holds the
       differential (copy vs self-update) for every row and edge, and a trapped
       failure per raising row that prints `s` unchanged. It runs at a local and at
-      a global.
-- [ ] `tests/rt-behavior/fs/pathdirname_constant_owned` (bug-667's fixture, lines
-      19–20 are `e = fs::pathDirName(e)`) passes unchanged.
-- [ ] RED proof: make the arm skip `emit_string_set_len`'s shadow update. The
+      a global. 39 differentials (empty result, whole string, multi-byte UTF-8 at
+      both ends, absent affix, all-whitespace, a combining cluster, the four
+      `pathDirName` routes), 3 shrink-then-grow cases (the shadow arithmetic), and
+      5 trapped failures — every line `ok` / `raised=TRUE s=[abcdef]`.
+- [x] `tests/rt-behavior/fs/pathdirname_constant_owned` (bug-667's fixture, lines
+      19–20 are `e = fs::pathDirName(e)`) passes unchanged: `acceptance tests
+      passed (1 test(s) ran)`, no golden touched.
+- [x] RED proof: make the arm skip `emit_string_set_len`'s shadow update. The
       differential case must fail, or the debug build must report a free-size
       mismatch. Record which. Restore.
+      **Neither: the harness fails, and the debug build leaks.** The differential
+      still agreed (the value is right; only the block's spare bytes are lost), and
+      no free-size assertion fired — but `--debug` reported `arena.0.live_bytes
+      1248` against 816 with the fix, and 244 allocations against 239 (the
+      under-free and the regrows a lost shadow forces). The harness is the sharp
+      signal: `MFB_SELF_UPDATE_SITES=Local,Global` over `strings::left`/`trim` →
+      `4 of 4 case/site pair(s) failed`, e.g. `strings::left(value AS String, count
+      AS Integer) AS String at Local: marked `arm`, but 2000 more runs allocated
+      1000 more blocks (1156 at N=2000, 2156 at 2N) — the statement copies`
+      (the paired `&` can no longer see the spare bytes). Restored.
 
 Acceptance: `cargo test --bin mfb self_update`,
 `MFB_SELF_UPDATE_FILTER` over the 13 lines (`for f in strings::left strings::right strings::mid strings::strip strings::trim strings::graphemeAt fs::path; do …; done`),
@@ -156,7 +199,17 @@ and `scripts/test-accept.sh target/debug/mfb target/accept-actual 'rt-behavior/s
   (`helper_multipart_boundary.rs:22`). Run `cargo test --test golden`. Every diff
   must trace to one of these producers: objdump one fixture per producer. Any
   other diff is a bug. Re-baseline only the traced fixtures, per AGENTS.md.
-Commit: —
+Result: `cargo test --bin mfb self_update` → `10 passed`; the harness over the 13
+lines at S1/S2 (7 filters) → every one `test result: ok`;
+`scripts/test-accept.sh … 'rt-behavior/strings/self-update-window-valid'` →
+`acceptance tests passed`. Golden: 5 diffs, all `byte-identity/http`
+(`http_codegen_cover_rt`, ×5 targets) — traced to ONE producer, exactly as
+predicted: the `.ncode` has a `inplace_str_window` slot in exactly one of its 162
+functions, `#http_multipartBoundary` (`b = strings::trim(b)`,
+`http/helper_multipart_boundary.rs:22`). The five `.ncodesum` goldens were
+regenerated for that fixture alone; the gate then reported `2100 golden(s)
+checked, 0 diff(s)`. The predicted `json` producer did NOT move (Correction C2).
+Commit: 5d31fe314
 
 ## Validation Plan
 
@@ -170,6 +223,28 @@ None beyond plan-146-A's (Open Decision 4 decides what the freed bytes become;
 this letter is written for the recommended option).
 
 ## Corrections
+
+- **C1 — `graphemeAt` gets a new window, not a split.** §3 says each of the six
+  lowerings is split at its window, but `func_grapheme_at.rs:lower` has no window
+  into `value`: it calls `lower_strings_graphemes` (`gen_graphemes.rs`), which
+  ALLOCATES a `List OF String` of every cluster, and takes its span out of that
+  list's data. An arm built on it would allocate one list per statement and fail
+  the harness bound outright. So the copying lowering is left untouched and the arm
+  gets `gen_graphemes::grapheme_at_window`: the same segmentation emitters
+  (`emit_utf8_decode_next`, `emit_unicode_property_boundclass`,
+  `emit_unicode_property_indic_conjunct_break`, `emit_grapheme_break_branch`,
+  `emit_grapheme_state_update`) walked over `value`'s own bytes, stopping at the
+  wanted cluster, allocating nothing. Proof it is right: the fixture's
+  `graphemeAt0/1/Last/Only` differentials (including an `e`+U+0301 cluster and an
+  emoji) agree with the copying path, and the harness line meets the `arm` bound.
+- **C2 — one of the two predicted golden producers does not fire.** Phase 3
+  predicted diffs from `json/helper_round_digits.rs:59` as well as
+  `http/helper_multipart_boundary.rs:22`. Only the `http` one moved. The json line
+  is `kept = strings::left(kept, index) & "0" & strings::mid(kept, index + 1, …)` —
+  a `&` chain whose leftmost leaf is a CALL, not `kept`, so it is not a self-update
+  of `kept` at all (neither the concat arm's G20 nor `resolve_string_self_update`'s
+  G2 accepts it). Measured: `mfb build -q -ncode tests/byte-identity/json` → 165
+  functions, 0 with a `inplace_str_*` slot. No json golden moved, and none should.
 
 ## Summary
 

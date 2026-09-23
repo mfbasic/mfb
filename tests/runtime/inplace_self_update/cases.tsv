@@ -6,8 +6,11 @@
 #   signature  exactly as `mfb man` renders it (an operator line has no `::`)
 #   status     arm | exempt — `arm`: the statement allocates O(1) per run
 #              (count(2N) - count(N) < N/8); `exempt`: `x` is read, never copied (a
-#              peak-live-bytes bound). There is no third status: a line with no arm is
-#              a missing arm (plan-142-I).
+#              peak-live-bytes bound). There is ONE other status, and it names the
+#              plan that owes the work: `deferred:<tag>`, a row another plan owns
+#              (`attributed-string`, plan-146-A Open Decision 1), asserting the
+#              statement still copies (count(2N) - count(N) >= N). Otherwise a line
+#              with no arm is a missing arm (plan-142-I, plan-146-H).
 #   setup      `<type> = <init>` declaring `x`, then optional ` ; <statement>` lines; `{M}` is the size of `x` (see the harness)
 #   statement  run each iteration; ` ; ` separates several
 #   check      a String expression over `before` (a copy of `x` taken first); printed
@@ -77,3 +80,68 @@ math::sqrt(value AS List OF Fixed) AS List OF Fixed	arm	List OF Fixed = [1.5, 2.
 math::sqrt(value AS List OF Float) AS List OF Float	arm	List OF Float = [0.1, 0.2, 0.3]	x = math::sqrt(x)	showFloats(before)
 math::tan(value AS List OF Float) AS List OF Float	arm	List OF Float = [0.1, 0.2, 0.3]	x = math::tan(x) ; x = math::clamp(x, 0.1, 0.3)	showFloats(before)
 & (value AS String, other AS String) AS String	arm	String = "a"	x = x & "b"	before
+toString(value AS String) AS String	arm	String = "abc"	x = toString(x)	before
+strings::left(value AS String, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::left(x, 3)	before
+strings::right(value AS String, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::right(x, 3)	before
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	arm	String = "abc"	x = x & "ab" ; x = strings::mid(x, 1, 3)	before
+strings::stripPrefix(value AS String, prefix AS String) AS String	arm	String = "aaa"	x = x & "a" ; x = strings::stripPrefix(x, "a")	before
+strings::stripSuffix(value AS String, suffix AS String) AS String	arm	String = "abc"	x = x & "z" ; x = strings::stripSuffix(x, "z")	before
+strings::trim(value AS String) AS String	arm	String = "abc"	x = x & " " ; x = strings::trim(x)	before
+strings::trimStart(value AS String) AS String	arm	String = ""	x = x & " " ; x = strings::trimStart(x)	before
+strings::trimEnd(value AS String) AS String	arm	String = "abc"	x = x & " " ; x = strings::trimEnd(x)	before
+strings::trimChars(value AS String, chars AS String) AS String	arm	String = "abc"	x = x & "z" ; x = strings::trimChars(x, "z")	before
+strings::graphemeAt(value AS String, index AS Integer) AS String	arm	String = "abc"	x = x & "b" ; x = strings::graphemeAt(x, 0)	before
+fs::pathBaseName(path AS String) AS String	arm	String = "b"	x = x & "/b" ; x = fs::pathBaseName(x)	before
+fs::pathDirName(path AS String) AS String	arm	String = "a"	x = x & "/b" ; x = fs::pathDirName(x)	before
+fs::pathExtension(path AS String) AS String	arm	String = "txt"	x = x & ".txt" ; x = fs::pathExtension(x)	before
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padLeft(x, 8) ; x = strings::right(x, 3)	before
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRight(x, 8) ; x = strings::left(x, 3)	before
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	before
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	before
+strings::repeat(value AS String, times AS Integer) AS String	arm	String = "abc"	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	before
+os::resourcePath(relative AS String) AS String	arm	String = "r"	x = os::resourcePath(x) ; x = fs::pathBaseName(x)	before
+strings::upper(value AS String) AS String	arm	String = "abc"	x = strings::upper(x) ; x = strings::lower(x)	before
+strings::lower(value AS String) AS String	arm	String = "ABC"	x = strings::lower(x) ; x = strings::upper(x)	before
+strings::caseFold(value AS String) AS String	arm	String = "abc"	x = strings::caseFold(x)	before
+strings::normalizeNfc(value AS String) AS String	arm	String = "abc"	x = strings::normalizeNfc(x)	before
+strings::replace(value AS String, old AS String, new AS String) AS String	arm	String = "abc"	x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")	before
+fs::pathNormalize(path AS String) AS String	arm	String = "/a/b"	x = x & "/." ; x = fs::pathNormalize(x)	before
+encoding::formUrlDecode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::formUrlDecode(x) ; x = encoding::formUrlEncode(x)	before
+encoding::formUrlEncode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::formUrlEncode(x) ; x = encoding::formUrlDecode(x)	before
+encoding::htmlEscape(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::htmlEscape(x) ; x = encoding::htmlUnescape(x)	before
+encoding::htmlUnescape(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::htmlUnescape(x) ; x = encoding::htmlEscape(x)	before
+encoding::percentDecode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::percentDecode(x) ; x = encoding::percentEncode(x)	before
+encoding::percentEncode(value AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::percentEncode(x) ; x = encoding::percentDecode(x)	before
+encoding::punycodeDecode(asciiDomain AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::punycodeDecode(x) ; x = encoding::punycodeEncode(x)	before
+encoding::punycodeEncode(domain AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::punycodeEncode(x) ; x = encoding::punycodeDecode(x)	before
+fs::canonicalPath(path AS String) AS String	exempt	String = "/tmp/mfb_p146_canonical.txt" ; fs::writeText(x, "a") ; x = fs::canonicalPath(x)	x = fs::canonicalPath(x)	before
+fs::readText(path AS String) AS String	exempt	String = "/tmp/mfb_p146_read_text.txt" ; fs::writeText(x, x)	x = fs::readText(x)	before
+io::input([prompt AS String]) AS String	exempt	String = ""	x = io::input(x)	before
+net::percentDecode(s AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = net::percentDecode(x) ; x = encoding::percentEncode(x)	before
+os::getEnv(name AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnv(x)	before
+os::getEnvOr(name AS String, fallback AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnvOr(x, "fallback")	before
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = regex::replace(x, "^a", "b") ; x = regex::replace(x, "^b", "a")	before
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::addAttribute(x, 0, 1, astrings::bold()) ; x = astrings::removeAttribute(x, 0, 1, astrings::bold())	astrings::toMarkdown(before)
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::clearAttributes(x)	astrings::toMarkdown(before)
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::clearAttributes(x, 0, 1)	astrings::toMarkdown(before)
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = astrings::removeAttribute(x, 0, 1, astrings::bold())	astrings::toMarkdown(before)
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("ab") ; x = strings::left(x, 3)	astrings::toMarkdown(before)
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("ab") ; x = strings::left(x, 3)	astrings::toMarkdown(before)
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("ab") ; x = strings::right(x, 3)	astrings::toMarkdown(before)
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("ab") ; x = strings::mid(x, 1, 3)	astrings::toMarkdown(before)
+strings::trim(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString(" ") ; x = strings::trim(x)	astrings::toMarkdown(before)
+strings::trimStart(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("")	x = x & astrings::fromString(" ") ; x = strings::trimStart(x)	astrings::toMarkdown(before)
+strings::trimEnd(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString(" ") ; x = strings::trimEnd(x)	astrings::toMarkdown(before)
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("z") ; x = strings::trimChars(x, "z")	astrings::toMarkdown(before)
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("aaa")	x = x & astrings::fromString("a") ; x = strings::stripPrefix(x, "a")	astrings::toMarkdown(before)
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = x & astrings::fromString("z") ; x = strings::stripSuffix(x, "z")	astrings::toMarkdown(before)
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::padLeft(x, 8) ; x = strings::right(x, 3)	astrings::toMarkdown(before)
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	astrings::toMarkdown(before)
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::padRight(x, 8) ; x = strings::left(x, 3)	astrings::toMarkdown(before)
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	astrings::toMarkdown(before)
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	astrings::toMarkdown(before)
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::replace(x, "a", "aa") ; x = strings::replace(x, "aa", "a")	astrings::toMarkdown(before)
+strings::upper(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::upper(x) ; x = strings::lower(x)	astrings::toMarkdown(before)
+strings::lower(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("ABC")	x = strings::lower(x) ; x = strings::upper(x)	astrings::toMarkdown(before)
+strings::caseFold(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::caseFold(x)	astrings::toMarkdown(before)
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	deferred:attributed-string	AttributedString = astrings::fromString("abc")	x = strings::normalizeNfc(x)	astrings::toMarkdown(before)

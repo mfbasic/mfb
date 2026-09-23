@@ -204,7 +204,18 @@ an argument or a container corrupts the free list, surfacing much later as
 - `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
   one-byte pad String that is copied into the result and never returned. No
   result-shaped rule can reach it — that one is handed to the statement free
-  explicitly with `register_fresh_string_temp`.
+  explicitly with `register_fresh_string_temp`. The in-place arm (plan-146-D)
+  builds the same `[len][bytes][NUL]` shape in a FRAME object instead: an arm may
+  not allocate per statement, and every reader of a `String` only wants that shape
+  at the pointer.
+- plan-146: a `String` self-update (`s = f(s, …)`) writes into `s`'s OWN block, so
+  it is sound only because a `MUT` binding never holds a block it does not own —
+  the rule the two traps above exist to keep. It also means a bound block may be
+  LARGER than `byteLength + 9`: the spare bytes are tracked beside the binding
+  (`string_capacity_slots`, `$strcap$<global>`, or the owner's slot shared through
+  the closure environment) and `emit_owned_value_drop` frees by
+  `len + 9 + shadow`. A new producer or a new store path for a `String` must keep
+  that pair in step — `mfb spec memory collections`, *Self-updates*.
 - A **user/`.mfb`-bodied** function returning `String` needs the callee-side
   contract below — the mark is set by a producer's own lowering and cannot travel
   out of a callee.
@@ -753,3 +764,7 @@ The member-access check (`src/ir/verify/values.rs`) skipped unions as "unchecked
 ## `toFloat(String)` is correctly rounded
 
 It is an Eisel-Lemire parser with an exact big-integer fallback (`src/codegen/string/format/float_parse.rs`), fuzzed against Rust's `str::parse::<f64>` through `float_parse_ref.rs`. Don't add tolerance or `+ 0.5` workarounds for an assumed rounding error; they introduce one. Hand-written NIR of that size gets the same treatment: write the algorithm in Rust under `cfg(test)`, pin it against a real oracle, then transliterate.
+
+## Inside the compiler a BARE type spelling is always a USER type
+
+Since bug-480 Phase 4b a built-in VALUE type's declared identity is package-qualified — `net.Url`, `vector.Float2`, `color.Color`. A consumer writing the bare leaf gets `SYMBOL_UNKNOWN_TYPE`, and a package's injected companions are qualified by the parser (`qualify_own_builtin_type`, `src/ast/expr.rs`). So any bare spelling that reaches a registry or codegen lookup can only name a USER type, and a registry table keyed on the bare leaf is a latent hijack of the user type that happens to share the name: `registry::general_override_target` (`src/codegen/registry/mod.rs`) matched a user `TYPE Color` against the `color` package's `toString` override row, type-checked the call, then failed the build with `NIR call target '#color_toString' does not resolve` (bug-668). Key such tables by the package-qualified identity, never by the leaf.

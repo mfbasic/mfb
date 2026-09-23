@@ -1,0 +1,323 @@
+' map - the map format: what a cell holds, the four directions, whether the
+' player can step from one cell to the next, and whether the tiles can draw
+' the walls at all (mapIsValid).
+'
+' Every tile in resources/dungeon comes in four versions, <name>_N, _E, _S and
+' _W, one per direction the piece faces. All of them are 256 x 512 sprites
+' drawn at the same anchor for a map cell: the floor's diamond fills the bottom
+' of the sprite and taller pieces rise above it. A wall piece stands on the
+' edge of its cell opposite the way it faces, so a wall facing North stands on
+' the cell's South edge. A corner piece stands on two edges: the one a wall
+' facing the same way would, and the next one counterclockwise, so a corner
+' facing North stands on the South and East edges.
+'
+' A wall's slab lies inside the cell that holds the piece, along the edge, and
+' every wall stands inside the room or hall it bounds, so walls in a line
+' always line up. Where a wall turns outward it is one corner piece; where it
+' turns inward, round a notch, the two walls meet and an inner corner piece
+' covers the joint. A map the tiles cannot draw that way - a door in a room's
+' corner, two walls on one edge, a wall stepping across its line - is invalid
+' (see mapIsValid), and generateDungeon never returns one.
+
+IMPORT collections
+
+' ---------------------------------------------------------------------------
+' The map format
+' ---------------------------------------------------------------------------
+
+' Map directions. North is toward row 0, East toward the last column. Every
+' tile file is named for the initial of the direction it faces, so a member's
+' name is its sprite suffix (see facingSuffix).
+ENUM Facing
+  North, East, South, West
+END ENUM
+
+' One tile placed in a cell, e.g. Piece["barrel", Facing.North, FALSE] draws
+' barrel_N.png while the view is unrotated. `inner` marks the corner piece of an
+' inside corner: it stands in the cell outside the turn and is drawn shifted one
+' wall's thickness diagonally, so its two arms line up with the walls that run
+' into them.
+TYPE Piece
+  tile AS String
+  facing AS Facing
+  inner AS Boolean
+END TYPE
+
+' Everything in one map cell. A cell whose floor tile is "" is solid rock:
+' nothing is drawn there and nobody can stand there. Walls are kept apart from
+' props because they stand on the cell's edges and are drawn in two halves
+' around the props.
+TYPE Cell
+  floor AS Piece
+  walls AS List OF Piece
+  props AS List OF Piece
+END TYPE
+
+' A width x height grid of cells, stored row by row: cell (x, y) is at index
+' y * width + x. (startX, startY) is where the player begins.
+TYPE DungeonMap
+  width AS Integer
+  height AS Integer
+  cells AS List OF Cell
+  startX AS Integer
+  startY AS Integer
+END TYPE
+
+FUNC cellAt(m AS DungeonMap, x AS Integer, y AS Integer) AS Cell
+  RETURN collections::get(m.cells, y * m.width + x)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Directions
+' ---------------------------------------------------------------------------
+
+' The four directions clockwise from North, so index i and toInt agree.
+FUNC compass AS List OF Facing
+  RETURN [Facing.North, Facing.East, Facing.South, Facing.West]
+END FUNC
+
+' The facing for an index, taken round the compass, so -1 is West. Spelled out
+' rather than indexed into compass() so it cannot fail: every direction helper
+' below builds on it, and none of them should propagate an error.
+FUNC facingOf(i AS Integer) AS Facing
+  MATCH ((i MOD 4) + 4) MOD 4
+    CASE 0 : RETURN Facing.North
+    CASE 1 : RETURN Facing.East
+    CASE 2 : RETURN Facing.South
+    CASE ELSE : RETURN Facing.West
+  END MATCH
+END FUNC
+
+' f turned `quarters` quarter turns clockwise. Negative turns counterclockwise,
+' and any number of turns is taken round the compass.
+FUNC turned(f AS Facing, quarters AS Integer) AS Facing
+  RETURN facingOf(toInt(f) + quarters)
+END FUNC
+
+FUNC clockwise(f AS Facing) AS Facing
+  RETURN turned(f, 1)
+END FUNC
+
+FUNC counterclockwise(f AS Facing) AS Facing
+  RETURN turned(f, -1)
+END FUNC
+
+FUNC opposite(f AS Facing) AS Facing
+  RETURN turned(f, 2)
+END FUNC
+
+FUNC stepX(f AS Facing) AS Integer
+  MATCH f
+    CASE Facing.East : RETURN 1
+    CASE Facing.West : RETURN -1
+    CASE Facing.North, Facing.South : RETURN 0
+  END MATCH
+END FUNC
+
+FUNC stepY(f AS Facing) AS Integer
+  MATCH f
+    CASE Facing.South : RETURN 1
+    CASE Facing.North : RETURN -1
+    CASE Facing.East, Facing.West : RETURN 0
+  END MATCH
+END FUNC
+
+' The two edges a corner piece stands on: the one a wall facing the same way
+' would stand on, and the next one counterclockwise.
+FUNC cornerEdges(p AS Piece) AS List OF Facing
+  RETURN [opposite(p.facing), opposite(counterclockwise(p.facing))]
+END FUNC
+
+' Whether a wall piece closes off the given edge of its cell. An archway stands
+' on its edge but leaves it open.
+FUNC blocksEdge(p AS Piece, edge AS Facing) AS Boolean
+  IF p.tile = "stoneWall" THEN RETURN opposite(p.facing) = edge
+  IF p.tile = "stoneWallCorner" THEN RETURN collections::contains(cornerEdges(p), edge)
+  RETURN FALSE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Movement
+' ---------------------------------------------------------------------------
+
+' Whether the player can step from (x, y) one cell toward dir: onto a floor
+' with nothing standing on it, through no wall.
+FUNC canMove(m AS DungeonMap, x AS Integer, y AS Integer, dir AS Facing) AS Boolean
+  LET nx AS Integer = x + stepX(dir)
+  LET ny AS Integer = y + stepY(dir)
+  IF nx < 0 OR ny < 0 OR nx >= m.width OR ny >= m.height THEN RETURN FALSE
+  LET there AS Cell = cellAt(m, nx, ny)
+  IF there.floor.tile = "" OR len(there.props) > 0 THEN RETURN FALSE
+  FOR EACH w IN cellAt(m, x, y).walls
+    IF blocksEdge(w, dir) THEN RETURN FALSE
+  NEXT
+  FOR EACH w IN there.walls
+    IF blocksEdge(w, opposite(dir)) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Validity
+' ---------------------------------------------------------------------------
+
+' One end of a wall piece's edge, at a grid point: which piece, which edge,
+' whether the edge runs across (West to East) or down, which side of the edge
+' the piece's slab lies on, and which way the edge leaves the point.
+TYPE Touch
+  piece AS Integer
+  edge AS Integer
+  across AS Boolean
+  side AS Facing
+  away AS Facing
+  archway AS Boolean
+END TYPE
+
+' The edges a wall piece stands on. An inner corner stands on none of its own
+' cell's: it covers the joint where two of the region's walls meet.
+FUNC pieceEdges(p AS Piece) AS List OF Facing
+  IF p.inner THEN RETURN []
+  IF p.tile = "stoneWallCorner" THEN RETURN cornerEdges(p)
+  RETURN [opposite(p.facing)]
+END FUNC
+
+' An inner corner at a grid point: which way from the point its own cell lies -
+' the cell outside the turn - North or South and East or West.
+TYPE Post
+  ns AS Facing
+  ew AS Facing
+END TYPE
+
+' Whether the tiles can draw the map's walls. Each grid point may have:
+'   - no wall, or one wall ending there;
+'   - two edges in a line with their slabs on the same side, so they line up;
+'   - two edges at a right angle that are one corner piece;
+'   - two edges at a right angle from two wall pieces - an inside corner -
+'     whose slabs both face the cell diagonal to the gap, with a column in
+'     that cell's corner at the point filling the joint;
+'   - three edges: two in a line with their slabs on the same side, and a third
+'     meeting them from the other side, flush against the slabs - where a
+'     hall's wall meets a room's.
+' Anything else - two pieces on one edge, a wall that steps across its line,
+' an inside corner with no column (or a column with no inside corner), an
+' archway at a turn, a wall running into another's slab, four edges - is
+' invalid.
+FUNC mapIsValid(m AS DungeonMap) AS Boolean
+  ' Grid point (gx, gy) is the top-left corner of cell (gx, gy); there are
+  ' (width + 1) x (height + 1) of them.
+  LET across AS Integer = m.width + 1
+  MUT touches AS Map OF Integer TO List OF Touch = Map OF Integer TO List OF Touch {}
+  MUT posts AS Map OF Integer TO Post = Map OF Integer TO Post {}
+  LET none AS List OF Touch = []
+  MUT piece AS Integer = 0
+  FOR y = 0 TO m.height - 1
+    FOR x = 0 TO m.width - 1
+      FOR EACH w IN cellAt(m, x, y).walls
+        piece = piece + 1
+        IF w.inner THEN
+          ' The corner of its cell it fills: where a corner piece facing the
+          ' same way would turn.
+          MUT px AS Integer = x
+          MUT py AS Integer = y
+          MUT ns AS Facing = Facing.South
+          MUT ew AS Facing = Facing.East
+          FOR EACH edge IN cornerEdges(w)
+            MATCH edge
+              CASE Facing.South
+                py = y + 1
+                ns = Facing.North
+              CASE Facing.East
+                px = x + 1
+                ew = Facing.West
+              CASE Facing.North, Facing.West
+            END MATCH
+          NEXT
+          LET at AS Integer = py * across + px
+          IF collections::hasKey(posts, at) THEN RETURN FALSE
+          posts = collections::set(posts, at, Post[ns, ew])
+        END IF
+        FOR EACH edge IN pieceEdges(w)
+          ' The edge's two ends: (ax, ay) the top or left one.
+          MUT ax AS Integer = x
+          MUT ay AS Integer = y
+          MUT bx AS Integer = x + 1
+          MUT by AS Integer = y
+          MATCH edge
+            CASE Facing.East
+              ax = x + 1
+              by = y + 1
+            CASE Facing.South
+              ay = y + 1
+              by = y + 1
+            CASE Facing.West
+              bx = x
+              by = y + 1
+            CASE Facing.North
+          END MATCH
+          LET isAcross AS Boolean = ay = by
+          MUT edgeId AS Integer = (ay * across + ax) * 2
+          MUT fromA AS Facing = Facing.East
+          MUT fromB AS Facing = Facing.West
+          IF NOT isAcross THEN
+            edgeId = edgeId + 1
+            fromA = Facing.South
+            fromB = Facing.North
+          END IF
+          LET atA AS Integer = ay * across + ax
+          LET atB AS Integer = by * across + bx
+          touches = collections::set(touches, atA, collections::append(collections::getOr(touches, atA, none), Touch[piece, edgeId, isAcross, opposite(edge), fromA, w.tile = "stoneWallArchway"]))
+          touches = collections::set(touches, atB, collections::append(collections::getOr(touches, atB, none), Touch[piece, edgeId, isAcross, opposite(edge), fromB, w.tile = "stoneWallArchway"]))
+        NEXT
+      NEXT
+    NEXT
+  NEXT
+
+  MUT filled AS Integer = 0
+  FOR EACH point IN collections::keys(touches)
+    LET here AS List OF Touch = collections::get(touches, point)
+    IF len(here) > 3 THEN RETURN FALSE
+    FOR i = 0 TO len(here) - 2
+      FOR j = i + 1 TO len(here) - 1
+        IF collections::get(here, i).edge = collections::get(here, j).edge THEN RETURN FALSE
+      NEXT
+    NEXT
+    IF len(here) = 2 THEN
+      LET a AS Touch = collections::get(here, 0)
+      LET b AS Touch = collections::get(here, 1)
+      IF a.across = b.across AND a.side <> b.side THEN RETURN FALSE
+      IF a.across <> b.across AND a.piece <> b.piece THEN
+        ' An inside corner: no archway, and a column in the cell both slabs
+        ' face.
+        IF a.archway OR b.archway OR NOT collections::hasKey(posts, point) THEN RETURN FALSE
+        LET post AS Post = collections::get(posts, point)
+        MUT flat AS Touch = a
+        MUT upright AS Touch = b
+        IF NOT a.across THEN
+          flat = b
+          upright = a
+        END IF
+        ' The inner corner stands in the cell outside the turn, which is the
+        ' one both walls' slabs face away from.
+        IF post.ns <> opposite(flat.side) OR post.ew <> opposite(upright.side) THEN RETURN FALSE
+        filled = filled + 1
+      END IF
+    END IF
+    IF len(here) = 3 THEN
+      ' The stem is the one edge that runs the other way from the other two.
+      MUT stem AS Integer = 0
+      FOR i = 0 TO 2
+        MUT same AS Integer = 0
+        FOR j = 0 TO 2
+          IF collections::get(here, j).across = collections::get(here, i).across THEN same = same + 1
+        NEXT
+        IF same = 1 THEN stem = i
+      NEXT
+      LET t AS Touch = collections::get(here, stem)
+      LET a AS Touch = collections::get(here, (stem + 1) MOD 3)
+      LET b AS Touch = collections::get(here, (stem + 2) MOD 3)
+      IF a.side <> b.side OR t.away = a.side THEN RETURN FALSE
+    END IF
+  NEXT
+  ' Every column fills an inside corner.
+  RETURN filled = len(posts)
+END FUNC

@@ -807,9 +807,8 @@ pub(crate) fn lower_fs_read_text_path_helper(
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open(read), seek end/start
     // for the size, alloc the string, read loop, close, UTF-8 validate. fd (across
     // seeks/read/close), the length, and the result string are spilled vregs.
-    let alloc_ok = format!("{symbol}_path_alloc_ok");
-    let copy_loop = format!("{symbol}_path_copy_loop");
-    let copy_done = format!("{symbol}_path_copy_done");
+    let scan_loop = format!("{symbol}_path_scan_loop");
+    let scan_done = format!("{symbol}_path_scan_done");
     let invalid = format!("{symbol}_invalid");
     let open_ok = format!("{symbol}_open_ok");
     let open_error = format!("{symbol}_open_error");
@@ -834,48 +833,34 @@ pub(crate) fn lower_fs_read_text_path_helper(
     let len0 = vregs.next();
     let len = vregs.next();
     let src = vregs.next();
-    let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
-    let c_path_size = vregs.next();
     let mut instructions = vec![
-        // bug-574: `c_path` is the marshalled path this helper never hands back,
-        // released at `done`. Nulled FIRST so the paths that reach `done` without
-        // allocating — the empty-path rejection just below and `alloc_error` —
-        // free nothing.
-        abi::move_immediate(&c_path, "Integer", "0"),
-        abi::move_immediate(&c_path_size, "Integer", "0"),
+        // plan-146-F: `c_path` is the caller's `path` block borrowed at `+8`,
+        // where its bytes already end in a NUL — no copy, so nothing to release
+        // at `done` (this is what bug-574's scratch was). An empty path, and an
+        // interior NUL that would truncate what the host opens, are still
+        // rejected.
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(&c_path_size, &len0, 1),
-        abi::move_register(abi::return_register(), &c_path_size),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::add_immediate(&c_path, &path, 8),
     ];
-    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
+    let mut relocations = Vec::new();
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
-        abi::add_immediate(&src, &path, 8),
-        abi::move_register(&dst, &c_path),
+        abi::move_register(&src, &c_path),
         abi::move_immediate(&index, "Integer", "0"),
     ]);
-    emit_cstring_copy(
+    emit_cstring_nul_scan(
         &mut instructions,
-        true,
         &len,
         &src,
-        &dst,
         &index,
         &byte,
-        &copy_loop,
-        &copy_done,
+        &scan_loop,
+        &scan_done,
         &invalid,
     );
     instructions.extend([
@@ -1054,10 +1039,10 @@ pub(crate) fn lower_fs_read_text_path_helper(
     );
     instructions.extend([
         abi::branch(&done),
-        // Close-free OOM exit: reached from the pre-open C-string alloc failure
-        // (fd not yet opened) and, after an inline `close`, from the post-open
-        // result-String alloc failure. Closing fd here would close an unassigned
-        // vreg on the pre-open path (bug-201).
+        // Close-free OOM exit: reached, after an inline `close`, from the
+        // post-open result-String alloc failure. Closing fd here would close an
+        // unassigned vreg (bug-201); plan-146-F removed the other reader of this
+        // label, the pre-open C-string alloc failure, with the copy itself.
         abi::label(&alloc_error),
     ]);
     raise_error_into(
@@ -1067,13 +1052,6 @@ pub(crate) fn lower_fs_read_text_path_helper(
         &mut relocations,
     );
     instructions.push(abi::label(&done));
-    emit_helper_scratch_release(
-        symbol,
-        &[HelperScratch::new(&c_path, &c_path_size)],
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    );
     instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

@@ -12,8 +12,10 @@
 //!   Every arm declines without emitting (inventory rule `O-order-1`), so the order
 //!   only matters for the one name-shared pair, `append` before `bulk_append`.
 //! * `SELF_UPDATE_TABLE` — one row per registry function with a self-update-shaped
-//!   overload (`registry::self_update_shaped`), naming the arm(s) that serve it or
-//!   why none is needed.
+//!   overload (`registry::self_update_shaped`: a `List`, `Map`, `Set`, `String` or
+//!   `AttributedString` first parameter whose return type can equal it), naming the
+//!   arm(s) that serve it or why none is needed. The 19 Tier-B `AttributedString`
+//!   transforms are not registry overloads and come from `TIER_B_TRANSFORMS`.
 //!
 //! A binding site (a function local, a module-level global, …) is only a different
 //! way of building a [`SelfUpdateSite`]: every arm is automatically an arm at every
@@ -83,6 +85,17 @@ pub(crate) enum ArmId {
     Merge,
     /// `m = mapValues(m, f)` with `f` returning the value type (plan-142-D).
     MapValues,
+    /// `s = toString(s)` on a `String` — the identity (plan-146-B).
+    StrIdentity,
+    /// `s = f(s, …)` for the 13 `String` builtins whose result is a window of `s`
+    /// (plan-146-C).
+    StrWindow,
+    /// `s = f(s, …)` for the `String` builtins whose result is `s` with bytes
+    /// added (plan-146-D).
+    StrGrow,
+    /// `s = f(s, …)` for the `String` builtins that rewrite `s`'s bytes
+    /// (plan-146-E).
+    StrRewrite,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -403,6 +416,31 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
         |b, s, v| b.try_inplace_map_values_assign(s, v),
         FieldReach::NoRealloc,
     ),
+    // plan-146: the `String` arms. Each declines every field site (a `String`
+    // field is `deferred:string`, plan-145-A Open Decision 1).
+    (
+        ArmId::StrIdentity,
+        |b, s, v| b.try_inplace_string_identity_assign(s, v),
+        FieldReach::None,
+    ),
+    // After the collection `Mid` arm, which declines a `String` at G10: the two
+    // share the bare name `mid`, and both decline without emitting.
+    (
+        ArmId::StrWindow,
+        |b, s, v| b.try_inplace_string_window_assign(s, v),
+        FieldReach::None,
+    ),
+    (
+        ArmId::StrGrow,
+        |b, s, v| b.try_inplace_string_grow_assign(s, v),
+        FieldReach::None,
+    ),
+    // After the collection `Replace` arm, which declines a `String` at G10.
+    (
+        ArmId::StrRewrite,
+        |b, s, v| b.try_inplace_string_rewrite_assign(s, v),
+        FieldReach::None,
+    ),
 ];
 
 /// The bare builtin name a self-update's call target names, for every spelling a
@@ -415,11 +453,19 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
 ///   injected `__collections_take OF T`, internalized and mangled per instance;
 ///   `native_builtin_target` answers `None` for it);
 /// * the unmonomorphized qualified spelling of such a member —
-///   `collections.take` → `take`.
+///   `collections.take` → `take`;
+/// * plan-146-B: the `String` arm rows whose target is none of those
+///   ([`STRING_SELF_UPDATE_SPELLINGS`]).
 ///
-/// `None` for anything that is not a `collections` builtin.
+/// `None` for anything else.
 pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
     if let Some(bare) = crate::codegen::builtins::native_builtin_target(target) {
+        return Some(bare);
+    }
+    if let Some((_, bare)) = STRING_SELF_UPDATE_SPELLINGS
+        .iter()
+        .find(|(spelling, _)| *spelling == target)
+    {
         return Some(bare);
     }
     let member = match target.strip_prefix("#collections_") {
@@ -433,6 +479,19 @@ pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
         .function(member)
         .map(|function| function.name)
 }
+
+/// plan-146-B Phase 1: the call targets of the `String` rows plan-146 arms that
+/// `native_builtin_target` does not name, recorded from a `mfb build --nir` probe
+/// of `s = f(s, …)` at S1 and S2: two `Body::Rewrite` members (their MFBASIC
+/// helpers, internalized), one `Body::abi_function` member, and the unqualified
+/// `toString`. Every other plan-146 arm row (`strings.left`, `fs.pathBaseName`, …)
+/// is a `Body::abi_inline`/`Intrinsic` native the first rule already answers.
+pub(crate) const STRING_SELF_UPDATE_SPELLINGS: &[(&str, &str)] = &[
+    ("#strings_padLeftToWidth", "padLeftToWidth"),
+    ("#strings_padRightToWidth", "padRightToWidth"),
+    ("os.resourcePath", "resourcePath"),
+    ("toString", "toString"),
+];
 
 impl CodeBuilder<'_> {
     /// Lower `site.name = value` in place if any arm recognises it. `false` =
@@ -460,20 +519,33 @@ impl CodeBuilder<'_> {
     }
 }
 
+/// plan-146-D: a call's `(target, args)`, whichever node the lowering produced —
+/// a plain `Call`, or the `RuntimeCall` an `abi_function` member's call site
+/// becomes (`os::resourcePath`). Both are `f(args…)` to every gate here.
+pub(crate) fn self_update_call_parts(value: &NirValue) -> Option<(&str, &[NirValue])> {
+    match value {
+        NirValue::Call { target, args, .. } => Some((target.as_str(), args.as_slice())),
+        NirValue::RuntimeCall { target, args, .. } => Some((target.as_str(), args.as_slice())),
+        _ => None,
+    }
+}
+
 /// Whether `value` is shaped `f(name, …)` for a builtin with a self-update arm —
 /// the test for giving a by-ref local's statement a `Ref` destination (plan-142-G)
 /// before any slot is allocated for it.
 pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
-    matches!(value, NirValue::Call { target, args, .. }
-        if self_update_builtin(target).is_some()
-            && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name))
+    self_update_call_parts(value).is_some_and(|(target, args)| {
+        self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name)
+    })
 }
 
 /// [`is_self_update_call`] for the module-level global `name` (plan-142-H).
 pub(crate) fn is_global_self_update_call(value: &NirValue, name: &str) -> bool {
-    matches!(value, NirValue::Call { target, args, .. }
-        if self_update_builtin(target).is_some()
-            && matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name))
+    self_update_call_parts(value).is_some_and(|(target, args)| {
+        self_update_builtin(target).is_some()
+            && matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -487,7 +559,9 @@ fn global_string_capacity_name(name: &str) -> String {
 }
 
 /// Declare a hidden `Integer` global beside every global `String` that is the
-/// target of a self-append (`gs = gs & t`) anywhere in `module`: the concat arm
+/// target of a self-append (`gs = gs & t`), or of another `String` self-update
+/// whose arm needs a shadow (`is_string_self_update`, plan-146-B), anywhere in
+/// `module`: the concat arm
 /// keeps the buffer's spare capacity there, as it keeps a local's in a frame
 /// slot. Every other store to the global frees with it and resets it to 0
 /// (`StoreGlobal`), and the global's own initializer is such a store, so it starts
@@ -507,11 +581,10 @@ pub(crate) fn add_global_string_capacities(module: &mut NirModule) {
             } = op
             {
                 if self.strings.contains(name)
-                    && crate::codegen::engine::control::string_self_append_operands_of(
+                    && crate::codegen::collection::assign::string_self_update::is_string_self_update(
                         value,
                         &|root| matches!(root, NirValue::Global { name: g, .. } if g == name),
                     )
-                    .is_some()
                 {
                     self.found.insert(name.clone());
                 }
@@ -586,16 +659,17 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
             if with_holds_field_self_update(value, wanted) {
                 return true;
             }
-            let NirValue::Call { target, args, .. } = value else {
+            let Some((target, args)) = self_update_call_parts(value) else {
                 return false;
             };
             matches!(args.first(), Some(NirValue::Local(arg0)) if arg0 == name) && wanted(target)
         }
         NirOp::StoreGlobal {
             name,
-            value: Some(NirValue::Call { target, args, .. }),
+            value: Some(value),
             ..
-        } => {
+        } if self_update_call_parts(value).is_some() => {
+            let (target, args) = self_update_call_parts(value).expect("matched above");
             matches!(args.first(), Some(NirValue::Global { name: arg0, .. }) if arg0 == name)
                 && wanted(target)
         }
@@ -706,10 +780,32 @@ fn ops_create_scratch_closure(builder: &CodeBuilder<'_>, ops: &[NirOp]) -> bool 
 /// function's self-update scratch.
 fn target_needs_self_update_scratch(target: &str) -> bool {
     self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
+        // plan-146-D/E: the `String` arms that build their result in the scratch
+        // (`os::resourcePath`'s prefix, the six rewrites), by qualified target.
+        || crate::codegen::collection::assign::string_self_update::target_needs_string_scratch(
+            target,
+        )
         || crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
             target,
         )
         .is_some()
+}
+
+/// plan-146-D: whether the module holds a self-update `x = f(x, …)` of the builtin
+/// whose bare name is `bare`.
+pub(crate) fn module_self_updates_with(module: &NirModule, bare: &str) -> bool {
+    module.functions.iter().any(|function| {
+        ops_hold_self_update(&function.body, &|target| {
+            self_update_builtin(target) == Some(bare)
+        })
+    })
+}
+
+/// plan-146-D/G: whether `ops` hold `s = os::resourcePath(s)`.
+pub(crate) fn ops_hold_resource_path_self_update(ops: &[NirOp]) -> bool {
+    ops_hold_self_update(ops, &|target| {
+        self_update_builtin(target) == Some("resourcePath")
+    })
 }
 
 /// Whether the module holds a `collections::replace` self-update (plan-142-C).
@@ -800,6 +896,121 @@ impl CodeBuilder<'_> {
                 loop_alias_slot: None,
                 result_wrapper: None,
             }));
+    }
+
+    /// plan-146-D: give this function a slot for `os::resourcePath`'s base block
+    /// when its body holds `s = os::resourcePath(s)` — the in-place arm computes the
+    /// base at most once per call and reads it from there. Registered as a
+    /// function-level owned `String`, so the ordinary scope drop frees it (with the
+    /// null guard and prologue zeroing that drop brings), exactly as the self-update
+    /// scratch is.
+    pub(crate) fn prescan_string_resource_base(&mut self, ops: &[NirOp]) {
+        if self.string_resource_base.is_some() || self.string_resource_base_env.is_some() {
+            return;
+        }
+        // plan-146-G: a function that lends the cache to a lambda needs one too.
+        let lends = self.closures_created_in(ops).into_iter().any(|lambda| {
+            crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+                self.functions,
+                &lambda,
+            )
+        });
+        if !ops_hold_resource_path_self_update(ops) && !lends {
+            return;
+        }
+        let slot = self.allocate_stack_object("str_resource_base", 8);
+        self.string_resource_base = Some(slot);
+        self.active_cleanups
+            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                type_: ParameterType::String,
+                stack_offset: slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            }));
+        // The prologue zeroes it from here: without that, a second call to this
+        // function reads the block the first one cached AND freed (a lambda runs
+        // once per element, and the third call died on the reused memory).
+        self.owned_value_slots.push(slot);
+    }
+
+    /// plan-146-G: in a lambda, the closure-environment word holding the address
+    /// of the creator's `os::resourcePath` base-path cache, after the shadow words.
+    pub(crate) fn prescan_string_resource_base_env(&mut self, function: &str) {
+        if !crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+            self.functions,
+            function,
+        ) {
+            return;
+        }
+        let Some(total) = self.closure_capture_count(function) else {
+            return;
+        };
+        let scratch_words = usize::from(self.scratch_closure_captures(function).is_some());
+        let shadow_words =
+            crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                self.functions,
+                function,
+            )
+            .len();
+        self.string_resource_base_env = Some(total + scratch_words + shadow_words);
+    }
+
+    /// plan-146-G: in a lambda, record which closure-environment word holds the
+    /// address of each by-ref-captured `String`'s OWNER shadow slot. The layout is
+    /// `[captures…][the borrowed scratch, if any][one word per shadowed capture]`,
+    /// and the creator writes the same words in the same order
+    /// (`string_shadow_captures`).
+    pub(crate) fn prescan_string_shadow_env(&mut self, function: &str) {
+        let captures =
+            crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                self.functions,
+                function,
+            );
+        if captures.is_empty() {
+            return;
+        }
+        let Some(total) = self.closure_capture_count(function) else {
+            return;
+        };
+        // The same predicate the creator uses to decide whether it lends its
+        // scratch (`borrowed_scratch`), NOT `self_update_scratch_env` — that field
+        // is set by a later prescan, and reading it here put the shadow word on top
+        // of the scratch word (both sides then wrote through word 1: the scratch
+        // pointer landed in the owner's shadow and the scratch leaked).
+        let scratch_words = usize::from(self.scratch_closure_captures(function).is_some());
+        for (position, (local, _)) in captures.into_iter().enumerate() {
+            self.string_shadow_env
+                .insert(local, total + scratch_words + position);
+        }
+    }
+
+    /// The number of values the closure creating `lambda` captures, or `None` when
+    /// no closure does (or it captures nothing, so there is no environment).
+    pub(crate) fn closure_capture_count(&self, lambda: &str) -> Option<usize> {
+        struct Finder<'n> {
+            lambda: &'n str,
+            captures: Option<usize>,
+        }
+        impl NirVisitor for Finder<'_> {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { name, captures, .. } = value {
+                    if name == self.lambda && !captures.is_empty() {
+                        self.captures = Some(captures.len());
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder {
+            lambda,
+            captures: None,
+        };
+        for function in self.functions.values() {
+            finder.visit_ops(&function.body);
+        }
+        finder.captures
     }
 
     /// Make the self-update scratch hold at least the byte count in `need_slot`,
@@ -945,6 +1156,11 @@ pub(crate) enum SelfUpdate {
         reason: &'static str,
         proof: &'static str,
     },
+    /// Still copies; the named plan owns it (plan-146-A Open Decision 1: the
+    /// `AttributedString` forms, `attributed-string`). plan-146-H deleted
+    /// `Pending` again, as plan-142-I did: a `String` builtin with a self-update
+    /// form now needs an arm or a proven exemption, never a promise.
+    Deferred(&'static str),
 }
 
 /// A program fragment that performs one self-update of `x`, for the matrix test.
@@ -983,6 +1199,22 @@ const M: &[&str] = &["math"];
 const Z: &[&str] = &["compress", "encoding"];
 #[cfg(test)]
 const K: &[&str] = &["crypto", "encoding"];
+#[cfg(test)]
+const ST: &[&str] = &["strings"];
+#[cfg(test)]
+const FS: &[&str] = &["fs"];
+#[cfg(test)]
+const OS: &[&str] = &["os"];
+#[cfg(test)]
+const EN: &[&str] = &["encoding"];
+#[cfg(test)]
+const NET: &[&str] = &["net"];
+#[cfg(test)]
+const RE: &[&str] = &["regex"];
+#[cfg(test)]
+const AS: &[&str] = &["astrings"];
+#[cfg(test)]
+const AST: &[&str] = &["astrings", "strings"];
 
 #[cfg(test)]
 const fn probe(
@@ -1017,6 +1249,24 @@ const fn probe_with(
     }
 }
 
+/// plan-146-A: a `String` probe.
+#[cfg(test)]
+const fn str_probe(
+    imports: &'static [&'static str],
+    init: &'static str,
+    call: &'static str,
+) -> Probe {
+    probe(imports, "String", init, call)
+}
+
+#[cfg(test)]
+const STR: &str = "\"abcdef\"";
+#[cfg(test)]
+const PATH: &str = "\"/tmp/a/b.txt\"";
+#[cfg(test)]
+const ATTR: &str = "AttributedString";
+#[cfg(test)]
+const ATTR_INIT: &str = "astrings::fromString(\"abcdef\")";
 #[cfg(test)]
 const LI: &str = "List OF Integer";
 #[cfg(test)]
@@ -1064,6 +1314,14 @@ const ARGON_PROOF: &str = "`__crypto_argon2H0` hashes `header || password || tai
 const SHAKE_REASON: &str = "The result is a derived digest; `data` is only read.";
 #[cfg(test)]
 const SHAKE_PROOF: &str = "`__crypto_keccakSponge` absorbs whole blocks straight from `data` and builds only the final padded block (`helper_keccak_sponge.rs`); it used to copy all of `data` into a padded buffer (fixed by plan-142-E).";
+
+// plan-146-F: the `String` rows that earn `Exempt`.
+#[cfg(test)]
+const CODEC_REASON: &str =
+    "The result is a new byte stream the codec appends to as it reads `x`; `x` is only read.";
+#[cfg(test)]
+const NOT_DERIVED_REASON: &str =
+    "The result is not a function of `x`'s bytes: `x` only names what to read.";
 
 /// Every registry function with a self-update-shaped overload
 /// (`registry::self_update_shaped`), plus the `String` self-concat.
@@ -1516,6 +1774,411 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         },
         probes: &[probe(K, LB, BYTES, "crypto::shake256(x, 32)")],
     },
+    // --- plan-146: the `String` self-updates ---
+    SelfUpdateRow {
+        function: "toString",
+        kind: SelfUpdate::Arm(&[ArmId::StrIdentity]),
+        probes: &[str_probe(&[], STR, "toString(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::left",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::left(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::right",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::right(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::mid",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::mid(x, 1, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripPrefix",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::stripPrefix(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripSuffix",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::stripSuffix(x, \"f\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::trim",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::trim(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimStart",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::trimStart(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimEnd",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::trimEnd(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimChars",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::trimChars(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::graphemeAt",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(ST, STR, "strings::graphemeAt(x, 0)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathBaseName",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(FS, PATH, "fs::pathBaseName(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathDirName",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(FS, PATH, "fs::pathDirName(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathExtension",
+        kind: SelfUpdate::Arm(&[ArmId::StrWindow]),
+        probes: &[str_probe(FS, PATH, "fs::pathExtension(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeft",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(ST, STR, "strings::padLeft(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRight",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(ST, STR, "strings::padRight(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeftToWidth",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(ST, STR, "strings::padLeftToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRightToWidth",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(ST, STR, "strings::padRightToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::repeat",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(ST, STR, "strings::repeat(x, 2)")],
+    },
+    SelfUpdateRow {
+        function: "os::resourcePath",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(OS, STR, "os::resourcePath(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::upper",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(ST, STR, "strings::upper(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::lower",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(ST, STR, "strings::lower(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::caseFold",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(ST, STR, "strings::caseFold(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::normalizeNfc",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(ST, STR, "strings::normalizeNfc(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::replace",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(ST, STR, "strings::replace(x, \"a\", \"b\")")],
+    },
+    SelfUpdateRow {
+        function: "fs::pathNormalize",
+        kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
+        probes: &[str_probe(FS, PATH, "fs::pathNormalize(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::formUrlDecode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_formUrlDecode` (`encoding/func_form_url_decode.rs`) delegates to `__encoding_percentDecodeBytes` (`encoding/helper_percent_decode_bytes.rs`), whose output starts at `MUT result AS List OF Byte = []` and which reads `text` only through `strings::toBytes` and `collections::get`: no binding of `text`, so no copy.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::formUrlDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::formUrlEncode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_formUrlEncode` (`encoding/func_form_url_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `text` once, through `LET data AS List OF Byte = strings::toBytes(text)` and a `FOR EACH` over `data`: no binding of `text`, so no copy.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::formUrlEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::htmlEscape",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_htmlEscape` (`encoding/func_html_escape.rs`) starts its output at `MUT out AS String = \"\"` and walks `text` left to right with `strings::mid(text, i, 1)`, appending one reference or one grapheme per step: the only thing live besides `text` is `out`. plan-146-F rewrote it; it used to start at `MUT out AS String = text`, which copied the argument.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::htmlEscape(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::htmlUnescape",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_htmlUnescape` (`encoding/func_html_unescape.rs`) starts its output at `MUT out AS String = \"\"` and walks `text` left to right with `strings::mid(text, i, 1)`: no binding of `text`, and no grapheme list held beside it (plan-146-F Correction F4).",
+        },
+        probes: &[str_probe(EN, STR, "encoding::htmlUnescape(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::percentDecode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_percentDecode` (`encoding/func_percent_decode.rs`) delegates to `__encoding_percentDecodeBytes` (`encoding/helper_percent_decode_bytes.rs`), whose output starts at `MUT result AS List OF Byte = []` and which reads `text` only through `strings::toBytes` and `collections::get`: no binding of `text`, so no copy.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::percentDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::percentEncode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_percentEncode` (`encoding/func_percent_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `text` once, through `LET data AS List OF Byte = strings::toBytes(text)` and a `FOR EACH` over `data`: no binding of `text`, so no copy.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::percentEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::punycodeDecode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_punycodeDecode` (`encoding/func_punycode_decode.rs`) starts its output at `MUT out AS String = \"\"` and reads `asciiDomain` once, through `strings::split(asciiDomain, \".\")`, then appends per label: `asciiDomain` itself is never bound, and the label list `split` returns is the decoder's own working value, not a second name for the argument block.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::punycodeDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "encoding::punycodeEncode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__encoding_punycodeEncode` (`encoding/func_punycode_encode.rs`) starts its output at `MUT out AS String = \"\"` and reads `domain` once, through `strings::split(domain, \".\")`, then appends per label: `domain` itself is never bound, and the label list `split` returns is the encoder's own working value, not a second name for the argument block.",
+        },
+        probes: &[str_probe(EN, STR, "encoding::punycodeEncode(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::canonicalPath",
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_fs_canonical_path_helper` (`builtins/fs/gen_canonical.rs`) hands `realpath` a pointer into the caller's block (`path + 8`, already NUL-terminated) and copies the result out of its own PATH_MAX buffer; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
+        },
+        probes: &[str_probe(FS, PATH, "fs::canonicalPath(x)")],
+    },
+    SelfUpdateRow {
+        function: "fs::readText",
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_fs_read_text_path_helper` (`builtins/fs/gen_atomic_write.rs`) hands `open` a pointer into the caller's block (`path + 8`, already NUL-terminated) and fills the result `String` from `read`; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
+        },
+        probes: &[str_probe(FS, PATH, "fs::readText(x)")],
+    },
+    SelfUpdateRow {
+        function: "io::input",
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_read_line_family` (`builtins/io/gen_read_line_family.rs`) writes the prompt to stdout straight out of the caller's block (`prompt + 8`, with the stored length) and builds the result from the stdin line buffer: the prompt is stored nowhere.",
+        },
+        probes: &[str_probe(&[], STR, "io::input(x)")],
+    },
+    SelfUpdateRow {
+        function: "net::percentDecode",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__net_percentDecode` (`net/func_percent_decode.rs`) delegates to `__net_percentDecodeImpl` (`net/helper_percent_decode_impl.rs`), whose output starts at `MUT out AS List OF Byte = []` and which reads `s` only through `len` and a per-grapheme `strings::mid`: no binding of `s`, so no copy.",
+        },
+        probes: &[str_probe(NET, STR, "net::percentDecode(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::getEnv",
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_get_env` (`builtins/os/gen_env.rs`) hands `getenv` a pointer into the caller's block (`borrow_cstring`, `builtins/os/gen_shared.rs`) and builds the result from the host's C string (`build_string_from_cstr`): `name` is read by the host and stored nowhere. plan-146-F replaced the `len + 1` arena copy `marshal_cstring` used to make (finding F4).",
+        },
+        probes: &[str_probe(OS, STR, "os::getEnv(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::getEnvOr",
+        kind: SelfUpdate::Exempt {
+            reason: NOT_DERIVED_REASON,
+            proof: "`lower_get_env` with `with_fallback` (`builtins/os/gen_env.rs`) hands `getenv` a pointer into the caller's block (`borrow_cstring`, `builtins/os/gen_shared.rs`); the not-found path copies the `fallback` argument, never `name`. plan-146-F replaced the `len + 1` arena copy `marshal_cstring` used to make of `name` (finding F4).",
+        },
+        probes: &[str_probe(OS, STR, "os::getEnvOr(x, \"x\")")],
+    },
+    SelfUpdateRow {
+        function: "regex::replace",
+        kind: SelfUpdate::Exempt {
+            reason: CODEC_REASON,
+            proof: "`Body::mfb` `__regex_replace` (`regex/func_replace.rs`) starts its output at `MUT out AS String = \"\"` and appends only the slices between matches (`strings::mid(value, cursor, …)`) and the expanded replacements; the engine sees `value` as the codepoint list `__regex_makeCtx` derives (`regex/helper_make_ctx.rs`), not as the block: no binding of `value`, so no copy.",
+        },
+        probes: &[str_probe(RE, STR, "regex::replace(x, \"a\", \"b\")")],
+    },
+    // --- plan-146-A Open Decision 1: `AttributedString`, deferred ---
+    SelfUpdateRow {
+        function: "astrings::addAttribute",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "astrings::addAttribute(x, 0, 1, astrings::bold())",
+        )],
+    },
+    SelfUpdateRow {
+        function: "astrings::clearAttributes",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[
+            probe(AS, ATTR, ATTR_INIT, "astrings::clearAttributes(x)"),
+            probe(AS, ATTR, ATTR_INIT, "astrings::clearAttributes(x, 0, 1)"),
+        ],
+    },
+    SelfUpdateRow {
+        function: "astrings::removeAttribute",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "astrings::removeAttribute(x, 0, 1, astrings::bold())",
+        )],
+    },
+    SelfUpdateRow {
+        function: "&@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AS,
+            ATTR,
+            ATTR_INIT,
+            "x & astrings::fromString(\"b\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::left@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::left(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::right@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::right(x, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::mid@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::mid(x, 1, 3)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trim@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trim(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimStart@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimStart(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimEnd@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimEnd(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::trimChars@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::trimChars(x, \"a\")")],
+    },
+    SelfUpdateRow {
+        function: "strings::stripPrefix@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::stripPrefix(x, \"a\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::stripSuffix@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::stripSuffix(x, \"f\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeft@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padLeft(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padLeftToWidth@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padLeftToWidth(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRight@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::padRight(x, 8)")],
+    },
+    SelfUpdateRow {
+        function: "strings::padRightToWidth@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::padRightToWidth(x, 8)",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::repeat@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::repeat(x, 2)")],
+    },
+    SelfUpdateRow {
+        function: "strings::replace@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(
+            AST,
+            ATTR,
+            ATTR_INIT,
+            "strings::replace(x, \"a\", \"b\")",
+        )],
+    },
+    SelfUpdateRow {
+        function: "strings::upper@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::upper(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::lower@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::lower(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::caseFold@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::caseFold(x)")],
+    },
+    SelfUpdateRow {
+        function: "strings::normalizeNfc@AttributedString",
+        kind: SelfUpdate::Deferred("attributed-string"),
+        probes: &[probe(AST, ATTR, ATTR_INIT, "strings::normalizeNfc(x)")],
+    },
 ];
 
 #[cfg(test)]
@@ -1596,6 +2259,10 @@ impl ArmId {
             ArmId::SymmetricDifference => &["inplace_symmetricDifference_other"],
             ArmId::Merge => &["inplace_merge_prefer"],
             ArmId::MapValues => &["inplace_mapvalues_action"],
+            ArmId::StrIdentity => &["inplace_str_identity"],
+            ArmId::StrWindow => &["inplace_str_window"],
+            ArmId::StrGrow => &["inplace_str_grow"],
+            ArmId::StrRewrite => &["inplace_str_rewrite"],
         }
     }
 }
@@ -1787,9 +2454,9 @@ pub(crate) enum Site {
     /// is not a collection, so no `FOR EACH` walks one: the `&` row has no S7.
     ForEach,
     /// S9 — a `MUT` captured by reference in a `collections::forEach` lambda
-    /// (plan-142-G). The self-update lowers in the lifted lambda. A by-ref
-    /// `String` has no capacity shadow to append into (Correction G1), so the `&`
-    /// row has no S9.
+    /// (plan-142-G). The self-update lowers in the lifted lambda. plan-146-G gave a
+    /// by-ref `String` the owner's capacity shadow, shared through the closure
+    /// environment, so every `String` arm and `&` fire here too.
     Lambda,
     /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
     Global,
@@ -1854,6 +2521,10 @@ pub(crate) const FIELD_SITES: &[Site] = &[
 #[cfg(test)]
 pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
     const NOT_LAST: &[&str] = &["S3", "T1", "T3"];
+    /// plan-146-B: every field site — a `String` arm serves none.
+    const ALL_FIELD_SITES: &[&str] = &[
+        "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+    ];
     const NOT_LAST_GROW: &str = "a grow at a not-last field would shift the next sibling \
                                  (plan-145-E non-goal)";
     &[
@@ -1874,10 +2545,31 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         (
             ArmId::Concat,
             "",
-            &[
-                "S3", "S4", "S5", "S6", "S7", "S9", "S10", "T1", "T2", "T3", "T4", "T5", "T6",
-                "T7", "T8",
-            ],
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrIdentity,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrWindow,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrGrow,
+            "",
+            ALL_FIELD_SITES,
+            "a `String` field is deferred:string (plan-145-A Open Decision 1)",
+        ),
+        (
+            ArmId::StrRewrite,
+            "",
+            ALL_FIELD_SITES,
             "a `String` field is deferred:string (plan-145-A Open Decision 1)",
         ),
     ]
@@ -1968,7 +2660,12 @@ impl Probe {
                 init = self.init,
                 call = self.call,
             )),
-            Site::ForEach | Site::Lambda if self.ty == "String" => return None,
+            // plan-146-G: `Site::Lambda` (S9) is a `String` site now — the lambda
+            // shares the owner's capacity shadow. `FOR EACH` still cannot walk a
+            // `String` (`TYPE_FOR_EACH_REQUIRES_COLLECTION`).
+            Site::ForEach if self.ty == "String" => return None,
+            Site::Lambda if self.ty == "AttributedString" => return None,
+            Site::ForEach if self.ty == "AttributedString" => return None,
             Site::ForEach => src.push_str(&format!(
                 "FUNC main() AS Integer\n  MUT x AS {ty} = {init}\n  FOR EACH each1 IN x\n    \
                  x = {call}\n  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
@@ -2115,15 +2812,28 @@ mod tests {
     use crate::target::NativeBuildMode::Console;
     use crate::testutil::{code_for_src_cached, CodeTarget};
 
-    /// Operator self-updates: rows with no registry function behind them.
-    const OPERATORS: &[&str] = &["&"];
+    /// Rows with no registry function behind them: the operator self-updates, the
+    /// unqualified `toString` (plan-146-A), and `&` on two `AttributedString`s,
+    /// which reaches NIR as a call to `#astrings_concat` (plan-143 findings F5).
+    const NON_REGISTRY: &[&str] = &["&", "toString", "&@AttributedString"];
+
+    /// The `@AttributedString` row spelling of a Tier-B transform: the
+    /// `AttributedString` "overload" of a `strings::` member, typed by
+    /// `strings::resolve_return_type` rather than registered (plan-143 Correction 1).
+    fn tier_b_row(member: &str) -> String {
+        format!("{}@AttributedString", member.replacen('.', "::", 1))
+    }
 
     /// Every function with at least one self-update-shaped overload, as `pkg::name`.
+    /// An `internal_only` member is outside it: user source can never call it
+    /// (`astrings::writeSpans`, plan-146-A Correction A1).
     fn shaped_functions() -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for package in registry().packages() {
             for function in package.functions() {
-                if function.implementations.iter().any(self_update_shaped) {
+                if !function.internal_only
+                    && function.implementations.iter().any(self_update_shaped)
+                {
                     out.insert(format!("{}::{}", package.import_name(), function.name));
                 }
             }
@@ -2244,6 +2954,41 @@ mod tests {
         );
         // … or, before monomorphization, qualified.
         assert_eq!(self_update_builtin("collections.take"), Some("take"));
+        // plan-146-B: every spelling of a `String` row plan-146 arms (C, D, E) and
+        // of `toString`, from the `--nir` probe (plan-146-B Phase 1).
+        for (target, bare) in [
+            ("strings.left", "left"),
+            ("strings.right", "right"),
+            ("strings.mid", "mid"),
+            ("strings.stripPrefix", "stripPrefix"),
+            ("strings.stripSuffix", "stripSuffix"),
+            ("strings.trim", "trim"),
+            ("strings.trimStart", "trimStart"),
+            ("strings.trimEnd", "trimEnd"),
+            ("strings.trimChars", "trimChars"),
+            ("strings.graphemeAt", "graphemeAt"),
+            ("fs.pathBaseName", "pathBaseName"),
+            ("fs.pathDirName", "pathDirName"),
+            ("fs.pathExtension", "pathExtension"),
+            ("strings.padLeft", "padLeft"),
+            ("strings.padRight", "padRight"),
+            ("#strings_padLeftToWidth", "padLeftToWidth"),
+            ("#strings_padRightToWidth", "padRightToWidth"),
+            ("strings.repeat", "repeat"),
+            ("os.resourcePath", "resourcePath"),
+            ("strings.upper", "upper"),
+            ("strings.lower", "lower"),
+            ("strings.caseFold", "caseFold"),
+            ("strings.normalizeNfc", "normalizeNfc"),
+            ("strings.replace", "replace"),
+            ("fs.pathNormalize", "pathNormalize"),
+            ("toString", "toString"),
+        ] {
+            assert_eq!(self_update_builtin(target), Some(bare), "{target}");
+        }
+        assert_eq!(self_update_builtin("#strings_nope"), None);
+        // A Rewrite helper that is not a row stays invisible.
+        assert_eq!(self_update_builtin("#strings_padToWidthCopies"), None);
         // Not a collections builtin.
         assert_eq!(self_update_builtin("#collections_nope$Integer"), None);
         assert_eq!(self_update_builtin("#json_parse"), None);
@@ -2265,9 +3010,29 @@ mod tests {
         );
     }
 
+    /// plan-146-A: the Tier-B `AttributedString` transforms are a second census
+    /// source — `mfb man` and the registry cannot see them.
+    #[test]
+    fn tier_b_transforms_have_rows() {
+        let rows: BTreeSet<&str> = SELF_UPDATE_TABLE.iter().map(|r| r.function).collect();
+        let missing: Vec<String> = crate::codegen::builtins::strings::tier_b_transforms()
+            .iter()
+            .map(|(member, _)| tier_b_row(member))
+            .filter(|row| !rows.contains(row.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "Tier-B AttributedString transform(s) with no SELF_UPDATE_TABLE row: {missing:?}"
+        );
+    }
+
     #[test]
     fn self_update_table_has_no_stale_rows() {
         let shaped = shaped_functions();
+        let tier_b: BTreeSet<String> = crate::codegen::builtins::strings::tier_b_transforms()
+            .iter()
+            .map(|(member, _)| tier_b_row(member))
+            .collect();
         let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
         assert_eq!(
             arms.len(),
@@ -2279,7 +3044,9 @@ mod tests {
         for row in SELF_UPDATE_TABLE {
             assert!(seen.insert(row.function), "duplicate row {}", row.function);
             assert!(
-                shaped.contains(row.function) || OPERATORS.contains(&row.function),
+                shaped.contains(row.function)
+                    || NON_REGISTRY.contains(&row.function)
+                    || tier_b.contains(row.function),
                 "row {} names no registry function with a self-update-shaped overload",
                 row.function
             );
@@ -2288,6 +3055,13 @@ mod tests {
                 assert!(
                     !reason.trim().is_empty() && !proof.trim().is_empty(),
                     "row {} is Exempt without a reason and a proof",
+                    row.function
+                );
+            }
+            if let SelfUpdate::Deferred(plan) = row.kind {
+                assert!(
+                    !plan.trim().is_empty(),
+                    "row {} is Deferred without naming the plan that owns it",
                     row.function
                 );
             }

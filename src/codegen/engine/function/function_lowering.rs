@@ -970,6 +970,7 @@ pub(crate) fn lower_function(
     // plan-118-D: the record types with their own `construct.T` function.
     synthesized_constructors: &HashSet<ParameterType>,
     type_model: TypeModel,
+    module_name: &str,
 ) -> Result<CodeFunction, String> {
     let params = function
         .params
@@ -1091,6 +1092,10 @@ pub(crate) fn lower_function(
         graph_copy_walker: None,
         move_sites: None,
         current_op_key: None,
+        string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
+        module_name: module_name.to_string(),
     };
     let mut thread_param_slots = Vec::new();
     for (index, param) in params.iter().enumerate() {
@@ -1171,9 +1176,14 @@ pub(crate) fn lower_function(
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
+    // plan-146-G: which by-ref captures share their owner's capacity shadow —
+    // before the self-append prescan, which skips those (they need no slot here).
+    builder.prescan_string_shadow_env(&function.name);
+    builder.prescan_string_resource_base_env(&function.name);
     builder.prescan_string_self_appends(&function.body);
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
     builder.prescan_self_update_scratch(&function.name, &function.body);
+    builder.prescan_string_resource_base(&function.body);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.
@@ -1593,6 +1603,10 @@ pub(crate) fn lower_abi_function_helper(
         graph_copy_walker: None,
         move_sites: None,
         current_op_key: None,
+        string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
+        module_name: String::new(),
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1767,6 +1781,10 @@ pub(crate) fn lower_thread_copy_function(
         graph_copy_walker: None,
         move_sites: None,
         current_op_key: None,
+        string_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_resource_base_env: None,
+        module_name: String::new(),
     };
 
     // Hand the source to the walker with this type's kind, and return its copy.

@@ -141,7 +141,7 @@ pub(crate) struct RuntimeHelperAbi {
     pub(crate) returns_generic: bool,
 }
 
-mod catalog;
+pub(crate) mod catalog;
 mod perf_specs;
 mod usage;
 

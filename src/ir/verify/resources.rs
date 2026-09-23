@@ -1009,6 +1009,12 @@ impl TypeEnv {
                     } else {
                         Vec::new()
                     },
+                    // bug-679: `self` IS the declared-kind oracle (`impl TypeKinds
+                    // for TypeEnv`, plan-140-A), so `toInt(<enum>)` is recognised
+                    // as the one infallible `toInt` overload and its dead handler
+                    // is reported, matching `toString(<enum>)`. Every other `toInt`
+                    // can really fail and keeps its handler.
+                    self,
                 ) {
                     // A provably-infallible inline built-in (`len`, `toString`,
                     // every `bits::*`, …) under a TRAP compiles and runs; its

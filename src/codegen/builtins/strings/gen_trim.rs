@@ -6,13 +6,15 @@ use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `value` is the pre-lowered text argument (the `abi_inline` dispatch lowers it).
-pub(crate) fn lower_strings_trim(
+/// plan-146-C: the window half — the `[start, end)` of the trimmed result inside
+/// `value`'s bytes. `value` is the pre-lowered text argument (the `abi_inline`
+/// dispatch lowers it).
+pub(crate) fn lower_strings_trim_window(
     builder: &mut CodeBuilder,
     value: &ValueResult,
     trim_start: bool,
     trim_end: bool,
-) -> Result<ValueResult, String> {
+) -> Result<(VirtualRegister, VirtualRegister), String> {
     let scratch16 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
     let scratch10 = builder.temporary_vreg();
@@ -101,7 +103,17 @@ pub(crate) fn lower_strings_trim(
     builder.emit(abi::subtract_registers(&scratch12, &scratch11, &scratch10));
     builder.emit(abi::add_immediate(&scratch13, &scratch16, 8));
     builder.emit(abi::add_registers(&scratch13, &scratch13, &scratch10));
-    let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
+    Ok((scratch13, scratch12))
+}
+
+pub(crate) fn lower_strings_trim(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    trim_start: bool,
+    trim_end: bool,
+) -> Result<ValueResult, String> {
+    let (ptr, len) = lower_strings_trim_window(builder, value, trim_start, trim_end)?;
+    let result = builder.emit_materialize_string_from_bytes(&ptr, &len)?;
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

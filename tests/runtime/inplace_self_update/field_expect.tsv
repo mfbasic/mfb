@@ -962,3 +962,978 @@ math::tan(value AS List OF Float) AS List OF Float	T8	arm
 & (value AS String, other AS String) AS String	T6	deferred:string
 & (value AS String, other AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
 & (value AS String, other AS String) AS String	T8	deferred:string
+toString(value AS String) AS String	S3	deferred:string
+toString(value AS String) AS String	S4	deferred:string
+toString(value AS String) AS String	S5	deferred:string
+toString(value AS String) AS String	S6	deferred:string
+toString(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+toString(value AS String) AS String	S9	deferred:string
+toString(value AS String) AS String	S10	deferred:string
+toString(value AS String) AS String	T1	deferred:string
+toString(value AS String) AS String	T2	deferred:string
+toString(value AS String) AS String	T3	deferred:string
+toString(value AS String) AS String	T4	deferred:string
+toString(value AS String) AS String	T5	deferred:string
+toString(value AS String) AS String	T6	deferred:string
+toString(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+toString(value AS String) AS String	T8	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S3	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S4	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S5	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S6	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::left(value AS String, count AS Integer) AS String	S9	deferred:string
+strings::left(value AS String, count AS Integer) AS String	S10	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T1	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T2	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T3	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T4	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T5	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T6	deferred:string
+strings::left(value AS String, count AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::left(value AS String, count AS Integer) AS String	T8	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S3	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S4	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S5	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S6	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::right(value AS String, count AS Integer) AS String	S9	deferred:string
+strings::right(value AS String, count AS Integer) AS String	S10	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T1	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T2	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T3	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T4	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T5	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T6	deferred:string
+strings::right(value AS String, count AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::right(value AS String, count AS Integer) AS String	T8	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S3	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S4	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S5	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S6	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S9	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	S10	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T1	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T2	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T3	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T4	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T5	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T6	deferred:string
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::mid(value AS String, start AS Integer, count AS Integer) AS String	T8	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S3	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S4	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S5	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S6	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripPrefix(value AS String, prefix AS String) AS String	S9	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	S10	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T1	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T2	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T3	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T4	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T5	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T6	deferred:string
+strings::stripPrefix(value AS String, prefix AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripPrefix(value AS String, prefix AS String) AS String	T8	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S3	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S4	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S5	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S6	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripSuffix(value AS String, suffix AS String) AS String	S9	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	S10	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T1	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T2	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T3	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T4	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T5	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T6	deferred:string
+strings::stripSuffix(value AS String, suffix AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripSuffix(value AS String, suffix AS String) AS String	T8	deferred:string
+strings::trim(value AS String) AS String	S3	deferred:string
+strings::trim(value AS String) AS String	S4	deferred:string
+strings::trim(value AS String) AS String	S5	deferred:string
+strings::trim(value AS String) AS String	S6	deferred:string
+strings::trim(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trim(value AS String) AS String	S9	deferred:string
+strings::trim(value AS String) AS String	S10	deferred:string
+strings::trim(value AS String) AS String	T1	deferred:string
+strings::trim(value AS String) AS String	T2	deferred:string
+strings::trim(value AS String) AS String	T3	deferred:string
+strings::trim(value AS String) AS String	T4	deferred:string
+strings::trim(value AS String) AS String	T5	deferred:string
+strings::trim(value AS String) AS String	T6	deferred:string
+strings::trim(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trim(value AS String) AS String	T8	deferred:string
+strings::trimStart(value AS String) AS String	S3	deferred:string
+strings::trimStart(value AS String) AS String	S4	deferred:string
+strings::trimStart(value AS String) AS String	S5	deferred:string
+strings::trimStart(value AS String) AS String	S6	deferred:string
+strings::trimStart(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimStart(value AS String) AS String	S9	deferred:string
+strings::trimStart(value AS String) AS String	S10	deferred:string
+strings::trimStart(value AS String) AS String	T1	deferred:string
+strings::trimStart(value AS String) AS String	T2	deferred:string
+strings::trimStart(value AS String) AS String	T3	deferred:string
+strings::trimStart(value AS String) AS String	T4	deferred:string
+strings::trimStart(value AS String) AS String	T5	deferred:string
+strings::trimStart(value AS String) AS String	T6	deferred:string
+strings::trimStart(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimStart(value AS String) AS String	T8	deferred:string
+strings::trimEnd(value AS String) AS String	S3	deferred:string
+strings::trimEnd(value AS String) AS String	S4	deferred:string
+strings::trimEnd(value AS String) AS String	S5	deferred:string
+strings::trimEnd(value AS String) AS String	S6	deferred:string
+strings::trimEnd(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimEnd(value AS String) AS String	S9	deferred:string
+strings::trimEnd(value AS String) AS String	S10	deferred:string
+strings::trimEnd(value AS String) AS String	T1	deferred:string
+strings::trimEnd(value AS String) AS String	T2	deferred:string
+strings::trimEnd(value AS String) AS String	T3	deferred:string
+strings::trimEnd(value AS String) AS String	T4	deferred:string
+strings::trimEnd(value AS String) AS String	T5	deferred:string
+strings::trimEnd(value AS String) AS String	T6	deferred:string
+strings::trimEnd(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimEnd(value AS String) AS String	T8	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S3	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S4	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S5	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S6	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimChars(value AS String, chars AS String) AS String	S9	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	S10	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T1	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T2	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T3	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T4	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T5	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T6	deferred:string
+strings::trimChars(value AS String, chars AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimChars(value AS String, chars AS String) AS String	T8	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S3	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S4	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S5	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S6	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::graphemeAt(value AS String, index AS Integer) AS String	S9	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	S10	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T1	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T2	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T3	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T4	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T5	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T6	deferred:string
+strings::graphemeAt(value AS String, index AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::graphemeAt(value AS String, index AS Integer) AS String	T8	deferred:string
+fs::pathBaseName(path AS String) AS String	S3	deferred:string
+fs::pathBaseName(path AS String) AS String	S4	deferred:string
+fs::pathBaseName(path AS String) AS String	S5	deferred:string
+fs::pathBaseName(path AS String) AS String	S6	deferred:string
+fs::pathBaseName(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathBaseName(path AS String) AS String	S9	deferred:string
+fs::pathBaseName(path AS String) AS String	S10	deferred:string
+fs::pathBaseName(path AS String) AS String	T1	deferred:string
+fs::pathBaseName(path AS String) AS String	T2	deferred:string
+fs::pathBaseName(path AS String) AS String	T3	deferred:string
+fs::pathBaseName(path AS String) AS String	T4	deferred:string
+fs::pathBaseName(path AS String) AS String	T5	deferred:string
+fs::pathBaseName(path AS String) AS String	T6	deferred:string
+fs::pathBaseName(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathBaseName(path AS String) AS String	T8	deferred:string
+fs::pathDirName(path AS String) AS String	S3	deferred:string
+fs::pathDirName(path AS String) AS String	S4	deferred:string
+fs::pathDirName(path AS String) AS String	S5	deferred:string
+fs::pathDirName(path AS String) AS String	S6	deferred:string
+fs::pathDirName(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathDirName(path AS String) AS String	S9	deferred:string
+fs::pathDirName(path AS String) AS String	S10	deferred:string
+fs::pathDirName(path AS String) AS String	T1	deferred:string
+fs::pathDirName(path AS String) AS String	T2	deferred:string
+fs::pathDirName(path AS String) AS String	T3	deferred:string
+fs::pathDirName(path AS String) AS String	T4	deferred:string
+fs::pathDirName(path AS String) AS String	T5	deferred:string
+fs::pathDirName(path AS String) AS String	T6	deferred:string
+fs::pathDirName(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathDirName(path AS String) AS String	T8	deferred:string
+fs::pathExtension(path AS String) AS String	S3	deferred:string
+fs::pathExtension(path AS String) AS String	S4	deferred:string
+fs::pathExtension(path AS String) AS String	S5	deferred:string
+fs::pathExtension(path AS String) AS String	S6	deferred:string
+fs::pathExtension(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathExtension(path AS String) AS String	S9	deferred:string
+fs::pathExtension(path AS String) AS String	S10	deferred:string
+fs::pathExtension(path AS String) AS String	T1	deferred:string
+fs::pathExtension(path AS String) AS String	T2	deferred:string
+fs::pathExtension(path AS String) AS String	T3	deferred:string
+fs::pathExtension(path AS String) AS String	T4	deferred:string
+fs::pathExtension(path AS String) AS String	T5	deferred:string
+fs::pathExtension(path AS String) AS String	T6	deferred:string
+fs::pathExtension(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathExtension(path AS String) AS String	T8	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S3	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S4	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S5	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S6	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S9	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	S10	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T1	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T2	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T3	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T4	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T5	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T6	deferred:string
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeft(value AS String, width AS Integer, [padChar AS String]) AS String	T8	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S3	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S4	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S5	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S6	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S9	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	S10	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T1	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T2	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T3	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T4	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T5	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T6	deferred:string
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS String	T8	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S3	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S4	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S5	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S6	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S9	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S10	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T1	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T2	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T3	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T4	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T5	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T6	deferred:string
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T8	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S3	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S4	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S5	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S6	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S9	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	S10	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T1	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T2	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T3	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T4	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T5	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T6	deferred:string
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	T8	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S3	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S4	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S5	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S6	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::repeat(value AS String, times AS Integer) AS String	S9	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	S10	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T1	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T2	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T3	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T4	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T5	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T6	deferred:string
+strings::repeat(value AS String, times AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::repeat(value AS String, times AS Integer) AS String	T8	deferred:string
+os::resourcePath(relative AS String) AS String	S3	deferred:string
+os::resourcePath(relative AS String) AS String	S4	deferred:string
+os::resourcePath(relative AS String) AS String	S5	deferred:string
+os::resourcePath(relative AS String) AS String	S6	deferred:string
+os::resourcePath(relative AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::resourcePath(relative AS String) AS String	S9	deferred:string
+os::resourcePath(relative AS String) AS String	S10	deferred:string
+os::resourcePath(relative AS String) AS String	T1	deferred:string
+os::resourcePath(relative AS String) AS String	T2	deferred:string
+os::resourcePath(relative AS String) AS String	T3	deferred:string
+os::resourcePath(relative AS String) AS String	T4	deferred:string
+os::resourcePath(relative AS String) AS String	T5	deferred:string
+os::resourcePath(relative AS String) AS String	T6	deferred:string
+os::resourcePath(relative AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::resourcePath(relative AS String) AS String	T8	deferred:string
+strings::upper(value AS String) AS String	S3	deferred:string
+strings::upper(value AS String) AS String	S4	deferred:string
+strings::upper(value AS String) AS String	S5	deferred:string
+strings::upper(value AS String) AS String	S6	deferred:string
+strings::upper(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::upper(value AS String) AS String	S9	deferred:string
+strings::upper(value AS String) AS String	S10	deferred:string
+strings::upper(value AS String) AS String	T1	deferred:string
+strings::upper(value AS String) AS String	T2	deferred:string
+strings::upper(value AS String) AS String	T3	deferred:string
+strings::upper(value AS String) AS String	T4	deferred:string
+strings::upper(value AS String) AS String	T5	deferred:string
+strings::upper(value AS String) AS String	T6	deferred:string
+strings::upper(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::upper(value AS String) AS String	T8	deferred:string
+strings::lower(value AS String) AS String	S3	deferred:string
+strings::lower(value AS String) AS String	S4	deferred:string
+strings::lower(value AS String) AS String	S5	deferred:string
+strings::lower(value AS String) AS String	S6	deferred:string
+strings::lower(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::lower(value AS String) AS String	S9	deferred:string
+strings::lower(value AS String) AS String	S10	deferred:string
+strings::lower(value AS String) AS String	T1	deferred:string
+strings::lower(value AS String) AS String	T2	deferred:string
+strings::lower(value AS String) AS String	T3	deferred:string
+strings::lower(value AS String) AS String	T4	deferred:string
+strings::lower(value AS String) AS String	T5	deferred:string
+strings::lower(value AS String) AS String	T6	deferred:string
+strings::lower(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::lower(value AS String) AS String	T8	deferred:string
+strings::caseFold(value AS String) AS String	S3	deferred:string
+strings::caseFold(value AS String) AS String	S4	deferred:string
+strings::caseFold(value AS String) AS String	S5	deferred:string
+strings::caseFold(value AS String) AS String	S6	deferred:string
+strings::caseFold(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::caseFold(value AS String) AS String	S9	deferred:string
+strings::caseFold(value AS String) AS String	S10	deferred:string
+strings::caseFold(value AS String) AS String	T1	deferred:string
+strings::caseFold(value AS String) AS String	T2	deferred:string
+strings::caseFold(value AS String) AS String	T3	deferred:string
+strings::caseFold(value AS String) AS String	T4	deferred:string
+strings::caseFold(value AS String) AS String	T5	deferred:string
+strings::caseFold(value AS String) AS String	T6	deferred:string
+strings::caseFold(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::caseFold(value AS String) AS String	T8	deferred:string
+strings::normalizeNfc(value AS String) AS String	S3	deferred:string
+strings::normalizeNfc(value AS String) AS String	S4	deferred:string
+strings::normalizeNfc(value AS String) AS String	S5	deferred:string
+strings::normalizeNfc(value AS String) AS String	S6	deferred:string
+strings::normalizeNfc(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::normalizeNfc(value AS String) AS String	S9	deferred:string
+strings::normalizeNfc(value AS String) AS String	S10	deferred:string
+strings::normalizeNfc(value AS String) AS String	T1	deferred:string
+strings::normalizeNfc(value AS String) AS String	T2	deferred:string
+strings::normalizeNfc(value AS String) AS String	T3	deferred:string
+strings::normalizeNfc(value AS String) AS String	T4	deferred:string
+strings::normalizeNfc(value AS String) AS String	T5	deferred:string
+strings::normalizeNfc(value AS String) AS String	T6	deferred:string
+strings::normalizeNfc(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::normalizeNfc(value AS String) AS String	T8	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S3	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S4	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S5	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S6	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::replace(value AS String, old AS String, new AS String) AS String	S9	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	S10	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T1	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T2	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T3	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T4	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T5	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T6	deferred:string
+strings::replace(value AS String, old AS String, new AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::replace(value AS String, old AS String, new AS String) AS String	T8	deferred:string
+fs::pathNormalize(path AS String) AS String	S3	deferred:string
+fs::pathNormalize(path AS String) AS String	S4	deferred:string
+fs::pathNormalize(path AS String) AS String	S5	deferred:string
+fs::pathNormalize(path AS String) AS String	S6	deferred:string
+fs::pathNormalize(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathNormalize(path AS String) AS String	S9	deferred:string
+fs::pathNormalize(path AS String) AS String	S10	deferred:string
+fs::pathNormalize(path AS String) AS String	T1	deferred:string
+fs::pathNormalize(path AS String) AS String	T2	deferred:string
+fs::pathNormalize(path AS String) AS String	T3	deferred:string
+fs::pathNormalize(path AS String) AS String	T4	deferred:string
+fs::pathNormalize(path AS String) AS String	T5	deferred:string
+fs::pathNormalize(path AS String) AS String	T6	deferred:string
+fs::pathNormalize(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::pathNormalize(path AS String) AS String	T8	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S3	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S4	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S5	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S6	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::formUrlDecode(value AS String) AS String	S9	deferred:string
+encoding::formUrlDecode(value AS String) AS String	S10	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T1	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T2	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T3	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T4	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T5	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T6	deferred:string
+encoding::formUrlDecode(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::formUrlDecode(value AS String) AS String	T8	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S3	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S4	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S5	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S6	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::formUrlEncode(value AS String) AS String	S9	deferred:string
+encoding::formUrlEncode(value AS String) AS String	S10	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T1	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T2	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T3	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T4	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T5	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T6	deferred:string
+encoding::formUrlEncode(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::formUrlEncode(value AS String) AS String	T8	deferred:string
+encoding::htmlEscape(value AS String) AS String	S3	deferred:string
+encoding::htmlEscape(value AS String) AS String	S4	deferred:string
+encoding::htmlEscape(value AS String) AS String	S5	deferred:string
+encoding::htmlEscape(value AS String) AS String	S6	deferred:string
+encoding::htmlEscape(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::htmlEscape(value AS String) AS String	S9	deferred:string
+encoding::htmlEscape(value AS String) AS String	S10	deferred:string
+encoding::htmlEscape(value AS String) AS String	T1	deferred:string
+encoding::htmlEscape(value AS String) AS String	T2	deferred:string
+encoding::htmlEscape(value AS String) AS String	T3	deferred:string
+encoding::htmlEscape(value AS String) AS String	T4	deferred:string
+encoding::htmlEscape(value AS String) AS String	T5	deferred:string
+encoding::htmlEscape(value AS String) AS String	T6	deferred:string
+encoding::htmlEscape(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::htmlEscape(value AS String) AS String	T8	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S3	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S4	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S5	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S6	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::htmlUnescape(value AS String) AS String	S9	deferred:string
+encoding::htmlUnescape(value AS String) AS String	S10	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T1	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T2	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T3	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T4	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T5	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T6	deferred:string
+encoding::htmlUnescape(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::htmlUnescape(value AS String) AS String	T8	deferred:string
+encoding::percentDecode(value AS String) AS String	S3	deferred:string
+encoding::percentDecode(value AS String) AS String	S4	deferred:string
+encoding::percentDecode(value AS String) AS String	S5	deferred:string
+encoding::percentDecode(value AS String) AS String	S6	deferred:string
+encoding::percentDecode(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::percentDecode(value AS String) AS String	S9	deferred:string
+encoding::percentDecode(value AS String) AS String	S10	deferred:string
+encoding::percentDecode(value AS String) AS String	T1	deferred:string
+encoding::percentDecode(value AS String) AS String	T2	deferred:string
+encoding::percentDecode(value AS String) AS String	T3	deferred:string
+encoding::percentDecode(value AS String) AS String	T4	deferred:string
+encoding::percentDecode(value AS String) AS String	T5	deferred:string
+encoding::percentDecode(value AS String) AS String	T6	deferred:string
+encoding::percentDecode(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::percentDecode(value AS String) AS String	T8	deferred:string
+encoding::percentEncode(value AS String) AS String	S3	deferred:string
+encoding::percentEncode(value AS String) AS String	S4	deferred:string
+encoding::percentEncode(value AS String) AS String	S5	deferred:string
+encoding::percentEncode(value AS String) AS String	S6	deferred:string
+encoding::percentEncode(value AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::percentEncode(value AS String) AS String	S9	deferred:string
+encoding::percentEncode(value AS String) AS String	S10	deferred:string
+encoding::percentEncode(value AS String) AS String	T1	deferred:string
+encoding::percentEncode(value AS String) AS String	T2	deferred:string
+encoding::percentEncode(value AS String) AS String	T3	deferred:string
+encoding::percentEncode(value AS String) AS String	T4	deferred:string
+encoding::percentEncode(value AS String) AS String	T5	deferred:string
+encoding::percentEncode(value AS String) AS String	T6	deferred:string
+encoding::percentEncode(value AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::percentEncode(value AS String) AS String	T8	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S3	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S4	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S5	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S6	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::punycodeDecode(asciiDomain AS String) AS String	S9	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	S10	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T1	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T2	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T3	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T4	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T5	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T6	deferred:string
+encoding::punycodeDecode(asciiDomain AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::punycodeDecode(asciiDomain AS String) AS String	T8	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S3	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S4	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S5	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S6	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::punycodeEncode(domain AS String) AS String	S9	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	S10	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T1	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T2	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T3	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T4	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T5	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T6	deferred:string
+encoding::punycodeEncode(domain AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+encoding::punycodeEncode(domain AS String) AS String	T8	deferred:string
+fs::canonicalPath(path AS String) AS String	S3	deferred:string
+fs::canonicalPath(path AS String) AS String	S4	deferred:string
+fs::canonicalPath(path AS String) AS String	S5	deferred:string
+fs::canonicalPath(path AS String) AS String	S6	deferred:string
+fs::canonicalPath(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::canonicalPath(path AS String) AS String	S9	deferred:string
+fs::canonicalPath(path AS String) AS String	S10	deferred:string
+fs::canonicalPath(path AS String) AS String	T1	deferred:string
+fs::canonicalPath(path AS String) AS String	T2	deferred:string
+fs::canonicalPath(path AS String) AS String	T3	deferred:string
+fs::canonicalPath(path AS String) AS String	T4	deferred:string
+fs::canonicalPath(path AS String) AS String	T5	deferred:string
+fs::canonicalPath(path AS String) AS String	T6	deferred:string
+fs::canonicalPath(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::canonicalPath(path AS String) AS String	T8	deferred:string
+fs::readText(path AS String) AS String	S3	deferred:string
+fs::readText(path AS String) AS String	S4	deferred:string
+fs::readText(path AS String) AS String	S5	deferred:string
+fs::readText(path AS String) AS String	S6	deferred:string
+fs::readText(path AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::readText(path AS String) AS String	S9	deferred:string
+fs::readText(path AS String) AS String	S10	deferred:string
+fs::readText(path AS String) AS String	T1	deferred:string
+fs::readText(path AS String) AS String	T2	deferred:string
+fs::readText(path AS String) AS String	T3	deferred:string
+fs::readText(path AS String) AS String	T4	deferred:string
+fs::readText(path AS String) AS String	T5	deferred:string
+fs::readText(path AS String) AS String	T6	deferred:string
+fs::readText(path AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+fs::readText(path AS String) AS String	T8	deferred:string
+io::input([prompt AS String]) AS String	S3	deferred:string
+io::input([prompt AS String]) AS String	S4	deferred:string
+io::input([prompt AS String]) AS String	S5	deferred:string
+io::input([prompt AS String]) AS String	S6	deferred:string
+io::input([prompt AS String]) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+io::input([prompt AS String]) AS String	S9	deferred:string
+io::input([prompt AS String]) AS String	S10	deferred:string
+io::input([prompt AS String]) AS String	T1	deferred:string
+io::input([prompt AS String]) AS String	T2	deferred:string
+io::input([prompt AS String]) AS String	T3	deferred:string
+io::input([prompt AS String]) AS String	T4	deferred:string
+io::input([prompt AS String]) AS String	T5	deferred:string
+io::input([prompt AS String]) AS String	T6	deferred:string
+io::input([prompt AS String]) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+io::input([prompt AS String]) AS String	T8	deferred:string
+net::percentDecode(s AS String) AS String	S3	deferred:string
+net::percentDecode(s AS String) AS String	S4	deferred:string
+net::percentDecode(s AS String) AS String	S5	deferred:string
+net::percentDecode(s AS String) AS String	S6	deferred:string
+net::percentDecode(s AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+net::percentDecode(s AS String) AS String	S9	deferred:string
+net::percentDecode(s AS String) AS String	S10	deferred:string
+net::percentDecode(s AS String) AS String	T1	deferred:string
+net::percentDecode(s AS String) AS String	T2	deferred:string
+net::percentDecode(s AS String) AS String	T3	deferred:string
+net::percentDecode(s AS String) AS String	T4	deferred:string
+net::percentDecode(s AS String) AS String	T5	deferred:string
+net::percentDecode(s AS String) AS String	T6	deferred:string
+net::percentDecode(s AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+net::percentDecode(s AS String) AS String	T8	deferred:string
+os::getEnv(name AS String) AS String	S3	deferred:string
+os::getEnv(name AS String) AS String	S4	deferred:string
+os::getEnv(name AS String) AS String	S5	deferred:string
+os::getEnv(name AS String) AS String	S6	deferred:string
+os::getEnv(name AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::getEnv(name AS String) AS String	S9	deferred:string
+os::getEnv(name AS String) AS String	S10	deferred:string
+os::getEnv(name AS String) AS String	T1	deferred:string
+os::getEnv(name AS String) AS String	T2	deferred:string
+os::getEnv(name AS String) AS String	T3	deferred:string
+os::getEnv(name AS String) AS String	T4	deferred:string
+os::getEnv(name AS String) AS String	T5	deferred:string
+os::getEnv(name AS String) AS String	T6	deferred:string
+os::getEnv(name AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::getEnv(name AS String) AS String	T8	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S3	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S4	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S5	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S6	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::getEnvOr(name AS String, fallback AS String) AS String	S9	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	S10	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T1	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T2	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T3	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T4	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T5	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T6	deferred:string
+os::getEnvOr(name AS String, fallback AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::getEnvOr(name AS String, fallback AS String) AS String	T8	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S3	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S4	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S5	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S6	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S9	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	S10	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T1	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T2	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T3	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T4	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T5	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T6	deferred:string
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+regex::replace(value AS String, pattern AS String, replacement AS String) AS String	T8	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S3	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S4	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S5	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S6	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S9	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S10	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T1	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T2	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T3	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T4	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T5	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T6	deferred:string
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::addAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T8	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S3	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S4	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S5	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S6	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S9	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	S10	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T1	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T2	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T3	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T4	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T5	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T6	deferred:string
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::clearAttributes(value AS AttributedString) AS AttributedString	T8	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S3	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S4	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S5	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S6	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S9	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	S10	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T1	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T2	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T3	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T4	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T5	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T6	deferred:string
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::clearAttributes(value AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString	T8	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S3	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S4	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S5	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S6	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S9	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	S10	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T1	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T2	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T3	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T4	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T5	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T6	deferred:string
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+astrings::removeAttribute(value AS AttributedString, start AS Integer, endIndex AS Integer, attr AS astrings::Attribute) AS AttributedString	T8	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S3	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S4	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S5	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S6	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S9	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	S10	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T1	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T2	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T3	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T4	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T5	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T6	deferred:string
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+&@AttributedString (value AS AttributedString, other AS AttributedString) AS AttributedString	T8	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S3	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S4	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S5	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S6	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S9	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	S10	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T1	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T2	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T3	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T4	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T5	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T6	deferred:string
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::left(value AS AttributedString, count AS Integer) AS AttributedString	T8	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S3	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S4	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S5	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S6	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S9	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	S10	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T1	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T2	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T3	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T4	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T5	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T6	deferred:string
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString	T8	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S3	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S4	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S5	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S6	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S9	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	S10	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T1	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T2	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T3	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T4	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T5	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T6	deferred:string
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString	T8	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trim(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::trim(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trim(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimStart(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::trimStart(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimStart(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimEnd(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::trimEnd(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimEnd(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S3	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S4	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S5	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S6	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S9	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	S10	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T1	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T2	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T3	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T4	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T5	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T6	deferred:string
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString	T8	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S3	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S4	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S5	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S6	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S9	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	S10	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T1	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T2	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T3	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T4	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T5	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T6	deferred:string
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString	T8	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S3	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S4	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S5	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S6	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S9	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	S10	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T1	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T2	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T3	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T4	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T5	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T6	deferred:string
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::stripSuffix(value AS AttributedString, suffix AS String) AS AttributedString	T8	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S3	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S4	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S5	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S6	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S9	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S10	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T1	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T2	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T3	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T4	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T5	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T6	deferred:string
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeft(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T8	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S3	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S4	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S5	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S6	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S9	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S10	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T1	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T2	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T3	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T4	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T5	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T6	deferred:string
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padLeftToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T8	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S3	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S4	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S5	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S6	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S9	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	S10	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T1	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T2	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T3	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T4	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T5	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T6	deferred:string
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRight(value AS AttributedString, width AS Integer, [padChar AS String]) AS AttributedString	T8	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S3	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S4	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S5	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S6	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S9	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	S10	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T1	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T2	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T3	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T4	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T5	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T6	deferred:string
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::padRightToWidth(value AS AttributedString, columns AS Integer, [padChar AS String]) AS AttributedString	T8	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S3	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S4	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S5	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S6	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S9	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	S10	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T1	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T2	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T3	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T4	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T5	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T6	deferred:string
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString	T8	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S3	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S4	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S5	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S6	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S9	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	S10	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T1	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T2	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T3	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T4	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T5	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T6	deferred:string
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString	T8	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::upper(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::upper(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::upper(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::lower(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::lower(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::lower(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::caseFold(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::caseFold(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::caseFold(value AS AttributedString) AS AttributedString	T8	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S3	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S4	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S5	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S6	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S9	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	S10	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T1	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T2	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T3	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T4	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T5	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T6	deferred:string
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+strings::normalizeNfc(value AS AttributedString) AS AttributedString	T8	deferred:string

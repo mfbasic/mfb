@@ -1,0 +1,236 @@
+IMPORT io
+IMPORT strings
+IMPORT fs
+IMPORT errorCode
+
+' plan-146-E: `s = f(s, …)` for the six natively lowered rewrites builds the
+' result in the function's self-update scratch and copies it back into `s`'s own
+' block — the writer would otherwise overtake the reader (`ß` → `SS` is longer
+' than its input, a replacement can be longer or shorter). Each case computes the
+' same result twice — once through a LET (the copying lowering) and once as a
+' self-update (the arm) — and prints whether they agree. Every case runs at a
+' local and at a module-level global (S1 and S2).
+
+MUT g AS String = ""
+
+SUB show(tag AS String, got AS String, want AS String)
+  IF got = want THEN
+    io::print(tag & " ok [" & got & "]")
+  ELSE
+    io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
+  END IF
+END SUB
+
+' --- the case maps: the ASCII byte path and the Unicode path ----------------
+
+SUB caseMapsLocal()
+  MUT s AS String = "aBcD"
+  LET a AS String = strings::upper(s)
+  s = strings::upper(s)
+  show("upperAscii", s, a)
+
+  s = "aBcD"
+  LET b AS String = strings::lower(s)
+  s = strings::lower(s)
+  show("lowerAscii", s, b)
+
+  s = "aBcD"
+  LET c AS String = strings::caseFold(s)
+  s = strings::caseFold(s)
+  show("caseFoldAscii", s, c)
+
+  ' `ß` uppercases to `SS`: the result is LONGER than its input.
+  s = "straße"
+  LET d AS String = strings::upper(s)
+  s = strings::upper(s)
+  show("upperSharpS", s, d)
+
+  ' `İ` (U+0130) lowercases to `i` + a combining dot: also longer.
+  s = "İstanbul"
+  LET e AS String = strings::lower(s)
+  s = strings::lower(s)
+  show("lowerDottedI", s, e)
+
+  ' Greek final sigma folds to the medial form.
+  s = "ΟΔΥΣΣΕΥΣ"
+  LET f AS String = strings::lower(s)
+  s = strings::lower(s)
+  show("lowerSigma", s, f)
+
+  s = "ΣΊΣΥΦΟΣ"
+  LET h AS String = strings::caseFold(s)
+  s = strings::caseFold(s)
+  show("caseFoldGreek", s, h)
+
+  s = ""
+  LET i AS String = strings::upper(s)
+  s = strings::upper(s)
+  show("upperEmpty", s, i)
+END SUB
+
+' --- normalizeNfc: decomposed vs precomposed --------------------------------
+
+SUB normalizeLocal()
+  MUT s AS String = "abc"
+  LET a AS String = strings::normalizeNfc(s)
+  s = strings::normalizeNfc(s)
+  show("nfcAscii", s, a)
+
+  ' `e` + U+0301 composes to `é` — the result is SHORTER than its input.
+  s = "cafe" & "́"
+  LET b AS String = strings::normalizeNfc(s)
+  s = strings::normalizeNfc(s)
+  show("nfcDecomposed", s, b)
+
+  ' Already precomposed: unchanged.
+  s = "café"
+  LET c AS String = strings::normalizeNfc(s)
+  s = strings::normalizeNfc(s)
+  show("nfcPrecomposed", s, c)
+
+  ' Two combining marks in the wrong canonical order.
+  s = "q" & "̣" & "̇"
+  LET d AS String = strings::normalizeNfc(s)
+  s = strings::normalizeNfc(s)
+  show("nfcReorder", s, d)
+END SUB
+
+' --- replace: shorter, equal, longer, empty, and no match -------------------
+
+SUB replaceLocal()
+  MUT s AS String = "abcabc"
+  LET a AS String = strings::replace(s, "a", "xy")
+  s = strings::replace(s, "a", "xy")
+  show("replaceLonger", s, a)
+
+  s = "abcabc"
+  LET b AS String = strings::replace(s, "ab", "z")
+  s = strings::replace(s, "ab", "z")
+  show("replaceShorter", s, b)
+
+  s = "abcabc"
+  LET c AS String = strings::replace(s, "a", "A")
+  s = strings::replace(s, "a", "A")
+  show("replaceEqual", s, c)
+
+  s = "abcabc"
+  LET d AS String = strings::replace(s, "a", "")
+  s = strings::replace(s, "a", "")
+  show("replaceEmpty", s, d)
+
+  ' No match at all: the arm leaves the binding exactly as it is.
+  s = "abcabc"
+  LET e AS String = strings::replace(s, "zz", "y")
+  s = strings::replace(s, "zz", "y")
+  show("replaceNoMatch", s, e)
+
+  s = "héllo"
+  LET f AS String = strings::replace(s, "é", "ee")
+  s = strings::replace(s, "é", "ee")
+  show("replaceUtf8", s, f)
+END SUB
+
+' --- pathNormalize: `..`, `.`, repeated `/`, and a path that becomes `.` ----
+
+SUB pathNormalizeLocal()
+  MUT s AS String = "a/b/../c"
+  LET a AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normDotDot", s, a)
+
+  s = "a/./b"
+  LET b AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normDot", s, b)
+
+  s = "a//b///c"
+  LET c AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normSlashes", s, c)
+
+  s = "a/.."
+  LET d AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normToDot", s, d)
+
+  s = "/a/../../b"
+  LET e AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normAboveRoot", s, e)
+
+  s = ""
+  LET f AS String = fs::pathNormalize(s)
+  s = fs::pathNormalize(s)
+  show("normEmpty", s, f)
+END SUB
+
+' --- the same rewrites at a module-level global (S2) ------------------------
+
+SUB rewritesGlobal()
+  g = "straße"
+  LET a AS String = strings::upper(g)
+  g = strings::upper(g)
+  show("g.upperSharpS", g, a)
+
+  g = "cafe" & "́"
+  LET b AS String = strings::normalizeNfc(g)
+  g = strings::normalizeNfc(g)
+  show("g.nfcDecomposed", g, b)
+
+  g = "abcabc"
+  LET c AS String = strings::replace(g, "a", "xy")
+  g = strings::replace(g, "a", "xy")
+  show("g.replaceLonger", g, c)
+
+  g = "a/b/../c"
+  LET d AS String = fs::pathNormalize(g)
+  g = fs::pathNormalize(g)
+  show("g.normDotDot", g, d)
+END SUB
+
+' --- the rewritten block keeps working --------------------------------------
+
+SUB rewriteThenUse()
+  MUT s AS String = "straße"
+  s = strings::upper(s)
+  s = s & "!"
+  show("rewriteThenAppend", s, "STRASSE!")
+
+  MUT t AS String = "aaaa"
+  FOR i = 1 TO 5
+    t = strings::replace(t, "a", "aa")
+    t = strings::replace(t, "aa", "a")
+  NEXT
+  show("rewriteLoop", t, "aaaa")
+
+  MUT u AS String = "A"
+  FOR i = 1 TO 4
+    u = strings::lower(u)
+    u = strings::upper(u)
+  NEXT
+  show("caseLoop", u, "A")
+END SUB
+
+' --- failure atomicity ------------------------------------------------------
+
+SUB trapReplaceEmptyOld()
+  MUT s AS String = "abc"
+  s = strings::replace(s, "", "x")
+  io::print("trap.replaceEmptyOld NOT RAISED [" & s & "]")
+  EXIT SUB
+  TRAP(err)
+    io::print("trap.replaceEmptyOld raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
+    EXIT SUB
+  END TRAP
+END SUB
+
+FUNC main() AS Integer
+  caseMapsLocal()
+  normalizeLocal()
+  replaceLocal()
+  pathNormalizeLocal()
+  rewritesGlobal()
+  rewriteThenUse()
+  trapReplaceEmptyOld()
+  RETURN 0
+END FUNC

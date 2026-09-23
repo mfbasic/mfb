@@ -1,14 +1,18 @@
 //! plan-142-A: every self-update-shaped builtin overload has a runtime case.
 //!
-//! A **self-update** is `x = f(x, …)` with `x` a `List`, `Map` or `Set`. plan-142
-//! guarantees each such `f` either mutates `x`'s block in place or provably never
-//! copies it, and `tests/runtime/rt_inplace_self_update.rs` measures that from
+//! A **self-update** is `x = f(x, …)` with `x` a `List`, `Map` or `Set` — or, since
+//! plan-146-A, a `String` or an `AttributedString`. plan-142 (collections) and
+//! plan-146 (`String`) guarantee each such `f` either mutates `x`'s block in place or
+//! provably never copies it, and `tests/runtime/rt_inplace_self_update.rs` measures that from
 //! `tests/runtime/inplace_self_update/cases.tsv`. This guard is what makes the
 //! guarantee cover a builtin added later: it reads the documented surface through
 //! the `mfb` binary under test (`mfb man`), finds every overload whose first
-//! parameter is a collection and whose return type can equal it, and fails if one
-//! has no line in `cases.tsv` — or if `cases.tsv` names a signature `mfb man` no
-//! longer documents.
+//! parameter is a collection (or a `String`/`AttributedString`) and whose return
+//! type can equal it, and fails if one has no line in `cases.tsv` — or if
+//! `cases.tsv` names a signature `mfb man` no longer documents. A `strings::`
+//! transform whose page says it also takes an `AttributedString` (a Tier-B
+//! transform, which has no rendered overload of its own) needs a line for that
+//! form too.
 //!
 //! The registry-side twin is `self_update_census_covers_every_registry_overload`
 //! in `src/codegen/collection/assign/self_update.rs`; it ties the registry to the
@@ -242,10 +246,36 @@ fn self_update_shaped(sig: &str) -> bool {
     let (first, ret) = (parse_ty(&first), parse_ty(&ret));
     let mut bindings = BTreeMap::new();
     coincide(&first, &ret, &mut bindings)
-        && matches!(
+        && (matches!(
             resolve(&first, &bindings),
             Ty::List(_) | Ty::Set(_) | Ty::Map(_, _)
-        )
+        ) || matches!(&first, Ty::Atom(t) if t == "String" || t == "AttributedString"))
+}
+
+/// The sentence a Tier-B `strings::` transform's page carries: it also takes an
+/// `AttributedString` and returns one (typed by the compiler, not rendered as an
+/// overload — plan-143 findings Correction 1).
+const TIER_B_SENTENCE: &str =
+    "value may also be an astrings::AttributedString: it returns an AttributedString";
+
+/// plan-146-A: the `AttributedString` forms of a Tier-B transform's `String`
+/// self-update signatures — each `value AS String … AS String` with both types
+/// spelled `AttributedString` — when its page says it has them; else none.
+fn tier_b_signatures(pkg: &str, function: &str, sigs: &[String]) -> Vec<String> {
+    let page = man(&[pkg, function]);
+    let text = page.split_whitespace().collect::<Vec<_>>().join(" ");
+    if !text.contains(TIER_B_SENTENCE) {
+        return Vec::new();
+    }
+    sigs.iter()
+        .filter_map(|sig| {
+            let rest = sig.strip_suffix(") AS String")?;
+            let (head, params) = rest.split_once("(value AS String")?;
+            Some(format!(
+                "{head}(value AS AttributedString{params}) AS AttributedString"
+            ))
+        })
+        .collect()
 }
 
 fn cases_tsv_signatures() -> BTreeSet<String> {
@@ -267,11 +297,19 @@ fn cases_tsv_signatures() -> BTreeSet<String> {
 fn every_self_update_shaped_overload_has_a_runtime_case() {
     let mut shaped = BTreeSet::new();
     let mut overloads = 0usize;
+    let mut tier_b = 0usize;
     for pkg in packages() {
         for function in functions(&pkg) {
-            for sig in signatures(&pkg, &function) {
+            let sigs = signatures(&pkg, &function);
+            for sig in &sigs {
                 overloads += 1;
-                if self_update_shaped(&sig) {
+                if self_update_shaped(sig) {
+                    shaped.insert(sig.clone());
+                }
+            }
+            if pkg == "strings" {
+                for sig in tier_b_signatures(&pkg, &function, &sigs) {
+                    tier_b += 1;
                     shaped.insert(sig);
                 }
             }
@@ -281,6 +319,14 @@ fn every_self_update_shaped_overload_has_a_runtime_case() {
         overloads > 500,
         "the `mfb man` census read only {overloads} overloads — the page format changed \
          and this guard is no longer reading it"
+    );
+    // plan-146-A: `TIER_B_TRANSFORMS` (`src/codegen/builtins/strings/mod.rs`) has 19
+    // entries; fewer here means the pages lost the sentence this census reads.
+    assert!(
+        tier_b >= 19,
+        "the `mfb man strings` census found only {tier_b} Tier-B AttributedString \
+         transforms (want 19) — the page wording changed and this guard is no longer \
+         reading it"
     );
     let cases = cases_tsv_signatures();
     let missing: Vec<&String> = shaped.difference(&cases).collect();

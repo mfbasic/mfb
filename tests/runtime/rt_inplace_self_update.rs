@@ -10,7 +10,7 @@
 //! the extra `N` runs allocate at least `N` more blocks. An in-place lowering
 //! allocates only when the collection outgrows its capacity (geometric growth), so
 //! the extra `N` runs allocate a handful. The two bounds — and the only two
-//! statuses a line may have (plan-142-I; any other is rejected):
+//! statuses a finished line may have (plan-142-I):
 //!
 //! * `arm` — `count(2N) - count(N) < N / 8`.
 //! * `exempt` — the result is a new value by definition (plan-142-E), so the
@@ -25,6 +25,14 @@
 //!   that working table is the same size at both. (Total bytes *allocated* cannot
 //!   make this distinction: these functions allocate per-block temporaries that
 //!   they free as they go — plan-142-E Correction E2.)
+//!
+//! There is one further status, for a row another plan owns:
+//!
+//! * `deferred:<tag>` — the statement still copies (`count(2N) - count(N) >= N`),
+//!   and is meant to; the named plan (`attributed-string`, plan-146-A Open
+//!   Decision 1) flips it. plan-146-A's temporary `pending:<letter>` is gone
+//!   again, deleted by plan-146-H: every other line is an arm or a proven
+//!   exemption.
 //!
 //! **Value semantics.** Every program first takes `LET before = x`, prints the
 //! line's check expression over `before`, runs the loop, and prints it again: the
@@ -156,6 +164,9 @@ END FUNC
 enum Status {
     Arm,
     Exempt,
+    /// plan-146-A: still copies; the named plan owns it (plan-146-H deleted the
+    /// `pending:` twin — a line with no arm is a missing arm).
+    Deferred(String),
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +191,70 @@ impl Case {
     }
 }
 
+/// A `String` expression for the length of `value`, of type `ty`: `len` for a
+/// collection or a `String`; `len` has no `AttributedString` overload, so its byte
+/// length (plan-146-A).
+fn len_of(ty: &str, value: &str) -> String {
+    if ty == "AttributedString" {
+        format!("toString(strings::byteLen({value}))")
+    } else {
+        format!("toString(len({value}))")
+    }
+}
+
+/// `IMPORT` lines for every package `rest` names (`pkg::`) that `prelude` does not
+/// import already.
+fn extra_imports(prelude: &str, rest: &str) -> String {
+    let mut imported: Vec<&str> = prelude
+        .lines()
+        .filter_map(|l| l.strip_prefix("IMPORT "))
+        .collect();
+    let mut extra = String::new();
+    for (i, _) in rest.match_indices("::") {
+        let start = rest[..i]
+            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .map_or(0, |p| p + 1);
+        let pkg = &rest[start..i];
+        if pkg.starts_with(|c: char| c.is_ascii_lowercase()) && !imported.contains(&pkg) {
+            imported.push(pkg);
+            extra.push_str(&format!("IMPORT {pkg}\n"));
+        }
+    }
+    extra
+}
+
+/// [`PRELUDE`] plus an `IMPORT` for every further package `rest` names.
+fn prelude_for(rest: &str) -> String {
+    let extra = extra_imports(PRELUDE, rest);
+    PRELUDE.replacen("IMPORT math\n", &format!("IMPORT math\n{extra}"), 1)
+}
+
+/// The number of stdin lines fed to a program that reads them (`io::input`):
+/// more than any line's `2N` statements read.
+const STDIN_LINES: usize = 4 * DEFAULT_N as usize + 64;
+
+/// Run `command`, feeding it [`STDIN_LINES`] empty lines when `source` reads stdin.
+fn output_with_stdin(command: &mut Command, source: &str) -> std::io::Result<std::process::Output> {
+    if !source.contains("io::input(") {
+        return command.output();
+    }
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let feeder = std::thread::spawn(move || {
+        // The program may exit before reading everything; a broken pipe is fine.
+        let _ = stdin.write_all("\n".repeat(STDIN_LINES).as_bytes());
+    });
+    let output = child.wait_with_output();
+    let _ = feeder.join();
+    output
+}
+
 fn cases() -> Vec<Case> {
     CASES
         .lines()
@@ -191,12 +266,14 @@ fn cases() -> Vec<Case> {
                 "cases.tsv line has {} columns, want 5 or 6: {line}",
                 cols.len()
             );
-            let status = match cols[1] {
-                "arm" => Status::Arm,
-                "exempt" => Status::Exempt,
-                s => panic!(
-                    "cases.tsv: status `{s}` is neither `arm` nor `exempt` in: {line} — a \
-                     self-update needs an in-place arm or a proven exemption"
+            let status = match cols[1].split_once(':') {
+                None if cols[1] == "arm" => Status::Arm,
+                None if cols[1] == "exempt" => Status::Exempt,
+                Some(("deferred", tag)) if !tag.is_empty() => Status::Deferred(tag.to_string()),
+                _ => panic!(
+                    "cases.tsv: status `{}` is not `arm`, `exempt` or `deferred:<tag>` in: \
+                     {line} — a self-update needs an in-place arm or a proven exemption",
+                    cols[1]
                 ),
             };
             let mut setup = cols[2].split(" ; ").map(str::to_string);
@@ -243,28 +320,31 @@ enum Site {
 const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
 
 impl Site {
-    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`, and
-    /// a by-ref `String` has no capacity shadow to append into (plan-142-G
-    /// Correction G1). A global's lives in a hidden global (plan-142-H).
+    /// Whether `case` has a form at this site: no `FOR EACH` walks a `String`
+    /// (`TYPE_FOR_EACH_REQUIRES_COLLECTION`). A global's shadow lives in a hidden
+    /// global (plan-142-H), and a by-ref capture shares its owner's through the
+    /// closure environment (plan-146-G), so a `String` runs everywhere but S7. An
+    /// `AttributedString` (plan-146-A, deferred) runs at S1 and S2 only.
     fn applies(self, case: &Case) -> bool {
-        matches!(self, Site::Local | Site::Global) || case.ty() != "String"
+        match case.ty() {
+            "String" => !matches!(self, Site::ForEach),
+            "AttributedString" => matches!(self, Site::Local | Site::Global),
+            _ => true,
+        }
     }
 }
 
 /// The whole program: `x` declared as `decl` — a `main` local, or at S2 a
 /// module-level global with `body` in a `SUB` — and `body` (main-body lines).
 fn frame(site: Site, decl: &str, body: &str) -> String {
-    let mut src = String::from(PRELUDE);
-    match site {
-        Site::Global => src.push_str(&format!(
+    let rest = match site {
+        Site::Global => format!(
             "\nMUT x AS {decl}\n\nSUB run1()\n{body}END SUB\n\n\
              FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
-        )),
-        _ => src.push_str(&format!(
-            "\nFUNC main() AS Integer\n  MUT x AS {decl}\n{body}  RETURN 0\nEND FUNC\n"
-        )),
-    }
-    src
+        ),
+        _ => format!("\nFUNC main() AS Integer\n  MUT x AS {decl}\n{body}  RETURN 0\nEND FUNC\n"),
+    };
+    format!("{}{rest}", prelude_for(&rest))
 }
 
 /// The main-body lines running `body` (already indented for its position) at
@@ -319,7 +399,7 @@ fn program(case: &Case, site: Site, n: u64, live: bool) -> String {
     body.push_str("  NEXT\n");
     src.push_str(&at_site(site, &body, live));
     src.push_str(&format!("  io::print({})\n", case.check));
-    src.push_str("  io::print(toString(len(x)))\n");
+    src.push_str(&format!("  io::print({})\n", len_of(case.ty(), "x")));
     frame(site, &sized(&case.decl, VALUE_M), &src)
 }
 
@@ -422,16 +502,15 @@ fn exempt_program(case: &Case, site: Site, m: u64, with_statement: bool) -> Stri
             ));
         }
     }
-    src.push_str("  io::print(toString(len(x)))\n");
+    src.push_str(&format!("  io::print({})\n", len_of(case.ty(), "x")));
     frame(site, &sized(&case.decl, m), &src)
 }
 
 /// Run a program: `(first output line, peak live bytes over every arena)`.
 fn run_peak(name: &str, source: &str) -> Result<(u64, u64), String> {
     let exe = build_debug(name, source)?;
-    let output = Command::new(&exe)
-        .output()
-        .map_err(|e| format!("run: {e}"))?;
+    let output =
+        output_with_stdin(&mut Command::new(&exe), source).map_err(|e| format!("run: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
@@ -579,7 +658,7 @@ fn run_lines(name: &str, source: &str, build: Build) -> Result<(Vec<String>, u64
             .env("MFB_WINAPP_HEADLESS", "1")
             .env("MFB_GTKAPP_HEADLESS", "1");
     }
-    let output = command.output();
+    let output = output_with_stdin(&mut command, source);
     let _ = std::fs::remove_dir_all(&project);
     let output = output.map_err(|e| format!("run: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -657,6 +736,13 @@ fn check(index: usize, case: &Case, site: Site) -> Result<(), String> {
         )),
         Status::Exempt => exempt_check(index, case, site, &label),
         Status::Arm => Ok(()),
+        // plan-146-A: a copy allocates at least one block per statement run.
+        Status::Deferred(plan) if extra < n => Err(format!(
+            "{label}: marked `deferred:{plan}`, but {n} more runs allocated only {extra} \
+             more blocks ({once} at N={n}, {twice} at 2N) — the statement no longer copies; \
+             flip the line"
+        )),
+        Status::Deferred(_) => Ok(()),
     }
 }
 
@@ -913,7 +999,8 @@ impl FieldCase {
             statements: case.statements.clone(),
             check: case.check.clone(),
             value_bound: false,
-            has_len: true,
+            // `len` has no `AttributedString` overload (plan-146-A).
+            has_len: case.ty() != "AttributedString",
             n: case.n,
             expect,
         }
@@ -1084,23 +1171,7 @@ fn field_frame(fc: &FieldCase, site: FieldSite, body: &str) -> String {
         kind_helpers(ty, &format!("{decls}{program}"))
     );
     // Every package the program names, beyond the prelude's.
-    let mut imported: Vec<&str> = PRELUDE
-        .lines()
-        .filter_map(|l| l.strip_prefix("IMPORT "))
-        .collect();
-    let mut extra = String::new();
-    for (i, _) in rest.match_indices("::") {
-        let start = rest[..i]
-            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .map_or(0, |p| p + 1);
-        let pkg = &rest[start..i];
-        if pkg.starts_with(|c: char| c.is_ascii_lowercase()) && !imported.contains(&pkg) {
-            imported.push(pkg);
-            extra.push_str(&format!("IMPORT {pkg}\n"));
-        }
-    }
-    let src = PRELUDE.replacen("IMPORT math\n", &format!("IMPORT math\n{extra}"), 1);
-    format!("{src}\n{rest}")
+    format!("{}\n{rest}", prelude_for(&rest))
 }
 
 /// `body` (the loop, already indented) placed at `site`: inside a `FOR EACH` over

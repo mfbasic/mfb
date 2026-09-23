@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/fs/fs-self-update-borrow-rt
+Wrote AST to tests/rt-behavior/fs/fs-self-update-borrow-rt/fs-self-update-borrow-rt.ast
+Wrote IR to tests/rt-behavior/fs/fs-self-update-borrow-rt/fs-self-update-borrow-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/fs/fs-self-update-borrow-rt
+Wrote executable to tests/rt-behavior/fs/fs-self-update-borrow-rt/build/fs-self-update-borrow-rt.out
+[exit 0]
+$ tests/rt-behavior/fs/fs-self-update-borrow-rt/build/fs-self-update-borrow-rt.out
+leaf payload
+leaf payload
+FALSE
+[exit 0]
