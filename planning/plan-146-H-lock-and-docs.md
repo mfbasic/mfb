@@ -130,7 +130,7 @@ Result: MET. All three ran on the tree with main merged in at `e9c1fa167`
 (bug-679, bug-680 and the `examples/dungeon` split — docs and examples only, no
 `src/` or `tests/` overlap), and after `cargo fmt --all` over both workspaces
 reported no churn.
-Commit: —
+Commit: c50a69861
 
 ## Validation Plan
 
