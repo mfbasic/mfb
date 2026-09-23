@@ -105,15 +105,17 @@ MUT __CANVAS_GEO_LASTUSED AS List OF Integer = []
 MUT __CANVAS_GEO_DATA AS List OF Float = []
 MUT __CANVAS_GEO_REV AS Integer = 0
 MUT __CANVAS_GEO_GENERATIONS AS Integer = 0
+MUT __CANVAS_GEO_COMPACTIONS AS Integer = 0
 LET __CANVAS_GEO_CAPACITY AS Integer = 256
 
 ' The geometry offsets the frame being rendered is holding.
 '
 ' A frame resolves every item's offset before it draws any of them, and the cache holds
 ' fewer entries than a large scene has items -- so an offset can outlive its cache entry
-' by most of a frame. The offsets stay READABLE (`__CANVAS_GEO_DATA` is never compacted),
-' but the glyph indices inside them do not stay VALID, because glyph eviction renumbers.
-' This list is how eviction knows which of them are still live.
+' by most of a frame. The offsets stay READABLE *within a frame* (`__canvas_geoCompact`
+' runs only at a frame boundary, where this list is empty), but the glyph indices inside
+' them do not stay VALID, because glyph eviction renumbers. This list is how eviction
+' knows which of them are still live.
 MUT __CANVAS_GEO_LIVE AS List OF Integer = []"#;
 
 /// A bounded, order-independent hash over the geometry header.
@@ -965,6 +967,71 @@ FUNC __canvas_geoEvict() AS Integer
   RETURN evicted
 END FUNC
 
+' Rebuild `__CANVAS_GEO_DATA` holding only the floats the surviving cache entries own,
+' renumbering their offsets (bug-682).
+'
+' `__canvas_geoEvict` drops an entry's SLOT and cannot drop its bytes: an offset can
+' outlive its cache entry by most of a frame, so freeing the floats where eviction
+' happens would hand the frame in progress a hole to draw from. Nothing reclaimed them
+' anywhere else either, so a scene whose items change every frame -- every probe a miss,
+' every miss an append -- grew the arena by one item's geometry per item per frame,
+' forever, and ended in an OOM kill of the user's machine.
+'
+' **Call this only where no offset is live.** The one such point is the top of
+' `__canvas_sceneOffsets`, before the frame resolves anything: the previous frame's
+' offsets are dead (the damage diff remembers BOUNDS, not offsets -- see
+' `__canvas_rememberScene`) and this frame's do not exist yet. That is also where
+' `__CANVAS_GEO_LIVE` is cleared, and the two belong together. Compacting anywhere
+' inside a frame draws one item's geometry for another, which is the failure the "never
+' compact" rule was protecting against; the rule was right about the *where* and wrong
+' only in concluding there was nowhere.
+'
+' Gated on there being slack worth reclaiming, and the gate is not a micro-optimisation.
+' A scene whose items are all cache hits holds an arena that is EXACTLY its live entries
+' -- no miss, no append, nothing dead -- so an ungated pass would add an O(arena) rebuild
+' to every frame of every static canvas program, a cost the bug itself never had. The
+' 2x slack also bounds how often an animating scene pays: the arena doubles before a
+' rebuild, so the rebuilds are geometrically spaced and their amortised cost per miss is
+' O(1).
+'
+' Renumbering rather than clearing, for the reason `__canvas_glyphEvict` renumbers:
+' dropping the whole cache would re-flatten every glyph and re-derive every polygon's
+' edges at the moment the program is already under memory pressure.
+SUB __canvas_geoCompact()
+  LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
+  MUT liveFloats AS Integer = 0
+  MUT s AS Integer = 0
+  WHILE s < slots
+    liveFloats = liveFloats + collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
+    s = s + 1
+  END WHILE
+  IF len(__CANVAS_GEO_DATA) <= liveFloats * 2 THEN
+    EXIT SUB
+  END IF
+  __CANVAS_GEO_COMPACTIONS = __CANVAS_GEO_COMPACTIONS + 1
+  MUT data AS List OF Float = []
+  MUT moved AS List OF Integer = []
+  MUT packed AS Integer = 0
+  s = 0
+  WHILE s < slots
+    LET from AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, s, 0)
+    LET owned AS Integer = collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
+    moved = collections::append(moved, packed)
+    MUT k AS Integer = 0
+    WHILE k < owned
+      data = collections::append(data, collections::getOr(__CANVAS_GEO_DATA, from + k, 0.0))
+      k = k + 1
+    END WHILE
+    packed = packed + owned
+    s = s + 1
+  END WHILE
+  ' Both together, or the offsets name the old arena. The locals are built first and
+  ' published here for that reason: the loop above READS `__CANVAS_GEO_DATA` through the
+  ' old offsets on every iteration.
+  __CANVAS_GEO_DATA = data
+  __CANVAS_GEO_OFFSETS = moved
+END SUB
+
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   ' Every other kind's header is a handful of arithmetic on the item's own fields, so
   ' building it on every probe costs nothing and it doubles as the hash-collision
@@ -999,24 +1066,31 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   END IF
   __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
   LET offset AS Integer = len(__CANVAS_GEO_DATA)
-  ' Append into a LOCAL and write the global back once. `collections::append` is
-  ' in-place only for a local of the function doing the write, so appending straight
-  ' into the global copies the whole buffer per element — 27 copies per new item
-  ' instead of two, and enough allocation churn to grow a 200-frame animation by
-  ' ~0.6 MB a frame. See the `collections::set` note in `.ai/collections.md`.
-  MUT buffer AS List OF Float = __CANVAS_GEO_DATA
+  ' Append straight into the GLOBAL, one element at a time. `x = collections::append(x,
+  ' e)` on a module-level global is site S2 of the in-place self-update table
+  ' (`.ai/collections.md`), so each of these is an amortised O(1) write into the arena's
+  ' own headroom.
+  '
+  ' bug-682: this used to stage the appends in `MUT buffer AS List OF Float =
+  ' __CANVAS_GEO_DATA` and write the global back once, because appending into a global
+  ' predates S2 and did copy the whole buffer per element. The local is no cheaper now
+  ' and the bind itself is a copy of the entire arena -- value semantics, the global is
+  ' read and then reassigned -- so every cache miss cost O(arena) while the arena only
+  ' grew. With 60 changing items a frame that was 21.6 GB of peak RSS in 100 frames,
+  ' most of it the copies rather than the arena.
   MUT i AS Integer = 0
   WHILE i < __CANVAS_GEO_HEADER
-    buffer = collections::append(buffer, collections::getOr(header, i, 0.0))
+    LET h AS Float = collections::getOr(header, i, 0.0)
+    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, h)
     i = i + 1
   END WHILE
   MUT j AS Integer = 0
   LET tailCount AS Integer = len(tail)
   WHILE j < tailCount
-    buffer = collections::append(buffer, collections::getOr(tail, j, 0.0))
+    LET v AS Float = collections::getOr(tail, j, 0.0)
+    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, v)
     j = j + 1
   END WHILE
-  __CANVAS_GEO_DATA = buffer
   __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
   __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, offset)
   __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, __CANVAS_GEO_HEADER + tailCount)
