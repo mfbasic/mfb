@@ -110,12 +110,26 @@ Commit: d648d0231
 
 ### Phase 3: Full gate (run once)
 
-- [ ] `cargo test` (the full-suite gate, `.ai/testing-gates.md:423`).
-- [ ] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
+- [x] `cargo test` (the full-suite gate, `.ai/testing-gates.md:423`).
+      `222` suites reported `test result: ok`, exit 0, zero `FAILED`
+      (`grep -cE '^test result: ok'`). The unit suite alone is
+      `test result: ok. 4297 passed; 0 failed; 1 ignored`. One suite had to be
+      corrected first: `codegen_helper_scratch_release` pinned seven helper
+      `(arena_alloc, arena_free, guarded release)` triples written for bug-574's
+      marshal-and-release design, which plan-146-F's `borrow_cstring` retired —
+      see plan-146-F Correction F8 for the measurement and the proof the test
+      described the old design rather than catching a leak.
+- [x] `scripts/artifact-gate.sh target/release/mfb all` (`.ai/testing-gates.md:11`).
+      `artifact-gate [all]: 1492 tests, 1667 build(s), 2112 golden(s) checked, 0 diff(s)`
+- [x] `scripts/test-accept.sh target/debug/mfb target/accept-actual` (`.ai/compiler.md:85`).
+      `acceptance tests passed (1518 test(s) ran)`
 
 Acceptance: all three commands green, each with its summary line recorded here
 (est. 60 min: the full gate, required once by `.ai/testing-gates.md`).
+Result: MET. All three ran on the tree with main merged in at `e9c1fa167`
+(bug-679, bug-680 and the `examples/dungeon` split — docs and examples only, no
+`src/` or `tests/` overlap), and after `cargo fmt --all` over both workspaces
+reported no churn.
 Commit: —
 
 ## Validation Plan
