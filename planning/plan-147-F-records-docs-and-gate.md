@@ -284,6 +284,86 @@ Commit: —
   already excluded at every field site by plan-145's own `deferred:string` row; it
   needed only the new site code in `ALL_FIELD_SITES`.
 
+- **A handed-over TEMPORARY was claimed only when it was the pending list's TAIL — a
+  double free, measured as nine SIGSEGVs.** `claim_pending_temp` matches the tail
+  entry and says so: *"the outermost node's temp is always the most recently
+  registered, so matching the tail entry's origin register is precise."* Letter E
+  issued its claim in `emit_raw_call_handing_over`, AFTER the whole argument list was
+  lowered, which breaks that invariant: a LATER argument that registers its own temp
+  sits on top, the tail no longer matches, nothing is claimed, and the
+  statement-scope drop frees the block the callee already owns.
+
+  Letter F made it reachable by admitting records. Phase 4's acceptance run found it:
+  nine `rt-behavior` fixtures exited **139** (`SIGSEGV`) —
+  `astrings/tier-a-queries-rt`, `astrings/tier-b-replace-rt`,
+  `astrings/tier-b-transforms-rt`, `astrings/tomarkdown-flags-rt`,
+  `crypto/crypto-hpke-x25519-valid`, `crypto/crypto-hpke-x448-valid`,
+  `crypto/crypto-kdf-invalid`, `regex/regex-surface-parity-rt` and
+  `strings/strings-pad-to-width-rt`.
+
+  Localized by bisecting the branch, one letter at a time, against the ONE fixture
+  `astrings/tier-b-replace-rt`: green at B (`4a42dba7e`), D (`fd46e7e61`) and E
+  (`d68efca45`), red at F Phase 2 — which is where `AttributedString`, a record,
+  first became a hand-over type (`_mfb_ifn_astrings_addAttribute$own1` appears in the
+  emitted code exactly there). Reduced to
+  `astrings::addAttribute(astrings::fromString("aXbXc"), 0, 4, astrings::bold())`:
+  argument 0 is the handed-over temp and argument 3 builds its own, so the claim
+  missed. **Hoisting `bold()` into a `LET` made the same program pass**, which is what
+  named the tail-match rather than the record as the cause. The crash report agrees —
+  `EXC_BAD_ACCESS` at `LDR x11, [x10]` off a block header read back after reuse.
+
+  The fix claims each handed-over temporary in `emit_prepared_call_args_with_site`,
+  immediately after ITS OWN argument is lowered, which is the one point where it is
+  still the tail. That also strengthens letter E's ordering requirement — off the list
+  before any later argument can branch out through `emit_call_error_exit` — from "the
+  last handed-over position" to "every handed-over position". `HandOverSite::temps`
+  is gone with it.
+
+  Pinned in BOTH directions by a new pure-MFB test,
+  `a_handed_over_temporary_is_claimed_past_a_later_temporary`: a record helper called
+  as `addItem(mk(i), extra(i))` measures `arena.double_free_skips` **199 before the
+  fix and 0 after**, at N = 200. (The debug arena skips the second free and counts it;
+  a release build has no such guard, which is why the fixtures crashed instead.)
+  `cargo test --test rt_owned_argument` → **`ok. 12 passed; 0 failed; 0 ignored`**.
+
+- **A bare `String` parameter is no longer handed over at all — its block may be a
+  STATIC LITERAL, and `arena_free` on one is a bus error.** `MUT x AS String = "abc"`
+  binds the literal's symbol (`_mfb_str_N`), not an arena block, and no runtime tag
+  tells the two apart; the callee's owned parameter frees it on exit. Phase 4's full
+  suite failed **4 of 2465** `rt_inplace_self_update` case/site pairs on exactly this —
+  `strings::padRightToWidth` and `padLeftToWidth`, each at `Local` and at `Lambda`.
+  Reduced to a user helper:
+
+  ```
+  FUNC widen(s AS String, n AS Integer) AS String
+    IF n = 0 THEN RETURN s
+    RETURN strings::padRightToWidth(s, n)
+  END FUNC
+  ' MUT x AS String = "abc" ; LET y AS String = widen(x, 8)
+  ```
+
+  → **exit 138 (SIGBUS)** before the fix, **0** after; green on `main`, so plan-147
+  introduced it. It is the rule the codebase already states for thread seeds
+  (`pending_temp_would_be_claimed`, bug-655): *"a seed that is a STRING LITERAL is a
+  static symbol, not arena memory (freeing it is a bus error)"*.
+
+  `handover_type` therefore refuses `ParameterType::String`. A `String` **field** of a
+  record is untouched and stays admissible: `record_field_is_pointer` classifies it as
+  a plain by-value slot, not a pointer to a separate allocation, so it travels inside
+  the record's own block — measured directly (a record with `name := "abc"` threaded
+  through a consuming helper runs clean), and `is_scalar_field` is where it is now
+  accepted.
+
+  This is a NARROWING of the analysis, not a weakened criterion, and it costs no
+  measured win: `helper-concat` was already landed as `StillCopies` (a `String` block
+  must be tight to leave its frame, bug-560), and every `String` arm is already excluded
+  at every self-update site by `RETURN_NEVER`. What it does cost is the interim
+  `concat.helper` number: **170 ms with String hand-over, ~841 ms without** — recorded
+  in §4's table as the unsound measurement it was. Pinned both ways by
+  `a_bare_string_parameter_is_never_handed_over` (analysis: bare `String` not
+  consumable, `String` field still is) and
+  `a_string_literal_argument_is_never_handed_over` (runtime: exit 0, `y=abc     .`).
+
 ## Summary
 
 F is composition and bookkeeping: plan-145's field arms, B's move, and C's

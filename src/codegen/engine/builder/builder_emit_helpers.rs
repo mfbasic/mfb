@@ -172,6 +172,26 @@ impl CodeBuilder<'_> {
             let (value, in_place) = self.lower_call_argument(arg, index, site)?;
             if in_place {
                 updated_in_place.push(index);
+            } else if site.is_some_and(|site| site.temp_indices.contains(&index)) {
+                // plan-147-F: claim a handed-over TEMPORARY **here**, while it is
+                // still the pending list's tail.
+                //
+                // `claim_pending_temp` matches the TAIL entry only, and says so: "the
+                // outermost node's temp is always the most recently registered".
+                // A claim issued after the whole argument list is lowered breaks that
+                // invariant — a LATER argument that registers its own temp (a second
+                // call, a concat) sits on top, the tail no longer matches, nothing is
+                // claimed, and the statement-scope drop frees the block the callee
+                // now owns. Measured as a SIGSEGV on
+                // `astrings::addAttribute(astrings::fromString("aXbXc"), 0, 4,
+                // astrings::bold())`: `bold()`'s temp shadowed `fromString()`'s, and
+                // moving `bold()` into a `LET` made the same program pass.
+                //
+                // Claiming per argument also keeps plan-147-E's ordering requirement
+                // — off the list before any later argument can branch out through
+                // `emit_call_error_exit` — and strengthens it, since it now holds for
+                // every handed-over position rather than only the last.
+                self.claim_pending_temp(&value);
             }
             // Observation boundary: a `Float` argument is read by the callee
             // (user FUNC/SUB, runtime helper, or native `LINK` thunk) and must
@@ -248,14 +268,6 @@ impl CodeBuilder<'_> {
         )?;
         let updated = std::mem::take(&mut self.args_updated_in_place);
         if let Some(site) = handover {
-            // The lowered values at the temporary positions, now that they exist —
-            // except the ones whose in-place update fired, which built no temporary.
-            site.temps = site
-                .temp_indices
-                .iter()
-                .filter(|index| !updated.contains(index))
-                .filter_map(|index| arg_values.get(*index).cloned())
-                .collect();
             // plan-147-E: an argument whose update fired IS the local's own block, so
             // the caller stops owning it exactly as it does for a handed-over local.
             for index in &updated {
@@ -271,18 +283,10 @@ impl CodeBuilder<'_> {
             for slot in &site.slots {
                 self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), *slot));
             }
-            // plan-147-E: a handed-over TEMPORARY is claimed off the pending list
-            // instead. It has no caller slot to null — it is a value this statement
-            // just built — and the callee now owns it, so neither the statement's
-            // post-call drop nor `emit_call_error_exit`'s in-place free may touch it.
-            //
-            // Claimed BEFORE the branch, exactly as the return path's claim is: an
-            // argument lowered after this one that fails to evaluate exits through
-            // `emit_call_error_exit`, and by then the temp must already be off the
-            // list or it is freed here and again by the callee.
-            for temp in &site.temps {
-                self.claim_pending_temp(temp);
-            }
+            // A handed-over TEMPORARY has no caller slot to null — it is a value
+            // this statement just built, and it was claimed off the pending list in
+            // `emit_prepared_call_args_with_site`, the one place where it is still
+            // that list's tail.
         }
         self.emit_symbol_call(symbol);
         Ok(arg_values)
@@ -310,8 +314,9 @@ impl CodeBuilder<'_> {
                 continue;
             }
             if site.is_temp(index) {
-                // Filled in by `emit_raw_call_handing_over`, which is the only place
-                // the lowered argument values exist.
+                // Claimed off the pending list by `emit_prepared_call_args_with_site`
+                // as each argument is lowered (that is where the temp is still the
+                // list's tail, which is all `claim_pending_temp` can match).
                 temps.push(index);
                 if site.is_arg_update(index) {
                     arg_updates.push(index);
@@ -337,7 +342,6 @@ impl CodeBuilder<'_> {
             slots,
             temp_indices: temps,
             arg_update_indices: arg_updates,
-            temps: Vec::new(),
         })
     }
 
@@ -857,8 +861,4 @@ pub(crate) struct HandOverSite {
     /// plan-147-E: argument positions that are `OP(x, …)` on an owned local at its
     /// last use, which the lowering tries to update in place.
     pub(crate) arg_update_indices: Vec<usize>,
-    /// The lowered values at those positions, filled in once the arguments are
-    /// lowered — `claim_pending_temp` matches on the value's location, so it needs
-    /// the `ValueResult`, which does not exist until then.
-    pub(crate) temps: Vec<ValueResult>,
 }

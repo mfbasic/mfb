@@ -162,9 +162,10 @@ fn is_fresh_temporary(value: &NirValue) -> bool {
     )
 }
 
-/// H2/P1: a type whose block is worth handing over — a collection or a `String`,
-/// and never one that carries a resource (plan-147-A §2.3 row S8: resources keep
-/// pointer semantics, close-once and drop order, so they are excluded by type).
+/// H2/P1: a type whose block is worth handing over — a collection, or a record of
+/// them — and never one that carries a resource (plan-147-A §2.3 row S8: resources
+/// keep pointer semantics, close-once and drop order, so they are excluded by type),
+/// and never a bare `String` (see [`handover_type_within`]).
 fn handover_type(model: &TypeModel, type_: &ParameterType) -> bool {
     handover_type_within(model, type_, &mut HashSet::new())
 }
@@ -182,12 +183,23 @@ fn handover_type_within(
     if type_contains_resource(model, type_) {
         return false;
     }
+    // A bare `String` parameter is NOT handed over. A `String` local can hold a
+    // pointer to a **static literal** (`_mfb_str_N`) rather than an arena block:
+    // `MUT x AS String = "abc"` binds the symbol itself, and there is no runtime tag
+    // that tells the two apart. Handing it over makes the callee's owned parameter
+    // free it, and `arena_free` on a static symbol is a **bus error** — the same rule
+    // bug-655 states at `pending_temp_would_be_claimed`. Measured: `LET y AS String =
+    // strings::padRightToWidth(x, 8)` with `x = "abc"` exited **138 (SIGBUS)**, four
+    // `rt_inplace_self_update` case/site pairs.
+    //
+    // A `String` FIELD of a record is a different thing and stays admissible: it
+    // occupies its slot BY VALUE, not as a pointer to a separate allocation
+    // (`record_field_is_pointer`: `ParameterType::String => false`), so it moves with
+    // the record's own block and is never a loose static pointer. That is why
+    // `is_scalar_field` accepts it.
     if matches!(
         type_,
-        ParameterType::String
-            | ParameterType::ListOf(_)
-            | ParameterType::MapOf(_, _)
-            | ParameterType::SetOf(_)
+        ParameterType::ListOf(_) | ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
     ) {
         return true;
     }
@@ -215,6 +227,11 @@ fn handover_type_within(
 }
 
 /// A field that lives in the record's own block and therefore moves with it.
+///
+/// `String` belongs here: `record_field_is_pointer` classifies a `String` field as a
+/// plain by-value slot, not a pointer to a separate allocation, so it travels inside
+/// the record's block. That is exactly what a bare `String` parameter does NOT do,
+/// which is why [`handover_type_within`] refuses that one.
 fn is_scalar_field(type_: &ParameterType) -> bool {
     matches!(
         type_,
@@ -224,6 +241,7 @@ fn is_scalar_field(type_: &ParameterType) -> bool {
             | ParameterType::Boolean
             | ParameterType::Byte
             | ParameterType::Nothing
+            | ParameterType::String
     )
 }
 
@@ -1025,6 +1043,51 @@ END FUNC",
         // variant `xs` is this lowering's own block and `append` updates it.
         assert_eq!(arg_updates(&source, "fill", &[]), 0);
         assert_eq!(arg_updates(&source, "fill", &["xs"]), 1);
+    }
+
+    /// plan-147-F: a bare `String` parameter is never handed over — its block may be a
+    /// static literal, which `arena_free` cannot free — but a `String` FIELD of a
+    /// record still is, because it travels by value inside the record's own block.
+    #[test]
+    fn a_bare_string_parameter_is_never_handed_over() {
+        let bare = probe(
+            "FUNC widen(s AS String, n AS Integer) AS String
+  RETURN s & strings::repeat(\" \", n)
+END FUNC
+
+FUNC main() AS Integer
+  MUT s AS String = \"abc\"
+  s = widen(s, 3)
+  io::print(s)
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(consumable_of(&bare, "widen"), Vec::<String>::new());
+        assert_eq!(approved(&bare, "main"), 0);
+
+        // The same `String`, as a record FIELD: still handed over, because
+        // `record_field_is_pointer` places it by value in the record's own block.
+        let field = probe(
+            "TYPE Named
+  name AS String
+  items AS List OF Integer
+END TYPE
+
+FUNC addItem(r AS Named, i AS Integer) AS Named
+  RETURN WITH r { items := collections::append(r.items, i) }
+END FUNC
+
+FUNC main() AS Integer
+  MUT r AS Named = Named[name := \"abc\", items := []]
+  FOR i = 1 TO 3
+    r = addItem(r, i)
+  NEXT
+  io::print(r.name & toString(len(r.items)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(consumable_of(&field, "addItem"), vec!["r".to_string()]);
+        assert_eq!(approved(&field, "main"), 1);
     }
 
     /// plan-147-F: a record is handed over when every field is, and never when one

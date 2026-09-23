@@ -758,3 +758,127 @@ fn a_handed_over_temporary_is_freed_once_on_the_failure_route() {
          handed-over temporary leaks on the failure route"
     );
 }
+
+/// plan-147-F: a handed-over temporary is claimed even when a LATER argument
+/// registers its own temporary.
+///
+/// `claim_pending_temp` matches the pending list's TAIL only — "the outermost node's
+/// temp is always the most recently registered". Letter E issued its claim after the
+/// whole argument list was lowered, so a later argument that built its own temp sat on
+/// top, the tail no longer matched, nothing was claimed, and the statement-scope drop
+/// freed the block the callee already owned.
+///
+/// Letter F made it reachable by admitting RECORDS: `astrings::addAttribute` takes an
+/// `AttributedString` owned, and `astrings::addAttribute(astrings::fromString("aXbXc"),
+/// 0, 4, astrings::bold())` SIGSEGVs on the pre-fix compiler — nine `rt-behavior`
+/// fixtures with it. Moving `bold()` into a `LET` made the same program pass, which is
+/// what named the tail-match as the cause.
+///
+/// The probe below is the same shape with no built-in involved, and it is measured in
+/// both directions: `double_free_skips` is **199 before the fix and 0 after**, at
+/// `N = 200` (the debug arena SKIPS the second free and counts it; a release build has
+/// no such guard, which is why the fixtures crashed instead).
+#[test]
+fn a_handed_over_temporary_is_claimed_past_a_later_temporary() {
+    const N: u64 = 200;
+    let source = format!(
+        "IMPORT collections\nIMPORT io\n\n\
+         TYPE Rec\n  items AS List OF Integer\n  seen AS Integer\nEND TYPE\n\n\
+         FUNC mk(i AS Integer) AS Rec\n  \
+           RETURN Rec[items := [1, 2, 3], seen := i]\n\
+         END FUNC\n\n\
+         FUNC extra(i AS Integer) AS List OF Integer\n  RETURN [i, i]\nEND FUNC\n\n\
+         FUNC addItem(r AS Rec, tag AS List OF Integer) AS Rec\n  \
+           RETURN WITH r {{ items := collections::append(r.items, len(tag)) }}\n\
+         END FUNC\n\n\
+         FUNC main() AS Integer\n  \
+           MUT total AS Integer = 0\n  \
+           FOR i = 1 TO {N}\n    \
+             LET s AS Rec = addItem(mk(i), extra(i))\n    \
+             total = total + len(s.items)\n  \
+           NEXT\n  \
+           io::print(\"total=\" & toString(total))\n  \
+           RETURN 0\n\
+         END FUNC\n"
+    );
+    let (exe, project) =
+        build_debug("owned_argument_temp_past_later", &source).expect("the probe builds");
+    let output = Command::new(&exe).output();
+    let _ = std::fs::remove_dir_all(&project);
+    let output = output.expect("the probe runs");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let sum = |key: &str| -> u64 {
+        stderr
+            .lines()
+            .filter_map(|line| line.strip_prefix("arena."))
+            .filter_map(|rest| rest.split_once(' '))
+            .filter_map(|(name, value)| {
+                let (_index, field) = name.split_once('.')?;
+                (field == key).then(|| value.trim().parse::<u64>().ok())?
+            })
+            .sum()
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(output.status.code(), Some(0), "the probe exited non-zero");
+    // 3 seeded + 1 appended, N times.
+    assert_eq!(stdout, format!("total={}", 4 * N), "wrong result: {stdout}");
+    assert_eq!(
+        sum("double_free_skips"),
+        0,
+        "the arena skipped a double free: the handed-over temporary at argument 0 was \
+         freed by the statement as well as by the callee, because the claim matched \
+         only the pending list's tail and `extra(i)`'s temp was on top"
+    );
+    assert_eq!(
+        sum("live_bytes"),
+        0,
+        "bytes were still live at exit: the handed-over temporary is freed by nobody"
+    );
+}
+
+/// plan-147-F: a `String` argument whose local holds a STATIC LITERAL is not handed
+/// over — freeing a static symbol is a bus error.
+///
+/// `MUT x AS String = "abc"` binds the literal's symbol (`_mfb_str_N`), not an arena
+/// block, and no runtime tag tells the two apart. Handing it to a consuming helper made
+/// the callee's owned parameter `arena_free` it: **exit 138 (SIGBUS)** before the fix,
+/// 0 after. It surfaced as four `rt_inplace_self_update` case/site pairs
+/// (`strings::padRightToWidth` / `padLeftToWidth`, at `Local` and at `Lambda`), and the
+/// same rule is already stated for thread seeds at `pending_temp_would_be_claimed`
+/// (bug-655).
+///
+/// `handover_type` now refuses a bare `String`. A `String` FIELD of a record is
+/// untouched — it travels by value inside the record's own block — which
+/// `a_bare_string_parameter_is_never_handed_over` asserts on the analysis side and
+/// `record_field` measures at runtime.
+#[test]
+fn a_string_literal_argument_is_never_handed_over() {
+    let source = "IMPORT io\nIMPORT strings\n\n\
+         FUNC widen(s AS String, n AS Integer) AS String\n  \
+           IF n = 0 THEN RETURN s\n  \
+           RETURN strings::padRightToWidth(s, n)\n\
+         END FUNC\n\n\
+         FUNC main() AS Integer\n  \
+           MUT x AS String = \"abc\"\n  \
+           LET y AS String = widen(x, 8)\n  \
+           io::print(\"y=\" & y & \".\")\n  \
+           RETURN 0\n\
+         END FUNC\n"
+        .to_string();
+    let (exe, project) =
+        build_debug("owned_argument_string_literal", &source).expect("the probe builds");
+    let output = Command::new(&exe).output();
+    let _ = std::fs::remove_dir_all(&project);
+    let output = output.expect("the probe runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the probe did not exit cleanly (138 = SIGBUS, an `arena_free` of a static \
+         string literal handed over to an owned parameter)"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "y=abc     .",
+        "the padded literal came back wrong"
+    );
+}
