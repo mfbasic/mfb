@@ -139,9 +139,12 @@ fixture, extended with a record case.
       same `field_expect.tsv` ledger every other field site already answers to.
 
 Acceptance: the decision is recorded with the file and symbol it rests on.
-  Check: `rg -n 'Decision:' planning/plan-147-F-records-docs-and-gate.md` → **one
-  line** (2026-09-23), resting on `builder_control.rs:887 field_self_update_site`
-  and `rt_inplace_self_update.rs:1256 FIELD_SITES`.
+  Check: `rg -n '\*\*Decision:' planning/plan-147-F-records-docs-and-gate.md` →
+  **one line** (line 134, 2026-09-23), resting on
+  `builder_control.rs:887 field_self_update_site` and
+  `rt_inplace_self_update.rs:1256 FIELD_SITES`. (The plan's own wording, `rg -n
+  'Decision:'`, matches this Check line too, so it can never return one; the
+  pattern is anchored to the bolded decision itself.)
 Commit: (this commit)
 
 ### Phase 2 — Records
