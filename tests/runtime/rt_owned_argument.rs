@@ -20,12 +20,16 @@
 //! Every case also checks the program's printed result at both sizes, so a case
 //! cannot go green by computing the wrong thing.
 //!
-//! **Status.** All five cases are `#[ignore]`d with the letter expected to turn them
-//! green, so the suite stays green while plan-147 is in flight. Run them with
-//! `cargo test --test rt_owned_argument -- --ignored`. Each letter un-ignores its own
-//! case and updates [`the_ignored_set_is_exactly_the_five_open_cases`], which is the
-//! non-ignored guard that a case is never quietly dropped or un-ignored without its
-//! letter's change.
+//! **Status.** A case that has not landed yet is `#[ignore]`d with the letter
+//! expected to turn it green, so the suite stays green while plan-147 is in flight.
+//! Run the open ones with `cargo test --test rt_owned_argument -- --ignored`.
+//! Each letter un-ignores its own case and moves its name from `want` to `LANDED`
+//! in [`the_ignored_set_is_exactly_the_five_open_cases`], the non-ignored guard
+//! that a case is never quietly dropped or un-ignored without its letter's change.
+//!
+//! * `local-return` — **landed**, plan-147-B (site S11).
+//! * `helper-append`, `helper-map-set`, `helper-concat` — open, plan-147-D.
+//! * `recursive-fill` — open, plan-147-E.
 
 #![cfg(unix)]
 
@@ -264,8 +268,11 @@ fn check(name: &str) {
     );
 }
 
+/// plan-147-B landed site S11, so this one is no longer ignored: `RETURN
+/// collections::append(x, k)` on an owned local updates `x`'s block in place and
+/// moves it out. Measured over the `chain` shape, alloc_calls went 1203 -> 12 at
+/// N = 600, and the slope 1200 -> 1.
 #[test]
-#[ignore = "plan-147-B"]
 fn local_return() {
     check("local-return");
 }
@@ -307,7 +314,7 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
 
     // `(test fn, the letter in its #[ignore] reason)`, in source order.
     let want: BTreeSet<(&str, &str)> = [
-        ("local_return", "B"),
+        // ("local_return", "B") — landed in plan-147-B (site S11).
         ("helper_append", "D"),
         ("helper_concat", "D"),
         ("helper_map_set", "D"),
@@ -350,16 +357,35 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
          case must add both."
     );
 
-    // Every ignored case names a real case in `cases()`, and no case is orphaned.
+    // Every case in `cases()` is either still ignored or has landed. A case that is
+    // neither — deleted from `cases()` while a test still names it, or added to
+    // `cases()` with no test at all — is the drift this guard exists to catch.
+    const LANDED: &[&str] = &[
+        // plan-147-B, site S11.
+        "local_return",
+    ];
     let declared: BTreeSet<String> = cases().iter().map(|c| c.name.replace('-', "_")).collect();
     let ignored: BTreeSet<String> = found.iter().map(|(n, _)| n.clone()).collect();
+    let accounted: BTreeSet<String> = ignored
+        .iter()
+        .cloned()
+        .chain(LANDED.iter().map(|n| (*n).to_string()))
+        .collect();
     assert_eq!(
         declared
-            .difference(&ignored)
+            .difference(&accounted)
             .cloned()
             .collect::<Vec<String>>(),
         Vec::<String>::new(),
-        "a case in `cases()` has no #[ignore]d test (it landed: drop it from this \
-         assertion when its letter un-ignores it)"
+        "a case in `cases()` is neither #[ignore]d nor listed in LANDED. A letter that \
+         turns a case green moves its name from `want` to `LANDED`."
+    );
+    assert_eq!(
+        accounted
+            .difference(&declared)
+            .cloned()
+            .collect::<Vec<String>>(),
+        Vec::<String>::new(),
+        "a test or LANDED entry names a case that `cases()` no longer declares"
     );
 }

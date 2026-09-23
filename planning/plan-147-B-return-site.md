@@ -74,12 +74,14 @@ no matches (it has moved to `planning/completed/`).
 | What | Count | Command |
 |---|---|---|
 | `RETURN collections::<mutating op>(local, …)` sources | examples 14, packages 5, tests 2 | plan-147-A §2.2, row 2 |
-| Arm rows the new site must fire for | UNMEASURED until plan-145/146 land: they add rows | Phase 1 task 1: `cargo test --bin mfb self_update -- --nocapture 2>&1 \| rg -c 'Arm'`, or count `Arm(` in `SELF_UPDATE_TABLE`: `rg -c 'Arm\(&\[' src/codegen/collection/assign/self_update.rs` |
-| `cases.tsv` `arm` lines the harness adds at the new site | UNMEASURED until plan-145/146 land | `rg -c '\tarm\t' tests/runtime/inplace_self_update/cases.tsv` |
+| Arm rows the new site must fire for | **66** (measured 2026-09-22, plan-145 and plan-146 both landed) | `rg -c 'Arm\(&\[' src/codegen/collection/assign/self_update.rs` → `66` |
+| `cases.tsv` `arm` lines the harness adds at the new site | **79** (measured 2026-09-22) | `rg -c '\tarm\t' tests/runtime/inplace_self_update/cases.tsv` → `79` |
 
-The two UNMEASURED rows set the harness runtime: plan-142-I measured 679.52 s for
-254 pairs. They do not change this letter's scope, since every arm goes through
-the same dispatch.
+The two rows set the harness runtime: plan-142-I measured 679.52 s for 254 pairs,
+i.e. ~2.68 s per (line, site) pair. Phase 2's Check 2 runs the 79 `arm` lines at
+the one new site, so ≈ 79 × 2.68 s ≈ **3.5 min** — under the 10-minute bar, so it
+is run as written. They do not change this letter's scope, since every arm goes
+through the same dispatch.
 
 ### Verified properties
 
@@ -92,7 +94,8 @@ the same dispatch.
 
 ## 3. Design
 
-1. **Dispatch.** In `lower_returned_value`, before the plain `lower_value`:
+1. **Dispatch.** In `emit_return_exit`, before the `plan_returned_move` call
+   (corrected from `lower_returned_value`; see Corrections):
    - when `value` is `is_self_update_call` on `Local(x)` and `plan_returned_move`
      would accept `x` (checked with a read-only twin, `returned_move_admits(x)`,
      that does not remove the cleanup);
@@ -148,18 +151,40 @@ in place just as legally here (plan-147-A §2.3 S5).
 
 ### Phase 1 — Measure, then the dispatch
 
-- [ ] Fill the two UNMEASURED rows in §2 with their commands' output.
-- [ ] `src/codegen/engine/control/builder_exits.rs`: add `returned_move_admits(name)`,
-      the read-only twin of `plan_returned_move`'s gates, and the S11 dispatch in
-      `lower_returned_value` (§3 step 1).
-- [ ] `src/codegen/collection/assign/self_update.rs`: extend `ops_hold_self_update` to
-      `Return` (§3 step 3).
-- [ ] Un-ignore `local-return` in `tests/runtime/rt_owned_argument.rs` and update its
-      guard test's expected ignored set.
+- [x] Fill the two UNMEASURED rows in §2 with their commands' output. `rg -c 'Arm\(&\['
+      src/codegen/collection/assign/self_update.rs` → **66** arm rows;
+      `rg -c '\tarm\t' tests/runtime/inplace_self_update/cases.tsv` → **79** arm
+      lines (≈3.5 min for Phase 2's Check 2 at plan-142-I's 2.68 s/pair).
+- [x] `src/codegen/engine/control/builder_exits.rs`: add `returned_move_admits(name)`,
+      the read-only twin of `plan_returned_move`'s gates, and the S11 dispatch —
+      placed in **`emit_return_exit`**, not `lower_returned_value`; see Corrections.
+      `returned_move_admits` mirrors all six of `plan_returned_move`'s gates
+      (static-`String` fold, capacity shadow, `by_ref`, `FOR EACH` iterable,
+      address-taken, and the `OwnedValue` ownership gate) without removing the
+      cleanup. `try_returned_self_update` builds the
+      `SelfUpdateSite{ dest: InPlaceDest::Direct{slot}, by_ref: false, field: None }`
+      and calls `try_inplace_self_update`.
+- [x] `src/codegen/collection/assign/self_update.rs`: extend `ops_hold_self_update` to
+      `Return` (§3 step 3), plus the shape detector `returned_self_update_local(value)`
+      the dispatch and the scratch arm share.
+- [x] Un-ignore `local-return` in `tests/runtime/rt_owned_argument.rs` and update its
+      guard test's expected ignored set: the name moves from `want` to the new
+      `LANDED` list, and the guard now also fails if a `LANDED` entry names a case
+      `cases()` no longer declares.
 
 Acceptance: `local-return` passes. `append` at `RETURN` no longer allocates per level.
-  Check: `cargo test --test rt_owned_argument local_return` → 1 passed (est. 2 min).
-Commit: —
+  Check: `cargo test --test rt_owned_argument local_return` → **`test local_return ...
+  ok`** (2026-09-22). And `cargo test --test rt_owned_argument` → `ok. 2 passed;
+  0 failed; 4 ignored`.
+
+  Measured directly on the `chain` shape (`mfb build --debug`, summed
+  `arena.<k>.alloc_calls`) — `append` at `RETURN` no longer allocates per level:
+
+  | | N = 600 | 2N = 1200 | Slope | Bound N/8 |
+  |---|---|---|---|---|
+  | Before (plan-147-A Phase 2) | 1203 | 2403 | 1200 | 75 |
+  | After (S11) | **12** | **13** | **1** | 75 |
+Commit: (this commit)
 
 ### Phase 2 — The site in the guard
 
@@ -214,6 +239,28 @@ Commit: —
   parameter case needs it too. Not here.
 
 ## Corrections
+
+- **The S11 dispatch lives in `emit_return_exit`, not in `lower_returned_value`.**
+  §3 step 1 places it in `lower_returned_value`, but the cleanup bookkeeping the
+  design depends on is one level up. `emit_return_exit` is where
+  `plan_returned_move` is called and — critically — where its removal is **undone**
+  afterwards (`restore_cleanups`, and the `return_snapshot` taken only for
+  `Some(NirValue::Local(_))`). That save/restore exists because every cleanup
+  removal a `RETURN` makes is PATH-LOCAL: a sibling `RETURN b` after
+  `IF give THEN RETURN a END IF`, the rest of a loop body, a later `TRAP` route —
+  none of those returned the local, so each must still free it. Removing `x`'s
+  cleanup from inside `lower_returned_value` would have been **permanent** for a
+  `Call` value, because `return_snapshot` is `None` for anything that is not a
+  `Local` — exactly the leak the `emit_return_exit` comment documents (one
+  descriptor and one record per call, `udp::bind` under a 128-fd limit).
+
+  So the dispatch sits at the top of `emit_return_exit` and, when an arm fires,
+  **re-enters `emit_return_exit` with `RETURN x`**. That gets the snapshot,
+  `plan_returned_move`, and the restore for free, and it makes the reduction the
+  design asked for — "S11 is S1 followed by the existing move" — literal rather
+  than re-implemented. The re-entry cannot recurse: its value is a `Local`, which
+  `returned_self_update_local` never matches. §3 step 1 is corrected to name
+  `emit_return_exit`.
 
 ## Summary
 

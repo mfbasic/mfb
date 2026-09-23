@@ -540,6 +540,22 @@ pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
     })
 }
 
+/// plan-147-B (site S11): the local `x` of a `RETURN f(x, …)` whose `f` has a
+/// self-update arm, so the return can update `x`'s block in place and then move
+/// that block out instead of building — and then copying — a second one.
+///
+/// This names only the SHAPE. Whether `x` may actually be updated and moved is
+/// `CodeBuilder::returned_move_admits`, which applies `plan_returned_move`'s
+/// ownership gates.
+pub(crate) fn returned_self_update_local(value: &NirValue) -> Option<&str> {
+    let (target, args) = self_update_call_parts(value)?;
+    self_update_builtin(target)?;
+    match args.first() {
+        Some(NirValue::Local(name)) => Some(name.as_str()),
+        _ => None,
+    }
+}
+
 /// [`is_self_update_call`] for the module-level global `name` (plan-142-H).
 pub(crate) fn is_global_self_update_call(value: &NirValue, name: &str) -> bool {
     self_update_call_parts(value).is_some_and(|(target, args)| {
@@ -680,6 +696,15 @@ fn ops_hold_self_update(ops: &[NirOp], wanted: &dyn Fn(&str) -> bool) -> bool {
         // plan-145-D: a field self-update `r = WITH r { f := g(r.f, …) }` or
         // `h.state = WITH h.state { f := g(h.state.f, …) }`, one field or mixed.
         NirOp::StateAssign { value, .. } => with_holds_field_self_update(value, wanted),
+        // plan-147-B (site S11): `RETURN f(x, …)` on an owned local runs the same
+        // arm as `x = f(x, …)`, so a function whose only self-update is at a
+        // `RETURN` must still reserve the scratch that arm needs. Without this the
+        // arm would find none.
+        NirOp::Return { value: Some(value) } => {
+            returned_self_update_local(value).is_some_and(|_| {
+                self_update_call_parts(value).is_some_and(|(target, _)| wanted(target))
+            })
+        }
         NirOp::If {
             then_body,
             else_body,

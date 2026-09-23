@@ -317,7 +317,7 @@ Acceptance: each case fails when run explicitly, naming itself.
   | `helper-map-set` | D | 2000 | 6003 → 12003 | 6000 | 250 |
   | `helper-concat` | D | 2000 | 2003 → 4003 | 2000 | 250 |
   | `recursive-fill` | E | 600 | 1204 → 2404 | 1200 | 75 |
-Commit: (this commit)
+Commit: 040e1f63b
 
 ### Phase 3 — Close the one UNVERIFIED semantics row
 
@@ -333,7 +333,7 @@ action" with the code citation.
   unverified row. **Verified 2026-09-22**: the §2.3 row (line 203) now answers "No"
   and cites `src/testing/coverage.rs:18` and `src/testing/desugar/coverage.rs:14`;
   the audit table holds no unverified row at all.
-Commit: (this commit)
+Commit: 040e1f63b
 
 ## Validation Plan
 
