@@ -166,7 +166,7 @@ Acceptance: `recursive-fill` passes, and so does the failing-temp case.
   Check: `cargo test --bin mfb handover` → **`ok. 6 passed; 0 failed`**;
   `cargo test --test rt_owned_argument` → **`ok. 8 passed; 0 failed; 0 ignored`**
   (2026-09-23), and the failing-temp case passes on top of those.
-Commit: (this commit)
+Commit: d689d8506
 
 ### Phase 3 — `MUT y = p`
 
