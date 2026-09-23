@@ -218,20 +218,47 @@ by reading the two type queries' callers
 - `src/codegen/collection/assign/builder_inplace_assign.rs:24`
   `try_inplace_append_assign` (`G11`) — **fixed by this bug**, via the query.
   No change to the arm itself is expected.
-- Every other `SELF_UPDATE_ARMS` member that gates on `static_item_type` /
-  `static_type_name` (the `set`/map arms in `builder_inplace_setmap.rs`, the
-  shrink/sort/rewrite arms) — **same hazard, and fixed by the same one-place
-  change**. Each needs its own census row asserting flatness with a user-`FUNC`
-  call under a binary; Phase 1 enumerates them.
+- Every other arm that gates on `static_item_type` — **same hazard, confirmed by
+  measurement, and fixed by the same one-place change.** Phase 1's audit found
+  the query has exactly six `G11` call sites
+  (`grep -n static_item_type src/codegen/collection/assign/builder_inplace_assign.rs`),
+  and every one of them reachable with a composite operand reproduces. Measured
+  as `alloc_calls` growth over an extra 2000 iterations
+  (`tests/runtime/rt_inplace_item_operand.rs`), before → after:
+
+  | arm | item operand | before | after |
+  | --- | --- | --- | --- |
+  | `append(list, item)` (`:48`) | `twice(i) * 2` | +4000 | +2 |
+  | `append(list, item)` | `-twice(i)` | +4000 | +2 |
+  | `append(list, item)` | `mkBox(i).n` | +8000 | +4002 (control +4000) |
+  | `append(list, sublist)` (`:234`) | `mkBox(i).items` | +6000 | +4002 (control +4000) |
+  | `add(set, item)` (`:125`) | `twice(i) * 2` | +4000 | +2 |
+  | `remove(set, item)` (`:769`) | `twice(i) * 2` | +2000 | +0 |
+  | `removeKey(map, key)` (`:186`) | `twice(i) * 2` | +2000 | +0 |
+
+  The sixth site, `lower_field_splice` (`:1299`), is the field-site spelling of
+  the same `G11` and takes the fix through the same query. So the bug was never
+  `append`-specific: `add`, `remove` and `removeKey` all lost the path too, each
+  as unboundedly as `append`.
+- `collections::set` (`:278`) and `try_inplace_insert_assign` (`:805`) —
+  **unaffected**: neither has a static `G11` gate (`insert` has no bulk form to
+  distinguish), so neither consults the query.
 - `examples/wind/src/grib.mfb` — **the discovery site, already worked around**
   (seven hoists). Unaffected once fixed; the hoists stay valid.
 - Map-value reads (`collections.get` on a `Map`) deliberately return `None` from
   `static_type_name` — **unaffected**, that is a separate conservative choice
   documented in place, not this bug.
-- `NirValue::Unary` and other recursive arms of `static_type_name` — **latent,
-  same mechanism** (they too recurse into `static_type_name`). In scope only to
-  the extent the one-place fix covers them; Phase 1 records whether a `-f(i)`
-  item reproduces.
+- `NirValue::Unary` and the other composite arms — **confirmed, not latent, and
+  fixed.** `-twice(i)` reproduces exactly as `twice(i) * 2` does (+4000 blocks),
+  and so does `NirValue::MemberAccess`: `mkBox(i).n` was +8000 against a +4000
+  control, a shape the original write-up did not anticipate. `MemberAccess` is
+  also the one composite that reaches the **bulk** `append` arm, since no
+  operator yields a `List`: `append(xs, mkBox(i).items)` was +6000 against the
+  same +4000 control. All four composite arms (`Binary`, `Unary`,
+  `MemberAccess`, `ResultValue`) now share one implementation,
+  `static_composite_type`, so the reach cannot drift apart again.
+- `static_type_name`'s other consumers — **deliberately untouched**, which is
+  where the fix deviates from the Fix Design below. See the `STATUS` block.
 
 ## Fix Design
 
@@ -265,48 +292,67 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a `tests/runtime/inplace_self_update/cases.tsv` line and the matching
-      `rt_inplace_self_update.rs` row for `append` with item `f(i) * 2` where
-      `f` is a program `FUNC`; confirm it fails the allocation-flatness
-      assertion today.
-- [ ] Add the three contrast rows (`f(i)`, `3 + i * 2`, `toFloat(i) + 1.0`) as
-      guards that must stay flat.
-- [ ] Determine whether `-f(i)` (the `Unary` arm) and the `set`/map arms
-      reproduce the same decline; write each verdict into Blast Radius.
-- [ ] Confirm with the plan-147 owner whether that plan absorbs this; record the
-      answer here.
+- [x] Add the allocation-flatness rows for a self-update whose item operand is a
+      composite expression over a program `FUNC`, and confirm they fail today.
+      They live in a new `tests/runtime/rt_inplace_item_operand.rs` rather than a
+      `cases.tsv` line: `cases.tsv` is a census keyed by *builtin signature* and
+      each row is also run at 15 field sites out of `field_expect.tsv`, so a
+      second row for an already-listed signature would collide with the field
+      expectations of the first. The new file reuses the same measure (build at
+      `N` and `2N` with `--debug`, read the arenas' `alloc_calls`).
+- [x] Add the three contrast rows (`f(i)`, `3 + i * 2`, `toFloat(i) + 1.0`) as
+      guards that must stay flat. All three were flat before and after (+2).
+- [x] Determine whether `-f(i)` (the `Unary` arm) and the `set`/map arms
+      reproduce the same decline; write each verdict into Blast Radius. **They
+      do** — and so does `MemberAccess`, which the write-up missed, including on
+      the bulk-`append` arm. The table is in Blast Radius.
+- [x] Confirm with the plan-147 owner whether that plan absorbs this. Landed
+      **independently**, per this doc's Open Decision: plan-147's sites are
+      S11/S12 (hand-over through a helper) and nothing in plan-147-A..F's text
+      covers an item-operand shape. No file this fix touches is a plan-147 file.
 
-Acceptance: the new row fails for the documented reason (`G11` declines because
-`static_item_type` answers `None`); the audit has a verdict per site.
-Commit: —
+Acceptance: met — the rows fail for the documented reason (`G11` declines
+because `static_item_type` answers `None`), and the audit has a verdict per site.
+Commit: `01f3ecaf6`
 
 ### Phase 2 — the fix
 
-- [ ] Move the `self.functions` / `package_return_types` return-type lookup into
-      `static_type_name`'s `Call` arm
-      (`src/codegen/memory/value/builder_value_semantics.rs:1217`), after the
-      builtin allowlist.
-- [ ] Simplify `static_item_type` (`:1189`) to whatever remains once its
-      duplicate lookup is redundant, without changing its answers.
+- [x] Reach the `self.functions` / `package_return_types` return-type lookup
+      from inside a composite operand. **Deviation:** the lookup was *not* moved
+      into `static_type_name`'s `Call` arm as designed. Instead the composite
+      arms moved into one shared `static_composite_type`, parameterized by the
+      query used for the operands: `static_type_name` passes itself and keeps
+      its exact answers, `static_item_type` passes itself and so reaches the
+      lookup at every leaf. Three in-code comments (bug-561, bug-626 and the
+      fold twin at `:1441`) warn against widening `static_type_name`, which also
+      gates float-arithmetic lowering (`builder_numeric.rs:192`),
+      `is_function_value` (`operand_snapshot.rs:338`) and module analysis; the
+      contained widening fixes every measured row without that reach.
+- [x] Simplify `static_item_type` without changing its answers — it keeps its
+      call arm and gains only the composite delegation.
 
-Acceptance: Phase 1's row passes; the three contrast rows stay flat; no
-diagnostic or program output changes anywhere.
-Commit: —
+Acceptance: met — every Phase 1 row passes, the three contrast rows stay flat,
+and no diagnostic or program output changes anywhere (full suite below).
+Commit: `2fe6c1e39`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-run the byte-identity / `.ncode` fixtures; for every shifted fixture,
-      confirm by inspection that it contains an item operand of exactly this
-      shape before re-baselining, per `AGENTS.md`.
-- [ ] `cargo test` full suite, plus the collection suites named in
-      `.ai/collections.md`.
-- [ ] Re-run the reproduction above and confirm the failing row drops to ~1 ms.
-- [ ] Re-run `examples/wind` end to end and confirm the GRIB decode is unchanged
-      (125 ms for two 259,920-point fields) with the hoists still in place.
+- [x] Re-run the byte-identity / `.ncode` fixtures. **No fixture shifted**, so
+      nothing was re-baselined — the Fix Design's predicted emitted-byte delta
+      did not materialize, because no fixture program has an item operand of
+      this shape.
+- [x] `cargo test` full suite, plus the collection suites.
+- [x] Re-run the reproduction and confirm the failing row drops to ~1 ms:
+      **3759 ms → 1 ms** at `n = 16000`, release, macos-aarch64, alongside the
+      contrast rows at 2 ms and 1 ms.
+- [ ] Re-run `examples/wind` end to end. **Not runnable here:** `examples/wind`
+      is not in this repository (the discovery site was an external project), so
+      this step is unverified. The equivalent in-repo proof is the
+      `mkBox(i).items` bulk-append row, the same shape the decoder hoisted.
 
-Acceptance: full suite green; every expected-output delta is a program of this
-shape; the reproduction is linear everywhere it was quadratic.
-Commit: —
+Acceptance: full suite green; no expected-output delta to inspect; the
+reproduction is linear everywhere it was quadratic.
+Commit: see STATUS
 
 ## Validation Plan
 
