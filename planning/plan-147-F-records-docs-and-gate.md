@@ -354,6 +354,15 @@ Commit: —
   through a consuming helper runs clean), and `is_scalar_field` is where it is now
   accepted.
 
+  It also removes S12's last `String` arm from the matrix: `StrIdentity` fired at
+  `Site::OwnedParam` only because a `String` parameter had an owned variant at all, so
+  a new site-scoped `OWNED_PARAM_NEVER` names it with that reason, and
+  `return_never_names_dispatched_arms_once` was extended to refuse a row that
+  `RETURN_NEVER` already covers (so the two lists cannot both own an exclusion). The
+  runtime axis needed nothing — `rt_inplace_self_update.rs:366` already skips `String`
+  at `Return`/`OwnedParam`. `cargo test --bin mfb every_arm_row_fires_at_every_enabled_site`
+  → **`ok. 1 passed; 0 failed` (142.11 s)**.
+
   This is a NARROWING of the analysis, not a weakened criterion, and it costs no
   measured win: `helper-concat` was already landed as `StillCopies` (a `String` block
   must be tight to leave its frame, bug-560), and every `String` arm is already excluded

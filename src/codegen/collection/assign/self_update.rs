@@ -2559,6 +2559,27 @@ pub(crate) const RETURN_NEVER: &[(ArmId, &str)] = &[
     ),
 ];
 
+/// plan-147-F: `(arm, reason)` — the arms that never fire at `Site::OwnedParam` (S12)
+/// on top of [`RETURN_NEVER`]'s.
+///
+/// S12 needs an owned-parameter VARIANT to lower in, and a bare `String` parameter is
+/// never handed over, so no `String` arm has a variant to fire in — `handOver$own1`
+/// is not emitted for a `String` at all. `RETURN_NEVER` already covers every other
+/// `String` arm for the bug-560 tightness reason; `StrIdentity` (`x = toString(x)`,
+/// which emits nothing) is the one that still fires at `Site::Return`, where the
+/// owner is a LOCAL, and cannot at S12.
+///
+/// The refusal is in `handover_type`: a `String` binding may hold a pointer to a
+/// static literal rather than an arena block, and the variant's owned-parameter free
+/// would be a bus error (measured as exit 138; plan-147-F Corrections). A `String`
+/// FIELD of a record is unaffected, which is why `S11F` is not listed here.
+#[cfg(test)]
+pub(crate) const OWNED_PARAM_NEVER: &[(ArmId, &str)] = &[(
+    ArmId::StrIdentity,
+    "a bare `String` parameter is never handed over (its block may be a static \
+     literal), so there is no owned variant for S12 to lower the arm in",
+)];
+
 /// The binding sites the matrix test compiles every arm probe at: plan-142's four
 /// plain sites, and plan-145's fifteen field sites (plan-144's audit legend).
 #[cfg(test)]
@@ -3302,6 +3323,11 @@ mod tests {
             {
                 return true;
             }
+            // plan-147-F: S12 additionally has no owned variant to lower a `String`
+            // arm in, because a bare `String` parameter is never handed over.
+            if site == Site::OwnedParam && OWNED_PARAM_NEVER.iter().any(|(arm, _)| *arm == id) {
+                return true;
+            }
             FIELD_NEVER.iter().any(|(arm, ty, sites, _)| {
                 *arm == id
                     && (ty.is_empty() || *ty == probe.ty)
@@ -3403,6 +3429,28 @@ mod tests {
                 "RETURN_NEVER {arm:?} is not in SELF_UPDATE_ARMS"
             );
             assert!(seen.insert(*arm), "RETURN_NEVER lists {arm:?} twice");
+        }
+        // plan-147-F: the same three properties for S12's own list, and it may not
+        // repeat a `RETURN_NEVER` row — that would be a second place to maintain the
+        // same exclusion.
+        let mut owned_seen = BTreeSet::new();
+        for (arm, reason) in OWNED_PARAM_NEVER {
+            assert!(
+                !reason.trim().is_empty(),
+                "OWNED_PARAM_NEVER {arm:?} has no reason"
+            );
+            assert!(
+                arms.contains(arm),
+                "OWNED_PARAM_NEVER {arm:?} is not in SELF_UPDATE_ARMS"
+            );
+            assert!(
+                owned_seen.insert(*arm),
+                "OWNED_PARAM_NEVER lists {arm:?} twice"
+            );
+            assert!(
+                !seen.contains(arm),
+                "OWNED_PARAM_NEVER {arm:?} is already excluded by RETURN_NEVER"
+            );
         }
     }
 
