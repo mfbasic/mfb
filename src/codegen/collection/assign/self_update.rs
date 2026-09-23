@@ -549,7 +549,18 @@ pub(crate) fn is_self_update_call(value: &NirValue, name: &str) -> bool {
 /// ownership gates.
 pub(crate) fn returned_self_update_local(value: &NirValue) -> Option<&str> {
     let (target, args) = self_update_call_parts(value)?;
-    self_update_builtin(target)?;
+    // Every spelling the seam dispatches, not just the collection/`String` ones:
+    // `math::abs(xs)` and friends are arms too (`MATH_SELF_UPDATE`), and they reach
+    // the dispatcher under a `math.` target that `self_update_builtin` does not
+    // name. Missing them made S11 silently skip all 15 `math` array rows.
+    if self_update_builtin(target).is_none()
+        && crate::codegen::collection::assign::builder_inplace_rewrite::math_self_update_function(
+            target,
+        )
+        .is_none()
+    {
+        return None;
+    }
     match args.first() {
         Some(NirValue::Local(name)) => Some(name.as_str()),
         _ => None,
@@ -2468,6 +2479,56 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("color.Hsl", FieldKindRow::Arm('F')),
 ];
 
+/// plan-147-B: `(arm, reason)` — the arms that never fire at `Site::Return` (S11),
+/// by design. The matrix asserts they do NOT fire there, and does not require them
+/// to; an arm that starts firing fails the matrix, so the exclusion cannot rot.
+///
+/// Every entry is a `String` arm, and they all share one cause. A `String` block
+/// that leaves its frame must be **tight**: `arena_free(ptr, size)` is caller-sized
+/// and bins by size class (`arena.rs:lower_arena_free`), and a caller frees a
+/// returned `String` by its `byteLength` alone — so a block still carrying capacity
+/// spare cannot be moved out. That is bug-560, which `plan_returned_move` encodes as
+/// its `string_capacity_slots` decline. Every in-place `String` update leaves spare
+/// by construction (a window shrinks `byteLength` inside the old allocation; a grow
+/// takes geometric headroom), so at a `RETURN` the block has to be copied tight —
+/// and that copy costs exactly the one allocation the copying builtin would have
+/// made anyway.
+///
+/// **Measured** (plan-147-B Phase 2, 2026-09-22), the `chain` shape over
+/// `strings::left(x, 150)` under `mfb build --debug`, summed
+/// `arena.<k>.alloc_calls`:
+///
+/// | | N = 600 | 2N = 1200 |
+/// |---|---|---|
+/// | arm fires (a shadow pre-allocated at the `RETURN`) | 603 | 1203 |
+/// | arm declines (HEAD) | 603 | 1203 |
+///
+/// Identical. S11 is a measured no-op for `String`, so the arms are excluded rather
+/// than given a shadow that would buy a stack slot and nothing else.
+#[cfg(test)]
+pub(crate) const RETURN_NEVER: &[(ArmId, &str)] = &[
+    (
+        ArmId::StrWindow,
+        "a window shrinks byteLength inside the old allocation, leaving spare; a \
+         String block must be tight to move out of its frame (bug-560)",
+    ),
+    (
+        ArmId::StrGrow,
+        "a grow takes geometric headroom, leaving spare; a String block must be \
+         tight to move out of its frame (bug-560)",
+    ),
+    (
+        ArmId::StrRewrite,
+        "a rewrite keeps the old allocation, which is only tight when the rewrite \
+         is length-preserving; a String block must be tight to move out (bug-560)",
+    ),
+    (
+        ArmId::Concat,
+        "`RETURN s & t` is a `Binary`, not a call, so it is not a `RETURN OP(x, …)` \
+         shape at all — and the grown block could not move out either (bug-560)",
+    ),
+];
+
 /// The binding sites the matrix test compiles every arm probe at: plan-142's four
 /// plain sites, and plan-145's fifteen field sites (plan-144's audit legend).
 #[cfg(test)]
@@ -2485,6 +2546,11 @@ pub(crate) enum Site {
     Lambda,
     /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
     Global,
+    /// S11 — `RETURN OP(x, …)` on an owned local at its last use (plan-147-B). The
+    /// probe is a recursive `chain`, one level per call, so the block threads
+    /// through every level instead of being rebuilt: a copying `RETURN` allocates
+    /// once per level.
+    Return,
     /// A local record's not-last field: `r = WITH r { a := f(r.a, …) }`.
     S3,
     /// The same record's last field `b`.
@@ -2518,7 +2584,13 @@ pub(crate) enum Site {
 }
 
 #[cfg(test)]
-pub(crate) const ENABLED_SITES: &[Site] = &[Site::Local, Site::ForEach, Site::Lambda, Site::Global];
+pub(crate) const ENABLED_SITES: &[Site] = &[
+    Site::Local,
+    Site::ForEach,
+    Site::Lambda,
+    Site::Global,
+    Site::Return,
+];
 
 /// plan-145-A: the field sites the matrix compiles every arm probe at.
 #[cfg(test)]
@@ -2608,6 +2680,8 @@ impl Site {
             Site::Local | Site::ForEach => name == "main",
             Site::Lambda | Site::S9 => name.starts_with("$lambda"),
             Site::Global | Site::S5 | Site::T3 | Site::T4 => name == "run1",
+            // plan-147-B: the self-update is the `chain` function's own `RETURN`.
+            Site::Return => name == "chain",
             _ => name == "main",
         }
     }
@@ -2711,6 +2785,18 @@ impl Probe {
                  LET one AS List OF Integer = [0]\n  FOR i = 1 TO 3\n    \
                  collections::forEach(one, LAMBDA(each1 AS Integer) -> x = {call})\n  \
                  NEXT\n  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
+                ty = self.ty,
+                init = self.init,
+                call = self.call,
+            )),
+            // plan-147-B (S11): the `chain` shape of plan-147-B §3 step 4. One
+            // level per call, so the copying lowering allocates once per level and
+            // the in-place one only the arm's geometric growth.
+            Site::Return => src.push_str(&format!(
+                "FUNC chain(k AS Integer) AS {ty}\n  IF k = 0 THEN RETURN {init}\n  \
+                 MUT x AS {ty} = chain(k - 1)\n  RETURN {call}\nEND FUNC\n\n\
+                 FUNC main() AS Integer\n  LET r AS {ty} = chain(3)\n  \
+                 io::print(toString(len(r)))\n  RETURN 0\nEND FUNC\n",
                 ty = self.ty,
                 init = self.init,
                 call = self.call,
@@ -3113,6 +3199,11 @@ mod tests {
     fn every_arm_row_fires_at_every_enabled_site() {
         let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
         let never = |id: ArmId, probe: &Probe, site: Site| {
+            // plan-147-B: S11's exclusions are their own list — `FIELD_NEVER` is
+            // about field sites, and `Return` is not one.
+            if matches!(site, Site::Return) && RETURN_NEVER.iter().any(|(arm, _)| *arm == id) {
+                return true;
+            }
             FIELD_NEVER.iter().any(|(arm, ty, sites, _)| {
                 *arm == id
                     && (ty.is_empty() || *ty == probe.ty)
@@ -3148,15 +3239,24 @@ mod tests {
                     for id in &hit {
                         if never(*id, probe, site) {
                             failures.push(format!(
-                                "{} at {site:?}: `x = {}` fired {id:?}, which FIELD_NEVER says \
-                                 it never does there",
+                                "{} at {site:?}: `x = {}` fired {id:?}, which the never-list \
+                                 says it does not do there. If that is now WRONG, re-measure \
+                                 the site and move the entry out with the numbers.",
                                 row.function, probe.call
                             ));
                         }
                     }
-                    if !field && hit.is_empty() {
+                    // plan-147-B: only the ids that are supposed to be able to fire
+                    // here count. When every id of the row is on a never-list for
+                    // this site, the probe firing nothing is the expectation.
+                    let expected: Vec<ArmId> = ids
+                        .iter()
+                        .copied()
+                        .filter(|id| !never(*id, probe, site))
+                        .collect();
+                    if !field && hit.is_empty() && !expected.is_empty() {
                         failures.push(format!(
-                            "{} at {site:?}: `x = {}` fired none of {ids:?}",
+                            "{} at {site:?}: `x = {}` fired none of {expected:?}",
                             row.function, probe.call
                         ));
                     }
@@ -3186,6 +3286,26 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// plan-147-B: every `RETURN_NEVER` entry names a real dispatched arm, carries a
+    /// reason, and appears once. Keeps the S11 exclusion list from drifting away from
+    /// `SELF_UPDATE_ARMS`.
+    #[test]
+    fn return_never_names_dispatched_arms_once() {
+        let arms: BTreeSet<ArmId> = SELF_UPDATE_ARMS.iter().map(|(id, _, _)| *id).collect();
+        let mut seen = BTreeSet::new();
+        for (arm, reason) in RETURN_NEVER {
+            assert!(
+                !reason.trim().is_empty(),
+                "RETURN_NEVER {arm:?} has no reason"
+            );
+            assert!(
+                arms.contains(arm),
+                "RETURN_NEVER {arm:?} is not in SELF_UPDATE_ARMS"
+            );
+            assert!(seen.insert(*arm), "RETURN_NEVER lists {arm:?} twice");
+        }
     }
 
     /// plan-145-A: `FIELD_NEVER` names only field sites, and a pair appears in it
