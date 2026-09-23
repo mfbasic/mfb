@@ -177,7 +177,7 @@ Acceptance: it builds, and nothing but tests uses it.
   → **builds clean (no warnings), and `rg` returns nothing** (2026-09-23). The plan
   said "only `analysis/mod.rs`"; `mod.rs` declares the module but never names either
   function, so **no** match is the correct result. See Corrections.
-Commit: (this commit)
+Commit: 6f35194ff
 
 ### Phase 2 — The unit table
 
@@ -250,7 +250,7 @@ Acceptance: census recorded, and codegen unchanged.
   Check: `bash scripts/artifact-gate.sh target/release/mfb collections` →
   **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`** (2026-09-23). The analysis
   has no caller, so one package's gate is enough to catch an accidental one.
-Commit: (this commit)
+Commit: a20ae1d6c
 
 ## Validation Plan
 
