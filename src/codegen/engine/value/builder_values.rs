@@ -2292,7 +2292,15 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .cloned()
                     .unwrap_or_else(|| target.to_string());
-                self.emit_call(target, &symbol, args, None)
+                // plan-147-D: name the call node so `emit_call` can ask `handover`
+                // whether this SITE hands anything over. Restored afterwards so a
+                // nested call cannot inherit an outer site's answer.
+                let previous_call = self
+                    .current_call_key
+                    .replace(crate::codegen::engine::analysis::handover::call_key(value));
+                let result = self.emit_call(target, &symbol, args, None);
+                self.current_call_key = previous_call;
+                result
             }
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
@@ -2499,7 +2507,13 @@ impl CodeBuilder<'_> {
                 let wrap_error_label = self.label("result_wrap_error");
                 let have_payload_label = self.label("result_have_payload");
                 let result_slot = self.allocate_stack_object("raw_result", 8);
-                self.emit_call(target, &symbol, args, Some(&success_type.name()))?;
+                // plan-147-D: the trapped call form is an approved site like any other.
+                let previous_call = self
+                    .current_call_key
+                    .replace(crate::codegen::engine::analysis::handover::call_key(value));
+                let call = self.emit_call(target, &symbol, args, Some(&success_type.name()));
+                self.current_call_key = previous_call;
+                call?;
                 self.emit(abi::store_u64(
                     RESULT_TAG_REGISTER,
                     abi::stack_pointer(),

@@ -572,6 +572,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
     /// asks `move_sites` about.
     pub(crate) current_op_key: Option<usize>,
+    /// plan-147-D: which call arguments of the NIR function being lowered may be
+    /// HANDED to the callee instead of lent (plan-147-C). `None` in a synthesized
+    /// builder, where every argument is lent.
+    pub(crate) handover: Option<crate::codegen::engine::analysis::handover::HandOverArgs>,
+    /// plan-147-D: the `call_key` of the `Call`/`CallResult` node being lowered —
+    /// what `emit_call` asks `handover` about, alongside `current_op_key`.
+    pub(crate) current_call_key: Option<usize>,
     /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
     /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
     /// no `s = os::resourcePath(s)`.
@@ -698,6 +705,8 @@ impl<'a> CodeBuilder<'a> {
             enclosing_loop_reassigned: Vec::new(),
             graph_copy_walker: None,
             move_sites: None,
+            handover: None,
+            current_call_key: None,
             current_op_key: None,
             string_resource_base: None,
             string_shadow_env: std::collections::HashMap::new(),
@@ -3899,13 +3908,24 @@ pub(crate) fn standard_error_message_symbol(message: &str) -> Option<&'static st
 /// plan-147-D: the `(function, owned-parameter mask)` pairs the module's approved
 /// call sites ask for.
 ///
-/// **Empty until letter D Phase 2.** Phase 1 lands the variant machinery with no
-/// demand, so codegen stays byte-identical; Phase 2 fills this in from
-/// `collect_handover_args`, which letter C already computes.
+/// The SAME `collect_handover_args` the caller side consults in `emit_call`, run
+/// over every function of the module. Asking one analysis twice — rather than
+/// deriving the demand some other way — is what guarantees that every variant symbol
+/// a caller emits is a variant this loop actually lowers; a mismatch would be an
+/// undefined symbol at link time.
 fn variant_demand(
-    _module: &NirModule,
-    _functions: &HashMap<String, &NirFunction>,
-    _type_model: &TypeModel,
+    module: &NirModule,
+    functions: &HashMap<String, &NirFunction>,
+    type_model: &TypeModel,
 ) -> HashSet<(String, u64)> {
-    HashSet::new()
+    let mut demand = HashSet::new();
+    for function in &module.functions {
+        demand.extend(
+            crate::codegen::engine::analysis::handover::collect_handover_args(
+                function, type_model, functions,
+            )
+            .demanded_variants(),
+        );
+    }
+    demand
 }

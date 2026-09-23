@@ -48,23 +48,55 @@ pub(crate) fn call_key(value: &NirValue) -> usize {
     value as *const NirValue as usize
 }
 
-/// The call arguments of one function that may be handed over: `(op, call,
-/// argument index)`.
+/// The approved hand-overs of one function, keyed by call site.
+///
+/// One entry per `(op, call)` that hands over at least one argument, carrying the
+/// callee's NIR name and the owned-parameter mask that site needs. Keeping the
+/// callee and the mask HERE, rather than re-deriving them at each consumer, is what
+/// stops the caller (which must call the variant symbol) and the variant demand
+/// (which must emit it) from ever disagreeing about a site.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HandOverArgs {
-    args: HashSet<(usize, usize, usize)>,
+    sites: HashMap<(usize, usize), Site>,
+}
+
+/// One approved call site: the callee, and which of its parameters this site hands
+/// over.
+#[derive(Clone, Debug)]
+pub(crate) struct Site {
+    /// The callee's NIR function name.
+    pub(crate) target: String,
+    /// Bit `i` set = argument `i` is handed over.
+    pub(crate) mask: u64,
 }
 
 impl HandOverArgs {
+    /// The site at `(op, call)`, or `None` if nothing there is handed over.
+    pub(crate) fn site(&self, op: usize, call: usize) -> Option<&Site> {
+        self.sites.get(&(op, call))
+    }
+
     /// Whether argument `index` of the call whose [`call_key`] is `call`, inside the
     /// op whose [`op_key`] is `op`, may be handed to the callee.
     pub(crate) fn may_hand_over(&self, op: usize, call: usize, index: usize) -> bool {
-        self.args.contains(&(op, call, index))
+        self.site(op, call)
+            .is_some_and(|site| index < 64 && site.mask & (1u64 << index) != 0)
     }
 
-    /// Every approved triple, for the census and the tests.
+    /// The `(callee, mask)` pairs this function's sites ask an owned variant for.
+    pub(crate) fn demanded_variants(&self) -> HashSet<(String, u64)> {
+        self.sites
+            .values()
+            .map(|site| (site.target.clone(), site.mask))
+            .collect()
+    }
+
+    /// How many arguments are approved in total, for the census and the tests.
     pub(crate) fn len(&self) -> usize {
-        self.args.len()
+        self.sites
+            .values()
+            .map(|site| site.mask.count_ones() as usize)
+            .sum()
     }
 }
 
@@ -154,7 +186,7 @@ pub(crate) fn collect_handover_args(
     // H6 asks the same question of a callee once per call target, not once per call.
     let mut consumable: HashMap<String, ParamSet> = HashMap::new();
 
-    let mut args = HashSet::new();
+    let mut sites: HashMap<(usize, usize), Site> = HashMap::new();
     for (key, (op, out)) in &live.after {
         // Only a simple statement is a site, exactly as in `collect_last_use_moves`:
         // a compound op's value is a loop condition or a branch test, which the
@@ -251,12 +283,18 @@ pub(crate) fn collect_handover_args(
                     if read_count(&all_reads, &place) != 1 || place_live(&after, &place) {
                         continue;
                     }
-                    args.insert((*key, call_key(call), index));
+                    let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
+                        target: target.clone(),
+                        mask: 0,
+                    });
+                    if index < 64 {
+                        entry.mask |= 1u64 << index;
+                    }
                 }
             });
         }
     }
-    HandOverArgs { args }
+    HandOverArgs { sites }
 }
 
 /// The parameters of `function` an owned variant would consume — use up rather than

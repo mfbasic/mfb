@@ -1137,6 +1137,8 @@ pub(crate) fn lower_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1254,6 +1256,16 @@ pub(crate) fn lower_function(
         crate::codegen::engine::analysis::last_use::collect_last_use_moves(
             function,
             &builder.type_model,
+        ),
+    );
+    // plan-147-D: which call arguments this function may hand to the callee instead
+    // of lending (plan-147-C). Computed once here, like `move_sites` above, so the
+    // answer cannot depend on the order the builder reaches the ops in.
+    builder.handover = Some(
+        crate::codegen::engine::analysis::handover::collect_handover_args(
+            function,
+            &builder.type_model,
+            functions,
         ),
     );
     // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
@@ -1668,6 +1680,8 @@ pub(crate) fn lower_abi_function_helper(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1846,6 +1860,8 @@ pub(crate) fn lower_thread_copy_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),

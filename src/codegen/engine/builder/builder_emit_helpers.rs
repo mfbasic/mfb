@@ -163,9 +163,65 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         slot_name: &str,
     ) -> Result<Vec<ValueResult>, String> {
+        self.emit_raw_call_handing_over(symbol, args, slot_name, None)
+    }
+
+    /// [`Self::emit_raw_call`], plus plan-147-D's hand-over: when `handover` is
+    /// `Some`, each named local's slot is zeroed after every argument is lowered and
+    /// immediately before the branch, because the callee now owns those blocks.
+    pub(crate) fn emit_raw_call_handing_over(
+        &mut self,
+        symbol: &str,
+        args: &[NirValue],
+        slot_name: &str,
+        handover: Option<&HandOverSite>,
+    ) -> Result<Vec<ValueResult>, String> {
         let arg_values = self.emit_prepared_call_args(args, slot_name)?;
+        if let Some(site) = handover {
+            for slot in &site.slots {
+                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), *slot));
+            }
+        }
         self.emit_symbol_call(symbol);
         Ok(arg_values)
+    }
+
+    /// plan-147-D: whether this call site hands any argument over, and if so the
+    /// variant symbol to call and the caller slots to zero.
+    ///
+    /// Answers `None` unless plan-147-C's analysis approved this exact
+    /// `(op, call)` — so a call the analysis never saw, a synthesized builder with no
+    /// `handover` set, or a lowering reached without `current_op_key`/`current_call_key`
+    /// all take the ordinary lending path.
+    fn handover_site(&self, target: &str, args: &[NirValue]) -> Option<HandOverSite> {
+        let op = self.current_op_key?;
+        let call = self.current_call_key?;
+        let site = self.handover.as_ref()?.site(op, call)?;
+        if site.target != target {
+            return None;
+        }
+        let mut slots = Vec::new();
+        for (index, arg) in args.iter().enumerate() {
+            if index >= 64 || site.mask & (1u64 << index) == 0 {
+                continue;
+            }
+            let NirValue::Local(name) = arg else {
+                // The analysis only ever approves a `Local`; anything else here means
+                // the NIR moved under us, so lend rather than guess.
+                return None;
+            };
+            slots.push(self.locals.get(name)?.stack_offset);
+        }
+        if slots.is_empty() {
+            return None;
+        }
+        let base = crate::target::shared::nir::function_symbol(target);
+        Some(HandOverSite {
+            symbol: crate::codegen::engine::function::function_lowering::OwnedVariant::symbol_for(
+                &base, site.mask,
+            ),
+            slots,
+        })
     }
 
     pub(crate) fn load_empty_string_constant(&mut self) -> Result<VirtualRegister, String> {
@@ -253,7 +309,23 @@ impl CodeBuilder<'_> {
         // Before the arguments are lowered, so the deactivation is not sensitive to
         // whatever lowering does to them.
         self.deactivate_consumed_cleanups(target, args);
-        let arg_values = self.emit_raw_call(symbol, args, "call_arg")?;
+        // plan-147-D: an approved site HANDS its argument to the callee instead of
+        // lending it — the callee's owned variant frees or consumes the block, so the
+        // caller must stop owning it.
+        //
+        // The zeroing happens inside `emit_raw_call`, AFTER every argument has been
+        // lowered and just before the branch. That ordering is load-bearing: a later
+        // argument whose evaluation fails branches out before the store, so `x` still
+        // owns its block and this scope's cleanup frees it exactly once
+        // (plan-147-A §2.3 row S3). Once the store has run, the caller's cleanup is
+        // still active but reads a null slot and skips, which is the existing
+        // moved-out-null pattern (§14.7: a moved-from binding is not dropped).
+        let handover = self.handover_site(target, args);
+        let called = handover
+            .as_ref()
+            .map_or(symbol, |site| site.symbol.as_str());
+        let arg_values =
+            self.emit_raw_call_handing_over(called, args, "call_arg", handover.as_ref())?;
         let result_type = return_type
             .map(ParameterType::declared)
             .or_else(|| {
@@ -654,4 +726,11 @@ mod arena_call_tests {
             }
         }
     }
+}
+
+/// plan-147-D: an approved hand-over at the call being emitted — the owned-variant
+/// symbol to call, and the caller slots the hand-over nulls.
+pub(crate) struct HandOverSite {
+    pub(crate) symbol: String,
+    pub(crate) slots: Vec<usize>,
 }

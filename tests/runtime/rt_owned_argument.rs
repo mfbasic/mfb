@@ -28,7 +28,10 @@
 //! that a case is never quietly dropped or un-ignored without its letter's change.
 //!
 //! * `local-return` — **landed**, plan-147-B (site S11).
-//! * `helper-append`, `helper-map-set`, `helper-concat` — open, plan-147-D.
+//! * `helper-append`, `helper-map-set` — **landed**, plan-147-D (owned variants).
+//! * `helper-concat` — **landed**, plan-147-D, but asserting `Expect::StillCopies`:
+//!   the hand-over happens and buys nothing, because a `String` block must be tight
+//!   to leave its frame. See the case's doc comment for the measurement.
 //! * `recursive-fill` — open, plan-147-E.
 
 #![cfg(unix)]
@@ -52,6 +55,21 @@ struct Case {
     body: &'static str,
     /// `want(n)` — the line the program must print when run at size `n`.
     want: fn(u64) -> String,
+    /// What the shape's allocation slope must be.
+    expect: Expect,
+}
+
+/// What a case asserts about its allocation slope.
+#[derive(Clone, Copy, Debug)]
+enum Expect {
+    /// `count(2N) - count(N) < N/8`: the shape stopped copying.
+    Flat,
+    /// `count(2N) - count(N) >= N`: the shape still allocates at least one block per
+    /// call, and is MEANT to — the named reason says why, and the named plan is what
+    /// would change it. Asserted in both directions: if the slope ever drops below
+    /// `N`, the case fails and says to flip the line, exactly as
+    /// `rt_inplace_self_update`'s `deferred:` status does.
+    StillCopies { why: &'static str },
 }
 
 /// The recursion-driven cases use a smaller `N`: the copying lowering recurses `N`
@@ -77,6 +95,7 @@ END FUNC",
             body: "LET r AS List OF Integer = chain({N})
   io::print(\"len=\" & toString(len(r)))",
             want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
         // D: the accumulator threaded through a helper. `acc` is dead after the
         // call, so it may be handed over instead of lent.
@@ -93,6 +112,7 @@ END FUNC",
   NEXT
   io::print(\"len=\" & toString(len(acc)))",
             want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
         // D: the same, into a Map.
         Case {
@@ -109,6 +129,7 @@ END FUNC",
   NEXT
   io::print(\"len=\" & toString(len(m)))",
             want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
         // D: the same, for a String.
         Case {
@@ -124,6 +145,17 @@ END FUNC",
   NEXT
   io::print(\"len=\" & toString(len(s)))",
             want: |n| format!("len={n}"),
+            expect: Expect::StillCopies {
+                why: "a `String` block must be TIGHT to leave its frame -- `arena_free` is \
+                      caller-sized and bins by size class, and a caller frees a returned \
+                      `String` by `byteLength` alone (bug-560) -- while every in-place \
+                      `String` growth leaves spare. So the owned variant's `RETURN s & t` \
+                      has to copy tight, which costs exactly the one allocation the copying \
+                      `grow` would have made. MEASURED with the hand-over forced (the \
+                      variant `grow$own1` is emitted and called): 2003 at N=2000 and 4003 at \
+                      2N=4000, identical to without it. Flattening this needs the String \
+                      block to carry its own capacity, which is another plan's change",
+            },
         },
         // E: transitive hand-over. The argument is a fresh temp
         // (`collections::append(xs, n)`), and the callee is the function itself, so
@@ -139,6 +171,7 @@ END FUNC",
             body: "LET r AS List OF Integer = fill([], {N})
   io::print(\"len=\" & toString(len(r)))",
             want: |n| format!("len={n}"),
+            expect: Expect::Flat,
         },
     ]
 }
@@ -257,15 +290,28 @@ fn check(name: &str) {
     );
 
     let slope = count_2n.saturating_sub(count_n);
-    assert!(
-        slope < bound,
-        "{name} (plan-147-{}) still allocates per call: alloc_calls went {count_n} (N={n}) \
-         -> {count_2n} (2N={}), a slope of {slope}, which is not below the N/8 bound of \
-         {bound}. A copying lowering allocates at least one block per call; an in-place \
-         one allocates only the arm's geometric growth.",
-        case.letter,
-        2 * n
-    );
+    match case.expect {
+        Expect::Flat => assert!(
+            slope < bound,
+            "{name} (plan-147-{}) still allocates per call: alloc_calls went {count_n} (N={n}) \
+             -> {count_2n} (2N={}), a slope of {slope}, which is not below the N/8 bound of \
+             {bound}. A copying lowering allocates at least one block per call; an in-place \
+             one allocates only the arm's geometric growth.",
+            case.letter,
+            2 * n
+        ),
+        // Asserted in BOTH directions, so this cannot rot into a silently-skipped
+        // case: if the shape ever stops copying, the case fails and says so.
+        Expect::StillCopies { why } => assert!(
+            slope >= n,
+            "{name} (plan-147-{}) NO LONGER allocates per call: alloc_calls went {count_n} \
+             (N={n}) -> {count_2n} (2N={}), a slope of {slope}, below the {n} a copying \
+             lowering must show. That is good news -- flip this case to `Expect::Flat` and \
+             delete the reason, which said: {why}",
+            case.letter,
+            2 * n
+        ),
+    }
 }
 
 /// plan-147-B landed site S11, so this one is no longer ignored: `RETURN
@@ -277,20 +323,24 @@ fn local_return() {
     check("local-return");
 }
 
+/// plan-147-D landed the owned variants, so `acc = addOne(acc, i)` hands `acc`
+/// over and `addOne$own1` appends into it in place. alloc_calls 4003 -> 15 at N=2000.
 #[test]
-#[ignore = "plan-147-D"]
 fn helper_append() {
     check("helper-append");
 }
 
+/// plan-147-D: `m = put(m, i)` hands `m` over to `put$own1`.
 #[test]
-#[ignore = "plan-147-D"]
 fn helper_map_set() {
     check("helper-map-set");
 }
 
+/// plan-147-D: the hand-over happens (`grow$own1` is emitted and called), but a
+/// `String` block must be tight to leave its frame, so the variant's `RETURN s & t`
+/// still copies once per call. Measured identical with and without the hand-over:
+/// 2003 at N=2000, 4003 at 2N. The case asserts that, in both directions.
 #[test]
-#[ignore = "plan-147-D"]
 fn helper_concat() {
     check("helper-concat");
 }
@@ -314,10 +364,10 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
 
     // `(test fn, the letter in its #[ignore] reason)`, in source order.
     let want: BTreeSet<(&str, &str)> = [
-        // ("local_return", "B") — landed in plan-147-B (site S11).
-        ("helper_append", "D"),
-        ("helper_concat", "D"),
-        ("helper_map_set", "D"),
+        // ("local_return", "B")  — landed in plan-147-B (site S11).
+        // ("helper_append", "D") — landed in plan-147-D (owned variants).
+        // ("helper_map_set", "D") — landed in plan-147-D.
+        // ("helper_concat", "D") — landed in plan-147-D, as `Expect::StillCopies`.
         ("recursive_fill", "E"),
     ]
     .into_iter()
@@ -363,6 +413,11 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
     const LANDED: &[&str] = &[
         // plan-147-B, site S11.
         "local_return",
+        // plan-147-D, the owned variants. `helper_concat` is landed but asserts
+        // `Expect::StillCopies`; see its doc comment.
+        "helper_append",
+        "helper_concat",
+        "helper_map_set",
     ];
     let declared: BTreeSet<String> = cases().iter().map(|c| c.name.replace('-', "_")).collect();
     let ignored: BTreeSet<String> = found.iter().map(|(n, _)| n.clone()).collect();
@@ -387,5 +442,156 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
             .collect::<Vec<String>>(),
         Vec::<String>::new(),
         "a test or LANDED entry names a case that `cases()` no longer declares"
+    );
+}
+
+/// plan-147-D Phase 2: the failure route of an owned parameter.
+///
+/// An owned variant frees its parameter on **every** exit, and the error and trap
+/// routes are where that is easiest to get wrong. A missed path leaks — unobservable
+/// to the program, but still a bug. A doubled path double-frees.
+///
+/// The helper below takes its collection owned and then `FAIL`s. Two details make it
+/// actually exercise the owned route rather than quietly falling back to lending:
+///
+/// * it has a **consuming `RETURN`** (`IF v < 0 THEN RETURN collections::append(xs, v)`),
+///   which is what puts `xs` in `consumable_params` and so satisfies plan-147-C's H6.
+///   A helper that only ever `FAIL`s consumes nothing, is never handed anything, and
+///   would make this test pass while testing nothing;
+/// * `v` is always >= 1, so that branch is never taken at runtime and every call
+///   reaches the `FAIL` — with `xs` owned and unconsumed, which is exactly the path
+///   the variant's cleanup has to free. (A parameter is immutable, so the helper
+///   cannot update `xs` in place itself; the consuming `RETURN` is what makes the
+///   parameter owned, and the `FAIL` is the route under test.)
+///
+/// The caller traps without reading `acc`, so the hand-over is not refused by H3.
+/// [`the_hand_over_really_happens`] pins that the variant is emitted at all, so this
+/// test cannot pass vacuously by quietly falling back to lending. Running the whole
+/// thing `N` and `2N` times pins both directions:
+///
+/// * **no double free** — the arena's `--debug` report counts
+///   `arena.<k>.double_free_skips`, which must stay 0, and the program must exit 0;
+/// * **no leak** — `arena.<k>.live_bytes` must be 0 at exit, and
+///   `peak_live_bytes` must not grow with `N`. A leak of one block per failing call
+///   would make the peak scale.
+#[test]
+fn an_owned_parameter_is_freed_once_on_the_failure_route() {
+    /// `(peak_live_bytes, live_bytes, double_free_skips, exit code, stdout)`.
+    fn run(n: u64) -> (u64, u64, u64, Option<i32>, String) {
+        let source = format!(
+            "IMPORT collections\nIMPORT io\n\n\
+             FUNC growThenFail(xs AS List OF Integer, v AS Integer) AS List OF Integer\n  \
+               IF v < 0 THEN RETURN collections::append(xs, v)\n  \
+               FAIL error(7, \"len \" & toString(len(xs)))\n\
+             END FUNC\n\n\
+             FUNC main() AS Integer\n  \
+               MUT hits AS Integer = 0\n  \
+               FOR i = 1 TO {n}\n    \
+                 MUT acc AS List OF Integer = [1, 2, 3]\n    \
+                 acc = growThenFail(acc, i) TRAP(e)\n      \
+                   hits = hits + 1\n      \
+                   RECOVER []\n    \
+                 END TRAP\n  \
+               NEXT\n  \
+               io::print(\"hits=\" & toString(hits))\n  \
+               RETURN 0\n\
+             END FUNC\n"
+        );
+        let (exe, project) =
+            build_debug(&format!("owned_argument_fail_{n}"), &source).expect("the probe builds");
+        let output = Command::new(&exe).output();
+        let _ = std::fs::remove_dir_all(&project);
+        let output = output.expect("the probe runs");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        // `arena.<index>.<key> <value>`, matching `<key>` EXACTLY: a substring match
+        // would make `live_bytes` also collect every `peak_live_bytes` line.
+        let sum = |key: &str| -> u64 {
+            stderr
+                .lines()
+                .filter_map(|line| line.strip_prefix("arena."))
+                .filter_map(|rest| rest.split_once(' '))
+                .filter_map(|(name, value)| {
+                    let (_index, field) = name.split_once('.')?;
+                    (field == key).then(|| value.trim().parse::<u64>().ok())?
+                })
+                .sum()
+        };
+        (
+            sum("peak_live_bytes"),
+            sum("live_bytes"),
+            sum("double_free_skips"),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        )
+    }
+
+    const N: u64 = 200;
+    let (peak_n, live_n, dfree_n, code_n, out_n) = run(N);
+    let (peak_2n, live_2n, dfree_2n, code_2n, out_2n) = run(2 * N);
+
+    assert_eq!(code_n, Some(0), "the probe exited non-zero at N={N}");
+    assert_eq!(
+        code_2n,
+        Some(0),
+        "the probe exited non-zero at 2N={}",
+        2 * N
+    );
+    assert_eq!(out_n, format!("hits={N}"), "every call must have failed");
+    assert_eq!(
+        out_2n,
+        format!("hits={}", 2 * N),
+        "every call must have failed"
+    );
+    assert_eq!(
+        (dfree_n, dfree_2n),
+        (0, 0),
+        "the arena skipped a double free: the owned parameter is freed on more than \
+         one path ({dfree_n} at N={N}, {dfree_2n} at 2N)"
+    );
+    assert_eq!(
+        (live_n, live_2n),
+        (0, 0),
+        "bytes were still live at exit: the owned parameter is not freed on the \
+         failure route ({live_n} at N={N}, {live_2n} at 2N)"
+    );
+    // A leak of one block per failing call would scale the peak with N. Allowing a
+    // small absolute slack keeps this from tripping on arena bookkeeping.
+    assert!(
+        peak_2n <= peak_n + 4096,
+        "peak_live_bytes grew with N ({peak_n} at N={N} -> {peak_2n} at 2N): the owned \
+         parameter leaks on the failure route"
+    );
+}
+
+/// plan-147-D: the hand-over is not silently absent.
+///
+/// Every other case here measures ALLOCATIONS, and a lowering that stopped handing
+/// anything over would fail them for a reason that reads like a regression in the
+/// arms rather than in the calling convention. This one looks at the emitted code
+/// instead: an approved site must call `<base>$own<mask>`, and that symbol must be a
+/// function of the program.
+#[test]
+fn the_hand_over_really_happens() {
+    let source = "IMPORT collections\nIMPORT io\n\n\
+         FUNC addOne(xs AS List OF Integer, v AS Integer) AS List OF Integer\n  \
+           RETURN collections::append(xs, v)\n\
+         END FUNC\n\n\
+         FUNC main() AS Integer\n  \
+           MUT acc AS List OF Integer = []\n  \
+           FOR i = 1 TO 3\n    \
+             acc = addOne(acc, i)\n  \
+           NEXT\n  \
+           io::print(toString(len(acc)))\n  \
+           RETURN 0\n\
+         END FUNC\n";
+    let project = common::temp_project("owned_argument_variant", source);
+    let plan = common::build_ncode(&project, "macos-aarch64", "owned_argument_variant");
+    let text = plan.to_string();
+    let _ = std::fs::remove_dir_all(&project);
+    assert!(
+        text.contains("addOne$own1"),
+        "no owned variant in the emitted code: an approved hand-over site must call \
+         `addOne$own1`, and that variant must be lowered. Without it every other case \
+         in this file would be measuring the ordinary lending path."
     );
 }

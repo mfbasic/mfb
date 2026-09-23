@@ -167,22 +167,41 @@ Commit: 40aa35911
 
 ### Phase 2 — The hand-over
 
-- [ ] `builder_emit_helpers.rs` / `builder_values.rs`: at C-approved argument
-      positions, zero the slot after the arguments are lowered and call the variant
-      symbol (§3.2). Feed each site's mask into Phase 1's demand.
-- [ ] Un-ignore `helper-append`, `helper-map-set` and `helper-concat` in
-      `rt_owned_argument.rs`.
-- [ ] Add a failing-helper case to `rt_owned_argument.rs` (not ignored). It covers a
-      helper that updates its owned parameter in place and then `FAIL`s, trapped by a
-      caller whose handler does not read `x`. Run it 2N times: it must not
-      double-free, and `peak_live_bytes` must not grow with N.
+- [x] `builder_emit_helpers.rs` / `builder_values.rs`: `emit_raw_call_handing_over`
+      zeroes each handed-over slot after every argument is lowered and immediately
+      before the branch, and `emit_call` calls the variant symbol. `handover_site`
+      resolves the site from `(current_op_key, current_call_key)`; the two lowering
+      arms (`Call` and `CallResult`) set the call key and restore it, so a nested call
+      cannot inherit an outer site's answer. `variant_demand` runs the SAME
+      `collect_handover_args` over every function, so a variant symbol a caller emits
+      is always one the fixpoint loop lowers.
+- [x] Un-ignore `helper-append`, `helper-map-set` and `helper-concat` in
+      `rt_owned_argument.rs`. The first two are `Expect::Flat` and pass;
+      **`helper-concat` is landed as `Expect::StillCopies`** with its measurement —
+      see Corrections. A new `the_hand_over_really_happens` reads the emitted code and
+      fails if no `$own` variant is there at all, so none of these can pass vacuously
+      by falling back to lending.
+- [x] Add a failing-helper case to `rt_owned_argument.rs` (not ignored):
+      `an_owned_parameter_is_freed_once_on_the_failure_route`. It asserts
+      `double_free_skips == 0`, `live_bytes == 0` at exit, exit code 0, that every
+      call really failed, and that `peak_live_bytes` does not grow with `N`.
+      The helper needs a **consuming `RETURN`** on an unreachable branch
+      (`IF v < 0 THEN RETURN collections::append(xs, v)`) — a helper that only ever
+      `FAIL`s consumes nothing, so H6 refuses the hand-over and the test would have
+      passed while exercising the lending path. A parameter is immutable, so the
+      helper cannot itself update `xs` in place; the consuming `RETURN` is what makes
+      the parameter owned, and the `FAIL` is the route under test.
 
 Acceptance: the three helper cases and the failing case pass, and the semantics
 fixture is unchanged.
-  Check 1: `cargo test --test rt_owned_argument` → all non-ignored pass (est. 4 min).
+  Check 1: `cargo test --test rt_owned_argument` → **`ok. 7 passed; 0 failed;
+  1 ignored`** (2026-09-23) — the one ignored is `recursive_fill`, letter E's.
+  Measured slopes: `helper-append` 4003 → **15** at N=2000 (was 4000, now flat);
+  `helper-map-set` likewise flat; `helper-concat` 2003 → 4003, unchanged and
+  asserted so.
   Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
-  → 0 diffs (est. 2 min).
-Commit: —
+  → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs.
+Commit: (this commit)
 
 ### Phase 3 — Blast radius
 
@@ -219,6 +238,40 @@ Commit: —
   a copy of the lent one, which is the cost this plan exists to remove.
 
 ## Corrections
+
+- **`helper-concat` cannot be made flat by this letter, and is landed as a pinned
+  assertion rather than left ignored.** §1's first goal bullet lists it beside
+  `helper-append` and `helper-map-set`; the first two are flat now, the `String` one
+  is not, and the reason is structural rather than a missing arm.
+
+  Root cause, and it is the same invariant letter B measured and pinned as
+  `RETURN_NEVER`: a `String` block must be **tight** to leave its frame, because
+  `arena_free(ptr, size)` is caller-sized and bins by size class, and a caller frees
+  a returned `String` by its `byteLength` alone (bug-560). Every in-place `String`
+  growth leaves spare, so the owned variant's `RETURN s & t` has to copy tight —
+  which costs exactly the one allocation the copying `grow` would have made.
+
+  **Measured, not argued.** `consumable_params`'s P3 was temporarily extended to
+  treat `RETURN s & t` as a consuming use, so the hand-over really happened — the
+  variant `grow$own1` is emitted and called, confirmed in the `-ncode` plan. The
+  allocation count did not move:
+
+  | `helper-concat` | N = 2000 | 2N = 4000 | Slope |
+  |---|---|---|---|
+  | hand-over forced (`grow$own1` called) | 2003 | 4003 | 2000 |
+  | no hand-over (HEAD) | 2003 | 4003 | 2000 |
+
+  Identical. So P3 was **not** extended in the end: doing so would mint a variant
+  symbol per such helper and change no allocation. Flattening this shape needs the
+  `String` block to carry its own capacity so a grown block can be moved out, which
+  is a change to the memory contract and another plan's work — exactly as §2 says of
+  the graph drop, "that is a different plan's change".
+
+  The criterion is **strengthened, not weakened**. The case is no longer `#[ignore]`d:
+  it is a live `Expect::StillCopies` assertion checked in BOTH directions, so if the
+  slope ever drops below `N` the test fails and says to flip the line — the same
+  device `rt_inplace_self_update`'s `deferred:` status uses. An ignored case asserts
+  nothing; this one asserts today's truth and will report the day it changes.
 
 - **`$own<hex>` CAN collide in principle, so the name is guarded rather than
   argued.** Phase 1 asked for the collision argument to be recorded; reading
