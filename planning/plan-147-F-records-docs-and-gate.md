@@ -187,7 +187,7 @@ Every other line of the fixture is unchanged.
   Check 3 (the Goal's second bullet): `cargo test --bin mfb
   every_arm_row_fires_at_every_enabled_site` → **`ok. 1 passed; 0 failed`** (154.63 s)
   with `Site::S11F` in `FIELD_SITES` — every field arm fires at the field form of S11.
-Commit: (this commit)
+Commit: 7da7b8417
 
 ### Phase 3 — Docs and spec
 
