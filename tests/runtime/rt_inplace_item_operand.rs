@@ -16,7 +16,23 @@
 //! with `mfb build --debug` and read the arenas' `alloc_calls`. A copying
 //! lowering allocates at least one block per statement, so the extra `N`
 //! iterations cost at least `N` more; an in-place one allocates only on
-//! geometric growth, so they cost fewer than `N / 8`.
+//! geometric growth.
+//!
+//! The bound is against a **control**, not an absolute count, because an item
+//! expression may allocate on its own account: `mkBox(i).n` builds a record (and
+//! its list field) every iteration whatever the append does, which is the
+//! program's cost and not the arm's. The control writes that same item
+//! expression in the same inline position but hands it to a no-op `SUB` instead
+//! of to the self-update, so it pays the item's allocations and none of the
+//! collection's, and the difference between the two is the arm alone:
+//! `row(2N) - row(N)` must be under `control(2N) - control(N) + N / 8`. A row
+//! that rebuilds is a clear `N` above it.
+//!
+//! The hoisted spelling (`LET v = <item>` then the self-update over `v`) — the
+//! user-space workaround bug-681 documents — is deliberately *not* the control:
+//! for a `List` item the `LET` pays a copy per iteration, which is the same order
+//! as the rebuild it is supposed to expose, and the bulk-`append` row passes
+//! against it even unfixed.
 //!
 //! The table covers **every** arm that gates on `static_item_type`, not just
 //! `append` — the single-element and bulk `collections::append`,
@@ -55,10 +71,19 @@ END FUNC
 FUNC mkBox(k AS Integer) AS Box
   RETURN Box[n := k * 3, items := [k, k]]
 END FUNC
+
+SUB sinkInteger(v AS Integer)
+END SUB
+
+SUB sinkFloat(v AS Float)
+END SUB
+
+SUB sinkListOFInteger(v AS List OF Integer)
+END SUB
 ";
 
-/// One row: `x`'s declaration, the self-update run in the loop, and the shape of
-/// the item operand the row exists to pin.
+/// One row: `x`'s declaration, the self-update it runs, and the item operand —
+/// held apart from the statement so the control can hoist it into a `LET`.
 struct Case {
     /// The gated arm, for the failure message.
     arm: &'static str,
@@ -66,8 +91,12 @@ struct Case {
     shape: &'static str,
     /// `<type> = <initializer>` for `x`.
     decl: &'static str,
-    /// The self-update statement, run `N` times over loop variable `i`.
+    /// The self-update, with `{ITEM}` where the item operand goes.
     statement: &'static str,
+    /// The item operand, over loop variable `i`.
+    item: &'static str,
+    /// The item operand's declared type, for the control's `LET`.
+    item_type: &'static str,
 }
 
 const CASES: &[Case] = &[
@@ -76,72 +105,120 @@ const CASES: &[Case] = &[
         arm: "collections::append(list, item)",
         shape: "Binary over a user FUNC call",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, twice(i) * 2)",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "twice(i) * 2",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::append(list, item)",
         shape: "Unary over a user FUNC call",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, -twice(i))",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "-twice(i)",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::append(list, item)",
         shape: "MemberAccess on a user FUNC call",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, mkBox(i).n)",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "mkBox(i).n",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::append(list, sublist)",
         shape: "MemberAccess on a user FUNC call",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, mkBox(i).items)",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "mkBox(i).items",
+        item_type: "List OF Integer",
     },
     Case {
         arm: "collections::add(set, item)",
         shape: "Binary over a user FUNC call",
         decl: "Set OF Integer = Set OF Integer { 1, 2 }",
-        statement: "x = collections::add(x, twice(i) * 2)",
+        statement: "x = collections::add(x, {ITEM})",
+        item: "twice(i) * 2",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::remove(set, item)",
         shape: "Binary over a user FUNC call",
         decl: "Set OF Integer = Set OF Integer { 1, 2 }",
-        statement: "x = collections::remove(x, twice(i) * 2)",
+        statement: "x = collections::remove(x, {ITEM})",
+        item: "twice(i) * 2",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::removeKey(map, key)",
         shape: "Binary over a user FUNC call",
         decl: "Map OF Integer TO Integer = Map OF Integer TO Integer { 1 := 1, 2 := 2 }",
-        statement: "x = collections::removeKey(x, twice(i) * 2)",
+        statement: "x = collections::removeKey(x, {ITEM})",
+        item: "twice(i) * 2",
+        item_type: "Integer",
     },
     // --- the contrasts: already flat, and must stay flat -----------------------
     Case {
         arm: "collections::append(list, item)",
         shape: "a user FUNC call at the top level",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, twice(i))",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "twice(i)",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::append(list, item)",
         shape: "arithmetic with no call in it",
         decl: "List OF Integer = [1, 2, 3]",
-        statement: "x = collections::append(x, 3 + i * 2)",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "3 + i * 2",
+        item_type: "Integer",
     },
     Case {
         arm: "collections::append(list, item)",
         shape: "Binary over a builtin call",
         decl: "List OF Float = [1.0]",
-        statement: "x = collections::append(x, toFloat(i) + 1.0)",
+        statement: "x = collections::append(x, {ITEM})",
+        item: "toFloat(i) + 1.0",
+        item_type: "Float",
     },
 ];
 
-/// The whole program: `x` as a `main` local, the statement run `n` times, and the
+/// Which program is built for a row.
+#[derive(Clone, Copy, PartialEq)]
+enum Form {
+    /// The row itself: the self-update with the item operand written inline.
+    Row,
+    /// The control: the item operand in the same inline position, handed to a
+    /// no-op `SUB` instead of to the self-update. It allocates whatever the item
+    /// expression allocates on its own account — `mkBox(i)` builds a record and
+    /// its list field every iteration however the item is used — and nothing for
+    /// the collection, so the difference between the two is the arm alone.
+    Control,
+}
+
+impl Case {
+    /// The loop body at this form.
+    fn body(&self, form: Form) -> String {
+        match form {
+            Form::Row => format!("    {}\n", self.statement.replace("{ITEM}", self.item)),
+            Form::Control => format!(
+                "    sink{}({})\n",
+                self.item_type.replace(' ', ""),
+                self.item
+            ),
+        }
+    }
+}
+
+/// The whole program: `x` as a `main` local, the loop body run `n` times, and the
 /// final length printed.
-fn program(case: &Case, n: u64) -> String {
+fn program(case: &Case, n: u64, form: Form) -> String {
     format!(
-        "{PRELUDE}\nFUNC main() AS Integer\n  MUT x AS {}\n  FOR i = 1 TO {n}\n    {}\n  NEXT\n  \
+        "{PRELUDE}\nFUNC main() AS Integer\n  MUT x AS {}\n  FOR i = 1 TO {n}\n{}  NEXT\n  \
          io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
-        case.decl, case.statement
+        case.decl,
+        case.body(form)
     )
 }
 
@@ -209,21 +286,30 @@ fn run(name: &str, source: &str) -> Result<(String, u64), String> {
     Ok((stdout.lines().next().unwrap_or_default().to_string(), count))
 }
 
+/// `count(2N) - count(N)` for the row, or for its control.
+fn growth(tag: &str, case: &Case, form: Form) -> Result<(u64, String, String), String> {
+    let (len_n, once) = run(&format!("{tag}_n"), &program(case, N, form))
+        .map_err(|e| format!("(N={N}): {e}"))?;
+    let (len_2n, twice) = run(&format!("{tag}_2n"), &program(case, 2 * N, form))
+        .map_err(|e| format!("(N={}): {e}", 2 * N))?;
+    Ok((twice.saturating_sub(once), len_n, len_2n))
+}
+
 fn check(index: usize, case: &Case) -> Result<(), String> {
     let label = format!("{} with {}", case.arm, case.shape);
-    let tag = format!("io{index}");
-    let (len_n, once) =
-        run(&format!("{tag}_n"), &program(case, N)).map_err(|e| format!("{label} (N={N}): {e}"))?;
-    let (len_2n, twice) = run(&format!("{tag}_2n"), &program(case, 2 * N))
-        .map_err(|e| format!("{label} (N={}): {e}", 2 * N))?;
-    let growth = twice.saturating_sub(once);
-    let bound = N / 8;
-    if growth >= bound {
+    let (row, len_n, len_2n) =
+        growth(&format!("io{index}"), case, Form::Row).map_err(|e| format!("{label} {e}"))?;
+    let (control, _, _) = growth(&format!("io{index}c"), case, Form::Control)
+        .map_err(|e| format!("{label} (control) {e}"))?;
+    let bound = control + N / 8;
+    println!("{label}: row {row}, control {control}, bound {bound}");
+    if row >= bound {
         return Err(format!(
-            "{label}: `{}` allocated {growth} more blocks for the extra {N} iterations \
-             ({once} -> {twice}), not under {bound} — the statement rebuilt `x` instead of \
-             writing into it, so the loop is O(n^2). Final lengths: {len_n} -> {len_2n}",
-            case.statement
+            "{label}: `{}` allocated {row} more blocks for the extra {N} iterations, not under \
+             {bound} — the same item expression alone cost {control}, so the rest is the \
+             statement rebuilding `x` instead of writing into it, and the loop is O(n^2). \
+             Final lengths: {len_n} -> {len_2n}",
+            case.statement.replace("{ITEM}", case.item)
         ));
     }
     Ok(())
