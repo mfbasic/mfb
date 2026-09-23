@@ -113,14 +113,36 @@ fixture, extended with a record case.
 
 ### Phase 1 — Read plan-145's landed seam
 
-- [ ] Record the field seam's final entry points, and whether its harness has a site
-      axis. Decide the Goal's second bullet (site axis vs `rt_owned_argument.rs` cases)
-      and write the decision here.
+- [x] Read plan-145's landed seam (nine letters, `planning/completed/plan-145-A..I`).
+
+      **Entry points.** `CodeBuilder::field_self_update_site(container, value)`
+      (`builder_control.rs:887`) recognises a single-update `WITH` over its owner and
+      answers `(FieldSite, field type, the update's value)`; `peel_field_path`
+      (`:913`) descends inlined record levels. The caller builds a `SelfUpdateSite`
+      whose `dest` is `InPlaceDest::Inlined { block_slot, field_index, path,
+      write_back }` (or `StateField`/`GlobalField`) and calls the ordinary
+      `try_inplace_self_update`. `FieldSite` and `FieldContainer` are
+      `self_update.rs:136`/`:161`; the container is `Record { local }`,
+      `State { resource }` or `Global { name }`.
+
+      **Harness site axis: YES, and it is two-sided.** The matrix has
+      `FIELD_SITES` (`self_update.rs`, S3–S10 and T1–T8) with a `field_source` renderer
+      per site; the runtime harness has its own `FieldSite` enum
+      (`rt_inplace_self_update.rs:1218`), its own `FIELD_SITES` (`:1256`), and a
+      per-(line, site) expectation table `inplace_self_update/field_expect.tsv`.
+
+      **Decision:** add the site. The field form of S11 becomes a new field site,
+      `S11F`, on BOTH axes — a `RETURN WITH r { f := OP(r.f, …) }` probe on an owned
+      parameter, which is also the `record-field` shape the Goal's first bullet
+      names. That reuses plan-145's per-arm coverage instead of hand-writing one
+      `rt_owned_argument.rs` case per field kind, and it puts the new site under the
+      same `field_expect.tsv` ledger every other field site already answers to.
 
 Acceptance: the decision is recorded with the file and symbol it rests on.
-  Check: `rg -n 'Decision:' planning/plan-147-F-records-docs-and-gate.md` → one line
-  (est. 1 min).
-Commit: —
+  Check: `rg -n 'Decision:' planning/plan-147-F-records-docs-and-gate.md` → **one
+  line** (2026-09-23), resting on `builder_control.rs:887 field_self_update_site`
+  and `rt_inplace_self_update.rs:1256 FIELD_SITES`.
+Commit: (this commit)
 
 ### Phase 2 — Records
 
