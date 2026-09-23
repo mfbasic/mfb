@@ -200,7 +200,7 @@ owned variant that frees or consumes it.
 | S11 | `Error.source` is stamped at the origin (file, line, char) and never rewritten (§8.5a) | Would, if a variant carried different spans | A variant is a NIR clone of the same function with the same spans (D). The fixture compares `err.source` from the owned path with the lent path. | fixture `error-source-same` |
 | S12 | Diagnostics unchanged (§14.1) | No | No new rule, no verifier change (non-goals) | full suite, F |
 | S13 | Function identity: a function value, `LINK`, exported symbols | Would, if the base symbol changed | The base function is emitted unchanged. Variants are extra, internal, and only called by direct calls the analysis approved (D). | fixture `function-value-call` |
-| S14 | Tooling that counts functions (`mfb test --coverage`) | UNVERIFIED | Task A.3 below: find what coverage keys on; D must map a variant to its source function | task A.3 |
+| S14 | Tooling that counts functions (`mfb test --coverage`) | No | **No action.** Coverage keys on **source spans**, not on a symbol or a NIR function: a slot is `CovSlot { file, line }` (`src/testing/coverage.rs:18`), written to `coverage.covmap.json` as exactly that pair (`:26`). Instrumentation is an **AST** pass, `instrument_coverage(ast: &mut AstProject, …)` (`src/testing/desugar/coverage.rs:14`), run from `desugar_project` (`src/testing.rs:108`) — before NIR, monomorphization, and any letter-D variant cloning. A variant is a NIR clone of an already-instrumented body, so it carries the same slot increments and its execution counts for its source function's lines automatically. D has no task here. | `src/testing/coverage.rs:18`, `src/testing/desugar/coverage.rs:14` |
 
 **§14.6 amendment (text for letter F):** "A collection buffer may be destructively
 updated only while exactly one binding owns it and that binding's current value is
@@ -276,13 +276,13 @@ at the call, and equal `err.source` lines.
   res-in-list-arg n=2                                  S8  two handles, closed once at the owner's exit (exit 0)
   function-value-call equal=TRUE n=3 x=2               S13 same result through `LET f = addOne` and directly
   ```
-Commit: (this commit)
+Commit: a1002cb28
 
 ### Phase 2 — The RED allocation tests
 
 Five shapes, RED today, each turned green by a named later letter.
 
-- [ ] Add `tests/runtime/rt_owned_argument.rs`, modelled on
+- [x] Add `tests/runtime/rt_owned_argument.rs`, modelled on
       `tests/runtime/rt_global_self_update.rs` (N/2N `alloc_calls` under
       `mfb build --debug`). Each case is marked with the letter expected to turn it
       green:
@@ -291,18 +291,37 @@ Five shapes, RED today, each turned green by a named later letter.
       3. `helper-map-set` (D): `m = put(m, i)`;
       4. `helper-concat` (D): `s = grow(s, "x")`;
       5. `recursive-fill` (E): `RETURN fill(collections::append(xs, n), n - 1)`.
-- [ ] Mark the five cases `#[ignore = "plan-147-<letter>"]` so the suite stays green,
+
+      Registered as a `[[test]]` target in `Cargo.toml` (next to `rt_global_self_update`);
+      `tests/guards/test_targets_registered.rs` fails without that stanza.
+- [x] Mark the five cases `#[ignore = "plan-147-<letter>"]` so the suite stays green,
       and add one non-ignored test asserting that the ignored set is exactly those
       five. That test is what each later letter edits when it un-ignores a case.
+      It is `the_ignored_set_is_exactly_the_five_open_cases`: it parses this test
+      file's own `#[ignore = "plan-147-<letter>"]` attributes and asserts the
+      `(fn name, letter)` set equals the five, and that every entry in `cases()`
+      still has an ignored test. `cargo test --test rt_owned_argument` →
+      **`ok. 1 passed; 0 failed; 5 ignored`**.
 
 Acceptance: each case fails when run explicitly, naming itself.
-  Check: `cargo test --test rt_owned_argument -- --ignored` → 5 failed, each message
-  naming its case (est. 4 min: 10 debug builds).
-Commit: —
+  Check: `cargo test --test rt_owned_argument -- --ignored --test-threads=2` →
+  **`FAILED. 0 passed; 5 failed`** (2026-09-22, 61.59 s), each message naming its
+  case and the letter that owns it. The measured slopes, all far above the N/8
+  bound — every one of them is at least `N`, i.e. at least one block allocated per
+  call:
+
+  | Case | Letter | N | alloc_calls N → 2N | Slope | Bound N/8 |
+  |---|---|---|---|---|---|
+  | `local-return` | B | 600 | 1203 → 2403 | 1200 | 75 |
+  | `helper-append` | D | 2000 | 4003 → 8003 | 4000 | 250 |
+  | `helper-map-set` | D | 2000 | 6003 → 12003 | 6000 | 250 |
+  | `helper-concat` | D | 2000 | 2003 → 4003 | 2000 | 250 |
+  | `recursive-fill` | E | 600 | 1204 → 2404 | 1200 | 75 |
+Commit: (this commit)
 
 ### Phase 3 — Close the one UNVERIFIED semantics row
 
-- [ ] S14: read how `mfb test --coverage` attributes execution
+- [x] S14: read how `mfb test --coverage` attributes execution
       (`rg -n 'coverage' src/cli src/target/shared -g '*.rs' | head`). Record in §2.3
       whether it keys on the function symbol, the NIR function, or source spans, and
       what letter D must do so a variant's execution counts for its source function.
@@ -311,8 +330,10 @@ Commit: —
 Acceptance: row S14's "What keeps it" names the mechanism and the D task, or "no
 action" with the code citation.
   Check: `rg -n 'S14' planning/plan-147-A-semantics-audit-and-red-tests.md` shows no
-  `UNVERIFIED` (est. 1 min).
-Commit: —
+  unverified row. **Verified 2026-09-22**: the §2.3 row (line 203) now answers "No"
+  and cites `src/testing/coverage.rs:18` and `src/testing/desugar/coverage.rs:14`;
+  the audit table holds no unverified row at all.
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -415,6 +436,35 @@ Commit: —
   `error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: Lambda captures mutable local
   \`x\`; mutable captures are invalid`. §14.4 is about closures capturing **`LET`s**
   by value, so `LET` is the shape S9 is actually about; the fixture matches the rule.
+
+- **Phase 2's `local-return` case uses plan-147-B §3 step 5's recursive `chain`
+  shape, not a loop.** The phase names the statement (`RETURN collections::append(out,
+  x)` with `out` a local) but not what drives it `N` times, and the obvious driver
+  does not work: a `RETURN` exits its frame, so calling a helper that builds a
+  fresh `out` per call leaves a **constant** per-call allocation for building `out`
+  itself. That constant is ≥ 1 block per call, so `count(2N) − count(N) ≥ N` on
+  *both* the copying and the in-place path, and the case could never go green —
+  it would be RED for the wrong reason. plan-147-B §3 step 5 already specifies the
+  shape that does scale, and this case now uses it verbatim:
+
+  ```
+  FUNC chain(k AS Integer) AS List OF Integer
+    IF k = 0 THEN RETURN []
+    MUT x AS List OF Integer = chain(k - 1)
+    RETURN collections::append(x, k)
+  END FUNC
+  ```
+
+  One level per call, one list threaded through all of them: the copying `RETURN`
+  allocates once per level (measured slope 1200 at N = 600, i.e. 2 blocks/level),
+  and the in-place one allocates only the geometric growth. `recursive-fill` (E)
+  is recursive by its own definition and needed no change.
+
+- **The two recursive cases run at `N` = 600, the two loop cases at `N` = 2000.**
+  The method fixes the *ratio*, not the size, and the copying lowering recurses `2N`
+  deep — 4000 frames of a list-returning function is stack pressure that measures
+  nothing the slope at 600 does not already show (measured slope 1200 vs. a bound of
+  75, a factor of 16). The constants are `DEEP_N`/`FLAT_N` in the harness.
 
 ## Summary
 
