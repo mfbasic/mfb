@@ -186,7 +186,7 @@ Acceptance: `local-return` passes. `append` at `RETURN` no longer allocates per 
   |---|---|---|---|---|
   | Before (plan-147-A Phase 2) | 1203 | 2403 | 1200 | 75 |
   | After (S11) | **12** | **13** | **1** | 75 |
-Commit: (this commit)
+Commit: 75bf5c4c1
 
 ### Phase 2 — The site in the guard
 
@@ -217,7 +217,7 @@ is does not, and every `arm` line costs no more at `Return` than as an assignmen
   10-minute bar, so it was run as written. (`MFB_SELF_UPDATE_SITES=Return` is used in
   place of the plan's `MFB_SELF_UPDATE_FILTER=Return`: `SITES` selects the site
   exactly, while `FILTER` matches label substrings.)
-Commit: (this commit)
+Commit: 0446fd1bf
 
 ### Phase 3 — Semantics and blast radius
 
@@ -242,7 +242,7 @@ Acceptance: the semantics fixture has 0 diffs. Every moved golden has a `RETURN 
   **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`**. No golden moved, and no
   fixture carries the S11 shape (see the task above), so the acceptance holds
   vacuously-but-correctly: there was nothing that should have moved.
-Commit: (this commit)
+Commit: 0446fd1bf
 
 ## Validation Plan
 
