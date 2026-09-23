@@ -484,6 +484,10 @@ name = "rt_inplace_self_update"
 path = "tests/runtime/rt_inplace_self_update.rs"
 
 [[test]]
+name = "rt_inplace_item_operand"
+path = "tests/runtime/rt_inplace_item_operand.rs"
+
+[[test]]
 name = "rt_callback_failure_reaches_trap"
 path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
 
