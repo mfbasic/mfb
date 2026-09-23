@@ -1,0 +1,347 @@
+' flow - the streamlines.
+'
+' A streamline visualisation is one idea repeated a few thousand times: drop a
+' massless particle on the map, push it along by whatever the wind is at the
+' place it currently occupies, draw the path it took, and after a while pick it
+' up and drop it somewhere else. The wind field is a still picture - one
+' forecast hour, not a movie - so what is animated is the tracer, not the
+' weather. What you are watching is the shape of the field.
+'
+' Three details make the difference between that idea and a picture worth
+' looking at:
+'
+'   Particles are retired on a schedule, not when they leave the map. Left to
+'   run, every particle is eventually swept into a convergence zone and the
+'   picture collapses into a few bright knots over empty ocean. A fixed life,
+'   staggered across the swarm so they do not all expire at once, keeps the
+'   coverage even.
+'
+'   Trails are kept in projected plane coordinates. They survive a pan or a
+'   zoom untouched, and redrawing one costs a multiply and an add per point
+'   rather than a re-projection.
+'
+'   New particles are scattered over the window, not over the world. Uniform
+'   longitude and latitude would pile them at the poles, where an equal-area
+'   projection gives them the least room; and once you have zoomed into the
+'   North Atlantic, particles seeded over the Pacific are pure waste.
+'
+' The swarm is module-level state rather than a value threaded through the
+' frame. Every one of these lists is updated with the self-assigning shape -
+' `xs = collections::set(xs, i, v)` - which updates the list in place instead of
+' rebuilding it, and that shape is only the cheap one at a binding the compiler
+' can see the whole life of: a local, or a module-level MUT like these.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' The u and v components of one forecast hour, and what to call it on screen.
+TYPE Winds
+  east AS Field        ' UGRD: metres per second towards the east
+  north AS Field       ' VGRD: metres per second towards the north
+  label AS String
+END TYPE
+
+' A wind, in the two directions it has.
+TYPE Vector
+  east AS Float
+  north AS Float
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Tuning
+' ---------------------------------------------------------------------------
+
+' How many degrees a second a one-metre-per-second wind carries a particle. The
+' real answer is about 0.0009, which would be a still picture; this is a display
+' speed, chosen so that a 10 m/s wind reads as a steady drift and a 40 m/s jet
+' streak reads as fast.
+FUNC driftRate AS Float
+  RETURN 1.15
+END FUNC
+
+' How many positions of a particle's history are kept. The trail is drawn as
+' this many points joined by lines, so it is also the cost: the scene carries
+' roughly particleCount * (trailLength - 1) lines.
+FUNC trailLength AS Integer
+  RETURN 12
+END FUNC
+
+' How many frames a particle lives before it is picked up and dropped somewhere
+' else.
+FUNC particleLife AS Integer
+  RETURN 190
+END FUNC
+
+' One particle per this many square pixels of window, within the bounds.
+FUNC pixelsPerParticle AS Float
+  RETURN 1100.0
+END FUNC
+
+FUNC minParticles AS Integer
+  RETURN 250
+END FUNC
+
+FUNC maxParticles AS Integer
+  RETURN 1600
+END FUNC
+
+' Metres in a degree of latitude, and in a degree of longitude at the equator.
+FUNC metresPerDegree AS Float
+  RETURN 111320.0
+END FUNC
+
+' The wind speed, in metres per second, that the colour ramp treats as its top.
+FUNC fastWind AS Float
+  RETURN 32.0
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Sampling the field
+' ---------------------------------------------------------------------------
+
+' One field, sampled with bilinear interpolation at an arbitrary place.
+'
+' Longitude wraps - column ni - 1 is a neighbour of column 0, because the grid
+' goes all the way round - and latitude clamps, because it does not: there is no
+' row above the north pole to interpolate towards.
+FUNC sampleField(f AS Field, g AS Geo) AS Float
+  LET columns AS Float = toFloat(f.ni)
+  MUT x AS Float = (g.lon - f.lon1) / f.dlon
+  x = x - columns * toFloat(math::floor(x / columns))
+
+  LET lastRow AS Integer = math::max(f.nj - 2, 0)
+  LET y AS Float = math::clamp((f.lat1 - g.lat) / f.dlat, 0.0, toFloat(lastRow))
+
+  LET i0 AS Integer = math::min(math::floor(x), f.ni - 1) MOD f.ni
+  LET i1 AS Integer = (i0 + 1) MOD f.ni
+  LET j0 AS Integer = math::min(math::floor(y), lastRow)
+  LET j1 AS Integer = math::min(j0 + 1, f.nj - 1)
+
+  LET fx AS Float = math::clamp(x - toFloat(i0), 0.0, 1.0)
+  LET fy AS Float = math::clamp(y - toFloat(j0), 0.0, 1.0)
+
+  LET topLeft AS Float = collections::get(f.values, j0 * f.ni + i0)
+  LET topRight AS Float = collections::get(f.values, j0 * f.ni + i1)
+  LET bottomLeft AS Float = collections::get(f.values, j1 * f.ni + i0)
+  LET bottomRight AS Float = collections::get(f.values, j1 * f.ni + i1)
+
+  LET top AS Float = topLeft + (topRight - topLeft) * fx
+  LET bottom AS Float = bottomLeft + (bottomRight - bottomLeft) * fx
+  RETURN top + (bottom - top) * fy
+END FUNC
+
+FUNC windAt(w AS Winds, g AS Geo) AS Vector
+  RETURN Vector[east := sampleField(w.east, g), north := sampleField(w.north, g)]
+END FUNC
+
+FUNC speedOf(wind AS Vector) AS Float
+  RETURN math::sqrt(wind.east * wind.east + wind.north * wind.north)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The swarm
+' ---------------------------------------------------------------------------
+'
+' Parallel lists rather than a List OF Particle: a particle's trail is a dozen
+' points, and a record holding a list per particle would be a thousand small
+' collections to allocate, copy and walk every frame. Here there are seven
+' lists, all sized once.
+
+MUT swarmLon AS List OF Float = []
+MUT swarmLat AS List OF Float = []
+MUT swarmAge AS List OF Integer = []      ' frames lived, counting from 0
+MUT swarmLife AS List OF Integer = []     ' frames this particle gets
+MUT swarmSpeed AS List OF Float = []      ' the wind it last sat in, m/s
+
+' Trails, trailLength() plane points per particle, used as a ring buffer. Every
+' particle advances on the same frame, so one shared write position serves the
+' whole swarm - particle i's newest point is always at i * trailLength() +
+' trailHead.
+MUT trailX AS List OF Float = []
+MUT trailY AS List OF Float = []
+MUT trailHead AS Integer = 0
+
+FUNC particleCount AS Integer
+  RETURN len(swarmLon)
+END FUNC
+
+' How many particles a window of this size should carry.
+FUNC countFor(v AS View) AS Integer
+  LET area AS Float = v.width * v.height
+  RETURN math::clamp(math::floor(area / pixelsPerParticle()), minParticles(), maxParticles())
+END FUNC
+
+' A random Float in [0, 1).
+FUNC unitRandom AS Float
+  RETURN toFloat(math::rand(0, 999999)) / 1000000.0
+END FUNC
+
+' A place to drop a particle: a uniform point in the window, turned back into
+' longitude and latitude. Points that land off the edge of the map - the corners
+' beside the poles, which the projection leaves empty - are retried, and after
+' enough tries the middle of the view is used so that this always terminates.
+FUNC birthplace(v AS View) AS Geo
+  FOR attempt = 1 TO 24
+    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height))
+    IF candidate.inside AND math::abs(candidate.place.lat) < 88.0 THEN RETURN candidate.place
+  NEXT
+  RETURN unproject(Plane[x := v.cx, y := v.cy]).place
+END FUNC
+
+' Put particle i at a place, with its whole trail collapsed onto that one point
+' so it has nothing to draw until it has moved.
+SUB placeParticle(i AS Integer, g AS Geo, life AS Integer)
+  swarmLon = collections::set(swarmLon, i, g.lon)
+  swarmLat = collections::set(swarmLat, i, g.lat)
+  swarmAge = collections::set(swarmAge, i, 0)
+  swarmLife = collections::set(swarmLife, i, life)
+  swarmSpeed = collections::set(swarmSpeed, i, 0.0)
+
+  LET p AS Plane = project(g)
+  LET base AS Integer = i * trailLength()
+  FOR slot = 0 TO trailLength() - 1
+    trailX = collections::set(trailX, base + slot, p.x)
+    trailY = collections::set(trailY, base + slot, p.y)
+  NEXT
+END SUB
+
+' A staggered life, so that a swarm seeded all at once does not expire all at
+' once and leave the map blank every particleLife() frames.
+FUNC staggeredLife AS Integer
+  RETURN particleLife() / 2 + math::rand(0, particleLife())
+END FUNC
+
+' Build a swarm of `count` particles scattered over the view. Called at startup
+' and again whenever the window changes size enough to want a different number.
+SUB seedSwarm(count AS Integer, v AS View)
+  swarmLon = []
+  swarmLat = []
+  swarmAge = []
+  swarmLife = []
+  swarmSpeed = []
+  trailX = []
+  trailY = []
+  trailHead = 0
+
+  FOR i = 1 TO count
+    swarmLon = collections::append(swarmLon, 0.0)
+    swarmLat = collections::append(swarmLat, 0.0)
+    swarmAge = collections::append(swarmAge, 0)
+    swarmLife = collections::append(swarmLife, 0)
+    swarmSpeed = collections::append(swarmSpeed, 0.0)
+    FOR slot = 1 TO trailLength()
+      trailX = collections::append(trailX, 0.0)
+      trailY = collections::append(trailY, 0.0)
+    NEXT
+  NEXT
+
+  FOR i = 0 TO count - 1
+    placeParticle(i, birthplace(v), staggeredLife())
+  NEXT
+END SUB
+
+' Advance the whole swarm by dt seconds of animation.
+'
+' A degree of longitude shrinks towards the poles, so an eastward wind turns
+' into more degrees the further north it blows. The 0.12 floor on that cosine
+' stops the division running away above 83 degrees, where a particle would
+' otherwise be flung right round the world in a frame; particles that get that
+' far are retired on the next line anyway.
+SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
+  LET count AS Integer = particleCount()
+  IF count = 0 THEN EXIT SUB
+
+  trailHead = (trailHead + 1) MOD trailLength()
+  LET drift AS Float = driftRate() * dt
+
+  FOR i = 0 TO count - 1
+    LET age AS Integer = collections::get(swarmAge, i) + 1
+    MUT lat AS Float = collections::get(swarmLat, i)
+
+    IF age > collections::get(swarmLife, i) OR math::abs(lat) > 87.0 THEN
+      placeParticle(i, birthplace(v), staggeredLife())
+      CONTINUE FOR
+    END IF
+
+    MUT lon AS Float = collections::get(swarmLon, i)
+    LET wind AS Vector = windAt(w, Geo[lon := lon, lat := lat])
+    LET shrink AS Float = math::max(math::cos(radians(lat)), 0.12)
+
+    lon = wrapLon(lon + wind.east * drift / shrink)
+    lat = math::clamp(lat + wind.north * drift, -89.5, 89.5)
+
+    swarmLon = collections::set(swarmLon, i, lon)
+    swarmLat = collections::set(swarmLat, i, lat)
+    swarmAge = collections::set(swarmAge, i, age)
+    swarmSpeed = collections::set(swarmSpeed, i, speedOf(wind))
+
+    LET p AS Plane = project(Geo[lon := lon, lat := lat])
+    trailX = collections::set(trailX, i * trailLength() + trailHead, p.x)
+    trailY = collections::set(trailY, i * trailLength() + trailHead, p.y)
+  NEXT
+END SUB
+
+' ---------------------------------------------------------------------------
+' Drawing the swarm
+' ---------------------------------------------------------------------------
+
+' The colour of a particle moving at `speed`, from a cool slow blue through to a
+' warm fast cream. The ramp is square-rooted because most of the atmosphere is
+' slow: on a linear ramp almost every particle on the map would be the same
+' blue, and only the jet streams would carry any colour at all.
+FUNC speedColor(speed AS Float) AS color::Color
+  LET t AS Float = math::sqrt(math::clamp(speed / fastWind(), 0.0, 1.0))
+  RETURN color::rgb(120 + math::floor(t * 135.0), 170 + math::floor(t * 70.0), 215 - math::floor(t * 55.0))
+END FUNC
+
+' Every particle's trail, as lines in window coordinates.
+'
+' A trail is drawn newest segment first, fading towards the tail, so a particle
+' reads as having a head and a direction rather than as a worm of even
+' brightness. Two segments are skipped rather than drawn: one whose particle is
+' younger than the segment - a freshly dropped particle has no history yet - and
+' one that spans more than half the map, which is what the antimeridian looks
+' like when a particle crosses it and its longitude wraps.
+FUNC trailItems(v AS View) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = []
+  LET count AS Integer = particleCount()
+  LET trail AS Integer = trailLength()
+  LET segments AS Integer = trail - 1
+  IF count = 0 OR segments < 1 THEN RETURN items
+
+  LET box AS Box = viewBox(v, 0.02)
+  LET wrapLimit AS Float = planeHalfWidth()
+
+  FOR i = 0 TO count - 1
+    LET age AS Integer = collections::get(swarmAge, i)
+    IF age < 1 THEN CONTINUE FOR
+    LET base AS Integer = i * trail
+    LET drawable AS Integer = math::min(segments, age)
+    LET tint AS color::Color = speedColor(collections::get(swarmSpeed, i))
+
+    FOR k = 0 TO drawable - 1
+      ' Slot (trailHead - k) is the k-th most recent point; the + trail keeps
+      ' the subtraction positive before it is folded back into the ring.
+      LET newer AS Integer = base + ((trailHead - k + trail) MOD trail)
+      LET older AS Integer = base + ((trailHead - k - 1 + trail) MOD trail)
+      LET ax AS Float = collections::get(trailX, newer)
+      LET ay AS Float = collections::get(trailY, newer)
+      LET bx AS Float = collections::get(trailX, older)
+      LET by AS Float = collections::get(trailY, older)
+
+      IF math::abs(ax - bx) > wrapLimit THEN CONTINUE FOR
+      IF NOT overlaps(Box[minX := math::min(ax, bx), minY := math::min(ay, by), maxX := math::max(ax, bx), maxY := math::max(ay, by)], box) THEN CONTINUE FOR
+
+      LET head AS canvas::Point = toScreen(v, Plane[x := ax, y := ay])
+      LET tail AS canvas::Point = toScreen(v, Plane[x := bx, y := by])
+      LET fade AS Float = 1.0 - toFloat(k) / toFloat(segments)
+      LET paint AS canvas::Paint = canvas::stroke(color::withAlpha(tint, 40 + math::floor(fade * 195.0)), 1.35)
+      LET segment AS canvas::DrawItem = canvas::Line[x1 := head.x, y1 := head.y, x2 := tail.x, y2 := tail.y, cap := canvas::CapStyle.Round, paint := paint]
+      items = collections::append(items, segment)
+    NEXT
+  NEXT
+
+  RETURN items
+END FUNC

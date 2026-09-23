@@ -1,0 +1,140 @@
+' land - the blue and green the wind is drawn over.
+'
+' Two shapes make the map: the outline of the projected world, filled with the
+' ocean's blue, and the coastlines, filled with the land's green. There is no
+' terrain, no borders and no labels, because everything here is background - the
+' point of the picture is what moves over it.
+'
+' The coastlines come from resources/wind/coastline.txt, which is Natural Earth's
+' 1:110m land layer reduced to one closed ring per line, each a run of
+' "lon,lat" pairs at two decimal places. See the README for where it came from.
+'
+' Every ring is projected once, when the file is read, and kept in plane
+' coordinates from then on. A frame then costs one multiply and add per vertex,
+' and rings that are nowhere near the window are skipped on their bounding box
+' before even that.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT fs
+IMPORT os
+IMPORT strings
+
+' One closed outline on the projected plane, with the box around it.
+TYPE Ring
+  points AS List OF Plane
+  bounds AS Box
+END TYPE
+
+FUNC ringOf(points AS List OF Plane) AS Ring
+  RETURN Ring[points := points, bounds := boxOf(points)]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The palette
+' ---------------------------------------------------------------------------
+
+' Beyond the edge of the map. Darker than the sea, so the world reads as a shape
+' rather than as the whole window.
+FUNC voidColor AS color::Color
+  RETURN color::rgb(9, 12, 20)
+END FUNC
+
+FUNC oceanColor AS color::Color
+  RETURN color::rgb(18, 42, 68)
+END FUNC
+
+FUNC landColor AS color::Color
+  RETURN color::rgb(38, 68, 52)
+END FUNC
+
+FUNC coastColor AS color::Color
+  RETURN color::rgb(58, 96, 76)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Reading the coastline
+' ---------------------------------------------------------------------------
+
+' One "lon,lat" pair.
+FUNC parsePoint(text AS String) AS Plane
+  LET parts AS List OF String = strings::split(text, ",")
+  IF len(parts) <> 2 THEN FAIL error(77050003, "coastline: '" & text & "' is not a lon,lat pair")
+  RETURN project(Geo[lon := toFloat(collections::get(parts, 0)), lat := toFloat(collections::get(parts, 1))])
+END FUNC
+
+' Every ring in the shipped coastline, already projected.
+FUNC loadCoastline AS List OF Ring
+  LET text AS String = fs::readText(os::resourcePath("wind/coastline.txt"))
+  MUT rings AS List OF Ring = []
+  FOR EACH line IN strings::split(text, "\n")
+    LET trimmed AS String = strings::trim(line)
+    IF trimmed = "" THEN CONTINUE FOR
+    MUT points AS List OF Plane = []
+    FOR EACH pair IN strings::split(trimmed, " ")
+      points = collections::append(points, parsePoint(pair))
+    NEXT
+    ' Two points is a line and one is a dot; neither is an outline worth a
+    ' polygon, and the generator should not have emitted one.
+    IF len(points) >= 3 THEN rings = collections::append(rings, ringOf(points))
+  NEXT
+  RETURN rings
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The edge of the world
+' ---------------------------------------------------------------------------
+
+' The outline of the projected world: down the antimeridian on one side and back
+' up it on the other, which under an equal-area pseudo-cylindrical projection is
+' a rounded lens rather than a rectangle. Filled, it is the sea.
+FUNC worldOutline AS Ring
+  MUT points AS List OF Plane = []
+  FOR i = 0 TO 180
+    points = collections::append(points, project(Geo[lon := 180.0, lat := 90.0 - toFloat(i)]))
+  NEXT
+  FOR i = 0 TO 180
+    points = collections::append(points, project(Geo[lon := -180.0, lat := -90.0 + toFloat(i)]))
+  NEXT
+  RETURN ringOf(points)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' A ring as a polygon in window coordinates, or nothing when it is off screen.
+' The caller appends what comes back, so an empty list is how "skip this one"
+' is said.
+FUNC ringItems(r AS Ring, v AS View, box AS Box, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  IF NOT overlaps(r.bounds, box) THEN RETURN []
+  MUT points AS List OF canvas::Point = []
+  FOR EACH p IN r.points
+    points = collections::append(points, toScreen(v, p))
+  NEXT
+  RETURN [canvas::Polygon[points := points, paint := paint]]
+END FUNC
+
+' The whole underlay: the backdrop, the sea, and the land on top of it.
+FUNC mapItems(world AS Ring, coast AS List OF Ring, v AS View) AS List OF canvas::DrawItem
+  LET box AS Box = viewBox(v, 0.05)
+
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(voidColor())]]
+
+  FOR EACH item IN ringItems(world, v, box, canvas::fill(oceanColor()))
+    items = collections::append(items, item)
+  NEXT
+
+  ' A hairline of a lighter green around each landmass. At a world-sized zoom
+  ' most islands are a couple of pixels across, and without it they disappear
+  ' into the sea entirely.
+  LET paint AS canvas::Paint = canvas::fillStroke(landColor(), coastColor(), 1.0)
+  FOR EACH r IN coast
+    FOR EACH item IN ringItems(r, v, box, paint)
+      items = collections::append(items, item)
+    NEXT
+  NEXT
+
+  RETURN items
+END FUNC
