@@ -163,7 +163,7 @@ repeated failing calls.
 Acceptance: codegen is byte-identical, since no demand exists yet.
   Check: `bash scripts/artifact-gate.sh target/release/mfb collections` →
   **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`** (2026-09-23).
-Commit: (this commit)
+Commit: 40aa35911
 
 ### Phase 2 — The hand-over
 
