@@ -1187,28 +1187,73 @@ impl CodeBuilder<'_> {
     /// call is an aliasing source (`value_is_aliasing_source`), so this admits
     /// nothing a user function's result was not already admitted with.
     ///
-    /// bug-681: the widening reaches through a **composite** operand too. Until
-    /// this, it applied only at the value's own top level: a `Binary`, `Unary`,
-    /// `MemberAccess` or `ResultValue` around the call was matched by
-    /// `static_type_name`, whose composite arms recurse into *itself*, so the call
-    /// underneath hit the builtin-name table and answered `None`. One `* 2` was
-    /// the whole difference between `append(xs, f(i))` (in place, 1 ms at
-    /// n=16000) and `append(xs, f(i) * 2)` (rebuild-per-element, 2798 ms and
-    /// quadratic; a 259,920-element decode was killed by the OOM killer). The
-    /// composite arms are therefore re-run here — via
-    /// [`Self::static_composite_type`], the one implementation
-    /// `static_type_name` also uses — with the recursion pointed back at
-    /// `static_item_type`, so every leaf gets the same call lookup the top level
-    /// gets. Only this query widens: `static_type_name` keeps its exact answers
-    /// for the float-numeric-error gate, `is_function_value` and module analysis.
-    ///
-    /// It is a widening of the *query*, never of a gate: every caller still
-    /// compares the answer for equality with the element, key or collection type,
-    /// which is what keeps the single-element and bulk `append` arms apart.
+    /// This query is **not** the one the in-place gates ask — since bug-681 they
+    /// ask [`Self::static_operand_type`], which widens it once more. Keep this
+    /// one's answers exactly as they are: its other consumer is
+    /// `nir_call_is_infallible_builtin` (`engine/control/builder_control.rs`),
+    /// which types a builtin's arguments to decide whether the call can fail, so
+    /// answering here for an expression it used to give up on changes which
+    /// failure paths the optimizer may elide — in programs that contain no
+    /// self-update at all. That is a separate change with its own risk and its
+    /// own measurement; it does not belong in a fix to a collection gate.
     pub(crate) fn static_item_type(&self, value: &NirValue) -> Option<ParameterType> {
         if let Some(type_) = self.static_type_name(value) {
             return Some(type_);
         }
+        self.static_call_type(value, &|builder, arg| builder.static_item_type(arg))
+    }
+
+    /// The static type of a self-update's **operand** — the item appended, the
+    /// element added or removed, the key removed — for the `G11` gates, and for
+    /// nothing else.
+    ///
+    /// bug-681: [`Self::static_item_type`]'s widening applied only at the value's
+    /// own top level. A `Binary`, `Unary`, `MemberAccess` or `ResultValue` around
+    /// the call was matched by `static_type_name`, whose composite arms recurse
+    /// into *itself*, so the call underneath hit the builtin-name table and
+    /// answered `None` — `G11` declined and the statement rebuilt the whole
+    /// collection. One `* 2` was the difference between `append(xs, f(i))` (in
+    /// place, 1 ms at n=16000) and `append(xs, f(i) * 2)` (2798 ms and quadratic;
+    /// a 259,920-element decode was killed by the OOM killer), and it was never
+    /// `append`-specific: `add`, `remove` and `removeKey` all lost the path the
+    /// same way.
+    ///
+    /// So the composite arms are re-run here — via
+    /// [`Self::static_composite_type`], the one implementation `static_type_name`
+    /// also uses — with the recursion pointed back at this query, so every leaf
+    /// gets the same call lookups the top level gets. **Widen this one, not its
+    /// two parents**: `static_type_name` also gates float-arithmetic lowering and
+    /// `is_function_value`, and `static_item_type` also feeds the
+    /// infallible-builtin oracle; this query has exactly six callers, all of them
+    /// `G11` (`grep -n static_operand_type src/codegen/collection/assign/`).
+    ///
+    /// It is a widening of the *query*, never of a gate: every caller still
+    /// compares the answer for equality with the element, key or collection type,
+    /// which is what keeps the single-element and bulk `append` arms apart.
+    pub(crate) fn static_operand_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        if let Some(type_) =
+            self.static_call_type(value, &|builder, arg| builder.static_operand_type(arg))
+        {
+            return Some(type_);
+        }
+        self.static_composite_type(value, &|builder, operand| builder.static_operand_type(operand))
+    }
+
+    /// The declared return type of a call — a user (or `LINK`) function's
+    /// `returns`, a package's, else the registry resolver over argument types
+    /// `arg_type` supplies. `None` for any value that is not a call.
+    ///
+    /// Split out of [`Self::static_item_type`] (bug-681) so
+    /// [`Self::static_operand_type`] performs the same lookup with its own,
+    /// wider, argument query rather than a copy of this one.
+    fn static_call_type(
+        &self,
+        value: &NirValue,
+        arg_type: &dyn Fn(&Self, &NirValue) -> Option<ParameterType>,
+    ) -> Option<ParameterType> {
         match value {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
@@ -1225,14 +1270,11 @@ impl CodeBuilder<'_> {
                 }
                 let arg_types = args
                     .iter()
-                    .map(|arg| self.static_item_type(arg))
+                    .map(|arg| arg_type(self, arg))
                     .collect::<Option<Vec<_>>>()?;
                 builtins::resolve_call_return_type_typed(target, &arg_types, false)
             }
-            // bug-681: the composite arms, re-run with this query as the recursion.
-            _ => self.static_composite_type(value, &|builder, operand| {
-                builder.static_item_type(operand)
-            }),
+            _ => None,
         }
     }
 
@@ -1241,10 +1283,12 @@ impl CodeBuilder<'_> {
     ///
     /// Split out of [`Self::static_type_name`] (bug-681) so the one set of
     /// derivation rules serves both queries: `static_type_name` passes itself and
-    /// keeps its exact answers, while [`Self::static_item_type`] passes *itself*
-    /// and so reaches the user-`FUNC` and registry call lookups from inside a
-    /// `Binary`, `Unary`, `MemberAccess` or `ResultValue`. Answers `None` for any
-    /// value that is not composite — the caller has already handled the leaves.
+    /// keeps its exact answers, while [`Self::static_operand_type`] passes
+    /// *itself* and so reaches the user-`FUNC` and registry call lookups from
+    /// inside a `Binary`, `Unary`, `MemberAccess` or `ResultValue`. Answers
+    /// `None` for any value that is not composite — the caller has already
+    /// handled the leaves. A new composite `NirValue` belongs here, so the two
+    /// queries cannot drift apart again.
     fn static_composite_type(
         &self,
         value: &NirValue,

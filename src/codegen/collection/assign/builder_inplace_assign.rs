@@ -45,7 +45,7 @@ impl CodeBuilder<'_> {
         // G11: commit only for a statically-known single element of the list's
         // element type. A bulk `append(list, otherList)` has item type ==
         // list_type and falls through to the general (concatenating) path.
-        match self.static_item_type(&target.args[1]) {
+        match self.static_operand_type(&target.args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
@@ -122,7 +122,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        match self.static_item_type(&args[1]) {
+        match self.static_operand_type(&args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
@@ -183,7 +183,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        match self.static_item_type(&args[1]) {
+        match self.static_operand_type(&args[1]) {
             Some(kt) if kt == key_type => {}
             _ => return Ok(false),
         }
@@ -231,7 +231,7 @@ impl CodeBuilder<'_> {
         // Commit only for a statically-known RHS of the *list* type (not the
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
-        match self.static_item_type(&args[1]) {
+        match self.static_operand_type(&args[1]) {
             Some(item_type) if item_type == list_type => {}
             _ => return Ok(false),
         }
@@ -766,7 +766,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         // G11 — the removed value must be statically the set's element type.
-        match self.static_item_type(&target.args[1]) {
+        match self.static_operand_type(&target.args[1]) {
             Some(t) if t == element_type => {}
             _ => return Ok(false),
         }
@@ -1296,7 +1296,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         // `G11` — the spliced-in value must be a single element.
-        match self.static_item_type(&target.args[rhs_index]) {
+        match self.static_operand_type(&target.args[rhs_index]) {
             Some(vt) if vt == *element_type => {}
             _ => return Ok(false),
         }
