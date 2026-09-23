@@ -1,4 +1,8 @@
 // --- codegen tier imports (migration) ---
+// plan-147-E: an argument position that is `OP(x, …)` on an owned local runs the
+// same self-update seam a statement does.
+use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
+use crate::codegen::collection::assign::self_update::SelfUpdateSite;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
@@ -90,6 +94,49 @@ impl CodeBuilder<'_> {
         self.emit_prepared_call_args_hooked(args, slot_name, |_, _, _| Ok(()))
     }
 
+    /// plan-147-E: lower one argument of a call, taking the in-place route when the
+    /// hand-over site says this position is `OP(x, …)` on an owned local at its last
+    /// use.
+    ///
+    /// The arm updates `x`'s own block and leaves the result in `x`'s slot, so the
+    /// argument value is simply `x` — and the caller then hands that block over like
+    /// any other owned local. If no arm fires, nothing has been emitted and the
+    /// ordinary lowering runs, which makes the argument a fresh temporary instead;
+    /// the site records that fallback in `temp_mask`, so either way the callee ends
+    /// up owning the block.
+    fn lower_call_argument(
+        &mut self,
+        arg: &NirValue,
+        index: usize,
+        site: Option<&HandOverSite>,
+    ) -> Result<(ValueResult, bool), String> {
+        let wants_update = site.is_some_and(|site| site.arg_update_indices.contains(&index));
+        if wants_update {
+            if let Some(name) =
+                crate::codegen::collection::assign::self_update::returned_self_update_local(arg)
+            {
+                let name = name.to_string();
+                if self.returned_move_admits(&name) {
+                    if let Some(local) = self.locals.get(&name) {
+                        let (stack_offset, local_type) = (local.stack_offset, local.type_.clone());
+                        let update = SelfUpdateSite {
+                            name: &name,
+                            type_: local_type,
+                            dest: InPlaceDest::Direct { slot: stack_offset },
+                            by_ref: false,
+                            field: None,
+                        };
+                        if self.try_inplace_self_update(&update, arg)? {
+                            let value = self.lower_value(&NirValue::Local(name))?;
+                            return Ok((value, true));
+                        }
+                    }
+                }
+            }
+        }
+        Ok((self.lower_value(arg)?, false))
+    }
+
     /// [`Self::emit_prepared_call_args`] with a hook that runs after every argument is
     /// spilled to its slot and BEFORE the argument registers are loaded.
     ///
@@ -105,11 +152,27 @@ impl CodeBuilder<'_> {
         slot_name: &str,
         hook: impl FnOnce(&mut Self, &[ValueResult], &[usize]) -> Result<(), String>,
     ) -> Result<Vec<ValueResult>, String> {
+        self.emit_prepared_call_args_with_site(args, slot_name, hook, None)
+    }
+
+    fn emit_prepared_call_args_with_site(
+        &mut self,
+        args: &[NirValue],
+        slot_name: &str,
+        hook: impl FnOnce(&mut Self, &[ValueResult], &[usize]) -> Result<(), String>,
+        site: Option<&HandOverSite>,
+    ) -> Result<Vec<ValueResult>, String> {
         let scratch9 = self.temporary_vreg();
         let mut arg_values = Vec::new();
         let mut arg_slots = Vec::new();
-        for arg in args {
-            let value = self.lower_value(arg)?;
+        // plan-147-E: the positions whose in-place update fired, so the caller nulls
+        // those slots rather than claiming a temporary that does not exist.
+        let mut updated_in_place = Vec::new();
+        for (index, arg) in args.iter().enumerate() {
+            let (value, in_place) = self.lower_call_argument(arg, index, site)?;
+            if in_place {
+                updated_in_place.push(index);
+            }
             // Observation boundary: a `Float` argument is read by the callee
             // (user FUNC/SUB, runtime helper, or native `LINK` thunk) and must
             // be finite (plan-17).
@@ -154,6 +217,7 @@ impl CodeBuilder<'_> {
                 &scratch9,
             ));
         }
+        self.args_updated_in_place = updated_in_place;
         Ok(arg_values)
     }
 
@@ -174,12 +238,50 @@ impl CodeBuilder<'_> {
         symbol: &str,
         args: &[NirValue],
         slot_name: &str,
-        handover: Option<&HandOverSite>,
+        handover: Option<&mut HandOverSite>,
     ) -> Result<Vec<ValueResult>, String> {
-        let arg_values = self.emit_prepared_call_args(args, slot_name)?;
+        let arg_values = self.emit_prepared_call_args_with_site(
+            args,
+            slot_name,
+            |_, _, _| Ok(()),
+            handover.as_deref(),
+        )?;
+        let updated = std::mem::take(&mut self.args_updated_in_place);
         if let Some(site) = handover {
+            // The lowered values at the temporary positions, now that they exist —
+            // except the ones whose in-place update fired, which built no temporary.
+            site.temps = site
+                .temp_indices
+                .iter()
+                .filter(|index| !updated.contains(index))
+                .filter_map(|index| arg_values.get(*index).cloned())
+                .collect();
+            // plan-147-E: an argument whose update fired IS the local's own block, so
+            // the caller stops owning it exactly as it does for a handed-over local.
+            for index in &updated {
+                if let Some(name) = args.get(*index).and_then(|arg| {
+                    crate::codegen::collection::assign::self_update::returned_self_update_local(arg)
+                }) {
+                    if let Some(local) = self.locals.get(name) {
+                        let slot = local.stack_offset;
+                        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+                    }
+                }
+            }
             for slot in &site.slots {
                 self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), *slot));
+            }
+            // plan-147-E: a handed-over TEMPORARY is claimed off the pending list
+            // instead. It has no caller slot to null — it is a value this statement
+            // just built — and the callee now owns it, so neither the statement's
+            // post-call drop nor `emit_call_error_exit`'s in-place free may touch it.
+            //
+            // Claimed BEFORE the branch, exactly as the return path's claim is: an
+            // argument lowered after this one that fails to evaluate exits through
+            // `emit_call_error_exit`, and by then the temp must already be off the
+            // list or it is freed here and again by the callee.
+            for temp in &site.temps {
+                self.claim_pending_temp(temp);
             }
         }
         self.emit_symbol_call(symbol);
@@ -201,18 +303,30 @@ impl CodeBuilder<'_> {
             return None;
         }
         let mut slots = Vec::new();
+        let mut temps = Vec::new();
+        let mut arg_updates = Vec::new();
         for (index, arg) in args.iter().enumerate() {
             if index >= 64 || site.mask & (1u64 << index) == 0 {
                 continue;
             }
+            if site.is_temp(index) {
+                // Filled in by `emit_raw_call_handing_over`, which is the only place
+                // the lowered argument values exist.
+                temps.push(index);
+                if site.is_arg_update(index) {
+                    arg_updates.push(index);
+                }
+                continue;
+            }
             let NirValue::Local(name) = arg else {
-                // The analysis only ever approves a `Local`; anything else here means
-                // the NIR moved under us, so lend rather than guess.
+                // The analysis approves a `Local` or a fresh temporary and nothing
+                // else; anything else here means the NIR moved under us, so lend
+                // rather than guess.
                 return None;
             };
             slots.push(self.locals.get(name)?.stack_offset);
         }
-        if slots.is_empty() {
+        if slots.is_empty() && temps.is_empty() {
             return None;
         }
         let base = crate::target::shared::nir::function_symbol(target);
@@ -221,6 +335,9 @@ impl CodeBuilder<'_> {
                 &base, site.mask,
             ),
             slots,
+            temp_indices: temps,
+            arg_update_indices: arg_updates,
+            temps: Vec::new(),
         })
     }
 
@@ -320,12 +437,13 @@ impl CodeBuilder<'_> {
         // (plan-147-A §2.3 row S3). Once the store has run, the caller's cleanup is
         // still active but reads a null slot and skips, which is the existing
         // moved-out-null pattern (§14.7: a moved-from binding is not dropped).
-        let handover = self.handover_site(target, args);
+        let mut handover = self.handover_site(target, args);
         let called = handover
             .as_ref()
-            .map_or(symbol, |site| site.symbol.as_str());
+            .map_or(symbol, |site| site.symbol.as_str())
+            .to_string();
         let arg_values =
-            self.emit_raw_call_handing_over(called, args, "call_arg", handover.as_ref())?;
+            self.emit_raw_call_handing_over(&called, args, "call_arg", handover.as_mut())?;
         let result_type = return_type
             .map(ParameterType::declared)
             .or_else(|| {
@@ -732,5 +850,15 @@ mod arena_call_tests {
 /// symbol to call, and the caller slots the hand-over nulls.
 pub(crate) struct HandOverSite {
     pub(crate) symbol: String,
+    /// Caller slots to null: one per handed-over LOCAL.
     pub(crate) slots: Vec<usize>,
+    /// plan-147-E: argument positions handed over as fresh temporaries.
+    pub(crate) temp_indices: Vec<usize>,
+    /// plan-147-E: argument positions that are `OP(x, …)` on an owned local at its
+    /// last use, which the lowering tries to update in place.
+    pub(crate) arg_update_indices: Vec<usize>,
+    /// The lowered values at those positions, filled in once the arguments are
+    /// lowered — `claim_pending_temp` matches on the value's location, so it needs
+    /// the `ValueResult`, which does not exist until then.
+    pub(crate) temps: Vec<ValueResult>,
 }

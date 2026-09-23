@@ -32,6 +32,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::codegen::collection::assign::self_update::returned_self_update_local;
 use crate::codegen::collection::layout::type_contains_resource;
 use crate::codegen::engine::analysis::last_use::{
     kill, live_out_of, op_key, place_live, read_count, reads_of, Place,
@@ -68,6 +69,29 @@ pub(crate) struct Site {
     pub(crate) target: String,
     /// Bit `i` set = argument `i` is handed over.
     pub(crate) mask: u64,
+    /// plan-147-E: bit `i` set = argument `i` is a **fresh temporary**, not a local.
+    /// A subset of `mask`. The two are handed over differently: a local's slot is
+    /// nulled, while a temporary is CLAIMED off the pending-temp list, so neither
+    /// the statement's post-call drop nor `emit_call_error_exit` frees it.
+    pub(crate) temp_mask: u64,
+    /// plan-147-E: bit `i` set = argument `i` is `OP(x, …)` on an owned local `x` at
+    /// its last use, so the argument is built by updating `x`'s own block in place
+    /// and then handing that block over. A subset of `temp_mask` — without the
+    /// in-place update the argument would be an ordinary fresh temporary, which is
+    /// what it falls back to if no arm fires.
+    pub(crate) arg_update_mask: u64,
+}
+
+impl Site {
+    /// Whether argument `index` is handed over as a fresh temporary.
+    pub(crate) fn is_temp(&self, index: usize) -> bool {
+        index < 64 && self.temp_mask & (1u64 << index) != 0
+    }
+
+    /// Whether argument `index` is an in-place self-update of an owned local.
+    pub(crate) fn is_arg_update(&self, index: usize) -> bool {
+        index < 64 && self.arg_update_mask & (1u64 << index) != 0
+    }
 }
 
 impl HandOverArgs {
@@ -102,6 +126,26 @@ impl HandOverArgs {
 
 /// The parameter names an owned variant of a function would consume.
 pub(crate) type ParamSet = HashSet<String>;
+
+/// plan-147-E: whether `value` is a **fresh temporary** — a value this statement
+/// just built, which therefore has no other reader and can be given away whole.
+///
+/// A direct or trapped call's result, a runtime helper's, a collection literal, or a
+/// record construction. Everything else (a local, a global, a field read, a capture)
+/// may be reachable from somewhere the caller still reads, so it is not a temporary
+/// and this answers `false` — the fail-closed direction.
+fn is_fresh_temporary(value: &NirValue) -> bool {
+    matches!(
+        value,
+        NirValue::Call { .. }
+            | NirValue::CallResult { .. }
+            | NirValue::RuntimeCall { .. }
+            | NirValue::ListLiteral { .. }
+            | NirValue::SetLiteral { .. }
+            | NirValue::MapLiteral { .. }
+            | NirValue::Constructor { .. }
+    )
+}
 
 /// H2/P1: a type whose block is worth handing over — a collection or a `String`,
 /// and never one that carries a resource (plan-147-A §2.3 row S8: resources keep
@@ -180,6 +224,10 @@ pub(crate) fn collect_handover_args(
     function: &NirFunction,
     model: &TypeModel,
     callees: &HashMap<String, &NirFunction>,
+    // plan-147-E: the parameters THIS lowering owns. Empty for a base lowering, where
+    // the caller keeps every argument's block; the variant's mask for an owned
+    // variant, where a parameter is an ordinary owned local and may be handed on.
+    owned_params: &ParamSet,
 ) -> HandOverArgs {
     let live = live_out_of(function, model);
     let types = local_types(function);
@@ -255,10 +303,6 @@ pub(crate) fn collect_handover_args(
                     .entry(target.clone())
                     .or_insert_with(|| consumable_params(callee, model));
                 for (index, arg) in call_args.iter().enumerate() {
-                    // H4 is structural: `Place` names no globals (row S7).
-                    let NirValue::Local(name) = arg else {
-                        continue;
-                    };
                     // H6: handing over a parameter the callee only reads would move a
                     // free from caller to callee and nothing else.
                     let Some(param) = callee.params.get(index) else {
@@ -267,8 +311,58 @@ pub(crate) fn collect_handover_args(
                     if !wanted.contains(&param.name) {
                         continue;
                     }
-                    // H1: an owned local of this function.
-                    if live.excluded.contains(name.as_str()) {
+                    // plan-147-E: a FRESH TEMPORARY argument is handed over with no
+                    // further question. It is a value this statement just built, so
+                    // nothing else can read it — there is no liveness to check and no
+                    // caller slot to null. Its type is the parameter's, which H6 has
+                    // already established is consumable and therefore H2.
+                    if is_fresh_temporary(arg) {
+                        if !handover_type(model, &param.type_) {
+                            continue;
+                        }
+                        // plan-147-E: the temporary is often `OP(x, …)` on a local
+                        // the caller is done with — `fill(collections::append(xs, n),
+                        // n - 1)` is the recursive shape this plan exists for. Handing
+                        // the temporary over is not enough there: BUILDING it still
+                        // copies `x`. When `x` is an owned local at its last use, the
+                        // argument is instead built by updating `x`'s own block in
+                        // place, and that block is what is handed over — the same
+                        // reduction letter B made for `RETURN OP(x, …)`, one position
+                        // over.
+                        let arg_update = returned_self_update_local(arg).is_some_and(|name| {
+                            (!live.excluded.contains(name) || owned_params.contains(name))
+                                && types
+                                    .get(name)
+                                    .is_some_and(|type_| handover_type(model, type_))
+                                && read_count(&all_reads, &Place::Local(name.to_string())) == 1
+                                && !place_live(&after, &Place::Local(name.to_string()))
+                        });
+                        let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
+                            target: target.clone(),
+                            mask: 0,
+                            temp_mask: 0,
+                            arg_update_mask: 0,
+                        });
+                        if index < 64 {
+                            entry.mask |= 1u64 << index;
+                            entry.temp_mask |= 1u64 << index;
+                            if arg_update {
+                                entry.arg_update_mask |= 1u64 << index;
+                            }
+                        }
+                        continue;
+                    }
+                    // H4 is structural: `Place` names no globals (row S7).
+                    let NirValue::Local(name) = arg else {
+                        continue;
+                    };
+                    // H1: an owned local of this function. `excluded_roots` excludes
+                    // every parameter, because in the BASE lowering the caller owns
+                    // the block; in an owned variant this lowering owns it, so the
+                    // exclusion is lifted for exactly those names.
+                    if live.excluded.contains(name.as_str())
+                        && !owned_params.contains(name.as_str())
+                    {
                         continue;
                     }
                     // H2: the type.
@@ -286,6 +380,8 @@ pub(crate) fn collect_handover_args(
                     let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
                         target: target.clone(),
                         mask: 0,
+                        temp_mask: 0,
+                        arg_update_mask: 0,
                     });
                     if index < 64 {
                         entry.mask |= 1u64 << index;
@@ -523,12 +619,34 @@ END FUNC
         format!("IMPORT collections\nIMPORT io\nIMPORT fs\n{HELPERS}\n{body}\n")
     }
 
-    /// How many arguments of `name`'s body may be handed over.
+    /// How many arguments of `name`'s body may be handed over, with no parameter of
+    /// `name` owned (the BASE lowering).
     fn approved(source: &str, name: &str) -> usize {
+        approved_owning(source, name, &[])
+    }
+
+    /// [`approved`] for an owned variant: `owned` names the parameters this lowering
+    /// owns, as plan-147-D's variant does.
+    fn approved_owning(source: &str, name: &str, owned: &[&str]) -> usize {
         let module = lower(source);
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
         let map = callees(&module);
-        collect_handover_args(function(&module, name), &model, &map).len()
+        let owned: ParamSet = owned.iter().map(|n| (*n).to_string()).collect();
+        collect_handover_args(function(&module, name), &model, &map, &owned).len()
+    }
+
+    /// How many argument positions of `name`'s body are built by an IN-PLACE
+    /// self-update of an owned local, rather than by copying it.
+    fn arg_updates(source: &str, name: &str, owned: &[&str]) -> usize {
+        let module = lower(source);
+        let model = TypeModel::from_module(&module).expect("the probe's type model builds");
+        let map = callees(&module);
+        let owned: ParamSet = owned.iter().map(|n| (*n).to_string()).collect();
+        collect_handover_args(function(&module, name), &model, &map, &owned)
+            .sites
+            .values()
+            .map(|site| site.arg_update_mask.count_ones() as usize)
+            .sum()
     }
 
     /// `consumable_params` of `name`, as a sorted list for comparison.
@@ -739,6 +857,63 @@ FUNC main() AS Integer
 END FUNC",
         );
         assert_eq!(approved(&source, "main"), 0);
+    }
+
+    /// plan-147-E: a fresh temporary argument is handed over, and only to a
+    /// consumable parameter.
+    #[test]
+    fn a_fresh_temporary_argument_is_handed_over() {
+        let source = probe(
+            "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = consume(collections::append(x, 9), 1)
+  io::print(toString(len(y)))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(approved(&source, "main"), 1);
+        // `x` is an owned LOCAL here, so the temporary is built in place even in this
+        // (base) lowering.
+        assert_eq!(arg_updates(&source, "main", &[]), 1);
+
+        // The same temporary to a parameter the callee only READS is refused (H6):
+        // handing it over would move a free and nothing else.
+        let refused = probe(
+            "FUNC main() AS Integer
+  MUT x AS List OF Integer = [1, 2]
+  LET n AS Integer = peek(collections::append(x, 9))
+  io::print(toString(n))
+  RETURN 0
+END FUNC",
+        );
+        assert_eq!(approved(&refused, "main"), 0);
+    }
+
+    /// plan-147-E: a parameter is handed ON only inside a lowering that OWNS it.
+    ///
+    /// Handing the temporary over is not what makes `fill(collections::append(xs, n),
+    /// n - 1)` flat — that is approved in both lowerings, since a freshly built value
+    /// has no other reader. What only the variant can do is BUILD that temporary by
+    /// updating `xs` in place: in the base lowering the caller still owns `xs`, so
+    /// `append` has to copy it. Measured end to end, that is the difference between
+    /// 1203 and 12 allocations at N = 600.
+    #[test]
+    fn an_owned_parameter_is_handed_on_only_in_a_variant() {
+        let source = probe(
+            "FUNC fill(xs AS List OF Integer, n AS Integer) AS List OF Integer
+  IF n = 0 THEN RETURN xs
+  RETURN fill(collections::append(xs, n), n - 1)
+END FUNC",
+        );
+        // The TEMPORARY is handed over either way: a value this statement just built
+        // has no other reader, whoever owns `xs`.
+        assert_eq!(approved_owning(&source, "fill", &[]), 1);
+        assert_eq!(approved_owning(&source, "fill", &["xs"]), 1);
+        // What the variant adds is BUILDING that temporary in place. In the base
+        // lowering the caller still owns `xs`, so `append` must copy it; in the
+        // variant `xs` is this lowering's own block and `append` updates it.
+        assert_eq!(arg_updates(&source, "fill", &[]), 0);
+        assert_eq!(arg_updates(&source, "fill", &["xs"]), 1);
     }
 
     /// plan-147-C §3.3, the callee side.

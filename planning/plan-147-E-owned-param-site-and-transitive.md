@@ -142,19 +142,31 @@ Commit: 95d0fe733
 
 ### Phase 2 — Transitive hand-over
 
-- [ ] `analysis/handover.rs`: fresh-temporary arguments (§3 point 2) and the
-      `consumable_params` fixpoint (§3 point 3). Add rows to C's unit table: temp
-      approved; temp to a non-consumable parameter refused; mutual recursion reaches a
-      fixpoint.
-- [ ] Codegen: claim the handed-over temp before the branch (§3 point 2).
-- [ ] `rt_owned_argument.rs`: un-ignore `recursive-fill`. Add a failing-callee case with
-      a temporary argument (2N runs, no double free, flat `peak_live_bytes`), and set
-      the guard test's ignored set to empty.
+- [x] `analysis/handover.rs`: fresh-temporary arguments (`is_fresh_temporary`, a
+      `temp_mask` on each site), **plus a third rule the plan did not have** — the
+      argument-position self-update (`arg_update_mask`); see Corrections.
+      `collect_handover_args` now takes the parameters THIS lowering owns, which is
+      what separates a base lowering from a variant, and `variant_demand` iterates to
+      a fixpoint over `(function, mask)` because a variant approves sites the base
+      cannot. New unit rows: `a_fresh_temporary_argument_is_handed_over` (approved,
+      and refused to a read-only parameter) and
+      `an_owned_parameter_is_handed_on_only_in_a_variant`.
+- [x] Codegen: `emit_raw_call_handing_over` claims each handed-over temp off the
+      pending list before the branch, and `lower_call_argument` runs the self-update
+      seam at an approved argument position (nulling that local's slot instead, since
+      the in-place build produces no temporary).
+- [x] `rt_owned_argument.rs`: `recursive-fill` un-ignored and flat — **alloc_calls
+      1203 → 12 at N = 600**, slope 1200 → 1. Added
+      `a_handed_over_temporary_is_freed_once_on_the_failure_route`, the failing-callee
+      case with a temporary argument: `double_free_skips == 0`, `live_bytes == 0` at
+      exit, exit 0, every call really failed, and `peak_live_bytes` flat in `N`. The
+      guard test's ignored set is now **empty**.
 
 Acceptance: `recursive-fill` passes, and so does the failing-temp case.
-  Check: `cargo test --bin mfb handover && cargo test --test rt_owned_argument` → all
-  passed (est. 6 min).
-Commit: —
+  Check: `cargo test --bin mfb handover` → **`ok. 6 passed; 0 failed`**;
+  `cargo test --test rt_owned_argument` → **`ok. 8 passed; 0 failed; 0 ignored`**
+  (2026-09-23), and the failing-temp case passes on top of those.
+Commit: (this commit)
 
 ### Phase 3 — `MUT y = p`
 
@@ -189,6 +201,31 @@ Commit: —
   It belongs in its own plan, next to plan-134's graph-type moves.
 
 ## Corrections
+
+- **Handing the temporary over is not enough: the temporary has to be BUILT in
+  place.** §3 point 3 says of `fill`: "`RETURN xs` makes `xs` consumable directly, and
+  `fill(append(xs, n), …)` hands over the temporary under point 2" — implying points 2
+  and 3 are sufficient. They are not. With both implemented, `recursive-fill`
+  measured **1203 → 2403** at N = 600/1200, a slope of 1200: unchanged. The temporary was
+  indeed handed over, but **building** it still copied `xs`, because
+  `collections::append(xs, n)` at an argument position is neither S1 nor S11.
+
+  So this letter adds a third rule, `arg_update_mask`: when an argument is
+  `OP(x, …)` and `x` is an owned local at its last use, the argument is built by
+  updating `x`'s own block in place, and that block is what is handed over — the same
+  reduction letter B made for `RETURN OP(x, …)`, one position over. If no arm fires,
+  nothing is emitted and the argument falls back to an ordinary fresh temporary, so
+  the callee owns the block either way. With it: **1203 → 12**, slope 1200 → **1**.
+
+- **`collect_handover_args` has to know which parameters the lowering owns.**
+  §3 point 3 notes this in passing ("already approved by C once D stops excluding owned
+  parameters from roots"), but nothing in D actually made the ANALYSIS aware of it:
+  `excluded_roots` excludes every parameter, because in a base lowering the caller
+  owns the block, and letter C's H1 consults it. So inside `fill$own1` the analysis
+  still refused to touch `xs`. `collect_handover_args` now takes the owned-parameter
+  set and lifts the exclusion for exactly those names — which is also what makes the
+  base/variant distinction testable, and why `variant_demand` must now iterate to a
+  fixpoint rather than sweep the base lowerings once.
 
 - **A scratch arm costs one allocation per CALL at S12, and that is the site's
   shape.** The first run failed 37 of 52 pairs, every one a scratch arm (27 `math::`

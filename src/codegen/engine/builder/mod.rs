@@ -579,6 +579,11 @@ pub(crate) struct CodeBuilder<'a> {
     /// plan-147-D: the `call_key` of the `Call`/`CallResult` node being lowered —
     /// what `emit_call` asks `handover` about, alongside `current_op_key`.
     pub(crate) current_call_key: Option<usize>,
+    /// plan-147-E: the argument positions of the call just lowered whose in-place
+    /// self-update fired, so the hand-over nulls those locals' slots instead of
+    /// claiming a temporary that was never built. Written by
+    /// `emit_prepared_call_args_with_site` and taken immediately after.
+    pub(crate) args_updated_in_place: Vec<usize>,
     /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
     /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
     /// no `s = os::resourcePath(s)`.
@@ -707,6 +712,7 @@ impl<'a> CodeBuilder<'a> {
             move_sites: None,
             handover: None,
             current_call_key: None,
+            args_updated_in_place: Vec::new(),
             current_op_key: None,
             string_resource_base: None,
             string_shadow_env: std::collections::HashMap::new(),
@@ -3918,14 +3924,46 @@ fn variant_demand(
     functions: &HashMap<String, &NirFunction>,
     type_model: &TypeModel,
 ) -> HashSet<(String, u64)> {
-    let mut demand = HashSet::new();
+    // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
+    // does not, so it can approve hand-overs the base cannot and ask for further
+    // variants. `fill(collections::append(xs, n), n - 1)` is the shape that needs it —
+    // only inside `fill$own1` is `xs` owned, and only there is the recursive call's
+    // argument handed on. The set is finite (one function has at most `2^params`
+    // masks, and only masks a real site names are requested), so this terminates.
+    let empty = crate::codegen::engine::analysis::handover::ParamSet::new();
+    let mut demand: HashSet<(String, u64)> = HashSet::new();
+    let mut pending: Vec<(String, u64)> = Vec::new();
     for function in &module.functions {
-        demand.extend(
-            crate::codegen::engine::analysis::handover::collect_handover_args(
-                function, type_model, functions,
-            )
-            .demanded_variants(),
-        );
+        for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &empty,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((name.clone(), mask)) {
+                pending.push((name, mask));
+            }
+        }
+    }
+    while let Some((name, mask)) = pending.pop() {
+        let Some(function) = functions.get(name.as_str()) else {
+            continue;
+        };
+        let owned: crate::codegen::engine::analysis::handover::ParamSet = function
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index < 64 && mask & (1u64 << index) != 0)
+            .map(|(_, param)| param.name.clone())
+            .collect();
+        for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &owned,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((next.clone(), next_mask)) {
+                pending.push((next, next_mask));
+            }
+        }
     }
     demand
 }

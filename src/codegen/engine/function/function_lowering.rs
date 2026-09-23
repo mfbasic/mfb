@@ -1139,6 +1139,7 @@ pub(crate) fn lower_function(
         move_sites: None,
         handover: None,
         current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1261,11 +1262,19 @@ pub(crate) fn lower_function(
     // plan-147-D: which call arguments this function may hand to the callee instead
     // of lending (plan-147-C). Computed once here, like `move_sites` above, so the
     // answer cannot depend on the order the builder reaches the ops in.
+    let owned_param_names: std::collections::HashSet<String> = function
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| variant.is_some_and(|variant| variant.owns(*index)))
+        .map(|(_, param)| param.name.clone())
+        .collect();
     builder.handover = Some(
         crate::codegen::engine::analysis::handover::collect_handover_args(
             function,
             &builder.type_model,
             functions,
+            &owned_param_names,
         ),
     );
     // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
@@ -1682,6 +1691,7 @@ pub(crate) fn lower_abi_function_helper(
         move_sites: None,
         handover: None,
         current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1862,6 +1872,7 @@ pub(crate) fn lower_thread_copy_function(
         move_sites: None,
         handover: None,
         current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),

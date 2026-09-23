@@ -1,4 +1,5 @@
-//! plan-147-A Phase 2: the RED allocation tests for the owned-argument work.
+//! plan-147-A Phase 2: the allocation tests for the owned-argument work.
+//! Every case has since landed; the file is now a regression suite.
 //!
 //! plan-147 hands a collection or `String` the caller no longer needs over to the
 //! callee instead of lending it, so the callee updates it in place. Each case here
@@ -32,7 +33,9 @@
 //! * `helper-concat` — **landed**, plan-147-D, but asserting `Expect::StillCopies`:
 //!   the hand-over happens and buys nothing, because a `String` block must be tight
 //!   to leave its frame. See the case's doc comment for the measurement.
-//! * `recursive-fill` — open, plan-147-E.
+//! * `recursive-fill` — **landed**, plan-147-E (transitive hand-over).
+//!
+//! Nothing is ignored: the guard asserts the ignored set is empty.
 
 #![cfg(unix)]
 
@@ -345,8 +348,12 @@ fn helper_concat() {
     check("helper-concat");
 }
 
+/// plan-147-E: transitive hand-over. `fill(collections::append(xs, n), n - 1)`
+/// needed two things beyond letter D — the fresh temporary argument handed over, and
+/// the temporary BUILT by updating `xs` in place rather than copying it — and both
+/// only apply inside `fill$own1`, where `xs` is owned. alloc_calls 1203 -> 12 at
+/// N = 600.
 #[test]
-#[ignore = "plan-147-E"]
 fn recursive_fill() {
     check("recursive-fill");
 }
@@ -363,15 +370,8 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
     const THIS_FILE: &str = include_str!("rt_owned_argument.rs");
 
     // `(test fn, the letter in its #[ignore] reason)`, in source order.
-    let want: BTreeSet<(&str, &str)> = [
-        // ("local_return", "B")  — landed in plan-147-B (site S11).
-        // ("helper_append", "D") — landed in plan-147-D (owned variants).
-        // ("helper_map_set", "D") — landed in plan-147-D.
-        // ("helper_concat", "D") — landed in plan-147-D, as `Expect::StillCopies`.
-        ("recursive_fill", "E"),
-    ]
-    .into_iter()
-    .collect();
+    // Every case has landed: plan-147 leaves nothing ignored.
+    let want: BTreeSet<(&str, &str)> = BTreeSet::new();
 
     let mut found: BTreeSet<(String, String)> = BTreeSet::new();
     let lines: Vec<&str> = THIS_FILE.lines().collect();
@@ -418,6 +418,8 @@ fn the_ignored_set_is_exactly_the_five_open_cases() {
         "helper_append",
         "helper_concat",
         "helper_map_set",
+        // plan-147-E, transitive hand-over.
+        "recursive_fill",
     ];
     let declared: BTreeSet<String> = cases().iter().map(|c| c.name.replace('-', "_")).collect();
     let ignored: BTreeSet<String> = found.iter().map(|(n, _)| n.clone()).collect();
@@ -593,5 +595,103 @@ fn the_hand_over_really_happens() {
         "no owned variant in the emitted code: an approved hand-over site must call \
          `addOne$own1`, and that variant must be lowered. Without it every other case \
          in this file would be measuring the ordinary lending path."
+    );
+}
+
+/// plan-147-E Phase 2: the error route of a handed-over TEMPORARY.
+///
+/// This is the letter's named correctness risk. A temporary claimed for hand-over and
+/// then also freed by `emit_call_error_exit` is a double free; one neither claimed
+/// nor handed over is a leak. The claim therefore has to happen before the call
+/// instruction, and this case is what pins it.
+///
+/// The helper takes its collection owned — it has a consuming `RETURN` on a branch
+/// that never runs — and then `FAIL`s, and the argument at the call site is a **fresh
+/// temporary** (`collections::append(acc, i)`), not a local. The caller traps without
+/// reading anything, so the hand-over is not refused.
+#[test]
+fn a_handed_over_temporary_is_freed_once_on_the_failure_route() {
+    fn run(n: u64) -> (u64, u64, u64, Option<i32>, String) {
+        let source = format!(
+            "IMPORT collections\nIMPORT io\n\n\
+             FUNC sink(xs AS List OF Integer, v AS Integer) AS List OF Integer\n  \
+               IF v < 0 THEN RETURN collections::append(xs, v)\n  \
+               FAIL error(9, \"len \" & toString(len(xs)))\n\
+             END FUNC\n\n\
+             FUNC main() AS Integer\n  \
+               MUT hits AS Integer = 0\n  \
+               FOR i = 1 TO {n}\n    \
+                 MUT acc AS List OF Integer = [1, 2, 3]\n    \
+                 LET out AS List OF Integer = sink(collections::append(acc, i), i) TRAP(e)\n      \
+                   hits = hits + 1\n      \
+                   RECOVER []\n    \
+                 END TRAP\n    \
+                 IF len(out) > 99 THEN\n      \
+                   io::print(\"unreachable\")\n    \
+                 END IF\n  \
+               NEXT\n  \
+               io::print(\"hits=\" & toString(hits))\n  \
+               RETURN 0\n\
+             END FUNC\n"
+        );
+        let (exe, project) = build_debug(&format!("owned_argument_temp_fail_{n}"), &source)
+            .expect("the probe builds");
+        let output = Command::new(&exe).output();
+        let _ = std::fs::remove_dir_all(&project);
+        let output = output.expect("the probe runs");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let sum = |key: &str| -> u64 {
+            stderr
+                .lines()
+                .filter_map(|line| line.strip_prefix("arena."))
+                .filter_map(|rest| rest.split_once(' '))
+                .filter_map(|(name, value)| {
+                    let (_index, field) = name.split_once('.')?;
+                    (field == key).then(|| value.trim().parse::<u64>().ok())?
+                })
+                .sum()
+        };
+        (
+            sum("peak_live_bytes"),
+            sum("live_bytes"),
+            sum("double_free_skips"),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        )
+    }
+
+    const N: u64 = 200;
+    let (peak_n, live_n, dfree_n, code_n, out_n) = run(N);
+    let (peak_2n, live_2n, dfree_2n, code_2n, out_2n) = run(2 * N);
+
+    assert_eq!(code_n, Some(0), "the probe exited non-zero at N={N}");
+    assert_eq!(
+        code_2n,
+        Some(0),
+        "the probe exited non-zero at 2N={}",
+        2 * N
+    );
+    assert_eq!(out_n, format!("hits={N}"), "every call must have failed");
+    assert_eq!(
+        out_2n,
+        format!("hits={}", 2 * N),
+        "every call must have failed"
+    );
+    assert_eq!(
+        (dfree_n, dfree_2n),
+        (0, 0),
+        "the arena skipped a double free: a handed-over temporary is freed both by \
+         the claim's owner and by the statement ({dfree_n} at N={N}, {dfree_2n} at 2N)"
+    );
+    assert_eq!(
+        (live_n, live_2n),
+        (0, 0),
+        "bytes were still live at exit: a handed-over temporary is freed by nobody \
+         ({live_n} at N={N}, {live_2n} at 2N)"
+    );
+    assert!(
+        peak_2n <= peak_n + 4096,
+        "peak_live_bytes grew with N ({peak_n} at N={N} -> {peak_2n} at 2N): a \
+         handed-over temporary leaks on the failure route"
     );
 }
