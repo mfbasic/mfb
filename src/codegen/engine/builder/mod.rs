@@ -1924,9 +1924,79 @@ pub(crate) fn lower_module_for_platform(
                     &synthesized_constructors,
                     type_model.clone(),
                     &module.project,
+                    None,
                 )
             },
         )?);
+    }
+    // plan-147-D: the owned variants. A function lowers once above as its base
+    // symbol with every parameter lent; here it lowers once more for each distinct
+    // owned-parameter mask an approved call site asks for.
+    //
+    // The demand is a FIXPOINT: a variant's own body has call sites, and those sites
+    // can approve hand-overs of their own, asking for further variants. The set of
+    // `(function, mask)` pairs is finite (one function has at most `2^params` masks,
+    // and only masks a real site names are ever requested), so the loop terminates.
+    // The base lowerings above are never revisited, which is what keeps a function's
+    // own symbol and ABI unchanged (plan-147-A §2.3 row S13).
+    //
+    // Letter D Phase 1 lands the machinery with NO demand: `variant_demand` returns
+    // an empty set until Phase 2 wires the caller side up, so codegen here is
+    // byte-identical.
+    {
+        let mut emitted: HashSet<(String, u64)> = HashSet::new();
+        let mut pending: Vec<(String, u64)> = variant_demand(module, &functions, &type_model)
+            .into_iter()
+            .collect();
+        pending.sort();
+        while let Some((name, mask)) = pending.pop() {
+            if !emitted.insert((name.clone(), mask)) {
+                continue;
+            }
+            let Some(function) = functions.get(name.as_str()) else {
+                return Err(format!(
+                    "plan-147-D: an owned variant was demanded for `{name}`, which is \
+                     not a function of this module"
+                ));
+            };
+            let base = nir::function_symbol(&function.name);
+            let symbol =
+                crate::codegen::engine::function::function_lowering::OwnedVariant::symbol_for(
+                    &base, mask,
+                );
+            // The collision guard the naming scheme deliberately does NOT assume away:
+            // a mangled segment can be lowercase (a package prefix is), so `own1f` is
+            // not structurally impossible as a type segment. Fail loudly rather than
+            // alias two functions.
+            if function_symbols
+                .values()
+                .any(|existing| *existing == symbol)
+            {
+                return Err(format!(
+                    "plan-147-D: the owned-variant symbol `{symbol}` already names a \
+                     function of this module"
+                ));
+            }
+            let variant =
+                crate::codegen::engine::function::function_lowering::OwnedVariant { mask, symbol };
+            code_functions.push(lower_function(
+                function,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                &callback_referenced_functions,
+                &synthesized_constructors,
+                type_model.clone(),
+                &module.project,
+                Some(&variant),
+            )?);
+        }
+        crate::trace::count("owned variants", emitted.len() as u64);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
         code_functions.push(lower_builtin_function_wrapper(
@@ -3824,4 +3894,18 @@ pub(crate) fn standard_error_message_symbol(message: &str) -> Option<&'static st
     standard_error_messages()
         .iter()
         .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
+}
+
+/// plan-147-D: the `(function, owned-parameter mask)` pairs the module's approved
+/// call sites ask for.
+///
+/// **Empty until letter D Phase 2.** Phase 1 lands the variant machinery with no
+/// demand, so codegen stays byte-identical; Phase 2 fills this in from
+/// `collect_handover_args`, which letter C already computes.
+fn variant_demand(
+    _module: &NirModule,
+    _functions: &HashMap<String, &NirFunction>,
+    _type_model: &TypeModel,
+) -> HashSet<(String, u64)> {
+    HashSet::new()
 }

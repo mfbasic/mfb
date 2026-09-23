@@ -142,20 +142,28 @@ repeated failing calls.
 
 ### Phase 1 — Verify, then variants with no callers
 
-- [ ] Resolve the graph-drop UNVERIFIED row (§2): read `emit_graph_value_drop` and
-      `_mfb_rt_graph_drop`'s null handling. Record the result, and any H2 exclusion, in
-      Corrections.
-- [ ] Confirm `$own<hex>` cannot collide: read `mangle_name` (`src/monomorph/helpers.rs:567`)
-      and record the argument here.
-- [ ] `function_lowering.rs`: `owned_params` on the lowering entry. An owned parameter
-      gets an `OwnedValue` cleanup at entry and is not excluded as a root.
-- [ ] `builder/mod.rs`: variant demand collection and the fixpoint lowering (§3.1).
-      Demand is empty in this phase, so no variant is emitted.
+- [x] Resolve the graph-drop UNVERIFIED row (§2): **it is null-safe, so graph types
+      need no H2 exclusion.** `emit_owned_value_drop` routes a graph type to
+      `emit_graph_value_drop` (`builder_owned_cleanup.rs:422`), and that function loads
+      the slot, `compare_immediate … "0"` and `branch_eq(&skip)` BEFORE the
+      `emit_symbol_call(GRAPH_DROP_SYMBOL)` (`graph_drop.rs:213-224`) — so a null slot
+      never reaches `_mfb_rt_graph_drop` at all. The null test is at the call site, not
+      inside the helper, which is the same shape the flat and `String` drops use.
+- [x] Confirm `$own<hex>` cannot collide: **the plan's argument does not hold, so the
+      naming is guarded instead of assumed.** See Corrections.
+- [x] `function_lowering.rs`: `OwnedVariant { mask, symbol }` and an
+      `Option<&OwnedVariant>` argument on `lower_function` (`None` = the base lowering,
+      every parameter lent). An owned parameter gets an `ActiveCleanup::OwnedValue` for
+      its slot, pushed after the spill so the slot genuinely holds the block, which also
+      takes it out of `excluded_roots`'s "never bound" set.
+- [x] `builder/mod.rs`: `variant_demand` plus the fixpoint lowering loop (§3.1), with a
+      hard error if a demanded variant's symbol already names a module function.
+      `variant_demand` returns an empty set in this phase, so no variant is emitted.
 
 Acceptance: codegen is byte-identical, since no demand exists yet.
-  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est.
-  1 min).
-Commit: —
+  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` →
+  **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`** (2026-09-23).
+Commit: (this commit)
 
 ### Phase 2 — The hand-over
 
@@ -211,6 +219,29 @@ Commit: —
   a copy of the lent one, which is the cost this plan exists to remove.
 
 ## Corrections
+
+- **`$own<hex>` CAN collide in principle, so the name is guarded rather than
+  argued.** Phase 1 asked for the collision argument to be recorded; reading
+  `mangle_name` (`src/monomorph/helpers.rs:567`) and `sanitize_type_name` (`:639`)
+  shows the plan's version of it is wrong. §3.1 says "`own` cannot collide with a type
+  name, because type segments start with an upper-case letter or a package prefix".
+  But a **package prefix is lowercase**, and `sanitize_type_name` maps every
+  non-`[A-Za-z0-9_]` character to `$`, so a mangled segment is `[A-Za-z0-9_$]*` and a
+  segment spelled `own1f` is not structurally impossible.
+
+  The scheme is kept (`<base>$own<mask:x>`), but nothing rests on it being unique:
+  the fixpoint loop checks each minted symbol against the module's real symbol set
+  (`function_symbols`) and returns a hard error if it is already taken. That fails
+  loudly at build time instead of silently aliasing two functions, which is what the
+  original argument would have risked if a package were ever named `own1f`.
+
+- **The graph-drop row resolved MET, with no H2 exclusion.** §2 listed "null-slot drop,
+  recursive graph types" as UNVERIFIED and said graph types would be excluded from
+  plan-147-C's H2 if the drop were not null-safe. It is: `emit_graph_value_drop`
+  null-tests the slot and branches past the helper call (`graph_drop.rs:213-224`),
+  so `_mfb_rt_graph_drop` never sees a null. H2 is unchanged, and letter C's
+  `handover_type` keeps covering `List`/`Map`/`Set`/`String` including recursive
+  element types.
 
 ## Summary
 
