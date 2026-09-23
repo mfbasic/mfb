@@ -368,6 +368,28 @@ Commit: 0446fd1bf
   §1's first bullet is corrected to: *every `Arm` row except those in `RETURN_NEVER`
   fires at `Return`, and every row in `RETURN_NEVER` does not.*
 
+- **Two byte-identity fixtures DO carry the S11 shape; Phase 3's `collections`-scoped
+  gate could not see them.** Phase 3 recorded "0 goldens moved, and no byte-identity
+  fixture has that shape", supported by an `rg` over `tests/byte-identity/*/src`. That
+  is true of the fixtures' own sources, but not of the **builtin bodies they pull in**.
+  Letter D's full `artifact-gate.sh all` sweep moved `byte-identity/compress` and
+  `byte-identity/vector`, neither of which has an approved hand-over site, and
+  bisecting the changes attributed both to this letter:
+
+  | Change disabled | `compress` | `vector` |
+  |---|---|---|
+  | letter D's caller hand-over | still differs | still differs |
+  | — and **S11's dispatch** | **matches the golden** | still differs |
+  | — and **`ops_hold_self_update`'s `Return` arm** | matches | **matches** |
+
+  So `compress` moved because a `RETURN OP(local, …)` in a builtin body now lowers in
+  place, and `vector` moved because a function whose only self-update is at a `RETURN`
+  now reserves a self-update **scratch slot**, which changes its frame layout even
+  where the emitted call is otherwise unchanged. Both are this letter working as
+  designed; neither is a defect. Phase 3's conclusion is corrected accordingly — the
+  0-diff result it recorded was right for `collections` and wrong as a statement about
+  the whole corpus.
+
 - **The S11 dispatch lives in `emit_return_exit`, not in `lower_returned_value`.**
   §3 step 1 places it in `lower_returned_value`, but the cleanup bookkeeping the
   design depends on is one level up. `emit_return_exit` is where

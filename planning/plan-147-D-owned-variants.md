@@ -205,21 +205,52 @@ Commit: c88af3239
 
 ### Phase 3 — Blast radius
 
-- [ ] Behaviour-changing letter: diffs are **expected** in every byte-identity fixture
-      that contains an approved call site, and nowhere else. Run the gate for every
-      package, and for each moved `.ncodesum` name the approved call site in
-      Corrections. A diff in a fixture with no approved site is a bug; objdump that one
-      fixture.
-- [ ] Runtime proof: rebuild `/tmp/owned` (plan-147-A §2.2's program) and record
-      inline vs helper times in Corrections.
+- [x] Behaviour-changing letter: the full gate moved **13 fixtures, 63 goldens** of
+      2,118. Eleven carry an approved call site, named below by the owned variant the
+      emitted code plan calls. **Two moved with no approved site**, which this task
+      calls a bug — both were localized to letter B rather than to this one, and
+      neither is a defect. See Corrections.
+
+      | Fixture | Owned variants called |
+      |---|---|
+      | `byte-identity/crypto` | `crypto_slice$own1`, `crypto_truncate$own1` |
+      | `byte-identity/encoding` | `encoding_utf8Decode$List$OF$Byte$own1` |
+      | `byte-identity/http` | `http_addPart$own1`, `http_decodeBody$own4`, `http_slice$own1`, `net_slice$own1` |
+      | `byte-identity/json` | `json_escapeRawControlChar$own1` |
+      | `byte-identity/net` | `net_slice$own1` |
+      | `byte-identity/regex` | `regex_canonProp$own1`, `regex_setCap$own1` |
+      | `byte-identity/tcp` | `net_slice$own1` |
+      | `byte-identity/tls` | `net_slice$own1` |
+      | `byte-identity/udp` | `net_slice$own1` |
+      | `rt-behavior/crypto/crypto-ec-valid` | `crypto_slice$own1`, `crypto_truncate$own1` |
+      | `syntax/app/app-mouse-surface` | `canvas_lineEdge$own1`, `canvas_sortedUnique$own1` |
+      | `byte-identity/compress` | **none** — letter B's S11 (see Corrections) |
+      | `byte-identity/vector` | **none** — letter B's scratch arm (see Corrections) |
+- [x] Runtime proof: `/tmp/owned` rebuilt and re-timed (`datetime::monotonicNanos`,
+      N = 20,000, one run on an otherwise idle machine, 2026-09-23). Against
+      plan-147-A §2.2's baseline:
+
+      | Shape, N = 20,000 | Inline (baseline) | Helper (baseline) | Inline (now) | Helper (now) | Helper / inline |
+      |---|---|---|---|---|---|
+      | `append` to `List OF Integer` | 1 ms | 19,224 ms | 543 µs | **462 µs** | **0.85×** |
+      | `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,672 µs | **3,526 µs** | **0.75×** |
+      | `s & "x"` | 0 ms | 841 ms | 231 µs | 87,099 µs | 377× |
+      | recursive `fill` (N = 5,000) | — | 1,252 ms | — | 145,247 µs | — |
+
+      The two shapes this letter flattens are now **faster through the helper than
+      inline** — the hand-over skips the caller's own drop of the old value. `s & "x"`
+      is the `Expect::StillCopies` case (Corrections); recursive `fill` is letter E's.
 
 Acceptance: every moved golden has a named site. The helper times are within 2× of
 inline.
-  Check: `bash scripts/artifact-gate.sh target/release/mfb all` → diffs only in fixtures
-  listed in Corrections. Est. 10–15 min; the gate for all packages is needed because
-  approved sites can be in any package's fixture, and no per-package run would find
-  one elsewhere.
-Commit: —
+  Check: `bash scripts/artifact-gate.sh target/release/mfb all` →
+  **`1496 tests, 1671 build(s), 2118 golden(s) checked, 63 diff(s)`** (2026-09-23).
+  Every moved fixture is accounted for in the table above: 11 by a named owned
+  variant, 2 by letter B, localized by bisecting the two changes.
+  The helper/inline ratios are **0.85×** (`append`) and **0.75×** (`set`), both inside
+  the 2× bar. `s & "x"` is outside it and is the documented `Expect::StillCopies`
+  case; recursive `fill` belongs to letter E.
+Commit: PENDING
 
 ## Validation Plan
 
@@ -238,6 +269,33 @@ Commit: —
   a copy of the lent one, which is the cost this plan exists to remove.
 
 ## Corrections
+
+- **Two fixtures moved with no approved call site, and both are letter B's — not a
+  bug.** Phase 3 says "a diff in a fixture with no approved site is a bug; objdump
+  that one fixture". `byte-identity/compress` and `byte-identity/vector` moved on all
+  five targets while their emitted code plans contain no `$own` symbol at all
+  (`grep -o '"[^"]*own[^"]*"'` over the `.ncode` finds only `_mfb_rt_drop_owned_*`).
+  Localized by disabling one change at a time and re-hashing the fixture against its
+  committed `.ncodesum`:
+
+  | Change disabled | `compress` | `vector` |
+  |---|---|---|
+  | the caller hand-over (`handover_site` → `None`) | still differs | still differs |
+  | — and letter B's S11 dispatch | **matches** | still differs |
+  | — and letter B's `ops_hold_self_update` `Return` arm | matches | **matches** |
+
+  So `compress` moved because a `RETURN OP(local, …)` in a builtin body now lowers in
+  place (letter B's S11), and `vector` moved because a function whose only
+  self-update is at a `RETURN` now reserves a self-update **scratch slot**, which
+  changes its frame layout even where the emitted call is otherwise the same. Both
+  are letter B working as designed.
+
+  They surfaced only here because **letter B's Phase 3 gate was scoped to
+  `collections`**, which has no `RETURN OP(local, …)` shape — that scoping was
+  correct for what B could see, and the full `all` sweep is the first run that
+  reaches the builtin bodies `compress` and `vector` pull in. Phase 3's rule is
+  corrected to: a diff is expected in a fixture with an approved hand-over site
+  (letter D) **or** a `RETURN OP(local, …)` (letter B); anything else is a bug.
 
 - **`helper-concat` cannot be made flat by this letter, and is landed as a pinned
   assertion rather than left ignored.** §1's first goal bullet lists it beside
