@@ -25,6 +25,11 @@
 '   projection gives them the least room; and once you have zoomed into the
 '   North Atlantic, particles seeded over the Pacific are pure waste.
 '
+' Particles come in pairs that chase each other. A leader is dropped somewhere
+' new; its follower is dropped on the very same spot half a lifetime later.
+' Because the field is still, the follower retraces the leader's path exactly,
+' so every streamline carries two comets, half a life apart, instead of one.
+'
 ' The swarm is module-level state rather than a value threaded through the
 ' frame. Every one of these lists is updated with the self-assigning shape -
 ' `xs = collections::set(xs, i, v)` - which updates the list in place instead of
@@ -74,7 +79,9 @@ FUNC particleLife AS Integer
   RETURN 190
 END FUNC
 
-' One particle per this many square pixels of window, within the bounds.
+' One streamline - a leader and its follower - per this many square pixels of
+' window, within the bounds. The bounds count streamlines too, so the swarm
+' holds twice as many particles.
 FUNC pixelsPerParticle AS Float
   RETURN 1100.0
 END FUNC
@@ -146,14 +153,19 @@ END FUNC
 '
 ' Parallel lists rather than a List OF Particle: a particle's trail is a dozen
 ' points, and a record holding a list per particle would be a thousand small
-' collections to allocate, copy and walk every frame. Here there are seven
+' collections to allocate, copy and walk every frame. Here there are nine
 ' lists, all sized once.
+'
+' Particles are stored in pairs: an even index is a leader, the odd index after
+' it is that leader's follower.
 
 MUT swarmLon AS List OF Float = []
 MUT swarmLat AS List OF Float = []
-MUT swarmAge AS List OF Integer = []      ' frames lived, counting from 0
+MUT swarmAge AS List OF Integer = []      ' frames lived, counting from 0; below 0, still waiting to start
 MUT swarmLife AS List OF Integer = []     ' frames this particle gets
 MUT swarmSpeed AS List OF Float = []      ' the wind it last sat in, m/s
+MUT swarmStartLon AS List OF Float = []   ' where this particle was last dropped
+MUT swarmStartLat AS List OF Float = []
 
 ' Trails, trailLength() plane points per particle, used as a ring buffer. Every
 ' particle advances on the same frame, so one shared write position serves the
@@ -167,10 +179,10 @@ FUNC particleCount AS Integer
   RETURN len(swarmLon)
 END FUNC
 
-' How many particles a window of this size should carry.
+' How many particles a window of this size should carry: two per streamline.
 FUNC countFor(v AS View) AS Integer
   LET area AS Float = v.width * v.height
-  RETURN math::clamp(math::floor(area / pixelsPerParticle()), minParticles(), maxParticles())
+  RETURN 2 * math::clamp(math::floor(area / pixelsPerParticle()), minParticles(), maxParticles())
 END FUNC
 
 ' A random Float in [0, 1).
@@ -191,13 +203,16 @@ FUNC birthplace(v AS View) AS Geo
 END FUNC
 
 ' Put particle i at a place, with its whole trail collapsed onto that one point
-' so it has nothing to draw until it has moved.
-SUB placeParticle(i AS Integer, g AS Geo, life AS Integer)
+' so it has nothing to draw until it has moved. A negative age holds it there,
+' unmoved and undrawn, for that many frames.
+SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
   swarmLon = collections::set(swarmLon, i, g.lon)
   swarmLat = collections::set(swarmLat, i, g.lat)
-  swarmAge = collections::set(swarmAge, i, 0)
+  swarmAge = collections::set(swarmAge, i, age)
   swarmLife = collections::set(swarmLife, i, life)
   swarmSpeed = collections::set(swarmSpeed, i, 0.0)
+  swarmStartLon = collections::set(swarmStartLon, i, g.lon)
+  swarmStartLat = collections::set(swarmStartLat, i, g.lat)
 
   LET p AS Plane = project(g)
   LET base AS Integer = i * trailLength()
@@ -208,19 +223,55 @@ SUB placeParticle(i AS Integer, g AS Geo, life AS Integer)
 END SUB
 
 ' A staggered life, so that a swarm seeded all at once does not expire all at
-' once and leave the map blank every particleLife() frames.
+' once and leave the map blank every particleLife() frames. Drawn once per pair,
+' when the swarm is seeded, and kept: a leader whose next life were shorter than
+' its last would be half-way along its new path before its follower had finished
+' the old one, and the pair would drift out of step.
 FUNC staggeredLife AS Integer
   RETURN particleLife() / 2 + math::rand(0, particleLife())
 END FUNC
 
-' Build a swarm of `count` particles scattered over the view. Called at startup
-' and again whenever the window changes size enough to want a different number.
+' Drop follower i on the spot its leader (i - 1) was last dropped, timed to start
+' half the leader's life behind it.
+'
+' A follower normally arrives with its leader less than half a life along, and
+' waits out the difference. It arrives late only when its leader was retired
+' early near a pole and dropped again while the follower was still out; then it
+' starts at once, and gives up as much of this life as it is late, so the next
+' drop finds the pair half a life apart again.
+SUB placeFollower(i AS Integer)
+  LET leader AS Integer = i - 1
+  LET life AS Integer = collections::get(swarmLife, leader)
+  LET late AS Integer = collections::get(swarmAge, leader) - life / 2
+  LET start AS Geo = Geo[lon := collections::get(swarmStartLon, leader), lat := collections::get(swarmStartLat, leader)]
+  IF late > 0 THEN
+    placeParticle(i, start, life - late, 0)
+  ELSE
+    placeParticle(i, start, life, late)
+  END IF
+END SUB
+
+' Drop particle i again once its life is over: a leader somewhere new, for the
+' same life it had, and a follower after its leader.
+SUB respawnParticle(i AS Integer, v AS View)
+  IF i MOD 2 = 1 THEN
+    placeFollower(i)
+  ELSE
+    placeParticle(i, birthplace(v), collections::get(swarmLife, i), 0)
+  END IF
+END SUB
+
+' Build a swarm of `count` particles - count / 2 leader and follower pairs -
+' scattered over the view. Called at startup and again whenever the window
+' changes size enough to want a different number.
 SUB seedSwarm(count AS Integer, v AS View)
   swarmLon = []
   swarmLat = []
   swarmAge = []
   swarmLife = []
   swarmSpeed = []
+  swarmStartLon = []
+  swarmStartLat = []
   trailX = []
   trailY = []
   trailHead = 0
@@ -231,6 +282,8 @@ SUB seedSwarm(count AS Integer, v AS View)
     swarmAge = collections::append(swarmAge, 0)
     swarmLife = collections::append(swarmLife, 0)
     swarmSpeed = collections::append(swarmSpeed, 0.0)
+    swarmStartLon = collections::append(swarmStartLon, 0.0)
+    swarmStartLat = collections::append(swarmStartLat, 0.0)
     FOR slot = 1 TO trailLength()
       trailX = collections::append(trailX, 0.0)
       trailY = collections::append(trailY, 0.0)
@@ -238,7 +291,11 @@ SUB seedSwarm(count AS Integer, v AS View)
   NEXT
 
   FOR i = 0 TO count - 1
-    placeParticle(i, birthplace(v), staggeredLife())
+    IF i MOD 2 = 1 THEN
+      placeFollower(i)
+    ELSE
+      placeParticle(i, birthplace(v), staggeredLife(), 0)
+    END IF
   NEXT
 END SUB
 
@@ -258,10 +315,15 @@ SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
 
   FOR i = 0 TO count - 1
     LET age AS Integer = collections::get(swarmAge, i) + 1
+    IF age <= 0 THEN
+      ' A follower still waiting for its leader to get half a life ahead.
+      swarmAge = collections::set(swarmAge, i, age)
+      CONTINUE FOR
+    END IF
     MUT lat AS Float = collections::get(swarmLat, i)
 
     IF age > collections::get(swarmLife, i) OR math::abs(lat) > 87.0 THEN
-      placeParticle(i, birthplace(v), staggeredLife())
+      respawnParticle(i, v)
       CONTINUE FOR
     END IF
 
