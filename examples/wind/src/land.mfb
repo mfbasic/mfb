@@ -12,7 +12,7 @@
 '
 ' The map is drawn at a level of detail that follows the view. However far in or
 ' out you are, the coastline on screen carries at most coastBudget() points: the
-' whole world gets the most important 2,500, and zooming in on Hawaii gives
+' whole world gets the most important 1,500, and zooming in on Hawaii gives
 ' Hawaii's own detail, down to everything the data has. Shapes are cut at the
 ' edge of the window, so land running off screen costs nothing.
 '
@@ -58,7 +58,7 @@ END FUNC
 
 ' The most coastline points the map puts on screen at once.
 FUNC coastBudget AS Integer
-  RETURN 2500
+  RETURN 1500
 END FUNC
 
 ' ---------------------------------------------------------------------------
