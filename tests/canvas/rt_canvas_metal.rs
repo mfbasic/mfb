@@ -853,3 +853,241 @@ fn a_space_in_a_text_run_does_not_shift_the_draws_after_it() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// bug-686: ordinary scenes that used to fall back to software must draw on Metal.
+//
+// Every test below asserts two things, in this order: that Metal drew the frame
+// (`gpuFrames` is not 0 — otherwise the pixel comparison would be the software renderer
+// against itself, and pass for no reason), and that what it drew agrees with the
+// software oracle within `Tolerance::GPU_DEFAULT`.
+// ---------------------------------------------------------------------------------------
+
+/// Build `source`, render it on both backends, and require that Metal drew it and
+/// agrees with software. `what` names the scene in the failure message.
+fn assert_metal_draws_like_software(name: &str, source: &str, what: &str) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build(name, source);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        software.pixels.chunks(4).any(|p| p != [0, 0, 0, 255]),
+        "the software render of {what} drew nothing, so the comparison would be vacuous",
+    );
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "{what} fell back to the software renderer instead of drawing on Metal (bug-686): \
+         {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal draws {what} differently from the software oracle: {diff}");
+    }
+}
+
+/// 5,000 small rectangles: past the old 4,096-quad frame cap (`CANVAS_MAX_FRAME_ITEMS`).
+const FIVE_THOUSAND_QUADS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 5000
+    LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat((k MOD 100) * 9), y := toFloat((k / 100) * 12), w := 7.0, h := 9.0, paint := canvas::fill(color::rgb((k * 7) MOD 256, (k * 13) MOD 256, 200))]
+    scene = collections::append(scene, r)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END SUB
+"#;
+
+#[test]
+fn a_scene_past_four_thousand_quads_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_5000_quads",
+        FIVE_THOUSAND_QUADS,
+        "a 5,000-rectangle scene",
+    );
+}
+
+/// The frame-edge scene above (200 rings × 200 edges = 40,000 edges), now expected to draw.
+#[test]
+fn forty_thousand_polygon_edges_draw_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_40k_edges",
+        TOO_MANY_FRAME_EDGES,
+        "200 translucent rings of 200 edges (40,000 edges)",
+    );
+}
+
+/// 2,100 gradient-filled rectangles: 4,200 stops, past the old 4,096-stop frame cap.
+const MANY_GRADIENTS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 2100
+    LET x AS Float = toFloat((k MOD 60) * 15)
+    LET y AS Float = toFloat((k / 60) * 18)
+    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := x, y := y], endPoint := canvas::Point[x := x + 12.0, y := y + 15.0], stops := stops]
+    LET r AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 12.0, h := 15.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := ramp }]
+    scene = collections::append(scene, r)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END SUB
+"#;
+
+#[test]
+fn a_scene_past_four_thousand_gradient_stops_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_gradient_stops",
+        MANY_GRADIENTS,
+        "2,100 gradient-filled rectangles (4,200 stops)",
+    );
+}
+
+/// The `pattern` helper the picture scenes share: a `w × h` RGBA image whose texels vary
+/// by position and `seed`, so a picture drawn from the wrong texels shows.
+const PATTERN: &str = r#"FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
+  MUT px AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < w * h
+    px = collections::append(px, toByte(((i MOD w) * 7 + seed) MOD 256))
+    px = collections::append(px, toByte(((i / w) * 5 + seed * 3) MOD 256))
+    px = collections::append(px, toByte((((i MOD w) + (i / w)) * 3) MOD 256))
+    px = collections::append(px, toByte(255))
+    i = i + 1
+  END WHILE
+  RETURN px
+END FUNC
+"#;
+
+/// A tilemap: 2,000 32×32 tiles drawn from TWO images. Counted per item the texels are
+/// 2,048,000, past the old 1M-texel frame cap; there are only 2,048 distinct texels.
+fn tilemap_scene() -> String {
+    format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\n\n{PATTERN}\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         RES a AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))\n  \
+         RES b AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 90))\n  \
+         LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+         MUT scene AS List OF canvas::DrawItem = []\n  \
+         MUT k AS Integer = 0\n  \
+         WHILE k < 2000\n    \
+         LET x AS Float = toFloat((k * 11) MOD 870)\n    \
+         LET y AS Float = toFloat((k * 7) MOD 610)\n    \
+         IF k MOD 2 = 0 THEN\n      \
+         LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := a, paint := white]\n      \
+         scene = collections::append(scene, p)\n    \
+         ELSE\n      \
+         LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := b, paint := white]\n      \
+         scene = collections::append(scene, p)\n    \
+         END IF\n    \
+         k = k + 1\n  \
+         END WHILE\n  \
+         canvas::present(scene)\n\
+         END SUB\n"
+    )
+}
+
+#[test]
+fn a_tilemap_of_two_thousand_tiles_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_tilemap",
+        &tilemap_scene(),
+        "2,000 32-pixel tiles from two images",
+    );
+}
+
+/// A 1920×1080 background scaled to the surface, plus one tile over it: 2,074,624
+/// texels, past the old 1M-texel frame cap even counted per distinct image.
+fn background_scene() -> String {
+    format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\n\n{PATTERN}\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         RES bg AS canvas::Image = canvas::createImage(1920, 1080, pattern(1920, 1080, 40))\n  \
+         RES tile AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))\n  \
+         LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+         LET back AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white]\n  \
+         LET front AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 64.0, h := 64.0, image := tile, paint := white]\n  \
+         canvas::present([back, front])\n\
+         END SUB\n"
+    )
+}
+
+#[test]
+fn a_full_hd_background_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_background",
+        &background_scene(),
+        "a 1920x1080 background picture under a tile",
+    );
+}
+
+/// Polygons past the old 256-edge per-polygon cap: a filled ring of 1,000 points, one of
+/// 4,000, a stroked ring of 600, a rotated ring of 500, and a self-intersecting star
+/// polygon {301/97} (even-odd fill), all on one surface.
+const LARGE_POLYGONS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float, wobble AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    LET rr AS Float = r + wobble * math::sin(a * 7.0) + wobble * 0.3 * math::sin(a * 53.0)
+    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+FUNC star(n AS Integer, k AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat((i * k) MOD n) * 6.283185307179586 / toFloat(n)
+    points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Polygon[points := ring(1000, 120.0, 130.0, 90.0, 12.0), paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET b AS canvas::DrawItem = canvas::Polygon[points := ring(4000, 340.0, 130.0, 90.0, 12.0), paint := canvas::fill(color::rgba(255, 160, 0, 200))]
+  LET c AS canvas::DrawItem = canvas::Polygon[points := ring(600, 560.0, 130.0, 90.0, 12.0), paint := canvas::stroke(color::rgb(120, 255, 90), 4.0)]
+  LET t AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 780.0, ty := 130.0]
+  LET d AS canvas::DrawItem = canvas::Polygon[points := ring(500, 0.0, 0.0, 90.0, 12.0), paint := WITH canvas::fill(color::rgb(230, 80, 200)) { transform := t }]
+  LET e AS canvas::DrawItem = canvas::Polygon[points := star(301, 97, 450.0, 440.0, 180.0), paint := canvas::fill(color::rgb(250, 250, 120))]
+  canvas::present([a, b, c, d, e])
+END SUB
+"#;
+
+#[test]
+fn polygons_past_two_hundred_fifty_six_edges_draw_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_large_polygons",
+        LARGE_POLYGONS,
+        "filled, stroked, transformed and self-intersecting polygons of 300-4,000 edges",
+    );
+}

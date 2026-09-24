@@ -213,3 +213,94 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          rebuild to every frame of every static canvas program.\n{last}",
     );
 }
+
+/// A program whose items are `count` static rectangles plus one circle that moves every
+/// frame, presented `frames` times. Every frame is a new scene (the circle moved), so
+/// every one renders, while only one item's geometry actually changed.
+fn static_bulk(count: usize, frames: usize) -> String {
+    format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 200, 255))\n  \
+         MUT bulk AS List OF canvas::DrawItem = []\n  \
+         MUT i AS Integer = 0\n  \
+         WHILE i < {count}\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620), w := 6.0, h := 6.0, paint := paint]\n    \
+         bulk = collections::append(bulk, r)\n    \
+         i = i + 1\n  \
+         END WHILE\n  \
+         MUT frame AS Integer = 0\n  \
+         WHILE frame < {frames}\n    \
+         MUT items AS List OF canvas::DrawItem = bulk\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 630.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n    \
+         items = collections::append(items, dot)\n    \
+         canvas::present(items)\n    \
+         frame = frame + 1\n  \
+         END WHILE\n  \
+         io::print(\"rendered\")\n\
+         END SUB\n"
+    )
+}
+
+/// `count` lines whose endpoints move every frame, presented `frames` times — the
+/// animation above, widened past the old 256-entry cache.
+fn moving_bulk(count: usize, frames: usize) -> String {
+    animating()
+        .replace(&format!("WHILE frame < {FRAMES}"), &format!("WHILE frame < {frames}"))
+        .replace(&format!("WHILE i < {ITEMS}"), &format!("WHILE i < {count}"))
+        .replace(&format!("frame * {ITEMS} + i"), &format!("frame * {count} + i"))
+}
+
+/// A scene larger than the old 256-entry cache whose items do not change builds each
+/// item's geometry once, not once per frame (bug-686 Phase 1).
+///
+/// `generations=` counts geometry builds (`__CANVAS_GEO_GENERATIONS`). On the compiler
+/// this was written against, a 1,000-item static scene built **2 per item per frame**:
+/// the 256-entry cache thrashed to a 100% miss rate, and the frame walked the scene
+/// twice (`__canvas_sceneOffsets`, then `__canvas_sceneDraws`), missing both times.
+/// After warm-up only the one moving circle may be rebuilt.
+#[test]
+fn a_static_scene_larger_than_the_old_cache_builds_its_geometry_once() {
+    const COUNT: usize = 1000;
+    const RUN: usize = 8;
+    let lines = stats("canvas_geo_static_bulk", &static_bulk(COUNT, RUN));
+    assert_eq!(lines.len(), RUN, "one frame per present: {lines:?}");
+    for pair in lines.windows(2).skip(1) {
+        let built = field(&pair[1], "generations") - field(&pair[0], "generations");
+        assert!(
+            built <= 1,
+            "a frame of {COUNT} unchanged rectangles plus one moving circle rebuilt \
+             {built} items' geometry. Only the circle changed, so at most 1 may be \
+             rebuilt once the cache is warm.\nbefore: {}\nafter:  {}",
+            pair[0],
+            pair[1],
+        );
+    }
+}
+
+/// A scene whose every item changes each frame builds each item's geometry exactly once
+/// per frame, not once per walk of the scene (bug-686 Phase 1).
+///
+/// Every item misses because its content changed, so `COUNT` builds a frame is the
+/// floor; the compiler this was written against built `2 × COUNT`, because
+/// `__canvas_sceneDraws` resolved every item again after `__canvas_sceneOffsets` had
+/// just built it.
+#[test]
+fn a_moving_scene_builds_each_item_once_per_frame() {
+    const COUNT: usize = 300;
+    const RUN: usize = 6;
+    let lines = stats("canvas_geo_moving_bulk", &moving_bulk(COUNT, RUN));
+    assert_eq!(lines.len(), RUN, "one frame per present: {lines:?}");
+    for pair in lines.windows(2) {
+        let built = field(&pair[1], "generations") - field(&pair[0], "generations");
+        assert!(
+            built <= COUNT as i64,
+            "a frame of {COUNT} changed lines built {built} geometries: each item must \
+             be built once per frame, not once per walk of the scene.\nbefore: {}\n\
+             after:  {}",
+            pair[0],
+            pair[1],
+        );
+    }
+}
