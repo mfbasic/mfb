@@ -53,6 +53,7 @@ mod func_group_stats;
 mod func_handle_bridge;
 mod func_installed_items;
 mod func_installed_layers;
+mod func_item_hash;
 pub(crate) mod func_load_font;
 mod func_load_image;
 mod func_measure_text;
@@ -1220,6 +1221,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_frame_nanos::register(&mut pkg);
     func_carried_hashes::register(&mut pkg);
     func_geo_build::register(&mut pkg);
+    func_item_hash::register(&mut pkg);
     func_enable_mouse::register(&mut pkg);
     func_poll_mouse::register(&mut pkg);
     func_get_bytes::register(&mut pkg);

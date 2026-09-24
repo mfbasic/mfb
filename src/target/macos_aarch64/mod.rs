@@ -95,6 +95,8 @@ impl NativeBackend for Backend {
                 "canvas.carriedHashes",
                 "canvas.geoBuild",
                 "canvas.geoSame",
+                "canvas.itemHash",
+                "canvas.sceneHashes",
                 "canvas.enableMouse",
                 "canvas.pollMouse",
                 "canvas.getBytes",

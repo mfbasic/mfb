@@ -1,4 +1,5 @@
-//! The native geometry builder (`canvas::geoBuild`) — bug-686.
+//! The native geometry builder (`canvas::geoBuild`) and the native structural item hash
+//! (`canvas::itemHash` / `canvas::sceneHashes`) — bug-686.
 //!
 //! `canvas::geoBuild` replaces the MFBASIC header builders for the common kinds, and its
 //! record must be **bit-identical** to theirs: the software rasteriser reads it, and its
@@ -6,6 +7,9 @@
 //! natively built record with the MFBASIC builders and counts the ones that differ in any
 //! bit. The stats line reports `geoNative=` (records the native builder produced),
 //! `geoVerified=` (records compared) and `geoVerifyMismatches=`.
+//!
+//! The hash half is checked by what it must do for the cache: an identical scene rebuilt
+//! from scratch — whose lists carry different headroom, so its bytes differ — must hit.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -212,4 +216,62 @@ fn the_native_geometry_matches_the_mfbasic_builders_bit_for_bit() {
         "the four declined items must still be built, by the MFBASIC path.\n{declined}"
     );
     assert_eq!(field(declined, "geoVerifyMismatches"), 0, "{declined}");
+}
+
+/// The item hash is STRUCTURAL: the same scene rebuilt from scratch — its point lists
+/// built by append (with headroom) instead of by literal, its paints rebuilt — hashes
+/// the same, so the geometry cache hits and nothing is rebuilt but the one item that
+/// moved. A hash over the item's bytes would miss on every item: the blocks differ in
+/// capacity and padding although the values are equal.
+#[test]
+fn a_rebuilt_identical_scene_hits_the_geometry_cache() {
+    let source = "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+         FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem\n  \
+         MUT items AS List OF canvas::DrawItem = []\n  \
+         MUT i AS Integer = 0\n  \
+         WHILE i < 50\n    \
+         LET x AS Float = toFloat(i) * 7.5\n    \
+         MUT pts AS List OF canvas::Point = [canvas::Point[x := x, y := 1.0], canvas::Point[x := x + 5.0, y := 9.0], canvas::Point[x := x, y := 12.0]]\n    \
+         IF grown THEN\n      \
+         pts = []\n      \
+         pts = collections::append(pts, canvas::Point[x := x, y := 1.0])\n      \
+         pts = collections::append(pts, canvas::Point[x := x + 5.0, y := 9.0])\n      \
+         pts = collections::append(pts, canvas::Point[x := x, y := 12.0])\n    \
+         END IF\n    \
+         LET poly AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(color::rgb(i, 100, 200))]\n    \
+         LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := 40.0, w := 5.0, h := 5.0, paint := canvas::fillStroke(color::rgb(1, 2, 3), color::rgb(4, 5, 6), 1.5)]\n    \
+         items = collections::append(items, poly)\n    \
+         items = collections::append(items, box)\n    \
+         i = i + 1\n  \
+         END WHILE\n  \
+         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+         items = collections::append(items, dot)\n  \
+         RETURN items\n\
+         END FUNC\n\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         canvas::present(scene(0, FALSE))\n  \
+         canvas::present(scene(1, TRUE))\n  \
+         canvas::present(scene(2, FALSE))\n  \
+         io::print(\"rendered\")\n\
+         END SUB\n";
+    let lines = stats("canvas_geo_native_rehash", source);
+    assert_eq!(lines.len(), 3, "one frame per present: {lines:?}");
+    assert_eq!(
+        field(&lines[0], "generations"),
+        101,
+        "the first frame builds its 101 items.\n{}",
+        lines[0]
+    );
+    for pair in lines.windows(2) {
+        let built = field(&pair[1], "generations") - field(&pair[0], "generations");
+        assert_eq!(
+            built, 1,
+            "a rebuilt scene equal in value to the last one must rebuild only the one \
+             item that moved; {built} were rebuilt, so equal items hashed differently.\n\
+             before: {}\nafter:  {}",
+            pair[0], pair[1],
+        );
+    }
+    assert_eq!(field(&lines[2], "geoVerifyMismatches"), 0, "{}", lines[2]);
 }

@@ -110,6 +110,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.carriedHashes",
     "canvas.geoBuild",
     "canvas.geoSame",
+    "canvas.itemHash",
+    "canvas.sceneHashes",
     "canvas.enableMouse",
     "canvas.pollMouse",
     "canvas.getBytes",

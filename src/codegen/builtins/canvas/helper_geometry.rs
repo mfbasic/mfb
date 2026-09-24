@@ -1206,6 +1206,13 @@ FUNC __canvas_hashText(acc AS Integer, text AS String) AS Integer
 END FUNC
 
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer
+  ' bug-686: every kind but `Text` and `Group` is hashed natively and structurally
+  ' (`func_item_hash.rs`) -- the arms below are only reached for those two. A kind is
+  ' hashed by exactly one of the two paths, so their keys never have to agree.
+  LET native AS Integer = canvas::itemHash(item)
+  IF native >= 0 THEN
+    RETURN native
+  END IF
   MATCH item
     CASE Rectangle(r)
       MUT h AS Integer = __canvas_hashStart(1)
