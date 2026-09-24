@@ -73,14 +73,19 @@ layout(std430, set = 0, binding = 0) readonly buffer Edges {
     int values[];
 } edges;
 
-// Where the glyph coverage region starts inside that same buffer. Kept in step with
-// `VULKAN_GLYPH_BASE_WORDS` by a unit test rather than by two hand-edited numbers.
-const int GLYPH_BASE = 65536;
-
-// Where the gradient region starts in that same buffer (plan-116-F), kept in step
-// with `VULKAN_GRADIENT_BASE_WORDS` by a unit test rather than by two hand-edited
-// numbers — the arrangement `GLYPH_BASE` already has.
-const int GRADIENT_BASE = 1114112;
+// Where the other regions start inside that same buffer, in words: glyph coverage and
+// picture texels, gradient stops (plan-116-F), and the polygon band index (bug-688).
+//
+// SPECIALIZATION CONSTANTS, not literals (bug-688). The pipeline feeds each one from
+// the Rust layout constant of the same region (`VULKAN_SPEC_CONSTANTS` in
+// `runtime/canvas/mod.rs`, through `VkSpecializationInfo`), so the layout is defined
+// once and this blob never has to be rebuilt because a cap before a region moved. They
+// were literals until then, and every cap was frozen by it. The default 0 is never
+// used: a pipeline built without the specialization data would read every region from
+// the edges, which `the_pipeline_specializes_every_region_base` rules out.
+layout(constant_id = 0) const int GLYPH_BASE = 0;
+layout(constant_id = 1) const int GRADIENT_BASE = 0;
+layout(constant_id = 2) const int BAND_BASE = 0;
 
 layout(location = 0) out vec4 fragColor;
 

@@ -1,10 +1,10 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0,
-    MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
-    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    CANVAS_DRAW_ENTRY_WORDS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, METAL_MAX_FRAME_EDGES,
+    METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS,
+    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS,
+    VULKAN_MAX_FRAME_ITEMS,
 };
 
 /// The injected MFBASIC source as the compiler receives it — caps generated.
@@ -143,8 +143,8 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
              edge region cannot hold",
     );
     assert_eq!(
-        declared("__CANVAS_MAX_FRAME_ITEMS"),
-        CANVAS_MAX_FRAME_ITEMS,
+        declared("__CANVAS_VULKAN_MAX_FRAME_ITEMS"),
+        VULKAN_MAX_FRAME_ITEMS,
         "the Vulkan predicate admits a frame with more drawn quads than the item \
              buffer has blocks. The emitter stops publishing at capacity, so the \
              surplus items would silently not be drawn",
@@ -159,7 +159,7 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
     );
     assert!(
         body("metalRenderable").contains("quads > __CANVAS_METAL_MAX_FRAME_ITEMS")
-            && body("vulkanRenderable").contains("quads > __CANVAS_MAX_FRAME_ITEMS"),
+            && body("vulkanRenderable").contains("quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS"),
         "each predicate must test its own backend's quad cap",
     );
     assert_eq!(
@@ -174,13 +174,13 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
         "the predicate admits a frame whose glyph bitmaps Metal's glyph region \
              cannot hold",
     );
-    // plan-116-F. One number for both backends, because the gradient region is
-    // sized identically on each -- and the failure it prevents is worse than a
-    // dropped item: past the cap an item's first-stop index runs off the region,
-    // and the shader reads whatever the buffer holds there as a colour ramp.
+    // plan-116-F. The failure this prevents is worse than a dropped item: past the cap
+    // an item's first-stop index runs off the region, and the shader reads whatever the
+    // buffer holds there as a colour ramp. (One number for both backends until bug-686;
+    // each backend's own since bug-688.)
     assert_eq!(
-        declared("__CANVAS_MAX_FRAME_GRADIENT_STOPS"),
-        MAX_FRAME_GRADIENT_STOPS,
+        declared("__CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS"),
+        VULKAN_MAX_FRAME_GRADIENT_STOPS,
         "the predicate admits a frame whose gradient stops the buffer's third \
              region cannot hold, so one item's stops would be read as another's",
     );
@@ -194,9 +194,26 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
     assert!(
         body("metalRenderable").contains("gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS")
             && body("vulkanRenderable")
-                .contains("gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS"),
+                .contains("gradientStops > __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS"),
         "each predicate must test its own backend's gradient-stop cap",
     );
+}
+
+/// Both emitters upload a picture's pixel block ONCE per frame and point every later
+/// picture of it at those texels (`emit_picture_lookup` in `metal.rs` and `vulkan.rs`),
+/// so both predicates must count each distinct block once against the glyph region.
+/// Counting per item declines a 2,000-tile tilemap that uses 2,048 texels (bug-686 H);
+/// counting per block against an emitter that copied per item would let the region
+/// overflow. bug-688 moved Vulkan from the second pair to the first.
+#[test]
+fn both_predicates_count_each_picture_block_once() {
+    for predicate in ["metalRenderable", "vulkanRenderable"] {
+        assert!(
+            body(predicate).contains("IF NOT collections::contains(pictures, block) THEN"),
+            "__canvas_{predicate} counts a picture's texels per item, but its emitter \
+             uploads each distinct block once per frame",
+        );
+    }
 }
 
 /// The caps are generated into the MFBASIC text from the Rust constants (bug-686), so
