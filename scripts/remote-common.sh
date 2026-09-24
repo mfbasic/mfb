@@ -2,7 +2,7 @@
 # executable). plan-131-D.
 #
 # Sourced by test-winprocess.sh, test-appimage.sh, linux-runtime-proof.sh, test-winapp.sh,
-# test-canvas-vulkan.sh and test-macapp.sh:
+# test-canvas-vulkan.sh, test-canvas-gpu-rows.sh and test-macapp.sh:
 #
 #     . "$(dirname "$0")/remote-common.sh"
 #
