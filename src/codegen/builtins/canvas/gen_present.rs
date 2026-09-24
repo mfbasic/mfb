@@ -268,7 +268,7 @@ pub(crate) fn emit_publish(
     // arena is per-thread, so the graphics thread must never do it.
     emit_reclaim_retired(builder, &scene, &symbol)?;
     let oom = builder.label(&format!("{tag}_retire_oom"));
-    emit_retire_displaced(builder, &scene, &oom, &symbol)?;
+    emit_retire_displaced(builder, &scene, PUBLISH_RETIRES, &oom, &symbol)?;
 
     // Publish: this shape's pointer and count, the other shape's pair cleared, then
     // the revision. The revision is written LAST and is what a reader gates on, so a
@@ -363,7 +363,7 @@ pub(crate) fn emit_load_frame_counter(
 ///
 /// A zero pointer frees nothing, so the caller does not have to prove the slot is
 /// occupied.
-fn emit_free_block(
+pub(crate) fn emit_free_block(
     builder: &mut CodeBuilder,
     type_: &ParameterType,
     slot: usize,
@@ -424,7 +424,7 @@ fn retired_block_types() -> [(usize, ParameterType); 3] {
 /// node behind it and the whole chain goes at once. That is never more eager than a
 /// per-node gate — no node is freed before its own stamp would allow — and it holds an
 /// older node at most one extra frame.
-fn emit_reclaim_retired(
+pub(crate) fn emit_reclaim_retired(
     builder: &mut CodeBuilder,
     scene: &VirtualRegister,
     symbol: &str,
@@ -507,8 +507,39 @@ fn emit_reclaim_retired(
     Ok(())
 }
 
-/// Push the blocks this publish displaces onto the retirement list, stamped with the
+/// What a **publish** displaces: the items and the layers, and deliberately **not** the
+/// hashes.
+///
+/// One slot, one owner — the call that overwrites a slot is the call that retires what
+/// was in it. A publish overwrites both of these: one gets the new scene, the other is
+/// zeroed, because a scene is exactly one shape at a time.
+///
+/// It does **not** overwrite the hashes. `__canvas_present` publishes them immediately
+/// afterwards through `canvas::publishHashes` (and `__canvas_presentLayers` likewise),
+/// and that call retires them. Retiring them here as well put the same block on the
+/// retirement list twice — the pointer is still in the slot when `publishHashes` reads
+/// it, because nothing cleared it — and the drain freed it twice. That is a SIGSEGV,
+/// measured, not a leak.
+pub(crate) const PUBLISH_RETIRES: &[(usize, usize)] = &[
+    (CANVAS_RETIRE_NODE_ITEMS, CANVAS_SCENE_ITEMS_OFFSET),
+    (CANVAS_RETIRE_NODE_LAYERS, CANVAS_SCENE_LAYERS_OFFSET),
+];
+
+/// What `canvas::publishHashes` displaces: the hash block, and only it (bug-684).
+///
+/// Naming the other two here would be the mirror-image mistake: a hash publish does not
+/// replace the items or the layers, so those pointers are still the installed scene's,
+/// and retiring them would hand the drain blocks the renderer is still being told to
+/// read.
+pub(crate) const HASHES_RETIRES: &[(usize, usize)] =
+    &[(CANVAS_RETIRE_NODE_HASHES, CANVAS_SCENE_HASHES_OFFSET)];
+
+/// Push the blocks this call displaces onto the retirement list, stamped with the
 /// frame counter.
+///
+/// `live` names the `(node offset, scene offset)` pairs to capture — every slot the
+/// caller is about to overwrite, and only those. See [`PUBLISH_RETIRES`] and
+/// [`HASHES_RETIRES`].
 ///
 /// Nothing installed yet — the first publish of a program, and the first of each shape
 /// — displaces nothing and allocates no node, so a program that presents once pays for
@@ -517,25 +548,20 @@ fn emit_reclaim_retired(
 /// A failed node allocation branches to `oom`, which the caller lays out **after** its
 /// own `ret`: it is the cold path, and inlining it here would put a second `ret` inside
 /// the publish body between the publish label and the exit that reports TRUE.
-fn emit_retire_displaced(
+pub(crate) fn emit_retire_displaced(
     builder: &mut CodeBuilder,
     scene: &VirtualRegister,
+    live: &[(usize, usize)],
     oom: &str,
     symbol: &str,
 ) -> Result<(), String> {
     let nothing = builder.label("canvas_retire_nothing");
     let allocated = builder.label("canvas_retire_allocated");
 
-    let live = [
-        (CANVAS_RETIRE_NODE_ITEMS, CANVAS_SCENE_ITEMS_OFFSET),
-        (CANVAS_RETIRE_NODE_HASHES, CANVAS_SCENE_HASHES_OFFSET),
-        (CANVAS_RETIRE_NODE_LAYERS, CANVAS_SCENE_LAYERS_OFFSET),
-    ];
-
-    // `items | hashes | layers == 0` is "this publish displaces nothing".
+    // Zero for every slot the caller named is "this call displaces nothing".
     let any = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&any, "Integer", "0"));
-    for (_, offset) in live {
+    for (_, offset) in live.iter().copied() {
         let installed = builder.temporary_vreg();
         builder.emit(abi::load_u64(&installed, scene, offset));
         builder.emit(abi::or_registers(&any, &any, &installed));
@@ -556,10 +582,22 @@ fn emit_retire_displaced(
     let node = builder.temporary_vreg();
     builder.emit(abi::move_register(&node, abi::mfb_return(1)));
 
+    // Zero EVERY block field first, then fill the ones this call displaces.
+    //
+    // `_mfb_arena_alloc` hands back whatever was last in the block, so a field left
+    // unwritten holds garbage — and the drain reads all three, freeing any that is
+    // non-zero. A hashes-only retirement writes one of the three, so the other two
+    // would be freed as if they were collection blocks: a size computed from arbitrary
+    // bytes, handed to `_mfb_arena_free`. Measured as a SIGSEGV on the worker inside
+    // the next frame's walk, not as a bad number.
+    for (node_offset, _) in retired_block_types() {
+        builder.emit(abi::store_u64(abi::ZERO, &node, node_offset));
+    }
+
     // The displaced pointers are read AFTER the allocation: the call clobbers the
     // argument and return banks, and reading them first would park three values across
     // it for nothing.
-    for (node_offset, scene_offset) in live {
+    for (node_offset, scene_offset) in live.iter().copied() {
         let displaced = builder.temporary_vreg();
         builder.emit(abi::load_u64(&displaced, scene, scene_offset));
         builder.emit(abi::store_u64(&displaced, &node, node_offset));

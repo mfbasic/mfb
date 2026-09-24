@@ -176,11 +176,12 @@ bypasses it entirely.
   `setGroup` every frame at 60 Hz: `arena.0.live_bytes` 52,992 at 120 frames and
   52,992 at 240 — exactly flat.
 
-  The audit did turn up a **separate** leak, filed as `bugs/bug-684-*`: a program
-  that calls `setGroup` per frame *and* presents a scene naming that group grows
-  48 bytes (one block) per present, identically under `MFB_CANVAS_SYNC` and
-  free-running. Neither half does it alone, and both `present` paths are flat after
-  this fix, so it is not this bug's mechanism and is not fixed here.
+  The audit did turn up a **separate** leak, which became `bugs/bug-684-*` and is now
+  also fixed: a program that calls `setGroup` per frame *and* presents a scene naming
+  that group lost one block per present. It is not in `gen_group.rs` either — it is
+  `canvas::publishHashes` dropping the hash block it displaced, which survived only
+  because a following `publishScene` used to retire that slot on its behalf. See bug-684
+  for the diagnosis; it also corrects two latent faults in the code this bug added.
 - Every `Mode.Canvas` program that presents per frame — `examples/wind`
   (blocked), and any animation.
 - Static programs that present once — **unaffected**, one leaked copy at most.
@@ -278,7 +279,7 @@ does the publish return" ambiguous and broke
 
 Acceptance: met — all three rows pass, under `MFB_CANVAS_SYNC` and free-running;
 `rt_canvas_graphics_thread` and `rt_canvas_group_ownership` green.
-Commit: 58f72a602 (+ 8a1b0e0 for the out-of-line OOM path)
+Commit: 58f72a602, 6e8ca07f0 (the out-of-line OOM path)
 
 ### Phase 4 — validation
 
@@ -287,9 +288,10 @@ Commit: 58f72a602 (+ 8a1b0e0 for the out-of-line OOM path)
 - [x] `tests/canvas/rt_canvas_present_deep_copy.rs` still green (it pins the
       copy semantics this must not change).
 - [x] Re-run the reproduction: all three modes flat.
-- [ ] `examples/wind` holds steady RSS for five minutes — **not run**; see
-      Deviations in the STATUS block.
-Commit: —
+- [x] `examples/wind` holds steady RSS for five minutes: 87,072 KB at 3 s, then
+      87,008 KB at every 20-second sample from 1 min to 5 min 08 s. It grew ~20 MB/s
+      before.
+Commit: 5236e5a82, 7ac650722
 
 Re-run of the reproduction on the fixed compiler, `arena.0.live_bytes`, paced at
 60 Hz:
@@ -327,7 +329,13 @@ re-baselined:
 ## Open Decisions
 
 - Retirement list vs. blocking present — recommended: **retirement list**, for
-  the reasons in Fix Design. (§Fix Design)
+  the reasons in Fix Design. (§Fix Design) **Settled: the retirement list.**
+  Blocking was never reachable: `present` is not rate-limited to one call per
+  rendered frame, and the renderer re-reads the installed pointer at arbitrary
+  points inside a frame (`__canvas_sceneDraws` and `__canvas_sceneOffsets` each call
+  `canvas::installedItems`), so every block displaced since the last frame tick is
+  one a render in flight may be holding. The count that has to be held is whatever
+  the schedule produced, and only a list can hold it.
 
 ## Summary
 
@@ -335,3 +343,56 @@ Leak 1 is small and safe. The risk is entirely in Phase 3: retirement exists to
 prevent a use-after-free on a block the renderer is still reading, so a fix that
 frees too eagerly trades a leak for a crash. The drain gate must survive
 unchanged; only the number of blocks it can hold changes.
+
+## STATUS: FIXED (7ac650722)
+
+Both documented leaks are gone and `canvas::present` is byte-exactly flat on both
+its exits. `arena.0.live_bytes` at 120 / 240 / 480 presents, paced at 60 Hz:
+
+| row | 120 | 240 | 480 |
+| --- | --- | --- | --- |
+| unchanged scene (`MFB_CANVAS_SYNC`) | 37,072 | 37,072 | 37,072 |
+| changing scene (`MFB_CANVAS_SYNC`) | 53,536 | 53,536 | 53,536 |
+
+Before the fix the same rows were linear at 16,048 and 21,060 bytes per present.
+`examples/wind` — the example this blocked — holds 87 MB for five minutes, against
+~20 MB/s of growth.
+
+Landed in 58f72a602, 6e8ca07f0, 5236e5a82, 7ac650722. Full suite green
+(`cargo test`), including the artifact gate at 2116 goldens and 0 diffs.
+
+### Deviations from the plan as written
+
+- **The regression tests pace at 60 Hz and the `moving` row presents twice per
+  frame.** Both were forced by measurement rather than chosen; see Phase 1. The
+  short version is that an unpaced present loop legitimately holds thousands of
+  retirements — that is the design, not a leak — and that one paced present per
+  frame does not reproduce leak 2 with a scene light enough to test quickly.
+- **The test measures `arena.0.live_bytes` from the `--debug` report, not RSS.**
+  The plan said "allocation/RSS flat after warm-up". The arena counter is an exact
+  byte count of what was allocated and never returned, so the assertion needs no
+  warm-up and no smoothing, and the failure message can name the per-present cost.
+- **`gen_group.rs` is untouched.** The audit Phase 1 asked for says it does not
+  share the mechanism — see Blast Radius. It did surface a *different* leak, written up
+  and fixed as `bugs/bug-684-*`: `canvas::publishHashes` drops the hash block it
+  displaces. bug-684 also corrects two latent faults in the code *this* bug added — a
+  retirement node that only initialised the fields its caller named, and a hashes slot
+  retired by `publishScene` as well as by the call that actually overwrites it. Both
+  were harmless while `emit_publish` was the only caller and became crashes the moment
+  it was not.
+- **Three tests were corrected** (listed under Phase 4), each disproved by the layout
+  change rather than re-baselined. Two were pinned to the four retirement words that
+  no longer exist; the third discriminated scene stores from retirement stores *by
+  offset*, which the node layout made ambiguous.
+- **One addition the plan did not anticipate:** the retirement node allocation can
+  fail. That path frees the fresh copy and raises `ErrOutOfMemory`, emitted out of
+  line after the publish exit.
+
+### What to watch
+
+The retirement list is bounded by **presents per rendered frame**, not by a constant.
+A program that presents in a tight loop against a slow renderer will hold every scene
+it published since the last frame tick — by construction, because each of them may be
+the one being read. That is the same bound the single slot claimed to have and did not
+honour; it is now real, but it is not a fixed ceiling, and a program that wants a fixed
+ceiling has to pace its presents.
