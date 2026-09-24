@@ -36,6 +36,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_blit_surface;
+mod func_carried_hashes;
 mod func_create_image;
 mod func_destroy_font;
 mod func_destroy_image;
@@ -1213,6 +1214,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_get_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
     func_frame_nanos::register(&mut pkg);
+    func_carried_hashes::register(&mut pkg);
     func_enable_mouse::register(&mut pkg);
     func_poll_mouse::register(&mut pkg);
     func_get_bytes::register(&mut pkg);

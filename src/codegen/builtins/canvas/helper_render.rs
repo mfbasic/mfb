@@ -898,8 +898,30 @@ END FUNC"#;
 /// renderer needs no shape-specific hash lookup.
 #[rustfmt::skip]
 const HASH_SCENE: &str =
-r#"FUNC __canvas_hashScene(items AS List OF DrawItem) AS List OF Integer
-  MUT out AS List OF Integer = []
+r#"' bug-686: `carried` is `canvas::carriedHashes(items)`, taken before the publish --
+' the installed hash for every item whose bytes did not change, `-1` for the rest. Only
+' the `-1`s are hashed, and only they are copied out of the list, so re-presenting a
+' mostly-unchanged scene costs the worker a native byte compare per item instead of a
+' hash. `items` and `carried` have the same length by construction.
+FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) AS List OF Integer
+  MUT out AS List OF Integer = carried
+  LET count AS Integer = len(items)
+  IF len(out) = count AND count > 0 THEN
+    ' Never read: every index below `count` is present. A group naming nothing
+    ' would draw nothing, so it is also a harmless value if it ever were.
+    LET none AS DrawItem = Group[name := "", dx := 0.0, dy := 0.0]
+    MUT i AS Integer = 0
+    WHILE i < count
+      IF collections::getOr(out, i, 0 - 1) < 0 THEN
+        LET item AS DrawItem = collections::getOr(items, i, none)
+        LET h AS Integer = __canvas_hashItem(item)
+        out = collections::set(out, i, h)
+      END IF
+      i = i + 1
+    END WHILE
+    RETURN out
+  END IF
+  out = []
   FOR EACH item IN items
     out = collections::append(out, __canvas_hashItem(item))
   NEXT

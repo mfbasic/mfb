@@ -162,6 +162,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.getSize",
     "canvas.didResize",
     "canvas.frameNanos",
+    "canvas.carriedHashes",
     "canvas.enableMouse",
     "canvas.pollMouse",
     "canvas.getBytes",

@@ -91,6 +91,7 @@ impl NativeBackend for Backend {
                 "canvas.getSize",
                 "canvas.didResize",
                 "canvas.frameNanos",
+                "canvas.carriedHashes",
                 "canvas.enableMouse",
                 "canvas.pollMouse",
                 "canvas.getBytes",

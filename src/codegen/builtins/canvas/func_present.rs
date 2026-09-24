@@ -132,12 +132,15 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
     canvas::groupReclaim(due)
     due = canvas::nextReclaimableGroup()
   END WHILE
+  ' bug-686: the hashes of the items that did not change, carried from the scene
+  ' installed NOW -- so this must come before `publishScene` replaces it.
+  LET carried AS List OF Integer = canvas::carriedHashes(items)
   LET installed AS Boolean = canvas::publishScene(items)
   LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
   __CANVAS_LAST_GROUP_SIG = sig
   IF installed OR moved THEN
-    canvas::publishHashes(__canvas_hashScene(items))
+    canvas::publishHashes(__canvas_hashScene(items, carried))
     __canvas_ensureGraphics()
     canvas::signalRedraw()
     canvas::syncFrame()
