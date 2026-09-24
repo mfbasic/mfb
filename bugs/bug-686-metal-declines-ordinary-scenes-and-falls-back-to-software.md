@@ -1,7 +1,7 @@
 # bug-686: Metal declines ordinary scenes to software — an obsolete per-polygon cap, frame caps a real scene exceeds, and a pipeline that cannot feed the GPU
 
 Last updated: 2026-09-23
-Effort: x-large (1d–3d)
+Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness
 
@@ -162,8 +162,9 @@ cache is 256 entries (`__CANVAS_GEO_CAPACITY`) against scenes of thousands.
   two that can drift.
 - **(3)** The shader's region bases derive from the buffer-layout constants
   rather than being literals, so a cap change cannot silently desynchronise.
-- **(4)** Metal sustains 60 fps on a scene of millions of triangles. See the
-  honesty note below — this one is an architecture change, not a constant.
+- **(4)** Metal sustains 60 fps on a scene of millions of triangles, reached by
+  moving the geometry cache and the draw batching native and off the arena —
+  Phases 5-8.
 - **(5)** `examples/gpu` exists and measures all of the above.
 
 ### Non-goals (must NOT change)
@@ -199,15 +200,46 @@ cache is 256 entries (`__CANVAS_GEO_CAPACITY`) against scenes of thousands.
 Phases 1–3 are constants and plumbing and are tractable. Phase 4 is not, and the
 document should say so rather than imply a cap change buys it.
 
-**On goal (4), honestly:** 5,000,000 triangles at 60 fps is ~3 ns per triangle
-of CPU budget. The pipeline currently spends ~29,000 ns per item, in MFBASIC,
-rebuilding geometry twice per frame. No cap, cache size or constant closes a
-four-order-of-magnitude gap. Reaching it means the graphics thread stops doing
-per-item work in MFBASIC per frame: the scene crosses the ring as a flat native
-buffer, geometry is built natively and only for items that changed, and static
-geometry is uploaded once and re-instanced rather than re-derived. That is a
-plan, not a bug fix, and Phase 5 exists to size it against real numbers from
-`examples/gpu` rather than against a guess.
+**On goal (4): the geometry cache and the draw batching move native.** That is
+what the graphics thread was for, and it is not what it does. Today
+`__canvas_renderLoop`, `__canvas_renderFrame`, `__canvas_sceneOffsets`,
+`__canvas_sceneDraws`, `__canvas_geometryFor` and the whole software rasteriser
+are MFBASIC helper source (`RegistryHelper` string constants in
+`src/codegen/builtins/canvas/helper_*.rs`), compiled and run on that thread over
+arena-allocated `List OF Float` / `List OF Integer`, a `collections::getOr` call
+per element. The graphics trampoline pins an arena-state register specifically so
+they can (`emit_graphics_trampoline`, `runtime/canvas/mod.rs:846` — its own
+comment says this "is what gives the loop its own geometry cache").
+
+5,000,000 triangles at 60 fps is ~3 ns of CPU per triangle. The pipeline spends
+~29,000 ns per item and rebuilds each one twice a frame. That gap is not a cap,
+a cache size or a constant — it is the cost model of the language the renderer
+is written in, applied per element, in the hot loop.
+
+The migration, in dependency order:
+
+* **The ring boundary first.** The scene reaches the graphics thread as MFBASIC
+  `List OF DrawItem` blocks that it reads *as MFBASIC values*, which is the only
+  reason it needs an arena at all. `canvas::present` (worker side, stays
+  MFBASIC — it is the language-facing API) serialises into a flat, fixed-stride
+  native buffer; the graphics thread reads that with no arena and no
+  `collections::`.
+* **The geometry cache.** A native open-addressed `hash -> offset` table over a
+  flat `Vec<f32>`, process-global rather than arena-resident, replacing
+  `__CANVAS_GEO_HASHES/OFFSETS/COUNTS/LASTUSED/DATA` and the 256-entry
+  `__CANVAS_GEO_CAPACITY` that makes every real scene thrash to a 100% miss rate.
+* **Geometry generation.** `__canvas_headerFor` / `__canvas_tailFor` per
+  `DrawItem` kind, natively, writing straight into that buffer.
+* **The draw batching.** `__canvas_sceneDraws`, `__canvas_pushOneDraw`,
+  `__canvas_drawsJoin` and the instance assignment: run-building natively, and —
+  the actual throughput win — geometry that did not change is **not rebuilt**.
+  `generations` must fall from ~1.9 per item per frame to ~0 for a static scene.
+* **The software rasteriser** last, since it is the oracle and only runs when a
+  backend declines.
+
+**The acceptance test is mechanical.** Delete the arena-state pinning from
+`emit_graphics_trampoline`. If the graphics thread still runs, nothing on it is
+MFBASIC any more. Today it would fault immediately.
 
 ## Phases
 
@@ -258,10 +290,45 @@ Commit: —
 Acceptance: one command reproduces every row in this document.
 Commit: —
 
-### Phase 5 — size the throughput work
+### Phase 5 — the scene crosses the ring as a native buffer
 
-- [ ] With `examples/gpu` in hand, measure where the per-item budget goes and
-      write the plan for goal (4). Do not start it from this document.
+- [ ] `canvas::present` serialises the published scene into a flat fixed-stride
+      native block alongside the existing MFBASIC one; the graphics thread reads
+      the native one. Both exist until Phase 8 retires the MFBASIC reader.
+
+Acceptance: goldens byte-identical; `examples/gpu --compare` clean; the frame
+breakdown shows the scene walk no longer touching the arena.
+Commit: —
+
+### Phase 6 — the geometry cache and generation go native
+
+- [ ] Native `hash -> offset` table plus a flat float arena, replacing the five
+      `__CANVAS_GEO_*` globals and `__CANVAS_GEO_CAPACITY`.
+- [ ] `headerFor`/`tailFor` per `DrawItem` kind, natively.
+
+Acceptance: goldens byte-identical; per-item geometry cost drops by an order of
+magnitude on `examples/gpu`; a static scene reports `generations` 0 after warm-up.
+Commit: —
+
+### Phase 7 — native batching, and stop rebuilding what did not change
+
+- [ ] `sceneDraws` / `pushOneDraw` / `drawsJoin` and instance assignment native.
+- [ ] An item whose content hash is unchanged since the last frame keeps its
+      geometry and its instance slot; only the changed ones are rebuilt and
+      re-uploaded.
+
+Acceptance: `generations` ~0 for a static scene and proportional to the *changed*
+item count for a moving one; `examples/gpu` sustains 60 fps at a scene size named
+in Phase 4's README.
+Commit: —
+
+### Phase 8 — the graphics thread is native
+
+- [ ] Port the software rasteriser, then delete the arena-state pinning from
+      `emit_graphics_trampoline`.
+
+Acceptance: the graphics thread runs with no arena; full canvas suite green;
+goldens byte-identical.
 Commit: —
 
 ## Validation Plan
@@ -287,6 +354,8 @@ constant, one hand-maintained offset. The risk in them is entirely that a cap
 and a shader offset must move together — get that wrong and nothing fails, the
 picture is just quietly incorrect, which is how this document's author produced
 two wrong frames before finding it. Phase 4 is the instrument that should have
-existed before any of this was touched. Goal (4) is real but is an architecture
-change to the graphics thread, and this bug deliberately stops short of
-pretending otherwise.
+existed before any of this was touched. Phases 5-8 are the architecture change
+goal (4) actually needs — the geometry cache and the draw batching move off
+MFBASIC and off the arena onto the graphics thread's own native code, which is
+what that thread exists for. The risk there is the ring boundary: until Phase 8
+both readers exist, and the goldens are what prove they agree.
