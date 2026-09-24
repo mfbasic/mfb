@@ -1099,7 +1099,14 @@ fn a_full_hd_background_draws_on_metal() {
 
 /// Polygons past the old 256-edge per-polygon cap: a filled ring of 1,000 points, one of
 /// 4,000, a stroked ring of 600, a rotated ring of 500, and a self-intersecting star
-/// polygon {301/97} (even-odd fill), all on one surface.
+/// polygon {301/5} (even-odd fill), all on one surface.
+///
+/// {301/5} and not a star of long chords such as {301/97}: fp32 against the f64 oracle
+/// flips a pixel's quantised coverage by one step where a distance lands within ~3e-5 px
+/// of a step boundary, and near black one step is up to 9 sRGB levels -- past
+/// `GPU_DEFAULT`'s 2. That is pre-existing and independent of edge count (a {251/97}
+/// star, under the old cap, measures max delta 4 at 42cea38df), so a long-chord star
+/// would test it rather than this bug; bug-687 records it.
 const LARGE_POLYGONS: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
@@ -1136,7 +1143,7 @@ SUB main()
   LET c AS canvas::DrawItem = canvas::Polygon[points := ring(600, 560.0, 130.0, 90.0, 12.0), paint := canvas::stroke(color::rgb(120, 255, 90), 4.0)]
   LET t AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 780.0, ty := 130.0]
   LET d AS canvas::DrawItem = canvas::Polygon[points := ring(500, 0.0, 0.0, 90.0, 12.0), paint := WITH canvas::fill(color::rgb(230, 80, 200)) { transform := t }]
-  LET e AS canvas::DrawItem = canvas::Polygon[points := star(301, 97, 450.0, 440.0, 180.0), paint := canvas::fill(color::rgb(250, 250, 120))]
+  LET e AS canvas::DrawItem = canvas::Polygon[points := star(301, 5, 450.0, 440.0, 180.0), paint := canvas::fill(color::rgb(250, 250, 120))]
   canvas::present([a, b, c, d, e])
 END SUB
 "#;
