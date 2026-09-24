@@ -97,6 +97,26 @@ Deliverable: the table below, filled in, with the command behind each number.
 For each (a)/(b) item Phase A finds, prototype the smallest change that removes it, and re-run A1. Candidates to confirm or kill, each a hypothesis until measured:
 
 - [ ] **B1 Moves into constructors and `append`.** Does `canvas::Polygon[points := ring(...)]` copy the returned list, even though a call result has no other owner? Does `items = append(items, it)` deep-copy `it`, even though `it` is dead after the line? plan-134-C's last-read analysis moves on bind/assign/return; check whether it covers constructor fields (`lower_value_stored`) and the in-place append item operand (`.ai/collections.md` "An accumulator threaded through a helper"). If it doesn't, the fix belongs in the compiler and changes no semantics. That is bin (a).
+      **Measured lead (examples/wind coastline load, release, 2026-09-24).**
+      - Building `List OF Ring`, where `TYPE Ring` = `points AS List OF Plane`,
+        `levels AS List OF Integer` and `bounds AS Box`: 6,836 rings, 434,309 points
+        total (63 per ring on average), took **3.1 s**, and **~3.0 s** of that was
+        `rings = collections::append(rings, ringOf(points, levels))`.
+      - Same probe, with that one append disabled: decode alone took **34 ms**, and
+        decode plus the per-point `points`/`levels` appends **101 ms**.
+      - Binding the ring to a local first (`LET ring AS Ring = ...` then
+        `append(rings, ring)`) changed nothing: 3.1 s.
+      - Loading half the rings (3,418 rings, 340,271 points) took 1.41 s, so the cost is
+        **not quadratic in ring count**. Yet it is ~450 µs per appended ring holding ~63
+        points, orders of magnitude above copying 63 points.
+      - The same data in four flat module-level lists loads in **242 ms**, projection
+        included. That fix is in `cbfd43b68`.
+      - Probe copies are in `/tmp/b686w/lodprobe` (`land-inline.mfb` and the variants in
+        this row).
+      - Questions for A2/N1–N4: what does each append of a record whose fields are lists
+        do? Is it a deep copy of the item, a re-walk of the whole list on the grow arm,
+        or a drop walker running over the previous `rings` block? Why does it scale with
+        the total data held and not with the item size?
 - [ ] **B2 List growth from `[]`.** 4 appends to an empty list is 1 allocation plus N grows. Measure the grow arms' first capacities. Try:
       - a first-grow capacity of 4 (or ≥ a small constant);
       - a literal-count presize when the loop bound is a constant.
