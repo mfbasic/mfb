@@ -138,8 +138,12 @@ nothing is read back to the CPU. The frame is read back into a CPU surface and b
 instead when something needs its pixels: a headless run (there is no window layer),
 damage mode (`MFB_CANVAS_DAMAGE`, which keeps the previous frame), a `--debug` build
 writing `MFB_CANVAS_DUMP`, or a frame with no drawable available. Software frames
-always take the CPU surface, and the Metal layer is hidden while they show.
+always take the CPU surface, and the Metal layer is hidden while they show. The
+offscreen target is created with `allowGPUOptimizedContents` off, so it is stored
+linearly and the readback is a copy: a GPU-compressed target is decompressed on the
+CPU inside `getBytes:`, which cost more than a millisecond per 900×640 frame.
 [[src/codegen/builtins/canvas/func_metal_present.rs:lower_metal_present_scene]]
+[[src/target/macos_aarch64/app/metal.rs:MTL_GPU_OPTIMIZED_CONTENTS]]
 
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
