@@ -114,7 +114,15 @@ impl<'a> FileParser<'a> {
         allow_else_terminator: bool,
     ) -> bool {
         if self.is_statement_end() {
-            self.skip_separators();
+            if allow_else_terminator {
+                // An inline IF's THEN statement: its line ends the inline IF. Only
+                // same-line `:` separators are skipped, so the caller's ELSE check
+                // sees the newline and an ELSE on a following line stays with the
+                // enclosing block IF (§10). The block loop skips the newline.
+                while self.match_any(&[TokenKind::Colon]) {}
+            } else {
+                self.skip_separators();
+            }
             return true;
         }
         if allow_else_terminator && self.check_keyword(Keyword::Else) {

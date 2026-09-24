@@ -2795,3 +2795,61 @@ fn parse_leaves_a_malformed_member_path_to_its_own_diagnostic() {
     // declines it and the ordinary syntax diagnostic reports the statement.
     assert!(try_parse("SUB main()\n  a.b. = c\nEND SUB\n").is_err());
 }
+
+// ---- an inline IF ends at its line: an ELSE on the next line is the enclosing block IF's ----
+// `consume_simple_statement_end` skipped the newline after an inline IF's THEN
+// statement, so `parse_if_statement` then claimed the enclosing block's ELSE as
+// the inline IF's own, and the statement it expected after that ELSE was the
+// newline: "parser expected an expression" on valid code (§10 gives an inline IF
+// only a same-line ELSE).
+
+#[test]
+fn parse_gives_a_next_line_else_to_the_enclosing_block_if() {
+    let file = try_parse(
+        "SUB main()\n  IF a THEN\n    IF b THEN n = 5\n  ELSE\n    n = 7\n  END IF\nEND SUB\n",
+    )
+    .expect("an inline IF followed by the block's ELSE parses");
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function item");
+    };
+    let Statement::If {
+        then_body,
+        else_body,
+        ..
+    } = &function.body[0]
+    else {
+        panic!("expected the block IF");
+    };
+    assert_eq!(then_body.len(), 1);
+    let Statement::If {
+        else_body: inner_else,
+        ..
+    } = &then_body[0]
+    else {
+        panic!("expected the inline IF inside the THEN block");
+    };
+    assert!(
+        inner_else.is_empty(),
+        "the inline IF has no ELSE of its own"
+    );
+    assert_eq!(else_body.len(), 1, "the block IF keeps its ELSE branch");
+}
+
+#[test]
+fn parse_still_binds_a_same_line_else_to_the_inline_if() {
+    let file = try_parse("SUB main()\n  IF b THEN n = 5 ELSE n = 7\nEND SUB\n")
+        .expect("inline IF with a same-line ELSE parses");
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function item");
+    };
+    let Statement::If {
+        then_body,
+        else_body,
+        ..
+    } = &function.body[0]
+    else {
+        panic!("expected the inline IF");
+    };
+    assert_eq!(then_body.len(), 1);
+    assert_eq!(else_body.len(), 1);
+}
