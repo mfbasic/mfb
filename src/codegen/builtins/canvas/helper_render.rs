@@ -72,9 +72,14 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     END IF
     di = di + 1
   END WHILE
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Kept only for damage mode, the one reader (`__canvas_damageFor` answers a full
+  ' redraw otherwise): the assignment is a whole-frame copy -- 20 MB at 2880x1800,
+  ' measured at 6 ms a frame -- paid on every frame for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   __canvas_presentSurface(buffer, width, height)
 END FUNC"#;
 
@@ -757,9 +762,13 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   ' arguments as the Vulkan twin, and deliberately so -- the two backends walking
   ' different lists is how a group ends up correct on one and at the origin on the other.
   canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Damage mode only -- see `__canvas_renderScene`: a whole-frame copy otherwise paid
+  ' for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
   ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
   ' only frame a headless test renders.
@@ -867,9 +876,13 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset.
   canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Damage mode only -- see `__canvas_renderScene`: a whole-frame copy otherwise paid
+  ' for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
   ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
   ' only frame a headless test renders.

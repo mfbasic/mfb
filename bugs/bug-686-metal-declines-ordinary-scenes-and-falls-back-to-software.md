@@ -422,6 +422,25 @@ per-item work on every frame, so a group is a naming convenience, not retained G
 geometry. There is no mesh or triangle-list primitive. Every triangle is a `Polygon`
 `DrawItem` that is built, hashed, published, walked, cached and batched per frame.
 
+**(9) Found while fixing (4): a `presentLayers` scene draws nothing on Metal.**
+`__canvas_sceneDraws`, which builds the block list the Metal emitter draws, walked
+`canvas::installedItems()` only. A scene installed with `canvas::presentLayers` keeps
+every item in its layers, so it published no blocks at all: Metal drew an empty frame and
+reported `gpuFrames=1`. Measured on a two-layer scene: 0 lit pixels on Metal against
+software's 40,332 (`a_layered_scene_draws_its_layers_on_metal`). Fixed with (4), because
+the draw list is now laid out from the offsets `__canvas_sceneOffsets` resolved over
+items and layers alike.
+
+**(10) Found while measuring Phase 4: the Metal frame's fixed cost grows with the surface,
+about 10 ms per megapixel.** A one-rectangle scene on a 2880×1800 surface (a spike build
+with `DEFAULT_SURFACE_WIDTH/HEIGHT` raised) renders at 20 fps, against ~300 fps at
+900×640. Timed inside `__canvas_renderMetal` (`--debug`, per frame):
+`canvas::newSurface` allocating and filling 20 MB, 3.3 ms; `canvas::metalDrawScene`
+(render, `getBytes` readback, per-pixel BGRA→RGBA swizzle), 5.7 ms; `__CANVAS_KEPT =
+buffer`, a whole-frame copy, 6.1 ms; the headless present, 0.3 ms. A real window adds
+the CPU blit to the layer on top. The `__CANVAS_KEPT` copy exists only for damage mode
+and is now skipped otherwise; the rest is the readback architecture Phase 4 replaces.
+
 ## Goal
 
 - **(G1)** No ordinary scene falls back to software. The frame caps admit tens of thousands
