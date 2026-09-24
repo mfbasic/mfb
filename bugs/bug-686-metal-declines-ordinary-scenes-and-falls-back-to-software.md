@@ -178,7 +178,10 @@ cache is 256 entries (`__CANVAS_GEO_CAPACITY`) against scenes of thousands.
   attempt regenerated `examples/wind`'s coastline under 256 points per ring; that
   hides a renderer defect behind the example's data and is explicitly rejected.
 - **Canvas goldens must stay byte-identical** except where a phase deliberately
-  widens what the GPU accepts, and then only on rows that previously declined.
+  widens what the GPU accepts, and then only on rows that previously declined —
+  those are settled by the suite's tolerance comparator against the software
+  oracle. A phase may never relax a row from exact to tolerance without naming
+  the computation that changed.
 
 ## Blast Radius
 
@@ -260,7 +263,12 @@ Commit: —
 - [ ] Fix what Phase 1 found, then delete `__CANVAS_METAL_MAX_EDGES` (or set it
       to the frame-edge budget) and the Vulkan equivalent.
 
-Acceptance: Phase 1's test passes at 300, 1000 and 4000 edges; goldens unchanged.
+Acceptance: Phase 1's test passes at 300, 1000 and 4000 edges. The software
+goldens are byte-identical (nothing about the software path changed); the rows
+that now reach Metal instead of declining match software under the golden
+suite's *tolerance* comparator, not the exact one — the two paths differ by a
+few antialiasing bytes even on a 16-point polygon, so exact identity here would
+be a demand that the phase do nothing.
 Commit: —
 
 ### Phase 3 — one definition of the caps, and derived shader bases
@@ -273,7 +281,8 @@ Commit: —
 - [ ] Raise `CANVAS_MAX_FRAME_ITEMS` and the edge budgets to admit tens of
       thousands of quads; size `METAL_BUFFER_BYTES` accordingly.
 
-Acceptance: the probe table above has no cliff; goldens byte-identical;
+Acceptance: the probe table above has no cliff; software goldens byte-identical
+and newly-accepted GPU rows within tolerance, as in Phase 2;
 `the_metal_shader_region_bases_match_the_buffer_layout` passes by construction.
 Commit: —
 
@@ -306,8 +315,11 @@ Commit: —
       `__CANVAS_GEO_*` globals and `__CANVAS_GEO_CAPACITY`.
 - [ ] `headerFor`/`tailFor` per `DrawItem` kind, natively.
 
-Acceptance: goldens byte-identical; per-item geometry cost drops by an order of
-magnitude on `examples/gpu`; a static scene reports `generations` 0 after warm-up.
+Acceptance: goldens pass, exact where the arithmetic is unchanged and within
+tolerance where it is not — any row that moves off exact must be explained by a
+named change in how a value is computed, not accepted because it is small.
+Per-item geometry cost drops by an order of magnitude on `examples/gpu`; a
+static scene reports `generations` 0 after warm-up.
 Commit: —
 
 ### Phase 7 — native batching, and stop rebuilding what did not change
@@ -328,7 +340,7 @@ Commit: —
       `emit_graphics_trampoline`.
 
 Acceptance: the graphics thread runs with no arena; full canvas suite green;
-goldens byte-identical.
+goldens exact or within tolerance on the same terms as Phase 6.
 Commit: —
 
 ## Validation Plan
