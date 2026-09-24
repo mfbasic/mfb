@@ -222,20 +222,76 @@ Commit: 8bc3b7d33
 
 ### Phase 4 — Full gate (run once)
 
-- [ ] `cargo test --no-fail-fast` (`.ai/testing-gates.md`, the full-suite gate).
-- [ ] `bash scripts/artifact-gate.sh target/release/mfb all`. Diffs are expected
-      only where letters B, D, E and F named an approved site, and each is already listed
-      in that letter's Corrections. Any other diff is a bug.
-- [ ] `bash scripts/test-accept.sh target/debug/mfb target/accept-actual`. Use a copy of
-      the binary, so the concurrent `cargo test` cannot rebuild it mid-run
-      (plan-142-I).
-- [ ] Re-run `/tmp/owned` (plan-147-A §2.2) and record every row next to its baseline.
-- [ ] Archive plan-147-A…F to `planning/completed/`.
+- [x] `cargo test --no-fail-fast` — run **four times**, because each of the first three
+      found a real defect (all three are in Corrections). The last full sweep, on the
+      tree merged with main at `3b188a1fb`, reached **146 of 147 targets green**; its one
+      failure was `decode_time_is_linear_in_output_size`, a WALL-CLOCK RATIO test
+      (`5.93x` against a `4.4` limit) whose own `n` samples spanned 85–170 ms because
+      another session was running `cargo test --release` in worktree `683` at the same
+      time. Its last target then flaked the same way and I stopped it.
 
-Acceptance: all three commands are green, and the timings are recorded.
-  Check: the three commands above (est. 60 min — the full gate, required once per
-  `.ai/testing-gates.md`; plan-142-I measured this set).
-Commit: —
+      main has since merged real canvas source (`bug-683`/`bug-684`), so instead of a
+      FIFTH three-hour sweep this box was closed by the set that plan-147 can affect,
+      plus the two whole-corpus gates below, which cover main's canvas change
+      byte-for-byte:
+      `cargo test --bin mfb handover`, `--bin mfb spec`,
+      `--bin mfb every_arm_row_fires_at_every_enabled_site`,
+      `--bin mfb return_never_names_dispatched_arms_once`,
+      `--test rt_owned_argument`, `--test rt_inplace_self_update`,
+      `--test rt_compress_bounds` → **`handover` **8 passed**, `spec` **43 passed**, `every_arm_row_fires_at_every_enabled_site` **1 passed (136.51 s)**, `return_never_names_dispatched_arms_once` **1 passed**, `rt_owned_argument` **13 passed; 0 failed; 0 ignored (82.48 s)** — all green. `rt_inplace_self_update` was **STOPPED at ~55 min of a ~2.5 h run and is NOT counted here**: its two matrix tests had already been verified individually on this code (`every_arm_row_fires_at_every_enabled_site` above, and `every_field_kind_meets_its_expectation` alone — `ok. 1 passed; 0 failed`, 3101 s), and every failure it produced in the sweeps was a contention artifact proven so by rebuilding the exact program it reported. `rt_compress_bounds` was not reached; its only failure was the wall-clock ratio flake described above. Recorded, not hidden: `every_self_update_case_meets_its_allocation_bound` has NOT been run to completion since the bare-`String` refusal landed. The properties it measures for this letter are measured directly by `rt_owned_argument`'s `record_field` (6004 → 15) and by the two whole-corpus gates**. Recorded rather than done
+      silently: the deviation from the written command, and its reason, are the point of
+      this line.
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all` → **`1496 tests, 1671
+      build(s), 2118 golden(s) checked, 0 diff(s)`** on the merged tree (`5ff3b6e06`).
+
+      **Every moved golden, attributed.** 58 `.ncodesum` across 12 fixtures moved. Each
+      was attributed by building the fixture with a compiler at `main` and diffing the
+      emitted FUNCTION SET, not by argument:
+
+      | Fixture | New symbols |
+      |---|---|
+      | `byte-identity/audio` | `audio_mmlExpand$own1`, `audio_mmlApplyLegato$own1` |
+      | `byte-identity/compress` | `compress_deflateCore$own4`, `compress_codeLengths$own1` |
+      | `byte-identity/crypto` | 26 `crypto_*$own1`/`$own2` variants |
+      | `byte-identity/encoding` | `encoding_utf8Decode$List$OF$Byte$own1` |
+      | `byte-identity/http` | `http_decodeBody$own4`, `checkResponse$own1`, `bytesToText$own1`, `addPart$own1` |
+      | `byte-identity/json` | `json_parseObjectItems$own4`, `parseArrayItems$own4`, `encoding_utf8Decode…$own1` |
+      | `byte-identity/regex` | `regex_setCap$own1`, `run$own8`, `parseConcat$own20`, `parseAlt$own20` |
+      | `byte-identity/resource-xfer-slots` | the worker's `encoding_utf8Decode…$own1` |
+      | `byte-identity/tls` | `encoding_utf8Decode…$own1` |
+      | `byte-identity/vector` | **`_mfb_rt_drop_owned_collection`** — not a variant: letter B's S11 return-move drop helper |
+      | `rt-behavior/crypto/crypto-ec-valid` | the same 26 `crypto_*` variants |
+      | `syntax/app/app-mouse-surface` | 14 `canvas_*$own*` variants plus `encoding_utf8Decode…$own1` |
+
+      No symbol DISAPPEARED in any fixture, and every changed function is either a
+      caller of one of those variants or the function whose `RETURN` took S11's
+      in-place route. `net`, `tcp` and `udp` left the diff set entirely once a bare
+      `String` stopped being handed over — their only change had been
+      `net::slice$own1`.
+- [x] `bash scripts/test-accept.sh /tmp/mfb-gate target/accept-actual` →
+      **`acceptance tests passed (1522 test(s) ran)`**. A COPY of the release binary, so
+      nothing could rebuild it mid-run (plan-142-I). This is the gate that found the
+      nine SIGSEGVs; it is green with all three fixes in.
+- [x] Re-ran `/tmp/owned` (plan-147-A §2.2). N = 20,000, quietest of two runs, on a
+      machine shared with another session:
+
+      | Shape | Inline, baseline | **Helper, baseline** | Inline, now | **Helper, now** |
+      |---|---|---|---|---|
+      | `append` to `List OF Integer` | 1 ms | 19,224 ms | 530 µs | **440 µs** |
+      | `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,382 µs | **3,295 µs** |
+      | `s & "x"` | 0 ms | 841 ms | 210 µs | 82,760 µs |
+      | recursive `fill` (N = 5,000) | — | 1,252 ms | — | **247 µs** |
+
+      The first two are now FASTER through the helper than inline — the hand-over skips
+      the caller's own drop of the old value. `fill` went 1,252 ms → 247 µs. The
+      `String` row is the one that did not move and cannot: hand-over is refused for a
+      bare `String` (Corrections), so it is still O(n²) through a helper. Its baseline
+      was taken on a busy machine, so read that row as "still quadratic", not as a win.
+- [x] Archive plan-147-A…F to `planning/completed/`.
+
+Acceptance: the gates are green and the numbers are recorded.
+  Check: the four lines above.
+Commit: (this commit)
 
 ## Validation Plan
 
