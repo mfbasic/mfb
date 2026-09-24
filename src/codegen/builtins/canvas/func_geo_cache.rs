@@ -1299,6 +1299,240 @@ fn lower_scene_layout(
     Ok(finish(builder, Some(&result), "canvas.sceneLayout"))
 }
 
+/// `toInt(__CANVAS_GEO_DATA[off + slot])` — the float truncated toward zero.
+fn geo_int(
+    builder: &mut CodeBuilder,
+    data: &VirtualRegister,
+    off: &VirtualRegister,
+    slot: usize,
+) -> VirtualRegister {
+    let at = word_addr(builder, data, off);
+    let f = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&f, &at, slot * 8));
+    let v = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&v, &f));
+    v
+}
+
+/// `n` = `__canvas_blockInstances(off)`: a text run's glyph count; 2 for a blended
+/// item that both strokes (`strokeHalf > 0.0`) and fills (alpha > 0); else 1.
+fn emit_block_instances(
+    builder: &mut CodeBuilder,
+    data: &VirtualRegister,
+    off: &VirtualRegister,
+    n: &VirtualRegister,
+) {
+    let done = builder.label("canvas_draws_inst_done");
+    let one = builder.label("canvas_draws_inst_one");
+    let not_text = builder.label("canvas_draws_inst_shape");
+    let kind = geo_int(builder, data, off, 0);
+    builder.emit(abi::compare_immediate(&kind, "6"));
+    builder.emit(abi::branch_ne(&not_text));
+    let glyphs = geo_int(builder, data, off, 20);
+    builder.emit(abi::move_register(n, &glyphs));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&not_text));
+    let blend = geo_int(builder, data, off, 26);
+    builder.emit(abi::compare_immediate(&blend, "0"));
+    builder.emit(abi::branch_eq(&one));
+    let at = word_addr(builder, data, off);
+    let half = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&half, &at, 7 * 8));
+    let zero = builder.temporary_fp_vreg();
+    let scratch = builder.temporary_vreg();
+    builder.emit_f64_const(&zero, &scratch, 0.0);
+    let strokes = builder.label("canvas_draws_inst_strokes");
+    builder.emit(abi::float_compare_d(&half, &zero));
+    builder.emit(abi::branch_gt(&strokes));
+    builder.emit(abi::branch(&one));
+    builder.emit(abi::label(&strokes));
+    let alpha = geo_int(builder, data, off, 11);
+    builder.emit(abi::compare_immediate(&alpha, "0"));
+    builder.emit(abi::branch_le(&one));
+    builder.emit(abi::move_immediate(n, "Integer", "2"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&one));
+    builder.emit(abi::move_immediate(n, "Integer", "1"));
+    builder.emit(abi::label(&done));
+}
+
+/// `canvas::sceneDrawsFlat() AS Boolean`: `__canvas_sceneDraws` for a frame with no
+/// group node, natively — FALSE, having touched nothing, when `__CANVAS_TOP_OFFSETS`
+/// holds a group (-1) and the MFBASIC walk must lay the frame out.
+///
+/// Without a group the frame is one run of blocks at no offset, so the MFBASIC walk
+/// reduces to: every offset into `__CANVAS_DRAW_BLOCKS`, the running instance count
+/// into `__CANVAS_DRAW_INST` (`__canvas_blockInstances`), and one draw entry per maximal
+/// stretch `__canvas_drawsJoin` joins — split where the blend mode changes or at a
+/// `Text` block — each eight words `(instBase, instCount, 0, 0, mode, 0, 0, 0)`, skipped
+/// when it publishes no instance (`__canvas_pushOneDraw`). The memo lists are emptied,
+/// as the walk empties them.
+fn lower_scene_draws_flat(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let top_off = global(builder, "CANVAS_TOP_OFFSETS")?;
+    let data_off = global(builder, "CANVAS_GEO_DATA")?;
+    let draws_off = global(builder, "CANVAS_DRAWS")?;
+    let blocks_off = global(builder, "CANVAS_DRAW_BLOCKS")?;
+    let inst_off = global(builder, "CANVAS_DRAW_INST")?;
+    let next_off = global(builder, "CANVAS_DRAW_NEXT_INST")?;
+    let memo = [
+        global(builder, "CANVAS_DRAW_MEMO_SLOT")?,
+        global(builder, "CANVAS_DRAW_MEMO_BASE")?,
+        global(builder, "CANVAS_DRAW_MEMO_COUNT")?,
+    ];
+    let result = builder.temporary_vreg();
+    let done = builder.label("canvas_draws_done");
+
+    // Any group node sends the frame to the MFBASIC walk.
+    let top = gload(builder, top_off);
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, &top, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::move_immediate(&result, "Boolean", "0"));
+    let i = imm(builder, 0);
+    let scan = builder.label("canvas_draws_scan");
+    let flat = builder.label("canvas_draws_flat");
+    builder.emit(abi::label(&scan));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&flat));
+    let off = load_word(builder, &top, &i, 0);
+    builder.emit(abi::compare_immediate(&off, "0"));
+    builder.emit(abi::branch_lt(&done));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&scan));
+    builder.emit(abi::label(&flat));
+    let n_slot = builder.spill_to_slot("canvas_draws_n", &n);
+
+    let zero = imm(builder, 0);
+    for goff in [draws_off, blocks_off, inst_off, memo[0], memo[1], memo[2]] {
+        emit_set_count(builder, goff, &zero);
+    }
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    emit_reserve(builder, blocks_off, &n, &int_list())?;
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    emit_reserve(builder, inst_off, &n, &int_list())?;
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    let words = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&words, &n, 3));
+    emit_reserve(builder, draws_off, &words, &int_list())?;
+
+    // Nothing below allocates.
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    let top = gload(builder, top_off);
+    let data = gload(builder, data_off);
+    let blocks = gload(builder, blocks_off);
+    let inst = gload(builder, inst_off);
+    let draws = gload(builder, draws_off);
+    let next = imm(builder, 0);
+    let i = imm(builder, 0);
+    let fill = builder.label("canvas_draws_blocks");
+    let filled = builder.label("canvas_draws_blocks_done");
+    builder.emit(abi::label(&fill));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&filled));
+    let off = load_word(builder, &top, &i, 0);
+    let at = word_addr(builder, &blocks, &i);
+    builder.emit(abi::store_u64(&off, &at, 0));
+    let at = word_addr(builder, &inst, &i);
+    builder.emit(abi::store_u64(&next, &at, 0));
+    let count = builder.temporary_vreg();
+    emit_block_instances(builder, &data, &off, &count);
+    builder.emit(abi::add_registers(&next, &next, &count));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&fill));
+    builder.emit(abi::label(&filled));
+    gstore(builder, &next, next_off);
+    emit_set_count(builder, blocks_off, &n);
+    emit_set_count(builder, inst_off, &n);
+
+    // The runs: i from 1 to n inclusive, a run ending at i when i = n or the two blocks
+    // do not join.
+    let d = imm(builder, 0);
+    let run_start = imm(builder, 0);
+    let runs = builder.label("canvas_draws_runs");
+    let runs_done = builder.label("canvas_draws_runs_done");
+    let end_run = builder.label("canvas_draws_end_run");
+    let continue_run = builder.label("canvas_draws_continue");
+    builder.emit(abi::compare_immediate(&n, "0"));
+    builder.emit(abi::branch_eq(&runs_done));
+    builder.emit(abi::move_immediate(&i, "Integer", "1"));
+    builder.emit(abi::label(&runs));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_gt(&runs_done));
+    builder.emit(abi::branch_eq(&end_run));
+    {
+        let prev_index = builder.temporary_vreg();
+        builder.emit(abi::subtract_immediate(&prev_index, &i, 1));
+        let a = load_word(builder, &blocks, &prev_index, 0);
+        let b = load_word(builder, &blocks, &i, 0);
+        let ka = geo_int(builder, &data, &a, 0);
+        builder.emit(abi::compare_immediate(&ka, "6"));
+        builder.emit(abi::branch_eq(&end_run));
+        let kb = geo_int(builder, &data, &b, 0);
+        builder.emit(abi::compare_immediate(&kb, "6"));
+        builder.emit(abi::branch_eq(&end_run));
+        let ma = geo_int(builder, &data, &a, 26);
+        let mb = geo_int(builder, &data, &b, 26);
+        builder.emit(abi::compare_registers(&ma, &mb));
+        builder.emit(abi::branch_eq(&continue_run));
+    }
+    builder.emit(abi::label(&end_run));
+    {
+        // instBase = inst[runStart]; instEnd = inst[i] (or the total at i = n).
+        let base = load_word(builder, &inst, &run_start, 0);
+        let end = builder.temporary_vreg();
+        let at_end = builder.label("canvas_draws_at_end");
+        let have_end = builder.label("canvas_draws_have_end");
+        builder.emit(abi::compare_registers(&i, &n));
+        builder.emit(abi::branch_ge(&at_end));
+        let e = load_word(builder, &inst, &i, 0);
+        builder.emit(abi::move_register(&end, &e));
+        builder.emit(abi::branch(&have_end));
+        builder.emit(abi::label(&at_end));
+        builder.emit(abi::move_register(&end, &next));
+        builder.emit(abi::label(&have_end));
+        let count = builder.temporary_vreg();
+        builder.emit(abi::subtract_registers(&count, &end, &base));
+        let skip = builder.label("canvas_draws_empty_run");
+        builder.emit(abi::compare_immediate(&count, "0"));
+        builder.emit(abi::branch_le(&skip));
+        let first = load_word(builder, &blocks, &run_start, 0);
+        let mode = geo_int(builder, &data, &first, 26);
+        let zero = imm(builder, 0);
+        for (k, value) in [&base, &count, &zero, &zero, &mode, &zero, &zero, &zero]
+            .iter()
+            .enumerate()
+        {
+            let at = word_addr(builder, &draws, &d);
+            builder.emit(abi::store_u64(*value, &at, k * 8));
+        }
+        builder.emit(abi::add_immediate(&d, &d, 8));
+        builder.emit(abi::label(&skip));
+        builder.emit(abi::move_register(&run_start, &i));
+    }
+    builder.emit(abi::label(&continue_run));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&runs));
+    builder.emit(abi::label(&runs_done));
+    emit_set_count(builder, draws_off, &d);
+    builder.emit(abi::move_immediate(&result, "Boolean", "1"));
+    builder.emit(abi::label(&done));
+    let out = builder.allocate_register();
+    builder.emit(abi::move_register(&out, &result));
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Boolean,
+        location: Operand::from(out.render()),
+        text: "canvas.sceneDrawsFlat".to_string(),
+    })
+}
+
 fn function(
     name: &'static str,
     params: Vec<Parameter>,
@@ -1371,6 +1605,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ParameterType::Integer,
         vec!["ErrOutOfMemory"],
         lower_scene_resolve,
+    ));
+    pkg.add_function(function(
+        "sceneDrawsFlat",
+        vec![],
+        ParameterType::Boolean,
+        vec!["ErrOutOfMemory"],
+        lower_scene_draws_flat,
     ));
     pkg.add_function(function(
         "sceneLayout",

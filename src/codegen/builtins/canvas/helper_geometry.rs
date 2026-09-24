@@ -1168,6 +1168,9 @@ const GEO_VERIFY: &str = r#"SUB __canvas_geoVerify(item AS DrawItem, native AS L
 END SUB
 
 SUB __canvas_geoVerifyFrame(pending AS Integer)
+END SUB
+
+SUB __canvas_drawsVerify()
 END SUB"#;
 
 /// [`GEO_VERIFY`] for a `--debug` build.
@@ -1177,7 +1180,9 @@ END SUB"#;
 /// item's record with the MFBASIC builders and counts the ones that differ in any bit
 /// (`geoVerified=`, `geoVerifyMismatches=`) — both the records `__canvas_geometryFor`
 /// built through `canvas::geoBuild` and the ones `canvas::sceneResolve` built in its
-/// frame pass (`__canvas_geoVerifyFrame`), plus the draw hashes that pass folded. Records are
+/// frame pass (`__canvas_geoVerifyFrame`), plus the draw hashes that pass folded, and
+/// the draw list `canvas::sceneDrawsFlat` laid out (`__canvas_drawsVerify`, counted in
+/// `drawsVerified=`; its mismatches count in `geoVerifyMismatches=` too). Records are
 /// compared with `canvas::geoSame`, which compares the 64-bit patterns: a float `=`
 /// would call `-0.0` and `0.0` the same, and the software rasteriser's goldens would not. The variable is read once and cached (0 unresolved,
 /// 1 off, 2 on), like `__canvas_dumpRequested`.
@@ -1187,6 +1192,7 @@ END SUB"#;
 #[rustfmt::skip]
 const GEO_VERIFY_DEBUG: &str = r#"MUT __CANVAS_GEO_VERIFY_MODE AS Integer = 0
 MUT __CANVAS_GEO_VERIFIED AS Integer = 0
+MUT __CANVAS_DRAWS_VERIFIED AS Integer = 0
 MUT __CANVAS_GEO_MISMATCHES AS Integer = 0
 
 FUNC __canvas_geoReference(item AS DrawItem) AS List OF Float
@@ -1274,8 +1280,25 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
   END IF
 END SUB
 
+' The draw list `canvas::sceneDrawsFlat` laid out, against the MFBASIC walk it replaces
+' on a frame with no group -- which is re-run here and left in place.
+SUB __canvas_drawsVerify()
+  IF NOT __canvas_geoVerifying() THEN
+    EXIT SUB
+  END IF
+  LET draws AS List OF Integer = __CANVAS_DRAWS
+  LET blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
+  LET inst AS List OF Integer = __CANVAS_DRAW_INST
+  LET nextInst AS Integer = __CANVAS_DRAW_NEXT_INST
+  LET walked AS List OF Integer = __canvas_sceneDrawsWalk()
+  __CANVAS_DRAWS_VERIFIED = __CANVAS_DRAWS_VERIFIED + 1
+  IF NOT (__canvas_intListEquals(draws, walked) AND __canvas_intListEquals(blocks, __CANVAS_DRAW_BLOCKS) AND __canvas_intListEquals(inst, __CANVAS_DRAW_INST) AND nextInst = __CANVAS_DRAW_NEXT_INST) THEN
+    __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
+  END IF
+END SUB
+
 FUNC __canvas_geoVerifyText() AS String
-  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES)
+  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -275,3 +275,94 @@ fn a_rebuilt_identical_scene_hits_the_geometry_cache() {
     }
     assert_eq!(field(&lines[2], "geoVerifyMismatches"), 0, "{}", lines[2]);
 }
+
+/// The frame pass itself (`canvas::sceneResolve`, `canvas::sceneLayout`,
+/// `canvas::sceneDrawsFlat`), over a moving scene that mixes the kinds it builds with
+/// every kind it hands to MFBASIC: a transformed rectangle, an `Ellipse`, a `Picture`,
+/// then a `Group` node, then a layered scene. With `MFB_CANVAS_GEO_VERIFY=1` every record
+/// it built is rebuilt by the MFBASIC builders, every draw hash it folded is refolded,
+/// and every group-free draw list it laid out is laid out again by the MFBASIC walk —
+/// all bit for bit. Every item moves every frame, so the arena compacts and the index is
+/// rebuilt on most frames.
+#[test]
+fn the_native_frame_pass_matches_the_mfbasic_walk_on_a_mixed_moving_scene() {
+    let source = "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+         FUNC shapes(frame AS Integer) AS List OF canvas::DrawItem\n  \
+         MUT items AS List OF canvas::DrawItem = []\n  \
+         LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 2.5, ty := 0.0]\n  \
+         MUT k AS Integer = 0\n  \
+         WHILE k < 120\n    \
+         LET x AS Float = toFloat((k * 37) MOD 700) + toFloat(frame) * 1.25\n    \
+         LET y AS Float = toFloat((k * 53) MOD 500)\n    \
+         LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 6.0, h := 4.5, paint := canvas::fillStroke(color::rgba(k, 100, 200, 180), color::rgb(1, 2, 3), 1.5)]\n    \
+         LET blended AS canvas::DrawItem = canvas::Circle[x := x, y := y + 9.0, radius := 3.0, paint := WITH canvas::fillStroke(color::rgb(9, 9, 9), color::rgb(200, 1, 1), 2.0) { blend := canvas::BlendMode.Multiply }]\n    \
+         LET seg AS canvas::DrawItem = canvas::Line[x1 := x, y1 := y, x2 := x + 10.0, y2 := y + 3.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 0), 1.0)]\n    \
+         LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := x, y := y], canvas::Point[x := x + 8.0, y := y + 1.0], canvas::Point[x := x + 3.0, y := y + 7.0]], paint := canvas::fill(color::rgb(0, 255, 0))]\n    \
+         items = collections::append(items, box)\n    \
+         items = collections::append(items, blended)\n    \
+         items = collections::append(items, seg)\n    \
+         items = collections::append(items, tri)\n    \
+         IF k MOD 30 = 0 THEN\n      \
+         LET moved AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 5.0, h := 5.0, paint := WITH canvas::fill(color::rgb(1, 2, 3)) { transform := t }]\n      \
+         LET oval AS canvas::DrawItem = canvas::Ellipse[x := x, y := y, radiusX := 6.0, radiusY := 3.0, angle := 0.25, paint := canvas::fill(color::rgb(9, 9, 200))]\n      \
+         items = collections::append(items, moved)\n      \
+         items = collections::append(items, oval)\n    \
+         END IF\n    \
+         k = k + 1\n  \
+         END WHILE\n  \
+         RETURN items\n\
+         END FUNC\n\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         RES img AS canvas::Image = canvas::createImage(2, 1, [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)])\n  \
+         LET badge AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 1.0, w := 3.0, h := 3.0, paint := canvas::fill(color::rgb(4, 4, 4))]\n  \
+         canvas::setGroup(\"badge\", [badge])\n  \
+         MUT frame AS Integer = 0\n  \
+         WHILE frame < 8\n    \
+         MUT items AS List OF canvas::DrawItem = shapes(frame)\n    \
+         LET pic AS canvas::DrawItem = canvas::Picture[x := toFloat(frame), y := 600.0, w := 8.0, h := 4.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n    \
+         items = collections::append(items, pic)\n    \
+         IF frame >= 6 THEN\n      \
+         LET node AS canvas::DrawItem = canvas::Group[name := \"badge\", dx := toFloat(frame), dy := 3.0]\n      \
+         items = collections::append(items, node)\n    \
+         END IF\n    \
+         canvas::present(items)\n    \
+         frame = frame + 1\n  \
+         END WHILE\n  \
+         LET back AS canvas::DrawLayer = canvas::DrawLayer[items := shapes(20)]\n  \
+         LET front AS canvas::DrawLayer = canvas::DrawLayer[items := shapes(21)]\n  \
+         canvas::presentLayers([back, front])\n  \
+         io::print(\"rendered\")\n\
+         END SUB\n";
+    let lines = stats("canvas_geo_native_frame_pass", source);
+    assert_eq!(lines.len(), 9, "one frame per present: {lines:?}");
+    let last = &lines[8];
+    assert_eq!(
+        field(last, "geoVerifyMismatches"),
+        0,
+        "the native frame pass disagreed with the MFBASIC builders, fold or walk.\n{last}"
+    );
+    assert!(
+        field(last, "geoVerified") >= 8 * 480,
+        "every moving shape of the eight frames is built natively and re-checked.\n{last}"
+    );
+    assert!(
+        field(last, "drawsVerified") >= 7,
+        "six group-free frames and the layered one are laid out natively and \
+         re-checked.\n{last}"
+    );
+    assert!(
+        field(last, "geoCompactions") >= 3,
+        "a scene whose items all move compacts the arena at frame boundaries.\n{last}"
+    );
+    for pair in lines[..8].windows(2) {
+        let built = field(&pair[1], "generations") - field(&pair[0], "generations");
+        assert!(
+            (480..=490).contains(&built),
+            "every one of the 480 moving shapes changed, plus the transformed rectangles \
+             and ellipses (8) and the picture (1): {built} builds.\nbefore: {}\nafter:  {}",
+            pair[0],
+            pair[1],
+        );
+    }
+}

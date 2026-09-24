@@ -530,6 +530,17 @@ SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float,
 END SUB
 
 FUNC __canvas_sceneDraws() AS List OF Integer
+  ' bug-686: a frame with no group node is laid out natively, in one pass over the
+  ' offsets `__canvas_sceneOffsets` resolved -- the walk below, specialised to one run at
+  ' no offset. A frame with a group comes back FALSE, untouched, and takes the walk.
+  IF canvas::sceneDrawsFlat() THEN
+    __canvas_drawsVerify()
+    RETURN __CANVAS_DRAWS
+  END IF
+  RETURN __canvas_sceneDrawsWalk()
+END FUNC
+
+FUNC __canvas_sceneDrawsWalk() AS List OF Integer
   __CANVAS_DRAWS = []
   __CANVAS_DRAW_BLOCKS = []
   __CANVAS_DRAW_INST = []
