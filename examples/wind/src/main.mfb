@@ -225,8 +225,8 @@ FUNC zoomCaption(v AS View, size AS canvas::Size) AS String
 END FUNC
 
 ' One frame: the map, the streamlines, and the captions over them.
-FUNC frameScene(world AS Ring, coast AS List OF Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
-  MUT items AS List OF canvas::DrawItem = mapItems(world, coast, v)
+FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = mapItems(world, v)
 
   FOR EACH item IN trailItems(v)
     items = collections::append(items, item)
@@ -282,7 +282,7 @@ FUNC main AS Integer
   END TRAP
 
   LET world AS Ring = worldOutline()
-  LET coast AS List OF Ring = loadCoastline()
+  loadCoastline()
 
   MUT size AS canvas::Size = canvas::getSize()
   MUT view AS View = wholeWorld(size)
@@ -318,7 +318,7 @@ FUNC main AS Integer
     lastNanos = startNanos
 
     stepSwarm(winds, view, elapsed)
-    canvas::present(frameScene(world, coast, view, winds, face, size, captions))
+    canvas::present(frameScene(world, view, winds, face, size, captions))
 
     LET spentMillis AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
     IF spentMillis < frameMillis() THEN os::sleep(frameMillis() - spentMillis)

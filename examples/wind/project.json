@@ -15,7 +15,7 @@
   ],
   "resources": [
     {
-      "src": "resources/wind/*.txt",
+      "src": "resources/wind/*.bin",
       "dst": "wind/"
     }
   ],
