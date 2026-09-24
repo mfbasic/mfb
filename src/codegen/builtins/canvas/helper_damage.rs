@@ -225,6 +225,14 @@ END FUNC
 
 ' Remember what was drawn, so the next frame has something to diff against.
 SUB __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Integer)
+  ' Damage mode only. `__canvas_damageFor` is the one reader of what this records, and
+  ' outside damage mode it answers a full frame before looking at either list -- so
+  ' recording them anyway cost five appends per item per frame for nothing: 1.6-1.9 ms
+  ' of a 10,000-item Metal frame (bug-686). The mode is resolved once, so a frame cannot
+  ' find the lists stale because an earlier one skipped them.
+  IF NOT __canvas_damageEnabled() THEN
+    EXIT SUB
+  END IF
   ' plan-116-G section 4.6: the bounds recorded are the ones the item was DRAWN at, so
   ' translated by its accumulated group offset. Recording the untranslated rectangle
   ' would make the next frame's diff damage an area the item does not occupy -- the
