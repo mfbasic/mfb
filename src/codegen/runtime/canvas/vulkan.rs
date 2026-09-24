@@ -4457,37 +4457,23 @@ fn emit_draw_list_pass(
     // travelled with the entry.
     // handle = *(state + …_PIPELINE_MODES + mode * 8) — the same shift-and-add the
     // publish walk uses, so the two cannot pick different pipelines for one mode.
+    //
+    // In vregs, not `SCRATCH[k]`: `entry` is a vreg live across this stretch, and the
+    // allocator does not see hand-assigned scratch, so on x86-64 it may put `entry` in
+    // the very register a fixed `SCRATCH[k]` names (bug-688 measured that collision in
+    // `emit_state_load`).
     let off_pipeline = builder.allocate_stack_object("vk_drawlist_pipeline", 8);
+    let state = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&word, &entry, CANVAS_DRAW_ENTRY_MODE));
+    builder.emit(abi::shift_left_immediate(&word, &word, 3));
+    builder.emit(abi::load_u64(&state, abi::stack_pointer(), off_state));
+    builder.emit(abi::add_registers(&word, &state, &word));
     builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        &entry,
-        CANVAS_DRAW_ENTRY_MODE,
-    ));
-    builder.emit(abi::shift_left_immediate(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        3,
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        off_state,
-    ));
-    builder.emit(abi::add_registers(
-        abi::SCRATCH[0],
-        abi::SCRATCH[1],
-        abi::SCRATCH[0],
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
+        &word,
+        &word,
         GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
     ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_pipeline,
-    ));
+    builder.emit(abi::store_u64(&word, abi::stack_pointer(), off_pipeline));
     builder.emit(abi::load_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
@@ -6166,17 +6152,23 @@ fn emit_state_load(
     offset: usize,
     dst: impl Into<Operand>,
 ) {
-    // A fresh vreg, not a fixed `SCRATCH[k]` — the same rule `emit_call_fn` follows,
-    // and for a sharper reason here. On x86-64 the scratch pool aliases the C argument
-    // bank (`map_scratch_register`): `SCRATCH[3]` is `r8`, which is `c_arg(4)`. This
-    // helper is called *between* argument stagings, so a fixed scratch silently
-    // overwrote an argument already in place — `vkCmdBindDescriptorSets` received the
-    // graphics-state pointer as its `descriptorSetCount` and walked a one-element
-    // array for a dozen entries. On AArch64 the two banks are disjoint, so the fault
-    // does not exist on the development host.
-    let base = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&base, abi::stack_pointer(), state_slot));
-    builder.emit(abi::load_u64(dst, &base, offset));
+    // No temporary at all: the state base goes into `dst` itself, which the second load
+    // overwrites anyway. Both kinds of temporary have broken this helper on x86-64:
+    //
+    // * A fixed `SCRATCH[k]`. The x86 scratch pool aliases the C argument bank
+    //   (`map_scratch_register`): `SCRATCH[3]` is `r8`, which is `c_arg(4)`. This helper
+    //   is called *between* argument stagings, so a fixed scratch overwrote an argument
+    //   already in place — `vkCmdBindDescriptorSets` received the graphics-state pointer
+    //   as its `descriptorSetCount` and walked a one-element array for a dozen entries.
+    // * A `builder.temporary_vreg()`. The allocator does not see the hand-assigned
+    //   `SCRATCH` values the emitters keep live, so it may colour the vreg onto one of
+    //   them: bug-688's band index held its table offset in `SCRATCH[5]` (`r10`) across
+    //   this call, the vreg came out as `r10`, and the table pointer became the state
+    //   block plus 4 MiB — an access violation on Windows, and nothing on AArch64, where
+    //   `x9`–`x17` are outside the allocatable file.
+    let dst = dst.into();
+    builder.emit(abi::load_u64(dst.clone(), abi::stack_pointer(), state_slot));
+    builder.emit(abi::load_u64(dst.clone(), dst, offset));
 }
 
 /// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
