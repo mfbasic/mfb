@@ -132,9 +132,11 @@ presents anything; it just does so through `IMPORT color`.
 installs it with `canvas::present`; the runtime keeps rendering that scene on
 vsync, resize and damage until the next `present`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
-and re-presenting an unchanged scene is a no-op. Animated content does call it
-every frame, which is why the runtime caches each item's geometry on a content
-hash: re-presenting an item that did not change is free.
+and re-presenting an unchanged scene publishes nothing, renders nothing and holds
+no memory. (It does still copy the scene once to compare it, so it is not free —
+it is bounded.) Animated content does call it every frame, which is why the
+runtime caches each item's geometry on a content hash: re-presenting an item that
+did not change is free.
 
 An item whose content *did* change costs one geometry build, and nothing beyond
 it. The cache holds a bounded number of entries and reclaims the storage an

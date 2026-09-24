@@ -1287,8 +1287,11 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),
+            // The annotation names every slot, `retiredHead` included — it was six
+            // names against ten words, which read as if the retirement side were not
+            // part of this object at all. bug-683 turned those four words into one.
             layout: "mfb.runtime.canvas_scene.v1 { u64 revision, count, items, hashes, \
-                     layers, layerCount }"
+                     layers, layerCount, retiredHead }"
                 .to_string(),
             align: 8,
             size: CANVAS_SCENE_SLOTS * 8,

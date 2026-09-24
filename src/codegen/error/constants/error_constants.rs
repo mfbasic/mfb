@@ -555,26 +555,51 @@ pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
 pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
 /// Byte offset of the layer count.
 pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
-/// The scene block a publish displaced, held until the renderer is provably done
-/// with it, and the frame number at which it was retired.
+/// Head of the **retirement list**: the newest node holding blocks a publish
+/// displaced, kept until the renderer is provably done with them. Zero when empty.
 ///
 /// This is plan-98-D Phase 3's ring, in the shape a **variable-size** scene allows.
 /// The plan describes three fixed slots the producer and consumer rotate through,
 /// which presumes a slot is a reusable buffer. An MFBASIC collection is a value: each
 /// publish deep-copies into a freshly sized block, so a "slot" can only ever be a
-/// pointer, and three of them degenerate to exactly this — the one being built, the
-/// one published, and the one just displaced.
+/// pointer.
 ///
 /// Retiring rather than freeing immediately is the whole point: the renderer may be
-/// mid-copy of the block a publish is replacing. The free waits until the frame
-/// counter has passed `RETIRED_FRAME`, which means a frame has *completed* since the
-/// retirement, so no render still holds it.
-pub(crate) const CANVAS_SCENE_RETIRED_ITEMS_OFFSET: usize = 48;
-pub(crate) const CANVAS_SCENE_RETIRED_HASHES_OFFSET: usize = 56;
-pub(crate) const CANVAS_SCENE_RETIRED_LAYERS_OFFSET: usize = 64;
-pub(crate) const CANVAS_SCENE_RETIRED_FRAME_OFFSET: usize = 72;
+/// mid-copy of the block a publish is replacing — `__canvas_sceneDraws` and
+/// `__canvas_sceneOffsets` each re-read the installed pointer through
+/// `canvas::installedItems`, at arbitrary points inside a frame. The free waits until
+/// the frame counter has passed the node's stamp, which means a frame has *completed*
+/// since the retirement, so no render still holds it.
+///
+/// **Why a list and not one slot** (bug-683). It was one slot, and the retire store was
+/// unguarded, so a second publish inside one rendered frame overwrote the pointer
+/// already there and lost it. One slot cannot be enough: a program at 60 Hz against a
+/// renderer completing fewer frames retires an unbounded number of blocks between two
+/// frame ticks, and *every* one of them may be the one a render in flight is reading.
+/// Freeing the older one to make room is the exact use-after-free retirement exists to
+/// prevent. So the count of held blocks has to be what the schedule says it is — which
+/// is what a list gives, bounded in practice by presents per rendered frame, and
+/// drained to empty by the first publish after a frame completes.
+pub(crate) const CANVAS_SCENE_RETIRED_HEAD_OFFSET: usize = 48;
 /// Total slots in the canvas scene region.
-pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_FRAME_OFFSET + 8) / 8;
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_HEAD_OFFSET + 8) / 8;
+
+// A retirement node: one publish's displaced blocks, the frame it displaced them at,
+// and the next (older) node. Arena-allocated by the publish, freed by the drain, and
+// never touched by the graphics thread — the blocks it *names* are what the renderer
+// may be reading, not the node.
+//
+// Newest-first, which is what makes the drain a single gate rather than a search: the
+// head carries the largest stamp, so `frame_now > head.frame` proves a frame has
+// completed since *every* node in the list and the whole chain is freeable at once.
+// The cost is that an older node waits for the newest to come of age — at most one
+// frame, and the list is empty again either way.
+pub(crate) const CANVAS_RETIRE_NODE_NEXT: usize = 0;
+pub(crate) const CANVAS_RETIRE_NODE_ITEMS: usize = 8;
+pub(crate) const CANVAS_RETIRE_NODE_HASHES: usize = 16;
+pub(crate) const CANVAS_RETIRE_NODE_LAYERS: usize = 24;
+pub(crate) const CANVAS_RETIRE_NODE_FRAME: usize = 32;
+pub(crate) const CANVAS_RETIRE_NODE_SIZE: usize = 40;
 
 /// The canvas scene region itself: one writable **process-global** block, not part of
 /// any thread's arena state.

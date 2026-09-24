@@ -374,6 +374,24 @@ fn the_wrong_mode_gate_precedes_the_scene_copys_allocation() {
 /// `frame_now <= retired_frame`". Relaxing it by one — branch away only when
 /// strictly less — frees a block the graphics thread may still be reading this
 /// very frame, a use-after-free that only shows up under load.
+///
+/// bug-683 moved the two counts this checks and, more importantly, made the
+/// "nothing before the gate" half wrong as written. Both are corrected rather than
+/// dropped, and the second is corrected to the region it was always *about*:
+///
+/// * **Four frees behind the gate, not three.** Retirement is a list now, so a
+///   drained node costs its three blocks plus the node itself. All four are behind
+///   the same gate.
+/// * **One free ahead of it, on the frame-skip path.** The skip frees the copy it
+///   made for the comparison (bug-683 leak 1) — a block allocated in this call and
+///   never stored into the scene region, so no renderer can have seen it.
+/// * **One more past the publish exit,** on the cold path where the retirement node
+///   could not be allocated: the same fresh copy, given back before the raise.
+///
+/// Neither of the extra two is a retired block, so the four regions are checked
+/// separately rather than as one total. The invariant this always protected — that
+/// nothing on the PUBLISH path is freed before the gate proves a frame has completed —
+/// is unchanged, and is now stated directly.
 #[test]
 fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
     for f in both() {
@@ -386,6 +404,10 @@ fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
                         .is_some_and(|t| t.starts_with("canvas_reclaim_done"))
             },
         );
+        let publish = tagged_label(f, "publish");
+        let publish_at = stream.index_of("the publish label", |i| {
+            i.op == CodeOp::Label && i.get("name").as_deref() == Some(publish.as_str())
+        });
         let frees = |from: usize, to: usize| {
             stream
                 .calls_between(from, to)
@@ -393,56 +415,99 @@ fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
                 .filter(|t| t == "_mfb_arena_free")
                 .count()
         };
+        let cold = stream.index_of("the retire-OOM cold path", |i| {
+            i.op == CodeOp::Label && i.get("name").is_some_and(|n| n.contains("_retire_oom"))
+        });
         assert_eq!(
-            frees(gate, f.instructions.len()),
-            3,
-            "{}: all three retired blocks (items, hashes, layers) must be freed \
-             behind the frame gate",
+            frees(gate, cold),
+            4,
+            "{}: a drained retirement node must give back all three blocks it holds \
+             (items, hashes, layers) AND the node itself, all behind the frame gate",
             f.name
         );
         assert_eq!(
-            frees(0, gate),
+            frees(publish_at, gate),
             0,
-            "{}: nothing may be freed before the frame gate — the graphics thread \
-             may still be reading it",
+            "{}: nothing on the publish path may be freed before the frame gate — the \
+             graphics thread may still be reading it",
+            f.name
+        );
+        assert_eq!(
+            frees(0, publish_at),
+            1,
+            "{}: the frame skip frees exactly the copy it made to compare with \
+             (bug-683), and nothing else may be freed ahead of the gate",
+            f.name
+        );
+        assert_eq!(
+            frees(cold, f.instructions.len()),
+            1,
+            "{}: the retire-OOM path gives back the fresh copy and nothing else — it \
+             has published nothing, so there is nothing retired for it to reclaim",
             f.name
         );
     }
 }
 
-/// The retired slots are stamped with the frame counter on every publish.
+/// Every publish retires what it displaces, stamped with the frame counter, before
+/// the revision that makes the new scene visible.
 ///
-/// Without the stamp the gate compares against whatever was there, and the
-/// reclaim either never fires (a 200-frame animation grew ~0.11 MB a frame) or
-/// fires immediately (use-after-free).
+/// Without the stamp the gate compares against whatever was there, and the reclaim
+/// either never fires (a 200-frame animation grew ~0.11 MB a frame) or fires
+/// immediately (use-after-free). Without the ordering, a reader could see the new
+/// revision while the displaced block was still the scene's own.
+///
+/// bug-683 moved where both live. The stamp and the displaced pointers are fields of
+/// a retirement *node* now, not of the scene region — the scene holds only the list
+/// head — so the four scene offsets this used to look for are down to one. What it
+/// asserts is unchanged: retire-and-stamp happens, and it happens before the revision
+/// bump.
 #[test]
 fn every_publish_retires_the_displaced_blocks_and_stamps_the_frame() {
     for f in both() {
         let offsets = scene_store_offsets(f);
-        for retired in [
-            CANVAS_SCENE_RETIRED_ITEMS_OFFSET,
-            CANVAS_SCENE_RETIRED_HASHES_OFFSET,
-            CANVAS_SCENE_RETIRED_LAYERS_OFFSET,
-            CANVAS_SCENE_RETIRED_FRAME_OFFSET,
-        ] {
-            assert!(
-                offsets.contains(&retired),
-                "{}: offset {retired} must be written on every publish; wrote {offsets:?}",
-                f.name
-            );
-        }
-        let stamp = offsets
+        assert!(
+            offsets.contains(&CANVAS_SCENE_RETIRED_HEAD_OFFSET),
+            "{}: the retirement list head (offset {CANVAS_SCENE_RETIRED_HEAD_OFFSET}) \
+             must be written on every publish; wrote {offsets:?}",
+            f.name
+        );
+        let retire = offsets
             .iter()
-            .position(|o| *o == CANVAS_SCENE_RETIRED_FRAME_OFFSET);
+            .position(|o| *o == CANVAS_SCENE_RETIRED_HEAD_OFFSET);
         let revision = offsets
             .iter()
             .position(|o| *o == CANVAS_SCENE_REVISION_OFFSET);
         assert!(
-            stamp < revision,
-            "{}: the displaced blocks are retired and stamped BEFORE the new scene \
-             is published (stamp at {stamp:?}, revision at {revision:?})",
+            retire < revision,
+            "{}: the displaced blocks are retired BEFORE the new scene is published \
+             (retire at {retire:?}, revision at {revision:?})",
             f.name
         );
+
+        // The node's own fields: written through the node pointer, not the scene base,
+        // so `scene_store_offsets` cannot see them. Every one of the five has to be
+        // written, or a drain walks into a field the allocator never initialised.
+        let node_stores: Vec<usize> = f
+            .instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::StrU64 && Stream::field(i, "base") != "rsp")
+            .filter_map(|i| Stream::field(i, "offset").parse().ok())
+            .collect();
+        for (field, offset) in [
+            ("next", CANVAS_RETIRE_NODE_NEXT),
+            ("items", CANVAS_RETIRE_NODE_ITEMS),
+            ("hashes", CANVAS_RETIRE_NODE_HASHES),
+            ("layers", CANVAS_RETIRE_NODE_LAYERS),
+            ("frame", CANVAS_RETIRE_NODE_FRAME),
+        ] {
+            assert!(
+                node_stores.contains(&offset),
+                "{}: a retirement node's `{field}` (offset {offset}) is never written; \
+                 wrote {node_stores:?}",
+                f.name
+            );
+        }
     }
 }
 
