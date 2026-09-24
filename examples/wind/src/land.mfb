@@ -11,7 +11,7 @@
 ' came from and how the file is laid out.
 '
 ' The map is drawn at a level of detail that follows the view. However far in or
-' out you are, the coastline on screen carries at most coastBudget() points: the
+' out you are, the coastline on screen carries at most COAST_BUDGET points: the
 ' whole world gets the most important 1,500, and zooming in on Hawaii gives
 ' Hawaii's own detail, down to everything the data has. Shapes are cut at the
 ' edge of the window, so land running off screen costs nothing.
@@ -29,6 +29,7 @@
 
 IMPORT canvas
 IMPORT collections
+IMPORT errorCode
 IMPORT color
 IMPORT fs
 IMPORT math
@@ -47,9 +48,7 @@ FUNC ringOf(points AS List OF Plane) AS Ring
 END FUNC
 
 ' The most coastline points the map puts on screen at once.
-FUNC coastBudget AS Integer
-  RETURN 1500
-END FUNC
+LET COAST_BUDGET AS Integer = 1500
 
 ' ---------------------------------------------------------------------------
 ' The palette
@@ -57,21 +56,13 @@ END FUNC
 
 ' Beyond the edge of the map. Darker than the sea, so the world reads as a shape
 ' rather than as the whole window.
-FUNC voidColor AS color::Color
-  RETURN color::rgb(9, 12, 20)
-END FUNC
+LET VOID_COLOR AS color::Color = color::rgb(9, 12, 20)
 
-FUNC oceanColor AS color::Color
-  RETURN color::rgb(18, 42, 68)
-END FUNC
+LET OCEAN_COLOR AS color::Color = color::rgb(18, 42, 68)
 
-FUNC landColor AS color::Color
-  RETURN color::rgb(38, 68, 52)
-END FUNC
+LET LAND_COLOR AS color::Color = color::rgb(38, 68, 52)
 
-FUNC coastColor AS color::Color
-  RETURN color::rgb(58, 96, 76)
-END FUNC
+LET COAST_COLOR AS color::Color = color::rgb(58, 96, 76)
 
 ' ---------------------------------------------------------------------------
 ' The coastline
@@ -109,34 +100,26 @@ END FUNC
 ' Two indexes, built when the file is read, keep a rebuild's cost to what is on
 ' screen.
 '
-' Chunks: each ring is cut into runs of chunkSize() points with a box around
+' Chunks: each ring is cut into runs of CHUNK_SIZE points with a box around
 ' each. A run that lies wholly off screen stands in for itself with just its
 ' first and last point: the straight line between them stays inside the run's
 ' box, so it cannot cross the window, and the ring still fills correctly after
 ' it is cut at the window's edge. So a continent that runs off screen costs a
 ' couple of points per chunk, not its whole coastline.
 '
-' Cells: the world is cut into gridDegrees() squares, and each square's points
+' Cells: the world is cut into GRID_DEGREES squares, and each square's points
 ' are kept most important first, with a count of how many there are at each
 ' level. Finding how much detail the view can afford then reads the counts of
 ' the squares wholly on screen and looks at single points only in the squares
 ' the window's edge crosses.
 
-FUNC chunkSize AS Integer
-  RETURN 64
-END FUNC
+LET CHUNK_SIZE AS Integer = 64
 
-FUNC gridDegrees AS Integer
-  RETURN 5
-END FUNC
+LET GRID_DEGREES AS Integer = 5
 
-FUNC gridColumns AS Integer
-  RETURN 360 / gridDegrees()
-END FUNC
+LET GRID_COLUMNS AS Integer = 360 / GRID_DEGREES
 
-FUNC gridRows AS Integer
-  RETURN 180 / gridDegrees()
-END FUNC
+LET GRID_ROWS AS Integer = 180 / GRID_DEGREES
 
 MUT ringChunk AS List OF Integer = []     ' ring r's chunks are ringChunk[r] up to ringChunk[r + 1]
 MUT chunkStart AS List OF Integer = []    ' chunk c's points are chunkStart[c] up to chunkStart[c + 1]
@@ -152,9 +135,9 @@ MUT runLevel AS List OF Integer = []
 MUT runCount AS List OF Integer = []
 
 FUNC cellOf(lon AS Float, lat AS Float) AS Integer
-  LET column AS Integer = math::clamp(math::floor((wrapLon(lon) + 180.0) / toFloat(gridDegrees())), 0, gridColumns() - 1)
-  LET row AS Integer = math::clamp(math::floor((lat + 90.0) / toFloat(gridDegrees())), 0, gridRows() - 1)
-  RETURN row * gridColumns() + column
+  LET column AS Integer = math::clamp(math::floor((wrapLon(lon) + 180.0) / toFloat(GRID_DEGREES)), 0, GRID_COLUMNS - 1)
+  LET row AS Integer = math::clamp(math::floor((lat + 90.0) / toFloat(GRID_DEGREES)), 0, GRID_ROWS - 1)
+  RETURN row * GRID_COLUMNS + column
 END FUNC
 
 ' A list of n zeros.
@@ -178,7 +161,7 @@ SUB buildChunks()
     MUT first AS Integer = collections::get(coastStart, r)
     LET stop AS Integer = collections::get(coastStart, r + 1)
     WHILE first < stop
-      LET last AS Integer = math::min(first + chunkSize(), stop) - 1
+      LET last AS Integer = math::min(first + CHUNK_SIZE, stop) - 1
       MUT west AS Float = collections::get(coastLon, first)
       MUT east AS Float = west
       MUT south AS Float = collections::get(coastLat, first)
@@ -221,7 +204,7 @@ SUB buildCells()
     levelAt = collections::set(levelAt, slot, at + 1)
   NEXT
 
-  LET cells AS Integer = gridColumns() * gridRows()
+  LET cells AS Integer = GRID_COLUMNS * GRID_ROWS
   MUT cellOfPoint AS List OF Integer = zeros(n)
   cellStart = zeros(cells + 1)
   FOR i = 0 TO n - 1
@@ -314,7 +297,7 @@ END FUNC
 ' Read the shipped coastline into the flat lists, and index it.
 SUB loadCoastline()
   coastBytes = fs::readBytes(os::resourcePath("wind/coastline.bin"))
-  IF NOT isCoastlineFile() THEN FAIL error(77050003, "coastline: not a version 2 MFBC coastline file")
+  IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 2 MFBC coastline file")
   coastAt = 5
   LET ringCount AS Integer = nextVarint()
   coastLon = []
@@ -436,17 +419,17 @@ END FUNC
 ' within the budget. Every point at or above the answer is drawn.
 FUNC detailLevel(screen AS Box, lon0 AS Float) AS Integer
   MUT counts AS List OF Integer = zeros(256)
-  LET size AS Float = toFloat(gridDegrees())
+  LET size AS Float = toFloat(GRID_DEGREES)
   ' Latitude depends on y alone, so the rows off the top and bottom of the window
   ' are skipped whole.
-  LET firstRow AS Integer = math::clamp(math::floor((latOfY(screen.minY) + 90.0) / size), 0, gridRows() - 1)
-  LET lastRow AS Integer = math::clamp(math::floor((latOfY(screen.maxY) + 90.0) / size), 0, gridRows() - 1)
-  FOR c = firstRow * gridColumns() TO (lastRow + 1) * gridColumns() - 1
+  LET firstRow AS Integer = math::clamp(math::floor((latOfY(screen.minY) + 90.0) / size), 0, GRID_ROWS - 1)
+  LET lastRow AS Integer = math::clamp(math::floor((latOfY(screen.maxY) + 90.0) / size), 0, GRID_ROWS - 1)
+  FOR c = firstRow * GRID_COLUMNS TO (lastRow + 1) * GRID_COLUMNS - 1
     LET first AS Integer = collections::get(cellStart, c)
     LET stop AS Integer = collections::get(cellStart, c + 1)
     IF first = stop THEN CONTINUE FOR
-    LET rel AS Float = wrapLon(-180.0 + toFloat(c MOD gridColumns()) * size - lon0)
-    LET south AS Float = -90.0 + toFloat(c / gridColumns()) * size
+    LET rel AS Float = wrapLon(-180.0 + toFloat(c MOD GRID_COLUMNS) * size - lon0)
+    LET south AS Float = -90.0 + toFloat(c / GRID_COLUMNS) * size
     ' A cell the map's edge runs through is looked at point by point.
     IF rel + size <= 180.0 THEN
       LET box AS Box = planeBoxRel(rel, rel + size, south, south + size)
@@ -471,7 +454,7 @@ FUNC detailLevel(screen AS Box, lon0 AS Float) AS Integer
   MUT threshold AS Integer = 256
   FOR lv = 255 TO 1 STEP -1
     total = total + collections::get(counts, lv)
-    IF total > coastBudget() THEN EXIT FOR
+    IF total > COAST_BUDGET THEN EXIT FOR
     threshold = lv
   NEXT
   RETURN threshold
@@ -697,15 +680,15 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
   LET clip AS Box = viewBox(v, 4.0 / v.scale)
   LET threshold AS Integer = detailLevel(viewBox(v, 0.0), v.lon0)
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(voidColor())]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(VOID_COLOR)]]
   IF overlaps(world.bounds, clip) THEN
-    items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(oceanColor())))
+    items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(OCEAN_COLOR)))
   END IF
 
   ' A hairline of a lighter green around each landmass. At a world-sized zoom
   ' most islands are a couple of pixels across, and without it they disappear
   ' into the sea entirely.
-  LET paint AS canvas::Paint = canvas::fillStroke(landColor(), coastColor(), 1.0)
+  LET paint AS canvas::Paint = canvas::fillStroke(LAND_COLOR, COAST_COLOR, 1.0)
   LET south AS Float = latOfY(clip.minY)
   LET north AS Float = latOfY(clip.maxY)
   FOR r = 0 TO coastRings() - 1

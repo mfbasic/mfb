@@ -19,6 +19,7 @@
 ' while working on the drawing costs nothing.
 
 IMPORT datetime
+IMPORT errorCode
 IMPORT fs
 IMPORT http
 IMPORT net
@@ -40,25 +41,17 @@ TYPE Attempt
 END TYPE
 
 ' Seconds in a GFS cycle, and how long after one its analysis hour shows up.
-FUNC cycleSeconds AS Integer
-  RETURN 21600
-END FUNC
+LET CYCLE_SECONDS AS Integer = 21600
 
-FUNC publishDelaySeconds AS Integer
-  RETURN 14400
-END FUNC
+LET PUBLISH_DELAY_SECONDS AS Integer = 14400
 
 ' How many cycles back to look before giving up - eight is two days.
-FUNC cyclesToTry AS Integer
-  RETURN 8
-END FUNC
+LET CYCLES_TO_TRY AS Integer = 8
 
 ' The grid NOMADS is asked for. The half-degree file is 720 by 361 points and
 ' about half a megabyte, which is more detail than the picture can show at a
 ' world-sized zoom and enough to hold up when zoomed in.
-FUNC gridName AS String
-  RETURN "0p50"
-END FUNC
+LET GRID_NAME AS String = "0p50"
 
 FUNC cycleAt(epochSeconds AS Integer) AS Cycle
   LET stamp AS datetime::DateTime = datetime::inZone(datetime::instant(epochSeconds), datetime::utc())
@@ -69,21 +62,19 @@ END FUNC
 ' CGI's dir parameter carries a path, and it has to arrive percent-encoded
 ' rather than as slashes in the query string.
 FUNC filterUrl(c AS Cycle) AS String
-  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & gridName() & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & gridName() & ".f000&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & ".f000&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
 END FUNC
 
 ' Where a cycle's file is kept between runs.
 FUNC cachePath(c AS Cycle) AS String
   LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-wind-gfs"])
   IF NOT fs::directoryExists(dir) THEN fs::createDirectories(dir)
-  RETURN fs::pathJoin([dir, "gfs-" & c.day & "-" & c.hour & "-10m-" & gridName() & ".grb2"])
+  RETURN fs::pathJoin([dir, "gfs-" & c.day & "-" & c.hour & "-10m-" & GRID_NAME & ".grb2"])
 END FUNC
 
 ' "GRIB" as a big-endian 32-bit number, which is how decodeMessage recognises a
 ' message and how this recognises a real answer.
-FUNC gribMagic AS Integer
-  RETURN 1196575042
-END FUNC
+LET GRIB_MAGIC AS Integer = 1196575042
 
 ' One cycle's file, from the cache if it is there and from NOMADS if it is not.
 '
@@ -96,12 +87,12 @@ FUNC cycleData(c AS Cycle) AS List OF Byte
   LET path AS String = cachePath(c)
   IF fs::fileExists(path) THEN
     LET cached AS List OF Byte = fs::readBytes(path)
-    IF len(cached) > 16 AND beInt(cached, 0, 4) = gribMagic() THEN RETURN cached
+    IF len(cached) > 16 AND beInt(cached, 0, 4) = GRIB_MAGIC THEN RETURN cached
   END IF
 
   LET response AS http::Response = http::read(net::toUrl(filterUrl(c)))
-  IF NOT response.ok THEN FAIL error(77050004, "NOMADS answered " & toString(response.status) & " for the " & c.caption & " run")
-  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> gribMagic() THEN FAIL error(77050004, "the " & c.caption & " run is not published yet")
+  IF NOT response.ok THEN FAIL error(errorCode::ErrNotFound, "NOMADS answered " & toString(response.status) & " for the " & c.caption & " run")
+  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> GRIB_MAGIC THEN FAIL error(errorCode::ErrNotFound, "the " & c.caption & " run is not published yet")
 
   fs::writeBytes(path, response.body)
   RETURN response.body
@@ -125,15 +116,15 @@ END FUNC
 
 ' The most recent GFS 10 m wind analysis this machine can get hold of.
 FUNC loadWinds AS Winds
-  LET newest AS Integer = (datetime::now().seconds - publishDelaySeconds()) / cycleSeconds()
+  LET newest AS Integer = (datetime::now().seconds - PUBLISH_DELAY_SECONDS) / CYCLE_SECONDS
   MUT firstProblem AS String = ""
 
-  FOR back = 0 TO cyclesToTry() - 1
-    LET c AS Cycle = cycleAt((newest - back) * cycleSeconds())
+  FOR back = 0 TO CYCLES_TO_TRY - 1
+    LET c AS Cycle = cycleAt((newest - back) * CYCLE_SECONDS)
     LET tried AS Attempt = attemptCycle(c)
     IF len(tried.data) > 0 THEN RETURN windsFrom(tried.data, c)
     IF firstProblem = "" THEN firstProblem = tried.problem
   NEXT
 
-  FAIL error(77050004, "no GFS run in the last two days could be fetched: " & firstProblem)
+  FAIL error(errorCode::ErrNotFound, "no GFS run in the last two days could be fetched: " & firstProblem)
 END FUNC

@@ -31,10 +31,9 @@
 ' so every streamline carries two comets, half a life apart, instead of one.
 '
 ' The swarm is module-level state rather than a value threaded through the
-' frame. Every one of these lists is updated with the self-assigning shape -
-' `xs = collections::set(xs, i, v)` - which updates the list in place instead of
-' rebuilding it, and that shape is only the cheap one at a binding the compiler
-' can see the whole life of: a local, or a module-level MUT like these.
+' frame. Every one of its lists is updated with the self-assigning shape -
+' `xs = collections::set(xs, i, v)` - which changes the list where it stands
+' instead of building a new one, on a module-level MUT exactly as on a local.
 
 IMPORT canvas
 IMPORT collections
@@ -62,47 +61,31 @@ END TYPE
 ' real answer is about 0.0009, which would be a still picture; this is a display
 ' speed, chosen so that a 10 m/s wind reads as a steady drift and a 40 m/s jet
 ' streak reads as fast.
-FUNC driftRate AS Float
-  RETURN 1.15
-END FUNC
+LET DRIFT_RATE AS Float = 1.15
 
 ' How many positions of a particle's history are kept. The trail is drawn as
 ' this many points joined by lines, so it is also the cost: the scene carries
-' roughly particleCount * (trailLength - 1) lines.
-FUNC trailLength AS Integer
-  RETURN 12
-END FUNC
+' roughly particleCount() * (TRAIL_LENGTH - 1) lines.
+LET TRAIL_LENGTH AS Integer = 12
 
 ' How many frames a particle lives before it is picked up and dropped somewhere
 ' else.
-FUNC particleLife AS Integer
-  RETURN 190
-END FUNC
+LET PARTICLE_LIFE AS Integer = 190
 
 ' One streamline - a leader and its follower - per this many square pixels of
 ' window, within the bounds. The bounds count streamlines too, so the swarm
 ' holds twice as many particles.
-FUNC pixelsPerParticle AS Float
-  RETURN 1100.0
-END FUNC
+LET PIXELS_PER_PARTICLE AS Float = 1100.0
 
-FUNC minParticles AS Integer
-  RETURN 250
-END FUNC
+LET MIN_PARTICLES AS Integer = 250
 
-FUNC maxParticles AS Integer
-  RETURN 1600
-END FUNC
+LET MAX_PARTICLES AS Integer = 1600
 
 ' Metres in a degree of latitude, and in a degree of longitude at the equator.
-FUNC metresPerDegree AS Float
-  RETURN 111320.0
-END FUNC
+LET METRES_PER_DEGREE AS Float = 111320.0
 
 ' The wind speed, in metres per second, that the colour ramp treats as its top.
-FUNC fastWind AS Float
-  RETURN 32.0
-END FUNC
+LET FAST_WIND AS Float = 32.0
 
 ' ---------------------------------------------------------------------------
 ' Sampling the field
@@ -151,9 +134,11 @@ END FUNC
 ' The swarm
 ' ---------------------------------------------------------------------------
 '
-' Parallel lists rather than a List OF Particle: a particle's trail is a dozen
-' points, and a record holding a list per particle would be a thousand small
-' collections to allocate, copy and walk every frame. Here there are nine
+' Parallel lists rather than a List OF Particle. A particle record holding its
+' own trail would be the natural shape, but reading one particle out of a list
+' with collections::get gives back a copy of the whole particle, trail and all,
+' and writing it back copies it again - every particle, every frame. Lists of
+' plain numbers are read and written where they stand, so here there are eleven
 ' lists, all sized once.
 '
 ' Particles are stored in pairs: an even index is a leader, the odd index after
@@ -167,9 +152,9 @@ MUT swarmSpeed AS List OF Float = []      ' the wind it last sat in, m/s
 MUT swarmStartLon AS List OF Float = []   ' where this particle was last dropped
 MUT swarmStartLat AS List OF Float = []
 
-' Trails, trailLength() points per particle, used as a ring buffer. Every
+' Trails, TRAIL_LENGTH points per particle, used as a ring buffer. Every
 ' particle advances on the same frame, so one shared write position serves the
-' whole swarm - particle i's newest point is always at i * trailLength() +
+' whole swarm - particle i's newest point is always at i * TRAIL_LENGTH +
 ' trailHead.
 '
 ' Each point is kept twice: as a place (trailLon/trailLat), and projected onto
@@ -210,7 +195,7 @@ END FUNC
 ' How many particles a window of this size should carry: two per streamline.
 FUNC countFor(v AS View) AS Integer
   LET area AS Float = v.width * v.height
-  RETURN 2 * math::clamp(math::floor(area / pixelsPerParticle()), minParticles(), maxParticles())
+  RETURN 2 * math::clamp(math::floor(area / PIXELS_PER_PARTICLE), MIN_PARTICLES, MAX_PARTICLES)
 END FUNC
 
 ' A random Float in [0, 1).
@@ -242,19 +227,19 @@ SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
   swarmStartLon = collections::set(swarmStartLon, i, g.lon)
   swarmStartLat = collections::set(swarmStartLat, i, g.lat)
 
-  LET base AS Integer = i * trailLength()
-  FOR slot = 0 TO trailLength() - 1
+  LET base AS Integer = i * TRAIL_LENGTH
+  FOR slot = 0 TO TRAIL_LENGTH - 1
     setTrailPoint(base + slot, g)
   NEXT
 END SUB
 
 ' A staggered life, so that a swarm seeded all at once does not expire all at
-' once and leave the map blank every particleLife() frames. Drawn once per pair,
+' once and leave the map blank every PARTICLE_LIFE frames. Drawn once per pair,
 ' when the swarm is seeded, and kept: a leader whose next life were shorter than
 ' its last would be half-way along its new path before its follower had finished
 ' the old one, and the pair would drift out of step.
 FUNC staggeredLife AS Integer
-  RETURN particleLife() / 2 + math::rand(0, particleLife())
+  RETURN PARTICLE_LIFE / 2 + math::rand(0, PARTICLE_LIFE)
 END FUNC
 
 ' Drop follower i on the spot its leader (i - 1) was last dropped, timed to start
@@ -313,7 +298,7 @@ SUB seedSwarm(count AS Integer, v AS View)
     swarmSpeed = collections::append(swarmSpeed, 0.0)
     swarmStartLon = collections::append(swarmStartLon, 0.0)
     swarmStartLat = collections::append(swarmStartLat, 0.0)
-    FOR slot = 1 TO trailLength()
+    FOR slot = 1 TO TRAIL_LENGTH
       trailLon = collections::append(trailLon, 0.0)
       trailLat = collections::append(trailLat, 0.0)
       trailX = collections::append(trailX, 0.0)
@@ -341,8 +326,8 @@ SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
   LET count AS Integer = particleCount()
   IF count = 0 THEN EXIT SUB
 
-  trailHead = (trailHead + 1) MOD trailLength()
-  LET drift AS Float = driftRate() * dt
+  trailHead = (trailHead + 1) MOD TRAIL_LENGTH
+  LET drift AS Float = DRIFT_RATE * dt
 
   FOR i = 0 TO count - 1
     LET age AS Integer = collections::get(swarmAge, i) + 1
@@ -370,7 +355,7 @@ SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
     swarmAge = collections::set(swarmAge, i, age)
     swarmSpeed = collections::set(swarmSpeed, i, speedOf(wind))
 
-    setTrailPoint(i * trailLength() + trailHead, Geo[lon := lon, lat := lat])
+    setTrailPoint(i * TRAIL_LENGTH + trailHead, Geo[lon := lon, lat := lat])
   NEXT
 END SUB
 
@@ -383,7 +368,7 @@ END SUB
 ' slow: on a linear ramp almost every particle on the map would be the same
 ' blue, and only the jet streams would carry any colour at all.
 FUNC speedColor(speed AS Float) AS color::Color
-  LET t AS Float = math::sqrt(math::clamp(speed / fastWind(), 0.0, 1.0))
+  LET t AS Float = math::sqrt(math::clamp(speed / FAST_WIND, 0.0, 1.0))
   RETURN color::rgb(120 + math::floor(t * 135.0), 170 + math::floor(t * 70.0), 215 - math::floor(t * 55.0))
 END FUNC
 
@@ -398,12 +383,12 @@ END FUNC
 FUNC trailItems(v AS View) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = []
   LET count AS Integer = particleCount()
-  LET trail AS Integer = trailLength()
+  LET trail AS Integer = TRAIL_LENGTH
   LET segments AS Integer = trail - 1
   IF count = 0 OR segments < 1 THEN RETURN items
 
   LET box AS Box = viewBox(v, 0.02)
-  LET wrapLimit AS Float = planeHalfWidth()
+  LET wrapLimit AS Float = PLANE_HALF_WIDTH
 
   FOR i = 0 TO count - 1
     LET age AS Integer = collections::get(swarmAge, i)

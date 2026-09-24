@@ -30,6 +30,7 @@
 
 IMPORT bits
 IMPORT collections
+IMPORT errorCode
 IMPORT math
 
 ' A regular latitude/longitude grid of values - section 3, grid template 3.0 -
@@ -88,7 +89,7 @@ END FUNC
 FUNC ieee32(raw AS Integer) AS Float
   LET biased AS Integer = bits::band(bits::sr(raw, 23), 255)
   LET fraction AS Integer = bits::band(raw, 8388607)
-  IF biased = 255 THEN FAIL error(77050003, "grib: the reference value is not a finite number")
+  IF biased = 255 THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the reference value is not a finite number")
 
   MUT mag AS Float = 0.0
   IF biased = 0 THEN
@@ -210,14 +211,14 @@ FUNC unpackComplex(s5 AS List OF Byte, s7 AS List OF Byte, count AS Integer) AS 
   LET order AS Integer = toInt(collections::get(s5, 47))
   LET extraOctets AS Integer = toInt(collections::get(s5, 48))
 
-  IF order <> 1 AND order <> 2 THEN FAIL error(77050007, "grib: spatial differencing of order " & toString(order) & " is not one this reader undoes")
-  IF count < order THEN FAIL error(77050003, "grib: the field is shorter than its own spatial-differencing prologue")
+  IF order <> 1 AND order <> 2 THEN FAIL error(errorCode::ErrUnsupported, "grib: spatial differencing of order " & toString(order) & " is not one this reader undoes")
+  IF count < order THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the field is shorter than its own spatial-differencing prologue")
   ' Every count below is read out of the file, and the group loop allocates from
   ' them. A file whose descriptors do not add up must fail here rather than
   ' where the allocation lands: the groups together cover the field exactly, so
   ' anything that cannot is malformed, and asking for it is how a bad header
   ' turns into an out-of-memory kill instead of an error message.
-  IF groups < 0 OR groups > count THEN FAIL error(77050003, "grib: section 5 claims " & toString(groups) & " groups for " & toString(count) & " values")
+  IF groups < 0 OR groups > count THEN FAIL error(errorCode::ErrInvalidFormat, "grib: section 5 claims " & toString(groups) & " groups for " & toString(count) & " values")
 
   MUT pos AS Integer = 5 * 8
   LET extraBits AS Integer = extraOctets * 8
@@ -269,8 +270,8 @@ FUNC unpackComplex(s5 AS List OF Byte, s7 AS List OF Byte, count AS Integer) AS 
     LET ref AS Integer = collections::get(references, g)
     LET width AS Integer = collections::get(widths, g)
     LET runLength AS Integer = collections::get(lengths, g)
-    IF runLength < 0 OR len(diffs) + runLength > count THEN FAIL error(77050003, "grib: the groups overrun the field - group " & toString(g) & " of " & toString(groups) & " asks for " & toString(runLength) & " values past " & toString(len(diffs)) & " of " & toString(count))
-    IF width < 0 OR width > 63 THEN FAIL error(77050003, "grib: group " & toString(g) & " declares a width of " & toString(width) & " bits")
+    IF runLength < 0 OR len(diffs) + runLength > count THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the groups overrun the field - group " & toString(g) & " of " & toString(groups) & " asks for " & toString(runLength) & " values past " & toString(len(diffs)) & " of " & toString(count))
+    IF width < 0 OR width > 63 THEN FAIL error(errorCode::ErrInvalidFormat, "grib: group " & toString(g) & " declares a width of " & toString(width) & " bits")
     IF width = 0 THEN
       FOR n = 1 TO runLength
         diffs = collections::append(diffs, ref)
@@ -284,7 +285,7 @@ FUNC unpackComplex(s5 AS List OF Byte, s7 AS List OF Byte, count AS Integer) AS 
     END IF
   NEXT
 
-  IF len(diffs) <> count THEN FAIL error(77050003, "grib: the groups hold " & toString(len(diffs)) & " values where section 5 promised " & toString(count))
+  IF len(diffs) <> count THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the groups hold " & toString(len(diffs)) & " values where section 5 promised " & toString(count))
 
   ' Undo the spatial differencing. Everything after the seed had the minimum
   ' difference subtracted from it, so add it back, then integrate: once for
@@ -329,10 +330,10 @@ END FUNC
 ' down rather than refused.
 FUNC gridOf(s3 AS List OF Byte) AS Field
   LET template AS Integer = beInt(s3, 12, 2)
-  IF template <> 0 THEN FAIL error(77050007, "grib: grid template 3." & toString(template) & " is not the regular latitude/longitude grid this reader draws")
+  IF template <> 0 THEN FAIL error(errorCode::ErrUnsupported, "grib: grid template 3." & toString(template) & " is not the regular latitude/longitude grid this reader draws")
 
   LET scanning AS Integer = toInt(collections::get(s3, 71))
-  IF scanning <> 0 THEN FAIL error(77050007, "grib: scanning mode " & toString(scanning) & " is not the north-to-south, west-to-east order this reader assumes")
+  IF scanning <> 0 THEN FAIL error(errorCode::ErrUnsupported, "grib: scanning mode " & toString(scanning) & " is not the north-to-south, west-to-east order this reader assumes")
 
   RETURN Field[ni := beInt(s3, 30, 4), nj := beInt(s3, 34, 4), lat1 := angle(s3, 46), lon1 := angle(s3, 50), dlat := angle(s3, 67), dlon := angle(s3, 63), category := 0, parameter := 0, surface := 0, height := 0, values := []]
 END FUNC
@@ -357,11 +358,11 @@ END TYPE
 
 FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
   ' Section 0: "GRIB", then the edition at octet 8 and the length at 9-16.
-  IF beInt(data, at, 4) <> 1196575042 THEN FAIL error(77050003, "grib: no GRIB message at byte " & toString(at))
+  IF beInt(data, at, 4) <> 1196575042 THEN FAIL error(errorCode::ErrInvalidFormat, "grib: no GRIB message at byte " & toString(at))
   LET edition AS Integer = toInt(collections::get(data, at + 7))
-  IF edition <> 2 THEN FAIL error(77050007, "grib: this is edition " & toString(edition) & ", and only edition 2 is read here")
+  IF edition <> 2 THEN FAIL error(errorCode::ErrUnsupported, "grib: this is edition " & toString(edition) & ", and only edition 2 is read here")
   LET length AS Integer = beInt(data, at + 8, 8)
-  IF at + length > len(data) THEN FAIL error(77050003, "grib: the message at byte " & toString(at) & " runs past the end of the file")
+  IF at + length > len(data) THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the message at byte " & toString(at) & " runs past the end of the file")
 
   MUT field AS Field = Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
   MUT packing AS List OF Byte = []
@@ -374,7 +375,7 @@ FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
   MUT pos AS Integer = at + 16
   DO WHILE pos < at + length - 4
     LET sectionLength AS Integer = beInt(data, pos, 4)
-    IF sectionLength < 5 THEN FAIL error(77050003, "grib: a section at byte " & toString(pos) & " declares an impossible length")
+    IF sectionLength < 5 THEN FAIL error(errorCode::ErrInvalidFormat, "grib: a section at byte " & toString(pos) & " declares an impossible length")
     LET number AS Integer = toInt(collections::get(data, pos + 4))
     LET section AS List OF Byte = collections::mid(data, pos, sectionLength)
 
@@ -393,13 +394,13 @@ FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
         ' A field with absent points would need the bitmap threaded through
         ' the unpackers, and NCEP's surface winds never carry one.
         LET indicator AS Integer = toInt(collections::get(section, 5))
-        IF indicator <> 255 THEN FAIL error(77050007, "grib: this message has a bitmap, and this reader only decodes fields where every point is present")
+        IF indicator <> 255 THEN FAIL error(errorCode::ErrUnsupported, "grib: this message has a bitmap, and this reader only decodes fields where every point is present")
       CASE 7
-        IF NOT haveGrid THEN FAIL error(77050003, "grib: the data section arrived before the grid that shapes it")
+        IF NOT haveGrid THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the data section arrived before the grid that shapes it")
         MATCH template
           CASE 0 : field = WITH field { values := unpackSimple(packing, section, count) }
           CASE 3 : field = WITH field { values := unpackComplex(packing, section, count) }
-          CASE ELSE : FAIL error(77050007, "grib: data representation template 5." & toString(template) & " is not one this reader unpacks")
+          CASE ELSE : FAIL error(errorCode::ErrUnsupported, "grib: data representation template 5." & toString(template) & " is not one this reader unpacks")
         END MATCH
       CASE ELSE
         ' Sections 1 and 2 - the reference time and any local use - say nothing
@@ -409,7 +410,7 @@ FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
     pos = pos + sectionLength
   LOOP
 
-  IF len(field.values) <> field.ni * field.nj THEN FAIL error(77050003, "grib: the message decoded to " & toString(len(field.values)) & " values for a " & toString(field.ni) & " by " & toString(field.nj) & " grid")
+  IF len(field.values) <> field.ni * field.nj THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the message decoded to " & toString(len(field.values)) & " values for a " & toString(field.ni) & " by " & toString(field.nj) & " grid")
   RETURN Decoded[field := field, length := length]
 END FUNC
 
@@ -433,5 +434,5 @@ FUNC pick(fields AS List OF Field, category AS Integer, parameter AS Integer, su
   FOR EACH f IN fields
     IF f.category = category AND f.parameter = parameter AND f.surface = surface AND f.height = height THEN RETURN f
   NEXT
-  FAIL error(77050004, "grib: the file holds no parameter " & toString(category) & "." & toString(parameter) & " at " & toString(height) & " m above ground")
+  FAIL error(errorCode::ErrNotFound, "grib: the file holds no parameter " & toString(category) & "." & toString(parameter) & " at " & toString(height) & " m above ground")
 END FUNC
