@@ -1307,7 +1307,7 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
     EXIT SUB
   END IF
   IF len(__CANVAS_GEO_BUILT) > 0 THEN
-    LET items AS List OF DrawItem = __canvas_flatScene()
+    LET items AS List OF DrawItem = __canvas_frameItems()
     LET none AS DrawItem = __canvas_noItem()
     MUT k AS Integer = 0
     WHILE k + 1 < len(__CANVAS_GEO_BUILT)
@@ -1329,7 +1329,7 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
   ' the hash and the item came from the same scene.
   LET top AS Integer = len(__CANVAS_TOP_OFFSETS)
   IF top > 0 THEN
-    LET drawn AS List OF DrawItem = __canvas_flatScene()
+    LET drawn AS List OF DrawItem = __canvas_frameItems()
     LET absent AS DrawItem = __canvas_noItem()
     MUT r AS Integer = 0
     WHILE r < top
@@ -1345,7 +1345,7 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
     END WHILE
   END IF
   IF pending = 0 THEN
-    LET hashes AS List OF Integer = canvas::installedHashes()
+    LET hashes AS List OF Integer = __CANVAS_FRAME_HASHES
     MUT i AS Integer = 0
     WHILE i < len(__CANVAS_DRAW_HASHES) AND i < len(hashes)
       LET folded AS Integer = __canvas_hashFloat(__canvas_hashFloat(collections::getOr(hashes, i, 0), 0.0), 0.0)
@@ -1375,7 +1375,7 @@ SUB __canvas_drawsVerify()
 END SUB
 
 FUNC __canvas_geoVerifyText() AS String
-  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED) & " geoResolvedChecked=" & toString(__CANVAS_GEO_RESOLVED_CHECKED)
+  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED) & " geoResolvedChecked=" & toString(__CANVAS_GEO_RESOLVED_CHECKED) & " snapshotRehashed=" & toString(__CANVAS_SNAP_REHASHED)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

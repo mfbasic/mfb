@@ -318,6 +318,21 @@ MUT __CANVAS_TOP_OFFSETS AS List OF Integer = []
 ' not be resolved from its hash alone (a miss, a picture, a group), and empty otherwise.
 ' A frame whose items are all cached never copies the scene out of the ring.
 MUT __CANVAS_FRAME_ITEMS AS List OF DrawItem = []
+MUT __CANVAS_FRAME_ITEMS_READY AS Boolean = FALSE
+' bug-686: the frame's ONE view of the installed scene, taken by `canvas::sceneSnapshot`
+' at the top of `__canvas_sceneOffsets` -- raw pointers into the worker's arena, which is
+' why they are Integers: nothing here owns them. Every reader in the frame goes through
+' them (natively) or through copies of them (`canvas::snapshotItems` and friends).
+MUT __CANVAS_SNAP_ITEMS AS Integer = 0
+MUT __CANVAS_SNAP_LAYERS AS Integer = 0
+MUT __CANVAS_SNAP_HASHES AS Integer = 0
+' The frame's item hashes, in scene order: the ones published for the snapshot's scene,
+' or -- when the snapshot caught a scene whose hashes are not published yet -- computed
+' here from its items.
+MUT __CANVAS_FRAME_HASHES AS List OF Integer = []
+' Frames that hashed their own scene because its hashes were not published yet --
+' `snapshotRehashed=` on the `--debug` stats line.
+MUT __CANVAS_SNAP_REHASHED AS Integer = 0
 ' Slot index -> the base of that group's own run in `__CANVAS_DRAW_BLOCKS`, and its
 ' length. Parallel lists rather than a Map because a Map of Integer to Integer would
 ' allocate per frame and this is walked once per group node.
@@ -599,16 +614,29 @@ FUNC __canvas_noItem() AS DrawItem
   RETURN Group[name := "", dx := 0.0, dy := 0.0]
 END FUNC
 
-' Every item of the installed scene, in `canvas::installedHashes()` order: the flat items,
-' then each layer's.
+' Every item of the frame's scene -- the snapshot `canvas::sceneSnapshot` took (bug-686)
+' -- in `__CANVAS_FRAME_HASHES` order: the flat items, then each layer's.
 FUNC __canvas_flatScene() AS List OF DrawItem
-  MUT out AS List OF DrawItem = canvas::installedItems()
-  FOR EACH layer IN canvas::installedLayers()
+  MUT out AS List OF DrawItem = canvas::snapshotItems()
+  FOR EACH layer IN canvas::snapshotLayers()
     FOR EACH item IN layer.items
       out = collections::append(out, item)
     NEXT
   NEXT
   RETURN out
+END FUNC
+
+' The frame's items, copied out of the snapshot at most once a frame.
+SUB __canvas_ensureFrameItems()
+  IF NOT __CANVAS_FRAME_ITEMS_READY THEN
+    __CANVAS_FRAME_ITEMS = __canvas_flatScene()
+    __CANVAS_FRAME_ITEMS_READY = TRUE
+  END IF
+END SUB
+
+FUNC __canvas_frameItems() AS List OF DrawItem
+  __canvas_ensureFrameItems()
+  RETURN __CANVAS_FRAME_ITEMS
 END FUNC
 
 FUNC __canvas_sceneOffsets() AS List OF Integer
@@ -617,7 +645,21 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   ' the cache may drop a slot or move a float. Nothing after this point in the frame does.
   canvas::geoBeginFrame()
 
-  ' bug-686, pass 1, native: every item resolved from its published hash, and every miss
+  ' bug-686: ONE consistent view of the installed scene for the whole frame -- its items,
+  ' its layers and its hashes, all one publish's. The worker publishes the hashes in a
+  ' second call after the scene, so a frame can catch a scene whose hashes are the
+  ' previous scene's; a hit is trusted on its hash alone, so those are refused
+  ' (`sceneSnapshot` answers FALSE) and the frame hashes its own items instead.
+  __CANVAS_FRAME_ITEMS = []
+  __CANVAS_FRAME_ITEMS_READY = FALSE
+  IF canvas::sceneSnapshot() THEN
+    __CANVAS_FRAME_HASHES = canvas::snapshotHashes()
+  ELSE
+    __CANVAS_FRAME_HASHES = __canvas_hashScene(__canvas_frameItems(), [])
+    __CANVAS_SNAP_REHASHED = __CANVAS_SNAP_REHASHED + 1
+  END IF
+
+  ' bug-686, pass 1, native: every item resolved from its frame hash, and every miss
   ' of a kind `canvas::geoBuild` builds built on the spot -- into `__CANVAS_TOP_OFFSETS`,
   ' one per scene index. What it leaves at -1 (a picture, a `Text`, a `Group`, a declined
   ' paint or kind) is this function's. On a scene of the common kinds that is nothing,
@@ -626,12 +668,10 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   __CANVAS_DRAW_DX = []
   __CANVAS_DRAW_DY = []
   __CANVAS_DRAW_HASHES = []
-  __CANVAS_FRAME_ITEMS = []
   MUT side AS List OF Integer = []
   MUT spans AS List OF Integer = []
   IF pending > 0 THEN
-    __CANVAS_FRAME_ITEMS = __canvas_flatScene()
-    LET hashes AS List OF Integer = canvas::installedHashes()
+    __canvas_ensureFrameItems()
     ' Bound once -- see `__canvas_sceneDraws`: a call in `getOr`'s default would snapshot
     ' the whole global scene list per item.
     LET none AS DrawItem = __canvas_noItem()
@@ -645,7 +685,7 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
       IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
-        side = __canvas_appendDraw(side, item, collections::getOr(hashes, i, 0), 0.0, 0.0, 0)
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0)
         spans = collections::append(spans, i)
         spans = collections::append(spans, before)
         spans = collections::append(spans, len(side) - before)

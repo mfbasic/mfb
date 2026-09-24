@@ -7,7 +7,7 @@
 //! so it lives here once rather than being written twice and drifting.
 
 // --- codegen tier imports (migration) ---
-use super::scene_base::scene_base;
+use super::scene_base::{emit_mark_pending, emit_scene_barrier, orders_scene_accesses, scene_base};
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
@@ -270,15 +270,23 @@ pub(crate) fn emit_publish(
     let oom = builder.label(&format!("{tag}_retire_oom"));
     emit_retire_displaced(builder, &scene, PUBLISH_RETIRES, &oom, &symbol)?;
 
-    // Publish: this shape's pointer and count, the other shape's pair cleared, then
-    // the revision. The revision is written LAST and is what a reader gates on, so a
-    // reader can never observe a bumped revision alongside a half-written scene.
+    // Publish (bug-686: a sequence lock): mark the publish in progress
+    // (`pending = revision + 1` -- already done before the retirement stamp when
+    // something was retired, and again here for when nothing was), then this shape's
+    // pointer and count, the other shape's pair cleared, then the revision, which closes
+    // it. The revision is written LAST and is what a reader gates on, so a reader can
+    // never observe a bumped revision alongside a half-written scene. On AArch64 a
+    // barrier (`scene_base::emit_scene_barrier`) keeps the mark before the pointers and
+    // the pointers before the revision; x86-64 keeps stores in order by itself.
+    emit_mark_pending(builder, &scene);
+    emit_scene_barrier(builder, &scene);
     let published = builder.temporary_vreg();
     builder.emit(abi::load_u64(&published, abi::stack_pointer(), copy_slot));
     builder.emit(abi::store_u64(&published, &scene, ptr_offset));
     builder.emit(abi::store_u64(&count, &scene, count_offset));
     builder.emit(abi::store_u64(abi::ZERO, &scene, other_ptr));
     builder.emit(abi::store_u64(abi::ZERO, &scene, other_count));
+    emit_scene_barrier(builder, &scene);
     let revision = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &revision,
@@ -351,7 +359,14 @@ pub(crate) fn emit_load_frame_counter(
         &mut builder.instructions,
         &mut builder.relocations,
     );
-    builder.emit(abi::load_u64(dst, &base, GRAPHICS_OFFSET_FRAMES));
+    // An acquire on AArch64, so it cannot run ahead of the `pending` mark a publish
+    // releases just before it (bug-686).
+    if orders_scene_accesses(builder) {
+        builder.emit(abi::add_immediate(&base, &base, GRAPHICS_OFFSET_FRAMES));
+        builder.emit(abi::load_acquire_u64(dst, &base));
+    } else {
+        builder.emit(abi::load_u64(dst, &base, GRAPHICS_OFFSET_FRAMES));
+    }
 }
 
 /// Free one block named by a pointer **stack slot**, and zero the slot.
@@ -602,6 +617,13 @@ pub(crate) fn emit_retire_displaced(
         builder.emit(abi::load_u64(&displaced, scene, scene_offset));
         builder.emit(abi::store_u64(&displaced, &node, node_offset));
     }
+    // bug-686: the publish is marked in progress BEFORE the frame counter is read for
+    // the stamp. A frame whose scene snapshot could still name a displaced block read
+    // `pending` before this store (or it would have retried), so it had not completed
+    // when the counter below is read — and the block is freed only once the counter
+    // passes the stamp, i.e. after that frame. The mark is a release and the counter
+    // load an acquire on AArch64, which keeps them in this order.
+    emit_mark_pending(builder, scene);
     let frame_now = builder.temporary_vreg();
     emit_load_frame_counter(builder, &frame_now, symbol);
     builder.emit(abi::store_u64(&frame_now, &node, CANVAS_RETIRE_NODE_FRAME));

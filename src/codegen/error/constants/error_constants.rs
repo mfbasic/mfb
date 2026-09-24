@@ -581,8 +581,29 @@ pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
 /// is what a list gives, bounded in practice by presents per rendered frame, and
 /// drained to empty by the first publish after a frame completes.
 pub(crate) const CANVAS_SCENE_RETIRED_HEAD_OFFSET: usize = 48;
+/// bug-686: the revision a publish in progress is writing — `revision + 1` from the
+/// moment `canvas::publishScene` or `canvas::publishHashes` starts changing the scene
+/// region until it has finished, and equal to the revision otherwise.
+///
+/// It is the leading half of a sequence lock whose trailing half is the revision itself
+/// (`publishScene` closes it by bumping the revision; `publishHashes`, which does not
+/// start a new scene, by setting this back). A reader (`canvas::sceneSnapshot`) reads
+/// the revision, this, the pointers, and this again, and keeps the pointers only when
+/// both reads of this equal the revision — so the items, layers and hashes a frame
+/// draws are always one publish's. Written with a store-release and read with a
+/// load-acquire on AArch64 (`scene_base::emit_scene_store`), and set BEFORE a publish
+/// reads the frame counter to stamp what it retires, so a frame that could still have
+/// seen the displaced blocks has not yet completed when the stamp is taken.
+pub(crate) const CANVAS_SCENE_PENDING_OFFSET: usize = 56;
+/// bug-686: the revision the published hashes were computed for. `canvas::publishHashes`
+/// writes it (after the hashes pointer), and a frame uses the published hashes only
+/// when it equals the revision of the scene the frame snapshotted — otherwise the
+/// graphics thread hashes that scene itself. A frame can run between `publishScene` and
+/// `publishHashes`, and pairing the new items with the old hashes drew one item's cached
+/// geometry for another (a hit is trusted on its hash alone).
+pub(crate) const CANVAS_SCENE_HASHES_REVISION_OFFSET: usize = 64;
 /// Total slots in the canvas scene region.
-pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_HEAD_OFFSET + 8) / 8;
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_HASHES_REVISION_OFFSET + 8) / 8;
 
 // A retirement node: one publish's displaced blocks, the frame it displaced them at,
 // and the next (older) node. Arena-allocated by the publish, freed by the drain, and

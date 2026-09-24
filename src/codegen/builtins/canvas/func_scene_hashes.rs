@@ -23,7 +23,7 @@
 use super::gen_present::{
     emit_free_block, emit_reclaim_retired, emit_retire_displaced, HASHES_RETIRES,
 };
-use super::scene_base::scene_base;
+use super::scene_base::{emit_mark_pending, emit_scene_store, scene_base};
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
@@ -86,13 +86,28 @@ pub(crate) fn lower_publish_hashes(
     let oom = builder.label("canvas_publish_hashes_oom");
     emit_retire_displaced(builder, &scene, HASHES_RETIRES, &oom, &symbol)?;
 
+    // bug-686: the hashes and the revision they belong to, inside the sequence lock
+    // (`CANVAS_SCENE_PENDING_OFFSET`): marked in progress, the pointer, the revision it
+    // pairs with, then unmarked -- `pending` back to the revision, which this call does
+    // not bump because it publishes no new scene. A frame uses these hashes only when
+    // the revision they name is the one of the scene it snapshotted.
+    emit_mark_pending(builder, &scene);
     let published = builder.temporary_vreg();
     builder.emit(abi::load_u64(&published, abi::stack_pointer(), copy_slot));
-    builder.emit(abi::store_u64(
-        &published,
+    emit_scene_store(builder, &scene, CANVAS_SCENE_HASHES_OFFSET, &published);
+    let revision = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &revision,
         &scene,
-        CANVAS_SCENE_HASHES_OFFSET,
+        CANVAS_SCENE_REVISION_OFFSET,
     ));
+    emit_scene_store(
+        builder,
+        &scene,
+        CANVAS_SCENE_HASHES_REVISION_OFFSET,
+        &revision,
+    );
+    emit_scene_store(builder, &scene, CANVAS_SCENE_PENDING_OFFSET, &revision);
 
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,

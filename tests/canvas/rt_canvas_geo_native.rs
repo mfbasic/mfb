@@ -19,17 +19,28 @@ use std::process::Command;
 /// Build a `--debug --app` program, run it headless, synchronously and with the geometry
 /// check on, and return one `MFB_CANVAS_STATS` line per frame.
 fn stats(name: &str, source: &str) -> Vec<String> {
+    stats_with(name, source, true)
+}
+
+/// [`stats`], optionally WITHOUT `MFB_CANVAS_SYNC`: the worker then presents as fast as
+/// it can while the graphics thread renders whatever is installed, which is the only way
+/// a frame can overlap a publish.
+fn stats_with(name: &str, source: &str, sync: bool) -> Vec<String> {
     let project = common::temp_project(name, source);
     let binary = common::build_app_debug(&project, name);
     let stats = project.join("stats.txt");
-    let run = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    command
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
         .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats)
-        .env("MFB_CANVAS_SYNC", "1")
-        .env("MFB_CANVAS_GEO_VERIFY", "1")
+        .env("MFB_CANVAS_GEO_VERIFY", "1");
+    if sync {
+        command.env("MFB_CANVAS_SYNC", "1");
+    }
+    let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -365,4 +376,90 @@ fn the_native_frame_pass_matches_the_mfbasic_walk_on_a_mixed_moving_scene() {
             pair[1],
         );
     }
+}
+
+/// A frame draws ONE scene: every index it resolves — cache hits included, of every kind
+/// — draws the geometry of the item the frame holds at that index (bug-686).
+///
+/// A hit is trusted on the item's hash alone, and the hashes are published by a second
+/// call (`canvas::publishHashes`) after the scene (`canvas::publishScene`). The worker
+/// here alternates two scenes of the same length, A and B, 60 times, a few milliseconds
+/// apart and without `MFB_CANVAS_SYNC`, so the graphics thread renders while publishes
+/// land. A and B put
+/// different kinds at the same indices and different positions on them, and every item of
+/// both is cached after the first two frames — so a frame that pairs one scene's items
+/// with the other's hashes draws a HIT of the wrong item, and one that files a miss under
+/// the other scene's hash keeps drawing it. Every tenth index is a kind the MFBASIC path
+/// builds (an ellipse in A, a transformed rectangle in B).
+///
+/// `MFB_CANVAS_GEO_VERIFY=1` checks every resolved index of every frame against the
+/// MFBASIC builders' record for the item at that index (`geoResolvedChecked=`).
+#[test]
+fn a_frame_never_draws_one_scenes_geometry_for_anothers_items() {
+    let source = "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+         FUNC scene(flip AS Boolean) AS List OF canvas::DrawItem\n  \
+         MUT items AS List OF canvas::DrawItem = []\n  \
+         LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 1.5, ty := 0.0]\n  \
+         MUT k AS Integer = 0\n  \
+         WHILE k < 6000\n    \
+         LET px AS Float = toFloat((k * 37) MOD 880)\n    \
+         LET py AS Float = toFloat((k * 53) MOD 620)\n    \
+         LET qx AS Float = toFloat((k * 41) MOD 880) + 0.5\n    \
+         LET qy AS Float = toFloat((k * 59) MOD 620) + 0.25\n    \
+         LET box AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 6.0, h := 4.0, paint := canvas::fill(color::rgb(0, 200, 255))]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[x := qx, y := qy, radius := 3.0, paint := canvas::fill(color::rgb(255, 80, 0))]\n    \
+         LET oval AS canvas::DrawItem = canvas::Ellipse[x := qx, y := qy, radiusX := 5.0, radiusY := 2.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 200))]\n    \
+         LET moved AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 5.0, h := 5.0, paint := WITH canvas::fill(color::rgb(1, 200, 3)) { transform := t }]\n    \
+         IF k MOD 10 = 0 THEN\n      \
+         IF flip THEN\n        \
+         items = collections::append(items, moved)\n      \
+         ELSE\n        \
+         items = collections::append(items, oval)\n      \
+         END IF\n    \
+         ELSE\n      \
+         IF (k MOD 2 = 0) = flip THEN\n        \
+         items = collections::append(items, dot)\n      \
+         ELSE\n        \
+         items = collections::append(items, box)\n      \
+         END IF\n    \
+         END IF\n    \
+         k = k + 1\n  \
+         END WHILE\n  \
+         RETURN items\n\
+         END FUNC\n\n\
+         SUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         LET a AS List OF canvas::DrawItem = scene(FALSE)\n  \
+         LET b AS List OF canvas::DrawItem = scene(TRUE)\n  \
+         MUT n AS Integer = 0\n  \
+         WHILE n < 60\n    \
+         IF n MOD 2 = 0 THEN\n      \
+         canvas::present(a)\n    \
+         ELSE\n      \
+         canvas::present(b)\n    \
+         END IF\n    \
+         os::sleep(20)\n    \
+         n = n + 1\n  \
+         END WHILE\n  \
+         io::print(\"rendered\")\n\
+         END SUB\n";
+    let lines = stats_with("canvas_geo_native_publish_race", source, false);
+    let last = lines.last().expect("at least one frame rendered");
+    assert!(
+        lines.len() >= 3,
+        "the graphics thread rendered only {} frames while the worker presented 60 \
+         scenes; the race needs frames to overlap presents.\n{last}",
+        lines.len()
+    );
+    assert!(
+        field(last, "geoResolvedChecked") >= 6000,
+        "every resolved index of every frame is checked.\n{last}"
+    );
+    assert_eq!(
+        field(last, "geoVerifyMismatches"),
+        0,
+        "a frame drew geometry that is not its item's: the items, the layers and the \
+         hashes a frame reads must come from ONE publish of the scene, and a hit must be \
+         taken by the hash published for that scene.\n{last}"
+    );
 }
