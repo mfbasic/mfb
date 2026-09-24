@@ -145,8 +145,8 @@ runtime caches each item's geometry on a content hash: re-presenting an item tha
 did not change is free.
 
 An item whose content *did* change costs one geometry build, and nothing beyond
-it. The cache holds a bounded number of entries and reclaims the storage an
-evicted one owned, so a program presenting items with new coordinates every
+it. The cache holds a bounded number of entries and reuses the space an
+evicted entry took, so a program presenting items with new coordinates every
 frame reaches a steady memory size — set by how much is on screen, not by how
 long it has been running — and can animate indefinitely at that size.
 
