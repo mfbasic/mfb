@@ -108,15 +108,14 @@ documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
 **Which renderer draws is chosen once, at the first present.** A program in a
-real window draws on the GPU (Metal on macOS, Vulkan on Linux); a headless run,
+real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
 meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
 `MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
 `0` forces software, any other value forces the GPU. The software rasteriser is
 the exact-match oracle, and every test that renders runs headless, so the goldens
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
-Windows has no GPU backend, so it always draws in software.
-[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]] [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
 
 **What Metal declines is a frame too large for its buffer, never an ordinary shape.**
 Every per-frame payload travels in one Metal buffer whose regions are fixed in size,
