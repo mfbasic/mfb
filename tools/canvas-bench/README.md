@@ -4,21 +4,91 @@ bug-686's benchmark instrument for macOS Metal canvas rendering: does an
 ordinary scene draw on the GPU, and does it hold 60 fps. Promotes the
 one-off spike probes at `/tmp/bug686-spike/` (see the bug doc's
 "Reproducing the numbers") into a repeatable tool, without changing any
-rendering code.
+rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
+(same subcommands, same output format), described in "Linux mode" below.
 
 - **bench.sh** — one runner, several subcommands. Everything is headless
-  (`MFB_MACAPP_HEADLESS=1`), builds temporary MFBASIC projects under
-  `$TMPDIR`, and cleans them up on exit.
+  (`MFB_MACAPP_HEADLESS=1` on macOS, `MFB_GTKAPP_HEADLESS=1` on Linux),
+  builds temporary MFBASIC projects under `$TMPDIR`, and cleans them up on
+  exit.
 - **gen/*.sh** — the MFBASIC scene templates `bench.sh` instantiates:
   `stress.sh` (polygons, tiled, moving or static, or one big polygon via
   `R=`/`CX=`/`CY=`), `poly.sh` (one N-point wavy ring plus a box), `pics.sh`
   (a tilemap of two alternating images plus an optional full-screen
-  background), `text.sh` (a screen of text rows), `worker.sh` (the
+  background), `text.sh` (a screen of text rows; takes an optional trailing
+  font-path argument, used by Linux mode), `worker.sh` (the
   build/walk/present microbenchmark, no graphics thread involved).
 - **cmp.py** — pixel-compares two `MFB_CANVAS_DUMP` RGBA files: differing
   pixel count and max per-channel delta. What every oracle check reads.
 
     bash tools/canvas-bench/bench.sh <path-to-mfb> <subcommand> [args...]
+
+## Linux mode (bug-688)
+
+Add `--target linux-aarch64|linux-x86_64 --box <ssh-port>` (and optionally
+`--libc glibc|musl`, default `glibc`) to run the exact same subcommands
+against a remote Linux/Vulkan box instead of building and running a macOS
+`.app` locally:
+
+    bash tools/canvas-bench/bench.sh <path-to-mfb> --target linux-aarch64 --box 2226 poly 1000
+
+These three flags may appear **anywhere** in the argument list — before the
+subcommand, after it, or interleaved with its args — `bench.sh` strips them
+out before parsing `<mfb>`/`<subcommand>`/its positional args, so
+`bench.sh <mfb> poly --target linux-aarch64 --box 2226 1000` works exactly
+the same as the example above. `--box` takes the local port an SSH tunnel to
+the box listens on; the box is reached as `ssh -p <port> test@127.0.0.1`.
+`--target` and `--box` must be given together (one without the other is an
+error); `--libc` requires `--target`.
+
+In Linux mode, `bench.sh`:
+
+1. builds with `mfb build --app [--debug] --target <target> <dir>`, which
+   writes one AppImage per libc flavor to `<dir>/build/<name>-<libc>.AppImage`;
+2. ships the `<libc>` flavor's AppImage to the box with
+   `scp -P <port> ... test@127.0.0.1:...`, into a fresh `/tmp/canvas-bench-*`
+   directory (never touching any other directory already on the box — e.g. a
+   concurrent job's `/tmp/mfb-rows-*` or `/tmp/mfb-probe-*`), and extracts it
+   there with `./app.AppImage --appimage-extract`;
+3. runs `./squashfs-root/usr/bin/<name>` over
+   `ssh -o BatchMode=yes -o ConnectTimeout=10 -p <port> test@127.0.0.1`,
+   under `timeout`, with `MFB_GTKAPP_HEADLESS=1` plus the same
+   `MFB_CANVAS_*` env vars the macOS path uses;
+4. `scp`s any `MFB_CANVAS_STATS`/`MFB_CANVAS_DUMP` file the run wrote back to
+   the same local path the macOS path would have written, so every stats
+   parser and `cmp.py` call downstream of a subcommand reads it exactly as
+   it reads a local macOS run;
+5. cleans up both its local `$TMPDIR` directory and its remote
+   `/tmp/canvas-bench-*` directory on exit.
+
+The `renderer` column (and the `poly`/`compare`/`text`/`pics` oracle status
+line) reports **`Vulkan`** instead of `Metal` in Linux mode: readiness comes
+from the stats line's `vulkanReady=` field (macOS reads `metalReady=`), and
+"every rendered frame counted as a `gpuFrames` frame" is still what makes a
+row `Vulkan` vs. `software` vs. `mixed`.
+
+`text` needs a font that exists on the box — the macOS default
+(`/System/Library/Fonts/Supplemental/Arial.ttf`) does not. Linux mode passes
+`gen/text.sh` an optional trailing font-path argument pointing at
+`/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf` (a
+metric-compatible Arial substitute already present on the Debian box this
+was verified against, box 2226 — no font needs shipping). If a different box
+lacks that path, probe it first (`ssh -p <port> test@127.0.0.1 'find
+/usr/share/fonts -iname "*.ttf"'`) and update `LINUX_FONT` in `bench.sh`.
+
+**Without `--target`/`--box`, `bench.sh` behaves exactly as it always
+did** — every macOS command it runs (the `mfb build -app` invocations, the
+`env MFB_MACAPP_HEADLESS=1 ...` runs, the `bin_path`/`grep`/`awk` parsing) is
+untouched; Linux mode is purely additive.
+
+**Warning: fps numbers from Linux mode are not GPU numbers.** The Vulkan
+boxes reachable from here (e.g. box 2226) run Mesa's `lavapipe` — a
+software (CPU) Vulkan implementation — not a GPU. The `renderer` column and
+the oracle pixel-compare are still meaningful (they tell you whether the
+Vulkan code path drew the frame and drew it correctly), but the `fps`
+numbers measure a CPU rasteriser's throughput, not a GPU's, and are **not**
+comparable to the macOS/Metal fps numbers or to a real GPU's Vulkan
+performance.
 
 ## Subcommands
 
