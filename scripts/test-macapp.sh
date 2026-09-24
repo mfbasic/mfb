@@ -548,10 +548,15 @@ canvas_resize_case() {
   local metal="$2"
   local bundle_path app_pid shot verdict
   bundle_path=$(bundle "$proj" canvasresize)
+  # The renderer is chosen by MFB_CANVAS_GPU, and a real window defaults to the GPU
+  # (`__canvas_wantGpu`), so the software run has to say `0` — launched with neither
+  # (as this case once was, with the unread `MFB_CANVAS_METAL`) both runs were Metal.
+  # The Metal run presents straight to the window's CAMetalLayer (bug-686 Phase 4), so
+  # it is also what proves the drawable follows the resize.
   if [ -n "$metal" ]; then
-    MFB_CANVAS_METAL=1 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+    MFB_CANVAS_GPU=1 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
   else
-    "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+    MFB_CANVAS_GPU=0 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
   fi
   app_pid=$!
   sleep 3
