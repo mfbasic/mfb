@@ -1,11 +1,88 @@
 # bug-686: The canvas is not usable at scale — caps send ordinary scenes to software, and the GPU path is bounded by MFBASIC per-item work, not the GPU
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
-Status: Open
+Status: FIXED (9e5f274c0)
+
+## STATUS: FIXED (9e5f274c0)
+
+Merged to `main` as a fast-forward to `9e5f274c0` (main had not moved since the branch point
+`2c3ba0882`). What holds, measured on that head with a release build unless noted:
+
+- **G1 / G1b met.** Nothing ordinary falls to software. Metal's frame caps are 65,536 quads,
+  262,144 edges, 131,072 gradient stops and 8M texels. The shader bases are derived from the
+  layout constants. The per-polygon edge cap is gone (band index). Pictures upload once per
+  distinct block per frame. Oracle rows in `rt_canvas_metal.rs` cover scale, large polygons,
+  tilemaps, backgrounds and layers.
+- **G2 met for rectangles, close for polygons.** Worker `present` costs 0.35 µs per rectangle
+  and 0.56 µs per 4-point polygon, down from 1.44 / 2.28 (`mb`, release).
+- **Graphics thread (Phase 1 acceptance) met.** Resolve costs 0.28 µs per item at 10,000
+  moving quads, down from 4.10 (debug `phaseOffsetsMs`, `/tmp/b686w/bench.sh`). The draw
+  layout costs 0.085 ms per frame, down from 1.58. The render phase costs about 5 ms per
+  frame, down from about 7. A static scene rebuilds only what changed (`generations` +1 per
+  frame for the one mover).
+- **Release fps, moving items, `MFB_CANVAS_SYNC=1`** (`/tmp/b686w/final_rows.sh`):
+
+  | items | quads | lines |
+  | --- | --- | --- |
+  | 1,000 | 161.6 | 249.6 |
+  | 4,000 | 55.6 | 103.2 |
+  | 10,000 | 24.8 | 41.4 |
+
+  The same probe at the start of this round gave 13.0 for 10k quads. Pipelined (no SYNC),
+  10k quads run at 28.4 fps.
+- **G3 (wind at 60 fps) not met, and the limit is now wind itself, not the renderer.**
+  `examples/wind`, unmodified, runs at **28.9 fps** on Metal, up from 0.05 at the start
+  (`/tmp/bug686-spike/windrel.sh`: 577 frames in 20 s, 5,679 items). Per frame, wind's own
+  `frameScene` takes 21.1 ms. Present plus waiting for the frame takes 7.1 ms.
+  - At 10k quads in the stress probe, the renderer path is about 13 ms per frame (≈75 fps
+    capacity). The probe program's own build is about 25 ms: 2.5 µs per item of MFBASIC
+    building `List OF DrawItem`.
+  - That program-side cost is outside this bug. It is scoped as a spike in
+    `planning/plan-152-canvas-program-side-cost-spike.md`, which covers codegen waste,
+    value-semantics costs, native collection speed, groups, layers and batching.
+- **G4 / Phase 5 (5M retained triangles) descoped.** It needs a new API primitive, and the
+  user chose to keep the API unchanged and target ~10,000 moving items. plan-152 C7
+  re-evaluates a batched primitive with measurements.
+- **G5.** Polygons of any edge count draw on Metal (band index). A 64k-edge polygon is
+  bounded by fill, per section G.
+
+Deviations from the plan as written:
+
+- Phase 0's instrument lives in `tools/canvas-bench/`, not `examples/gpu`. AGENTS.md puts
+  benchmarks under `tools/`.
+- Phase 1's "native batching" became the native draw layout for group-free frames. Frames
+  with a group still take the MFBASIC walk.
+- **A race was found and fixed.** A frame could pair a new scene's items with the previous
+  scene's hashes. Once hits were trusted on the hash alone (this bug removed the rebuild
+  check), that could draw the wrong geometry.
+  - The scene region now has a sequence lock, and each frame draws one consistent snapshot
+    (`e5e8167ef`).
+  - The regression test is `a_frame_never_draws_one_scenes_geometry_for_anothers_items`:
+    RED with 12,000 mismatches, GREEN with 0.
+- Damage-mode-only work (the kept frame copy, the damage baseline) is skipped outside
+  damage mode. The Metal readback texture is linear, not GPU-compressed.
+- **bug-687 filed.** It is the pre-existing fp32 coverage flip near quantisation boundaries
+  that the large-star oracle row tripped. The comparison fix is the user's decision.
+
+Gates:
+
+- `cargo test --release --no-fail-fast`: 227 suites, 6,025 passed. The one failure was
+  `artifact_gate_all`, all 7 diffs in the `app-mouse-surface` canvas change-sentinel, which
+  was regenerated with proof (`82c8251d6`). The artifact gate then gave 2,118 goldens and
+  0 diffs.
+- All 15 `rt_canvas_*` suites pass (202 tests).
+- `MFB_MACAPP_GUI=1 scripts/test-macapp.sh`:
+  - Case 3h (direct `CAMetalLayer` present, `directFrames=1`, and the software fallback)
+    passes, and so does Case 4.
+  - **The two resize cases were not verifiable in this session.** System Events cannot see
+    the app's window: `osascript … get size of front window` gives -1719, and the keystroke
+    cases also skip with "need Accessibility". So the window was never resized (0.111 =
+    100/900). The pre-merge compiler fails the same way.
+  - Re-run the resize cases with Accessibility granted.
 Regression Test: `examples/gpu` sweep and its 60 fps rows (Phase 0, gating every later phase);
 `tests/canvas/rt_canvas_metal.rs` oracle rows for large polygons and over-cap frames
 
@@ -593,20 +670,20 @@ MFBASIC build (~1 µs per item) are the next limits. Both are outside this bug.
 
 ### Phase 0: the instrument (no behavior change)
 
-- [ ] Promote the spike probes to `examples/gpu`: the items × points × moving/static sweep,
+- [x] Promote the spike probes to `examples/gpu` (done as `tools/canvas-bench/`, see STATUS): the items × points × moving/static sweep,
       the single-polygon edge sweep, the worker-side microbenchmark, a `--compare` oracle
       mode, and a README naming the 60 fps rows G5 is judged on.
-- [ ] Add the phase timers (`sceneOffsets`, `sceneDraws`, render) to the `--debug`-only
+- [x] Add the phase timers (`sceneOffsets`, `sceneDraws`, render) to the `--debug`-only
       `MFB_CANVAS_STATS` line, as the spike did. Report worker `present` time as well.
       State in the README that `--debug` inflates this path by ~35%, so the fps rows are
       judged on a release build with `MFB_CANVAS_SYNC=1`.
 
 Acceptance: one command reproduces sections B-F of this report on HEAD.
-Commit: —
+Commit: `eb330be41` (timers), `c104fc078` (tools/canvas-bench)
 
 ### Phase 1: the graphics-thread pipeline goes native
 
-- [ ] **First step: nothing ordinary falls back.** Derive `METAL_*_BASE` from the layout
+- [x] **First step: nothing ordinary falls back.** Derive `METAL_*_BASE` from the layout
       constants by substituting into the shader source at build time. Hand the MFBASIC
       predicates the Rust constants instead of their own `LET` copies. Raise
       `CANVAS_MAX_FRAME_ITEMS` to 65,536 and the Metal frame-edge budget to 262,144, as
@@ -615,15 +692,15 @@ Commit: —
       `a_frame_whose_polygons_together_overflow_the_edge_region_falls_back` with spike C as
       proof: its 40,000-edge scene becomes drawable, and the decline row moves past the
       new budget.
-- [ ] **Pictures upload once per distinct image per frame** (section H, `spike-F.diff`): the
+- [x] **Pictures upload once per distinct image per frame** (section H, `spike-F.diff`): the
       per-frame `(block, base)` table in a fifth buffer region, the lookup in
       `emit_picture_buffer`, and the predicate counting distinct images. Add a
       `rt_canvas_metal.rs` oracle row with 2,000 tiles from two images and one with a
       1920×1080 background, both drawn by Metal. Extend the region-chain assertion by one
       link.
-- [ ] Native walk of the published scene (capacity-based data pointer).
-- [ ] Native geometry cache and generation; one walk per frame.
-- [ ] Native batching; unchanged items keep geometry and instance slot.
+- [x] Native walk of the published scene (capacity-based data pointer).
+- [x] Native geometry cache and generation; one walk per frame.
+- [x] Native batching; unchanged items keep geometry and instance slot (native draw layout for group-free frames; see STATUS)
 
 Acceptance:
 - After the first two steps: `examples/wind` unmodified gives `gpuFrames = frames`
@@ -633,35 +710,35 @@ Acceptance:
   10,000 items. `generations` is 0 after warm-up on a static scene and proportional to
   changed items on a moving one. `--compare` is clean.
 
-Commit: —
+Commit: `eb330be41`, `29a1a3f45`, `b2ab7b537`, `5c8bbe36d`, `b44ead8ab`, `de464330e`, `03e00fac8`, `842d43cfa`, `4d03946b1`, `e5e8167ef`
 
 ### Phase 2: native present
 
-- [ ] `__canvas_hashItem` / `__canvas_hashScene` / `__canvas_groupSignature` become native,
+- [x] `__canvas_hashItem` / `__canvas_hashScene` / `__canvas_groupSignature` become native,
       bit-identical to today's hashes. A unit test pins hash equality over every
       `DrawItem` variant.
-- [ ] If measurement supports it, hash during `publishScene`'s deep copy, and let the
+- [x] If measurement supports it, hash during `publishScene`'s deep copy, and let the
       graphics-thread cache key on the published hash.
 
 Acceptance: `canvas::present` costs ≤0.5 µs per item in the `mb` microbenchmark (today 2.9
 rects / 3.6 polygons). Damage and partial-redraw tests pass unchanged
 (`tests/canvas/rt_canvas_damage.rs`). `examples/wind` reaches 60 fps, or the report names
-the stage that stops it, measured.
-Commit: —
+the stage that stops it, measured (wind's own `frameScene`, 21.1 ms per frame; see STATUS).
+Commit: `5fea5e731`, `e2d7ef79f`, `16c3de535`, `7a00787df`
 
 ### Phase 3: a per-band edge index for polygons, and the per-polygon cap goes
 
-- [ ] Build the band table and edge index natively with the polygon's cached geometry
+- [x] Build the band table and edge index natively with the polygon's cached geometry
       (section G's algorithm, 2 px bands, r = 0.5 fill / `half + 0.5` stroke plus a 1 px
       guard, scaled for transforms). Taller bands when the index would blow its budget.
-- [ ] `emit_edge_buffer` writes the table and index into the edge region. The item block
+- [x] `emit_edge_buffer` writes the table and index into the edge region. The item block
       carries base, band top, band height and band count. `edgeDistance` loops over one
       band. Derive any new region base from the layout constants, as in Phase 1.
-- [ ] Delete `__CANVAS_METAL_MAX_EDGES`, `MAX_EDGES` and its branch in `emit_edge_buffer`.
+- [x] Delete `__CANVAS_METAL_MAX_EDGES`, `MAX_EDGES` and its branch in `emit_edge_buffer`.
       Update `an_unsupported_scene_falls_back_to_the_software_renderer` (its premise,
       "300 edges do not fit `setFragmentBytes:`", is disproved by spike B) and the
       per-item assertion in `the_two_gpu_edge_budgets_match_the_emitters`.
-- [ ] Update `.ai/canvas-threading.md` and the stale "4 KB `setFragmentBytes:`" comments.
+- [x] Update `.ai/canvas-threading.md` and the stale "4 KB `setFragmentBytes:`" comments.
 
 Acceptance:
 - `rt_canvas_metal.rs` gains oracle rows at 300, 1,000, 4,000 and 64,000 edges, plus a
@@ -672,20 +749,24 @@ Acceptance:
   252 ms. Section G's kernel measured 2 ms.
 - The worst-case spike polygon still draws correctly on Metal, even though it stays slow.
 
-Commit: —
+Commit: `b8550f3f7`, `cbf8179b1`, `86db0ed17`
 
 ### Phase 4: present without readback (measure first)
 
-- [ ] Measure render + readback + present at a full-screen Retina surface. At 900×640 it is
+- [x] Measure render + readback + present at a full-screen Retina surface. At 900×640 it is
       3.3 ms with 95 items (C), and the large-surface cost has **not** been measured. If it
       threatens the 16.7 ms budget, present the Metal texture through a `CAMetalLayer`
       drawable instead of reading it back into a CPU surface. The oracle tests keep a
       readback path.
 
 Acceptance: a measured number at full-screen Retina, and 60 fps held there.
-Commit: —
+Commit: `516bf026a`, `31cecaa46`, `b93949f5f`, `a149d08fe`, `e93168e43`, `212bd0e8f`, `ef20e0e94`, `4f4e087b0`
 
-### Phase 5: retained geometry
+### Phase 5: retained geometry — DESCOPED
+
+Descoped by the user's decision to keep the API unchanged and target ~10,000 moving items.
+A batched primitive is re-evaluated with measurements in
+`planning/plan-152-canvas-program-side-cost-spike.md` (C7).
 
 - [ ] A retained-geometry primitive (mesh or triangle list) uploaded once, drawn by
       reference with a per-frame transform, and updatable in place. It is built from a flat
