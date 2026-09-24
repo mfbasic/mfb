@@ -45,6 +45,7 @@ mod func_enable_mouse;
 mod func_fill;
 mod func_fill_stroke;
 mod func_frame_nanos;
+mod func_geo_build;
 mod func_get_bytes;
 mod func_get_size;
 mod func_graphics;
@@ -1218,6 +1219,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_did_resize::register(&mut pkg);
     func_frame_nanos::register(&mut pkg);
     func_carried_hashes::register(&mut pkg);
+    func_geo_build::register(&mut pkg);
     func_enable_mouse::register(&mut pkg);
     func_poll_mouse::register(&mut pkg);
     func_get_bytes::register(&mut pkg);

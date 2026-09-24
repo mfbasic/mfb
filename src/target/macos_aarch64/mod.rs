@@ -93,6 +93,8 @@ impl NativeBackend for Backend {
                 "canvas.didResize",
                 "canvas.frameNanos",
                 "canvas.carriedHashes",
+                "canvas.geoBuild",
+                "canvas.geoSame",
                 "canvas.enableMouse",
                 "canvas.pollMouse",
                 "canvas.getBytes",

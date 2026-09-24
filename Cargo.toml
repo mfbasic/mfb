@@ -285,6 +285,10 @@ name = "rt_canvas_geo_arena"
 path = "tests/canvas/rt_canvas_geo_arena.rs"
 
 [[test]]
+name = "rt_canvas_geo_native"
+path = "tests/canvas/rt_canvas_geo_native.rs"
+
+[[test]]
 name = "rt_canvas_present_leak"
 path = "tests/canvas/rt_canvas_present_leak.rs"
 

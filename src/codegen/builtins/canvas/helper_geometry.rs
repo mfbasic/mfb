@@ -970,6 +970,29 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   ' old one (if any) keeps its floats until the frame boundary, and the hash now names
   ' the new one.
   '
+  ' bug-686: the common kinds -- a rectangle, rounded rectangle, circle, line or polygon
+  ' with no transform and no gradient -- are built natively, header and tail in one
+  ' record, bit-identical to the builders below (`func_geo_build.rs`). Anything else
+  ' answers an empty list and takes the MFBASIC path. `__canvas_geoVerify` is empty in a
+  ' normal build; a `--debug` build's checks the record against the builders.
+  LET native AS List OF Float = canvas::geoBuild(item)
+  IF len(native) > 0 THEN
+    __canvas_geoVerify(item, native)
+    __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
+    LET nativeAt AS Integer = len(__CANVAS_GEO_DATA)
+    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, native)
+    LET nativeSlot AS Integer = len(__CANVAS_GEO_HASHES)
+    __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
+    __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, nativeAt)
+    __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, len(native))
+    ' `__canvas_geoStamp` of a fresh slot, inlined: it is used by this frame and has
+    ' never been counted.
+    __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, __CANVAS_GEO_FRAME)
+    __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + len(native)
+    __CANVAS_GEO_INDEX = collections::set(__CANVAS_GEO_INDEX, hash, nativeSlot)
+    RETURN nativeAt
+  END IF
+
   ' ONE `MATCH` for both halves (bug-686): extracting a variant copies it, and doing it
   ' once for the tail and again for the header cost ~250 ns an item on every build.
   '
@@ -1247,7 +1270,85 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
   END MATCH
 END FUNC"#;
 
+/// bug-686: the check on `canvas::geoBuild`, the native geometry builder — normal-build
+/// body.
+///
+/// A normal build has nothing to check against and nowhere to report, so the hook is an
+/// empty `SUB`, like `__canvas_phaseMark`.
+#[rustfmt::skip]
+const GEO_VERIFY: &str = r#"SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
+END SUB"#;
+
+/// [`GEO_VERIFY`] for a `--debug` build.
+///
+/// Counts every record the native builder produced (`geoNative=` on the stats line), and
+/// while `MFB_CANVAS_GEO_VERIFY=1` builds the same item's record with the MFBASIC
+/// builders and counts the ones that differ in any bit (`geoVerified=`,
+/// `geoVerifyMismatches=`). The comparison is `canvas::geoSame`, which compares the
+/// 64-bit patterns: a float `=` would call `-0.0` and `0.0` the same, and the software
+/// rasteriser's goldens would not. The variable is read once and cached (0 unresolved,
+/// 1 off, 2 on), like `__canvas_dumpRequested`.
+///
+/// `__canvas_geoReference` is `__canvas_geometryFor`'s own arms for the five kinds the
+/// native builder takes: the header followed by the tail, as the cache appends them.
+#[rustfmt::skip]
+const GEO_VERIFY_DEBUG: &str = r#"MUT __CANVAS_GEO_VERIFY_MODE AS Integer = 0
+MUT __CANVAS_GEO_NATIVE AS Integer = 0
+MUT __CANVAS_GEO_VERIFIED AS Integer = 0
+MUT __CANVAS_GEO_MISMATCHES AS Integer = 0
+
+FUNC __canvas_geoReference(item AS DrawItem) AS List OF Float
+  MUT tail AS List OF Float = []
+  MUT header AS List OF Float = []
+  MATCH item
+    CASE Rectangle(r)
+      tail = __canvas_appendGradientTail([], r.paint)
+      header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
+    CASE RoundedRect(rr)
+      tail = __canvas_appendGradientTail([], rr.paint)
+      header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
+    CASE Circle(c)
+      tail = __canvas_appendGradientTail([], c.paint)
+      header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
+    CASE Line(l)
+      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
+    CASE Polygon(p)
+      IF len(p.points) >= 2 THEN
+        tail = __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
+      END IF
+      header = __canvas_polygonHeader(p)
+    CASE ELSE
+      header = []
+  END MATCH
+  MUT out AS List OF Float = header
+  out = collections::append(out, tail)
+  RETURN out
+END FUNC
+
+SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
+  __CANVAS_GEO_NATIVE = __CANVAS_GEO_NATIVE + 1
+  IF __CANVAS_GEO_VERIFY_MODE = 0 THEN
+    __CANVAS_GEO_VERIFY_MODE = 1
+    IF os::getEnvOr("MFB_CANVAS_GEO_VERIFY", "") = "1" THEN
+      __CANVAS_GEO_VERIFY_MODE = 2
+    END IF
+  END IF
+  IF __CANVAS_GEO_VERIFY_MODE = 2 THEN
+    __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
+    IF NOT canvas::geoSame(native, __canvas_geoReference(item)) THEN
+      __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
+    END IF
+  END IF
+END SUB
+
+FUNC __canvas_geoVerifyText() AS String
+  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    for helper in RegistryHelper::debug_split("canvas_geoVerify", GEO_VERIFY, GEO_VERIFY_DEBUG) {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always("canvas_geoLayout", GEO_LAYOUT));
     pkg.add_helper(RegistryHelper::always(
         "canvas_geoCacheState",
