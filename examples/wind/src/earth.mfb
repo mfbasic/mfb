@@ -121,24 +121,40 @@ END FUNC
 
 ' Fold a longitude into -180 through 180, so that a particle that has drifted
 ' four times round the world still projects onto the map.
-'
-' project deliberately does NOT call this. A coastline ring may run from -180
-' to +180 along the bottom of the map - Antarctica's does - and wrapping its
-' last point would send it back to the left edge and drag a band of green across
-' the whole picture. Anything whose longitude can genuinely run away, which
-' here means a particle, wraps itself before it is projected.
 FUNC wrapLon(lon AS Float) AS Float
   MUT v AS Float = lon + 180.0
   v = v - 360.0 * toFloat(math::floor(v / 360.0))
   RETURN v - 180.0
 END FUNC
 
-' Where a place lands on the projected plane.
-FUNC project(g AS Geo) AS Plane
-  LET lam AS Float = radians(math::clamp(g.lon, -180.0, 180.0))
-  LET phi AS Float = radians(math::clamp(g.lat, -90.0, 90.0))
-  LET theta AS Float = math::asin(math::clamp(eeM() * math::sin(phi), -1.0, 1.0))
-  RETURN Plane[x := lam * math::cos(theta) / (eeM() * eeDenominator(theta)), y := eeY(theta)]
+' Where a place lands on the projected plane, given its longitude RELATIVE to
+' the map's centre meridian - so -180 and 180 are the left and right edges of
+' the map. It does not wrap: a coastline ring may run from -180 to +180 along the
+' bottom of the map - Antarctica's does - and wrapping its last point would send
+' it back to the left edge and drag a band of green across the whole picture.
+' The coastline cuts its rings at the edges itself (land.mfb).
+FUNC projectRel(relLon AS Float, lat AS Float) AS Plane
+  LET lam AS Float = radians(math::clamp(relLon, -180.0, 180.0))
+  LET theta AS Float = thetaOf(lat)
+  RETURN Plane[x := lam * xScale(theta), y := eeY(theta)]
+END FUNC
+
+' The projection's auxiliary angle for a latitude.
+FUNC thetaOf(lat AS Float) AS Float
+  RETURN math::asin(math::clamp(eeM() * math::sin(radians(math::clamp(lat, -90.0, 90.0))), -1.0, 1.0))
+END FUNC
+
+' Plane x per radian of relative longitude at an auxiliary angle. Largest at the
+' equator and falling towards the poles.
+FUNC xScale(theta AS Float) AS Float
+  RETURN math::cos(theta) / (eeM() * eeDenominator(theta))
+END FUNC
+
+' Where a place lands on the projected plane of a map centred on longitude lon0.
+' The longitude wraps into the map, so anything that can run away - a particle
+' four times round the world - lands on it.
+FUNC project(g AS Geo, lon0 AS Float) AS Plane
+  RETURN projectRel(wrapLon(g.lon - lon0), g.lat)
 END FUNC
 
 ' Which place a point on the plane is. A point outside the projected world -
@@ -149,7 +165,7 @@ TYPE Unprojected
   inside AS Boolean
 END TYPE
 
-FUNC unproject(p AS Plane) AS Unprojected
+FUNC unproject(p AS Plane, lon0 AS Float) AS Unprojected
   ' y = theta * (A1 + A2 t^2 + t^6 (A3 + A4 t^2)) has no closed-form inverse,
   ' so solve it. The polynomial is monotonic and nearly linear over the range
   ' theta can take, and theta = y is already within a few per cent of the
@@ -165,22 +181,23 @@ FUNC unproject(p AS Plane) AS Unprojected
   LET lat AS Float = degrees(math::asin(math::clamp(math::sin(theta) / eeM(), -1.0, 1.0)))
   LET lon AS Float = degrees(eeM() * p.x * eeDenominator(theta) / math::cos(theta))
   LET inside AS Boolean = math::abs(lon) <= 180.0 AND math::abs(p.y) <= planeHalfHeight()
-  RETURN Unprojected[place := Geo[lon := math::clamp(lon, -180.0, 180.0), lat := lat], inside := inside]
+  RETURN Unprojected[place := Geo[lon := wrapLon(math::clamp(lon, -180.0, 180.0) + lon0), lat := lat], inside := inside]
 END FUNC
 
 ' ---------------------------------------------------------------------------
 ' The window onto the plane
 ' ---------------------------------------------------------------------------
 
-' Which part of the projected plane the window is showing. Pan moves the centre,
-' zoom changes the scale, and nothing here re-projects anything: the map is
-' made once and then looked at.
+' Which part of the projected plane the window is showing, and which way round
+' the world is turned. Pan moves the centre, zoom changes the scale, and spin
+' turns the world under the map: lon0 is the longitude down the middle of it.
 TYPE View
   scale AS Float       ' pixels per plane unit
   cx AS Float          ' the plane x at the middle of the window
   cy AS Float          ' the plane y at the middle of the window
   width AS Float       ' the window, in pixels
   height AS Float
+  lon0 AS Float        ' the map's centre meridian, degrees east
 END TYPE
 
 ' The scale at which the whole world just fits the window, with a little air
@@ -192,7 +209,7 @@ FUNC fitScale(size AS canvas::Size) AS Float
 END FUNC
 
 FUNC wholeWorld(size AS canvas::Size) AS View
-  RETURN View[scale := fitScale(size), cx := 0.0, cy := 0.0, width := toFloat(size.width), height := toFloat(size.height)]
+  RETURN View[scale := fitScale(size), cx := 0.0, cy := 0.0, width := toFloat(size.width), height := toFloat(size.height), lon0 := 0.0]
 END FUNC
 
 ' The same view on a window of a new shape. The centre and the zoom are kept -
@@ -294,4 +311,12 @@ FUNC panned(v AS View, fractionX AS Float, fractionY AS Float) AS View
   LET dx AS Float = fractionX * v.width / v.scale
   LET dy AS Float = fractionY * v.height / v.scale
   RETURN clampedView(WITH v { cx := v.cx + dx, cy := v.cy + dy })
+END FUNC
+
+' Turn the world east (positive) or west by a fraction of the window: the map
+' moves the same apparent distance a pan of that fraction would at the equator,
+' and wraps all the way round.
+FUNC spun(v AS View, fraction AS Float) AS View
+  LET degreesPerPlaneX AS Float = 180.0 / planeHalfWidth()
+  RETURN WITH v { lon0 := wrapLon(v.lon0 + fraction * v.width / v.scale * degreesPerPlaneX) }
 END FUNC

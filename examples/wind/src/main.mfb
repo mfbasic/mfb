@@ -12,8 +12,9 @@
 '
 ' Controls:
 '   q e            zoom in, zoom out
-'   w a s d        pan up, left, down, right
-'   arrow keys     the same
+'   a d            spin the world west, east (it wraps all the way round)
+'   w s            pan up, down
+'   arrow keys     the same as w a s d
 '   r              back to the whole world
 '   h              hide or show the captions
 '   esc            quit
@@ -130,6 +131,10 @@ TYPE Zoom
   factor AS Float
 END TYPE
 
+TYPE Spin
+  fraction AS Float    ' of the window, east positive
+END TYPE
+
 TYPE Reset
 END TYPE
 
@@ -144,6 +149,7 @@ END TYPE
 
 UNION Command
   Pan
+  Spin
   Zoom
   Reset
   ToggleCaptions
@@ -151,7 +157,7 @@ UNION Command
   Ignore
 END UNION
 
-' How far one press pans, as a fraction of the window.
+' How far one press pans or spins, as a fraction of the window.
 FUNC panStep AS Float
   RETURN 0.09
 END FUNC
@@ -165,8 +171,8 @@ FUNC commandFor(key AS String) AS Command
   MATCH key
     CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := panStep()]
     CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -panStep()]
-    CASE "a", "A", "LEFT" : RETURN Pan[dx := -panStep(), dy := 0.0]
-    CASE "d", "D", "RIGHT" : RETURN Pan[dx := panStep(), dy := 0.0]
+    CASE "a", "A", "LEFT" : RETURN Spin[fraction := -panStep()]
+    CASE "d", "D", "RIGHT" : RETURN Spin[fraction := panStep()]
     CASE "q", "Q" : RETURN Zoom[factor := zoomStep()]
     CASE "e", "E" : RETURN Zoom[factor := 1.0 / zoomStep()]
     CASE "r", "R" : RETURN Reset[]
@@ -237,7 +243,7 @@ FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size
     LET margin AS Float = size1 * 1.2
     items = collections::append(items, textItem(face, margin, margin + size1, size1, captionColor(), w.label))
     items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, hintColor(), zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
-    LET hint AS String = "q e zoom  \u{00B7}  wasd or arrows pan  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
     items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, hintColor(), hint))
   END IF
 
@@ -305,6 +311,7 @@ FUNC main AS Integer
     DO WHILE pending(0)
       MATCH commandFor(readKey())
         CASE Pan(p) : view = panned(view, p.dx, p.dy)
+        CASE Spin(t) : view = spun(view, t.fraction)
         CASE Zoom(z) : view = zoomed(view, z.factor, size)
         CASE Reset : view = wholeWorld(size)
         CASE ToggleCaptions : captions = NOT captions
@@ -317,6 +324,7 @@ FUNC main AS Integer
     LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, maxStepSeconds())
     lastNanos = startNanos
 
+    reprojectTrails(view.lon0)
     stepSwarm(winds, view, elapsed)
     canvas::present(frameScene(world, view, winds, face, size, captions))
 

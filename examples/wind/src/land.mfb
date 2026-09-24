@@ -16,14 +16,16 @@
 ' Hawaii's own detail, down to everything the data has. Shapes are cut at the
 ' edge of the window, so land running off screen costs nothing.
 '
-' Every ring is projected once, when the file is read, and kept in plane
-' coordinates from then on. The drawn map is rebuilt only when the view moves;
-' a frame that did not pan or zoom reuses the last one.
+' The world can be spun under the map (View.lon0), so the coastline is kept as
+' places, not plane points, and projected when the view changes. The drawn map
+' is rebuilt only then; a frame that did not pan, zoom or spin reuses the last
+' one. What a rebuild costs follows what is drawn, not how much coastline there
+' is (see "Indexing" below).
 '
 ' The coastline is kept as flat module-level lists rather than a List OF Ring,
 ' for the reason flow.mfb keeps its swarm that way: 6,836 records each holding
 ' two lists cost 3 seconds to build at startup, where the same 434,309 points
-' appended to four flat lists cost a tenth of a second.
+' appended to flat lists cost a tenth of a second.
 
 IMPORT canvas
 IMPORT collections
@@ -42,18 +44,6 @@ END TYPE
 
 FUNC ringOf(points AS List OF Plane) AS Ring
   RETURN Ring[points := points, bounds := boxOf(points)]
-END FUNC
-
-' The coastline: every ring's points one after another, each point's importance
-' level beside it, where each ring starts (ring i is coastStart[i] up to
-' coastStart[i + 1]), and each ring's box.
-MUT coastPoints AS List OF Plane = []
-MUT coastLevels AS List OF Integer = []
-MUT coastStart AS List OF Integer = []
-MUT coastBounds AS List OF Box = []
-
-FUNC coastRings AS Integer
-  RETURN len(coastBounds)
 END FUNC
 
 ' The most coastline points the map puts on screen at once.
@@ -84,13 +74,202 @@ FUNC coastColor AS color::Color
 END FUNC
 
 ' ---------------------------------------------------------------------------
+' The coastline
+' ---------------------------------------------------------------------------
+'
+' Every ring's points one after another, as places in degrees, with each point's
+' importance level beside them. Ring r is coastStart[r] up to coastStart[r + 1].
+' A ring the antimeridian cut in two is stored joined up, so its longitudes may
+' run past 180; Antarctica is stored as its coast alone, west to east round the
+' whole world, and closed through the pole when it is drawn (coastKind 1).
+
+MUT coastLon AS List OF Float = []
+MUT coastLat AS List OF Float = []
+MUT coastLevels AS List OF Integer = []
+MUT coastStart AS List OF Integer = []
+MUT coastKind AS List OF Integer = []     ' 0 a closed outline, 1 a south-polar coast
+MUT coastTop AS List OF Integer = []      ' the ring's most important level
+MUT coastWest AS List OF Float = []       ' the ring's box, in degrees
+MUT coastEast AS List OF Float = []
+MUT coastSouth AS List OF Float = []
+MUT coastNorth AS List OF Float = []
+
+FUNC coastRings AS Integer
+  RETURN len(coastKind)
+END FUNC
+
+FUNC coastPointCount AS Integer
+  RETURN len(coastLon)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Indexing
+' ---------------------------------------------------------------------------
+'
+' Two indexes, built when the file is read, keep a rebuild's cost to what is on
+' screen.
+'
+' Chunks: each ring is cut into runs of chunkSize() points with a box around
+' each. A run that lies wholly off screen stands in for itself with just its
+' first and last point: the straight line between them stays inside the run's
+' box, so it cannot cross the window, and the ring still fills correctly after
+' it is cut at the window's edge. So a continent that runs off screen costs a
+' couple of points per chunk, not its whole coastline.
+'
+' Cells: the world is cut into gridDegrees() squares, and each square's points
+' are kept most important first, with a count of how many there are at each
+' level. Finding how much detail the view can afford then reads the counts of
+' the squares wholly on screen and looks at single points only in the squares
+' the window's edge crosses.
+
+FUNC chunkSize AS Integer
+  RETURN 64
+END FUNC
+
+FUNC gridDegrees AS Integer
+  RETURN 5
+END FUNC
+
+FUNC gridColumns AS Integer
+  RETURN 360 / gridDegrees()
+END FUNC
+
+FUNC gridRows AS Integer
+  RETURN 180 / gridDegrees()
+END FUNC
+
+MUT ringChunk AS List OF Integer = []     ' ring r's chunks are ringChunk[r] up to ringChunk[r + 1]
+MUT chunkStart AS List OF Integer = []    ' chunk c's points are chunkStart[c] up to chunkStart[c + 1]
+MUT chunkWest AS List OF Float = []
+MUT chunkEast AS List OF Float = []
+MUT chunkSouth AS List OF Float = []
+MUT chunkNorth AS List OF Float = []
+
+MUT cellStart AS List OF Integer = []     ' cell c's points are cellOrder[cellStart[c]] up to cellStart[c + 1]
+MUT cellOrder AS List OF Integer = []     ' point indices, by cell, most important first
+MUT cellRunStart AS List OF Integer = []  ' cell c's level counts are runLevel/runCount[cellRunStart[c]] up to cellRunStart[c + 1]
+MUT runLevel AS List OF Integer = []
+MUT runCount AS List OF Integer = []
+
+FUNC cellOf(lon AS Float, lat AS Float) AS Integer
+  LET column AS Integer = math::clamp(math::floor((wrapLon(lon) + 180.0) / toFloat(gridDegrees())), 0, gridColumns() - 1)
+  LET row AS Integer = math::clamp(math::floor((lat + 90.0) / toFloat(gridDegrees())), 0, gridRows() - 1)
+  RETURN row * gridColumns() + column
+END FUNC
+
+' A list of n zeros.
+FUNC zeros(n AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = []
+  FOR k = 1 TO n
+    out = collections::append(out, 0)
+  NEXT
+  RETURN out
+END FUNC
+
+SUB buildChunks()
+  ringChunk = []
+  chunkStart = []
+  chunkWest = []
+  chunkEast = []
+  chunkSouth = []
+  chunkNorth = []
+  FOR r = 0 TO coastRings() - 1
+    ringChunk = collections::append(ringChunk, len(chunkStart))
+    MUT first AS Integer = collections::get(coastStart, r)
+    LET stop AS Integer = collections::get(coastStart, r + 1)
+    WHILE first < stop
+      LET last AS Integer = math::min(first + chunkSize(), stop) - 1
+      MUT west AS Float = collections::get(coastLon, first)
+      MUT east AS Float = west
+      MUT south AS Float = collections::get(coastLat, first)
+      MUT north AS Float = south
+      FOR i = first + 1 TO last
+        west = math::min(west, collections::get(coastLon, i))
+        east = math::max(east, collections::get(coastLon, i))
+        south = math::min(south, collections::get(coastLat, i))
+        north = math::max(north, collections::get(coastLat, i))
+      NEXT
+      chunkStart = collections::append(chunkStart, first)
+      chunkWest = collections::append(chunkWest, west)
+      chunkEast = collections::append(chunkEast, east)
+      chunkSouth = collections::append(chunkSouth, south)
+      chunkNorth = collections::append(chunkNorth, north)
+      first = last + 1
+    END WHILE
+  NEXT
+  ringChunk = collections::append(ringChunk, len(chunkStart))
+  chunkStart = collections::append(chunkStart, coastPointCount())
+END SUB
+
+' Two counting sorts: every point by level, most important first, then - keeping
+' that order - by cell.
+SUB buildCells()
+  LET n AS Integer = coastPointCount()
+  MUT levelAt AS List OF Integer = zeros(257)
+  FOR i = 0 TO n - 1
+    LET slot AS Integer = 255 - collections::get(coastLevels, i)
+    levelAt = collections::set(levelAt, slot + 1, collections::get(levelAt, slot + 1) + 1)
+  NEXT
+  FOR slot = 1 TO 256
+    levelAt = collections::set(levelAt, slot, collections::get(levelAt, slot) + collections::get(levelAt, slot - 1))
+  NEXT
+  MUT byLevel AS List OF Integer = zeros(n)
+  FOR i = 0 TO n - 1
+    LET slot AS Integer = 255 - collections::get(coastLevels, i)
+    LET at AS Integer = collections::get(levelAt, slot)
+    byLevel = collections::set(byLevel, at, i)
+    levelAt = collections::set(levelAt, slot, at + 1)
+  NEXT
+
+  LET cells AS Integer = gridColumns() * gridRows()
+  MUT cellOfPoint AS List OF Integer = zeros(n)
+  cellStart = zeros(cells + 1)
+  FOR i = 0 TO n - 1
+    LET c AS Integer = cellOf(collections::get(coastLon, i), collections::get(coastLat, i))
+    cellOfPoint = collections::set(cellOfPoint, i, c)
+    cellStart = collections::set(cellStart, c + 1, collections::get(cellStart, c + 1) + 1)
+  NEXT
+  FOR c = 1 TO cells
+    cellStart = collections::set(cellStart, c, collections::get(cellStart, c) + collections::get(cellStart, c - 1))
+  NEXT
+  MUT cursor AS List OF Integer = cellStart
+  cellOrder = zeros(n)
+  FOR k = 0 TO n - 1
+    LET i AS Integer = collections::get(byLevel, k)
+    LET c AS Integer = collections::get(cellOfPoint, i)
+    LET at AS Integer = collections::get(cursor, c)
+    cellOrder = collections::set(cellOrder, at, i)
+    cursor = collections::set(cursor, c, at + 1)
+  NEXT
+
+  cellRunStart = []
+  runLevel = []
+  runCount = []
+  FOR c = 0 TO cells - 1
+    cellRunStart = collections::append(cellRunStart, len(runLevel))
+    MUT last AS Integer = -1
+    FOR k = collections::get(cellStart, c) TO collections::get(cellStart, c + 1) - 1
+      LET lv AS Integer = collections::get(coastLevels, collections::get(cellOrder, k))
+      IF lv = last THEN
+        runCount = collections::set(runCount, len(runCount) - 1, collections::get(runCount, len(runCount) - 1) + 1)
+      ELSE
+        runLevel = collections::append(runLevel, lv)
+        runCount = collections::append(runCount, 1)
+        last = lv
+      END IF
+    NEXT
+  NEXT
+  cellRunStart = collections::append(cellRunStart, len(runLevel))
+END SUB
+
+' ---------------------------------------------------------------------------
 ' Reading the coastline
 ' ---------------------------------------------------------------------------
 '
-' The file is "MFBC", a version byte, then a varint ring count; each ring is a
-' varint point count and, per point, the zigzag-varint change in longitude and in
-' latitude (in 1/10000 of a degree) from the previous point, then one importance
-' byte. The reader walks it with a cursor over the bytes.
+' The file is "MFBC", a version byte (2), then a varint ring count; each ring is
+' a kind byte, a varint point count and, per point, the zigzag-varint change in
+' longitude and in latitude (in 1/10000 of a degree) from the previous point,
+' then one importance byte. The reader walks it with a cursor over the bytes.
 
 MUT coastBytes AS List OF Byte = []
 MUT coastAt AS Integer = 0
@@ -116,99 +295,173 @@ FUNC nextSigned AS Integer
   RETURN -((raw + 1) / 2)
 END FUNC
 
-' Whether the bytes open with "MFBC" and format version 1.
+FUNC nextByte AS Integer
+  LET b AS Integer = toInt(collections::get(coastBytes, coastAt))
+  coastAt = coastAt + 1
+  RETURN b
+END FUNC
+
+' Whether the bytes open with "MFBC" and format version 2.
 FUNC isCoastlineFile AS Boolean
   IF len(coastBytes) < 6 THEN RETURN FALSE
-  LET magic AS List OF Integer = [77, 70, 66, 67, 1]
+  LET magic AS List OF Integer = [77, 70, 66, 67, 2]
   FOR i = 0 TO 4
     IF toInt(collections::get(coastBytes, i)) <> collections::get(magic, i) THEN RETURN FALSE
   NEXT
   RETURN TRUE
 END FUNC
 
-' Read the shipped coastline into the flat lists, every point projected.
+' Read the shipped coastline into the flat lists, and index it.
 SUB loadCoastline()
   coastBytes = fs::readBytes(os::resourcePath("wind/coastline.bin"))
-  IF NOT isCoastlineFile() THEN FAIL error(77050003, "coastline: not a version 1 MFBC coastline file")
+  IF NOT isCoastlineFile() THEN FAIL error(77050003, "coastline: not a version 2 MFBC coastline file")
   coastAt = 5
   LET ringCount AS Integer = nextVarint()
-  coastPoints = []
+  coastLon = []
+  coastLat = []
   coastLevels = []
   coastStart = []
-  coastBounds = []
+  coastKind = []
+  coastTop = []
+  coastWest = []
+  coastEast = []
+  coastSouth = []
+  coastNorth = []
   FOR r = 1 TO ringCount
+    coastKind = collections::append(coastKind, nextByte())
     LET count AS Integer = nextVarint()
-    coastStart = collections::append(coastStart, len(coastPoints))
+    coastStart = collections::append(coastStart, coastPointCount())
     MUT x AS Integer = 0
     MUT y AS Integer = 0
-    MUT minX AS Float = 0.0
-    MUT minY AS Float = 0.0
-    MUT maxX AS Float = 0.0
-    MUT maxY AS Float = 0.0
+    MUT top AS Integer = 0
+    MUT west AS Float = 0.0
+    MUT east AS Float = 0.0
+    MUT south AS Float = 0.0
+    MUT north AS Float = 0.0
     FOR k = 1 TO count
       x = x + nextSigned()
       y = y + nextSigned()
-      LET p AS Plane = project(Geo[lon := toFloat(x) / 10000.0, lat := toFloat(y) / 10000.0])
+      LET lon AS Float = toFloat(x) / 10000.0
+      LET lat AS Float = toFloat(y) / 10000.0
+      LET lv AS Integer = nextByte()
       IF k = 1 THEN
-        minX = p.x
-        minY = p.y
-        maxX = p.x
-        maxY = p.y
+        west = lon
+        east = lon
+        south = lat
+        north = lat
       ELSE
-        minX = math::min(minX, p.x)
-        minY = math::min(minY, p.y)
-        maxX = math::max(maxX, p.x)
-        maxY = math::max(maxY, p.y)
+        west = math::min(west, lon)
+        east = math::max(east, lon)
+        south = math::min(south, lat)
+        north = math::max(north, lat)
       END IF
-      coastPoints = collections::append(coastPoints, p)
-      coastLevels = collections::append(coastLevels, toInt(collections::get(coastBytes, coastAt)))
-      coastAt = coastAt + 1
+      top = math::max(top, lv)
+      coastLon = collections::append(coastLon, lon)
+      coastLat = collections::append(coastLat, lat)
+      coastLevels = collections::append(coastLevels, lv)
     NEXT
-    coastBounds = collections::append(coastBounds, Box[minX := minX, minY := minY, maxX := maxX, maxY := maxY])
+    coastTop = collections::append(coastTop, top)
+    coastWest = collections::append(coastWest, west)
+    coastEast = collections::append(coastEast, east)
+    ' A polar coast is closed through the pole, so its box reaches it.
+    IF collections::get(coastKind, r - 1) = 1 THEN south = -90.0
+    coastSouth = collections::append(coastSouth, south)
+    coastNorth = collections::append(coastNorth, north)
   NEXT
-  coastStart = collections::append(coastStart, len(coastPoints))
+  coastStart = collections::append(coastStart, coastPointCount())
   coastBytes = []
+  buildChunks()
+  buildCells()
 END SUB
 
 ' ---------------------------------------------------------------------------
 ' The edge of the world
 ' ---------------------------------------------------------------------------
 
-' The outline of the projected world: down the antimeridian on one side and back
-' up it on the other, which under an equal-area pseudo-cylindrical projection is
-' a rounded lens rather than a rectangle. Filled, it is the sea. Every point is
-' kept at every zoom.
+' The outline of the projected world: down the right-hand edge meridian and back
+' up the left, which under an equal-area pseudo-cylindrical projection is a
+' rounded lens rather than a rectangle. Filled, it is the sea. It is the same
+' however the world is spun.
 FUNC worldOutline AS Ring
   MUT points AS List OF Plane = []
   FOR i = 0 TO 180
-    points = collections::append(points, project(Geo[lon := 180.0, lat := 90.0 - toFloat(i)]))
+    points = collections::append(points, projectRel(180.0, 90.0 - toFloat(i)))
   NEXT
   FOR i = 0 TO 180
-    points = collections::append(points, project(Geo[lon := -180.0, lat := -90.0 + toFloat(i)]))
+    points = collections::append(points, projectRel(-180.0, -90.0 + toFloat(i)))
   NEXT
   RETURN ringOf(points)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Where a patch of the world lands
+' ---------------------------------------------------------------------------
+
+' A box on the plane holding everything between two relative longitudes (inside
+' -180..180) and two latitudes. y depends on latitude alone, and x is relative
+' longitude times a scale that is largest at the equator, so the corners and the
+' equator between them bound it exactly.
+FUNC planeBoxRel(west AS Float, east AS Float, south AS Float, north AS Float) AS Box
+  LET tS AS Float = thetaOf(south)
+  LET tN AS Float = thetaOf(north)
+  MUT wide AS Float = math::max(xScale(tS), xScale(tN))
+  IF south <= 0.0 AND north >= 0.0 THEN wide = xScale(0.0)
+  LET narrow AS Float = math::min(xScale(tS), xScale(tN))
+  LET w AS Float = radians(west)
+  LET e AS Float = radians(east)
+  LET minX AS Float = math::min(math::min(w * wide, w * narrow), math::min(e * wide, e * narrow))
+  LET maxX AS Float = math::max(math::max(w * wide, w * narrow), math::max(e * wide, e * narrow))
+  RETURN Box[minX := minX, minY := eeY(tS), maxX := maxX, maxY := eeY(tN)]
+END FUNC
+
+FUNC within(inner AS Box, outer AS Box) AS Boolean
+  RETURN inner.minX >= outer.minX AND inner.maxX <= outer.maxX AND inner.minY >= outer.minY AND inner.maxY <= outer.maxY
+END FUNC
+
+FUNC inBox(p AS Plane, b AS Box) AS Boolean
+  RETURN p.x >= b.minX AND p.x <= b.maxX AND p.y >= b.minY AND p.y <= b.maxY
+END FUNC
+
+' The latitude a plane y lies on, whatever the longitude.
+FUNC latOfY(y AS Float) AS Float
+  RETURN unproject(Plane[x := 0.0, y := y], 0.0).place.lat
 END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Choosing the detail
 ' ---------------------------------------------------------------------------
 
-FUNC inBox(p AS Plane, b AS Box) AS Boolean
-  RETURN p.x >= b.minX AND p.x <= b.maxX AND p.y >= b.minY AND p.y <= b.maxY
-END FUNC
-
 ' The lowest importance level the view can afford: count the on-screen points at
 ' each level, then take levels from the most important down while the total stays
 ' within the budget. Every point at or above the answer is drawn.
-FUNC detailLevel(screen AS Box) AS Integer
-  MUT counts AS List OF Integer = []
-  FOR lv = 0 TO 255
-    counts = collections::append(counts, 0)
-  NEXT
-  FOR r = 0 TO coastRings() - 1
-    IF NOT overlaps(collections::get(coastBounds, r), screen) THEN CONTINUE FOR
-    FOR i = collections::get(coastStart, r) TO collections::get(coastStart, r + 1) - 1
-      IF inBox(collections::get(coastPoints, i), screen) THEN
+FUNC detailLevel(screen AS Box, lon0 AS Float) AS Integer
+  MUT counts AS List OF Integer = zeros(256)
+  LET size AS Float = toFloat(gridDegrees())
+  ' Latitude depends on y alone, so the rows off the top and bottom of the window
+  ' are skipped whole.
+  LET firstRow AS Integer = math::clamp(math::floor((latOfY(screen.minY) + 90.0) / size), 0, gridRows() - 1)
+  LET lastRow AS Integer = math::clamp(math::floor((latOfY(screen.maxY) + 90.0) / size), 0, gridRows() - 1)
+  FOR c = firstRow * gridColumns() TO (lastRow + 1) * gridColumns() - 1
+    LET first AS Integer = collections::get(cellStart, c)
+    LET stop AS Integer = collections::get(cellStart, c + 1)
+    IF first = stop THEN CONTINUE FOR
+    LET rel AS Float = wrapLon(-180.0 + toFloat(c MOD gridColumns()) * size - lon0)
+    LET south AS Float = -90.0 + toFloat(c / gridColumns()) * size
+    ' A cell the map's edge runs through is looked at point by point.
+    IF rel + size <= 180.0 THEN
+      LET box AS Box = planeBoxRel(rel, rel + size, south, south + size)
+      IF NOT overlaps(box, screen) THEN CONTINUE FOR
+      IF within(box, screen) THEN
+        FOR k = collections::get(cellRunStart, c) TO collections::get(cellRunStart, c + 1) - 1
+          LET lv AS Integer = collections::get(runLevel, k)
+          counts = collections::set(counts, lv, collections::get(counts, lv) + collections::get(runCount, k))
+        NEXT
+        CONTINUE FOR
+      END IF
+    END IF
+    FOR k = first TO stop - 1
+      LET i AS Integer = collections::get(cellOrder, k)
+      IF inBox(projectRel(wrapLon(collections::get(coastLon, i) - lon0), collections::get(coastLat, i)), screen) THEN
         LET lv AS Integer = collections::get(coastLevels, i)
         counts = collections::set(counts, lv, collections::get(counts, lv) + 1)
       END IF
@@ -225,14 +478,15 @@ FUNC detailLevel(screen AS Box) AS Integer
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' Cutting a shape at the window's edge
+' Cutting a shape at an edge
 ' ---------------------------------------------------------------------------
 '
-' Sutherland-Hodgman, one side of the box at a time. A closed outline cut by a
+' Sutherland-Hodgman, one side of a box at a time. A closed outline cut by a
 ' rectangle is still one closed outline, with the part outside replaced by a run
 ' along the rectangle's side, so it fills exactly as the uncut shape would inside
-' the box. The box sits a few pixels outside the window, so that run - and the
-' coast stroke drawn along it - is never on screen.
+' it. It cuts twice: in degrees, at the map's left and right edges (the meridians
+' opposite the centre), and on the plane, at a box a few pixels outside the
+' window, so that run - and the coast stroke drawn along it - is never on screen.
 
 ' Which side of one edge of the box a point is on. `side` is 0 left, 1 right,
 ' 2 bottom, 3 top.
@@ -285,16 +539,56 @@ FUNC clipToBox(points AS List OF Plane, box AS Box) AS List OF Plane
   RETURN out
 END FUNC
 
+' Places (x relative longitude, y latitude) cut at the map's left and right
+' edges. A run the cut lays along an edge meridian gets a point every degree of
+' latitude, so it follows the map's curved edge once projected rather than
+' cutting a straight chord across the sea.
+FUNC cutAtEdges(places AS List OF Plane) AS List OF Plane
+  LET cut AS List OF Plane = clipToBox(places, Box[minX := -180.0, minY := -91.0, maxX := 180.0, maxY := 91.0])
+  MUT out AS List OF Plane = []
+  LET n AS Integer = len(cut)
+  FOR k = 0 TO n - 1
+    LET a AS Plane = collections::get(cut, k)
+    out = collections::append(out, a)
+    LET b AS Plane = collections::get(cut, (k + 1) MOD n)
+    IF math::abs(a.x) = 180.0 AND a.x = b.x THEN
+      out = collections::append(out, edgeRun(a.x, a.y, b.y))
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The points strictly between two latitudes on an edge meridian, a degree apart.
+FUNC edgeRun(x AS Float, fromLat AS Float, toLat AS Float) AS List OF Plane
+  MUT out AS List OF Plane = []
+  LET steps AS Integer = math::floor(math::abs(toLat - fromLat))
+  FOR k = 1 TO steps
+    out = collections::append(out, Plane[x := x, y := fromLat + (toLat - fromLat) * toFloat(k) / toFloat(steps + 1)])
+  NEXT
+  RETURN out
+END FUNC
+
 ' ---------------------------------------------------------------------------
 ' Drawing
 ' ---------------------------------------------------------------------------
 
-' An outline's kept points as a polygon in window coordinates, cut at the clip
-' box - or nothing, when fewer than three points are left. The caller appends
-' what comes back, so an empty list is how "skip this one" is said.
-FUNC outlineItems(kept AS List OF Plane, v AS View, clip AS Box, paint AS canvas::Paint) AS List OF canvas::DrawItem
-  IF len(kept) < 3 THEN RETURN []
-  LET cut AS List OF Plane = clipToBox(kept, clip)
+' Places (x relative longitude inside -180..180, y latitude) as a polygon in
+' window coordinates, cut at the clip box - or nothing, when fewer than three
+' points are left. The caller appends what comes back, so an empty list is how
+' "skip this one" is said.
+FUNC placesItems(places AS List OF Plane, v AS View, clip AS Box, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  IF len(places) < 3 THEN RETURN []
+  MUT plane AS List OF Plane = []
+  FOR EACH g IN places
+    plane = collections::append(plane, projectRel(g.x, g.y))
+  NEXT
+  RETURN planeItems(plane, v, clip, paint)
+END FUNC
+
+' Plane points as a polygon in window coordinates, cut at the clip box.
+FUNC planeItems(plane AS List OF Plane, v AS View, clip AS Box, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  IF len(plane) < 3 THEN RETURN []
+  LET cut AS List OF Plane = clipToBox(plane, clip)
   IF len(cut) < 3 THEN RETURN []
   MUT points AS List OF canvas::Point = []
   FOR EACH p IN cut
@@ -303,23 +597,95 @@ FUNC outlineItems(kept AS List OF Plane, v AS View, clip AS Box, paint AS canvas
   RETURN [canvas::Polygon[points := points, paint := paint]]
 END FUNC
 
-' Coastline ring r at one level of detail, or nothing when it is off screen or
-' too small to keep three points.
-FUNC coastItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, paint AS canvas::Paint) AS List OF canvas::DrawItem
-  IF NOT overlaps(collections::get(coastBounds, r), clip) THEN RETURN []
+' Closed ring r at one level of detail, as the copy `shift` degrees round the
+' world (-360, 0 or 360) - the copies are how a ring the map's edge runs through
+' comes out on both sides of it.
+FUNC ringCopyItems(r AS Integer, shift AS Float, v AS View, clip AS Box, threshold AS Integer, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  LET offset AS Float = shift - v.lon0
+  LET west AS Float = collections::get(coastWest, r) + offset
+  LET east AS Float = collections::get(coastEast, r) + offset
+  IF east <= -180.0 OR west >= 180.0 THEN RETURN []
+  IF NOT overlaps(planeBoxRel(math::max(west, -180.0), math::min(east, 180.0), collections::get(coastSouth, r), collections::get(coastNorth, r)), clip) THEN RETURN []
+
+  MUT places AS List OF Plane = []
+  FOR c = collections::get(ringChunk, r) TO collections::get(ringChunk, r + 1) - 1
+    LET first AS Integer = collections::get(chunkStart, c)
+    LET last AS Integer = collections::get(chunkStart, c + 1) - 1
+    LET cw AS Float = collections::get(chunkWest, c) + offset
+    LET ce AS Float = collections::get(chunkEast, c) + offset
+    MUT far AS Boolean = ce <= -180.0 OR cw >= 180.0
+    IF NOT far AND cw >= -180.0 AND ce <= 180.0 THEN
+      far = NOT overlaps(planeBoxRel(cw, ce, collections::get(chunkSouth, c), collections::get(chunkNorth, c)), clip)
+    END IF
+    IF far THEN
+      places = collections::append(places, Plane[x := collections::get(coastLon, first) + offset, y := collections::get(coastLat, first)])
+      places = collections::append(places, Plane[x := collections::get(coastLon, last) + offset, y := collections::get(coastLat, last)])
+    ELSE
+      FOR i = first TO last
+        IF collections::get(coastLevels, i) >= threshold THEN
+          places = collections::append(places, Plane[x := collections::get(coastLon, i) + offset, y := collections::get(coastLat, i)])
+        END IF
+      NEXT
+    END IF
+  NEXT
+  IF len(places) < 3 THEN RETURN []
+  IF west < -180.0 OR east > 180.0 THEN places = cutAtEdges(places)
+  RETURN placesItems(places, v, clip, paint)
+END FUNC
+
+' The south-polar coast r at one level of detail. It runs west to east all the
+' way round, so it is cut where it crosses the map's edge meridian, laid out from
+' the left edge to the right, and closed down the right edge, along the pole and
+' up the left edge.
+FUNC polarItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  IF NOT overlaps(planeBoxRel(-180.0, 180.0, collections::get(coastSouth, r), collections::get(coastNorth, r)), clip) THEN RETURN []
   MUT kept AS List OF Plane = []
   FOR i = collections::get(coastStart, r) TO collections::get(coastStart, r + 1) - 1
-    IF collections::get(coastLevels, i) >= threshold THEN kept = collections::append(kept, collections::get(coastPoints, i))
+    IF collections::get(coastLevels, i) >= threshold THEN
+      kept = collections::append(kept, Plane[x := collections::get(coastLon, i), y := collections::get(coastLat, i)])
+    END IF
   NEXT
-  RETURN outlineItems(kept, v, clip, paint)
+  LET n AS Integer = len(kept)
+  IF n < 2 THEN RETURN []
+  ' The edge meridian, in the coast's own longitudes (which start at -180).
+  MUT seam AS Float = wrapLon(v.lon0 + 180.0)
+  IF seam < collections::get(kept, 0).x THEN seam = seam + 360.0
+  MUT cut AS Integer = n - 2
+  FOR k = 0 TO n - 2
+    IF collections::get(kept, k).x <= seam AND collections::get(kept, k + 1).x > seam THEN
+      cut = k
+      EXIT FOR
+    END IF
+  NEXT
+  LET a AS Plane = collections::get(kept, cut)
+  LET b AS Plane = collections::get(kept, cut + 1)
+  LET crossLat AS Float = a.y + (b.y - a.y) * (seam - a.x) / (b.x - a.x)
+  ' Relative longitude = coast longitude - seam - 180 after the cut, and 360 more
+  ' for the stretch before it, which comes round the far side.
+  LET after AS Float = -seam - 180.0
+  MUT places AS List OF Plane = [Plane[x := -180.0, y := crossLat]]
+  FOR k = cut + 1 TO n - 1
+    LET p AS Plane = collections::get(kept, k)
+    places = collections::append(places, Plane[x := p.x + after, y := p.y])
+  NEXT
+  FOR k = 0 TO cut
+    LET p AS Plane = collections::get(kept, k)
+    places = collections::append(places, Plane[x := p.x + after + 360.0, y := p.y])
+  NEXT
+  places = collections::append(places, Plane[x := 180.0, y := crossLat])
+  places = collections::append(places, edgeRun(180.0, crossLat, -90.0))
+  places = collections::append(places, Plane[x := 180.0, y := -90.0])
+  places = collections::append(places, Plane[x := -180.0, y := -90.0])
+  places = collections::append(places, edgeRun(-180.0, -90.0, crossLat))
+  RETURN placesItems(cutAtEdges(places), v, clip, paint)
 END FUNC
 
 ' The last map drawn and the view it was drawn for.
-MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0]
+MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0, lon0 := 0.0]
 MUT drawnMap AS List OF canvas::DrawItem = []
 
 FUNC sameView(a AS View, b AS View) AS Boolean
-  RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height
+  RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height AND a.lon0 = b.lon0
 END FUNC
 
 ' The whole underlay: the backdrop, the sea, and the land on top of it. Built
@@ -329,19 +695,29 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
 
   ' Four pixels outside the window on every side.
   LET clip AS Box = viewBox(v, 4.0 / v.scale)
-  LET threshold AS Integer = detailLevel(viewBox(v, 0.0))
+  LET threshold AS Integer = detailLevel(viewBox(v, 0.0), v.lon0)
 
   MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(voidColor())]]
   IF overlaps(world.bounds, clip) THEN
-    items = collections::append(items, outlineItems(world.points, v, clip, canvas::fill(oceanColor())))
+    items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(oceanColor())))
   END IF
 
   ' A hairline of a lighter green around each landmass. At a world-sized zoom
   ' most islands are a couple of pixels across, and without it they disappear
   ' into the sea entirely.
   LET paint AS canvas::Paint = canvas::fillStroke(landColor(), coastColor(), 1.0)
+  LET south AS Float = latOfY(clip.minY)
+  LET north AS Float = latOfY(clip.maxY)
   FOR r = 0 TO coastRings() - 1
-    items = collections::append(items, coastItems(r, v, clip, threshold, paint))
+    IF collections::get(coastTop, r) < threshold THEN CONTINUE FOR
+    IF collections::get(coastNorth, r) < south OR collections::get(coastSouth, r) > north THEN CONTINUE FOR
+    IF collections::get(coastKind, r) = 1 THEN
+      items = collections::append(items, polarItems(r, v, clip, threshold, paint))
+    ELSE
+      FOR k = -1 TO 1
+        items = collections::append(items, ringCopyItems(r, toFloat(k) * 360.0, v, clip, threshold, paint))
+      NEXT
+    END IF
   NEXT
 
   drawnView = v

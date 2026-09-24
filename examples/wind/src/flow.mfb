@@ -18,7 +18,7 @@
 '
 '   Trails are kept in projected plane coordinates. They survive a pan or a
 '   zoom untouched, and redrawing one costs a multiply and an add per point
-'   rather than a re-projection.
+'   rather than a re-projection. Only spinning the world re-projects them.
 '
 '   New particles are scattered over the window, not over the world. Uniform
 '   longitude and latitude would pile them at the poles, where an equal-area
@@ -167,13 +167,41 @@ MUT swarmSpeed AS List OF Float = []      ' the wind it last sat in, m/s
 MUT swarmStartLon AS List OF Float = []   ' where this particle was last dropped
 MUT swarmStartLat AS List OF Float = []
 
-' Trails, trailLength() plane points per particle, used as a ring buffer. Every
+' Trails, trailLength() points per particle, used as a ring buffer. Every
 ' particle advances on the same frame, so one shared write position serves the
 ' whole swarm - particle i's newest point is always at i * trailLength() +
 ' trailHead.
+'
+' Each point is kept twice: as a place (trailLon/trailLat), and projected onto
+' the plane of a map centred on trailLon0 (trailX/trailY), which is what a frame
+' draws. Spinning the world re-projects the places once (reprojectTrails), so a
+' frame that did not spin costs no projection at all.
+MUT trailLon AS List OF Float = []
+MUT trailLat AS List OF Float = []
 MUT trailX AS List OF Float = []
 MUT trailY AS List OF Float = []
 MUT trailHead AS Integer = 0
+MUT trailLon0 AS Float = 0.0
+
+' Re-project every trail point for a map centred on lon0, when that has changed.
+SUB reprojectTrails(lon0 AS Float)
+  IF lon0 = trailLon0 THEN EXIT SUB
+  trailLon0 = lon0
+  FOR k = 0 TO len(trailLon) - 1
+    LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], lon0)
+    trailX = collections::set(trailX, k, p.x)
+    trailY = collections::set(trailY, k, p.y)
+  NEXT
+END SUB
+
+' Record point k of the trails: the place, and where it lands on today's map.
+SUB setTrailPoint(k AS Integer, g AS Geo)
+  LET p AS Plane = project(g, trailLon0)
+  trailLon = collections::set(trailLon, k, g.lon)
+  trailLat = collections::set(trailLat, k, g.lat)
+  trailX = collections::set(trailX, k, p.x)
+  trailY = collections::set(trailY, k, p.y)
+END SUB
 
 FUNC particleCount AS Integer
   RETURN len(swarmLon)
@@ -196,10 +224,10 @@ END FUNC
 ' enough tries the middle of the view is used so that this always terminates.
 FUNC birthplace(v AS View) AS Geo
   FOR attempt = 1 TO 24
-    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height))
+    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height), v.lon0)
     IF candidate.inside AND math::abs(candidate.place.lat) < 88.0 THEN RETURN candidate.place
   NEXT
-  RETURN unproject(Plane[x := v.cx, y := v.cy]).place
+  RETURN unproject(Plane[x := v.cx, y := v.cy], v.lon0).place
 END FUNC
 
 ' Put particle i at a place, with its whole trail collapsed onto that one point
@@ -214,11 +242,9 @@ SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
   swarmStartLon = collections::set(swarmStartLon, i, g.lon)
   swarmStartLat = collections::set(swarmStartLat, i, g.lat)
 
-  LET p AS Plane = project(g)
   LET base AS Integer = i * trailLength()
   FOR slot = 0 TO trailLength() - 1
-    trailX = collections::set(trailX, base + slot, p.x)
-    trailY = collections::set(trailY, base + slot, p.y)
+    setTrailPoint(base + slot, g)
   NEXT
 END SUB
 
@@ -272,8 +298,11 @@ SUB seedSwarm(count AS Integer, v AS View)
   swarmSpeed = []
   swarmStartLon = []
   swarmStartLat = []
+  trailLon = []
+  trailLat = []
   trailX = []
   trailY = []
+  trailLon0 = v.lon0
   trailHead = 0
 
   FOR i = 1 TO count
@@ -285,6 +314,8 @@ SUB seedSwarm(count AS Integer, v AS View)
     swarmStartLon = collections::append(swarmStartLon, 0.0)
     swarmStartLat = collections::append(swarmStartLat, 0.0)
     FOR slot = 1 TO trailLength()
+      trailLon = collections::append(trailLon, 0.0)
+      trailLat = collections::append(trailLat, 0.0)
       trailX = collections::append(trailX, 0.0)
       trailY = collections::append(trailY, 0.0)
     NEXT
@@ -339,9 +370,7 @@ SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
     swarmAge = collections::set(swarmAge, i, age)
     swarmSpeed = collections::set(swarmSpeed, i, speedOf(wind))
 
-    LET p AS Plane = project(Geo[lon := lon, lat := lat])
-    trailX = collections::set(trailX, i * trailLength() + trailHead, p.x)
-    trailY = collections::set(trailY, i * trailLength() + trailHead, p.y)
+    setTrailPoint(i * trailLength() + trailHead, Geo[lon := lon, lat := lat])
   NEXT
 END SUB
 
