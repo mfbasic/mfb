@@ -108,29 +108,36 @@ documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
 **Which renderer draws is chosen once, at the first present.** A program in a
-real window draws on the GPU (Metal on macOS, Vulkan on Linux); a headless run,
+real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
 meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
 `MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
 `0` forces software, any other value forces the GPU. The software rasteriser is
 the exact-match oracle, and every test that renders runs headless, so the goldens
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
-Windows has no GPU backend, so it always draws in software.
+A machine with no Vulkan loader or driver builds no pipeline and draws in software.
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
 
-**What Metal declines is a frame too large for its buffer, never an ordinary shape.**
-Every per-frame payload travels in one Metal buffer whose regions are fixed in size,
-so the predicate declines a frame that would overflow one of them: more than 65,536
+**What a GPU backend declines is a frame too large for its buffers, never an ordinary
+shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
+each backend's predicate declines a frame that would overflow one of them. Metal and
+Vulkan have the same caps: more than 65,536
 item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
 the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
 picture-and-glyph texels (each distinct image counted once). There is no per-polygon
 edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
 so a pixel tests only the edges that can reach it, and the result is identical to
 testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
-predicate. Vulkan keeps its own, smaller caps.
+predicates. So are the region bases the shaders read: Metal formats them into its
+shader source when it compiles it, and Vulkan's checked-in SPIR-V declares them as
+specialization constants that the pipeline sets from the same constants.
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
@@ -142,8 +149,11 @@ always take the CPU surface, and the Metal layer is hidden while they show. The
 offscreen target is created with `allowGPUOptimizedContents` off, so it is stored
 linearly and the readback is a copy: a GPU-compressed target is decompressed on the
 CPU inside `getBytes:`, which cost more than a millisecond per 900×640 frame.
+A Vulkan frame has no direct path: it is always read back and blitted through the same
+CPU surface, in a window as well as headless.
 [[src/codegen/builtins/canvas/func_metal_present.rs:lower_metal_present_scene]]
 [[src/target/macos_aarch64/app/metal.rs:MTL_GPU_OPTIMIZED_CONTENTS]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
 
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
@@ -286,11 +296,12 @@ coverage, one packed word per texel, and each item's block names its slice — s
 frame's pictures and glyphs together are bounded by that region, and a frame that
 would overflow it is drawn in software instead. There is no texture object and nothing
 to free: the pixels are copied from the image's own storage while the frame is built.
-Metal copies each distinct image **once per frame**, however many `Picture` items name
-it — a tilemap of thousands of tiles drawn from a few images costs those few images —
-and its predicate counts each distinct image once against the region's 8M texels.
-Vulkan still copies, and counts, each item's image separately.
+Both GPU backends copy each distinct image **once per frame**, however many `Picture`
+items name it — a tilemap of thousands of tiles drawn from a few images costs those few
+images — and their predicates count each distinct image once against the region's 8M
+texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
 in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
