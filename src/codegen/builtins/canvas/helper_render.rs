@@ -10,7 +10,7 @@
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 use crate::codegen::runtime::canvas::{
-    CANVAS_MAX_FRAME_ITEMS, MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
+    CANVAS_MAX_FRAME_ITEMS, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
     METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS,
     VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
@@ -103,10 +103,11 @@ END FUNC"#;
 ///
 /// Phase 2's SDF fragment shader evaluates the same distance functions the software
 /// rasteriser does, so every kind now passes — including `__CANVAS_GEO_NONE`, which
-/// both backends draw as nothing. **One condition remains**: a polygon's edges cross
-/// as a `setFragmentBytes:` payload, which Metal caps at 4 KB, so a polygon past
-/// `__CANVAS_METAL_MAX_EDGES` is declined. Clamping it instead would render a
-/// *different polygon* and read as a geometry bug.
+/// both backends draw as nothing. What remains are the frame buffer's region caps —
+/// quads, polygon edges, gradient stops and glyph/picture texels, each a frame SUM.
+/// There is no per-polygon edge cap since bug-686: the old one (256 edges, justified by
+/// a 4 KB `setFragmentBytes:` payload that plan-116-A removed) sent every detailed
+/// polygon to software, and its twin in the emitter drew such a polygon as nothing.
 ///
 /// It reads the geometry header by slot rather than through a helper because that is
 /// what the header is for: a fixed 22-float layout both backends index directly
@@ -683,8 +684,6 @@ END FUNC
 LET __CANVAS_MAX_FRAME_ITEMS AS Integer = @CANVAS_MAX_FRAME_ITEMS@
 LET __CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = @METAL_MAX_FRAME_ITEMS@
 
-LET __CANVAS_METAL_MAX_EDGES AS Integer = @MAX_EDGES@
-
 ' The glyph samples one frame may carry on Metal, summed over its runs -- a frame-wide
 ' region like Vulkan's (bug-670), and eight times its size since bug-686, because a
 ' picture's texels ride it too. `__canvas_runSamples` below counts a run's share.
@@ -738,14 +737,10 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF stops >= 2 THEN
       gradientStops = gradientStops + stops
     END IF
+    ' bug-686: no per-polygon cap. A polygon of any size draws, bounded only by the
+    ' frame's edge region below; the emitter indexes a large one by band so the shader
+    ' does not walk every edge per pixel.
     IF kind = __CANVAS_GEO_POLYGON THEN
-      ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
-      ' frame buffer, so this one is no longer forced by the transport -- but declining
-      ' the same scenes Metal declined before is that letter's gate, and unifying the
-      ' two backends' caps is later work, taken deliberately or not at all.
-      IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
-        RETURN FALSE
-      END IF
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
@@ -927,7 +922,6 @@ END FUNC"#;
 const RENDER_CAPS: &[(&str, usize)] = &[
     ("CANVAS_MAX_FRAME_ITEMS", CANVAS_MAX_FRAME_ITEMS),
     ("METAL_MAX_FRAME_ITEMS", METAL_MAX_FRAME_ITEMS),
-    ("MAX_EDGES", MAX_EDGES),
     (
         "METAL_MAX_FRAME_GLYPH_SAMPLES",
         METAL_MAX_FRAME_GLYPH_SAMPLES,

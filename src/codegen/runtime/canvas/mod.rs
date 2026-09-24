@@ -413,6 +413,18 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
+/// A **polygon**'s band-index header in the same `ivec4` (bug-686, Metal only):
+/// `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over every
+/// edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`).
+///
+/// The per-kind sharing `ITEM_OFFSET_ARC` already does: only an arc reads its caps and
+/// only a polygon reads its bands, and no item is both. The Metal emitter writes these
+/// after `emit_item_block`'s generic arc-caps store, for polygons only; the shader reads
+/// them only when `misc.x` is the polygon kind.
+pub(crate) const ITEM_BAND_TOP: usize = 0;
+pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
+pub(crate) const ITEM_BAND_COUNT: usize = 8;
+pub(crate) const ITEM_BAND_START: usize = 12;
 /// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
 ///
 /// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
@@ -641,14 +653,6 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 pub(crate) const HEADER_SLOTS: usize = 47;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
-/// The most edges one polygon may carry on the **Metal** path.
-///
-/// `setFragmentBytes:` copies into the command buffer and is small, so Metal's edges
-/// ride a bounded payload sized at compile time. `__canvas_metalRenderable` declines
-/// a polygon past this rather than truncating it, because a truncated polygon
-/// renders as a *different shape* and would read as a geometry bug.
-pub(crate) const MAX_EDGES: usize = 256;
-
 /// The most edges one **frame** may carry on the Vulkan path.
 ///
 /// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
@@ -732,7 +736,7 @@ pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_B
 /// `VULKAN_MAX_FRAME_EDGES` (plan-116-A).
 ///
 /// Metal's edges used to ride a per-item `setFragmentBytes:` payload, which is copied
-/// into the command buffer at record time — so the cap was per *item* (`MAX_EDGES`)
+/// into the command buffer at record time — so the cap was per *item* (256 edges)
 /// and there was no frame total at all. An instanced draw cannot rebind that payload
 /// between instances, so the edges moved into a region of the frame buffer, exactly
 /// where Vulkan has always kept them, and the cap became a frame total to match.
@@ -742,6 +746,11 @@ pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_B
 /// is 4 MiB of region, and a 40,000-edge frame measured within max channel delta 1 of
 /// the software oracle (bug-686 spike C). Software is the oracle, so a declined frame
 /// is at least as correct — truncating instead would draw a *different shape*.
+///
+/// There is **no per-polygon cap** since bug-686. The 256-edge one was kept "by policy"
+/// after plan-116-A moved the edges into this region, and it existed twice — in the
+/// predicate and as a branch in `emit_edge_buffer` that drew an over-long polygon as
+/// nothing; spike B drew 300-4,000-edge polygons on Metal within max channel delta 1.
 pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// Where Metal's edge region starts inside the frame buffer, in 32-bit words.
 ///
@@ -752,6 +761,48 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
 pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
+
+/// A polygon's **band index** (bug-686): which of its edges a pixel at a given height
+/// has to visit, so the fragment shader's `edgeDistance` stops looping over every edge
+/// for every covered pixel — O(edges × pixels), 252 ms of GPU for one 64,000-edge
+/// polygon (bug-686 section E).
+///
+/// `emit_band_index` splits the polygon's shape-space y-range into bands and puts each
+/// edge in every band its `[ymin − r, ymax + r]` meets, r being the distance past which
+/// an edge cannot change the pixel's coverage. The shader evaluates the SAME loop body
+/// over its own band's list, so the result is bit-identical to the full loop (the
+/// argument is at `emit_band_index`). Per polygon, at the word offset its block carries
+/// in `ITEM_BAND_START`:
+///
+/// * `2 × bands` words of table — `(first, count)` per band, `first` relative to the
+///   list that follows;
+/// * the list — edge numbers, `0..edgeCount`, band after band.
+///
+/// The polygon's block carries `bandTop`, `bandHeight` (16.16, shape space), the band
+/// count and that offset in its `arcCaps` `ivec4`, which only an arc reads
+/// (`ITEM_BAND_*`). A band count
+/// of 0 means "loop over every edge": what a polygon under `METAL_BAND_MIN_EDGES` gets,
+/// and what any polygon gets whose index would not fit — correct, only slower. The
+/// index is never truncated and a frame is never declined for it.
+///
+/// Budget: bands are at most the polygon's edge count, and the list at most
+/// `METAL_BAND_LIST_PER_EDGE` entries per edge (a polygon over it gets taller bands), so
+/// one polygon needs at most `METAL_BAND_WORDS_PER_EDGE` words per edge — and the frame's
+/// edges are capped at `METAL_MAX_FRAME_EDGES`, so the region below always has room.
+pub(crate) const METAL_BAND_LIST_PER_EDGE: usize = 6;
+/// Table (two words per band, at most one band per edge) plus list, per edge.
+pub(crate) const METAL_BAND_WORDS_PER_EDGE: usize = 2 + METAL_BAND_LIST_PER_EDGE;
+/// The band region's size in 32-bit words.
+pub(crate) const METAL_MAX_FRAME_BAND_WORDS: usize =
+    METAL_BAND_WORDS_PER_EDGE * METAL_MAX_FRAME_EDGES;
+/// The most bands one polygon is split into. Past ~1,000 the table costs more to build
+/// than a thinner list saves; a 600 px polygon gets 2-px bands up to here.
+pub(crate) const METAL_BAND_MAX: usize = 1024;
+/// Polygons with fewer edges than this loop over all of them (band count 0): the full
+/// loop over a handful of edges costs less than finding the band.
+pub(crate) const METAL_BAND_MIN_EDGES: usize = 32;
+/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const METAL_BAND_BASE_WORDS: usize = METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 /// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
 ///
 /// A starting value, as the plan says: raise it only against a measured scene. Five
@@ -770,9 +821,10 @@ pub(crate) const MAX_FRAME_GRADIENT_STOPS: usize = 4096;
 pub(crate) const METAL_MAX_FRAME_GRADIENT_STOPS: usize = 2 * METAL_MAX_FRAME_ITEMS;
 /// Five 32-bit words a stop: offset, then the four colour channels.
 pub(crate) const GRADIENT_STOP_WORDS: usize = 5;
-/// Where Metal's gradient region starts, in 32-bit words — after the items and edges.
+/// Where Metal's gradient region starts, in 32-bit words — after the items, edges and
+/// band index.
 pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
-    METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
+    METAL_BAND_BASE_WORDS + METAL_MAX_FRAME_BAND_WORDS;
 /// The most coverage samples one **frame**'s glyphs may carry on the Metal path — the
 /// same number, and the same one-sample-per-word layout, as
 /// `VULKAN_MAX_FRAME_GLYPH_SAMPLES` (bug-670).
@@ -792,14 +844,15 @@ pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// gradient stops (five each), then glyph coverage (one sample a word), then the
-/// picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
+/// the band index (bug-686), then gradient stops (five each), then glyph coverage (one
+/// sample a word), then the picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
 /// computations and a region left out of the chain shows up there.
 pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
+    + METAL_MAX_FRAME_BAND_WORDS * 4
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
     + METAL_PICTURE_TABLE_BYTES;

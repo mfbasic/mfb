@@ -2,7 +2,7 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
     CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0,
-    MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
+    MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
     METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES,
     VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
@@ -124,7 +124,14 @@ fn declared(name: &str) -> usize {
 /// whatever the driver happened to put next.
 #[test]
 fn the_two_gpu_edge_budgets_match_the_emitters() {
-    assert_eq!(declared("__CANVAS_METAL_MAX_EDGES"), MAX_EDGES);
+    // bug-686 deleted Metal's per-POLYGON cap on both sides (`MAX_EDGES` and its branch in
+    // `emit_edge_buffer`, which drew a longer polygon as nothing). The emitter now writes
+    // any polygon's edges, so a cap surviving here alone would decline scenes for a limit
+    // nothing has.
+    assert!(
+        !source().contains("__CANVAS_METAL_MAX_EDGES"),
+        "the per-polygon edge cap is back in the Metal predicate",
+    );
     assert_eq!(
         declared("__CANVAS_VULKAN_MAX_FRAME_EDGES"),
         VULKAN_MAX_FRAME_EDGES
@@ -223,7 +230,7 @@ fn every_cap_token_in_the_render_source_is_generated() {
 /// |---|---|---|
 /// | the glyph-run walk (`__canvas_runSamples`, one function both call) | 1 (shared) | |
 /// | a picture's texel count (`__canvas_pictureSamples`, one function both call) | 1 (shared) | |
-/// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
+/// | ~~the per-item `MAX_EDGES` decline~~ | — (deleted, bug-686) | — (no per-item limit) |
 /// | the frame edge sum | 1 | 1 |
 /// | ~~the frame quad count, a glyph run's glyphs~~ | — | — |
 ///
@@ -243,6 +250,12 @@ fn every_cap_token_in_the_render_source_is_generated() {
 /// header carries its image's width in slot 20 (and height in 21), and both predicates
 /// count `width * height` texels against the glyph region they share with text.
 ///
+/// It went 5 → 4 in bug-686, and that read did NOT move: the per-polygon decline it
+/// fed was deleted, with its emitter twin, because the edges have lived in a
+/// frame-wide region since plan-116-A and spike B drew 300-4,000-edge polygons within
+/// max channel delta 1. `the_two_gpu_edge_budgets_match_the_emitters` pins that the cap
+/// stays gone. The frame edge sum still reads slot 20 in both predicates.
+///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
 /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
@@ -254,7 +267,7 @@ fn the_predicates_read_the_edge_count_slot() {
     assert_eq!(HEADER_AUX0, 20);
     assert_eq!(
         source().matches(&format!("offset + {HEADER_AUX0}")).count(),
-        5,
+        4,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \

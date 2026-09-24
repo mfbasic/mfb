@@ -74,11 +74,14 @@ use crate::codegen::runtime::canvas::{
     ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
     ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
     ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
-    METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES,
-    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS,
-    METAL_PICTURE_RECORDS, METAL_PICTURE_RECORDS_OFFSET, METAL_PICTURE_RECORD_BYTES,
-    PICTURE_SHADOW_SPLIT_BITS,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS,
+    METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
+    METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS,
+    METAL_PICTURE_RECORDS_OFFSET, METAL_PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+};
+use crate::codegen::runtime::canvas::{
+    ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS,
+    METAL_BAND_LIST_PER_EDGE, METAL_BAND_MAX, METAL_BAND_MIN_EDGES, METAL_MAX_FRAME_BAND_WORDS,
 };
 use std::sync::LazyLock;
 
@@ -122,9 +125,10 @@ pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
 ///
 /// ## The region bases are generated, not spelled
 ///
-/// The frame buffer's regions (`METAL_EDGE_BASE`, `METAL_GRADIENT_BASE`,
-/// `METAL_GLYPH_BASE`) start wherever the layout constants in `runtime/canvas` put
-/// them, and every one MOVES when a cap before it or `ITEM_BLOCK_SIZE` changes. They
+/// The frame buffer's regions (`METAL_EDGE_BASE`, `METAL_BAND_BASE`,
+/// `METAL_GRADIENT_BASE`, `METAL_GLYPH_BASE`) start wherever the layout constants in
+/// `runtime/canvas` put them, and every one MOVES when a cap before it or
+/// `ITEM_BLOCK_SIZE` changes. They
 /// were integer literals in a `concat!` until bug-686, kept equal to the Rust layout
 /// only by `the_metal_shader_region_bases_match_the_buffer_layout`; a stale one does
 /// not fail anywhere — every polygon, ramp or glyph reads from the wrong offset of a
@@ -138,6 +142,7 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
          constant float FIXED = 65536.0;\n\
          constant float PI = 3.141592653589793;\n\
          constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
+         constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
          constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
          constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
          {METAL_SHADER_BODY}"
@@ -264,10 +269,20 @@ const METAL_SHADER_BODY: &str = concat!(
     // to leave it zero because `setFragmentBytes:` copied each item's edges into the
     // command buffer, so every polygon's array started at 0; one buffer now serves the
     // whole frame, so each polygon reads its own slice.
-    "static float edgeDistance(constant int *edges, int base, int count, float2 p) {\n",
+    //
+    // bug-686: `list` is where this pixel's band's edge numbers start in `edges`, and
+    // `count` how many there are -- or `list` is -1 and `count` the polygon's edge count,
+    // which is the loop over every edge this function always was (`polygonBand`). The
+    // loop BODY is untouched, and that is what makes the band index exact: an edge left
+    // out of a band is one whose y-span misses the pixel's row (so it cannot toggle
+    // `inside`) and that is further than the band's reach from it (so it cannot change
+    // the clamped coverage `best` feeds). Order does not matter: `min` and a parity
+    // toggle are both order-independent.
+    "static float edgeDistance(constant int *edges, int base, int count, int list, float2 p) {\n",
     "  float best = 1.0e6;\n",
     "  bool inside = false;\n",
-    "  for (int e = 0; e < count; ++e) {\n",
+    "  for (int j = 0; j < count; ++j) {\n",
+    "    int e = list < 0 ? j : edges[list + j];\n",
     "    int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
     "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
     "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
@@ -284,11 +299,26 @@ const METAL_SHADER_BODY: &str = concat!(
     // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
     // have no double->single convert.
     "static bool hasTransform(constant MfbItem &item) { return item.xform1.z != 0; }\n",
+    // bug-686: the edge list a polygon's shape-space point at height `y` visits, as
+    // (first word in `edges`, length), or (-1, edgeCount) for "every edge" -- any other
+    // kind, or a polygon the emitter gave no band index (`arcCaps.z` = 0). The band
+    // header is `arcCaps` = (top, height in 16.16, band count, table offset), written by
+    // `emit_band_index`; the table is (first, count) per band and the list follows it.
+    // A point above the first band or below the last uses the end band, which the
+    // emitter built to hold every edge that can matter there.
+    "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y) {\n",
+    "  int nb = item.arcCaps.z;\n",
+    "  if (item.misc.x != 4 || nb <= 0) { return int2(-1, item.misc.w); }\n",
+    "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
+    "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
+    "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
+    "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
+    "}\n",
     "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
     "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
     "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
     "}\n",
-    "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
+    "static float geoDistance(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
     "  float radius = fx(item.misc.y);\n",
     "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
     // bug-484: a picture (9) is a rectangle to the distance field -- its header carries
@@ -330,7 +360,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    band = min(band, length(p - cs) - radius);\n",
     "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
-    "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
+    "  return edgeDistance(edges, item.arc.z, band.y, band.x, p);\n",
     "}\n",
     // The shape-space distance and the local scale of the mapping, as (d, s).
     //
@@ -341,13 +371,23 @@ const METAL_SHADER_BODY: &str = concat!(
     // the same one and Phase 1's measurement is against this value. Central differences
     // rather than fwidth for the reason 06_canvas.md gives -- a hardware derivative
     // differs between platforms; this uses only + - * / and sqrt.
+    //
+    // bug-686: all five evaluations of a transformed polygon use the band of the CENTRE
+    // point `q`. The emitter widened that band's reach by the transform's scale for
+    // exactly this, so it holds every edge any of the four neighbours needs; a band
+    // looked up per neighbour could differ between them, and the difference quotient
+    // of two different edge sets is not the gradient of anything.
     "static float2 shapeDistanceAndScale(constant MfbItem &item, constant int *edges, float2 p) {\n",
-    "  if (!hasTransform(item)) { return float2(geoDistance(item, edges, p), 1.0); }\n",
-    "  float d = geoDistance(item, edges, inverseMap(item, p));\n",
-    "  float gx = geoDistance(item, edges, inverseMap(item, p + float2(0.5, 0.0)))\n",
-    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.5, 0.0)));\n",
-    "  float gy = geoDistance(item, edges, inverseMap(item, p + float2(0.0, 0.5)))\n",
-    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.0, 0.5)));\n",
+    "  if (!hasTransform(item)) {\n",
+    "    return float2(geoDistance(item, edges, polygonBand(item, edges, p.y), p), 1.0);\n",
+    "  }\n",
+    "  float2 q = inverseMap(item, p);\n",
+    "  int2 band = polygonBand(item, edges, q.y);\n",
+    "  float d = geoDistance(item, edges, band, q);\n",
+    "  float gx = geoDistance(item, edges, band, inverseMap(item, p + float2(0.5, 0.0)))\n",
+    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.5, 0.0)));\n",
+    "  float gy = geoDistance(item, edges, band, inverseMap(item, p + float2(0.0, 0.5)))\n",
+    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.0, 0.5)));\n",
     "  float g = sqrt(gx * gx + gy * gy);\n",
     "  return float2(d, g > 0.000001 ? g : 1.0);\n",
     "}\n",
@@ -1149,7 +1189,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 640;
+const DRAW_FRAME: usize = 704;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1219,6 +1259,21 @@ const OFF_GLYPH_CURSOR: usize = 616;
 /// lookup missed at, parked across the upload that decides whether to record it.
 const OFF_PIC_COUNT: usize = 624;
 const OFF_PIC_SLOT: usize = 632;
+/// The band region's cursor, in words (bug-686) — reset per frame like the others —
+/// and `emit_band_index`'s working state for one polygon: its first and past-the-last
+/// 16.16 edge in the frame buffer, its lowest edge y (16.16), the band reach `2r`
+/// (16.16), the band height (16.16), the band count, and the table's address.
+///
+/// On the stack because the builder's loops need more values than the nine usable
+/// `SCRATCH` registers hold at once.
+const OFF_BAND_CURSOR: usize = 640;
+const OFF_BAND_EDGES: usize = 648;
+const OFF_BAND_END: usize = 656;
+const OFF_BAND_YMIN: usize = 664;
+const OFF_BAND_REACH: usize = 672;
+const OFF_BAND_HEIGHT: usize = 680;
+const OFF_BAND_COUNT: usize = 688;
+const OFF_BAND_TABLE: usize = 696;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1642,6 +1697,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         // bug-686: so is the picture table. Its index is never cleared -- a record
         // count of 0 makes every slot read as empty (`METAL_PICTURE_TABLE_BYTES`).
         OFF_PIC_COUNT,
+        // bug-686: and the band region.
+        OFF_BAND_CURSOR,
         OFF_BOUND_MODE,
     ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
@@ -3286,8 +3343,9 @@ fn emit_gradient_buffer(asm: &mut Asm) {
 /// A picture is ONE quad and does not end the instanced run; it only shares the glyph
 /// region's cursor. Since bug-686 each distinct pixel block is copied once per frame:
 /// `emit_picture_lookup` finds a block already uploaded this frame and reuses its
-/// texels, and `emit_picture_record` records each new upload. Runs **after** `emit_edge_buffer`, which zeroes `arc.z` for every
-/// non-polygon, and after `emit_item_block`, which writes `arc.x` as a 16.16 angle.
+/// texels, and `emit_picture_record` records each new upload. Runs **after**
+/// `emit_edge_buffer`, which zeroes `arc.z` for every non-polygon, and after
+/// `emit_item_block`, which writes `arc.x` as a 16.16 angle.
 ///
 /// When the image cannot be uploaded — a destroyed image (zero size or no block), a
 /// block shorter than `iw * ih * 4`, or a frame whose samples would pass
@@ -3615,6 +3673,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
     let empty = format!("{METAL_DRAW_SYMBOL}_edge_empty");
     let convert = format!("{METAL_DRAW_SYMBOL}_edge_convert");
+    let band = format!("{METAL_DRAW_SYMBOL}_edge_band");
     let header = abi::SCRATCH[0];
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
@@ -3644,12 +3703,14 @@ fn emit_edge_buffer(asm: &mut Asm) {
         HEADER_AUX0 * 8,
     ));
     asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
-    asm.push(abi::compare_immediate(count, &MAX_EDGES.to_string()));
-    asm.push(abi::branch_gt(&empty));
-    // Would this polygon's edges fit the frame's region? Unreachable — the same
-    // `__canvas_metalRenderable` that declines an over-long polygon now also declines a
-    // frame whose polygons sum past `METAL_MAX_FRAME_EDGES`, so the whole scene went to
-    // software. Kept because the alternative to declining is a write past the buffer.
+    // bug-686: no per-polygon cap. There was one (256 edges) that wrote NO edges for a
+    // longer polygon, so it drew nothing; nothing in the transport needs it since
+    // plan-116-A moved the edges into this region.
+    //
+    // Would this polygon's edges fit the frame's region? Unreachable —
+    // `__canvas_metalRenderable` declines a frame whose polygons sum past
+    // `METAL_MAX_FRAME_EDGES`, so the whole scene went to software. Kept because the
+    // alternative to declining is a write past the buffer.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
@@ -3662,8 +3723,8 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::branch_le(&convert));
 
-    // Not a polygon, over the per-item cap, or past the frame's region: draw no edges
-    // and leave the base at zero. Clamping would render a *different polygon*.
+    // Not a polygon, or past the frame's region: draw no edges and leave the base at
+    // zero. Clamping would render a *different polygon*.
     asm.push(abi::label(&empty));
     asm.push(abi::move_immediate(count, "Integer", "0"));
     asm.push(abi::store_u32(
@@ -3727,7 +3788,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
 
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
-    asm.push(abi::branch_ge(&done));
+    asm.push(abi::branch_ge(&band));
     // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
@@ -3754,7 +3815,505 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
     asm.push(abi::branch(&head));
+
+    // bug-686: the polygon's edges are in the region; index them by band.
+    asm.push(abi::label(&band));
+    emit_band_index(asm);
     asm.push(abi::label(&done));
+}
+
+/// Build this polygon's band index in the frame buffer's band region and write its
+/// header into the item block's `arcCaps` (bug-686; layout at `METAL_BAND_BASE_WORDS`).
+///
+/// Runs after `emit_edge_buffer` has converted the polygon's edges, and works on those
+/// 16.16 words — exactly what the shader reads — rather than on the header's doubles,
+/// so the band arithmetic is integer and a rounding difference between the two cannot
+/// put an edge in the wrong band.
+///
+/// ## Why the result is bit-identical to the full loop
+///
+/// An edge is put in every band its `[ylo − r, yhi + r]` meets, so a band holds (a)
+/// every edge whose y-span contains any row of the band — the only edges the even-odd
+/// crossing test counts, so `inside` is exact — and (b) every edge within `r` of any
+/// point of the band — so `best` is exact whenever the true distance is at most `r`,
+/// and otherwise both loops' `best` exceed `r`, where coverage has clamped:
+///
+/// * **Untransformed**, `d` is the surface distance. A fill clamps to 0 or 255 once
+///   `|d| ≥ 0.5`, and a stroke to 0 once `|d| − half ≥ 0.5`, so `r = half + 0.5`, with
+///   `half = max(strokeHalf, 0)` (a non-stroking paint reports −1).
+/// * **Transformed**, the shader evaluates five shape-space points — the centre `q` and
+///   `q ± M·(0.5, 0)`, `q ± M·(0, 0.5)`, M the inverse matrix — all against `q`'s band
+///   (`shapeDistanceAndScale`). With `F = ‖M‖_F`, each neighbour is within `F/2` of `q`,
+///   and the scale `g` the shader divides by is at most `F` (the distance is 1-Lipschitz)
+///   or the fallback 1.0. So: if `q` is within `r − F` of the nearest edge, every
+///   neighbour's nearest edge is within `r` of `q` and all five values are exact; if not,
+///   both loops' `|dRaw| > r − F`, and `r = half + 0.5 + 1.5·F` makes that past the
+///   clamp for any `g ≤ F` and for `g = 1`. Crossings are exact at the neighbours too,
+///   since `r ≥ F/2`, which also keeps the band's own distance function continuous across
+///   the neighbourhood, so its difference quotients stay at most `F` as well. The builder
+///   uses `2·F`, the margin rounded up.
+///
+/// Plus a **1-unit guard** in shape space, for the float error of the shader's band
+/// lookup against these integer bands. `band.swift` (bug-686 section G) measured 0
+/// differing pixels for fills, strokes, spikes and a self-intersecting star with it.
+///
+/// ## Sizing
+///
+/// Bands are 2 px tall untransformed, `√2·F` (about two surface pixels) transformed, and
+/// taller when the span needs more than `min(edges, METAL_BAND_MAX)` bands. If the list
+/// would pass `METAL_BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
+/// most rows, like a star of long spikes — the height doubles until it fits; at one band
+/// the list is every edge once. So one polygon never needs more than
+/// `METAL_BAND_WORDS_PER_EDGE` words per edge, which the region is sized for; the
+/// region-full branch is unreachable and kept because the alternative is a write past
+/// the buffer. It, a polygon under `METAL_BAND_MIN_EDGES`, and a transform whose
+/// matrix is not finite write band count 0: the shader loops over every edge. Never a
+/// decline, never a truncation.
+///
+/// No calls; `SCRATCH[0..8]` only (9 is Apple's x18, 10+ the loop state's callee-saved
+/// registers). `compare_immediate` is used only against values that fit 12 bits: a
+/// wider one borrows x16/x17, which are `SCRATCH[7]`/`SCRATCH[8]`.
+fn emit_band_index(asm: &mut Asm) {
+    let none = format!("{METAL_DRAW_SYMBOL}_band_none");
+    let done = format!("{METAL_DRAW_SYMBOL}_band_done");
+    let s = abi::SCRATCH;
+    let f = abi::FP_SCRATCH;
+    let label = |name: &str| format!("{METAL_DRAW_SYMBOL}_band_{name}");
+    let block = |field: usize| OFF_ITEM + ITEM_OFFSET_ARC_CAPS + field;
+
+    // --- which polygons: E >= METAL_BAND_MIN_EDGES --------------------------------
+    asm.push(abi::load_u32(
+        s[2],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(
+        s[3],
+        "Integer",
+        &METAL_BAND_MIN_EDGES.to_string(),
+    ));
+    asm.push(abi::compare_registers(s[2], s[3]));
+    asm.push(abi::branch_lt(&none));
+
+    // --- the edges: P = contents + EDGE_BASE*4 + base*16, END = P + E*16 ------------
+    asm.push(abi::load_u32(
+        s[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::shift_left_immediate(s[0], s[0], 4));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(s[0], s[0], s[1]));
+    asm.push(abi::move_immediate(
+        s[1],
+        "Integer",
+        &(METAL_EDGE_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(s[0], s[0], s[1]));
+    asm.push(abi::store_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::shift_left_immediate(s[1], s[2], 4));
+    asm.push(abi::add_registers(s[1], s[0], s[1]));
+    asm.push(abi::store_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+
+    // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
+    asm.push(abi::load_u32(s[2], s[0], 4));
+    asm.push(abi::sign_extend_word(s[2], s[2]));
+    asm.push(abi::move_register(s[3], s[2]));
+    asm.push(abi::label(&label("measure_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("measure_done")));
+    for (n, offset) in [(0, 4usize), (1, 12)] {
+        let not_lower = label(&format!("measure_not_lower_{n}"));
+        let not_higher = label(&format!("measure_not_higher_{n}"));
+        asm.push(abi::load_u32(s[4], s[0], offset));
+        asm.push(abi::sign_extend_word(s[4], s[4]));
+        asm.push(abi::compare_registers(s[4], s[2]));
+        asm.push(abi::branch_ge(&not_lower));
+        asm.push(abi::move_register(s[2], s[4]));
+        asm.push(abi::label(&not_lower));
+        asm.push(abi::compare_registers(s[4], s[3]));
+        asm.push(abi::branch_le(&not_higher));
+        asm.push(abi::move_register(s[3], s[4]));
+        asm.push(abi::label(&not_higher));
+    }
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("measure_head")));
+    asm.push(abi::label(&label("measure_done")));
+    asm.push(abi::store_u64(s[2], abi::stack_pointer(), OFF_BAND_YMIN));
+    // s3 = the edges' own y extent; s2 stays ymin through the reach computation.
+    asm.push(abi::subtract_registers(s[3], s[3], s[2]));
+
+    // --- the reach r (f1) and the minimum band height (f4), in shape units --------
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
+    // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.
+    asm.push(abi::float_max_d(f[1], f[1], f[2]));
+    asm.push(abi::move_immediate(s[4], "Integer", "3"));
+    asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
+    asm.push(abi::move_immediate(s[4], "Integer", "2"));
+    asm.push(abi::signed_convert_to_float_d(f[3], s[4]));
+    asm.push(abi::float_divide_d(f[2], f[2], f[3]));
+    // r = half + 0.5 (the clamp) + 1 (the guard)
+    asm.push(abi::float_add_d(f[1], f[1], f[2]));
+    asm.push(abi::float_move_d_from_d(f[4], f[3]));
+    let untransformed = label("untransformed");
+    asm.push(abi::load_double(f[5], s[0], HEADER_HAS_TRANSFORM * 8));
+    asm.push(abi::float_convert_to_signed_x(s[4], f[5]));
+    asm.push(abi::compare_immediate(s[4], "0"));
+    asm.push(abi::branch_eq(&untransformed));
+    // F = ||M||_F from the four matrix terms, which the header carries as float32 BIT
+    // PATTERNS (`__canvas_float32Bits`). This assembler has no single->double convert,
+    // so the bits are rebuilt as a double by hand: exponent rebiased by 1023 - 127 =
+    // 896, mantissa shifted up 52 - 23 = 29. The sign is dropped (the term is squared);
+    // a zero or subnormal term counts as 0, under 1.2e-38 short of its true size, which
+    // the 1-unit guard dwarfs; an infinite or NaN one gives the polygon no bands.
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(f[6], s[4]));
+    for slot in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+    ] {
+        let zero_term = label(&format!("zero_term_{slot}"));
+        asm.push(abi::load_double(f[7], s[0], slot * 8));
+        asm.push(abi::float_convert_to_signed_x(s[4], f[7]));
+        asm.push(abi::shift_right_immediate(s[5], s[4], 23));
+        asm.push(abi::move_immediate(s[6], "Integer", "255"));
+        asm.push(abi::and_registers(s[5], s[5], s[6]));
+        asm.push(abi::compare_registers(s[5], s[6]));
+        asm.push(abi::branch_eq(&none));
+        asm.push(abi::compare_immediate(s[5], "0"));
+        asm.push(abi::branch_eq(&zero_term));
+        asm.push(abi::add_immediate(s[5], s[5], 896));
+        asm.push(abi::shift_left_immediate(s[5], s[5], 52));
+        asm.push(abi::move_immediate(s[6], "Integer", "8388607"));
+        asm.push(abi::and_registers(s[7], s[4], s[6]));
+        asm.push(abi::shift_left_immediate(s[7], s[7], 29));
+        asm.push(abi::or_registers(s[5], s[5], s[7]));
+        asm.push(abi::float_move_d_from_x(f[7], s[5]));
+        asm.push(abi::float_multiply_d(f[7], f[7], f[7]));
+        asm.push(abi::float_add_d(f[6], f[6], f[7]));
+        asm.push(abi::label(&zero_term));
+    }
+    asm.push(abi::float_sqrt_d(f[6], f[6]));
+    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
+    asm.push(abi::float_add_d(f[7], f[6], f[6]));
+    asm.push(abi::float_add_d(f[1], f[1], f[7]));
+    asm.push(abi::float_sqrt_d(f[7], f[3]));
+    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
+    asm.push(abi::label(&untransformed));
+
+    // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
+    asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
+    asm.push(abi::float_multiply_d(f[1], f[1], f[7]));
+    asm.push(abi::float_ceil_to_signed_x(s[4], f[1]));
+    asm.push(abi::float_multiply_d(f[4], f[4], f[7]));
+    asm.push(abi::float_ceil_to_signed_x(s[5], f[4]));
+    // A reach or height past 2^30 (16,384 units) is a degenerate transform; `fcvtps`
+    // saturates an infinity to i64::MAX, which this catches too.
+    asm.push(abi::move_immediate(
+        s[6],
+        "Integer",
+        &(1u64 << 30).to_string(),
+    ));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_gt(&none));
+    asm.push(abi::compare_registers(s[5], s[6]));
+    asm.push(abi::branch_gt(&none));
+    let height_positive = label("height_positive");
+    asm.push(abi::compare_immediate(s[5], "1"));
+    asm.push(abi::branch_ge(&height_positive));
+    asm.push(abi::move_immediate(s[5], "Integer", "1"));
+    asm.push(abi::label(&height_positive));
+
+    // --- span = extent + 2r (s3); top = ymin - r must be an int32, and so must the
+    // bottom, because the shader reads `top` as a 16.16 `int` ----------------------
+    asm.push(abi::shift_left_immediate(s[4], s[4], 1));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::add_registers(s[3], s[3], s[4]));
+    asm.push(abi::shift_right_immediate(s[6], s[4], 1));
+    asm.push(abi::subtract_registers(s[7], s[2], s[6]));
+    // The encoder parses an immediate as u64, so i32::MIN goes in as its 64-bit two's
+    // complement.
+    asm.push(abi::move_immediate(
+        s[8],
+        "Integer",
+        &(i64::from(i32::MIN) as u64).to_string(),
+    ));
+    asm.push(abi::compare_registers(s[7], s[8]));
+    asm.push(abi::branch_lt(&none));
+    asm.push(abi::add_registers(s[8], s[7], s[3]));
+    asm.push(abi::move_immediate(s[6], "Integer", &i32::MAX.to_string()));
+    asm.push(abi::compare_registers(s[8], s[6]));
+    asm.push(abi::branch_gt(&none));
+
+    // --- height = max(minimum, ceil(span / (min(E, METAL_BAND_MAX) - 1))) -----------
+    // At most `min(E, METAL_BAND_MAX)` bands: span / height <= that - 1.
+    let bands_capped = label("bands_capped");
+    asm.push(abi::load_u32(
+        s[6],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(
+        s[7],
+        "Integer",
+        &METAL_BAND_MAX.to_string(),
+    ));
+    asm.push(abi::compare_registers(s[6], s[7]));
+    asm.push(abi::branch_le(&bands_capped));
+    asm.push(abi::move_register(s[6], s[7]));
+    asm.push(abi::label(&bands_capped));
+    const _: () = assert!(METAL_BAND_MIN_EDGES >= 2 && METAL_BAND_MAX >= 2);
+    asm.push(abi::subtract_immediate(s[6], s[6], 1));
+    asm.push(abi::add_registers(s[7], s[3], s[6]));
+    asm.push(abi::subtract_immediate(s[7], s[7], 1));
+    asm.push(abi::unsigned_divide_registers(s[7], s[7], s[6]));
+    let height_chosen = label("height_chosen");
+    asm.push(abi::compare_registers(s[7], s[5]));
+    asm.push(abi::branch_ge(&height_chosen));
+    asm.push(abi::move_register(s[7], s[5]));
+    asm.push(abi::label(&height_chosen));
+    asm.push(abi::store_u64(s[7], abi::stack_pointer(), OFF_BAND_HEIGHT));
+
+    // --- size the list; double the height until it is within its budget -----------
+    // s3 (span) is live through this loop.
+    asm.push(abi::label(&label("fit_head")));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::unsigned_divide_registers(s[6], s[3], s[4]));
+    asm.push(abi::add_immediate(s[6], s[6], 1));
+    asm.push(abi::store_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[2], "Integer", "0"));
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::label(&label("size_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("size_done")));
+    emit_band_range(asm, "size");
+    asm.push(abi::subtract_registers(s[5], s[5], s[4]));
+    asm.push(abi::add_immediate(s[5], s[5], 1));
+    asm.push(abi::add_registers(s[2], s[2], s[5]));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("size_head")));
+    asm.push(abi::label(&label("size_done")));
+    asm.push(abi::load_u32(
+        s[4],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(
+        s[5],
+        "Integer",
+        &METAL_BAND_LIST_PER_EDGE.to_string(),
+    ));
+    asm.push(abi::multiply_registers(s[4], s[4], s[5]));
+    asm.push(abi::compare_registers(s[2], s[4]));
+    asm.push(abi::branch_le(&label("fits")));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::shift_left_immediate(s[4], s[4], 1));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::branch(&label("fit_head")));
+    asm.push(abi::label(&label("fits")));
+
+    // --- claim 2*bands + list words of the region ---------------------------------
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::shift_left_immediate(s[4], s[6], 1));
+    asm.push(abi::add_registers(s[4], s[4], s[2]));
+    asm.push(abi::load_u64(s[5], abi::stack_pointer(), OFF_BAND_CURSOR));
+    asm.push(abi::add_registers(s[4], s[4], s[5]));
+    asm.push(abi::move_immediate(
+        s[7],
+        "Integer",
+        &METAL_MAX_FRAME_BAND_WORDS.to_string(),
+    ));
+    asm.push(abi::compare_registers(s[4], s[7]));
+    asm.push(abi::branch_gt(&none));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_CURSOR));
+
+    // --- the header: top, height, count, table offset -----------------------------
+    asm.push(abi::store_u32(
+        s[5],
+        abi::stack_pointer(),
+        block(ITEM_BAND_START),
+    ));
+    asm.push(abi::store_u32(
+        s[6],
+        abi::stack_pointer(),
+        block(ITEM_BAND_COUNT),
+    ));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::store_u32(
+        s[4],
+        abi::stack_pointer(),
+        block(ITEM_BAND_HEIGHT),
+    ));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::shift_right_immediate(s[4], s[4], 1));
+    asm.push(abi::load_u64(s[7], abi::stack_pointer(), OFF_BAND_YMIN));
+    asm.push(abi::subtract_registers(s[7], s[7], s[4]));
+    asm.push(abi::store_u32(
+        s[7],
+        abi::stack_pointer(),
+        block(ITEM_BAND_TOP),
+    ));
+
+    // --- the table's address: contents + BAND_BASE*4 + start*4 ---------------------
+    asm.push(abi::shift_left_immediate(s[5], s[5], 2));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(s[5], s[5], s[4]));
+    asm.push(abi::move_immediate(
+        s[4],
+        "Integer",
+        &(METAL_BAND_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(s[5], s[5], s[4]));
+    asm.push(abi::store_u64(s[5], abi::stack_pointer(), OFF_BAND_TABLE));
+
+    // --- counts to zero: table[2k + 1] = 0 (s5 table, s6 bands) --------------------
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::move_immediate(s[7], "Integer", "0"));
+    asm.push(abi::label(&label("zero_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&label("zero_done")));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[5]));
+    asm.push(abi::store_u32(s[7], s[8], 4));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("zero_head")));
+    asm.push(abi::label(&label("zero_done")));
+
+    // --- count each band's edges -----------------------------------------------------
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::load_u64(s[2], abi::stack_pointer(), OFF_BAND_TABLE));
+    asm.push(abi::label(&label("count_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("count_done")));
+    emit_band_range(asm, "count");
+    asm.push(abi::label(&label("count_band")));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_gt(&label("count_next")));
+    asm.push(abi::shift_left_immediate(s[6], s[4], 3));
+    asm.push(abi::add_registers(s[6], s[6], s[2]));
+    asm.push(abi::load_u32(s[7], s[6], 4));
+    asm.push(abi::add_immediate(s[7], s[7], 1));
+    asm.push(abi::store_u32(s[7], s[6], 4));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("count_band")));
+    asm.push(abi::label(&label("count_next")));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("count_head")));
+    asm.push(abi::label(&label("count_done")));
+
+    // --- each band's first list entry: table[2k] = sum of the counts before it -----
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::move_immediate(s[7], "Integer", "0"));
+    asm.push(abi::label(&label("start_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&label("start_done")));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::store_u32(s[7], s[8], 0));
+    asm.push(abi::load_u32(s[5], s[8], 4));
+    asm.push(abi::add_registers(s[7], s[7], s[5]));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("start_head")));
+    asm.push(abi::label(&label("start_done")));
+
+    // --- the list: each edge's number into each of its bands, using table[2k] as the
+    // band's fill cursor (s8 = the list, s3 = the edge number) ------------------------
+    asm.push(abi::shift_left_immediate(s[8], s[6], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::move_immediate(s[3], "Integer", "0"));
+    asm.push(abi::label(&label("fill_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("fill_done")));
+    emit_band_range(asm, "fill");
+    asm.push(abi::label(&label("fill_band")));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_gt(&label("fill_next")));
+    asm.push(abi::shift_left_immediate(s[6], s[4], 3));
+    asm.push(abi::add_registers(s[6], s[6], s[2]));
+    asm.push(abi::load_u32(s[7], s[6], 0));
+    asm.push(abi::add_immediate(s[7], s[7], 1));
+    asm.push(abi::store_u32(s[7], s[6], 0));
+    asm.push(abi::subtract_immediate(s[7], s[7], 1));
+    asm.push(abi::shift_left_immediate(s[7], s[7], 2));
+    asm.push(abi::add_registers(s[7], s[7], s[8]));
+    asm.push(abi::store_u32(s[3], s[7], 0));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("fill_band")));
+    asm.push(abi::label(&label("fill_next")));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::add_immediate(s[3], s[3], 1));
+    asm.push(abi::branch(&label("fill_head")));
+    asm.push(abi::label(&label("fill_done")));
+
+    // --- the fill cursors ran to each band's end; take the counts back off ---------
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::label(&label("rewind_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&done));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::load_u32(s[5], s[8], 0));
+    asm.push(abi::load_u32(s[7], s[8], 4));
+    asm.push(abi::subtract_registers(s[5], s[5], s[7]));
+    asm.push(abi::store_u32(s[5], s[8], 0));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("rewind_head")));
+
+    // --- no bands: the shader loops over every edge -------------------------------
+    asm.push(abi::label(&none));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    for field in [
+        ITEM_BAND_TOP,
+        ITEM_BAND_HEIGHT,
+        ITEM_BAND_COUNT,
+        ITEM_BAND_START,
+    ] {
+        asm.push(abi::store_u32(s[4], abi::stack_pointer(), block(field)));
+    }
+    asm.push(abi::label(&done));
+}
+
+/// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
+/// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
+/// `SCRATCH[6]` as a temporary.
+///
+/// With `top = ymin − r`: first = ⌊(ylo − r − top) / h⌋ = ⌊(ylo − ymin) / h⌋ and last =
+/// ⌊(yhi + r − top) / h⌋ = ⌊(yhi − ymin + 2r) / h⌋. Both numerators are non-negative
+/// (every y is at least ymin), so the unsigned divide is exact, and the last is at most
+/// ⌊span / h⌋ = bands − 1.
+fn emit_band_range(asm: &mut Asm, site: &str) {
+    let s = abi::SCRATCH;
+    let ordered = format!("{METAL_DRAW_SYMBOL}_band_{site}_ordered");
+    asm.push(abi::load_u32(s[4], s[0], 4));
+    asm.push(abi::sign_extend_word(s[4], s[4]));
+    asm.push(abi::load_u32(s[5], s[0], 12));
+    asm.push(abi::sign_extend_word(s[5], s[5]));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_le(&ordered));
+    asm.push(abi::move_register(s[6], s[4]));
+    asm.push(abi::move_register(s[4], s[5]));
+    asm.push(abi::move_register(s[5], s[6]));
+    asm.push(abi::label(&ordered));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_YMIN));
+    asm.push(abi::subtract_registers(s[4], s[4], s[6]));
+    asm.push(abi::subtract_registers(s[5], s[5], s[6]));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::add_registers(s[5], s[5], s[6]));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::unsigned_divide_registers(s[4], s[4], s[6]));
+    asm.push(abi::unsigned_divide_registers(s[5], s[5], s[6]));
 }
 
 /// The C strings this module's sends need, for the reconcile data-object list.
@@ -4030,6 +4589,14 @@ mod tests {
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
             (OFF_PIC_SLOT, 8, "picSlot"),
+            (OFF_BAND_CURSOR, 8, "bandCursor"),
+            (OFF_BAND_EDGES, 8, "bandEdges"),
+            (OFF_BAND_END, 8, "bandEnd"),
+            (OFF_BAND_YMIN, 8, "bandYmin"),
+            (OFF_BAND_REACH, 8, "bandReach"),
+            (OFF_BAND_HEIGHT, 8, "bandHeight"),
+            (OFF_BAND_COUNT, 8, "bandCount"),
+            (OFF_BAND_TABLE, 8, "bandTable"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 
@@ -4160,10 +4727,25 @@ mod tests {
         // A running chain rather than a sum, so a fourth region means extending it
         // rather than rewriting an equation — plan-116-F added the third and found this
         // asserting the two-region total.
+        //
+        // bug-686 put the band index between the edges and the gradient stops.
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};"
+            )),
+            "the MSL declares a band-region base that is not METAL_BAND_BASE_WORDS \
+             ({METAL_BAND_BASE_WORDS}); every banded polygon would read another region \
+             as its edge lists"
+        );
+        assert_eq!(
+            METAL_BAND_BASE_WORDS * 4,
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the band region must start where the edge region ends"
+        );
         assert_eq!(
             METAL_GRADIENT_BASE_WORDS * 4,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the gradient region must start where the edge region ends"
+            METAL_BAND_BASE_WORDS * 4 + METAL_MAX_FRAME_BAND_WORDS * 4,
+            "the gradient region must start where the band region ends"
         );
         assert!(
             METAL_SHADER_SOURCE.contains(&format!(

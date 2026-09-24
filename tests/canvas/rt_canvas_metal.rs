@@ -247,6 +247,14 @@ SUB main()
 END SUB
 "#;
 
+/// ONE polygon with more edges than Metal's whole frame edge region holds
+/// (`METAL_MAX_FRAME_EDGES` = 262,144): 262,145 edges.
+///
+/// This scene was a 300-edge ring until bug-686, declined by a per-polygon cap of 256
+/// that bug deleted — 300 edges now draw on Metal
+/// (`polygons_past_two_hundred_fifty_six_edges_draw_on_metal`). No polygon size is
+/// refused any more; a polygon that alone passes the frame's region still is, and that
+/// is the decline this proves. 6 px across, so the software oracle stays quick.
 const TOO_MANY_EDGES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
@@ -257,9 +265,9 @@ SUB main()
   app::setMode(app::Mode.Canvas)
   MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
-  WHILE i < 300
-    LET a AS Float = toFloat(i) * 6.283185307179586 / 300.0
-    points = collections::append(points, canvas::Point[x := 450.0 + 200.0 * math::cos(a), y := 320.0 + 200.0 * math::sin(a)])
+  WHILE i < 262145
+    LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
+    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
   LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
@@ -482,6 +490,9 @@ fn the_full_primitive_set_matches_the_software_oracle() {
 /// The assertion is deliberately **exact**, not within tolerance: the fallback runs
 /// the identical software renderer on the identical scene, so anything other than
 /// byte equality means the Metal path drew something it should not have.
+///
+/// The scene is one polygon past the frame's edge region (`TOO_MANY_EDGES`); since
+/// bug-686 there is no per-polygon cap for a smaller one to trip.
 #[test]
 fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     if !cfg!(target_os = "macos") {
@@ -493,11 +504,19 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     if !metal_built(&stats) {
         return;
     }
+    // bug-686: a polygon this small draws on Metal byte-identically to software (a
+    // 262,144-edge twin measured 0 differing bytes), so pixel equality alone would pass
+    // whether or not the frame was declined. The decline is asserted directly.
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a 262,145-edge polygon is past METAL_MAX_FRAME_EDGES, but Metal drew the frame: \
+         {stats}"
+    );
     if let Err(diff) = compare_exact(&gpu, &software) {
         panic!(
-            "a 300-edge polygon does not fit the shader's edge buffer, so the renderer \
-             must decline the whole scene and let the software oracle draw it — the \
-             two frames must be byte-identical, but {diff}"
+            "a 262,145-edge polygon does not fit Metal's frame edge region, so the \
+             renderer must decline the whole scene and let the software oracle draw it \
+             — the two frames must be byte-identical, but {diff}"
         );
     }
 }
@@ -534,6 +553,12 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
     assert!(
         software.pixels.iter().any(|&b| b != 0),
         "the software render drew nothing, so the comparison would be vacuous",
+    );
+    // bug-686: rings this small can draw on Metal byte-identically to software, so pixel
+    // equality alone would pass whether or not the frame was declined.
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "262,400 edges is past METAL_MAX_FRAME_EDGES, but Metal drew the frame: {stats}"
     );
     if let Err(diff) = compare_exact(&gpu, &software) {
         panic!(
