@@ -118,6 +118,29 @@ is one the backend draws correctly; otherwise that frame falls back to software.
 Windows has no GPU backend, so it always draws in software.
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
 
+**What Metal declines is a frame too large for its buffer, never an ordinary shape.**
+Every per-frame payload travels in one Metal buffer whose regions are fixed in size,
+so the predicate declines a frame that would overflow one of them: more than 65,536
+item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
+the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
+picture-and-glyph texels (each distinct image counted once). There is no per-polygon
+edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
+so a pixel tests only the edges that can reach it, and the result is identical to
+testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
+predicate. Vulkan keeps its own, smaller caps.
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
+[[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
+[[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
+
+**In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
+frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
+nothing is read back to the CPU. The frame is read back into a CPU surface and blitted
+instead when something needs its pixels: a headless run (there is no window layer),
+damage mode (`MFB_CANVAS_DAMAGE`, which keeps the previous frame), a `--debug` build
+writing `MFB_CANVAS_DUMP`, or a frame with no drawable available. Software frames
+always take the CPU surface, and the Metal layer is hidden while they show.
+[[src/codegen/builtins/canvas/func_metal_present.rs:lower_metal_present_scene]]
+
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
 transfer function is the standard one — `c / 12.92` below `0.04045`, else
@@ -259,6 +282,11 @@ coverage, one packed word per texel, and each item's block names its slice — s
 frame's pictures and glyphs together are bounded by that region, and a frame that
 would overflow it is drawn in software instead. There is no texture object and nothing
 to free: the pixels are copied from the image's own storage while the frame is built.
+Metal copies each distinct image **once per frame**, however many `Picture` items name
+it — a tilemap of thousands of tiles drawn from a few images costs those few images —
+and its predicate counts each distinct image once against the region's 8M texels.
+Vulkan still copies, and counts, each item's image separately.
+[[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
 in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a

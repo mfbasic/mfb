@@ -195,7 +195,10 @@ now describe:
 2. **Graphics**, while building a frame: a picture's geometry header captures the
    block address current at that moment (`__canvas_pictureHeader`). The software
    renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
-   copy its texels, one packed word each, into the frame buffer's glyph region.
+   copy its texels, one packed word each, into the frame buffer's glyph region. Metal copies each
+   distinct block ONCE per frame and points every later picture of it at those texels
+   (`emit_picture_lookup`, bug-686), and its predicate counts each distinct block once;
+   Vulkan still copies and counts per item.
 
 Why this holds up where the texture design needed care:
 
@@ -369,10 +372,20 @@ Three consequences for anything added here later:
 * **The Metal objects live in the graphics-state block**, not in the app module's own
   storage, for the reason in §2: the graphics thread creates them and is the only
   thread that may touch them, and the arena is per-thread. `GRAPHICS_OFFSET_MTL_*`.
-* **The frame is rendered offscreen and read back**, then leaves through the same
-  `canvas::blitSurface` the software path uses. That is what makes the two backends
-  comparable — the tolerance comparator diffs an RGBA8 buffer, and a frame that only
-  ever existed in a drawable is not one.
+* **The frame is rendered offscreen.** Where it goes next depends on who needs its
+  pixels (bug-686 Phase 4). In a real window Metal GPU-copies it into the canvas view's
+  `CAMetalLayer` sublayer's next drawable and presents it (`canvas::metalPresentScene`):
+  no CPU surface, no readback, no swizzle, no `CGImage` blit — which at a full-screen
+  surface had been ~10 ms of fixed cost per megapixel. It is read back and leaves through
+  the same `canvas::blitSurface` the software path uses whenever something needs the
+  pixels on the CPU: a headless run (no window layer — so **every test is on the readback
+  path**, which is what keeps the oracle comparisons meaningful), damage mode (keeps the
+  previous frame), a `--debug` build writing `MFB_CANVAS_DUMP`, or a frame with no
+  drawable. All layer property changes (show/hide, drawable size, colour space) run on
+  the MAIN thread through `mfbMetalLayer:`, and only when the state changes; a software
+  frame's blit hides the Metal layer in the same main-thread step that sets its image.
+  The stats line's `directFrames=` counts the frames that took the direct path, which is
+  how `scripts/test-macapp.sh` Case 3h tells the two apart in a real window.
 * **The graphics thread has no autorelease pool**, so the frame renderer pushes and
   pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
   thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
@@ -488,13 +501,15 @@ did.** Both now decline a *frame* whose polygons sum past their edge cap
 (`VULKAN_MAX_FRAME_EDGES` / `METAL_MAX_FRAME_EDGES`, both 16384) and a frame with more
 drawn *quads* than `CANVAS_MAX_FRAME_ITEMS`. What still differs:
 
-* `__canvas_metalRenderable` additionally declines a single *polygon* past `MAX_EDGES`.
-  Nothing forces that any more — Metal's edges used to cross as a `setFragmentBytes:`
-  payload, which was per-item and small, and plan-116-A moved them into a region of the
-  frame buffer exactly where Vulkan's have always lived, so Metal's edge base
-  (`ITEM_ARC_EDGE_BASE`) is now a real per-item value instead of always zero. The
-  per-item cap is kept **by policy**: decline parity with what Metal declined before was
-  that letter's gate. Unifying the two caps is later work, to be taken deliberately.
+* Metal has **no per-polygon edge cap** since bug-686. The old one (256, kept "by
+  policy" after plan-116-A removed the `setFragmentBytes:` payload that justified it) had
+  a twin in `emit_edge_buffer` that drew an oversized polygon as NOTHING; both are gone.
+  A large polygon is indexed by horizontal band instead (`emit_band_index`): the shader's
+  `edgeDistance` walks only the edges within reach of the pixel's band, which is
+  bit-identical to walking them all and 36-108× faster on realistic outlines.
+* Metal's frame caps are its own and larger — 65,536 quads, 262,144 edges, 131,072
+  gradient stops, 8M glyph/picture texels — while Vulkan keeps `CANVAS_MAX_FRAME_ITEMS`
+  (4,096), `MAX_FRAME_GRADIENT_STOPS` (4,096) and its 1M texels.
 * The glyph caps differ in *shape*: Metal's is per glyph (`METAL_MAX_GLYPH_SAMPLES`,
   its bitmap still rides `setFragmentBytes:`), Vulkan's is a frame total
   (`VULKAN_MAX_FRAME_GLYPH_SAMPLES`, its bitmaps ride the shared buffer).
@@ -551,7 +566,13 @@ Three environment variables, all off by default and none on the production path:
 * `MFB_CANVAS_STATS` — **a `--debug` build only**, like `MFB_CANVAS_DUMP` (plan-130-E).
   **Append** one line per rendered frame with the geometry-cache
   and glyph-cache counters (`entries=`, `floats=`, `glyphs=`, `glyphBytes=`,
-  `glyphEvictions=`). Appends rather than overwrites because the interesting quantity is
+  `glyphEvictions=`), `generations=` (geometry builds — one per CHANGED item per frame
+  since bug-686), `directFrames=` (Metal frames presented straight to the window), and
+  the cumulative phase timers `phaseOffsetsMs=` / `phaseDrawsMs=` / `phaseDamageMs=` /
+  `phaseRenderMs=` (bug-686 Phase 0; `__canvas_phaseMark` is an empty SUB in a normal
+  build). `tools/canvas-bench/` reads them. **A `--debug` build is ~35% slower on this
+  path** (116 vs 157 frames/5 s on 1,000 moving polygons), and much more on
+  allocation-heavy code, so judge frame rates on a release build. Appends rather than overwrites because the interesting quantity is
   the delta between frames. It is also the **only** window onto either cache: both live
   in globals owned by the graphics thread, so a program asking from `main` asks the
   worker, whose copies are its own and always empty (§1).
@@ -603,7 +624,9 @@ lost — on the one path whose entire job is to report edges.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
-  frame-level assertion needs this.
+  frame-level assertion needs this. **Any non-empty value enables it** —
+  `MFB_CANVAS_SYNC=0` is ON (`__canvas_ensureGraphics` tests the length), which is how a
+  "pipelined" measurement in bug-686 silently ran serialized. Leave it unset to pipeline.
 
 A fourth selects the renderer rather than observing it:
 
@@ -814,6 +837,43 @@ Two consequences worth stating because they are easy to get wrong in the other o
   in its offset — otherwise a moved group changes no geometry and reports "nothing
   changed".
 
+## 14. The geometry cache and item hashes (bug-686)
+
+The graphics thread's geometry cache (`helper_geometry.rs`) is keyed by the item's content
+hash through `__CANVAS_GEO_INDEX` (a `Map` hash → slot), and **a hit is trusted on the hash
+alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
+`setBytes` swaps without the item changing (`__canvas_pictureIsCurrent`). That is only
+sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
+resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
+at ~0.3 per frame at 10,000 items.
+
+Lifetime rules, and why:
+
+* **Nothing is evicted inside a frame.** Slots are stamped with the frame that used them;
+  `__canvas_geoBeginFrame`, at the one point no offset is live (the top of
+  `__canvas_sceneOffsets`), drops what the previous frame did not use once the stale
+  floats reach the live ones, moving kept floats a contiguous run at a time. So every
+  offset a frame resolves stays valid until that frame is drawn — the old 256-slot LRU
+  needed `__CANVAS_GEO_LIVE` to protect offsets it had evicted mid-frame, and that list
+  is gone.
+* **Glyph eviction pins only what the frame in progress uses** — slots stamped this
+  frame. The cache can hold the previous scene's text too, and pinning it would pin
+  everything; an unused TEXT slot is dropped from the index instead (its glyph indices
+  are about to be renumbered), and rebuilt if it is named again.
+* **One resolve per frame.** `__canvas_sceneOffsets` probes every item from the published
+  hash list first and fetches the scene out of the ring only if something missed (or is a
+  picture or a group); `__canvas_sceneDraws` lays the draw list out from those offsets —
+  items AND layers (it used to walk items only, and a `presentLayers` scene drew nothing
+  on Metal).
+
+The worker computes the hashes in `canvas::present`: `canvas::carriedHashes` (native,
+taken BEFORE `publishScene` replaces the installed scene) carries the installed hash of
+every item whose payload bytes are unchanged, and only the rest are hashed. Byte equality
+only ever says "different" too often — two identically BUILT items are not byte-equal
+(list headroom, padding), so a rebuilt scene is hashed, never mis-carried. `Text` and
+`Picture` are never carried: their hash folds in a resource id that answers 0 once
+closed, with the item's bytes unchanged.
+
 ## See also
 
 * `planning/completed/plan-98-A-*` — cross-cutting invariants 1, 2, 4, 5, 7, 8.
@@ -845,15 +905,14 @@ It was five until plan-116-F added a **third** buffer region; the sixth is item 
    every slot above must shift, with `DRAW_FRAME` growing to match. An overlap
    corrupts a pointer the `objc_msgSend` sequence reads and produces a **black GPU
    frame that reports success**.
-4. **`METAL_EDGE_BASE`**, an integer literal in the MSL that must equal
-   `CANVAS_ITEM_BUFFER_BYTES / 4`. Stale, every polygon reads its edges from the wrong
-   offset of a buffer that is entirely valid memory.
-5. **`METAL_GRADIENT_BASE`** (plan-116-F), the same kind of literal for the buffer's
-   *third* region, which must equal `CANVAS_ITEM_BUFFER_BYTES / 4 +
-   METAL_MAX_FRAME_EDGES * 4`. Fixing item 4 alone and not this one leaves the gradient
-   region overlapping the edge region — one item's stops read as another's, a plausible
-   wrong ramp rather than a failure. Vulkan's twin is `VULKAN_GRADIENT_BASE_WORDS`,
-   derived in Rust and mirrored by `GRADIENT_BASE` in the GLSL.
+4. **`METAL_EDGE_BASE`** and every later Metal region base (band, gradient, glyph,
+   picture table). Since bug-686 these are no longer literals: `METAL_SHADER_SOURCE` is
+   built at first use with the bases formatted in from the `METAL_*_BASE_WORDS`
+   constants, so they move with `ITEM_BLOCK_SIZE` by construction. The region-chain
+   test still pins that each region starts where the previous one ends.
+5. **Vulkan's `GRADIENT_BASE`** (plan-116-F) IS still a literal, in the checked-in GLSL,
+   mirroring `VULKAN_GRADIENT_BASE_WORDS`; fixing Metal's bases and not this one leaves
+   one item's stops read as another's on Linux — a plausible wrong ramp, not a failure.
 6. The `.spv` blobs, via `scripts/regen-spirv.sh`.
 
 Items 3, 4 and 5 are caught by `the_draw_frame_slots_do_not_overlap`,
@@ -877,4 +936,8 @@ Two real cases:
   record's header as data: wrong colours, no crash.
 
 Define the width once as a Rust constant, derive the emitter's literals from it, and pin
-the MFBASIC side with a unit test that reads the source string.
+the MFBASIC side with a unit test that reads the source string. The render predicates' frame
+caps go one step further since bug-686: each `LET __CANVAS_*MAX*` line carries an `@NAME@`
+token that `RENDER_METAL` replaces with the Rust constant at first use (`RENDER_CAPS`), so
+there is one definition, and `every_cap_token_in_the_render_source_is_generated` pins that
+no token is left behind.
