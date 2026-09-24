@@ -1647,7 +1647,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     for (setter, value) in [
         (SEL_SET_USAGE.0, MTL_TEXTURE_USAGE),
         (SEL_SET_STORAGE_MODE.0, MTL_STORAGE_MODE_SHARED),
-        (SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS.0, MTL_GPU_OPTIMIZED_CONTENTS),
+        (
+            SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS.0,
+            MTL_GPU_OPTIMIZED_CONTENTS,
+        ),
     ] {
         asm.load_selector(setter);
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
