@@ -31,8 +31,10 @@ fn body(name: &str) -> &'static str {
 /// is not part of `cargo test`. This assertion is the only cheap way to catch it.
 #[test]
 fn the_draw_entry_width_agrees_with_the_emitter() {
+    // Appends straight to the global since 5cf168dd6 made the walk O(n) -- the words
+    // counted are the same eight; only the list they are written into changed name.
     let appends = body("pushOneDraw")
-        .matches("collections::append(out,")
+        .matches("__CANVAS_DRAWS = collections::append(__CANVAS_DRAWS,")
         .count();
     assert_eq!(
         appends, CANVAS_DRAW_ENTRY_WORDS,
