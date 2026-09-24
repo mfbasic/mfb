@@ -224,12 +224,20 @@ is written in, applied per element, in the hot loop.
 
 The migration, in dependency order:
 
-* **The ring boundary first.** The scene reaches the graphics thread as MFBASIC
-  `List OF DrawItem` blocks that it reads *as MFBASIC values*, which is the only
-  reason it needs an arena at all. `canvas::present` (worker side, stays
-  MFBASIC — it is the language-facing API) serialises into a flat, fixed-stride
-  native buffer; the graphics thread reads that with no arena and no
-  `collections::`.
+* **The ring boundary first — by reading what is already there.** A `List` is
+  *already* a flat block: a header, then a contiguous data region at
+  `header + capacity * ENTRY`, fixed stride per element. Nothing needs
+  serialising into a second representation. What the graphics thread needs is to
+  walk that layout in native code instead of through `collections::get` per
+  element — which is the only reason it pins an arena at all, since reading a
+  collection *as an MFBASIC value* is what requires one.
+
+  The repo already has hand-rolled native collection readers
+  (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list`), and the rule for writing
+  another is in `.ai/collections.md`: the data base is `capacity`, never `count`
+  — go through `emit_collection_data_pointer`, because a count-based base reads
+  garbage the moment a list has grown. A `Polygon`'s points are a nested `List`
+  reached by pointer, flat on the same terms.
 * **The geometry cache.** A native open-addressed `hash -> offset` table over a
   flat `Vec<f32>`, process-global rather than arena-resident, replacing
   `__CANVAS_GEO_HASHES/OFFSETS/COUNTS/LASTUSED/DATA` and the 256-entry
@@ -300,11 +308,14 @@ Commit: —
 Acceptance: one command reproduces every row in this document.
 Commit: —
 
-### Phase 5 — the scene crosses the ring as a native buffer
+### Phase 5 — the graphics thread reads the published scene natively
 
-- [ ] `canvas::present` serialises the published scene into a flat fixed-stride
-      native block alongside the existing MFBASIC one; the graphics thread reads
-      the native one. Both exist until Phase 8 retires the MFBASIC reader.
+- [ ] Walk the published `List OF DrawItem` (and a `Polygon`'s nested points
+      list) from native code against the collection layout, replacing the
+      `collections::` element reads in the scene walk. No new representation and
+      no second copy of the scene — the block is already flat.
+- [ ] Follow `.ai/collections.md`: base the data region on `capacity` via
+      `emit_collection_data_pointer`, never on `count`.
 
 Acceptance: `examples/gpu --compare` clean across the sweep; the frame breakdown
 shows the scene walk no longer touching the arena; the canvas suite passes.
@@ -374,5 +385,6 @@ declined. Phase 4 is the instrument that should have
 existed before any of this was touched. Phases 5-8 are the architecture change
 goal (4) actually needs — the geometry cache and the draw batching move off
 MFBASIC and off the arena onto the graphics thread's own native code, which is
-what that thread exists for. The risk there is the ring boundary: until Phase 8
-both readers exist, and the goldens are what prove they agree.
+what that thread exists for. The risk there is the one `.ai/collections.md`
+names: a hand-rolled reader that bases the data region on `count` instead of
+`capacity` reads garbage from any list that has grown, and does it silently.
