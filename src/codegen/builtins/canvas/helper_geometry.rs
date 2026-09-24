@@ -1194,8 +1194,14 @@ const GEO_VERIFY_DEBUG: &str = r#"MUT __CANVAS_GEO_VERIFY_MODE AS Integer = 0
 MUT __CANVAS_GEO_VERIFIED AS Integer = 0
 MUT __CANVAS_DRAWS_VERIFIED AS Integer = 0
 MUT __CANVAS_GEO_MISMATCHES AS Integer = 0
+MUT __CANVAS_GEO_RESOLVED_CHECKED AS Integer = 0
 
-FUNC __canvas_geoReference(item AS DrawItem) AS List OF Float
+' The record `__canvas_geometryFor` would build for `item`, from its own arms, for every
+' kind. `offset` is where the record under test starts, or -1: a glyph run's entries are
+' glyph-cache INDICES, which only the cache can assign, so they are taken from the
+' record under test -- each checked against the glyph key it must name -- and everything
+' else about the run (its length, pens, baseline, header) is rebuilt.
+FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
   MUT tail AS List OF Float = []
   MUT header AS List OF Float = []
   MATCH item
@@ -1215,12 +1221,62 @@ FUNC __canvas_geoReference(item AS DrawItem) AS List OF Float
         tail = __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
       END IF
       header = __canvas_polygonHeader(p)
-    CASE ELSE
-      header = []
+    CASE Arc(a)
+      header = __canvas_arcHeader(a)
+    CASE Picture(pic)
+      header = __canvas_pictureHeader(pic)
+    CASE Ellipse(e)
+      tail = __canvas_appendGradientTail([], e.paint)
+      header = __canvas_ellipseHeader(e)
+    CASE Text(t)
+      IF __canvas_strokeHalf(t.paint) > 0.0 THEN
+        tail = __canvas_textEdges(t)
+      ELSE
+        tail = __canvas_geoRunReference(t, offset)
+      END IF
+      header = __canvas_textHeader(t, tail)
+    CASE Group(g)
+      header = __canvas_emptyHeader()
   END MATCH
   MUT out AS List OF Float = header
   out = collections::append(out, tail)
   RETURN out
+END FUNC
+
+' `__canvas_textGlyphRun` without touching the glyph cache: each glyph's entry is read
+' from the record at `offset` and kept only if the cache entry it names holds this
+' glyph's key (else -2, which no run holds).
+FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
+  LET font AS Integer = canvas::fontHandle(t.font)
+  LET b AS List OF Byte = __canvas_fontBlob(font)
+  IF len(b) = 0 THEN
+    RETURN []
+  END IF
+  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  IF upem <= 0 THEN
+    RETURN []
+  END IF
+  LET scale AS Float = t.size / toFloat(upem)
+  LET cps AS List OF Integer = encoding::utf32Encode(t.text)
+  MUT run AS List OF Float = []
+  MUT pen AS Float = t.x
+  MUT c AS Integer = 0
+  WHILE c < len(cps)
+    LET gid AS Integer = __canvas_glyphIndex(b, collections::getOr(cps, c, 0))
+    MUT entry AS Integer = 0 - 2
+    IF offset >= 0 THEN
+      LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + c * 3, 0.0 - 2.0))
+      IF stored >= 0 AND collections::getOr(__CANVAS_GLYPH_KEYS, stored, 0 - 1) = __canvas_glyphKey(font, __canvas_sizeQ(t.size), gid) THEN
+        entry = stored
+      END IF
+    END IF
+    run = collections::append(run, toFloat(entry))
+    run = collections::append(run, toFloat(toInt(pen + 0.5)))
+    run = collections::append(run, toFloat(toInt(t.y + 0.5)))
+    pen = pen + toFloat(__canvas_glyphAdvance(b, gid)) * scale
+    c = c + 1
+  END WHILE
+  RETURN run
 END FUNC
 
 FUNC __canvas_geoVerifying() AS Boolean
@@ -1236,7 +1292,7 @@ END FUNC
 SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
   IF __canvas_geoVerifying() THEN
     __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
-    IF NOT canvas::geoSame(native, __canvas_geoReference(item)) THEN
+    IF NOT canvas::geoSame(native, __canvas_geoReference(item, 0 - 1)) THEN
       __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
     END IF
   END IF
@@ -1261,10 +1317,31 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
       LET count AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 2, 0)
       LET record AS List OF Float = collections::mid(__CANVAS_GEO_DATA, offset, count)
       __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
-      IF NOT canvas::geoSame(record, __canvas_geoReference(collections::getOr(items, index, none))) THEN
+      IF NOT canvas::geoSame(record, __canvas_geoReference(collections::getOr(items, index, none), offset)) THEN
         __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
       END IF
       k = k + 2
+    END WHILE
+  END IF
+  ' Every index the frame resolved, whatever its kind and however it was resolved --
+  ' a hit included: the record at its offset must be the one the item the frame draws
+  ' at that index builds. A hit is trusted on its hash alone, so this is the check that
+  ' the hash and the item came from the same scene.
+  LET top AS Integer = len(__CANVAS_TOP_OFFSETS)
+  IF top > 0 THEN
+    LET drawn AS List OF DrawItem = __canvas_flatScene()
+    LET absent AS DrawItem = __canvas_noItem()
+    MUT r AS Integer = 0
+    WHILE r < top
+      LET at AS Integer = collections::getOr(__CANVAS_TOP_OFFSETS, r, 0 - 1)
+      IF at >= 0 THEN
+        LET length AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, at + 1, 0.0))
+        __CANVAS_GEO_RESOLVED_CHECKED = __CANVAS_GEO_RESOLVED_CHECKED + 1
+        IF NOT canvas::geoSame(collections::mid(__CANVAS_GEO_DATA, at, length), __canvas_geoReference(collections::getOr(drawn, r, absent), at)) THEN
+          __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
+        END IF
+      END IF
+      r = r + 1
     END WHILE
   END IF
   IF pending = 0 THEN
@@ -1298,7 +1375,7 @@ SUB __canvas_drawsVerify()
 END SUB
 
 FUNC __canvas_geoVerifyText() AS String
-  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED)
+  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED) & " geoResolvedChecked=" & toString(__CANVAS_GEO_RESOLVED_CHECKED)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
