@@ -1,0 +1,23 @@
+$ mfb build -ast -ir tests/rt-behavior/memory/owned-argument-semantics-rt
+Wrote AST to tests/rt-behavior/memory/owned-argument-semantics-rt/owned_argument_semantics_rt.ast
+Wrote IR to tests/rt-behavior/memory/owned-argument-semantics-rt/owned_argument_semantics_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/memory/owned-argument-semantics-rt
+Wrote executable to tests/rt-behavior/memory/owned-argument-semantics-rt/build/owned_argument_semantics_rt.out
+[exit 0]
+$ tests/rt-behavior/memory/owned-argument-semantics-rt/build/owned_argument_semantics_rt.out
+after-call-read x=2 y=3
+trap-reads-old x=2 code=7
+trap-reads-old y=2
+recover-old x=3
+fn-trap-reads-old x=4 code=7
+fn-trap-reads-old ret=4
+same-arg-twice x=3
+global-arg n=2 g=5
+captured-arg f=2 y=3
+error-source-same same=TRUE bLen=2 r=0
+res-in-list-arg n=2
+record-trap-reads-old items=2 seen=7 code=13
+record-trap-reads-old b=2
+function-value-call equal=TRUE n=3 x=2
+[exit 0]

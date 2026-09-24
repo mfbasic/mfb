@@ -68,7 +68,7 @@ no matches.
 
 | What | Count | Command |
 |---|---|---|
-| Unit-table rows plan-134-C needed for the same kind of analysis | read `rg -c '#\[test\]' src/codegen/engine/analysis/last_use.rs` | run before Phase 1; sets the size of Phase 2's table |
+| Unit-table rows plan-134-C needed for the same kind of analysis | **6** `#[test]` functions (measured 2026-09-23) | `rg -c '#\[test\]' src/codegen/engine/analysis/last_use.rs` → `6`. Each is a multi-shape table rather than one shape per test, so §3.3's 16 rows fit comfortably in a similar handful. |
 | Corpus call sites approved by `collect_handover_args` | UNMEASURED — this letter's Phase 3 measures it | Phase 3 |
 
 ## 3. Design
@@ -161,43 +161,96 @@ separate module keeps plan-134's behaviour byte-identical by construction.
 
 ### Phase 1 — The analyses
 
-- [ ] Fill the first measured-populations row.
-- [ ] `src/codegen/engine/analysis/handover.rs`: `HandOverArgs`, `ParamSet`,
+- [x] Fill the first measured-populations row: `rg -c '#[test]' src/codegen/engine/analysis/last_use.rs` → **6**.
+- [x] `src/codegen/engine/analysis/handover.rs`: `HandOverArgs`, `ParamSet`,
       `collect_handover_args`, `consumable_params` (§3.1–§3.2). It reuses `last_use.rs`'s
-      liveness (`ops_in`, `trap_live`, `excluded_roots`); expose them `pub(super)` if
-      they are private.
-- [ ] Register the module in `src/codegen/engine/analysis/mod.rs`. Nothing calls it
-      outside tests.
+      liveness through a new `pub(crate) fn live_out_of(function, model) -> LiveOut`
+      that returns the per-op live-out map, `trap_live` and `excluded_roots` in one
+      value, plus `pub(crate)` on `Places`, `Place::root`, `reads_of`, `kill`,
+      `place_live` and `read_count`.
+- [x] Register the module in `src/codegen/engine/analysis/mod.rs`. Nothing calls it
+      outside tests — the module carries a documented `#![allow(dead_code)]` saying so,
+      which **letter D removes** when it wires the consumers up.
 
 Acceptance: it builds, and nothing but tests uses it.
   Check: `cargo build --release && rg -n 'collect_handover_args|consumable_params' src --glob '!**/handover.rs'`
-  → only `analysis/mod.rs` (est. 4 min).
-Commit: —
+  → **builds clean (no warnings), and `rg` returns nothing** (2026-09-23). The plan
+  said "only `analysis/mod.rs`"; `mod.rs` declares the module but never names either
+  function, so **no** match is the correct result. See Corrections.
+Commit: 6f35194ff
 
 ### Phase 2 — The unit table
 
-- [ ] Every §3.3 row as a `#[test]` in `handover.rs`.
-- [ ] Prove each refusal row can fail. For S2, S3, S6 and S13, temporarily delete
-      the condition, see the row go red, and restore it. Record the four failure lines
-      here.
+- [x] Every §3.3 row as a `#[test]` in `handover.rs`: 4 tests carrying all 16 rows —
+      `collect_handover_args_follows_the_hand_derived_table` (12 caller rows, including
+      a positive twin for the function-level `TRAP`), `a_global_argument_is_never_handed_over`
+      (S7), `a_resource_bearing_argument_is_never_handed_over` (S8), and
+      `consumable_params_follows_the_hand_derived_table` (the callee rows).
+- [x] Prove each refusal row can fail. Each condition was removed, the suite run, and
+      the file restored byte-for-byte (`diff -q` against a saved copy). The four
+      failure lines, verbatim:
+
+      1. **S2/S3 — delete H3's "dead after the op"** (`|| place_live(&after, &place)`):
+         ```
+         read again after the call (S2): 1 argument(s) approved, want 0
+         an inline TRAP handler reads it (S3): 1 argument(s) approved, want 0
+         a function-level TRAP READS it (S3, trap_live): 1 argument(s) approved, want 0
+         ```
+      2. **S6 — delete H3's "read exactly once"** (`read_count(&all_reads, &place) != 1 ||`):
+         ```
+         the same local reaches two parameters (S6): 1 argument(s) approved, want 0
+         ```
+      3. **S3 — delete the `trap_live` extension** (`after.extend(live.trap_live…)`):
+         ```
+         a function-level TRAP READS it (S3, trap_live): 1 argument(s) approved, want 0
+         ```
+      4. **S13/H5 — let the indirect target resolve.** H5's guard is
+         `callees.get(target)`, and an indirect call's NIR target is the LOCAL's name
+         (`{ "kind": "call", "target": "f", … }`, dumped with `mfb build -ir`), so the
+         lookup misses. The proof is therefore test-side, which is stronger than
+         deleting a compiler condition: adding `"f" -> consume` to the probe's callee
+         map makes H5 accept, and the row goes red:
+         ```
+         called through a function value (S13, H5): 1 argument(s) approved, want 0
+         ```
 
 Acceptance: all rows pass, and the four RED proofs are recorded.
-  Check: `cargo test --bin mfb handover` → all passed (est. 3 min).
-Commit: —
+  Check: `cargo test --bin mfb handover` → **`ok. 4 passed; 0 failed`** (2026-09-23).
+Commit: f1ce00da6
 
 ### Phase 3 — Corpus census and neutrality
 
-- [ ] One-off probe (in `/tmp`, not committed): run both analyses over the NIR of
-      `examples/*`, `packages/*` and `benchmark/mfb`. Record approved call sites and
-      consumable parameters per tree in plan-147-A §2.2's UNMEASURED row, with the
-      command.
-- [ ] Byte-identity: nothing reads the sets.
+- [x] One-off probe: a temporary `MFB_HANDOVER_CENSUS=1` hook at the end of
+      `target/shared/lower.rs:lower_project`, which ran both analyses over the real
+      merged `NirModule` of each project and then **was removed again** (the tree is
+      back to its committed state; `grep -c MFB_HANDOVER_CENSUS src/target/shared/lower.rs`
+      → `0`). It had to go through the real pipeline: `nir_for_src` takes a single
+      source string and cannot resolve a project's `IMPORT`s. Results, recorded in
+      plan-147-A §2.2:
+
+      | Tree | Projects | NIR functions | Approved arguments | Consumable parameters |
+      |---|---|---|---|---|
+      | `examples/*` | 12 | 1,932 | **35** | **40** |
+      | `benchmark/mfb` | 1 | 1,346 | **504** | **509** |
+      | `packages/*` | — | — | counted inside consumers | counted inside consumers |
+
+      `examples/audio` and `examples/yaml-json` do not build and are excluded.
+      **`packages/*` gets no row of its own**: a package build emits a `.mfp` and never
+      reaches `lower_project`, so package bodies are censused where they are actually
+      compiled — folded into each importing consumer by `merge_packages`. That is why
+      `examples/network-server` alone reports 420 functions. The benchmark's 504
+      approved arguments line up with plan-147-A §2.2's 485 `RETURN
+      collections::<op>(param, …)` sites in that tree, which is the shape letters D and E
+      exist to serve.
+- [x] Byte-identity: nothing reads the sets, and the gate confirms it —
+      `artifact-gate.sh target/release/mfb collections` → **0 diffs**, with the census
+      hook removed and the compiler rebuilt.
 
 Acceptance: census recorded, and codegen unchanged.
-  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est.
-  1 min). The analysis has no caller, so one package's gate is enough to catch an
-  accidental one.
-Commit: —
+  Check: `bash scripts/artifact-gate.sh target/release/mfb collections` →
+  **`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`** (2026-09-23). The analysis
+  has no caller, so one package's gate is enough to catch an accidental one.
+Commit: a20ae1d6c
 
 ## Validation Plan
 
@@ -214,6 +267,54 @@ Commit: —
   is to move a free.
 
 ## Corrections
+
+- **A call is identified by its address, not by a `call_path`.** §3.1 describes a
+  hand-over triple as `(op_key, call_path, arg_index)`. It is `(op_key, call_key,
+  arg_index)`, where `call_key(value)` is the address of the `NirValue::Call` node —
+  the same device `op_key` already uses, and for the reason `last_use.rs`'s module doc
+  gives for it: an address "cannot drift the way a counted index could". A path of
+  child indices into a value tree would have to be rebuilt in step with every
+  desugar that rewrites the tree.
+
+- **Phase 1's check expects no match, not `analysis/mod.rs`.** `mod.rs` declares
+  `pub(crate) mod handover;` and nothing else, so it never names `collect_handover_args`
+  or `consumable_params`. The acceptance is "`rg` returns nothing", which is the
+  stronger reading of the same intent: no production caller anywhere.
+
+- **The reuse is one function, not three `pub(super)` exports.** Phase 1 asked for
+  `ops_in`, `trap_live` and `excluded_roots` to be exposed. `Liveness` is built from
+  `ViewShape`, `Canon` and the exhaustive-`MATCH` set, all computed inside
+  `collect_last_use_moves`, so exposing the three pieces would have meant exporting
+  that whole construction. Instead `last_use.rs` gained one
+  `pub(crate) fn live_out_of(function, model) -> LiveOut` that performs the
+  construction and returns exactly what a second analysis needs: the per-op live-out
+  map, `trap_live`, and the exclusion set.
+
+  It differs from `collect_last_use_moves` in one deliberate way, documented at the
+  function: **every `MATCH` view is treated as borrowed**, so a read through a view is
+  charged to the view's source and keeps that source live. `collect_last_use_moves`
+  narrows to a fixed point to discover which views may own; hand-over does not need
+  that extra reach, and borrowing only ever ADDS liveness — so the simplification can
+  only refuse a hand-over, never license a wrong one. That is the fail-closed
+  direction.
+
+- **The analysis has to recognise the TRAPPED call form, `NirValue::CallResult`.**
+  §3.1 says "every direct user call in an op", and the first implementation matched
+  only `NirValue::Call`. The §3.3 row "`RECOVER` names something else" then came back
+  refused when it should be approved, and dumping the NIR showed why: the inline-`TRAP`
+  desugar rewrites `x = f(x) TRAP(e) …` into
+  `Bind $trap_res0 = { "kind": "callResult", "target": "consume", … }`. Matching only
+  `Call` means **never looking at a call under a handler at all** — precisely the
+  shape §2.3's S3 rows exist to constrain, so the gap would have hidden itself: every
+  such call would have been silently refused, which looks like correct conservatism.
+  `for_each_call` now matches `Call | CallResult`, and `call_key` names either.
+
+- **`NirVisitor` cannot collect borrows, so two walks are hand-written.** The trait's
+  methods take `&NirValue`/`&NirOp` with no lifetime parameter of their own, so a
+  visitor cannot return `Vec<&NirValue>`. `for_each_call` therefore does its work
+  *during* the traversal (a callback, still going through the shared `walk_value`, so
+  it cannot drift), and `ops_of` is an explicit recursion whose `match` has no
+  wildcard — a new `NirOp` variant is a build error there, exactly as in `last_use.rs`.
 
 ## Summary
 

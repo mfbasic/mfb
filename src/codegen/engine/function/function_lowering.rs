@@ -956,6 +956,45 @@ pub(crate) fn scan_loop_locals(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// plan-147-D: which parameters a lowering OWNS, and the symbol it emits under.
+///
+/// A function lowers once as its base symbol with every parameter lent (the caller
+/// keeps the block, `None` here), and then once more per distinct owned-parameter
+/// mask that an approved call site asks for. A variant is a second lowering of the
+/// **same `NirFunction`**, so every span, `Error.source` stamp and line-table entry
+/// is identical to the base's — which is what keeps plan-147-A §2.3 row S11 true.
+///
+/// Inside a variant an owned parameter is an ordinary owned local: it gets an
+/// `ActiveCleanup::OwnedValue`, so it is freed on every exit unless moved out, and
+/// letter B's S11 can update it in place and hand the block on.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnedVariant {
+    /// Bit `i` set = parameter `i` is owned by this lowering.
+    pub(crate) mask: u64,
+    /// The symbol this lowering emits under.
+    pub(crate) symbol: String,
+}
+
+impl OwnedVariant {
+    /// The symbol a variant of `base` with `mask` emits under.
+    ///
+    /// `$` is the only separator monomorphization uses (`mangle_name`), and a
+    /// mangled segment is `[A-Za-z0-9_$]*` (`sanitize_type_name` maps everything
+    /// else to `$`). A lowercase segment IS reachable — a package prefix is
+    /// lowercase, so `own1f` is not structurally impossible as a type segment — so
+    /// this name is NOT assumed unique. `variant_symbol_is_fresh` asserts it against
+    /// the module's real symbol set instead, which fails loudly rather than
+    /// silently aliasing two functions.
+    pub(crate) fn symbol_for(base: &str, mask: u64) -> String {
+        format!("{base}$own{mask:x}")
+    }
+
+    /// Whether parameter `index` is owned by this lowering.
+    pub(crate) fn owns(&self, index: usize) -> bool {
+        index < 64 && self.mask & (1u64 << index) != 0
+    }
+}
+
 pub(crate) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
@@ -971,6 +1010,8 @@ pub(crate) fn lower_function(
     synthesized_constructors: &HashSet<ParameterType>,
     type_model: TypeModel,
     module_name: &str,
+    // plan-147-D: `None` is the base lowering (every parameter lent).
+    variant: Option<&OwnedVariant>,
 ) -> Result<CodeFunction, String> {
     let params = function
         .params
@@ -998,8 +1039,13 @@ pub(crate) fn lower_function(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let base_symbol = nir::function_symbol(&function.name);
+    let emitted_symbol = match variant {
+        Some(variant) => variant.symbol.clone(),
+        None => base_symbol.clone(),
+    };
     let mut builder = CodeBuilder {
-        current_symbol: nir::function_symbol(&function.name),
+        current_symbol: emitted_symbol.clone(),
         function_symbols,
         functions,
         package_return_types,
@@ -1091,6 +1137,9 @@ pub(crate) fn lower_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1128,6 +1177,23 @@ pub(crate) fn lower_function(
             ));
             builder.emit(abi::store_u64(&scratch, abi::stack_pointer(), stack_offset));
             builder.reset_temporary_registers();
+        }
+        // plan-147-D: an owned parameter is an ordinary owned local. Registering the
+        // cleanup here — after the spill, so the slot genuinely holds the block —
+        // frees it on every exit (normal, error, trap route) unless it is moved out,
+        // and takes it out of `excluded_roots`'s "never bound" set so letter B's S11
+        // and `plan_returned_move` treat it as owned.
+        if variant.is_some_and(|variant| variant.owns(index)) {
+            builder
+                .active_cleanups
+                .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                    type_: function.params[index].type_.clone(),
+                    stack_offset,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                }));
         }
         // The TYPED NIR param, not the rendered `CodeParam` string beside it.
         if CodeBuilder::is_thread_type(&function.params[index].type_) {
@@ -1191,6 +1257,24 @@ pub(crate) fn lower_function(
         crate::codegen::engine::analysis::last_use::collect_last_use_moves(
             function,
             &builder.type_model,
+        ),
+    );
+    // plan-147-D: which call arguments this function may hand to the callee instead
+    // of lending (plan-147-C). Computed once here, like `move_sites` above, so the
+    // answer cannot depend on the order the builder reaches the ops in.
+    let owned_param_names: std::collections::HashSet<String> = function
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| variant.is_some_and(|variant| variant.owns(*index)))
+        .map(|(_, param)| param.name.clone())
+        .collect();
+    builder.handover = Some(
+        crate::codegen::engine::analysis::handover::collect_handover_args(
+            function,
+            &builder.type_model,
+            functions,
+            &owned_param_names,
         ),
     );
     // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
@@ -1352,8 +1436,11 @@ pub(crate) fn lower_function(
     );
 
     Ok(CodeFunction {
-        name: function.name.clone(),
-        symbol: nir::function_symbol(&function.name),
+        name: match variant {
+            Some(variant) => format!("{}$own{:x}", function.name, variant.mask),
+            None => function.name.clone(),
+        },
+        symbol: emitted_symbol,
         params,
         returns: function.returns.name().into_owned(),
         frame,
@@ -1602,6 +1689,9 @@ pub(crate) fn lower_abi_function_helper(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
@@ -1780,6 +1870,9 @@ pub(crate) fn lower_thread_copy_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
         string_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),

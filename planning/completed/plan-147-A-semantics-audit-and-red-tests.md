@@ -53,9 +53,9 @@ These are a precondition on the whole of plan-147, not a dependency to negotiate
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-145 (field self-updates) complete. It extends `SELF_UPDATE_TABLE`, `ENABLED_SITES`, the matrix test and the runtime harness that letters B and E add a site to. It also provides the field arms E needs for record accumulators. | `ls planning/plan-145-* 2>/dev/null` → no matches | NOT MET (2026-09-21: nine letters in `planning/`, in progress in worktree `P-145`) |
-| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | NOT MET (2026-09-21: eight letters in `planning/`) |
-| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | (re-run) |
+| plan-145 (field self-updates) complete. It extends `SELF_UPDATE_TABLE`, `ENABLED_SITES`, the matrix test and the runtime harness that letters B and E add a site to. It also provides the field arms E needs for record accumulators. | `ls planning/plan-145-* 2>/dev/null` → no matches | **MET** (2026-09-22: `ls planning/plan-145-*` -> no matches; all nine letters archived to `planning/completed/plan-145-A..I`, landed on main through `096acb8bd plan-145-I: lock the field guard; docs`) |
+| plan-146 (`String` self-updates) complete. It adds the `String` arms that a new site must fire for, and it edits the same harness. | `ls planning/plan-146-* 2>/dev/null` → no matches | **MET** (2026-09-22: `ls planning/plan-146-*` -> no matches; all eight letters A-H archived to `planning/completed/`, landed on main through `13f2e9fcc plan-146: archive A-H to planning/completed`) |
+| The seam files are unchanged since this plan was written. If either command lists a commit, re-read §2 before starting and correct it in Corrections. | `git log --oneline 2f55eb184.. -- src/codegen/collection/assign/self_update.rs src/codegen/engine/analysis/last_use.rs` | **CHANGED** (2026-09-22: 19 commits -- nine from plan-145 landing the field seam, ten from plan-146 landing the `String` seam, newest `d648d0231`). §2.1 and §2.2 re-read and corrected below; see Corrections. |
 
 Everything below is written against the world where these hold. This plan does
 not absorb, work around, or hand-roll anything from plan-145 or plan-146.
@@ -133,7 +133,15 @@ not absorb, work around, or hand-roll anything from plan-145 or plan-146.
   `NirOp::StoreGlobal`. `RETURN OP(x, …)` is never a site: `NirOp::Return` →
   `emit_return_exit` → `lower_returned_value`, and `ops_hold_self_update`
   (`self_update.rs`) matches only the two assignment ops.
-  `ENABLED_SITES = [Local, ForEach, Lambda, Global]` (`self_update.rs:1303`).
+  `ENABLED_SITES = [Local, ForEach, Lambda, Global]` (`self_update.rs:2496` after
+  plan-145/146; the value is unchanged, the line moved). plan-145 added a
+  **test-only** `FIELD_SITES` next to it (`self_update.rs:2500`) that the matrix
+  iterates with `ENABLED_SITES.iter().chain(FIELD_SITES)` (`:3102`); it is not a
+  production site list. `ops_hold_self_update` (`self_update.rs:656`) now also
+  matches plan-145's field form (`with_holds_field_self_update`, and `gR = WITH gR
+  { f := g(gR.f, …) }` at `:676`), but still **only** under `NirOp::Assign` and
+  `NirOp::StoreGlobal` — so `RETURN OP(x, …)` is still never a site, as this plan
+  assumes.
 - **Last-use analysis.**
   - `collect_last_use_moves` (`src/codegen/engine/analysis/last_use.rs:912`) yields
     sites only for simple statements, and only for recursive-graph types at the
@@ -155,10 +163,10 @@ not absorb, work around, or hand-roll anything from plan-145 or plan-146.
 
 | What | Count | Command |
 |---|---|---|
-| `FUNC`s whose `RETURN collections::<mutating op>(p, …)` has a **parameter** first argument (the D/E shape) | examples 4, packages 5, tests 7, benchmark 485, builtins 6 | `R='RETURN\s+collections::(append\|set\|insert\|prepend\|removeAt\|removeKey\|add\|remove)\(\s*\w+\s*[,)]'; rg -P -g '*.mfb' "$R" <tree>`, then an awk pass comparing the first argument with the enclosing `FUNC`'s parameter names (census agent, 2026-09-21) |
-| …with a **local** first argument (the B shape) | examples 14, packages 5, tests 2, benchmark 0, builtins 0 | same pass |
+| `FUNC`s whose `RETURN collections::<mutating op>(p, …)` has a **parameter** first argument (the D/E shape) | examples 4, packages 5, tests **12**, benchmark 485, builtins **2** (re-measured 2026-09-22) | `R='RETURN\s+collections::(append\|set\|insert\|prepend\|removeAt\|removeKey\|add\|remove)\(\s*\w+\s*[,)]'; rg -P -g '*.mfb' "$R" <tree>`, then an awk pass comparing the first argument with the enclosing `FUNC`'s parameter names (census agent, 2026-09-21) |
+| …with a **local** first argument (the B shape) | examples 14, packages 5, tests **0**, benchmark 0, builtins **4** (re-measured 2026-09-22) | same pass |
 | `NAME = f(NAME, …)` call sites with a non-builtin callee | examples 55, packages 205, tests 92, benchmark 5, builtins 301 | `rg -P -g '*.mfb' '^\s*(\w+)\s*=\s*[\w:]+\(\s*\1\s*[,)]' <tree> \| rg -v -P '=\s*(collections\|strings\|math\|bits)::' \| wc -l` (`-g '*.rs'` for `src/codegen/builtins`) |
-| …of those, threading a collection or `String` (not an `Integer` or a record) | UNMEASURED: the type needs the compiler | Letter C's corpus census task measures it. It does not set the split: the work scales with shapes, not with call sites. |
+| …of those, threading a collection or `String` (not an `Integer` or a record) | **Measured 2026-09-23 by letter C's census** — approved hand-over arguments / consumable parameters: examples **35 / 40**, benchmark **504 / 509**, packages **counted inside their consumers** (see the note). | A temporary `MFB_HANDOVER_CENSUS=1` hook at the end of `target/shared/lower.rs:lower_project` ran `collect_handover_args` and `consumable_params` over every function of the real merged `NirModule`, then `mfb build` over each project (removed again before letter C landed). Per-tree: examples 12 projects, 1,932 NIR functions, 35 approved arguments, 40 consumable parameters; benchmark 1,346 functions, 504 approved arguments, 509 consumable parameters. `examples/audio` and `examples/yaml-json` did not build and are excluded. **Packages have no row of their own**: a `packages/*` build emits a `.mfp` and never reaches `lower_project`, so package bodies are censused where they are actually compiled — folded into each importing consumer by `merge_packages` (which is why `examples/network-server` alone reports 420 functions). |
 | Self-recursive functions threading a collection accumulator | 1 pure (`src/codegen/builtins/canvas/helper_render.rs:162` `__canvas_appendDraw`), plus 2 record accumulators (`packages/json_schema/src/index.mfb:195` `walkSchema`, `examples/browser/dom/src/lib.mfb:300` `gatherSpecs`) | census agent's awk scan for self-calls in `x = f(…x…)` / `RETURN f(…append…)` (heuristic; misses mutual recursion) |
 
 **Baseline cost** (release `mfb` built after `77a9255b1`; `/tmp/owned` program
@@ -192,7 +200,7 @@ owned variant that frees or consumes it.
 | S11 | `Error.source` is stamped at the origin (file, line, char) and never rewritten (§8.5a) | Would, if a variant carried different spans | A variant is a NIR clone of the same function with the same spans (D). The fixture compares `err.source` from the owned path with the lent path. | fixture `error-source-same` |
 | S12 | Diagnostics unchanged (§14.1) | No | No new rule, no verifier change (non-goals) | full suite, F |
 | S13 | Function identity: a function value, `LINK`, exported symbols | Would, if the base symbol changed | The base function is emitted unchanged. Variants are extra, internal, and only called by direct calls the analysis approved (D). | fixture `function-value-call` |
-| S14 | Tooling that counts functions (`mfb test --coverage`) | UNVERIFIED | Task A.3 below: find what coverage keys on; D must map a variant to its source function | task A.3 |
+| S14 | Tooling that counts functions (`mfb test --coverage`) | No | **No action.** Coverage keys on **source spans**, not on a symbol or a NIR function: a slot is `CovSlot { file, line }` (`src/testing/coverage.rs:18`), written to `coverage.covmap.json` as exactly that pair (`:26`). Instrumentation is an **AST** pass, `instrument_coverage(ast: &mut AstProject, …)` (`src/testing/desugar/coverage.rs:14`), run from `desugar_project` (`src/testing.rs:108`) — before NIR, monomorphization, and any letter-D variant cloning. A variant is a NIR clone of an already-instrumented body, so it carries the same slot increments and its execution counts for its source function's lines automatically. D has no task here. | `src/testing/coverage.rs:18`, `src/testing/desugar/coverage.rs:14` |
 
 **§14.6 amendment (text for letter F):** "A collection buffer may be destructively
 updated only while exactly one binding owns it and that binding's current value is
@@ -224,7 +232,7 @@ fails.
 
 Pins every observable rule in §2.3 before any code changes.
 
-- [ ] Add `tests/rt-behavior/memory/owned-argument-semantics-rt/`, with the same
+- [x] Add `tests/rt-behavior/memory/owned-argument-semantics-rt/`, with the same
       layout as `tests/rt-behavior/arithmetic/float-call-boundary-finite-rt/`:
       `project.json`, `src/main.mfb`, and `golden/` holding `build.log`,
       `owned_argument_semantics_rt.{ast,ir,run}`. Generate the goldens with the
@@ -242,21 +250,39 @@ Pins every observable rule in §2.3 before any code changes.
         site and at a lent site; print `err.source.line`/`char`;
       - `res-in-list-arg` (S8): a `List OF RES` threaded through a helper; the
         resource is closed once, at its owner's exit.
-- [ ] Also add `function-value-call` (S13): the same helper called through
-      `LET f = helper` and directly, with equal output.
+- [x] Also add `function-value-call` (S13): the same helper called through
+      `LET f = helper` and directly, with equal output. Prints
+      `function-value-call equal=TRUE n=3 x=2` — equal results either way, and `x`
+      intact after both calls.
 
 Acceptance: the fixture passes at HEAD, and its `.run` golden shows the values §2.3
 expects: the old value where a handler or a later read sees it, the global's value
 at the call, and equal `err.source` lines.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
-  → 1 fixture, 0 diffs (est. 2 min: one fixture build and run).
-Commit: —
+  → **`acceptance tests passed (1 test(s) ran)`**, 0 diffs (2026-09-22, at HEAD with
+  no compiler change). The twelve printed lines, each verified by hand against §2.3:
+
+  ```
+  after-call-read x=2 y=3                              S2  x intact after the call
+  trap-reads-old x=2 code=7                            S3  handler sees the OLD x (helper had grown it to 3, then failed)
+  trap-reads-old y=2                                   S3  RECOVER x yields the old value
+  recover-old x=3                                      S3  x unchanged across the failed RHS
+  fn-trap-reads-old x=4 code=7                         S3  function-level handler sees the old x
+  fn-trap-reads-old ret=4
+  same-arg-twice x=3                                   S6  pair([1,2],[1,2]) = append([1,2], 2)
+  global-arg n=2 g=5                                   S7  the argument is the global's value AT THE CALL, not the 5 the callee stored
+  captured-arg f=2 y=3                                 S9  the lambda's captured copy is unaffected
+  error-source-same same=TRUE bLen=2 r=0               S11 identical origin from the hand-over and the lent site; b intact
+  res-in-list-arg n=2                                  S8  two handles, closed once at the owner's exit (exit 0)
+  function-value-call equal=TRUE n=3 x=2               S13 same result through `LET f = addOne` and directly
+  ```
+Commit: a1002cb28
 
 ### Phase 2 — The RED allocation tests
 
 Five shapes, RED today, each turned green by a named later letter.
 
-- [ ] Add `tests/runtime/rt_owned_argument.rs`, modelled on
+- [x] Add `tests/runtime/rt_owned_argument.rs`, modelled on
       `tests/runtime/rt_global_self_update.rs` (N/2N `alloc_calls` under
       `mfb build --debug`). Each case is marked with the letter expected to turn it
       green:
@@ -265,18 +291,37 @@ Five shapes, RED today, each turned green by a named later letter.
       3. `helper-map-set` (D): `m = put(m, i)`;
       4. `helper-concat` (D): `s = grow(s, "x")`;
       5. `recursive-fill` (E): `RETURN fill(collections::append(xs, n), n - 1)`.
-- [ ] Mark the five cases `#[ignore = "plan-147-<letter>"]` so the suite stays green,
+
+      Registered as a `[[test]]` target in `Cargo.toml` (next to `rt_global_self_update`);
+      `tests/guards/test_targets_registered.rs` fails without that stanza.
+- [x] Mark the five cases `#[ignore = "plan-147-<letter>"]` so the suite stays green,
       and add one non-ignored test asserting that the ignored set is exactly those
       five. That test is what each later letter edits when it un-ignores a case.
+      It is `the_ignored_set_is_exactly_the_five_open_cases`: it parses this test
+      file's own `#[ignore = "plan-147-<letter>"]` attributes and asserts the
+      `(fn name, letter)` set equals the five, and that every entry in `cases()`
+      still has an ignored test. `cargo test --test rt_owned_argument` →
+      **`ok. 1 passed; 0 failed; 5 ignored`**.
 
 Acceptance: each case fails when run explicitly, naming itself.
-  Check: `cargo test --test rt_owned_argument -- --ignored` → 5 failed, each message
-  naming its case (est. 4 min: 10 debug builds).
-Commit: —
+  Check: `cargo test --test rt_owned_argument -- --ignored --test-threads=2` →
+  **`FAILED. 0 passed; 5 failed`** (2026-09-22, 61.59 s), each message naming its
+  case and the letter that owns it. The measured slopes, all far above the N/8
+  bound — every one of them is at least `N`, i.e. at least one block allocated per
+  call:
+
+  | Case | Letter | N | alloc_calls N → 2N | Slope | Bound N/8 |
+  |---|---|---|---|---|---|
+  | `local-return` | B | 600 | 1203 → 2403 | 1200 | 75 |
+  | `helper-append` | D | 2000 | 4003 → 8003 | 4000 | 250 |
+  | `helper-map-set` | D | 2000 | 6003 → 12003 | 6000 | 250 |
+  | `helper-concat` | D | 2000 | 2003 → 4003 | 2000 | 250 |
+  | `recursive-fill` | E | 600 | 1204 → 2404 | 1200 | 75 |
+Commit: 040e1f63b
 
 ### Phase 3 — Close the one UNVERIFIED semantics row
 
-- [ ] S14: read how `mfb test --coverage` attributes execution
+- [x] S14: read how `mfb test --coverage` attributes execution
       (`rg -n 'coverage' src/cli src/target/shared -g '*.rs' | head`). Record in §2.3
       whether it keys on the function symbol, the NIR function, or source spans, and
       what letter D must do so a variant's execution counts for its source function.
@@ -285,8 +330,10 @@ Commit: —
 Acceptance: row S14's "What keeps it" names the mechanism and the D task, or "no
 action" with the code citation.
   Check: `rg -n 'S14' planning/plan-147-A-semantics-audit-and-red-tests.md` shows no
-  `UNVERIFIED` (est. 1 min).
-Commit: —
+  unverified row. **Verified 2026-09-22**: the §2.3 row (line 203) now answers "No"
+  and cites `src/testing/coverage.rs:18` and `src/testing/desugar/coverage.rs:14`;
+  the audit table holds no unverified row at all.
+Commit: 040e1f63b
 
 ## Validation Plan
 
@@ -306,6 +353,118 @@ Commit: —
   census shows no global-threading helper worth it.
 
 ## Corrections
+
+- **2026-09-22, gate run (`/follow-plan 147`): stopped at Prerequisites; no plan work
+  started.** Re-ran all three commands and updated all three Status cells:
+  - The plan-145 row moved NOT MET -> **MET**. `ls planning/plan-145-*` -> no matches;
+    the nine letters are in `planning/completed/`, landed through `096acb8bd`.
+  - The plan-146 row is still **NOT MET**. `ls planning/plan-146-*` lists A-H, and
+    `grep -c '^- \[ \]'` over worktree `P-146` counts 60 unticked boxes (A done, B
+    partial with 7 remaining, C-H untouched). plan-146 is a precondition of plan-147,
+    never scope for it, so nothing from it was absorbed or hand-rolled here.
+  - The seam-files row moved `(re-run)` -> **CHANGED**. Nine plan-145 commits have
+    touched `src/codegen/collection/assign/self_update.rs` and
+    `src/codegen/engine/analysis/last_use.rs` since `2f55eb184`. Per that row's own
+    instruction, **sections 2.1 and 2.2 of this file are stale and must be re-read and
+    corrected before letter A starts** -- in particular section 2.1's
+    `ENABLED_SITES = [Local, ForEach, Lambda, Global]` line (plan-145 extends both
+    `ENABLED_SITES` and `SELF_UPDATE_TABLE` with field sites) and its `excluded_roots`
+    description. plan-146 will edit the same two files again, so that re-read is best
+    done once plan-146 has landed, not now.
+
+- **2026-09-22, gate re-run (`/follow-plan 147`): all three rows now pass; the plan
+  starts.** Re-ran all three commands in worktree `P-147` (merged up to main
+  `13f2e9fcc`):
+  - plan-145 row: **MET**, unchanged (`ls planning/plan-145-*` -> no matches).
+  - plan-146 row: NOT MET -> **MET**. `ls planning/plan-146-*` -> no matches; the
+    eight letters are archived under `planning/completed/`, landed on main through
+    `13f2e9fcc plan-146: archive A-H to planning/completed`. The 60 unticked boxes
+    the previous gate run counted are all resolved.
+  - Seam-files row: **CHANGED**, now 19 commits since `2f55eb184` (the nine plan-145
+    ones plus ten from plan-146, newest `d648d0231`). Per that row's instruction §2.1
+    and §2.2 were re-read and corrected; see the two entries below.
+
+- **§2.1 corrected (seam files moved under plan-145/146).** Two claims were stale:
+  - `ENABLED_SITES` is at `self_update.rs:2496`, not `:1303`. Its **value is
+    unchanged** (`[Local, ForEach, Lambda, Global]`), so nothing this plan rests on
+    moved. plan-145 added a test-only `FIELD_SITES` list beside it.
+  - `ops_hold_self_update` (`self_update.rs:656`) gained plan-145's field arms
+    (`with_holds_field_self_update`; the `gR = WITH gR { f := g(gR.f, …) }` arm at
+    `:676`). It still matches **only** `NirOp::Assign` and `NirOp::StoreGlobal`, so
+    §2.1's load-bearing claim — `RETURN OP(x, …)` is never a self-update site — holds
+    at HEAD and letter B's premise is intact.
+  - Everything else in §2.1 verified unchanged at its stated line:
+    `last_use.rs:912` `collect_last_use_moves`, `:647` `excluded_roots`, `:214`/`:230`
+    `trap_live`, and `inplace_dest.rs`'s G3 guard (`:287`, `:296`).
+
+- **§2.2 populations re-measured (2026-09-22), two cells corrected.** Re-ran the
+  regex plus an enclosing-`FUNC` parameter-name pass
+  (`rg -P -g '*.mfb' -g '*.rs' 'RETURN\s+collections::(append|set|insert|prepend|removeAt|removeKey|add|remove)\(\s*\w+\s*[,)]'`,
+  then a Python pass matching the first argument against the nearest enclosing
+  `(?:FUNC|SUB)\s+\w+\s*\(([^)]*)\)`'s `(\w+)\s+AS` names). examples (4 param /
+  14 local), packages (5/5) and benchmark (485/0) reproduce the plan's numbers
+  exactly. Two cells were wrong:
+  - **tests: 7 param / 2 local -> 12 param / 0 local.** plan-146 added `String`
+    fixtures. This grows letter D/E's test-corpus shape count, not their design.
+  - **builtins: 6 param / 0 local -> 2 param / 4 local.** The original pass could not
+    see the enclosing `FUNC` because the builtin bodies live inside Rust raw strings
+    (`r#"FUNC …`), so it attributed all six to the parameter shape. Checked by hand:
+    parameter-shape are `__http_addPart` (`builtins/http/helper_add_part.rs:25`,
+    `parts`) and `__regex_setCap` (`builtins/regex/helper_set_cap.rs:12`, `caps`);
+    local-shape are `__canvas_glyphFlags` (`helper_glyph.rs:88`, `flags`),
+    `__canvas_glyphCoords` (`:125`, `out`), `__canvas_lineEdge` (`:295`, `out`) and
+    `__crypto_keccakRound` (`helper_keccak_round.rs:53`, `out`, a `MUT out` local).
+    This **moves four builtin sites from letter D/E's population into letter B's** —
+    B's in-place `RETURN OP(local, …)` now covers four builtin hot paths it was not
+    credited with. No letter is re-split: the work still scales with shapes.
+
+- **Phase 1 acceptance corrected: the values are pinned by `build.log`, not by the
+  `.run` golden.** The phase text says to "read the `.run` by hand against the
+  expected values". That is not what the harness compares: `scripts/test-accept.sh:575`
+  states outright that a `<pkg>.run` golden "is a MERGE TRIGGER" whose "contents are
+  never [compared]" — its only job is to force the full `mfb build` + execute path.
+  The program's stdout is captured into `build.log`, which **is** an exact-compared
+  golden (`:319`). So the twelve semantics lines are pinned by
+  `golden/build.log`; `golden/owned_argument_semantics_rt.run` carries the same text
+  only for readability, matching the model fixture
+  `tests/rt-behavior/arithmetic/float-call-boundary-finite-rt/`. The acceptance
+  criterion is unchanged in strength — it is still an exact comparison of every
+  printed value, just against the file that is actually diffed.
+
+- **S9's fixture uses `LET x`, not `MUT x`.** The first draft captured a `MUT` local
+  in the lambda and the compiler refused it:
+  `error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: Lambda captures mutable local
+  \`x\`; mutable captures are invalid`. §14.4 is about closures capturing **`LET`s**
+  by value, so `LET` is the shape S9 is actually about; the fixture matches the rule.
+
+- **Phase 2's `local-return` case uses plan-147-B §3 step 5's recursive `chain`
+  shape, not a loop.** The phase names the statement (`RETURN collections::append(out,
+  x)` with `out` a local) but not what drives it `N` times, and the obvious driver
+  does not work: a `RETURN` exits its frame, so calling a helper that builds a
+  fresh `out` per call leaves a **constant** per-call allocation for building `out`
+  itself. That constant is ≥ 1 block per call, so `count(2N) − count(N) ≥ N` on
+  *both* the copying and the in-place path, and the case could never go green —
+  it would be RED for the wrong reason. plan-147-B §3 step 5 already specifies the
+  shape that does scale, and this case now uses it verbatim:
+
+  ```
+  FUNC chain(k AS Integer) AS List OF Integer
+    IF k = 0 THEN RETURN []
+    MUT x AS List OF Integer = chain(k - 1)
+    RETURN collections::append(x, k)
+  END FUNC
+  ```
+
+  One level per call, one list threaded through all of them: the copying `RETURN`
+  allocates once per level (measured slope 1200 at N = 600, i.e. 2 blocks/level),
+  and the in-place one allocates only the geometric growth. `recursive-fill` (E)
+  is recursive by its own definition and needed no change.
+
+- **The two recursive cases run at `N` = 600, the two loop cases at `N` = 2000.**
+  The method fixes the *ratio*, not the size, and the copying lowering recurses `2N`
+  deep — 4000 frames of a list-returning function is stack pressure that measures
+  nothing the slope at 600 does not already show (measured slope 1200 vs. a bound of
+  75, a factor of 16). The constants are `DEEP_N`/`FLAT_N` in the harness.
 
 ## Summary
 

@@ -1,5 +1,11 @@
 // --- codegen tier imports (migration) ---
 use crate::arch::ops::CodeOp;
+// plan-147-B (site S11): `RETURN f(x, …)` runs the same self-update seam as
+// `x = f(x, …)` and then moves `x`'s block out.
+use crate::codegen::collection::assign::inplace_dest::{InPlaceDest, WriteBack};
+use crate::codegen::collection::assign::self_update::{
+    returned_field_self_update_local, returned_self_update_local, FieldContainer, SelfUpdateSite,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::value::builder_values::EscapingValue;
@@ -415,6 +421,114 @@ impl CodeBuilder<'_> {
     /// - A **`FOR EACH` iterable** whose iterator still reads the block, or an
     ///   **address-taken** local an escaping closure env may reference, could leave a
     ///   dangling reader if the block moved out.
+    /// plan-147-B: the read-only twin of [`Self::plan_returned_move`]'s gates for a
+    /// `RETURN <local>` — "would the move be admitted?", asked WITHOUT removing the
+    /// binding's cleanup.
+    ///
+    /// Site S11 needs the answer *before* it runs an arm: firing an in-place update
+    /// and then discovering the block may not move would leave the value correct but
+    /// the return copying, which is the cost S11 exists to remove. The gates are
+    /// `plan_returned_move`'s, one for one — keep the two in step.
+    pub(crate) fn returned_move_admits(&self, name: &str) -> bool {
+        // A constant-folded `String` local has no block to move (bug-536 shape B-2).
+        if self
+            .static_string_value(&NirValue::Local(name.to_string()))
+            .is_some()
+        {
+            return false;
+        }
+        // A `String` grown in place carries capacity only in THIS frame's shadow
+        // slot, so its block cannot be handed to a caller that frees by
+        // `byteLength` alone (bug-560).
+        if self.string_capacity_slots.contains_key(name) {
+            return false;
+        }
+        let Some(local) = self.locals.get(name) else {
+            return false;
+        };
+        if local.by_ref {
+            return false;
+        }
+        if self.for_each_iterable_locals.iter().any(|n| n == name)
+            || self.address_taken_locals.contains(name)
+        {
+            return false;
+        }
+        // The authoritative ownership gate: only a binding that owns its block has a
+        // live `OwnedValue` free at its slot. Parameters and aliases have none.
+        let stack_offset = local.stack_offset;
+        self.active_cleanups.iter().any(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == stack_offset)
+        })
+    }
+
+    /// plan-147-F: run `RETURN WITH r { f := OP(r.f, …) }`'s arm against the field in
+    /// `r`'s own block — the FIELD form of S11.
+    ///
+    /// Composes two landed mechanisms: plan-145's field seam builds the
+    /// `InPlaceDest::Inlined` destination, and letter B's move then hands `r`'s block
+    /// out. The error path is plan-145's: every arm raises before its first write, so
+    /// a failure cannot leave a half-updated record behind.
+    fn try_returned_field_self_update(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        if !self.returned_move_admits(name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let (stack_offset, by_ref) = (local.stack_offset, local.by_ref);
+        if by_ref {
+            return Ok(false);
+        }
+        let container = FieldContainer::Record { local: name };
+        let Some((field, field_type, update)) = self.field_self_update_site(container, value)
+        else {
+            return Ok(false);
+        };
+        let site = SelfUpdateSite {
+            name,
+            type_: field_type,
+            dest: InPlaceDest::Inlined {
+                block_slot: stack_offset,
+                field_index: field.field_index,
+                path: field.path_indices(),
+                write_back: WriteBack::None,
+            },
+            by_ref: false,
+            field: Some(field),
+        };
+        self.try_inplace_self_update(&site, update)
+    }
+
+    /// plan-147-B (site S11): run `RETURN f(x, …)`'s arm against `x`'s own block.
+    ///
+    /// `true` = an arm fired and `x`'s slot now holds the result, so the caller
+    /// re-emits the return as `RETURN x`. `false` = nothing was emitted and the
+    /// ordinary copying path stands.
+    fn try_returned_self_update(&mut self, name: &str, value: &NirValue) -> Result<bool, String> {
+        if !self.returned_move_admits(name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let (stack_offset, local_type) = (local.stack_offset, local.type_.clone());
+        // `returned_move_admits` has already declined a by-ref local, so the
+        // destination is always the local's own slot.
+        let site = SelfUpdateSite {
+            name,
+            type_: local_type,
+            dest: InPlaceDest::Direct { slot: stack_offset },
+            by_ref: false,
+            field: None,
+        };
+        self.try_inplace_self_update(&site, value)
+    }
+
     pub(crate) fn plan_returned_move(
         &mut self,
         value: Option<&NirValue>,
@@ -515,6 +629,39 @@ impl CodeBuilder<'_> {
         // the returned local's cleanup, and code after a RETURN on this path is
         // unreachable, so the restored entry is only ever emitted on paths that did not
         // return the local. The caller stays its one closer on the path that did.
+        // plan-147-B (site S11): `RETURN f(x, …)` where `x` is an owned local at its
+        // last use. Today the copying `f` builds a second block and the return then
+        // treats that block as the result, while `x`'s own block is dropped at exit —
+        // two blocks where one would do. Instead run the SAME arm `x = f(x, …)` runs,
+        // updating `x`'s block in place, and then re-enter this function as
+        // `RETURN x`, which takes the ordinary `plan_returned_move` path.
+        //
+        // Reducing S11 to "S1, then the existing move" is deliberate: that pair is
+        // already correct, including on the error path. plan-142's failure atomicity
+        // means an arm raises before its first write, so a later operand's failure
+        // cannot observe a half-updated `x` (plan-147-A §2.3 row S3), and the
+        // re-entry gets the cleanup save/restore that keeps a SIBLING return path
+        // still freeing `x`.
+        //
+        // The re-entry cannot recurse: its value is a `Local`, which
+        // `returned_self_update_local` never matches.
+        if let Some(value) = value {
+            if let Some(name) = returned_self_update_local(value) {
+                let name = name.to_string();
+                if self.try_returned_self_update(&name, value)? {
+                    let moved = NirValue::Local(name);
+                    return self.emit_return_exit(Some(&moved), interior_temp_watermark);
+                }
+            }
+            // plan-147-F: the same reduction for a record's field.
+            if let Some(name) = returned_field_self_update_local(value) {
+                let name = name.to_string();
+                if self.try_returned_field_self_update(&name, value)? {
+                    let moved = NirValue::Local(name);
+                    return self.emit_return_exit(Some(&moved), interior_temp_watermark);
+                }
+            }
+        }
         let return_snapshot = match value {
             Some(NirValue::Local(_)) => Some(self.active_cleanups.clone()),
             _ => None,

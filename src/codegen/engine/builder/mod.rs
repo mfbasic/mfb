@@ -572,6 +572,18 @@ pub(crate) struct CodeBuilder<'a> {
     /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
     /// asks `move_sites` about.
     pub(crate) current_op_key: Option<usize>,
+    /// plan-147-D: which call arguments of the NIR function being lowered may be
+    /// HANDED to the callee instead of lent (plan-147-C). `None` in a synthesized
+    /// builder, where every argument is lent.
+    pub(crate) handover: Option<crate::codegen::engine::analysis::handover::HandOverArgs>,
+    /// plan-147-D: the `call_key` of the `Call`/`CallResult` node being lowered —
+    /// what `emit_call` asks `handover` about, alongside `current_op_key`.
+    pub(crate) current_call_key: Option<usize>,
+    /// plan-147-E: the argument positions of the call just lowered whose in-place
+    /// self-update fired, so the hand-over nulls those locals' slots instead of
+    /// claiming a temporary that was never built. Written by
+    /// `emit_prepared_call_args_with_site` and taken immediately after.
+    pub(crate) args_updated_in_place: Vec<usize>,
     /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
     /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
     /// no `s = os::resourcePath(s)`.
@@ -698,6 +710,9 @@ impl<'a> CodeBuilder<'a> {
             enclosing_loop_reassigned: Vec::new(),
             graph_copy_walker: None,
             move_sites: None,
+            handover: None,
+            current_call_key: None,
+            args_updated_in_place: Vec::new(),
             current_op_key: None,
             string_resource_base: None,
             string_shadow_env: std::collections::HashMap::new(),
@@ -1927,9 +1942,79 @@ pub(crate) fn lower_module_for_platform(
                     &synthesized_constructors,
                     type_model.clone(),
                     &module.project,
+                    None,
                 )
             },
         )?);
+    }
+    // plan-147-D: the owned variants. A function lowers once above as its base
+    // symbol with every parameter lent; here it lowers once more for each distinct
+    // owned-parameter mask an approved call site asks for.
+    //
+    // The demand is a FIXPOINT: a variant's own body has call sites, and those sites
+    // can approve hand-overs of their own, asking for further variants. The set of
+    // `(function, mask)` pairs is finite (one function has at most `2^params` masks,
+    // and only masks a real site names are ever requested), so the loop terminates.
+    // The base lowerings above are never revisited, which is what keeps a function's
+    // own symbol and ABI unchanged (plan-147-A §2.3 row S13).
+    //
+    // Letter D Phase 1 lands the machinery with NO demand: `variant_demand` returns
+    // an empty set until Phase 2 wires the caller side up, so codegen here is
+    // byte-identical.
+    {
+        let mut emitted: HashSet<(String, u64)> = HashSet::new();
+        let mut pending: Vec<(String, u64)> = variant_demand(module, &functions, &type_model)
+            .into_iter()
+            .collect();
+        pending.sort();
+        while let Some((name, mask)) = pending.pop() {
+            if !emitted.insert((name.clone(), mask)) {
+                continue;
+            }
+            let Some(function) = functions.get(name.as_str()) else {
+                return Err(format!(
+                    "plan-147-D: an owned variant was demanded for `{name}`, which is \
+                     not a function of this module"
+                ));
+            };
+            let base = nir::function_symbol(&function.name);
+            let symbol =
+                crate::codegen::engine::function::function_lowering::OwnedVariant::symbol_for(
+                    &base, mask,
+                );
+            // The collision guard the naming scheme deliberately does NOT assume away:
+            // a mangled segment can be lowercase (a package prefix is), so `own1f` is
+            // not structurally impossible as a type segment. Fail loudly rather than
+            // alias two functions.
+            if function_symbols
+                .values()
+                .any(|existing| *existing == symbol)
+            {
+                return Err(format!(
+                    "plan-147-D: the owned-variant symbol `{symbol}` already names a \
+                     function of this module"
+                ));
+            }
+            let variant =
+                crate::codegen::engine::function::function_lowering::OwnedVariant { mask, symbol };
+            code_functions.push(lower_function(
+                function,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                &callback_referenced_functions,
+                &synthesized_constructors,
+                type_model.clone(),
+                &module.project,
+                Some(&variant),
+            )?);
+        }
+        crate::trace::count("owned variants", emitted.len() as u64);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
         code_functions.push(lower_builtin_function_wrapper(
@@ -3827,4 +3912,61 @@ pub(crate) fn standard_error_message_symbol(message: &str) -> Option<&'static st
     standard_error_messages()
         .iter()
         .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
+}
+
+/// plan-147-D: the `(function, owned-parameter mask)` pairs the module's approved
+/// call sites ask for.
+///
+/// The SAME `collect_handover_args` the caller side consults in `emit_call`, run
+/// over every function of the module. Asking one analysis twice — rather than
+/// deriving the demand some other way — is what guarantees that every variant symbol
+/// a caller emits is a variant this loop actually lowers; a mismatch would be an
+/// undefined symbol at link time.
+fn variant_demand(
+    module: &NirModule,
+    functions: &HashMap<String, &NirFunction>,
+    type_model: &TypeModel,
+) -> HashSet<(String, u64)> {
+    // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
+    // does not, so it can approve hand-overs the base cannot and ask for further
+    // variants. `fill(collections::append(xs, n), n - 1)` is the shape that needs it —
+    // only inside `fill$own1` is `xs` owned, and only there is the recursive call's
+    // argument handed on. The set is finite (one function has at most `2^params`
+    // masks, and only masks a real site names are requested), so this terminates.
+    let empty = crate::codegen::engine::analysis::handover::ParamSet::new();
+    let mut demand: HashSet<(String, u64)> = HashSet::new();
+    let mut pending: Vec<(String, u64)> = Vec::new();
+    for function in &module.functions {
+        for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &empty,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((name.clone(), mask)) {
+                pending.push((name, mask));
+            }
+        }
+    }
+    while let Some((name, mask)) = pending.pop() {
+        let Some(function) = functions.get(name.as_str()) else {
+            continue;
+        };
+        let owned: crate::codegen::engine::analysis::handover::ParamSet = function
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index < 64 && mask & (1u64 << index) != 0)
+            .map(|(_, param)| param.name.clone())
+            .collect();
+        for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &owned,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((next.clone(), next_mask)) {
+                pending.push((next, next_mask));
+            }
+        }
+    }
+    demand
 }

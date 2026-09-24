@@ -884,7 +884,7 @@ impl CodeBuilder<'_> {
     /// op(o.inner.f, …) } }` — peels each level whose update is itself a
     /// single-update `WITH` over that level's own place (`G13`/`G14` per level)
     /// into `FieldSite::path`.
-    fn field_self_update_site<'s>(
+    pub(crate) fn field_self_update_site<'s>(
         &self,
         container: FieldContainer<'s>,
         value: &'s NirValue,
