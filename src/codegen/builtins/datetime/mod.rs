@@ -584,7 +584,7 @@ mod func_local;
 mod func_local_offset;
 mod func_minus;
 mod func_monotonic;
-mod func_monotonic_nanos;
+pub(crate) mod func_monotonic_nanos;
 mod func_negate;
 mod func_now;
 mod func_now_nanos;

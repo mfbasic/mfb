@@ -105,6 +105,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.fontBlobUnchecked",
     "canvas.getSize",
     "canvas.didResize",
+    "canvas.frameNanos",
     "canvas.enableMouse",
     "canvas.pollMouse",
     "canvas.getBytes",

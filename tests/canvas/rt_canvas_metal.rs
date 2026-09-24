@@ -1083,6 +1083,31 @@ SUB main()
 END SUB
 "#;
 
+/// A scene installed with `canvas::presentLayers`: two layers, one item each.
+const LAYERED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET b AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 80.0, paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET c AS canvas::DrawItem = canvas::Rectangle[x := 360.0, y := 280.0, w := 120.0, h := 40.0, paint := canvas::fill(color::rgba(255, 255, 0, 160))]
+  canvas::presentLayers([canvas::DrawLayer[items := [a]], canvas::DrawLayer[items := [b, c]]])
+END SUB
+"#;
+
+/// A layered scene draws its layers on Metal (found fixing bug-686).
+///
+/// The GPU draw list (`__canvas_sceneDraws`) walked `canvas::installedItems()` only, so a
+/// scene installed with `presentLayers` — whose items all live in its layers — published
+/// no blocks at all: Metal drew an empty frame and reported `gpuFrames=1`, the honesty
+/// gate's worst case (measured: 0 lit pixels against software's 40,332).
+#[test]
+fn a_layered_scene_draws_its_layers_on_metal() {
+    assert_metal_draws_like_software("canvas_metal_layers", LAYERED, "a two-layer scene");
+}
+
 #[test]
 fn polygons_past_two_hundred_fifty_six_edges_draw_on_metal() {
     assert_metal_draws_like_software(

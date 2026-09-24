@@ -90,6 +90,7 @@ impl NativeBackend for Backend {
                 "canvas.fontBlobUnchecked",
                 "canvas.getSize",
                 "canvas.didResize",
+                "canvas.frameNanos",
                 "canvas.enableMouse",
                 "canvas.pollMouse",
                 "canvas.getBytes",

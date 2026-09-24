@@ -478,11 +478,12 @@ fn cache_hit_skips_geometry_generation() {
 /// Two polygons with the same bounding box, vertex count and paint — but different
 /// points — must each draw their own shape.
 ///
-/// The geometry cache keys an item by a hash of its 22-slot header and confirms a
-/// hit by comparing only that header (`__canvas_headerMatches`). A polygon's point
-/// coordinates live only in the *tail*, so these two triangles collide: identical
-/// bounds (100..300 x 100..300), identical count (3), identical paint. The second
-/// item must not be handed the first one's edges.
+/// The geometry cache once keyed an item by a hash of its header and confirmed a hit by
+/// comparing only that header. A polygon's point coordinates live only in the *tail*,
+/// so these two triangles collided: identical bounds (100..300 x 100..300), identical
+/// count (3), identical paint. Since bug-686 a hit is trusted on the item's content hash
+/// (`__canvas_hashItem`), which folds in every point — this test is what holds it to
+/// that. The second item must not be handed the first one's edges.
 #[test]
 fn polygons_sharing_a_header_keep_their_own_points() {
     let (frame, stats) = render(
@@ -1991,7 +1992,7 @@ fn gradients_sharing_a_header_keep_their_own_stops() {
         last.contains("entries=2"),
         "two gradients differing only in their stop COLOURS must not share a cache \
          entry — the stops live in the tail, so the headers are byte-identical and \
-         only the hash and __canvas_tailMatches separate them: {last}"
+         only the content hash (`__canvas_hashItem`) separates them: {last}"
     );
 
     // Both items drew *something*, so `entries=2` is about two live records rather
@@ -2354,8 +2355,8 @@ fn a_gradients_stroke_stays_a_flat_colour() {
 /// plan-116-F **F17**. `__canvas_paintHeader` says *"a kind with no interior takes no
 /// gradient"* and originally skipped only `Text` and `NONE`. A `Line` and an `Arc` have
 /// no interior either — `mfb spec app canvas` puts it in the same words — so they
-/// stored stops that nothing keyed on: `__canvas_hashItem` returns a bare `acc` for
-/// both and `__canvas_tailMatches` returns `TRUE`, so two `Line`s differing only in
+/// stored stops that nothing keyed on: `__canvas_hashItem` returned a bare `acc` for
+/// both and the since-deleted `__canvas_tailMatches` returned `TRUE`, so two `Line`s differing only in
 /// their gradient hashed alike, hit one geometry-cache entry, and the second drew the
 /// first's stops.
 ///

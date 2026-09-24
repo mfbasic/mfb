@@ -247,9 +247,15 @@ fn static_bulk(count: usize, frames: usize) -> String {
 /// animation above, widened past the old 256-entry cache.
 fn moving_bulk(count: usize, frames: usize) -> String {
     animating()
-        .replace(&format!("WHILE frame < {FRAMES}"), &format!("WHILE frame < {frames}"))
+        .replace(
+            &format!("WHILE frame < {FRAMES}"),
+            &format!("WHILE frame < {frames}"),
+        )
         .replace(&format!("WHILE i < {ITEMS}"), &format!("WHILE i < {count}"))
-        .replace(&format!("frame * {ITEMS} + i"), &format!("frame * {count} + i"))
+        .replace(
+            &format!("frame * {ITEMS} + i"),
+            &format!("frame * {count} + i"),
+        )
 }
 
 /// A scene larger than the old 256-entry cache whose items do not change builds each

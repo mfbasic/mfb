@@ -76,9 +76,9 @@ LET __CANVAS_GEO_GROUP AS Integer = 8
 ' bug-484. A Picture: the destination rectangle in the rectangle's own slots (centre
 ' 2-3, half-extent 4-5, radius 6 = 0), so its coverage and stroke ARE a rectangle's;
 ' the image's width and height in the per-kind aux pair 20-21; and its pixel block's
-' address in two 24-bit halves. Halves because every header slot is hashed through
-' `__canvas_hashFloat`, which multiplies by 65536 before `toInt` -- a whole address
-' would overflow it (the `__canvas_textHash` font-handle note measures exactly that).
+' address in two 24-bit halves. Halves because a slot holding a whole 48-bit address
+' would not survive the float round trips the renderers make through `toInt` (the font
+' handle note in `__canvas_hashItem` measures exactly that overflow).
 ' 35-36 are the cap slots, which only Line and Arc read.
 LET __CANVAS_GEO_PICTURE AS Integer = 9
 LET __CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = 35
@@ -93,106 +93,100 @@ LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216"#;
 /// how the data is consumed: the rasteriser walks `__CANVAS_GEO_DATA` linearly and
 /// never wants a whole entry at once.
 ///
-/// `__CANVAS_GEO_REV` is a monotonically increasing use counter, not the scene
-/// revision: eviction wants "least recently *used*", and an entry can be used many
-/// times within one revision (a repaint) or not at all across several.
+/// bug-686: the cache is keyed by `__CANVAS_GEO_INDEX`, a `Map` from item hash to slot,
+/// and a slot lives until the frame boundary after the first frame that did not use it.
+/// It used to be a 256-slot list scanned linearly per probe, with least-recently-used
+/// eviction — so any scene larger than 256 items missed on every item, twice a frame,
+/// and every probe also rebuilt the item's whole header to confirm a hit.
+///
+/// `__CANVAS_GEO_LASTUSED` holds the FRAME a slot was last used in (`__CANVAS_GEO_FRAME`),
+/// and nothing is evicted inside a frame: `__canvas_geoBeginFrame` is the only place a
+/// slot is dropped, and it runs where no offset is live. So every offset a frame resolves
+/// stays valid — and its glyph indices stay valid — until that frame is drawn.
 #[rustfmt::skip]
 const GEO_CACHE_STATE: &str =
-r#"MUT __CANVAS_GEO_HASHES AS List OF Integer = []
+r#"MUT __CANVAS_GEO_INDEX AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+MUT __CANVAS_GEO_HASHES AS List OF Integer = []
 MUT __CANVAS_GEO_OFFSETS AS List OF Integer = []
 MUT __CANVAS_GEO_COUNTS AS List OF Integer = []
 MUT __CANVAS_GEO_LASTUSED AS List OF Integer = []
 MUT __CANVAS_GEO_DATA AS List OF Float = []
-MUT __CANVAS_GEO_REV AS Integer = 0
 MUT __CANVAS_GEO_GENERATIONS AS Integer = 0
 MUT __CANVAS_GEO_COMPACTIONS AS Integer = 0
-LET __CANVAS_GEO_CAPACITY AS Integer = 256
 
-' The geometry offsets the frame being rendered is holding.
-'
-' A frame resolves every item's offset before it draws any of them, and the cache holds
-' fewer entries than a large scene has items -- so an offset can outlive its cache entry
-' by most of a frame. The offsets stay READABLE *within a frame* (`__canvas_geoCompact`
-' runs only at a frame boundary, where this list is empty), but the glyph indices inside
-' them do not stay VALID, because glyph eviction renumbers. This list is how eviction
-' knows which of them are still live.
-MUT __CANVAS_GEO_LIVE AS List OF Integer = []"#;
+' The frame being resolved, and what it and the frame before it used. A slot counts once
+' per frame however many times the scene names it, so these are the live set's size.
+MUT __CANVAS_GEO_FRAME AS Integer = 1
+MUT __CANVAS_GEO_USED_FLOATS AS Integer = 0
+MUT __CANVAS_GEO_LAST_FLOATS AS Integer = 0
 
-/// A bounded, order-independent hash over the geometry header.
+' The all-zero header `__canvas_blankHeader` hands out copies of, built on first use.
+MUT __CANVAS_GEO_BLANK AS List OF Float = []"#;
+
+/// The item content hash: the geometry cache's key, and the damage diff's "did this item
+/// change".
 ///
-/// Floats are quantised to 1/65536 before mixing. That is a *probe* quality choice
-/// and cannot cause a wrong answer: `__canvas_geoFind` confirms every hit by
-/// comparing the header exactly, so a quantisation collision costs one wasted
-/// comparison, never an incorrect reuse.
-///
-/// The mix is kept under 2^31 by the `MOD`, so the multiply cannot overflow a 64-bit
-/// `Integer` — an overflow trap here would turn a drawing call into an error.
+/// bug-686: a cache hit is trusted on this hash alone — there is no longer a header
+/// rebuild per probe to confirm it — so it is two independent 31-bit lanes (62 bits) and
+/// resolves a coordinate to 2^-46 px (`__canvas_hashFloat`). Each lane is reduced below
+/// 2^31 before it is multiplied, so nothing here can overflow a 64-bit `Integer` — an
+/// overflow trap would turn a drawing call into an error.
 #[rustfmt::skip]
 const GEO_HASH: &str =
-r#"FUNC __canvas_hashStep(acc AS Integer, value AS Integer) AS Integer
-  RETURN (acc * 131 + value) MOD 2147483647
+r#"' bug-686: TWO independent 31-bit lanes, packed as `a * 2^31 + b` (62 bits), because
+' the geometry cache now trusts a hash hit without rebuilding the item's header to
+' confirm it. A single 31-bit lane made that unsafe at scale: 10,000 live items against
+' a cache of tens of thousands of entries collide with probability ~0.3 per frame, and a
+' collision draws one item's geometry for another. Two lanes put that at ~1e-10.
+'
+' Each lane reduces the incoming value first, so a 48-bit font handle or a large scaled
+' coordinate never overflows `a * 131` / `b * 257` -- both stay below 2^40.
+FUNC __canvas_hashStep(acc AS Integer, value AS Integer) AS Integer
+  LET a AS Integer = acc / 2147483648
+  LET b AS Integer = acc MOD 2147483648
+  ' Most values already fit both lanes -- a colour channel, a tag, a count, a float's
+  ' 30-bit fraction -- and skip the four reductions. Only a large or negative value
+  ' (a scaled coordinate, a handle) pays for them.
+  IF value >= 0 AND value < 2147483629 THEN
+    RETURN ((a * 131 + value) MOD 2147483647) * 2147483648 + (b * 257 + value) MOD 2147483629
+  END IF
+  LET va AS Integer = ((value MOD 2147483647) + 2147483647) MOD 2147483647
+  LET vb AS Integer = ((value MOD 2147483629) + 2147483629) MOD 2147483629
+  RETURN ((a * 131 + va) MOD 2147483647) * 2147483648 + (b * 257 + vb) MOD 2147483629
 END FUNC
 
+' A float folds in as its 1/65536 integer part AND the next 30 bits of fraction below
+' that. The first alone quantised: two items differing by less than 1/65536 px hashed
+' equal, which was harmless only while every hit was confirmed against a freshly built
+' header. `value * 65536.0` is exact (a power of two), and so are the subtraction and the
+' second scaling, so the pair resolves a coordinate to 2^-46 px.
 FUNC __canvas_hashFloat(acc AS Integer, value AS Float) AS Integer
-  RETURN __canvas_hashStep(acc, toInt(value * 65536.0))
-END FUNC
-
-FUNC __canvas_hashGeometry(geo AS List OF Float, offset AS Integer, count AS Integer) AS Integer
-  MUT acc AS Integer = 2166136261
-  MUT i AS Integer = 0
-  WHILE i < count
-    acc = __canvas_hashFloat(acc, collections::getOr(geo, offset + i, 0.0))
-    i = i + 1
-  END WHILE
-  RETURN acc
+  LET scaled AS Float = value * 65536.0
+  LET whole AS Integer = toInt(scaled)
+  RETURN __canvas_hashStep(__canvas_hashStep(acc, whole), toInt((scaled - toFloat(whole)) * 1073741824.0))
 END FUNC"#;
 
-/// Build the fixed header for one item.
+/// The fixed header builders, one per kind.
 ///
-/// Every arm writes the same 47 slots in the same order, so the rasteriser and the
-/// cache comparison can both be written once against the layout instead of per kind.
-/// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
-/// fail to compile here rather than silently generating nothing.
+/// Every builder writes the same 47 slots, so the rasteriser and the emitters can be
+/// written once against the layout instead of per kind. `__canvas_geometryFor` picks the
+/// builder in one `MATCH` that is exhaustive over the frozen `DrawItem` set, so a new
+/// variant fails to compile there rather than silently generating nothing.
 #[rustfmt::skip]
 const GEO_HEADER: &str =
-r#"FUNC __canvas_headerFor(item AS DrawItem) AS List OF Float
-  MATCH item
-    CASE Rectangle(r)
-      RETURN __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
-    CASE RoundedRect(rr)
-      RETURN __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
-    CASE Circle(c)
-      RETURN __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
-    CASE Line(l)
-      RETURN __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
-    CASE Arc(a)
-      RETURN __canvas_arcHeader(a)
-    CASE Polygon(p)
-      RETURN __canvas_polygonHeader(p)
-    CASE Picture(pic)
-      RETURN __canvas_pictureHeader(pic)
-    CASE Text(t)
-      RETURN __canvas_emptyHeader()
-    CASE Ellipse(e)
-      RETURN __canvas_ellipseHeader(e)
-    ' plan-116-G. A Group has no geometry of its own -- it names one. The empty
-    ' header's kind is NONE, which every renderer already skips, so a Group is inert
-    ' until Phase 4 resolves it. Note it does NOT go through __canvas_paintHeader:
-    ' a Group has no Paint, and paintHeader counts a gradient stop tail into slot 1
-    ' whenever slot 0 reads as a kind with an interior (plan-116-F, F17/F18).
-    CASE Group(g)
-      RETURN __canvas_emptyHeader()
-  END MATCH
-END FUNC
-
+r#"' bug-686: a copy of one prebuilt all-zero header rather than 47 appends -- one small
+' block copy against ~0.9 us per item, on every geometry build.
 FUNC __canvas_blankHeader() AS List OF Float
-  MUT h AS List OF Float = []
-  MUT i AS Integer = 0
-  WHILE i < __CANVAS_GEO_HEADER
-    h = collections::append(h, 0.0)
-    i = i + 1
-  END WHILE
-  RETURN h
+  IF len(__CANVAS_GEO_BLANK) <> __CANVAS_GEO_HEADER THEN
+    MUT h AS List OF Float = []
+    MUT i AS Integer = 0
+    WHILE i < __CANVAS_GEO_HEADER
+      h = collections::append(h, 0.0)
+      i = i + 1
+    END WHILE
+    __CANVAS_GEO_BLANK = h
+  END IF
+  RETURN __CANVAS_GEO_BLANK
 END FUNC
 
 FUNC __canvas_emptyHeader() AS List OF Float
@@ -324,7 +318,18 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   ' three renderers. `__canvas_invertTransform` is also the only place that knows an
   ' all-zero `Transform` means the identity, and the only place that decides what a
   ' singular one does.
-  LET inv AS List OF Float = __canvas_invertTransform(paint.transform)
+  '
+  ' bug-686: the all-zero transform -- every item that never set one -- is written as
+  ' the identity's two non-zero bit patterns (1.0f is 1065353216) into slots that are
+  ' already zero, rather than inverted into a fresh seven-float list and copied. Exactly
+  ' the values `__canvas_invertTransform` returns for it.
+  LET t AS Transform = paint.transform
+  IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN
+    out = collections::set(out, 27, 1065353216.0)
+    out = collections::set(out, 30, 1065353216.0)
+    RETURN out
+  END IF
+  LET inv AS List OF Float = __canvas_invertTransform(t)
   MUT ti AS Integer = 0
   WHILE ti < 7
     out = collections::set(out, 27 + ti, collections::getOr(inv, ti, 0.0))
@@ -442,7 +447,7 @@ FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_PICTURE))
   ' The Correction F18 trap, the other way round: `__canvas_paintHeader` ran while slot
   ' 0 still said RECT, a kind with an interior, so it counted a gradient's stops into
-  ' slot 1 -- and `__canvas_tailFor`'s Picture arm appends none, because the image, not
+  ' slot 1 -- and `__canvas_geometryFor`'s Picture arm builds none, because the image, not
   ' a ramp, is what fills a picture. Undone here so the record declares only what it
   ' holds.
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
@@ -673,42 +678,6 @@ FUNC __canvas_appendGradientTail(base AS List OF Float, paint AS Paint) AS List 
   RETURN out
 END FUNC
 
-FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
-  MATCH item
-    CASE Polygon(p)
-      IF len(p.points) < 2 THEN
-        RETURN []
-      END IF
-      ' Edges FIRST, then stops. The order is fixed so `__canvas_gradientStopBase` can
-      ' find the stops from the end of the record without knowing the edge count.
-      RETURN __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
-    CASE Rectangle(r)
-      RETURN __canvas_appendGradientTail([], r.paint)
-    CASE RoundedRect(rr)
-      RETURN __canvas_appendGradientTail([], rr.paint)
-    CASE Circle(c)
-      RETURN __canvas_appendGradientTail([], c.paint)
-    CASE Line(l)
-      RETURN []
-    CASE Arc(a)
-      RETURN []
-    CASE Picture(pic)
-      RETURN []
-    CASE Ellipse(e)
-      RETURN __canvas_appendGradientTail([], e.paint)
-    CASE Text(t)
-      IF __canvas_strokeHalf(t.paint) > 0.0 THEN
-        RETURN __canvas_textEdges(t)
-      END IF
-      RETURN __canvas_textGlyphRun(t)
-    ' plan-116-G: no geometry, so no tail. The empty header declares length
-    ' __CANVAS_GEO_HEADER and this appends nothing, which is the agreement between
-    ' the two that F18 showed is load-bearing.
-    CASE Group(g)
-      RETURN []
-  END MATCH
-END FUNC
-
 FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
   IF len(b) = 0 THEN
@@ -799,7 +768,7 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
   ' plan-116-F Correction F18. `__canvas_paintHeader` decides "has this kind an
   ' interior?" by reading slot 0 -- and by the time it runs here, slot 0 says POLYGON,
   ' because a stroked text IS lowered to one. So its `Text` skip does not fire, and it
-  ' counts `stops * 5` into slot 1 for a stop tail that `__canvas_tailFor`'s `Text` arm
+  ' counts `stops * 5` into slot 1 for a stop tail that `__canvas_geometryFor`'s `Text` arm
   ' never appends: it returns `__canvas_textEdges(t)` and nothing else. The record then
   ' declares ten floats it does not have, `__canvas_gradientStopBase` reads from one
   ' past its end, and the run draws its fill from whatever the next record's header
@@ -833,268 +802,222 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 
-/// Probe, confirm, and on a miss generate and insert.
+/// Probe by hash, and on a miss generate and insert.
 ///
-/// Returns the offset of the item's geometry within `__CANVAS_GEO_DATA`. The header
-/// is always built (it is cheap and it is what confirms a hit); only the tail is
-/// conditional, and `__CANVAS_GEO_GENERATIONS` counts the times a tail was actually
-/// built — the number a test watches to prove a hit skipped generation.
+/// Returns the offset of the item's geometry within `__CANVAS_GEO_DATA`. A hit is
+/// trusted on the item's 62-bit content hash (`__canvas_hashItem`) — nothing is built
+/// to confirm it — except for a `Picture`, whose image can change its pixels without the
+/// item changing. `__CANVAS_GEO_GENERATIONS` counts the builds: the number a test
+/// watches to prove a hit skipped generation (bug-686).
 ///
-/// Eviction is least-recently-used over `__CANVAS_GEO_LASTUSED`. It drops the entry's
-/// *slot*, not its bytes: compacting `__CANVAS_GEO_DATA` would move every other
-/// entry's offset, so the buffer is rebuilt wholesale when the slot table is full
-/// rather than compacted in place. That trades a rare O(n) rebuild for never holding
-/// a stale offset, which is the failure that would draw one item's geometry for
-/// another.
+/// Nothing is evicted inside a frame. `__canvas_geoBeginFrame`, at the one point in a
+/// frame where no offset is live, drops what the previous frame did not use and
+/// renumbers the rest, so a frame can never be handed a stale offset — the failure that
+/// would draw one item's geometry for another.
 #[rustfmt::skip]
 const GEO_CACHE: &str =
-r#"FUNC __canvas_headerMatches(offset AS Integer, header AS List OF Float) AS Boolean
-  MUT i AS Integer = 0
-  WHILE i < __CANVAS_GEO_HEADER
-    LET stored AS Float = collections::getOr(__CANVAS_GEO_DATA, offset + i, 0.0)
-    LET wanted AS Float = collections::getOr(header, i, 0.0)
-    IF stored <> wanted THEN
-      RETURN FALSE
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN TRUE
-END FUNC
+r#"' Count a slot as used by the frame in progress, once per frame however many times the
+' scene names it. What `__canvas_geoBeginFrame` knows about the live set comes from here.
+SUB __canvas_geoStamp(slot AS Integer)
+  IF collections::getOr(__CANVAS_GEO_LASTUSED, slot, 0) <> __CANVAS_GEO_FRAME THEN
+    __CANVAS_GEO_LASTUSED = collections::set(__CANVAS_GEO_LASTUSED, slot, __CANVAS_GEO_FRAME)
+    __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + collections::getOr(__CANVAS_GEO_COUNTS, slot, 0)
+  END IF
+END SUB
 
-' The header compare above cannot see a polygon's point coordinates -- they live in
-' the tail. A hit for a polygon is therefore confirmed against the stored edge
-' origins as well, or a 31-bit hash collision between two same-header polygons
-' would hand one the other's edges. The stored edge layout is `x0, y0, dx, dy,
-' invLenSq` per edge (`__canvas_polygonEdges`), so slots 0-1 of each edge are the
-' point itself, copied verbatim -- exact float compare is right here.
-FUNC __canvas_polygonPointsMatch(offset AS Integer, points AS List OF Point) AS Boolean
-  LET count AS Integer = len(points)
-  MUT i AS Integer = 0
-  WHILE i < count
-    LET base AS Integer = offset + __CANVAS_GEO_HEADER + i * 5
-    LET q AS Point = collections::getOr(points, i, Point[x := 0.0, y := 0.0])
-    IF collections::getOr(__CANVAS_GEO_DATA, base, 0.0) <> q.x THEN
-      RETURN FALSE
-    END IF
-    IF collections::getOr(__CANVAS_GEO_DATA, base + 1, 0.0) <> q.y THEN
-      RETURN FALSE
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN TRUE
-END FUNC
-
-' Do this record's stored stops equal the ones this paint would write?
+' bug-686: the probe that does not need the item. A frame whose items are all cached
+' resolves every one of them from the published hash list alone, and never copies the
+' scene out of the ring at all.
 '
-' The stop COUNT is in the header, so `__canvas_headerMatches` already separates a
-' two-stop gradient from a three-stop one. What it cannot see is two gradients with the
-' same count and different colours -- which is the polygon bug in a different costume.
-FUNC __canvas_gradientStopsMatch(offset AS Integer, paint AS Paint) AS Boolean
-  LET stored AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT))
-  IF stored <= 0 THEN
-    RETURN TRUE
+' Answers the geometry offset, or -1 when the caller must look at the item: a miss, or a
+' `Picture`. A picture's header carries its image's pixel-block address, and
+' `canvas::setBytes` swaps that block WITHOUT a present -- so the scene's published hash
+' still names the old pixels and a hash hit alone would draw them
+' (`.ai/canvas-threading.md` section 6). `__canvas_geometryFor` re-reads the image for it.
+' A `Group` is never cached (it has no geometry of its own), so its hash always misses
+' here too and the walk expands it from the item.
+FUNC __canvas_geoProbe(hash AS Integer) AS Integer
+  LET slot AS Integer = collections::getOr(__CANVAS_GEO_INDEX, hash, 0 - 1)
+  IF slot < 0 THEN
+    RETURN 0 - 1
   END IF
-  LET want AS List OF Float = __canvas_gradientTail(paint)
-  IF len(want) <> stored * 5 THEN
-    RETURN FALSE
+  LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
+  IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_PICTURE THEN
+    RETURN 0 - 1
   END IF
-  LET base AS Integer = __canvas_gradientStopBase(offset)
-  MUT i AS Integer = 0
-  WHILE i < stored * 5
-    IF collections::getOr(__CANVAS_GEO_DATA, base + i, 0.0) <> collections::getOr(want, i, 0.0) THEN
-      RETURN FALSE
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN TRUE
+  __canvas_geoStamp(slot)
+  RETURN offset
 END FUNC
 
-FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
-  MATCH item
-    CASE Polygon(p)
-      ' Guard on the STORED kind: a degenerate (<2 point) polygon stores an empty
-      ' NONE header with no tail, and comparing points against absent slots would
-      ' refuse the hit every frame and grow the cache without bound.
-      IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
-        IF NOT __canvas_polygonPointsMatch(offset, p.points) THEN
-          RETURN FALSE
-        END IF
-      END IF
-      RETURN __canvas_gradientStopsMatch(offset, p.paint)
-    CASE Rectangle(r)
-      RETURN __canvas_gradientStopsMatch(offset, r.paint)
-    CASE RoundedRect(rr)
-      RETURN __canvas_gradientStopsMatch(offset, rr.paint)
-    CASE Circle(c)
-      RETURN __canvas_gradientStopsMatch(offset, c.paint)
-    CASE Line(l)
-      RETURN TRUE
-    CASE Arc(a)
-      RETURN TRUE
-    CASE Text(t)
-      RETURN TRUE
-    CASE Picture(pic)
-      RETURN TRUE
-    CASE Ellipse(e)
-      RETURN __canvas_gradientStopsMatch(offset, e.paint)
-    ' plan-116-G: an empty tail always matches an empty tail.
-    CASE Group(g)
-      RETURN TRUE
-  END MATCH
-END FUNC
-
-FUNC __canvas_geoEvict() AS Integer
-  LET slots AS Integer = len(__CANVAS_GEO_HASHES)
-  MUT evicted AS Integer = 0
-  IF slots >= __CANVAS_GEO_CAPACITY THEN
-    MUT worst AS Integer = 0
-    MUT worstRev AS Integer = collections::getOr(__CANVAS_GEO_LASTUSED, 0, 0)
-    MUT i AS Integer = 1
-    WHILE i < slots
-      LET rev AS Integer = collections::getOr(__CANVAS_GEO_LASTUSED, i, 0)
-      IF rev < worstRev THEN
-        worstRev = rev
-        worst = i
-      END IF
-      i = i + 1
-    END WHILE
-    __CANVAS_GEO_HASHES = collections::removeAt(__CANVAS_GEO_HASHES, worst)
-    __CANVAS_GEO_OFFSETS = collections::removeAt(__CANVAS_GEO_OFFSETS, worst)
-    __CANVAS_GEO_COUNTS = collections::removeAt(__CANVAS_GEO_COUNTS, worst)
-    __CANVAS_GEO_LASTUSED = collections::removeAt(__CANVAS_GEO_LASTUSED, worst)
-    evicted = 1
-  END IF
-  RETURN evicted
-END FUNC
-
-' Rebuild `__CANVAS_GEO_DATA` holding only the floats the surviving cache entries own,
-' renumbering their offsets (bug-682).
-'
-' `__canvas_geoEvict` drops an entry's SLOT and cannot drop its bytes: an offset can
-' outlive its cache entry by most of a frame, so freeing the floats where eviction
-' happens would hand the frame in progress a hole to draw from. Nothing reclaimed them
-' anywhere else either, so a scene whose items change every frame -- every probe a miss,
-' every miss an append -- grew the arena by one item's geometry per item per frame,
-' forever, and ended in an OOM kill of the user's machine.
+' Rebuild `__CANVAS_GEO_DATA` holding only what the frame just drawn used, renumbering
+' the surviving slots' offsets and the hash index (bug-682, bug-686).
 '
 ' **Call this only where no offset is live.** The one such point is the top of
 ' `__canvas_sceneOffsets`, before the frame resolves anything: the previous frame's
 ' offsets are dead (the damage diff remembers BOUNDS, not offsets -- see
-' `__canvas_rememberScene`) and this frame's do not exist yet. That is also where
-' `__CANVAS_GEO_LIVE` is cleared, and the two belong together. Compacting anywhere
-' inside a frame draws one item's geometry for another, which is the failure the "never
-' compact" rule was protecting against; the rule was right about the *where* and wrong
-' only in concluding there was nowhere.
+' `__canvas_rememberScene`) and this frame's do not exist yet. Nothing else ever drops a
+' slot, so every offset a frame resolves stays valid until the frame is drawn.
 '
-' Gated on there being slack worth reclaiming, and the gate is not a micro-optimisation.
-' A scene whose items are all cache hits holds an arena that is EXACTLY its live entries
-' -- no miss, no append, nothing dead -- so an ungated pass would add an O(arena) rebuild
-' to every frame of every static canvas program, a cost the bug itself never had. The
-' 2x slack also bounds how often an animating scene pays: the arena doubles before a
-' rebuild, so the rebuilds are geometrically spaced and their amortised cost per miss is
-' O(1).
-'
-' Renumbering rather than clearing, for the reason `__canvas_glyphEvict` renumbers:
-' dropping the whole cache would re-flatten every glyph and re-derive every polygon's
-' edges at the moment the program is already under memory pressure.
-SUB __canvas_geoCompact()
-  LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
-  MUT liveFloats AS Integer = 0
-  MUT s AS Integer = 0
-  WHILE s < slots
-    liveFloats = liveFloats + collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
-    s = s + 1
-  END WHILE
-  IF len(__CANVAS_GEO_DATA) <= liveFloats * 2 THEN
-    EXIT SUB
-  END IF
-  __CANVAS_GEO_COMPACTIONS = __CANVAS_GEO_COMPACTIONS + 1
-  MUT data AS List OF Float = []
-  MUT moved AS List OF Integer = []
-  MUT packed AS Integer = 0
-  s = 0
-  WHILE s < slots
-    LET from AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, s, 0)
-    LET owned AS Integer = collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
-    moved = collections::append(moved, packed)
-    MUT k AS Integer = 0
-    WHILE k < owned
-      data = collections::append(data, collections::getOr(__CANVAS_GEO_DATA, from + k, 0.0))
-      k = k + 1
+' It runs when the slots the last frame did NOT use own at least as many floats as the
+' ones it did. That bounds the arena at twice the live set for any scene, and it is what
+' keeps an animating program at constant memory (bug-682): its items miss every frame,
+' so each frame's entries are stale by the next one and the pass runs every frame, at
+' the cost of copying the floats the previous frame used. A scene whose items do not
+' change adds nothing and never pays for it.
+SUB __canvas_geoBeginFrame()
+  __CANVAS_GEO_LAST_FLOATS = __CANVAS_GEO_USED_FLOATS
+  __CANVAS_GEO_USED_FLOATS = 0
+  LET stale AS Integer = len(__CANVAS_GEO_DATA) - __CANVAS_GEO_LAST_FLOATS
+  IF stale > 0 AND stale >= __CANVAS_GEO_LAST_FLOATS THEN
+    __CANVAS_GEO_COMPACTIONS = __CANVAS_GEO_COMPACTIONS + 1
+    MUT data AS List OF Float = []
+    MUT hashes AS List OF Integer = []
+    MUT offsets AS List OF Integer = []
+    MUT counts AS List OF Integer = []
+    MUT used AS List OF Integer = []
+    MUT index AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
+    MUT s AS Integer = 0
+    WHILE s < slots
+      IF collections::getOr(__CANVAS_GEO_LASTUSED, s, 0) = __CANVAS_GEO_FRAME THEN
+        LET from AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, s, 0)
+        LET owned AS Integer = collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
+        LET hash AS Integer = collections::getOr(__CANVAS_GEO_HASHES, s, 0)
+        index = collections::set(index, hash, len(hashes))
+        hashes = collections::append(hashes, hash)
+        offsets = collections::append(offsets, len(data))
+        counts = collections::append(counts, owned)
+        used = collections::append(used, __CANVAS_GEO_FRAME)
+        MUT k AS Integer = 0
+        WHILE k < owned
+          data = collections::append(data, collections::getOr(__CANVAS_GEO_DATA, from + k, 0.0))
+          k = k + 1
+        END WHILE
+      END IF
+      s = s + 1
     END WHILE
-    packed = packed + owned
-    s = s + 1
-  END WHILE
-  ' Both together, or the offsets name the old arena. The locals are built first and
-  ' published here for that reason: the loop above READS `__CANVAS_GEO_DATA` through the
-  ' old offsets on every iteration.
-  __CANVAS_GEO_DATA = data
-  __CANVAS_GEO_OFFSETS = moved
+    ' All together, or the offsets name the old arena. The locals are built first and
+    ' published here because the loop above READS `__CANVAS_GEO_DATA` through the old
+    ' offsets on every iteration.
+    __CANVAS_GEO_DATA = data
+    __CANVAS_GEO_HASHES = hashes
+    __CANVAS_GEO_OFFSETS = offsets
+    __CANVAS_GEO_COUNTS = counts
+    __CANVAS_GEO_LASTUSED = used
+    __CANVAS_GEO_INDEX = index
+  END IF
+  __CANVAS_GEO_FRAME = __CANVAS_GEO_FRAME + 1
 END SUB
 
-FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
-  ' Every other kind's header is a handful of arithmetic on the item's own fields, so
-  ' building it on every probe costs nothing and it doubles as the hash-collision
-  ' guard. A `canvas::Text` header is not like that: its bounds and its edge count are
-  ' properties of the *flattened glyph outlines*, so building it per frame would
-  ' re-read `glyf` for every character of every string on screen and the cache would
-  ' save nothing at all. Text therefore probes on the hash alone and builds its header
-  ' from the tail on a miss.
-  LET deferred AS Boolean = __canvas_headerIsDeferred(item)
-  MUT header AS List OF Float = []
-  IF NOT deferred THEN
-    header = __canvas_headerFor(item)
-  END IF
-  __CANVAS_GEO_REV = __CANVAS_GEO_REV + 1
-  MUT slot AS Integer = 0
-  LET slots AS Integer = len(__CANVAS_GEO_HASHES)
-  WHILE slot < slots
-    IF collections::getOr(__CANVAS_GEO_HASHES, slot, 0) = hash THEN
-      LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
-      IF deferred OR (__canvas_headerMatches(offset, header) AND __canvas_tailMatches(item, offset)) THEN
-        __CANVAS_GEO_LASTUSED = collections::set(__CANVAS_GEO_LASTUSED, slot, __CANVAS_GEO_REV)
-        RETURN offset
-      END IF
-    END IF
-    slot = slot + 1
-  END WHILE
+' Is the geometry at `offset` still this picture's? Its header holds the pixel-block
+' address current when it was built, split across two slots; `setBytes` swaps the block
+' without changing the item, so this is the one cached kind a hash cannot vouch for.
+FUNC __canvas_pictureIsCurrent(offset AS Integer, pic AS Picture) AS Boolean
+  LET shadow AS Integer = canvas::imageShadow(pic.image)
+  LET hi AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_HI, 0.0))
+  LET lo AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_LO, 0.0))
+  RETURN hi * __CANVAS_GEO_PICTURE_SPLIT + lo = shadow
+END FUNC
 
-  LET evicted AS Integer = __canvas_geoEvict()
-  LET tail AS List OF Float = __canvas_tailFor(item)
-  IF deferred THEN
-    header = __canvas_deferredHeader(item, tail)
+FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
+  LET slot AS Integer = collections::getOr(__CANVAS_GEO_INDEX, hash, 0 - 1)
+  IF slot >= 0 THEN
+    LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
+    MUT current AS Boolean = TRUE
+    MATCH item
+      CASE Picture(pic)
+        IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_PICTURE THEN
+          current = __canvas_pictureIsCurrent(offset, pic)
+        END IF
+      CASE ELSE
+        current = TRUE
+    END MATCH
+    IF current THEN
+      __canvas_geoStamp(slot)
+      RETURN offset
+    END IF
   END IF
+
+  ' A miss -- or a picture whose image's pixels were swapped. Either way a new slot: the
+  ' old one (if any) keeps its floats until the frame boundary, and the hash now names
+  ' the new one.
+  '
+  ' ONE `MATCH` for both halves (bug-686): extracting a variant copies it, and doing it
+  ' once for the tail and again for the header cost ~250 ns an item on every build.
+  '
+  ' Every kind's header is a handful of arithmetic on the item's own fields -- except a
+  ' `canvas::Text`, whose bounds and edge count are properties of the flattened glyph
+  ' outlines, so it is built from the tail. A tail is written EDGES FIRST, then gradient
+  ' stops, so `__canvas_gradientStopBase` finds the stops from the end of the record.
+  MUT tail AS List OF Float = []
+  MUT header AS List OF Float = []
+  MATCH item
+    CASE Rectangle(r)
+      tail = __canvas_appendGradientTail([], r.paint)
+      header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
+    CASE RoundedRect(rr)
+      tail = __canvas_appendGradientTail([], rr.paint)
+      header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
+    CASE Circle(c)
+      tail = __canvas_appendGradientTail([], c.paint)
+      header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
+    CASE Line(l)
+      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
+    CASE Arc(a)
+      header = __canvas_arcHeader(a)
+    CASE Polygon(p)
+      IF len(p.points) >= 2 THEN
+        tail = __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
+      END IF
+      header = __canvas_polygonHeader(p)
+    CASE Picture(pic)
+      header = __canvas_pictureHeader(pic)
+    CASE Ellipse(e)
+      tail = __canvas_appendGradientTail([], e.paint)
+      header = __canvas_ellipseHeader(e)
+    CASE Text(t)
+      IF __canvas_strokeHalf(t.paint) > 0.0 THEN
+        tail = __canvas_textEdges(t)
+      ELSE
+        tail = __canvas_textGlyphRun(t)
+      END IF
+      header = __canvas_textHeader(t, tail)
+    ' plan-116-G: a Group has no geometry of its own -- it names one -- so no tail, and
+    ' the empty header, whose NONE kind every renderer skips. It never reaches here from
+    ' the walk (a group is expanded, not cached); the arm is what keeps MATCH exhaustive.
+    CASE Group(g)
+      header = __canvas_emptyHeader()
+  END MATCH
   __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
   LET offset AS Integer = len(__CANVAS_GEO_DATA)
-  ' Append straight into the GLOBAL, one element at a time. `x = collections::append(x,
-  ' e)` on a module-level global is site S2 of the in-place self-update table
-  ' (`.ai/collections.md`), so each of these is an amortised O(1) write into the arena's
-  ' own headroom.
+  ' Append straight into the GLOBAL. `x = collections::append(x, list)` on a
+  ' module-level global is site S2 of the in-place self-update table
+  ' (`.ai/collections.md`): one amortised copy of the whole list into the arena's own
+  ' headroom. Staging it in a local copied the whole arena per miss (bug-682), and
+  ' appending float by float cost ~19 ns a float (bug-686).
   '
-  ' bug-682: this used to stage the appends in `MUT buffer AS List OF Float =
-  ' __CANVAS_GEO_DATA` and write the global back once, because appending into a global
-  ' predates S2 and did copy the whole buffer per element. The local is no cheaper now
-  ' and the bind itself is a copy of the entire arena -- value semantics, the global is
-  ' read and then reassigned -- so every cache miss cost O(arena) while the arena only
-  ' grew. With 60 changing items a frame that was 21.6 GB of peak RSS in 100 frames,
-  ' most of it the copies rather than the arena.
-  MUT i AS Integer = 0
-  WHILE i < __CANVAS_GEO_HEADER
-    LET h AS Float = collections::getOr(header, i, 0.0)
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, h)
-    i = i + 1
-  END WHILE
-  MUT j AS Integer = 0
+  ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
+  ' from `__canvas_blankHeader` -- and slot 1 declares the record's length on that
+  ' assumption. The padded loop below is the guard for a builder that ever breaks it.
+  IF len(header) = __CANVAS_GEO_HEADER THEN
+    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, header)
+  ELSE
+    MUT i AS Integer = 0
+    WHILE i < __CANVAS_GEO_HEADER
+      LET h AS Float = collections::getOr(header, i, 0.0)
+      __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, h)
+      i = i + 1
+    END WHILE
+  END IF
   LET tailCount AS Integer = len(tail)
-  WHILE j < tailCount
-    LET v AS Float = collections::getOr(tail, j, 0.0)
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, v)
-    j = j + 1
-  END WHILE
+  __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, tail)
+  LET fresh AS Integer = len(__CANVAS_GEO_HASHES)
   __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
   __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, offset)
   __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, __CANVAS_GEO_HEADER + tailCount)
-  __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, __CANVAS_GEO_REV)
+  __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, 0)
+  __CANVAS_GEO_INDEX = collections::set(__CANVAS_GEO_INDEX, hash, fresh)
+  __canvas_geoStamp(fresh)
   RETURN offset
 END FUNC
 
@@ -1135,206 +1058,151 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   RETURN __canvas_boundsHeader(out, minX - advance, t.y - ascent - 2.0, maxX + advance, t.y + descent + 2.0)
 END FUNC
 
-FUNC __canvas_headerIsDeferred(item AS DrawItem) AS Boolean
-  MATCH item
-    CASE Text(t)
-      RETURN TRUE
-    CASE Rectangle(r)
-      RETURN FALSE
-    CASE RoundedRect(rr)
-      RETURN FALSE
-    CASE Circle(c)
-      RETURN FALSE
-    CASE Line(l)
-      RETURN FALSE
-    CASE Arc(a)
-      RETURN FALSE
-    CASE Polygon(p)
-      RETURN FALSE
-    CASE Picture(pic)
-      RETURN FALSE
-    CASE Ellipse(e)
-      RETURN FALSE
-    ' plan-116-G, and the load-bearing arm of the seven. TRUE, not FALSE.
-    '
-    ' A deferred kind probes the geometry cache on its HASH rather than on its header.
-    ' A Group's header is empty, and empty is the same bytes for every group -- so a
-    ' non-deferred Group would give every group node in a scene one cache entry, and
-    ' the cache would hand all of them the first node's contents. That is plan-98-G
-    ' Correction 14 exactly: a sixty-item scene drew one glyph, sixty times, in one
-    ' place. `__canvas_deferredHash` is what carries the name and offset the empty
-    ' header cannot.
-    CASE Group(g)
-      RETURN TRUE
-  END MATCH
+' bug-686: every item's hash is folded from its own FIELDS, kind by kind. It used to be
+' a hash of the item's built geometry header -- 47 floats, the transform inverted, the
+' bounds computed -- which made `canvas::present` build every item's header on the
+' worker only to hash it, and was most of the 3-4 us per item a present cost. The
+' fields determine the header, so hashing them keys the cache exactly as well; what the
+' header could not carry (a polygon's points, a gradient's stops, a string, a font or
+' image) is folded in explicitly, as it always was.
+'
+' Each kind starts from its own tag, so two kinds with coincidentally equal fields
+' (a `Rectangle` and a `Picture` at the same box) never share a key.
+FUNC __canvas_hashStart(tag AS Integer) AS Integer
+  RETURN __canvas_hashStep(2166136261, tag)
 END FUNC
 
-FUNC __canvas_deferredHeader(item AS DrawItem, tail AS List OF Float) AS List OF Float
-  MATCH item
-    CASE Text(t)
-      RETURN __canvas_textHeader(t, tail)
-    CASE Rectangle(r)
-      RETURN __canvas_emptyHeader()
-    CASE RoundedRect(rr)
-      RETURN __canvas_emptyHeader()
-    CASE Circle(c)
-      RETURN __canvas_emptyHeader()
-    CASE Line(l)
-      RETURN __canvas_emptyHeader()
-    CASE Arc(a)
-      RETURN __canvas_emptyHeader()
-    CASE Polygon(p)
-      RETURN __canvas_emptyHeader()
-    CASE Picture(pic)
-      RETURN __canvas_emptyHeader()
-    CASE Ellipse(e)
-      RETURN __canvas_emptyHeader()
-    CASE Group(g)
-      RETURN __canvas_emptyHeader()
-  END MATCH
+FUNC __canvas_hashPoint(acc AS Integer, p AS Point) AS Integer
+  RETURN __canvas_hashFloat(__canvas_hashFloat(acc, p.x), p.y)
 END FUNC
 
-' plan-116-G: a Group node's identity for the geometry cache.
-'
-' Shaped like `__canvas_textHash` below and for the same reason: the header is empty,
-' so everything that distinguishes one group node from another has to be folded in by
-' hand. That is the kind, the offset, and the NAME -- two nodes naming different groups
-' at the same offset must not collide, and neither must the same group at two offsets.
-'
-' The name goes in a codepoint at a time through `__canvas_hashStep`, exactly as
-' `__canvas_textHash` folds its text, because a String is not otherwise hashable here.
-FUNC __canvas_groupHash(g AS Group) AS Integer
-  MUT h AS List OF Float = __canvas_blankHeader()
-  h = collections::set(h, 0, toFloat(__CANVAS_GEO_GROUP))
-  h = collections::set(h, 4, g.dx)
-  h = collections::set(h, 5, g.dy)
-  MUT acc AS Integer = __canvas_hashGeometry(h, 0, __CANVAS_GEO_HEADER)
-  FOR EACH cp IN encoding::utf32Encode(g.name)
-    acc = __canvas_hashStep(acc, cp)
+' Everything in a `Paint`: both colours, the stroke width, the blend mode, the clip, the
+' transform, and the fill gradient with its stops. A gradient on a kind that ignores it
+' (a `Line`, an `Arc`, `Text`) only splits cache entries that draw identically, which
+' costs a build and never a wrong picture.
+FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
+  MUT h AS Integer = acc
+  h = __canvas_hashStep(h, toInt(paint.fill.red))
+  h = __canvas_hashStep(h, toInt(paint.fill.green))
+  h = __canvas_hashStep(h, toInt(paint.fill.blue))
+  h = __canvas_hashStep(h, toInt(paint.fill.alpha))
+  h = __canvas_hashStep(h, toInt(paint.stroke.red))
+  h = __canvas_hashStep(h, toInt(paint.stroke.green))
+  h = __canvas_hashStep(h, toInt(paint.stroke.blue))
+  h = __canvas_hashStep(h, toInt(paint.stroke.alpha))
+  h = __canvas_hashFloat(h, paint.strokeWidth)
+  MUT blend AS Integer = 0
+  IF paint.blend = BlendMode.Multiply THEN
+    blend = 1
+  END IF
+  IF paint.blend = BlendMode.Screen THEN
+    blend = 2
+  END IF
+  IF paint.blend = BlendMode.Add THEN
+    blend = 3
+  END IF
+  h = __canvas_hashStep(h, blend)
+  h = __canvas_hashFloat(h, paint.clip.x)
+  h = __canvas_hashFloat(h, paint.clip.y)
+  h = __canvas_hashFloat(h, paint.clip.w)
+  h = __canvas_hashFloat(h, paint.clip.h)
+  h = __canvas_hashFloat(h, paint.transform.a)
+  h = __canvas_hashFloat(h, paint.transform.b)
+  h = __canvas_hashFloat(h, paint.transform.c)
+  h = __canvas_hashFloat(h, paint.transform.d)
+  h = __canvas_hashFloat(h, paint.transform.tx)
+  h = __canvas_hashFloat(h, paint.transform.ty)
+  MUT radial AS Integer = 0
+  IF paint.fillGradient.kind = GradientKind.Radial THEN
+    radial = 1
+  END IF
+  h = __canvas_hashStep(h, radial)
+  h = __canvas_hashPoint(h, paint.fillGradient.startPoint)
+  h = __canvas_hashPoint(h, paint.fillGradient.endPoint)
+  h = __canvas_hashStep(h, len(paint.fillGradient.stops))
+  FOR EACH stop IN paint.fillGradient.stops
+    h = __canvas_hashFloat(h, stop.offset)
+    h = __canvas_hashStep(h, toInt(stop.color.red))
+    h = __canvas_hashStep(h, toInt(stop.color.green))
+    h = __canvas_hashStep(h, toInt(stop.color.blue))
+    h = __canvas_hashStep(h, toInt(stop.color.alpha))
   NEXT
-  RETURN acc
+  RETURN h
 END FUNC
 
-FUNC __canvas_textHash(t AS Text) AS Integer
-  MUT h AS List OF Float = __canvas_blankHeader()
-  h = collections::set(h, 0, toFloat(__CANVAS_GEO_TEXT))
-  h = collections::set(h, 3, t.size)
-  h = collections::set(h, 4, t.x)
-  h = collections::set(h, 5, t.y)
-  h = __canvas_paintHeader(h, t.paint)
-  MUT acc AS Integer = __canvas_hashGeometry(h, 0, __CANVAS_GEO_HEADER)
-  ' The font id is a resource HANDLE -- an address -- and must be folded in as the
-  ' integer it is, never through `__canvas_hashFloat`. That helper computes
-  ' `toInt(value * 65536.0)`, which is right for a coordinate and catastrophic for a
-  ' pointer: a 48-bit address times 65536 is about 1.8e19, past Integer's 9.22e18
-  ' ceiling, so `toInt` raises ErrOverflow. Measured on the same program built from
-  ' the same source -- aarch64 id 281473274138192 gives 1.8447e19 and raises
-  ' `7-705-0010` on every single text present; x86_64 id 139798313152080 gives
-  ' 9.1618e18 and survives by 0.7%, which is not correctness but the luck of that
-  ' host's address-space layout. `__canvas_hashStep` multiplies the accumulator, not
-  ' the value, so an address folds in with room to spare.
-  acc = __canvas_hashStep(acc, canvas::fontHandle(t.font))
-  FOR EACH cp IN encoding::utf32Encode(t.text)
-    acc = __canvas_hashStep(acc, cp)
+' A String folds in a codepoint at a time -- a String is not otherwise hashable here --
+' after its length, so "ab" + "c" and "a" + "bc" in two adjacent fields cannot collide.
+FUNC __canvas_hashText(acc AS Integer, text AS String) AS Integer
+  LET cps AS List OF Integer = encoding::utf32Encode(text)
+  MUT h AS Integer = __canvas_hashStep(acc, len(cps))
+  FOR EACH cp IN cps
+    h = __canvas_hashStep(h, cp)
   NEXT
-  RETURN acc
-END FUNC
-
-FUNC __canvas_deferredHash(item AS DrawItem) AS Integer
-  MATCH item
-    CASE Text(t)
-      RETURN __canvas_textHash(t)
-    CASE Rectangle(r)
-      RETURN 0
-    CASE RoundedRect(rr)
-      RETURN 0
-    CASE Circle(c)
-      RETURN 0
-    CASE Line(l)
-      RETURN 0
-    CASE Arc(a)
-      RETURN 0
-    CASE Polygon(p)
-      RETURN 0
-    CASE Picture(pic)
-      RETURN 0
-    CASE Ellipse(e)
-      RETURN 0
-    CASE Group(g)
-      RETURN __canvas_groupHash(g)
-  END MATCH
-END FUNC
-
-' Fold a paint's gradient stops into a running hash.
-'
-' The header already carries the count, the kind and the two points, so what this adds
-' is the stop VALUES -- the part that lives only in the tail. Without it, two gradients
-' differing only in colour hash the same, share a cache entry, and the second draws the
-' first's ramp. That is exactly the polygon failure of 2026-09-01, and it is why this
-' letter touches the hash and `__canvas_tailMatches` together rather than either alone.
-FUNC __canvas_hashGradient(acc AS Integer, paint AS Paint) AS Integer
-  LET stops AS List OF Float = __canvas_gradientTail(paint)
-  MUT out AS Integer = acc
-  MUT i AS Integer = 0
-  LET n AS Integer = len(stops)
-  WHILE i < n
-    out = __canvas_hashFloat(out, collections::getOr(stops, i, 0.0))
-    i = i + 1
-  END WHILE
-  RETURN out
+  RETURN h
 END FUNC
 
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer
-  ' A deferred kind has no header until its tail is flattened, so `__canvas_headerFor`
-  ' answers the SAME empty header for every one of them -- and a deferred kind probes
-  ' the geometry cache on the hash alone. Hashing that empty header would therefore
-  ' give every string on screen one hash, and the cache would hand all of them the
-  ' first string's glyph run: a sixty-item scene drew one glyph, sixty times, in one
-  ' place (plan-98-G Correction 14). The hash has to carry by hand exactly what the
-  ' deferred header would otherwise have carried.
-  IF __canvas_headerIsDeferred(item) THEN
-    RETURN __canvas_deferredHash(item)
-  END IF
-  LET header AS List OF Float = __canvas_headerFor(item)
-  MUT acc AS Integer = __canvas_hashGeometry(header, 0, __CANVAS_GEO_HEADER)
-  ' A polygon's POINTS live only in the tail, and its header carries just their
-  ' bounds and count -- so two different polygons can share a header (two same-box,
-  ' same-count, same-paint triangles collided and one drew twice). The hash carries
-  ' the coordinates by hand, exactly as `__canvas_textHash` carries its codepoints.
   MATCH item
-    CASE Polygon(p)
-      LET count AS Integer = len(p.points)
-      MUT i AS Integer = 0
-      WHILE i < count
-        LET q AS Point = collections::getOr(p.points, i, Point[x := 0.0, y := 0.0])
-        acc = __canvas_hashFloat(acc, q.x)
-        acc = __canvas_hashFloat(acc, q.y)
-        i = i + 1
-      END WHILE
-      RETURN __canvas_hashGradient(acc, p.paint)
     CASE Rectangle(r)
-      RETURN __canvas_hashGradient(acc, r.paint)
+      MUT h AS Integer = __canvas_hashStart(1)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, r.x), r.y), r.w), r.h)
+      RETURN __canvas_hashPaint(h, r.paint)
     CASE RoundedRect(rr)
-      RETURN __canvas_hashGradient(acc, rr.paint)
+      MUT h AS Integer = __canvas_hashStart(2)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, rr.x), rr.y), rr.w), rr.h)
+      h = __canvas_hashFloat(h, rr.cornerRadius)
+      RETURN __canvas_hashPaint(h, rr.paint)
     CASE Circle(c)
-      RETURN __canvas_hashGradient(acc, c.paint)
+      MUT h AS Integer = __canvas_hashStart(3)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.x), c.y), c.radius)
+      RETURN __canvas_hashPaint(h, c.paint)
     CASE Line(l)
-      RETURN acc
+      MUT h AS Integer = __canvas_hashStart(4)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, l.x1), l.y1), l.x2), l.y2)
+      h = __canvas_hashStep(h, __canvas_capTag(l.cap))
+      RETURN __canvas_hashPaint(h, l.paint)
     CASE Arc(a)
-      RETURN acc
-    CASE Text(t)
-      RETURN acc
+      MUT h AS Integer = __canvas_hashStart(5)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.x), a.y), a.radius)
+      h = __canvas_hashFloat(__canvas_hashFloat(h, a.startAngle), a.endAngle)
+      h = __canvas_hashStep(h, __canvas_capTag(a.cap))
+      RETURN __canvas_hashPaint(h, a.paint)
+    CASE Polygon(p)
+      MUT h AS Integer = __canvas_hashStart(6)
+      h = __canvas_hashStep(h, len(p.points))
+      FOR EACH q IN p.points
+        h = __canvas_hashPoint(h, q)
+      NEXT
+      RETURN __canvas_hashPaint(h, p.paint)
     CASE Picture(pic)
-      RETURN acc
+      ' The image by its backend id: a destroyed image answers 0, so the item's key
+      ' changes and its geometry is rebuilt as the empty header it now is. A `setBytes`
+      ' does NOT change this key -- the pixel block is re-read on every frame instead
+      ' (`__canvas_geoProbe`, `__canvas_pictureIsCurrent`).
+      MUT h AS Integer = __canvas_hashStart(7)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, pic.x), pic.y), pic.w), pic.h)
+      h = __canvas_hashStep(h, canvas::imageHandle(pic.image))
+      RETURN __canvas_hashPaint(h, pic.paint)
+    CASE Text(t)
+      ' The font id is a resource HANDLE -- an address -- and must be folded in as the
+      ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
+      ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
+      MUT h AS Integer = __canvas_hashStart(8)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.x), t.y), t.size)
+      h = __canvas_hashStep(h, canvas::fontHandle(t.font))
+      h = __canvas_hashText(h, t.text)
+      RETURN __canvas_hashPaint(h, t.paint)
     CASE Ellipse(e)
-      RETURN __canvas_hashGradient(acc, e.paint)
-    ' plan-116-G. UNREACHABLE -- `__canvas_headerIsDeferred` answers TRUE for a Group,
-    ' so the early return above takes every group to `__canvas_deferredHash`. Present
-    ' because MATCH is exhaustive, and answering `acc` rather than 0 so that if the
-    ' deferred answer is ever changed to FALSE this degrades to the empty header's hash
-    ' instead of to a constant, which is the less wrong of the two.
+      MUT h AS Integer = __canvas_hashStart(9)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.x), e.y), e.radiusX), e.radiusY)
+      h = __canvas_hashFloat(h, e.angle)
+      RETURN __canvas_hashPaint(h, e.paint)
+    ' plan-116-G: a group node is its name and its offset. Two nodes naming different
+    ' groups at the same offset must not collide, and neither must one group at two.
     CASE Group(g)
-      RETURN acc
+      MUT h AS Integer = __canvas_hashStart(10)
+      h = __canvas_hashFloat(__canvas_hashFloat(h, g.dx), g.dy)
+      RETURN __canvas_hashText(h, g.name)
   END MATCH
 END FUNC"#;
 

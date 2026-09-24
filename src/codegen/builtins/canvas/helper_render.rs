@@ -58,8 +58,7 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
   END IF
   ' plan-116-G: indexed rather than `FOR EACH`, because each draw entry now carries an
   ' accumulated group translation alongside its geometry offset. The two travel in
-  ' parallel globals written by `__canvas_sceneOffsets`, the arrangement
-  ' `__CANVAS_GEO_LIVE` already uses in that function -- one list per fact, indexed
+  ' parallel globals written by `__canvas_sceneOffsets` -- one list per fact, indexed
   ' together. A scene with no groups leaves every entry at 0.0 and draws exactly what it
   ' drew before this letter.
   MUT di AS Integer = 0
@@ -186,7 +185,6 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
     CASE ELSE
       LET offset AS Integer = __canvas_geometryFor(item, hash)
       out = collections::append(out, offset)
-      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
       __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, gdx)
       __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, gdy)
       ' The accumulated offset is folded into the recorded hash, not just carried
@@ -293,6 +291,16 @@ END FUNC
 ' it" means once the group can itself contain groups.
 MUT __CANVAS_DRAWS AS List OF Integer = []
 MUT __CANVAS_DRAW_BLOCKS AS List OF Integer = []
+
+' bug-686: what `__canvas_sceneOffsets` resolved, per scene INDEX (the installed items,
+' then every layer's items -- the order `canvas::installedHashes()` is in): the item's
+' geometry offset, or -1 for a `Group` node. `__canvas_sceneDraws` lays the draw list out
+' from this instead of resolving every item a second time.
+MUT __CANVAS_TOP_OFFSETS AS List OF Integer = []
+' The scene's items, in the same order -- fetched only on a frame where some item could
+' not be resolved from its hash alone (a miss, a picture, a group), and empty otherwise.
+' A frame whose items are all cached never copies the scene out of the ring.
+MUT __CANVAS_FRAME_ITEMS AS List OF DrawItem = []
 ' Slot index -> the base of that group's own run in `__CANVAS_DRAW_BLOCKS`, and its
 ' length. Parallel lists rather than a Map because a Map of Integer to Integer would
 ' allocate per frame and this is walked once per group node.
@@ -512,74 +520,134 @@ FUNC __canvas_sceneDraws() AS List OF Integer
   __CANVAS_DRAW_MEMO_SLOT = []
   __CANVAS_DRAW_MEMO_BASE = []
   __CANVAS_DRAW_MEMO_COUNT = []
-  LET hashes AS List OF Integer = canvas::installedHashes()
-  MUT index AS Integer = 0
+  LET hashes AS List OF Integer = []
   MUT runBase AS Integer = 0
   MUT runCount AS Integer = 0
-  FOR EACH item IN canvas::installedItems()
-    MATCH item
-      CASE Group(g)
-        ' A group ends the current run.
-        __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
-        runCount = 0
-        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
-        runBase = len(__CANVAS_DRAW_BLOCKS)
-      CASE ELSE
-        LET itemOffset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-        ' Straight into the GLOBAL. `MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS`
-        ' is a copy of the whole list -- value semantics: the global is read and then
-        ' reassigned -- so item k copied a k-element list and this walk was O(n^2).
-        ' Appending to the global is site S2 of the in-place self-update table
-        ' (`.ai/collections.md`), an amortised O(1) write into its own headroom. Same
-        ' defect bug-682 removed from `__canvas_geometryFor`, in the places it also
-        ' lived. Measured at 5000 items: this walk went 2372 ms -> 157 ms a frame.
-        __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, itemOffset)
-        __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
-        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
-        IF runCount = 0 THEN
-          runBase = len(__CANVAS_DRAW_BLOCKS) - 1
-        END IF
-        runCount = runCount + 1
-    END MATCH
+  ' bug-686: the offsets `__canvas_sceneOffsets` already resolved, one per scene index --
+  ' the installed items AND every layer's items. This walk used to resolve every item
+  ' again (a second full pass of geometry lookups per frame), and it walked only
+  ' `canvas::installedItems()`, so a scene installed with `presentLayers` published no
+  ' blocks at all and Metal drew an empty frame.
+  LET count AS Integer = len(__CANVAS_TOP_OFFSETS)
+  ' Bound once, not written inline as `getOr`'s default: a module-function call in a
+  ' LATER operand makes the global list operand a snapshot (`.ai/collections.md`,
+  ' bug-496), and snapshotting the whole scene per item made this walk O(n^2).
+  LET none AS DrawItem = __canvas_noItem()
+  MUT index AS Integer = 0
+  WHILE index < count
+    LET itemOffset AS Integer = collections::getOr(__CANVAS_TOP_OFFSETS, index, 0 - 1)
+    IF itemOffset < 0 THEN
+      ' A group node: it ends the current run, then lays out (or reuses) its own.
+      MATCH collections::getOr(__CANVAS_FRAME_ITEMS, index, none)
+        CASE Group(g)
+          __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+          runCount = 0
+          __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
+          runBase = len(__CANVAS_DRAW_BLOCKS)
+        CASE ELSE
+          LET unreachable AS Integer = 0
+      END MATCH
+    ELSE
+      ' Straight into the GLOBAL (site S2 of the in-place self-update table,
+      ' `.ai/collections.md`), an amortised O(1) write -- binding it to a local first
+      ' copied the whole list per item and made this walk O(n^2).
+      __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, itemOffset)
+      __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
+      __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
+      IF runCount = 0 THEN
+        runBase = len(__CANVAS_DRAW_BLOCKS) - 1
+      END IF
+      runCount = runCount + 1
+    END IF
     index = index + 1
-  NEXT
+  END WHILE
   __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
   RETURN __CANVAS_DRAWS
+END FUNC
+
+' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named
+' by nothing resolves to no slot and draws nothing, so reaching it is harmless.
+FUNC __canvas_noItem() AS DrawItem
+  RETURN Group[name := "", dx := 0.0, dy := 0.0]
+END FUNC
+
+' Every item of the installed scene, in `canvas::installedHashes()` order: the flat items,
+' then each layer's.
+FUNC __canvas_flatScene() AS List OF DrawItem
+  MUT out AS List OF DrawItem = canvas::installedItems()
+  FOR EACH layer IN canvas::installedLayers()
+    FOR EACH item IN layer.items
+      out = collections::append(out, item)
+    NEXT
+  NEXT
+  RETURN out
 END FUNC
 
 FUNC __canvas_sceneOffsets() AS List OF Integer
   MUT offsets AS List OF Integer = []
   LET hashes AS List OF Integer = canvas::installedHashes()
-  MUT index AS Integer = 0
   __CANVAS_DRAW_DX = []
   __CANVAS_DRAW_DY = []
   __CANVAS_DRAW_HASHES = []
-  ' Published as it goes, not at the end. The geometry cache is smaller than a large
-  ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
-  ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
-  ' know that those glyphs are live; without it a 300-item scene lost six of them,
-  ' silently, because their cache indices were renumbered out from under the offsets
-  ' this function had already returned.
-  __CANVAS_GEO_LIVE = []
-  ' bug-682: and this is therefore the one point in a frame where NO geometry offset is
-  ' live -- the previous frame's are dead and this frame's do not exist yet -- so it is
-  ' the only place the arena's evicted floats can be reclaimed. `__canvas_geoCompact`
-  ' declines unless there is slack, so an all-hit scene pays nothing for it.
-  __canvas_geoCompact()
-  ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
-  ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
-  ' resolved before the call writes into the block that pass released
-  ' (`.ai/collections.md`). `__canvas_appendDraw` keeps that discipline.
-  FOR EACH item IN canvas::installedItems()
-    offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
-    index = index + 1
-  NEXT
-  FOR EACH layer IN canvas::installedLayers()
-    FOR EACH item IN layer.items
-      offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
-      index = index + 1
-    NEXT
-  NEXT
+  __CANVAS_TOP_OFFSETS = []
+  __CANVAS_FRAME_ITEMS = []
+  ' bug-682/bug-686: the one point in a frame where NO geometry offset is live -- the
+  ' previous frame's are dead and this frame's do not exist yet -- so it is the only place
+  ' the cache may drop a slot or move a float. Nothing after this point in the frame does.
+  __canvas_geoBeginFrame()
+
+  ' bug-686, pass 1: resolve every item from its published hash alone. On a scene whose
+  ' items did not change this is the whole walk -- one map probe per item, and the scene
+  ' is never copied out of the ring.
+  LET count AS Integer = len(hashes)
+  MUT probes AS List OF Integer = []
+  MUT unresolved AS Boolean = FALSE
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET probe AS Integer = __canvas_geoProbe(collections::getOr(hashes, i, 0))
+    probes = collections::append(probes, probe)
+    IF probe < 0 THEN
+      unresolved = TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  IF unresolved THEN
+    __CANVAS_FRAME_ITEMS = __canvas_flatScene()
+  END IF
+
+  ' Bound once -- see `__canvas_sceneDraws`: a call in `getOr`'s default would snapshot
+  ' the whole global scene list per item.
+  LET none AS DrawItem = __canvas_noItem()
+
+  ' Pass 2: lay the frame out. A resolved item is one entry at no offset; anything else
+  ' goes through `__canvas_appendDraw`, which builds a missing item's geometry, re-reads
+  ' a picture's image, and expands a group into its children.
+  i = 0
+  WHILE i < count
+    LET hash AS Integer = collections::getOr(hashes, i, 0)
+    LET probe AS Integer = collections::getOr(probes, i, 0 - 1)
+    IF probe >= 0 THEN
+      offsets = collections::append(offsets, probe)
+      __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, 0.0)
+      __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, 0.0)
+      ' Exactly what `__canvas_appendDraw` records for an item at no group offset. A
+      ' resolved item is never a picture (`__canvas_geoProbe` refers those back), so the
+      ' pixel-block fold it adds does not apply.
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, 0.0), 0.0))
+      __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, probe)
+    ELSE
+      LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
+      LET before AS Integer = len(offsets)
+      offsets = __canvas_appendDraw(offsets, item, hash, 0.0, 0.0, 0)
+      MATCH item
+        CASE Group(g)
+          __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, 0 - 1)
+        CASE ELSE
+          __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, collections::getOr(offsets, before, 0 - 1))
+      END MATCH
+    END IF
+    i = i + 1
+  END WHILE
   RETURN offsets
 END FUNC
 
@@ -889,19 +957,22 @@ END FUNC
 
 FUNC __canvas_renderFrame() AS Nothing
   LET size AS Size = __canvas_surfaceSize()
+  __canvas_phaseMark(0)
   ' The geometry is built once, here, and the offsets are then handed to whichever
   ' backend draws them. It has to happen before the damage diff rather than inside the
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  __canvas_phaseMark(1)
   ' plan-116-H Phase 1: build the GPU draw list beside the software one. Nothing
   ' consumes it yet -- both backends still decline a group scene -- but it is built every
   ' frame so `MFB_CANVAS_STATS` can report it, which is the only way a test can see a
   ' structure that exists on the graphics thread and is handed straight to an emitter.
   '
-  ' Cheap despite walking the tree a second time: both walks resolve geometry through
-  ' `__canvas_geometryFor`, which IS the cache, so the second one hits it.
+  ' bug-686: it lays the list out from the offsets `__canvas_sceneOffsets` just resolved
+  ' rather than resolving every item again.
   LET draws AS List OF Integer = __canvas_sceneDraws()
+  __canvas_phaseMark(2)
   ' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
   ' worker action to land mid-render.
   '
@@ -929,6 +1000,7 @@ FUNC __canvas_renderFrame() AS Nothing
   LET hashes AS List OF Integer = __CANVAS_DRAW_HASHES
   LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
   __CANVAS_DAMAGE = damage
+  __canvas_phaseMark(3)
   IF len(damage) = 0 THEN
     ' Nothing changed, so nothing is presented. The loop still calls `frameDone`, so a
     ' `present` waiting under MFB_CANVAS_SYNC is released -- a skipped frame is a frame
@@ -956,15 +1028,18 @@ macro_rules! render_loop_tail {
   ' does not do at all (Correction 24).
   IF canvas::useGpu() AND canvas::metalReady() THEN
     IF __canvas_renderMetal(offsets, size.width, size.height) THEN
+      __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   IF canvas::useGpu() AND canvas::vulkanReady() THEN
     IF __canvas_renderVulkan(offsets, size.width, size.height) THEN
+      __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   __canvas_renderScene(offsets, damage, size.width, size.height)
+  __canvas_phaseMark(4)
 END FUNC"#
     };
 }
@@ -1004,6 +1079,34 @@ END FUNC"#
 /// It renders the *installed* scene rather than being handed one, which is what lets
 /// a repaint no `present` caused — a resize, an expose — draw the right picture.
 const RENDER_LOOP: &str = concat!(render_loop_head!(), render_loop_tail!());
+
+/// bug-686 Phase 0: where a frame's time goes, reported on the `MFB_CANVAS_STATS` line.
+///
+/// `__canvas_renderFrame` marks five points: the frame's start, then the end of the scene
+/// walk, of the draw list, of the damage diff and of the render (the predicate, the
+/// backend's own work, readback and present). A normal build's mark is an empty `SUB`;
+/// a `--debug` build's accumulates the nanoseconds between consecutive marks per phase,
+/// and `__canvas_phaseText` reports each total in milliseconds. Cumulative, like
+/// `generations=`, because the interesting quantity is the delta between frames.
+const PHASE_TIMERS: &str = r#"SUB __canvas_phaseMark(phase AS Integer)
+END SUB"#;
+
+#[rustfmt::skip]
+const PHASE_TIMERS_DEBUG: &str = r#"MUT __CANVAS_PHASE_AT AS Integer = 0
+MUT __CANVAS_PHASE_NS AS List OF Integer = [0, 0, 0, 0]
+
+SUB __canvas_phaseMark(phase AS Integer)
+  LET now AS Integer = canvas::frameNanos()
+  IF phase > 0 AND __CANVAS_PHASE_AT > 0 THEN
+    LET spent AS Integer = collections::getOr(__CANVAS_PHASE_NS, phase - 1, 0) + (now - __CANVAS_PHASE_AT)
+    __CANVAS_PHASE_NS = collections::set(__CANVAS_PHASE_NS, phase - 1, spent)
+  END IF
+  __CANVAS_PHASE_AT = now
+END SUB
+
+FUNC __canvas_phaseText() AS String
+  RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000)
+END FUNC"#;
 
 /// [`RENDER_LOOP`] for a `--debug` build: a skipped frame also writes the
 /// `MFB_CANVAS_STATS` line.
@@ -1122,6 +1225,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_ensureGraphics",
         ENSURE_GRAPHICS,
     ));
+    for helper in
+        RegistryHelper::debug_split("canvas_phaseTimers", PHASE_TIMERS, PHASE_TIMERS_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     for helper in RegistryHelper::debug_split("canvas_renderLoop", RENDER_LOOP, RENDER_LOOP_DEBUG) {
         pkg.add_helper(helper);
     }
