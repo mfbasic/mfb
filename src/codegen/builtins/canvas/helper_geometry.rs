@@ -85,32 +85,36 @@ LET __CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = 35
 LET __CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = 36
 LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216"#;
 
-/// The cache, as parallel lists rather than a list of records.
+/// The cache, as flat lists rather than a list of records.
 ///
 /// A `GeoCacheEntry` record would have to be declared in the `canvas` package, where
 /// it would appear in `mfb man canvas types` as a type no program can name or use —
-/// the same reason `__CANVAS_KIND_*` are bare integers. Parallel lists also match
-/// how the data is consumed: the rasteriser walks `__CANVAS_GEO_DATA` linearly and
-/// never wants a whole entry at once.
+/// the same reason `__CANVAS_KIND_*` are bare integers. Flat lists also match how the
+/// data is consumed: the rasteriser walks `__CANVAS_GEO_DATA` linearly and never wants a
+/// whole entry at once.
 ///
-/// bug-686: the cache is keyed by `__CANVAS_GEO_INDEX`, a `Map` from item hash to slot,
-/// and a slot lives until the frame boundary after the first frame that did not use it.
-/// It used to be a 256-slot list scanned linearly per probe, with least-recently-used
-/// eviction — so any scene larger than 256 items missed on every item, twice a frame,
-/// and every probe also rebuilt the item's whole header to confirm a hit.
+/// bug-686: the store is kept natively (`func_geo_cache.rs`): `__CANVAS_GEO_SLOTS` holds
+/// four words per slot and `__CANVAS_GEO_TABLE` indexes them by item hash. A slot lives
+/// until the frame boundary after the first frame that did not use it. It used to be a
+/// 256-slot list scanned linearly per probe, then a `Map` whose per-frame rebuild and
+/// per-item probes were most of a moving scene's frame.
 ///
-/// `__CANVAS_GEO_LASTUSED` holds the FRAME a slot was last used in (`__CANVAS_GEO_FRAME`),
-/// and nothing is evicted inside a frame: `__canvas_geoBeginFrame` is the only place a
-/// slot is dropped, and it runs where no offset is live. So every offset a frame resolves
-/// stays valid — and its glyph indices stay valid — until that frame is drawn.
+/// A slot's fourth word is the FRAME it was last used in (`__CANVAS_GEO_FRAME`), and
+/// nothing is evicted inside a frame: `canvas::geoBeginFrame` is the only place a slot is
+/// dropped, and it runs where no offset is live. So every offset a frame resolves stays
+/// valid — and its glyph indices stay valid — until that frame is drawn.
 #[rustfmt::skip]
 const GEO_CACHE_STATE: &str =
-r#"MUT __CANVAS_GEO_INDEX AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
-MUT __CANVAS_GEO_HASHES AS List OF Integer = []
-MUT __CANVAS_GEO_OFFSETS AS List OF Integer = []
-MUT __CANVAS_GEO_COUNTS AS List OF Integer = []
-MUT __CANVAS_GEO_LASTUSED AS List OF Integer = []
+r#"' bug-686: the cache's store, kept by the native members in `func_geo_cache.rs`: four
+' words per slot (hash, offset, count, lastUsed -- -1 once forgotten), and the hash index
+' as an open-addressing table of (hash, slot) buckets.
+MUT __CANVAS_GEO_SLOTS AS List OF Integer = []
+MUT __CANVAS_GEO_TABLE AS List OF Integer = []
 MUT __CANVAS_GEO_DATA AS List OF Float = []
+' Records built by the native builder, and this frame's (index, slot) pairs of those
+' `canvas::sceneResolve` built -- what the `--debug` geometry check re-checks.
+MUT __CANVAS_GEO_NATIVE_BUILDS AS Integer = 0
+MUT __CANVAS_GEO_BUILT AS List OF Integer = []
 MUT __CANVAS_GEO_GENERATIONS AS Integer = 0
 MUT __CANVAS_GEO_COMPACTIONS AS Integer = 0
 
@@ -825,116 +829,20 @@ END FUNC"#;
 /// item changing. `__CANVAS_GEO_GENERATIONS` counts the builds: the number a test
 /// watches to prove a hit skipped generation (bug-686).
 ///
-/// Nothing is evicted inside a frame. `__canvas_geoBeginFrame`, at the one point in a
+/// Nothing is evicted inside a frame. `canvas::geoBeginFrame`, at the one point in a
 /// frame where no offset is live, drops what the previous frame did not use and
 /// renumbers the rest, so a frame can never be handed a stale offset — the failure that
 /// would draw one item's geometry for another.
 #[rustfmt::skip]
 const GEO_CACHE: &str =
 r#"' Count a slot as used by the frame in progress, once per frame however many times the
-' scene names it. What `__canvas_geoBeginFrame` knows about the live set comes from here.
+' scene names it. What `canvas::geoBeginFrame` knows about the live set comes from here.
 SUB __canvas_geoStamp(slot AS Integer)
-  IF collections::getOr(__CANVAS_GEO_LASTUSED, slot, 0) <> __CANVAS_GEO_FRAME THEN
-    __CANVAS_GEO_LASTUSED = collections::set(__CANVAS_GEO_LASTUSED, slot, __CANVAS_GEO_FRAME)
-    __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + collections::getOr(__CANVAS_GEO_COUNTS, slot, 0)
+  LET at AS Integer = slot * 4
+  IF collections::getOr(__CANVAS_GEO_SLOTS, at + 3, 0) <> __CANVAS_GEO_FRAME THEN
+    __CANVAS_GEO_SLOTS = collections::set(__CANVAS_GEO_SLOTS, at + 3, __CANVAS_GEO_FRAME)
+    __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + collections::getOr(__CANVAS_GEO_SLOTS, at + 2, 0)
   END IF
-END SUB
-
-' bug-686: the probe that does not need the item. A frame whose items are all cached
-' resolves every one of them from the published hash list alone, and never copies the
-' scene out of the ring at all.
-'
-' Answers the geometry offset, or -1 when the caller must look at the item: a miss, or a
-' `Picture`. A picture's header carries its image's pixel-block address, and
-' `canvas::setBytes` swaps that block WITHOUT a present -- so the scene's published hash
-' still names the old pixels and a hash hit alone would draw them
-' (`.ai/canvas-threading.md` section 6). `__canvas_geometryFor` re-reads the image for it.
-' A `Group` is never cached (it has no geometry of its own), so its hash always misses
-' here too and the walk expands it from the item.
-FUNC __canvas_geoProbe(hash AS Integer) AS Integer
-  LET slot AS Integer = collections::getOr(__CANVAS_GEO_INDEX, hash, 0 - 1)
-  IF slot < 0 THEN
-    RETURN 0 - 1
-  END IF
-  LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
-  IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_PICTURE THEN
-    RETURN 0 - 1
-  END IF
-  __canvas_geoStamp(slot)
-  RETURN offset
-END FUNC
-
-' Rebuild `__CANVAS_GEO_DATA` holding only what the frame just drawn used, renumbering
-' the surviving slots' offsets and the hash index (bug-682, bug-686).
-'
-' **Call this only where no offset is live.** The one such point is the top of
-' `__canvas_sceneOffsets`, before the frame resolves anything: the previous frame's
-' offsets are dead (the damage diff remembers BOUNDS, not offsets -- see
-' `__canvas_rememberScene`) and this frame's do not exist yet. Nothing else ever drops a
-' slot, so every offset a frame resolves stays valid until the frame is drawn.
-'
-' It runs when the slots the last frame did NOT use own at least as many floats as the
-' ones it did. That bounds the arena at twice the live set for any scene, and it is what
-' keeps an animating program at constant memory (bug-682): its items miss every frame,
-' so each frame's entries are stale by the next one and the pass runs every frame, at
-' the cost of copying the floats the previous frame used. A scene whose items do not
-' change adds nothing and never pays for it.
-SUB __canvas_geoBeginFrame()
-  __CANVAS_GEO_LAST_FLOATS = __CANVAS_GEO_USED_FLOATS
-  __CANVAS_GEO_USED_FLOATS = 0
-  LET stale AS Integer = len(__CANVAS_GEO_DATA) - __CANVAS_GEO_LAST_FLOATS
-  IF stale > 0 AND stale >= __CANVAS_GEO_LAST_FLOATS THEN
-    __CANVAS_GEO_COMPACTIONS = __CANVAS_GEO_COMPACTIONS + 1
-    MUT data AS List OF Float = []
-    MUT hashes AS List OF Integer = []
-    MUT offsets AS List OF Integer = []
-    MUT counts AS List OF Integer = []
-    MUT used AS List OF Integer = []
-    MUT index AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
-    ' The floats move a RUN at a time: slots sit in `__CANVAS_GEO_DATA` in slot order,
-    ' so consecutive kept slots are one contiguous span, copied with one `mid` and one
-    ' bulk append. What a frame keeps is usually a single run -- all of the previous
-    ' frame's entries -- and copying it float by float cost ~7 ms a frame on a
-    ' 5,700-item scene (bug-686).
-    LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
-    MUT runFrom AS Integer = 0
-    MUT runLength AS Integer = 0
-    MUT s AS Integer = 0
-    WHILE s < slots
-      IF collections::getOr(__CANVAS_GEO_LASTUSED, s, 0) = __CANVAS_GEO_FRAME THEN
-        LET from AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, s, 0)
-        LET owned AS Integer = collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
-        LET hash AS Integer = collections::getOr(__CANVAS_GEO_HASHES, s, 0)
-        IF runLength > 0 AND from <> runFrom + runLength THEN
-          data = collections::append(data, collections::mid(__CANVAS_GEO_DATA, runFrom, runLength))
-          runLength = 0
-        END IF
-        IF runLength = 0 THEN
-          runFrom = from
-        END IF
-        index = collections::set(index, hash, len(hashes))
-        hashes = collections::append(hashes, hash)
-        offsets = collections::append(offsets, len(data) + runLength)
-        counts = collections::append(counts, owned)
-        used = collections::append(used, __CANVAS_GEO_FRAME)
-        runLength = runLength + owned
-      END IF
-      s = s + 1
-    END WHILE
-    IF runLength > 0 THEN
-      data = collections::append(data, collections::mid(__CANVAS_GEO_DATA, runFrom, runLength))
-    END IF
-    ' All together, or the offsets name the old arena. The locals are built first and
-    ' published here because the loop above READS `__CANVAS_GEO_DATA` through the old
-    ' offsets on every iteration.
-    __CANVAS_GEO_DATA = data
-    __CANVAS_GEO_HASHES = hashes
-    __CANVAS_GEO_OFFSETS = offsets
-    __CANVAS_GEO_COUNTS = counts
-    __CANVAS_GEO_LASTUSED = used
-    __CANVAS_GEO_INDEX = index
-  END IF
-  __CANVAS_GEO_FRAME = __CANVAS_GEO_FRAME + 1
 END SUB
 
 ' Is the geometry at `offset` still this picture's? Its header holds the pixel-block
@@ -948,9 +856,9 @@ FUNC __canvas_pictureIsCurrent(offset AS Integer, pic AS Picture) AS Boolean
 END FUNC
 
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
-  LET slot AS Integer = collections::getOr(__CANVAS_GEO_INDEX, hash, 0 - 1)
+  LET slot AS Integer = canvas::geoFind(hash)
   IF slot >= 0 THEN
-    LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
+    LET offset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
     MUT current AS Boolean = TRUE
     MATCH item
       CASE Picture(pic)
@@ -978,19 +886,8 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   LET native AS List OF Float = canvas::geoBuild(item)
   IF len(native) > 0 THEN
     __canvas_geoVerify(item, native)
-    __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
-    LET nativeAt AS Integer = len(__CANVAS_GEO_DATA)
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, native)
-    LET nativeSlot AS Integer = len(__CANVAS_GEO_HASHES)
-    __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
-    __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, nativeAt)
-    __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, len(native))
-    ' `__canvas_geoStamp` of a fresh slot, inlined: it is used by this frame and has
-    ' never been counted.
-    __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, __CANVAS_GEO_FRAME)
-    __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + len(native)
-    __CANVAS_GEO_INDEX = collections::set(__CANVAS_GEO_INDEX, hash, nativeSlot)
-    RETURN nativeAt
+    __CANVAS_GEO_NATIVE_BUILDS = __CANVAS_GEO_NATIVE_BUILDS + 1
+    RETURN canvas::geoInsert(hash, native, [])
   END IF
 
   ' ONE `MATCH` for both halves (bug-686): extracting a variant copies it, and doing it
@@ -1039,37 +936,21 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     CASE Group(g)
       header = __canvas_emptyHeader()
   END MATCH
-  __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
-  LET offset AS Integer = len(__CANVAS_GEO_DATA)
-  ' Append straight into the GLOBAL. `x = collections::append(x, list)` on a
-  ' module-level global is site S2 of the in-place self-update table
-  ' (`.ai/collections.md`): one amortised copy of the whole list into the arena's own
-  ' headroom. Staging it in a local copied the whole arena per miss (bug-682), and
-  ' appending float by float cost ~19 ns a float (bug-686).
-  '
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
   ' from `__canvas_blankHeader` -- and slot 1 declares the record's length on that
-  ' assumption. The padded loop below is the guard for a builder that ever breaks it.
+  ' assumption. The padded copy below is the guard for a builder that ever breaks it.
+  ' `canvas::geoInsert` appends header then tail straight into `__CANVAS_GEO_DATA`, in
+  ' place (bug-682, bug-686), and counts the generation.
   IF len(header) = __CANVAS_GEO_HEADER THEN
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, header)
-  ELSE
-    MUT i AS Integer = 0
-    WHILE i < __CANVAS_GEO_HEADER
-      LET h AS Float = collections::getOr(header, i, 0.0)
-      __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, h)
-      i = i + 1
-    END WHILE
+    RETURN canvas::geoInsert(hash, header, tail)
   END IF
-  LET tailCount AS Integer = len(tail)
-  __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, tail)
-  LET fresh AS Integer = len(__CANVAS_GEO_HASHES)
-  __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
-  __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, offset)
-  __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, __CANVAS_GEO_HEADER + tailCount)
-  __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, 0)
-  __CANVAS_GEO_INDEX = collections::set(__CANVAS_GEO_INDEX, hash, fresh)
-  __canvas_geoStamp(fresh)
-  RETURN offset
+  MUT fixed AS List OF Float = []
+  MUT i AS Integer = 0
+  WHILE i < __CANVAS_GEO_HEADER
+    fixed = collections::append(fixed, collections::getOr(header, i, 0.0))
+    i = i + 1
+  END WHILE
+  RETURN canvas::geoInsert(hash, fixed, tail)
 END FUNC
 
 FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
@@ -1249,7 +1130,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       ' The image by its backend id: a destroyed image answers 0, so the item's key
       ' changes and its geometry is rebuilt as the empty header it now is. A `setBytes`
       ' does NOT change this key -- the pixel block is re-read on every frame instead
-      ' (`__canvas_geoProbe`, `__canvas_pictureIsCurrent`).
+      ' (`canvas::sceneResolve`, `__canvas_pictureIsCurrent`).
       MUT h AS Integer = __canvas_hashStart(7)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, pic.x), pic.y), pic.w), pic.h)
       h = __canvas_hashStep(h, canvas::imageHandle(pic.image))
@@ -1284,23 +1165,27 @@ END FUNC"#;
 /// empty `SUB`, like `__canvas_phaseMark`.
 #[rustfmt::skip]
 const GEO_VERIFY: &str = r#"SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
+END SUB
+
+SUB __canvas_geoVerifyFrame(pending AS Integer)
 END SUB"#;
 
 /// [`GEO_VERIFY`] for a `--debug` build.
 ///
-/// Counts every record the native builder produced (`geoNative=` on the stats line), and
-/// while `MFB_CANVAS_GEO_VERIFY=1` builds the same item's record with the MFBASIC
-/// builders and counts the ones that differ in any bit (`geoVerified=`,
-/// `geoVerifyMismatches=`). The comparison is `canvas::geoSame`, which compares the
-/// 64-bit patterns: a float `=` would call `-0.0` and `0.0` the same, and the software
-/// rasteriser's goldens would not. The variable is read once and cached (0 unresolved,
+/// Reports every record the native builder produced (`geoNative=` on the stats line,
+/// `__CANVAS_GEO_NATIVE_BUILDS`), and while `MFB_CANVAS_GEO_VERIFY=1` builds the same
+/// item's record with the MFBASIC builders and counts the ones that differ in any bit
+/// (`geoVerified=`, `geoVerifyMismatches=`) — both the records `__canvas_geometryFor`
+/// built through `canvas::geoBuild` and the ones `canvas::sceneResolve` built in its
+/// frame pass (`__canvas_geoVerifyFrame`), plus the draw hashes that pass folded. Records are
+/// compared with `canvas::geoSame`, which compares the 64-bit patterns: a float `=`
+/// would call `-0.0` and `0.0` the same, and the software rasteriser's goldens would not. The variable is read once and cached (0 unresolved,
 /// 1 off, 2 on), like `__canvas_dumpRequested`.
 ///
 /// `__canvas_geoReference` is `__canvas_geometryFor`'s own arms for the five kinds the
 /// native builder takes: the header followed by the tail, as the cache appends them.
 #[rustfmt::skip]
 const GEO_VERIFY_DEBUG: &str = r#"MUT __CANVAS_GEO_VERIFY_MODE AS Integer = 0
-MUT __CANVAS_GEO_NATIVE AS Integer = 0
 MUT __CANVAS_GEO_VERIFIED AS Integer = 0
 MUT __CANVAS_GEO_MISMATCHES AS Integer = 0
 
@@ -1332,15 +1217,18 @@ FUNC __canvas_geoReference(item AS DrawItem) AS List OF Float
   RETURN out
 END FUNC
 
-SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
-  __CANVAS_GEO_NATIVE = __CANVAS_GEO_NATIVE + 1
+FUNC __canvas_geoVerifying() AS Boolean
   IF __CANVAS_GEO_VERIFY_MODE = 0 THEN
     __CANVAS_GEO_VERIFY_MODE = 1
     IF os::getEnvOr("MFB_CANVAS_GEO_VERIFY", "") = "1" THEN
       __CANVAS_GEO_VERIFY_MODE = 2
     END IF
   END IF
-  IF __CANVAS_GEO_VERIFY_MODE = 2 THEN
+  RETURN __CANVAS_GEO_VERIFY_MODE = 2
+END FUNC
+
+SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
+  IF __canvas_geoVerifying() THEN
     __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
     IF NOT canvas::geoSame(native, __canvas_geoReference(item)) THEN
       __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
@@ -1348,8 +1236,46 @@ SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
   END IF
 END SUB
 
+' The frame `canvas::sceneResolve` just laid out: every record it built natively,
+' against the MFBASIC builders, and -- when no index went to MFBASIC, so the draw
+' entries are the scene's one for one -- every draw hash it folded, against
+' `__canvas_hashFloat`.
+SUB __canvas_geoVerifyFrame(pending AS Integer)
+  IF NOT __canvas_geoVerifying() THEN
+    EXIT SUB
+  END IF
+  IF len(__CANVAS_GEO_BUILT) > 0 THEN
+    LET items AS List OF DrawItem = __canvas_flatScene()
+    LET none AS DrawItem = __canvas_noItem()
+    MUT k AS Integer = 0
+    WHILE k + 1 < len(__CANVAS_GEO_BUILT)
+      LET index AS Integer = collections::getOr(__CANVAS_GEO_BUILT, k, 0)
+      LET slot AS Integer = collections::getOr(__CANVAS_GEO_BUILT, k + 1, 0)
+      LET offset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
+      LET count AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 2, 0)
+      LET record AS List OF Float = collections::mid(__CANVAS_GEO_DATA, offset, count)
+      __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
+      IF NOT canvas::geoSame(record, __canvas_geoReference(collections::getOr(items, index, none))) THEN
+        __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
+      END IF
+      k = k + 2
+    END WHILE
+  END IF
+  IF pending = 0 THEN
+    LET hashes AS List OF Integer = canvas::installedHashes()
+    MUT i AS Integer = 0
+    WHILE i < len(__CANVAS_DRAW_HASHES) AND i < len(hashes)
+      LET folded AS Integer = __canvas_hashFloat(__canvas_hashFloat(collections::getOr(hashes, i, 0), 0.0), 0.0)
+      IF collections::getOr(__CANVAS_DRAW_HASHES, i, 0) <> folded THEN
+        __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
+      END IF
+      i = i + 1
+    END WHILE
+  END IF
+END SUB
+
 FUNC __canvas_geoVerifyText() AS String
-  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES)
+  RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

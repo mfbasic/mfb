@@ -601,70 +601,57 @@ FUNC __canvas_flatScene() AS List OF DrawItem
 END FUNC
 
 FUNC __canvas_sceneOffsets() AS List OF Integer
-  MUT offsets AS List OF Integer = []
-  LET hashes AS List OF Integer = canvas::installedHashes()
-  __CANVAS_DRAW_DX = []
-  __CANVAS_DRAW_DY = []
-  __CANVAS_DRAW_HASHES = []
-  __CANVAS_TOP_OFFSETS = []
-  __CANVAS_FRAME_ITEMS = []
   ' bug-682/bug-686: the one point in a frame where NO geometry offset is live -- the
   ' previous frame's are dead and this frame's do not exist yet -- so it is the only place
   ' the cache may drop a slot or move a float. Nothing after this point in the frame does.
-  __canvas_geoBeginFrame()
+  canvas::geoBeginFrame()
 
-  ' bug-686, pass 1: resolve every item from its published hash alone. On a scene whose
-  ' items did not change this is the whole walk -- one map probe per item, and the scene
-  ' is never copied out of the ring.
-  LET count AS Integer = len(hashes)
-  MUT probes AS List OF Integer = []
-  MUT unresolved AS Boolean = FALSE
-  MUT i AS Integer = 0
-  WHILE i < count
-    LET probe AS Integer = __canvas_geoProbe(collections::getOr(hashes, i, 0))
-    probes = collections::append(probes, probe)
-    IF probe < 0 THEN
-      unresolved = TRUE
-    END IF
-    i = i + 1
-  END WHILE
-  IF unresolved THEN
+  ' bug-686, pass 1, native: every item resolved from its published hash, and every miss
+  ' of a kind `canvas::geoBuild` builds built on the spot -- into `__CANVAS_TOP_OFFSETS`,
+  ' one per scene index. What it leaves at -1 (a picture, a `Text`, a `Group`, a declined
+  ' paint or kind) is this function's. On a scene of the common kinds that is nothing,
+  ' and the scene is never copied out of the ring.
+  LET pending AS Integer = canvas::sceneResolve()
+  __CANVAS_DRAW_DX = []
+  __CANVAS_DRAW_DY = []
+  __CANVAS_DRAW_HASHES = []
+  __CANVAS_FRAME_ITEMS = []
+  MUT side AS List OF Integer = []
+  MUT spans AS List OF Integer = []
+  IF pending > 0 THEN
     __CANVAS_FRAME_ITEMS = __canvas_flatScene()
+    LET hashes AS List OF Integer = canvas::installedHashes()
+    ' Bound once -- see `__canvas_sceneDraws`: a call in `getOr`'s default would snapshot
+    ' the whole global scene list per item.
+    LET none AS DrawItem = __canvas_noItem()
+    ' Pass 2: each index pass 1 left goes through `__canvas_appendDraw`, which builds a
+    ' missing item's geometry, re-reads a picture's image, and expands a group into its
+    ' children. Its entries land in `side` and the `__CANVAS_DRAW_*` globals, and the
+    ' span -- (index, first entry, entry count) -- tells `canvas::sceneLayout` where.
+    LET count AS Integer = len(__CANVAS_TOP_OFFSETS)
+    MUT i AS Integer = 0
+    WHILE i < count
+      IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
+        LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
+        LET before AS Integer = len(side)
+        side = __canvas_appendDraw(side, item, collections::getOr(hashes, i, 0), 0.0, 0.0, 0)
+        spans = collections::append(spans, i)
+        spans = collections::append(spans, before)
+        spans = collections::append(spans, len(side) - before)
+        MATCH item
+          CASE Group(g)
+            __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, 0 - 1)
+          CASE ELSE
+            __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, collections::getOr(side, before, 0 - 1))
+        END MATCH
+      END IF
+      i = i + 1
+    END WHILE
   END IF
-
-  ' Bound once -- see `__canvas_sceneDraws`: a call in `getOr`'s default would snapshot
-  ' the whole global scene list per item.
-  LET none AS DrawItem = __canvas_noItem()
-
-  ' Pass 2: lay the frame out. A resolved item is one entry at no offset; anything else
-  ' goes through `__canvas_appendDraw`, which builds a missing item's geometry, re-reads
-  ' a picture's image, and expands a group into its children.
-  i = 0
-  WHILE i < count
-    LET hash AS Integer = collections::getOr(hashes, i, 0)
-    LET probe AS Integer = collections::getOr(probes, i, 0 - 1)
-    IF probe >= 0 THEN
-      offsets = collections::append(offsets, probe)
-      __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, 0.0)
-      __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, 0.0)
-      ' Exactly what `__canvas_appendDraw` records for an item at no group offset. A
-      ' resolved item is never a picture (`__canvas_geoProbe` refers those back), so the
-      ' pixel-block fold it adds does not apply.
-      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, 0.0), 0.0))
-      __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, probe)
-    ELSE
-      LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
-      LET before AS Integer = len(offsets)
-      offsets = __canvas_appendDraw(offsets, item, hash, 0.0, 0.0, 0)
-      MATCH item
-        CASE Group(g)
-          __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, 0 - 1)
-        CASE ELSE
-          __CANVAS_TOP_OFFSETS = collections::append(__CANVAS_TOP_OFFSETS, collections::getOr(offsets, before, 0 - 1))
-      END MATCH
-    END IF
-    i = i + 1
-  END WHILE
+  ' Pass 3, native: the frame's draw entries in scene order -- one per resolved index,
+  ' the span for each other -- replacing the `__CANVAS_DRAW_*` globals.
+  LET offsets AS List OF Integer = canvas::sceneLayout(spans, side)
+  __canvas_geoVerifyFrame(pending)
   RETURN offsets
 END FUNC
 
