@@ -438,14 +438,15 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
-/// A **polygon**'s band-index header in the same `ivec4` (bug-686, Metal only):
-/// `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over every
-/// edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`).
+/// A **polygon**'s band-index header in the same `ivec4` (bug-686 on Metal, bug-688 on
+/// Vulkan): `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over
+/// every edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`,
+/// `VULKAN_BAND_BASE_WORDS`).
 ///
 /// The per-kind sharing `ITEM_OFFSET_ARC` already does: only an arc reads its caps and
-/// only a polygon reads its bands, and no item is both. The Metal emitter writes these
-/// after `emit_item_block`'s generic arc-caps store, for polygons only; the shader reads
-/// them only when `misc.x` is the polygon kind.
+/// only a polygon reads its bands, and no item is both. Each backend's `emit_band_index`
+/// writes these after `emit_item_block`'s generic arc-caps store, for polygons only; the
+/// shaders read them only when `misc.x` is the polygon kind.
 pub(crate) const ITEM_BAND_TOP: usize = 0;
 pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
 pub(crate) const ITEM_BAND_COUNT: usize = 8;
