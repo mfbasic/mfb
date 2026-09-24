@@ -108,6 +108,38 @@ For each (a)/(b) item Phase A finds, prototype the smallest change that removes 
 
 Deliverable: for each candidate, before → after ns per item, whether it changes semantics (it must not for bin a), and its blast radius (every program, or canvas only).
 
+### B-native: the native collection code itself (bin a only: same results, faster code)
+
+The removals above ask how many times a collection primitive runs. These ask how fast each run is. Read `.ai/collections.md` first: the in-place table, the copy-insertion rules (bug-601, plan-134), and the fixed-width vs variable-width payload split (bug-621). A speed-up must keep every one of those invariants. Each item below:
+
+- starts from one microbenchmark in /tmp: 1M operations, release, median of 3;
+- is compared with the same operation in C, for its floor;
+- reads the emitted `.ncode` of the loop to name the instructions that are not needed.
+
+- [ ] **N1 `append` in place, both arms.**
+      - The hot path should be one capacity compare, a store, and a count bump. Count the instructions it actually emits for a fixed-width element (`Integer`, `canvas::Point`) and for a variable-width one (`canvas::DrawItem`).
+      - Check whether the variable-width arm re-derives `header + capacity × stride` or re-reads header words each call where it could keep them in registers across a loop.
+      - Measure the grow arm's geometric factor and its first capacity.
+- [ ] **N2 Record and union construction.** `canvas::Polygon[...]` into a `DrawItem`: how many stores, and whether the payload is built in a temporary and then copied into the union (`{tag@0, size@8, record@16}`) instead of built in place.
+- [ ] **N3 `copy_flat_block` and the graph copier.** Wherever A2 finds a copy that must stay (a real second owner), measure its throughput against `memcpy` of the same bytes.
+      - Is a flat element list copied with one `memcpy` or element by element?
+      - Is a nested list re-walked when its block could be copied whole and its interior pointers rebased?
+- [ ] **N4 Drop walkers.** Freeing a `List OF DrawItem`: per-element tag dispatch, a free per nested list, then the outer block. Compare with the minimum, one free per block actually owned. Check whether elements with no pointer fields (the fixed-width variants) still go through the walker.
+- [ ] **N5 Arena allocate and free.** The per-call cost of `_mfb_arena_alloc`/`_mfb_arena_free` for the sizes this workload uses (a 4-point list, a `DrawItem`-sized block). Is there a size-class fast path, and does every call take it? This overlaps B5; B5 asks whether the allocator is the bottleneck, N5 asks how fast one call is.
+- [ ] **N6 Reads.** `collections::get`/`getOr` and `FOR EACH` over a `List OF DrawItem`: is the element borrowed read-only (`.ai/collections.md` "get read-only borrow") or copied out? Does an element's field read (`it.x`) load straight from the list's data, or materialise the element first? This is what the program's simulation step and the canvas helpers both pay.
+- [ ] **N7 Bounds and error paths.** Are bounds checks and `Result` tag tests hoisted or folded where the loop bound already proves them (`WHILE i < len(xs)`)? Count them in the loop's `.ncode`. Only remove a check that is provably redundant; an out-of-range access must still raise the same error.
+- [ ] **N8 Float and trig calls.** `math::cos`/`sin`/`floor` and `toFloat`: is the call inlined, or a full runtime call with result-tag handling each time? Compare with a direct libm call.
+- [ ] **N9 Bulk operations.** `collections::append(list, sublist)`, `mid`, `slice` and `concat` on a variable-width list: is it one `memcpy` of the data region plus an offset fix-up, or element by element?
+
+For each N item, the output is:
+
+- ns per operation, before and the prototype's after;
+- the `.ncode` delta;
+- which programs gain: every collection user, not only canvas, which is why these are worth doing even outside this bug;
+- the tests that pin the behaviour it must keep: `tests/runtime/rt_list_append_growth_bounds.rs`, `rt_inplace_*` and the byte-identity goldens, which WILL move on a codegen change and must be regenerated only after the full suite, per AGENTS.md.
+
+A finding here becomes its own plan letter. None of it lands inside the spike.
+
 ## Phase C — program-structure and API items (measure what already exists before inventing anything)
 
 The user's rule: keep the API "simple enough for anyone". Existing features come first; any new surface must be one concept a beginner can use without learning the renderer.
@@ -140,7 +172,7 @@ The user's rule: keep the API "simple enough for anyone". Existing features come
 ## Output
 
 - The Phase A table, with every number sourced.
-- For each bin (a) finding: a bug doc, or a plan letter if it's a codegen project.
+- For each bin (a) finding: a bug doc, or a plan letter if it's a codegen project. That includes every B-native (N1–N9) item with a measured win, ranked by ns saved per item in the 10k workload.
 - For bin (b): a design note on the language feature, with the measured win and what it would change for users.
 - For bin (c) and the Phase C items: a recommendation for the canvas guide.
   - Which patterns to use: groups for static content, layers, fixed-width items, bulk append, particle systems.
