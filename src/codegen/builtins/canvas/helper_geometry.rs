@@ -141,18 +141,33 @@ r#"' bug-686: TWO independent 31-bit lanes, packed as `a * 2^31 + b` (62 bits), 
 '
 ' Each lane reduces the incoming value first, so a 48-bit font handle or a large scaled
 ' coordinate never overflows `a * 131` / `b * 257` -- both stay below 2^40.
+'
+' Division-free: both lanes are reduced modulo the Mersenne prime 2^31 - 1 by folding
+' (`x & M + x >> 31`, twice), which is shifts and adds rather than the four divides a
+' `MOD` step cost -- this runs ~20 times per item on every present. The value enters
+' as three pieces (bits 0-30, 31-61, 62-63), each below 2^31, so any Integer --
+' negative, a 48-bit handle, a scaled coordinate -- folds in whole, and every sum below
+' stays under 2^42. The lanes use different multipliers AND different mixes of the
+' pieces, so they are not one hash computed twice.
 FUNC __canvas_hashStep(acc AS Integer, value AS Integer) AS Integer
-  LET a AS Integer = acc / 2147483648
-  LET b AS Integer = acc MOD 2147483648
-  ' Most values already fit both lanes -- a colour channel, a tag, a count, a float's
-  ' 30-bit fraction -- and skip the four reductions. Only a large or negative value
-  ' (a scaled coordinate, a handle) pays for them.
-  IF value >= 0 AND value < 2147483629 THEN
-    RETURN ((a * 131 + value) MOD 2147483647) * 2147483648 + (b * 257 + value) MOD 2147483629
+  LET a AS Integer = bits::sr(acc, 31)
+  LET b AS Integer = bits::band(acc, 2147483647)
+  LET lo AS Integer = bits::band(value, 2147483647)
+  LET hi AS Integer = bits::band(bits::sr(value, 31), 2147483647)
+  LET top AS Integer = bits::sr(value, 62)
+  LET xa AS Integer = a * 131 + lo + hi * 3 + top
+  LET ra AS Integer = bits::band(xa, 2147483647) + bits::sr(xa, 31)
+  MUT na AS Integer = bits::band(ra, 2147483647) + bits::sr(ra, 31)
+  IF na >= 2147483647 THEN
+    na = na - 2147483647
   END IF
-  LET va AS Integer = ((value MOD 2147483647) + 2147483647) MOD 2147483647
-  LET vb AS Integer = ((value MOD 2147483629) + 2147483629) MOD 2147483629
-  RETURN ((a * 131 + va) MOD 2147483647) * 2147483648 + (b * 257 + vb) MOD 2147483629
+  LET xb AS Integer = b * 257 + hi + lo * 5 + top * 7
+  LET rb AS Integer = bits::band(xb, 2147483647) + bits::sr(xb, 31)
+  MUT nb AS Integer = bits::band(rb, 2147483647) + bits::sr(rb, 31)
+  IF nb >= 2147483647 THEN
+    nb = nb - 2147483647
+  END IF
+  RETURN na * 2147483648 + nb
 END FUNC
 
 ' A float folds in as its 1/65536 integer part AND the next 30 bits of fraction below
@@ -1082,14 +1097,9 @@ END FUNC
 ' costs a build and never a wrong picture.
 FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   MUT h AS Integer = acc
-  h = __canvas_hashStep(h, toInt(paint.fill.red))
-  h = __canvas_hashStep(h, toInt(paint.fill.green))
-  h = __canvas_hashStep(h, toInt(paint.fill.blue))
-  h = __canvas_hashStep(h, toInt(paint.fill.alpha))
-  h = __canvas_hashStep(h, toInt(paint.stroke.red))
-  h = __canvas_hashStep(h, toInt(paint.stroke.green))
-  h = __canvas_hashStep(h, toInt(paint.stroke.blue))
-  h = __canvas_hashStep(h, toInt(paint.stroke.alpha))
+  ' Each colour's four channels (0-255 each) as one packed value: one step, not four.
+  h = __canvas_hashStep(h, ((toInt(paint.fill.red) * 256 + toInt(paint.fill.green)) * 256 + toInt(paint.fill.blue)) * 256 + toInt(paint.fill.alpha))
+  h = __canvas_hashStep(h, ((toInt(paint.stroke.red) * 256 + toInt(paint.stroke.green)) * 256 + toInt(paint.stroke.blue)) * 256 + toInt(paint.stroke.alpha))
   h = __canvas_hashFloat(h, paint.strokeWidth)
   MUT blend AS Integer = 0
   IF paint.blend = BlendMode.Multiply THEN
@@ -1101,32 +1111,50 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   IF paint.blend = BlendMode.Add THEN
     blend = 3
   END IF
-  h = __canvas_hashStep(h, blend)
-  h = __canvas_hashFloat(h, paint.clip.x)
-  h = __canvas_hashFloat(h, paint.clip.y)
-  h = __canvas_hashFloat(h, paint.clip.w)
-  h = __canvas_hashFloat(h, paint.clip.h)
-  h = __canvas_hashFloat(h, paint.transform.a)
-  h = __canvas_hashFloat(h, paint.transform.b)
-  h = __canvas_hashFloat(h, paint.transform.c)
-  h = __canvas_hashFloat(h, paint.transform.d)
-  h = __canvas_hashFloat(h, paint.transform.tx)
-  h = __canvas_hashFloat(h, paint.transform.ty)
-  MUT radial AS Integer = 0
-  IF paint.fillGradient.kind = GradientKind.Radial THEN
-    radial = 1
+  ' The clip, the transform and the gradient are folded in only when present, after
+  ' ONE step carrying which of them are (with the blend mode). Their zero values are
+  ' the no-ops -- an all-zero Bounds is "unclipped", an all-zero Transform the
+  ' identity, fewer than two stops no gradient -- and most paints set none of them, so
+  ' this is what keeps a plain item's hash to a handful of steps.
+  LET c AS Bounds = paint.clip
+  LET t AS Transform = paint.transform
+  LET hasClip AS Boolean = NOT (c.x = 0.0 AND c.y = 0.0 AND c.w = 0.0 AND c.h = 0.0)
+  LET hasTransform AS Boolean = NOT (t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0)
+  LET stopCount AS Integer = len(paint.fillGradient.stops)
+  MUT flags AS Integer = 0
+  IF hasClip THEN
+    flags = flags + 1
   END IF
-  h = __canvas_hashStep(h, radial)
-  h = __canvas_hashPoint(h, paint.fillGradient.startPoint)
-  h = __canvas_hashPoint(h, paint.fillGradient.endPoint)
-  h = __canvas_hashStep(h, len(paint.fillGradient.stops))
-  FOR EACH stop IN paint.fillGradient.stops
-    h = __canvas_hashFloat(h, stop.offset)
-    h = __canvas_hashStep(h, toInt(stop.color.red))
-    h = __canvas_hashStep(h, toInt(stop.color.green))
-    h = __canvas_hashStep(h, toInt(stop.color.blue))
-    h = __canvas_hashStep(h, toInt(stop.color.alpha))
-  NEXT
+  IF hasTransform THEN
+    flags = flags + 2
+  END IF
+  IF stopCount >= 2 THEN
+    flags = flags + 4
+  END IF
+  h = __canvas_hashStep(h, blend * 8 + flags)
+  IF hasClip THEN
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.x), c.y), c.w), c.h)
+  END IF
+  IF hasTransform THEN
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.a), t.b), t.c)
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.d), t.tx), t.ty)
+  END IF
+  ' A gradient's points and kind mean nothing without two stops: the renderers read
+  ' those slots only when the count says there is a ramp.
+  IF stopCount >= 2 THEN
+    MUT radial AS Integer = 0
+    IF paint.fillGradient.kind = GradientKind.Radial THEN
+      radial = 1
+    END IF
+    h = __canvas_hashStep(h, radial)
+    h = __canvas_hashPoint(h, paint.fillGradient.startPoint)
+    h = __canvas_hashPoint(h, paint.fillGradient.endPoint)
+    h = __canvas_hashStep(h, stopCount)
+    FOR EACH stop IN paint.fillGradient.stops
+      h = __canvas_hashFloat(h, stop.offset)
+      h = __canvas_hashStep(h, ((toInt(stop.color.red) * 256 + toInt(stop.color.green)) * 256 + toInt(stop.color.blue)) * 256 + toInt(stop.color.alpha))
+    NEXT
+  END IF
   RETURN h
 END FUNC
 

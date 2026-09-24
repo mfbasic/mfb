@@ -228,6 +228,7 @@ pub(crate) fn register(r: &mut Registry) {
         "os",
         "fs",
         "encoding",
+        "bits",
     ]);
 
     // ---- Value types the items are built from -----------------------------
