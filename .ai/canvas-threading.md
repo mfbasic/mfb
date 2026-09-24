@@ -101,13 +101,46 @@ frame, and the first publish after a frame completes drains it to empty.
    every node on it. Testing the head alone suffices because the head carries the
    largest stamp, so that one comparison proves a frame has completed since every node
    behind it.
-4. **Retire**: allocate a node, move the currently-published pointers into it, stamp
-   `frame = frames`, and link it at the head. A publish that displaces nothing — the
-   first of a program, and the first of each shape — allocates no node.
-5. Publish the new pointers, then the revision **last**.
+4. **Retire**: allocate a node, move the currently-published pointers into it, **mark
+   the publish pending** (below), stamp `frame = frames`, and link it at the head. A
+   publish that displaces nothing — the first of a program, and the first of each
+   shape — allocates no node.
+5. Mark pending (again, for the no-node case), publish the new pointers, then the
+   revision **last**. `canvas::publishHashes` follows with the scene's hashes and the
+   revision they belong to.
 6. Signal the redraw condition.
 
-**Graphics, at frame start:** read the published pointers and copy what it needs.
+**Graphics, at frame start:** take ONE snapshot of the published pointers
+(`canvas::sceneSnapshot`) and use only it for the whole frame.
+
+### The scene is read under a sequence lock (bug-686)
+
+A frame used to read the items, the layers and the hashes at several points, and the
+hashes are published by a second call after the scene. So a frame could pair one
+publish's items with another's items or hashes, and since a cache hit is trusted on its
+hash alone (§14) it drew the other scene's geometry — measured as 12,000 wrong records
+in 13 frames of two alternating 6,000-item scenes (`rt_canvas_geo_native`,
+`a_frame_never_draws_one_scenes_geometry_for_anothers_items`).
+
+* `pending` (`CANVAS_SCENE_PENDING_OFFSET`) is `revision + 1` while a publish is
+  writing the region and equal to the revision otherwise. `publishScene` closes it by
+  bumping the revision; `publishHashes` (which starts no new scene) by setting it back.
+* The reader reads the revision, `pending`, the pointers, and `pending` again, and
+  retries until both reads of `pending` equal the revision. The hashes count only if the
+  revision they were published for (`CANVAS_SCENE_HASHES_REVISION_OFFSET`, read before
+  and after the pointer) is the snapshot's; otherwise the frame hashes its own items.
+* On AArch64 the marks are store-releases, the reader's loads load-acquires, and
+  `scene_base::emit_scene_barrier` (`stlr` then `ldar` of `pending`) keeps the plain
+  pointer stores between the mark and the revision. x86-64 keeps stores in order and
+  loads in order by itself. There is no fence op in the backend: that barrier is the
+  cheapest store-store fence the existing ops make.
+* **The mark comes before the retirement stamp.** A frame whose snapshot names a block
+  being displaced read `pending` before the mark, so it had not completed when the
+  frame counter is read for the stamp (a load-acquire on AArch64) — and the block is
+  freed only after the counter passes the stamp. The snapshot's raw pointers therefore
+  stay valid for the whole frame. They live in `Integer` globals (`__CANVAS_SNAP_*`),
+  never in a list MFBASIC owns; MFBASIC gets copies (`canvas::snapshotItems` and
+  friends, `__canvas_frameItems`).
 
 ### Why retirement rather than an immediate free
 
@@ -839,9 +872,10 @@ Two consequences worth stating because they are easy to get wrong in the other o
 
 ## 14. The geometry cache and item hashes (bug-686)
 
-The graphics thread's geometry cache (`helper_geometry.rs`) is keyed by the item's content
-hash through `__CANVAS_GEO_INDEX` (a `Map` hash → slot), and **a hit is trusted on the hash
-alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
+The graphics thread's geometry cache (`helper_geometry.rs`, kept by the inline native
+members of `func_geo_cache.rs`) is keyed by the item's content hash through
+`__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
+and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
 `setBytes` swaps without the item changing (`__canvas_pictureIsCurrent`). That is only
 sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
 resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
@@ -850,21 +884,26 @@ at ~0.3 per frame at 10,000 items.
 Lifetime rules, and why:
 
 * **Nothing is evicted inside a frame.** Slots are stamped with the frame that used them;
-  `__canvas_geoBeginFrame`, at the one point no offset is live (the top of
+  `canvas::geoBeginFrame`, at the one point no offset is live (the top of
   `__canvas_sceneOffsets`), drops what the previous frame did not use once the stale
-  floats reach the live ones, moving kept floats a contiguous run at a time. So every
+  floats reach the live ones, moving kept floats down in place and keeping the arena's
+  capacity. So every
   offset a frame resolves stays valid until that frame is drawn — the old 256-slot LRU
   needed `__CANVAS_GEO_LIVE` to protect offsets it had evicted mid-frame, and that list
   is gone.
 * **Glyph eviction pins only what the frame in progress uses** — slots stamped this
   frame. The cache can hold the previous scene's text too, and pinning it would pin
-  everything; an unused TEXT slot is dropped from the index instead (its glyph indices
-  are about to be renumbered), and rebuilt if it is named again.
-* **One resolve per frame.** `__canvas_sceneOffsets` probes every item from the published
-  hash list first and fetches the scene out of the ring only if something missed (or is a
-  picture or a group); `__canvas_sceneDraws` lays the draw list out from those offsets —
-  items AND layers (it used to walk items only, and a `presentLayers` scene drew nothing
-  on Metal).
+  everything; an unused TEXT slot is forgotten instead (`canvas::geoForget`: out of the
+  index for good, its glyph indices being about to be renumbered), and rebuilt if it is
+  named again.
+* **One resolve per frame, over one snapshot.** `canvas::sceneResolve` resolves every
+  index of the frame's snapshot (§3) by its frame hash and builds the natively built
+  kinds' misses in place; MFBASIC sees only what it leaves (pictures, text, groups,
+  declined kinds), and `canvas::sceneLayout` / `canvas::sceneDrawsFlat` lay the draw list
+  out from the offsets — items AND layers (the draw list used to walk items only, and a
+  `presentLayers` scene drew nothing on Metal).
+* **A picture is never resolved on its hash alone** — `sceneResolve` refers every picture
+  hit back to `__canvas_geometryFor`, which re-reads the image.
 
 The worker computes the hashes in `canvas::present`: `canvas::carriedHashes` (native,
 taken BEFORE `publishScene` replaces the installed scene) carries the installed hash of
