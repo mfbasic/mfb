@@ -46,7 +46,9 @@ The unconditional bootstrap prefix builds the application and window:
   `contentRect = NSMakeRect(100, 100, 900, 640)` passed as an HFA of four doubles
   in `d0..d3`, `styleMask = 15` (`WINDOW_STYLE_MASK` = Titled|Closable|Miniaturizable|Resizable),
   `backing = 2` (`BACKING_BUFFERED`, NSBackingStoreBuffered), `defer = NO`.
-- `[window setTitle:[NSString stringWithUTF8String:"MFBASIC App"]]` (`STR_TITLE`).
+- `[window setTitle:[NSString stringWithUTF8String:"MFBASIC App"]]` (`STR_TITLE`); the
+  window a `None`-start program's reconcile builds gets the same title, so a window
+  is never shown with an empty title bar (`./mfb spec app window`).
 - `headless = getenv("MFB_MACAPP_HEADLESS")` (`STR_HEADLESS_ENV`); the result gates
   all GUI construction below.
 
