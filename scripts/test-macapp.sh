@@ -814,12 +814,12 @@ SUB main()
   io::print("finished")
 END SUB
 MFB
-if ! gui_enabled; then
-  echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
-elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  fail "build -app keepopen"
-else
-  result=$(perl -e '
+# Only a `--debug` build keeps the window open (6ed5cc234; `mfb spec app
+# macos-runtime`, "Program-finish path"): a release build closes when its program does,
+# with the program's exit code. So the keep-open path is built with --debug, and the
+# release build is held to the other half of the rule -- it must exit, code 0.
+keepopen_probe() {
+  perl -e '
     use POSIX ":sys_wait_h";
     my $pid = fork();
     if ($pid == 0) {
@@ -830,11 +830,28 @@ else
     my $r = waitpid($pid, WNOHANG);
     if ($r == 0) { print "alive"; kill "KILL", $pid; waitpid($pid, 0); }
     else { printf "exited=%d", ($? >> 8); }
-  ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen")
+  ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen"
+}
+if ! gui_enabled; then
+  echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app --debug "$proj" >/dev/null 2>&1; then
+  fail "build -app --debug keepopen"
+else
+  result=$(keepopen_probe)
   if [ "$result" = "alive" ]; then
-    pass "window stayed open after the program finished"
+    pass "a --debug build kept the window open after the program finished"
   else
-    fail "app did not keep the window open ($result)"
+    fail "a --debug app did not keep the window open ($result)"
+  fi
+  if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+    fail "build -app keepopen"
+  else
+    result=$(keepopen_probe)
+    if [ "$result" = "exited=0" ]; then
+      pass "a release build closed with its program (exit 0)"
+    else
+      fail "a release app did not exit with its program's code ($result)"
+    fi
   fi
 fi
 
