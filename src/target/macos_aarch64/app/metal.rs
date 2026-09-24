@@ -669,6 +669,10 @@ pub(super) const SEL_TEXTURE_2D_DESCRIPTOR: (&str, &str) = (
 pub(super) const SEL_SET_USAGE: (&str, &str) = ("_mfb_macapp_sel_setUsage", "setUsage:");
 pub(super) const SEL_SET_STORAGE_MODE: (&str, &str) =
     ("_mfb_macapp_sel_setStorageMode", "setStorageMode:");
+pub(super) const SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS: (&str, &str) = (
+    "_mfb_macapp_sel_setAllowGPUOptimizedContents",
+    "setAllowGPUOptimizedContents:",
+);
 pub(super) const SEL_NEW_TEXTURE_WITH_DESCRIPTOR: (&str, &str) = (
     "_mfb_macapp_sel_newTextureWithDescriptor",
     "newTextureWithDescriptor:",
@@ -1224,6 +1228,13 @@ const MTL_TEXTURE_USAGE: &str = "5";
 /// reads back from. On Apple Silicon there is no separate device memory to copy
 /// across, so a `Managed` texture would add a blit-and-synchronize for nothing.
 const MTL_STORAGE_MODE_SHARED: &str = "0";
+/// `allowGPUOptimizedContents = NO`: the render target is stored linearly, not in the
+/// GPU's lossless-compressed layout. Every headless frame is read back through
+/// `getBytes:`, and a compressed texture is decompressed ON THE CPU inside that call
+/// (`AGX::Texture::processCompressedRegion2D` under `sample`): 1.2 ms of a 10,000-quad
+/// frame at 900x640, growing with how busy the picture is, where a linear copy is a
+/// memcpy (bug-686). The pixels are the same bits either way.
+const MTL_GPU_OPTIMIZED_CONTENTS: &str = "0";
 /// `MTLLoadActionClear` / `MTLStoreActionStore`.
 ///
 /// Clear rather than DontCare because the surface has a defined starting colour:
@@ -1636,6 +1647,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     for (setter, value) in [
         (SEL_SET_USAGE.0, MTL_TEXTURE_USAGE),
         (SEL_SET_STORAGE_MODE.0, MTL_STORAGE_MODE_SHARED),
+        (SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS.0, MTL_GPU_OPTIMIZED_CONTENTS),
     ] {
         asm.load_selector(setter);
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
@@ -4970,6 +4982,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_TEXTURE_2D_DESCRIPTOR,
         SEL_SET_USAGE,
         SEL_SET_STORAGE_MODE,
+        SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS,
         SEL_NEW_TEXTURE_WITH_DESCRIPTOR,
         SEL_RENDER_PASS_DESCRIPTOR,
         SEL_SET_TEXTURE,
