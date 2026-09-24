@@ -177,11 +177,14 @@ cache is 256 entries (`__CANVAS_GEO_CAPACITY`) against scenes of thousands.
 - **Do not "fix" this by simplifying the geometry that provokes it.** An earlier
   attempt regenerated `examples/wind`'s coastline under 256 points per ring; that
   hides a renderer defect behind the example's data and is explicitly rejected.
-- **Canvas goldens must stay byte-identical** except where a phase deliberately
-  widens what the GPU accepts, and then only on rows that previously declined —
-  those are settled by the suite's tolerance comparator against the software
-  oracle. A phase may never relax a row from exact to tolerance without naming
-  the computation that changed.
+- **Metal must draw what software draws.** That is the property, and it is what
+  every phase below is accepted against: render the same scene on both paths and
+  compare the frames. The software rasteriser is the oracle; a GPU frame that
+  disagrees with it is wrong however plausible it looks. The canvas goldens are
+  a regression net against *reference scenes* and must keep passing, but a golden
+  file changing is not by itself a failure and its byte-identity is not the
+  criterion — an arithmetic change that moves a low bit is fine, a Metal frame
+  that stops matching software is not.
 
 ## Blast Radius
 
@@ -263,12 +266,9 @@ Commit: —
 - [ ] Fix what Phase 1 found, then delete `__CANVAS_METAL_MAX_EDGES` (or set it
       to the frame-edge budget) and the Vulkan equivalent.
 
-Acceptance: Phase 1's test passes at 300, 1000 and 4000 edges. The software
-goldens are byte-identical (nothing about the software path changed); the rows
-that now reach Metal instead of declining match software under the golden
-suite's *tolerance* comparator, not the exact one — the two paths differ by a
-few antialiasing bytes even on a 16-point polygon, so exact identity here would
-be a demand that the phase do nothing.
+Acceptance: a polygon of 300, 1000 and 4000 edges draws the same picture on
+Metal as on software — the byte comparison from the reproduction, now passing at
+sizes where it failed. The canvas suite still passes.
 Commit: —
 
 ### Phase 3 — one definition of the caps, and derived shader bases
@@ -281,8 +281,9 @@ Commit: —
 - [ ] Raise `CANVAS_MAX_FRAME_ITEMS` and the edge budgets to admit tens of
       thousands of quads; size `METAL_BUFFER_BYTES` accordingly.
 
-Acceptance: the probe table above has no cliff; software goldens byte-identical
-and newly-accepted GPU rows within tolerance, as in Phase 2;
+Acceptance: the probe table above has no cliff, and every row of it agrees with
+software — this is the phase that moves buffer regions, so a row that renders
+fast and wrong is the exact failure to catch.
 `the_metal_shader_region_bases_match_the_buffer_layout` passes by construction.
 Commit: —
 
@@ -305,8 +306,8 @@ Commit: —
       native block alongside the existing MFBASIC one; the graphics thread reads
       the native one. Both exist until Phase 8 retires the MFBASIC reader.
 
-Acceptance: goldens byte-identical; `examples/gpu --compare` clean; the frame
-breakdown shows the scene walk no longer touching the arena.
+Acceptance: `examples/gpu --compare` clean across the sweep; the frame breakdown
+shows the scene walk no longer touching the arena; the canvas suite passes.
 Commit: —
 
 ### Phase 6 — the geometry cache and generation go native
@@ -315,11 +316,10 @@ Commit: —
       `__CANVAS_GEO_*` globals and `__CANVAS_GEO_CAPACITY`.
 - [ ] `headerFor`/`tailFor` per `DrawItem` kind, natively.
 
-Acceptance: goldens pass, exact where the arithmetic is unchanged and within
-tolerance where it is not — any row that moves off exact must be explained by a
-named change in how a value is computed, not accepted because it is small.
-Per-item geometry cost drops by an order of magnitude on `examples/gpu`; a
-static scene reports `generations` 0 after warm-up.
+Acceptance: `examples/gpu --compare` clean — the native generator and the
+software one must still agree, which is the whole risk of rewriting geometry
+twice. Per-item geometry cost drops by an order of magnitude; a static scene
+reports `generations` 0 after warm-up; the canvas suite passes.
 Commit: —
 
 ### Phase 7 — native batching, and stop rebuilding what did not change
@@ -339,8 +339,8 @@ Commit: —
 - [ ] Port the software rasteriser, then delete the arena-state pinning from
       `emit_graphics_trampoline`.
 
-Acceptance: the graphics thread runs with no arena; full canvas suite green;
-goldens exact or within tolerance on the same terms as Phase 6.
+Acceptance: the graphics thread runs with no arena; `examples/gpu --compare`
+clean; full canvas suite green.
 Commit: —
 
 ## Validation Plan
@@ -351,7 +351,9 @@ Commit: —
   and `examples/gpu` reproducing the tables here.
 - Doc sync: `.ai/canvas-threading.md` and the plan-116-A notes, once the
   per-polygon cap goes.
-- Suite: `cargo test --test 'rt_canvas_*'`, goldens in particular.
+- Suite: `cargo test --test 'rt_canvas_*'`. The goldens are the regression net;
+  `examples/gpu --compare` is the correctness check, because it compares the two
+  backends against each other rather than either against a stored file.
 
 ## Open Decisions
 
@@ -365,7 +367,10 @@ Phases 1–3 are well-understood and bounded: one obsolete gate, one duplicated
 constant, one hand-maintained offset. The risk in them is entirely that a cap
 and a shader offset must move together — get that wrong and nothing fails, the
 picture is just quietly incorrect, which is how this document's author produced
-two wrong frames before finding it. Phase 4 is the instrument that should have
+two wrong frames before finding it. That is why every acceptance below is
+'Metal agrees with software', not 'a file did not change': the wrong frames in
+question would have passed a file-identity check on every scene that still
+declined. Phase 4 is the instrument that should have
 existed before any of this was touched. Phases 5-8 are the architecture change
 goal (4) actually needs — the geometry cache and the draw batching move off
 MFBASIC and off the arena onto the graphics thread's own native code, which is
