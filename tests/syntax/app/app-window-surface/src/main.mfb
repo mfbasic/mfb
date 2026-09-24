@@ -1,0 +1,26 @@
+IMPORT app
+IMPORT io
+
+' The app window members — setTitle/getTitle/setFullscreen/getFullscreen — in
+' an --app build, so every backend's window sync lands in this fixture's
+' `.app.ncodesum` goldens: the macOS `mfbSyncWindow:` IMP and fullscreen
+' observers, the GTK idle sync and `notify::fullscreened` handler, and the Win32
+' `WndProc` arm with its borderless-fullscreen sync.
+'
+' The window side cannot run in CI (it needs a real window and window manager);
+' `scripts/test-macapp.sh`, `test-appimage.sh` and `test-winapp.sh` prove the
+' state round trip headlessly, and their GUI cases prove the window follows.
+'
+' `setMode` is referenced too, so the reconcile's "sync after show" calls are
+' emitted alongside the member helpers.
+SUB main()
+  LET before AS String = app::getTitle()
+  app::setTitle("Window " & before)
+  LET after AS String = app::getTitle()
+  io::print(after)
+  LET was AS Boolean = app::getFullscreen()
+  app::setFullscreen(NOT was)
+  app::setMode(app::Mode.Canvas)
+  app::setFullscreen(FALSE)
+  io::print(toString(app::getFullscreen()))
+END SUB

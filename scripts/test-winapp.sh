@@ -619,6 +619,65 @@ case "$cout" in
   *) fail "the term cluster program never reached its final print (bug-540 WIN-04)" ;;
 esac
 
+# ---------------------------------------------------------------------------
+# The app window members (setTitle/getTitle/setFullscreen/getFullscreen)
+#
+# Headless there is no window (`MAIN_HWND_SYM` stays 0), so the members are
+# state-only and the `SendMessageW` sync is skipped. This proves the Windows side of
+# the shared state: the SRW title lock (statically `SRWLOCK_INIT`), the
+# HeapAlloc/HeapFree title copies, the project-name default title, and the
+# fullscreen word — plus that the skipped sync does not fault or hang.
+wwproj="$work/winwindow"
+mkdir -p "$wwproj/src"
+scaffold_project "$wwproj" winwindow
+cat > "$wwproj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+
+SUB main()
+  io::print("title0=" & app::getTitle())
+  io::print("fs0=" & toString(app::getFullscreen()))
+  app::setTitle("Hello Windows")
+  io::print("title1=" & app::getTitle())
+  FOR i = 1 TO 2000
+    app::setTitle("frame " & toString(i))
+  NEXT
+  io::print("title2=" & app::getTitle())
+  app::setFullscreen(TRUE)
+  app::setMode(app::Mode.None)
+  io::print("fs1=" & toString(app::getFullscreen()) & " title3=" & app::getTitle())
+  app::setFullscreen(FALSE)
+  io::print("fs2=" & toString(app::getFullscreen()))
+END SUB
+MFB
+
+echo "--- building the window-members program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$wwproj" >/dev/null
+
+cat > "$work/winwindow.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+cd /d C:\mfbwin
+winwindow.exe > winwindow.out 2>&1
+echo rc=%errorlevel%
+type winwindow.out
+BAT
+
+remote_ssh "$PORT" "$host" "del /q $remote\\winwindow.out 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$wwproj/build/winwindow.exe" "$host:C:/mfbwin/winwindow.exe" >/dev/null
+remote_scp "$PORT" "$work/winwindow.bat" "$host:C:/mfbwin/winwindow.bat" >/dev/null
+cout="$(remote_ssh "$PORT" "$host" "$remote\\winwindow.bat" 2>&1 || true)"
+echo "$cout" | sed 's/^/    /'
+
+for expect in "rc=0" "title0=winwindow" "fs0=FALSE" "title1=Hello Windows" \
+  "title2=frame 2000" "fs1=TRUE title3=frame 2000" "fs2=FALSE"; do
+  case "$cout" in
+    *"$expect"*) pass "app window members: $expect" ;;
+    *) fail "app window members: expected '$expect' in the headless run" ;;
+  esac
+done
+
 if [ "$rc_failures" -eq 0 ]; then
   echo "windows app-mode, canvas and Vulkan runtime tests passed"
 else

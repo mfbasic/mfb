@@ -1,0 +1,45 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "app_window_surface",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 1,
+    "visibility": "export",
+    "name": "app.Mode",
+    "members": [
+    { "name": "Console" },
+    { "name": "None" },
+    { "name": "Canvas" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 16,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": false, "name": "before", "type": "String", "value": { "kind": "call", "type": "String", "target": "app.getTitle", "args": [] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "app.setTitle", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "Window " }, "right": { "kind": "local", "name": "before" } }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "after", "type": "String", "value": { "kind": "call", "type": "String", "target": "app.getTitle", "args": [] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "after" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "was", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "app.getFullscreen", "args": [] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "app.setFullscreen", "args": [{ "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "was" } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "app.setMode", "args": [{ "kind": "memberAccess", "type": "app.Mode", "target": { "kind": "local", "name": "app.Mode" }, "member": "Canvas" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "app.setFullscreen", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "app.getFullscreen", "args": [] }] }] } }
+    ]
+  }
+  ]
+}

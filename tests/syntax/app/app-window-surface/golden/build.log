@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/app/app-window-surface
+Wrote AST to tests/syntax/app/app-window-surface/app_window_surface.ast
+Wrote IR to tests/syntax/app/app-window-surface/app_window_surface.ir
+[exit 0]
+$ mfb build -app -nir -nplan tests/syntax/app/app-window-surface
+Wrote native IR to tests/syntax/app/app-window-surface/app_window_surface.nir
+Wrote native plan to tests/syntax/app/app-window-surface/app_window_surface.nplan
+[exit 0]

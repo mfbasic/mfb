@@ -801,6 +801,131 @@ else
   wait "$direct_pid" 2>/dev/null
 fi
 
+# Case 3i: the app window members' state (setTitle/getTitle/setFullscreen/
+# getFullscreen), headless. There is no window, so this proves the process-global
+# state and the sync seam's headless no-op: the default title is the one the
+# bootstrap gives the window, a set title reads back exactly (empty included),
+# retitling in a loop keeps the last one (the replaced heap copies are freed —
+# this would still pass if they leaked, but crash if a freed one were read), the
+# fullscreen word round-trips, and both survive a setMode. Exit code = the first
+# failed check.
+proj="$work/appwindow"
+mkdir -p "$proj/src"
+scaffold_project "$proj" appwindow
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+FUNC main() AS Integer
+  IF app::getTitle() <> "MFBASIC App" THEN
+    RETURN 1
+  END IF
+  IF app::getFullscreen() THEN
+    RETURN 2
+  END IF
+  app::setTitle("Hello")
+  IF app::getTitle() <> "Hello" THEN
+    RETURN 3
+  END IF
+  app::setTitle("")
+  IF app::getTitle() <> "" THEN
+    RETURN 4
+  END IF
+  FOR i = 1 TO 2000
+    app::setTitle("frame " & toString(i))
+  NEXT
+  IF app::getTitle() <> "frame 2000" THEN
+    RETURN 5
+  END IF
+  app::setFullscreen(TRUE)
+  IF NOT app::getFullscreen() THEN
+    RETURN 6
+  END IF
+  app::setMode(app::Mode.None)
+  IF app::getTitle() <> "frame 2000" OR NOT app::getFullscreen() THEN
+    RETURN 7
+  END IF
+  app::setFullscreen(FALSE)
+  IF app::getFullscreen() THEN
+    RETURN 8
+  END IF
+  RETURN 0
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appwindow"
+else
+  result=$(run_headless "$(bundle "$proj" appwindow)/Contents/MacOS/appwindow")
+  if [ "$result" = "code=0" ]; then
+    pass "app:: window title/fullscreen state round-trips headlessly ($result)"
+  else
+    fail "expected app window state round-trip (code=0), got '$result'"
+  fi
+fi
+
+# Case 3j (GUI): the window follows the window members, read back through the
+# Accessibility API (the same System Events permission Case 6 needs). A None-start
+# program sets a title and fullscreen while windowless, then enters Canvas: the
+# window must appear with that title and in fullscreen. The script then takes the
+# window OUT of fullscreen itself, as the user's green button would, and the
+# program must observe FALSE (the DidExitFullScreen observer). Finally the program
+# retitles and goes fullscreen again from the worker.
+#
+# macOS gives a fullscreen window a second, untitled Accessibility window (its
+# title bar), so the checks read every window's title and AXFullScreen rather than
+# `window 1`.
+proj="$work/appwindowgui"
+mkdir -p "$proj/src"
+scaffold_project "$proj" appwindowgui
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+IMPORT os
+SUB main()
+  app::setTitle("MFB Window One")
+  app::setFullscreen(TRUE)
+  app::setMode(app::Mode.Canvas)
+  os::sleep(8000)
+  io::print("AFTER_EXIT " & toString(app::getFullscreen()))
+  io::flush()
+  app::setTitle("MFB Window Two")
+  app::setFullscreen(TRUE)
+  os::sleep(7000)
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: app window title/fullscreen GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appwindowgui"
+else
+  exe="$(bundle "$proj" appwindowgui)/Contents/MacOS/appwindowgui"
+  "$exe" > "$work/appwindowgui.out" 2>&1 &
+  wpid=$!
+  ax() {
+    osascript -e 'tell application "System Events" to tell process "appwindowgui" to get {title, value of attribute "AXFullScreen"} of every window' 2>&1
+  }
+  sleep 3
+  first=$(ax)
+  osascript -e 'tell application "System Events" to tell process "appwindowgui" to set value of attribute "AXFullScreen" of (first window whose title is "MFB Window One") to false' >/dev/null 2>&1
+  # The program retitles at ~8s and ends at ~15s; read the window at ~11s, after
+  # the fullscreen animation has finished and well before the program exits.
+  sleep 7.5
+  second=$(ax)
+  wait "$wpid" 2>/dev/null
+  printed=$(grep AFTER_EXIT "$work/appwindowgui.out")
+  case "$first" in
+    *"MFB Window One"*true*) pass "window shows the windowless-set title in fullscreen ($first)" ;;
+    *) fail "expected 'MFB Window One' fullscreen, got '$first'" ;;
+  esac
+  if [ "$printed" = "AFTER_EXIT FALSE" ]; then
+    pass "getFullscreen follows the user leaving fullscreen ($printed)"
+  else
+    fail "expected AFTER_EXIT FALSE, got '$printed'"
+  fi
+  case "$second" in
+    *"MFB Window Two"*true*) pass "worker retitle + setFullscreen reach the window ($second)" ;;
+    *) fail "expected 'MFB Window Two' fullscreen, got '$second'" ;;
+  esac
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than

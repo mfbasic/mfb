@@ -1,0 +1,50 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "buildMode": "macos-app",
+  "project": "app_window_surface",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "app.Mode",
+    "members": [
+    { "name": "Console" },
+    { "name": "None" },
+    { "name": "Canvas" }
+    ]
+  }
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": ["app", "io"],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "public",
+    "kind": "sub",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "before", "type": "String", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.getTitle", "args": [] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.setTitle", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Window " }, "right": { "kind": "local", "name": "before" } }] } },
+    { "op": "bind", "mutable": false, "name": "after", "type": "String", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.getTitle", "args": [] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "local", "name": "after" }] } },
+    { "op": "bind", "mutable": false, "name": "was", "type": "Boolean", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.getFullscreen", "args": [] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.setFullscreen", "args": [{ "kind": "unary", "op": "NOT", "operand": { "kind": "local", "name": "was" } }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.setMode", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "app.Mode" }, "member": "Canvas" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "app", "target": "app.setFullscreen", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "runtimeCall", "helper": "app", "target": "app.getFullscreen", "args": [] }] }] } }
+    ]
+  }
+  ]
+}

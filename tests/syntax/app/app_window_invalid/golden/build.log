@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/app/app_window_invalid
+   4 | SUB main()
+   5 |   ' setTitle takes exactly one String (wrong arity: none).
+   6 |   app::setTitle()
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.setTitle` has 0 argument(s), expected 1.
+   6 |   app::setTitle()
+   7 |   ' setTitle's argument must be a String, not an Integer (wrong type).
+   8 |   app::setTitle(42)
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `app.setTitle` has argument type(s) (Integer), expected String.
+   8 |   app::setTitle(42)
+   9 |   ' getTitle takes no arguments (wrong arity: one).
+  10 |   LET t AS String = app::getTitle("x")
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.getTitle` has 1 argument(s), expected 0.
+   8 |   app::setTitle(42)
+   9 |   ' getTitle takes no arguments (wrong arity: one).
+  10 |   LET t AS String = app::getTitle("x")
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `t` does not have a known type.
+  12 |   LET n AS Integer = app::getTitle()
+  13 |   ' setFullscreen takes exactly one Boolean (wrong arity: two).
+  14 |   app::setFullscreen(TRUE, FALSE)
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.setFullscreen` has 2 argument(s), expected 1.
+  14 |   app::setFullscreen(TRUE, FALSE)
+  15 |   ' setFullscreen's argument must be a Boolean, not a String (wrong type).
+  16 |   app::setFullscreen("yes")
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `app.setFullscreen` has argument type(s) (String), expected Boolean.
+  16 |   app::setFullscreen("yes")
+  17 |   ' getFullscreen takes no arguments (wrong arity: one).
+  18 |   LET f AS Boolean = app::getFullscreen(TRUE)
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:18 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.getFullscreen` has 1 argument(s), expected 0.
+  16 |   app::setFullscreen("yes")
+  17 |   ' getFullscreen takes no arguments (wrong arity: one).
+  18 |   LET f AS Boolean = app::getFullscreen(TRUE)
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `f` does not have a known type.
+  10 |   LET t AS String = app::getTitle("x")
+  11 |   ' getTitle returns a String, not an Integer.
+  12 |   LET n AS Integer = app::getTitle()
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:12 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `n` has initializer type String, expected Integer.
+  18 |   LET f AS Boolean = app::getFullscreen(TRUE)
+  19 |   ' getFullscreen returns a Boolean, not a String.
+  20 |   LET s AS String = app::getFullscreen()
+     | ^
+tests/syntax/app/app_window_invalid/src/main.mfb:20 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `s` has initializer type Boolean, expected String.
+[exit 1]
