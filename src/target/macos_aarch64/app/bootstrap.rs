@@ -722,6 +722,14 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
         asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // bug-686 Phase 4: `mfbMetalLayer:`, the main-thread half of the direct
+        // present — configures, sizes and shows the window's `CAMetalLayer`. Same gate
+        // as `mfbBlit:` for the same reason: its IMP exists only for a drawing program.
+        asm.load_selector(metal::SEL_MFB_METAL_LAYER.0);
+        asm.local_address("x2", metal::METAL_LAYER_APPLY_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
     }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
@@ -1043,6 +1051,44 @@ pub(super) fn emit_canvas_set_frame_size_helper() -> CodeFunction {
     ));
     asm.call_external("_objc_msgSendSuper", LIB_OBJC);
 
+    // bug-686 Phase 4: the Metal sublayer follows the view — `[metal setFrame:{0, 0,
+    // w, h}]`, in a transaction with actions disabled so it does not animate to the new
+    // size behind a live drag. Its DRAWABLE size is the graphics thread's business and
+    // follows at the next frame (`emit_metal_layer_apply`); until then the compositor
+    // scales the old drawable into the new frame, as the software path's `CALayer`
+    // stretches its old contents. No layer yet — the view's own `initWithFrame:` runs
+    // this before the build creates one — is simply nothing to move.
+    let no_metal_layer = format!("{CANVAS_SET_FRAME_SIZE_SYMBOL}_no_metal_layer");
+    asm.local_address(
+        abi::LOCAL[3],
+        crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+    );
+    asm.push(abi::load_u64(
+        abi::LOCAL[3],
+        abi::LOCAL[3],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[3], "0"));
+    asm.push(abi::branch_eq(&no_metal_layer));
+    metal::emit_transaction_begin(&mut asm);
+    asm.load_selector(metal::SEL_SET_LAYER_FRAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    metal::emit_transaction_commit(&mut asm);
+    asm.push(abi::label(&no_metal_layer));
+
     // width/height as whole pixels, into callee-saved registers the publish reads.
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
     asm.push(abi::float_move_d_from_x(
@@ -1149,6 +1195,43 @@ pub(super) fn emit_canvas_blit_apply_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // bug-686 Phase 4: a CPU frame — software, or a GPU frame read back (headless has no
+    // delegate and never gets here; a `--debug` dump, damage mode, or a frame whose
+    // drawable was unavailable does) — must not sit under a Metal sublayer still
+    // showing the last presented drawable. Hide it, in the same main-thread turn that
+    // set the contents, so the compositor never shows one without the other. Only when
+    // it is shown: a window that stays in software pays one load a frame.
+    asm.local_address(
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+    );
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::load_u64(
+        abi::LOCAL[1],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    metal::emit_transaction_begin(&mut asm);
+    asm.load_selector(metal::SEL_SET_HIDDEN.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    metal::emit_transaction_commit(&mut asm);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
 
     asm.push(abi::label(&done));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -1440,6 +1523,71 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // bug-686 Phase 4: the `CAMetalLayer` a GPU frame is presented into, as a HIDDEN
+    // sublayer of the backing layer. A sublayer rather than the backing layer itself,
+    // so the software path is untouched: it keeps setting the backing layer's
+    // `contents`, and the Metal layer is shown only while GPU frames are actually being
+    // presented into it (`emit_metal_layer_apply`) and hidden again the moment a
+    // software or readback frame lands (`emit_canvas_blit_apply_helper`).
+    //
+    // Created here, once, with the view it belongs to — never headless, where no view
+    // is built, so a headless run's `…_MTL_LAYER` stays zero and every GPU frame there
+    // takes the readback path. Owned by this `alloc` reference for the life of the
+    // process, exactly like the view (re-entering canvas mode reuses both).
+    //
+    // Its frame is the view's bounds, kept there by the view's `setFrameSize:`
+    // (`emit_canvas_set_frame_size_helper`); the build's own frame is the view's
+    // initial one. The colour in `LOCAL[4]` is not needed again, so it takes the layer.
+    if uses_canvas {
+        let no_metal_layer = format!("{RECONCILE_CANVAS_SYMBOL}_no_metal_layer");
+        asm.external_data(
+            abi::LOCAL[4],
+            metal::CLASS_CA_METAL_LAYER,
+            metal::LIB_QUARTZCORE,
+        );
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0)));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0)));
+        asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
+        asm.push(abi::branch_eq(&no_metal_layer));
+        // [metal setHidden:YES] — before it joins the tree, so it is never visible
+        // holding nothing over the software frame.
+        asm.load_selector(metal::SEL_SET_HIDDEN.0);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [metal setFrame:NSMakeRect(0, 0, 900, 640)] — the view's own initial frame.
+        asm.load_selector(metal::SEL_SET_LAYER_FRAME.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [backing addSublayer:metal]
+        asm.load_selector(metal::SEL_ADD_SUBLAYER.0);
+        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // Publish it for the graphics thread. Last, after it is fully set up: the
+        // graphics thread takes a non-zero `…_MTL_LAYER` as "a window layer exists".
+        asm.local_address(
+            abi::SCRATCH[0],
+            crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+        );
+        asm.push(abi::store_u64(
+            abi::LOCAL[4],
+            abi::SCRATCH[0],
+            crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+        ));
+        asm.push(abi::label(&no_metal_layer));
+    }
 
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));

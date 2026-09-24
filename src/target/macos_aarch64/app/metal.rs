@@ -80,6 +80,11 @@ use crate::codegen::runtime::canvas::{
     METAL_PICTURE_RECORDS_OFFSET, METAL_PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
 };
 use crate::codegen::runtime::canvas::{
+    GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
+    GRAPHICS_OFFSET_MTL_LAYER_READY, GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+};
+use crate::codegen::runtime::canvas::{
     ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS,
     METAL_BAND_LIST_PER_EDGE, METAL_BAND_MAX, METAL_BAND_MIN_EDGES, METAL_MAX_FRAME_BAND_WORDS,
 };
@@ -768,6 +773,71 @@ pub(crate) const CLASS_MTL_RENDER_PASS_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLRend
 pub(crate) const CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR: &str =
     "_OBJC_CLASS_$_MTLRenderPipelineDescriptor";
 
+// --- bug-686 Phase 4: the direct present -------------------------------------------
+//
+// A GPU frame in a real window leaves through a `CAMetalLayer` drawable: the offscreen
+// target is blitted into `[layer nextDrawable].texture` and presented, with no
+// `getBytes:` readback, no BGRA->RGBA swizzle, no CPU surface and no `CGImage`. Every
+// selector below is sent only on that path or on the main-thread layer bookkeeping it
+// needs, and every one is listed in `metal_data_objects` (an unregistered selector is
+// not a compile error — it is a message send to a selector the runtime never named).
+
+/// `QuartzCore.framework` — where `CAMetalLayer` and `CATransaction` live.
+pub(crate) const LIB_QUARTZCORE: &str = "QuartzCore";
+pub(crate) const CLASS_CA_METAL_LAYER: &str = "_OBJC_CLASS_$_CAMetalLayer";
+pub(crate) const CLASS_CA_TRANSACTION: &str = "_OBJC_CLASS_$_CATransaction";
+pub(super) const SEL_NEXT_DRAWABLE: (&str, &str) = ("_mfb_macapp_sel_nextDrawable", "nextDrawable");
+pub(super) const SEL_TEXTURE: (&str, &str) = ("_mfb_macapp_sel_texture", "texture");
+pub(super) const SEL_BLIT_COMMAND_ENCODER: (&str, &str) =
+    ("_mfb_macapp_sel_blitCommandEncoder", "blitCommandEncoder");
+/// `copyFromTexture:toTexture:` (macOS 10.15) — the whole-texture copy. The drawable
+/// is created at the offscreen target's exact size and format, which is the
+/// precondition this form has, and it keeps the send to four register arguments
+/// where the slice/level/origin/size form needs three `MTLOrigin`/`MTLSize` structs
+/// and stack arguments.
+pub(super) const SEL_COPY_TEXTURE: (&str, &str) = (
+    "_mfb_macapp_sel_copyFromTextureToTexture",
+    "copyFromTexture:toTexture:",
+);
+/// `-[CAMetalDrawable present]`, sent once the frame's buffer has completed.
+pub(super) const SEL_PRESENT: (&str, &str) = ("_mfb_macapp_sel_present", "present");
+pub(super) const SEL_SET_DEVICE: (&str, &str) = ("_mfb_macapp_sel_setDevice", "setDevice:");
+pub(super) const SEL_SET_FRAMEBUFFER_ONLY: (&str, &str) =
+    ("_mfb_macapp_sel_setFramebufferOnly", "setFramebufferOnly:");
+pub(super) const SEL_SET_DRAWABLE_SIZE: (&str, &str) =
+    ("_mfb_macapp_sel_setDrawableSize", "setDrawableSize:");
+pub(super) const SEL_SET_HIDDEN: (&str, &str) = ("_mfb_macapp_sel_setHidden", "setHidden:");
+pub(super) const SEL_SET_OPAQUE: (&str, &str) = ("_mfb_macapp_sel_setOpaque", "setOpaque:");
+/// `-[CAMetalLayer setColorspace:]`, set to the window SCREEN's colour space.
+///
+/// The software blit hands the layer a DeviceRGB `CGImage`, which Core Animation shows
+/// with no colour matching: the bytes go to the display as its own primaries. A
+/// `CAMetalLayer` does not do the same by default, nor when given DeviceRGB — both are
+/// matched as sRGB. Measured in a real window on a P3 display, a drawable of (255, 0, 0)
+/// captured as (234, 51, 35) with the layer's space nil, DeviceRGB or sRGB, in either
+/// `BGRA8Unorm` or `BGRA8Unorm_sRGB`, and as (255, 0, 0) — what the `CGImage` of the
+/// same bytes shows — only with the screen's own space (or Display P3, which that
+/// screen is). One picture on both paths means the drawable is declared in the space
+/// the image path already lands in, so a scene that falls back to software mid-run
+/// does not change colour.
+pub(super) const SEL_SET_COLORSPACE: (&str, &str) =
+    ("_mfb_macapp_sel_setColorspace", "setColorspace:");
+/// `-[NSWindow screen]`, `-[NSScreen colorSpace]`, `-[NSColorSpace CGColorSpace]` —
+/// the lookup `SEL_SET_COLORSPACE`'s value comes from.
+pub(super) const SEL_SCREEN: (&str, &str) = ("_mfb_macapp_sel_screen", "screen");
+pub(super) const SEL_COLOR_SPACE: (&str, &str) = ("_mfb_macapp_sel_colorSpace", "colorSpace");
+pub(super) const SEL_CG_COLOR_SPACE: (&str, &str) =
+    ("_mfb_macapp_sel_CGColorSpace", "CGColorSpace");
+pub(super) const SEL_ADD_SUBLAYER: (&str, &str) = ("_mfb_macapp_sel_addSublayer", "addSublayer:");
+/// `-[CALayer setFrame:]`, a `CGRect` by value — four doubles, so `d0`..`d3`.
+pub(super) const SEL_SET_LAYER_FRAME: (&str, &str) = ("_mfb_macapp_sel_setFrame", "setFrame:");
+pub(super) const SEL_BEGIN: (&str, &str) = ("_mfb_macapp_sel_begin", "begin");
+pub(super) const SEL_SET_DISABLE_ACTIONS: (&str, &str) =
+    ("_mfb_macapp_sel_setDisableActions", "setDisableActions:");
+/// The delegate method the graphics thread hops to for every layer property change.
+pub(super) const SEL_MFB_METAL_LAYER: (&str, &str) =
+    ("_mfb_macapp_sel_mfbMetalLayer", "mfbMetalLayer:");
+
 /// `MTLPixelFormatBGRA8Unorm_sRGB`. The GPU applies the sRGB encode on write, which
 /// is the same transform the software path's `__COLOR_SRGB` table applies on the
 /// way out — so the two agree by construction rather than by a matching pair of
@@ -1143,6 +1213,10 @@ pub(super) fn emit_metal_init() -> CodeFunction {
 
 /// The frame renderer's symbol.
 pub(super) const METAL_DRAW_SYMBOL: &str = "_mfb_macapp_metal_draw";
+/// bug-686 Phase 4: the graphics-thread hop that asks the main thread to configure,
+/// size or show the window's `CAMetalLayer`, and the main-thread IMP that does it.
+pub(super) const METAL_LAYER_SYNC_SYMBOL: &str = "_mfb_macapp_metal_layer_sync";
+pub(super) const METAL_LAYER_APPLY_SYMBOL: &str = "_mfb_macapp_metal_layer_apply";
 
 /// `MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget`.
 const MTL_TEXTURE_USAGE: &str = "5";
@@ -1189,7 +1263,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 704;
+const DRAW_FRAME: usize = 720;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1274,6 +1348,12 @@ const OFF_BAND_REACH: usize = 672;
 const OFF_BAND_HEIGHT: usize = 680;
 const OFF_BAND_COUNT: usize = 688;
 const OFF_BAND_TABLE: usize = 696;
+/// bug-686 Phase 4: the drawable a direct present copies into — autoreleased, so it
+/// lives until the frame's pool pops — and the answer the frame returns in `x0`
+/// (1 = the frame is finished: presented, or read back into the surface; 0 = it was
+/// not drawn and the caller must take another path).
+const OFF_DRAWABLE: usize = 704;
+const OFF_PRESENTED: usize = 712;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1318,6 +1398,17 @@ const OFF_DRAW_PAIR: usize = 608;
 /// the backends comparable: the tolerance comparator diffs an RGBA8 buffer, and a
 /// frame that only ever existed in a drawable is not one.
 ///
+/// **Unless the surface pointer is NULL** (bug-686 Phase 4, `canvas::metalPresentScene`).
+/// Then the frame is rendered into the same offscreen target, blitted on the GPU into
+/// the window `CAMetalLayer`'s next drawable and presented — no readback, no swizzle, no
+/// CPU surface, no `CGImage`. A NULL payload is unambiguous: `canvas::metalDrawScene`
+/// passes `block + COLLECTION_HEADER_SIZE`, which is never zero.
+///
+/// Returns 1 in `x0` when the frame is finished — presented, or read back — and 0 when
+/// it was not drawn: no pipeline, no texture, and for a direct present no window layer
+/// (headless) or no drawable. A 0 from a direct present is the caller's cue to render
+/// the frame down the readback path instead; `metalDrawScene` ignores the value.
+///
 /// The whole body runs inside one autorelease pool. The graphics thread has none of
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
 /// `renderCommandEncoderWithDescriptor:` all return autoreleased objects — without a
@@ -1335,6 +1426,15 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     let text_item = format!("{METAL_DRAW_SYMBOL}_text_item");
     let swizzle_head = format!("{METAL_DRAW_SYMBOL}_swizzle_head");
     let swizzle_done = format!("{METAL_DRAW_SYMBOL}_swizzle_done");
+    // bug-686 Phase 4: the direct present's branches.
+    let init = format!("{METAL_DRAW_SYMBOL}_init");
+    let render_pass = format!("{METAL_DRAW_SYMBOL}_render_pass");
+    let sync_layer = format!("{METAL_DRAW_SYMBOL}_sync_layer");
+    let layer_synced = format!("{METAL_DRAW_SYMBOL}_layer_synced");
+    let submit = format!("{METAL_DRAW_SYMBOL}_submit");
+    let direct_failed = format!("{METAL_DRAW_SYMBOL}_direct_failed");
+    let readback = format!("{METAL_DRAW_SYMBOL}_readback");
+    let show_done = format!("{METAL_DRAW_SYMBOL}_show_done");
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(DRAW_FRAME));
@@ -1423,8 +1523,31 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         ));
     }
 
+    // bug-686 Phase 4: a NULL surface asks for a direct present. With no window layer
+    // — headless, where the main thread never built a canvas view — there is nothing
+    // to present to, so answer 0 before touching Metal at all: the caller then takes
+    // the readback path, which is exactly the one every headless test compares.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&init));
+    asm.local_address(abi::SCRATCH[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&restore));
+    asm.push(abi::label(&init));
+
     // The pipeline, built on first use. A failure here leaves the surface exactly as
-    // `canvas::newSurface` made it, which is the cleared frame — not garbage.
+    // `canvas::newSurface` made it, which is the cleared frame — not garbage — and
+    // returns the init's 0, so a direct present that could not build falls back too.
     asm.call_internal(METAL_INIT_SYMBOL);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&restore));
@@ -1435,6 +1558,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::stack_pointer(),
         OFF_POOL,
     ));
+    // Nothing is finished until the submit says so: every early exit below (a
+    // texture that would not allocate, a layer that could not be configured, no
+    // drawable) reports 0.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for slot in [OFF_PRESENTED, OFF_DRAWABLE] {
+        asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
+    }
 
     // --- the offscreen render target, reused until the surface resizes -----------
     asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
@@ -1546,7 +1676,86 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 
     asm.push(abi::label(&have_texture));
 
+    // --- bug-686 Phase 4: the drawable, taken BEFORE anything is recorded ----------
+    // Asking first is what makes "no drawable" cost nothing: the frame reports 0 and
+    // the caller renders it down the readback path instead, rather than this frame
+    // being rendered, found undeliverable and rendered again.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&render_pass));
+    // The layer must be configured (device, format, `framebufferOnly = NO`) and its
+    // drawable must be this frame's size, or the whole-texture copy below — which
+    // requires identical dimensions — is invalid. Both are layer PROPERTY changes, so
+    // they are made by the main thread (`emit_metal_layer_apply`), and only when one
+    // of them is actually out of date: a steady-size window hops zero times a frame.
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&sync_layer));
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, OFF_WIDTH),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, OFF_HEIGHT),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), parked));
+        asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+        asm.push(abi::branch_ne(&sync_layer));
+    }
+    asm.push(abi::branch(&layer_synced));
+    asm.push(abi::label(&sync_layer));
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, OFF_WIDTH),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, OFF_HEIGHT),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+    }
+    // Size only — `0` leaves the layer's visibility alone. It is shown after the
+    // first frame is actually presented into it, below, so it never appears holding
+    // nothing (or a stale drawable) over the software frame beneath.
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+    asm.call_internal(METAL_LAYER_SYNC_SYMBOL);
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    // The apply ran on the main thread; if it found no layer it configured nothing.
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    asm.push(abi::label(&layer_synced));
+    // drawable = [layer nextDrawable] — autoreleased, so it lives until the pool pops.
+    // nil (no drawable within the layer's timeout) is a real outcome and is not a
+    // dropped frame: report 0 and the caller reads this frame back instead.
+    asm.load_selector(SEL_NEXT_DRAWABLE.0);
+    asm.local_address(abi::c_arg(0), GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::c_arg(0),
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&release_pool));
+
     // --- the render pass ---------------------------------------------------------
+    asm.push(abi::label(&render_pass));
     asm.external_data(abi::LOCAL[0], CLASS_MTL_RENDER_PASS_DESCRIPTOR, LIB_METAL);
     asm.load_selector(SEL_RENDER_PASS_DESCRIPTOR.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -1890,16 +2099,122 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // offset. This replaces the trailing flush and the two removed above.
     emit_draw_list_pass(&mut asm);
 
+    asm.load_selector(SEL_END_ENCODING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // --- bug-686 Phase 4: copy into the drawable and present it ------------------
+    // The frame was rendered into the offscreen target exactly as the readback path
+    // renders it; the only difference is where it goes. A GPU blit into the drawable's
+    // texture keeps "one pipeline, one target" true — nothing about the render depends
+    // on whether it is presented or read back — and needs the drawable's texture to
+    // be a blit destination, which is why the layer is `framebufferOnly = NO`.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&submit));
+    // target = [drawable texture]
+    asm.load_selector(SEL_TEXTURE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&direct_failed));
+    // blit = [commandBuffer blitCommandEncoder] — into `LOCAL[6]`, whose render encoder
+    // has already ended.
+    asm.load_selector(SEL_BLIT_COMMAND_ENCODER.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[6], abi::c_return(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[6], "0"));
+    asm.push(abi::branch_eq(&direct_failed));
+    // [blit copyFromTexture:offscreen toTexture:target]; [blit endEncoding]
+    asm.load_selector(SEL_COPY_TEXTURE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_TEXTURE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(3), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_END_ENCODING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch(&submit));
+
+    // A direct present that could not reach its drawable (no texture, no blit
+    // encoder). The render is already encoded, so the buffer is still committed and
+    // waited for — below, with every other frame — but nothing is presented: clearing
+    // the drawable slot is what makes the submit report 0, so the caller reads the
+    // frame back instead.
+    asm.push(abi::label(&direct_failed));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+
     // --- submit and wait ---------------------------------------------------------
-    for (selector, receiver) in [
-        (SEL_END_ENCODING.0, abi::LOCAL[6]),
-        (SEL_COMMIT.0, abi::LOCAL[7]),
-        (SEL_WAIT_UNTIL_COMPLETED.0, abi::LOCAL[7]),
-    ] {
+    // Waiting is kept on the direct path too: the frame buffer and the offscreen target
+    // are single-buffered, so the next frame may not write either while this one reads.
+    asm.push(abi::label(&submit));
+    for selector in [SEL_COMMIT.0, SEL_WAIT_UNTIL_COMPLETED.0] {
         asm.load_selector(selector);
-        asm.push(abi::move_register(abi::c_arg(0), receiver));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    // The frame is finished: read back, below — or, for a direct present, presented,
+    // unless `direct_failed` cleared the drawable to say the copy never happened.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&readback));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    // [drawable present] — AFTER the wait, not `presentDrawable:` on the buffer. The
+    // copy is finished, so this presents at the next refresh; scheduling it on the
+    // buffer instead ties the buffer's COMPLETION to the presentation, and the wait
+    // above then blocks for it. Measured in a 1512x855 window on a 120 Hz display:
+    // `presentDrawable:` spent 97% of the graphics thread in `waitUntilCompleted`
+    // (`sample`) and held the loop to ~82 frames a second.
+    asm.load_selector(SEL_PRESENT.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+    asm.push(abi::branch(&release_pool));
+    asm.push(abi::label(&readback));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
 
     // [texture getBytes:pixels bytesPerRow:width*4 fromRegion:{0,0,0,w,h,1} mipmapLevel:0]
     asm.load_selector(SEL_GET_BYTES.0);
@@ -2004,6 +2319,42 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OFF_POOL));
     asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
 
+    // bug-686 Phase 4: the first frame presented into a hidden layer shows it. Asked
+    // only while it is hidden, so a window that stays on the GPU hops once, not per
+    // frame; a software or readback frame hides it again (`emit_canvas_blit_apply_helper`).
+    // After the pool pops, because the hop waits on the main thread and nothing here
+    // needs the frame's autoreleased objects any more.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&show_done));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&show_done));
+    asm.local_address(abi::SCRATCH[1], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&show_done));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
+    asm.call_internal(METAL_LAYER_SYNC_SYMBOL);
+    asm.push(abi::label(&show_done));
+    asm.push(abi::load_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+
     asm.push(abi::label(&restore));
     asm.push(abi::load_u64(
         abi::link_register(),
@@ -2024,6 +2375,261 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         name: "macapp.metal.draw".to_string(),
         symbol: METAL_DRAW_SYMBOL.to_string(),
         params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// bug-686 Phase 4 (graphics thread): `int _mfb_macapp_metal_layer_sync(int show)`.
+///
+/// Hops to the main thread — `mfbMetalLayer:` on the app delegate, `waitUntilDone:YES`
+/// — so it configures the window's `CAMetalLayer`, sets its drawable size to the
+/// `…_MTL_DRAWABLE_W`/`_H` the caller published, and, when `show` is non-zero, makes it
+/// visible. Every one of those is a layer property, and layer properties belong to the
+/// main thread (`.ai/canvas-threading.md` §1): the graphics thread only ever asks for
+/// the next drawable and presents it.
+///
+/// Returns 1 once the main thread has run the apply, and 0 when there is no delegate to
+/// hop to — headless, where there is no run loop to drain the perform and waiting would
+/// deadlock. The delegate is read as the plain pointer the bootstrap published, for the
+/// reason `emit_canvas_blit_helper` gives: `NSApp` is main-thread-only.
+///
+/// Waiting is what makes the drawable size safe to rely on: the frame asks for
+/// `nextDrawable` only after this returns, so the drawable is already the new size.
+pub(super) fn emit_metal_layer_sync() -> CodeFunction {
+    let mut asm = Asm::new(METAL_LAYER_SYNC_SYMBOL);
+    let frame = 32;
+    let done = format!("{METAL_LAYER_SYNC_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // show
+
+    asm.local_address(abi::LOCAL[0], DELEGATE_GLOBAL_SYM);
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], 0));
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // Publish the visibility request where the apply reads it, before the hop.
+    asm.local_address(abi::SCRATCH[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::store_u64(
+        abi::LOCAL[1],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    ));
+
+    // [delegate performSelectorOnMainThread:@selector(mfbMetalLayer:)
+    //                            withObject:nil waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_METAL_LAYER.0);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(1))); // mfbMetalLayer: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // withObject: nil
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "1"));
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.metal.layerSync".to_string(),
+        symbol: METAL_LAYER_SYNC_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// bug-686 Phase 4 (main thread): the `mfbMetalLayer:` IMP.
+///
+/// Applies what [`emit_metal_layer_sync`] asked for to the layer the canvas view
+/// build published in `…_MTL_LAYER`:
+///
+/// * once, the configuration a blit destination needs — the renderer's own device,
+///   the render target's pixel format (`BGRA8Unorm_sRGB`, so the copy is a plain
+///   copy), `framebufferOnly = NO` (a framebuffer-only texture cannot be a blit
+///   destination), `opaque = YES` (every pixel is written, so the compositor need
+///   not blend what is under it);
+/// * the colour space — the window screen's, re-read on every apply (`SEL_SET_COLORSPACE`);
+/// * the drawable size — the SURFACE size, which is in points. The readback path hands
+///   the layer a `CGImage` of exactly that many pixels, so a drawable of the same size
+///   shows exactly the same picture; Retina backing scale is not this change's;
+/// * visibility, only ever turned ON here. It is turned off by the software blit's
+///   apply, the other writer of `…_LAYER_SHOWN`, and both run on this thread.
+///
+/// All of it inside a `CATransaction` with actions disabled: `hidden` is animatable,
+/// and an implicit fade over a frame is a frame showing the wrong picture.
+pub(super) fn emit_metal_layer_apply() -> CodeFunction {
+    let mut asm = Asm::new(METAL_LAYER_APPLY_SYMBOL);
+    let frame = 32;
+    let done = format!("{METAL_LAYER_APPLY_SYMBOL}_done");
+    let configured = format!("{METAL_LAYER_APPLY_SYMBOL}_configured");
+    let commit = format!("{METAL_LAYER_APPLY_SYMBOL}_commit");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::LOCAL[1],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    emit_transaction_begin(&mut asm);
+
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&configured));
+    // [layer setDevice:device] — the device the graphics thread's init built. It is
+    // published before any frame can ask for this, because the frame asks only after
+    // `_mfb_macapp_metal_init` has succeeded.
+    asm.load_selector(SEL_SET_DEVICE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_DEVICE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    for (setter, value) in [
+        (SEL_SET_PIXEL_FORMAT.0, MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB),
+        (SEL_SET_FRAMEBUFFER_ONLY.0, "0"),
+        (SEL_SET_OPAQUE.0, "1"),
+    ] {
+        asm.load_selector(setter);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::label(&configured));
+
+    // [layer setColorspace:[[[window screen] colorSpace] CGColorSpace]] — every apply,
+    // not once, so a hop after the window changed screens picks the new one up. See
+    // `SEL_SET_COLORSPACE` for why it is the SCREEN's space. Any nil on the way (no
+    // window yet, a window off every screen) leaves the layer's space as it was.
+    // Each object is parked in the frame's spare slot at 24 across the next selector
+    // lookup, which is a C call that clobbers every argument register.
+    let no_screen_space = format!("{METAL_LAYER_APPLY_SYMBOL}_no_screen_space");
+    asm.external_data(abi::c_arg(0), CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.push(abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    for selector in [SEL_SCREEN.0, SEL_COLOR_SPACE.0, SEL_CG_COLOR_SPACE.0] {
+        asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+        asm.push(abi::branch_eq(&no_screen_space));
+        asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24));
+        asm.load_selector(selector);
+        asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_screen_space));
+    asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24));
+    asm.load_selector(SEL_SET_COLORSPACE.0);
+    asm.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&no_screen_space));
+
+    // [layer setDrawableSize:CGSizeMake(w, h)] — a two-double HFA, so `d0`/`d1`. Staged
+    // AFTER the selector lookup: `sel_registerName` is a C call and may use the FP
+    // argument registers as scratch.
+    asm.load_selector(SEL_SET_DRAWABLE_SIZE.0);
+    for (slot, fp) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, abi::FP_SCRATCH[0]),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, abi::FP_SCRATCH[1]),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+        asm.push(abi::signed_convert_to_float_d(fp, abi::SCRATCH[0]));
+    }
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Show, if asked and not already shown.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&commit));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&commit));
+    asm.load_selector(SEL_SET_HIDDEN.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+
+    asm.push(abi::label(&commit));
+    emit_transaction_commit(&mut asm);
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.metal.layerApply".to_string(),
+        symbol: METAL_LAYER_APPLY_SYMBOL.to_string(),
+        params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
             stack_size: 0,
@@ -2033,6 +2639,30 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// `[CATransaction begin]; [CATransaction setDisableActions:YES]` — the bracket every
+/// main-thread change to the Metal sublayer is made in (bug-686 Phase 4).
+///
+/// A standalone sublayer, unlike a view's own backing layer, animates its property
+/// changes implicitly: without this, showing it would fade it in over a quarter of a
+/// second and a resize would slide it to its new frame. Touches only the argument
+/// registers, so a caller's callee-saved values survive it.
+pub(super) fn emit_transaction_begin(asm: &mut Asm) {
+    asm.load_selector(SEL_BEGIN.0);
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_SET_DISABLE_ACTIONS.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
+/// `[CATransaction commit]`, closing [`emit_transaction_begin`].
+pub(super) fn emit_transaction_commit(asm: &mut Asm) {
+    asm.load_selector(SEL_COMMIT.0);
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 
 /// Fill the parameter block at `sp + OFF_ITEM` from the geometry header whose
@@ -4360,6 +4990,26 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_CONTENTS,
         SEL_SET_VERTEX_BUFFER,
         SEL_SET_FRAGMENT_BUFFER,
+        // bug-686 Phase 4: the direct present and its main-thread layer bookkeeping.
+        SEL_NEXT_DRAWABLE,
+        SEL_TEXTURE,
+        SEL_BLIT_COMMAND_ENCODER,
+        SEL_COPY_TEXTURE,
+        SEL_PRESENT,
+        SEL_SET_DEVICE,
+        SEL_SET_FRAMEBUFFER_ONLY,
+        SEL_SET_DRAWABLE_SIZE,
+        SEL_SET_HIDDEN,
+        SEL_SET_OPAQUE,
+        SEL_SET_COLORSPACE,
+        SEL_SCREEN,
+        SEL_COLOR_SPACE,
+        SEL_CG_COLOR_SPACE,
+        SEL_ADD_SUBLAYER,
+        SEL_SET_LAYER_FRAME,
+        SEL_BEGIN,
+        SEL_SET_DISABLE_ACTIONS,
+        SEL_MFB_METAL_LAYER,
     ]
 }
 
@@ -4597,6 +5247,8 @@ mod tests {
             (OFF_BAND_HEIGHT, 8, "bandHeight"),
             (OFF_BAND_COUNT, 8, "bandCount"),
             (OFF_BAND_TABLE, 8, "bandTable"),
+            (OFF_DRAWABLE, 8, "drawable"),
+            (OFF_PRESENTED, 8, "presented"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 

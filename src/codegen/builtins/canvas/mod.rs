@@ -56,6 +56,7 @@ pub(crate) mod func_load_font;
 mod func_load_image;
 mod func_measure_text;
 mod func_metal_draw;
+mod func_metal_present;
 mod func_new_surface;
 mod func_poll_mouse;
 mod func_present;
@@ -1198,6 +1199,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);
     func_metal_draw::register(&mut pkg);
+    func_metal_present::register(&mut pkg);
     func_graphics::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);

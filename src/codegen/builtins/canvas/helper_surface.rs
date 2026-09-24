@@ -53,7 +53,9 @@ END FUNC"#;
 /// It also carries the renderer selection: `metal=` (a Metal device exists),
 /// `gpuSelected=` (the program asked for it -- NOT whether a backend drew),
 /// `gpuFrames=` (frames a backend actually rendered, which is the one that answers
-/// "did the GPU draw this"), `metalReady=` (the Metal pipeline
+/// "did the GPU draw this"), `directFrames=` (how many of those were presented
+/// straight to the window's `CAMetalLayer` rather than read back — bug-686 Phase 4;
+/// always 0 headless), `metalReady=` (the Metal pipeline
 /// built) and `vulkan=` (a Vulkan device exists — plan-98-F). All are internal-only,
 /// so a program cannot call them and a test cannot read them any other way; putting
 /// them here makes the seam's discriminants observable without adding public surface
@@ -127,7 +129,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " geoCompactions=" & toString(__CANVAS_GEO_COMPACTIONS) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " groups=" & toString(canvas::groupCount()) & " groupBytes=" & toString(canvas::groupBytes()) & " blocks=" & toString(len(__CANVAS_DRAW_BLOCKS)) & " draws=" & __canvas_drawsText() & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & __canvas_phaseText() & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " geoCompactions=" & toString(__CANVAS_GEO_COMPACTIONS) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " directFrames=" & toString(__CANVAS_DIRECT_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " groups=" & toString(canvas::groupCount()) & " groupBytes=" & toString(canvas::groupBytes()) & " blocks=" & toString(len(__CANVAS_DRAW_BLOCKS)) & " draws=" & __canvas_drawsText() & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & __canvas_phaseText() & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

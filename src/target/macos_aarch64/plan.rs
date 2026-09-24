@@ -1,7 +1,7 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::macos_aarch64::app::{
-    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
-    CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, LIB_QUARTZCORE,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
@@ -811,6 +811,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
+            | "canvas.metalPresentScene"
             | "canvas.useGpu"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
@@ -862,6 +863,19 @@ impl plan::NativePlanPlatform for Platform {
                     symbol: symbol.to_string(),
                     required_by: required_by.clone(),
                 }),
+            )
+            .chain(
+                // bug-686 Phase 4: the window's `CAMetalLayer` a GPU frame is
+                // presented into, and the `CATransaction` its property changes are
+                // bracketed in. QuartzCore, not Metal. Canvas-gated for the reason the
+                // Metal rows above are.
+                [CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: LIB_QUARTZCORE.to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: required_by.clone(),
+                    }),
             )
             .collect(),
             "thread.start"

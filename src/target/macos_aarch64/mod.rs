@@ -65,6 +65,7 @@ impl NativeBackend for Backend {
                 "canvas.vulkanDrawScene",
                 "canvas.metalReady",
                 "canvas.metalDrawScene",
+                "canvas.metalPresentScene",
                 "canvas.startGraphics",
                 "canvas.signalRedraw",
                 "canvas.waitForRedraw",

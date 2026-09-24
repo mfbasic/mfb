@@ -19,8 +19,8 @@ mod mouse_view;
 // plan-98-E: the plan declares these as canvas-gated imports, so they have to
 // leave this module.
 pub(crate) use metal::{
-    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
-    CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, LIB_QUARTZCORE,
 };
 mod term_view;
 
@@ -924,6 +924,10 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // so any program that draws must carry the code that choice would run.
         functions.push(metal::emit_metal_init());
         functions.push(metal::emit_metal_draw());
+        // bug-686 Phase 4: the direct present's main-thread layer bookkeeping — the
+        // graphics-thread hop and the `mfbMetalLayer:` IMP it lands in.
+        functions.push(metal::emit_metal_layer_sync());
+        functions.push(metal::emit_metal_layer_apply());
     }
     Ok(functions)
 }

@@ -780,6 +780,21 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   IF NOT __canvas_metalRenderable(offsets) THEN
     RETURN FALSE
   END IF
+  ' bug-686 Phase 4: in a window, present the GPU frame straight to the window's
+  ' `CAMetalLayer` -- no CPU surface, no readback, no swizzle, no `CGImage` blit, which
+  ' at a full-screen surface were the whole frame budget. Only when nothing needs the
+  ' frame's pixels on the CPU: damage mode keeps them (`__CANVAS_KEPT`) and a `--debug`
+  ' dump writes them. `metalPresentScene` answers FALSE when there is nowhere to present
+  ' (headless: no window layer, decided before Metal is touched) or no drawable this
+  ' frame, and the frame then takes the readback path below -- so every headless test
+  ' still compares exactly the pixels it always did.
+  IF NOT __canvas_damageEnabled() AND NOT __canvas_dumpRequested() THEN
+    IF canvas::metalPresentScene(width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS) THEN
+      __CANVAS_GPU_FRAMES = __CANVAS_GPU_FRAMES + 1
+      __canvas_presentedDirect()
+      RETURN TRUE
+    END IF
+  END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
   ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset. Same
@@ -1208,6 +1223,56 @@ const RENDER_LOOP_DEBUG: &str = concat!(
     render_loop_tail!()
 );
 
+/// bug-686 Phase 4: the two `--debug`-only facts `__canvas_renderMetal` needs about a
+/// directly presented frame — normal-build bodies.
+///
+/// A normal build has no frame dump (plan-130-E), so nothing ever needs a GPU frame's
+/// pixels on the CPU for it, and nothing writes a stats line. Both bodies are therefore
+/// the answer, not a stub: `FALSE`, and nothing to do.
+#[rustfmt::skip]
+const DIRECT_PRESENT: &str =
+r#"FUNC __canvas_dumpRequested() AS Boolean
+  RETURN FALSE
+END FUNC
+
+SUB __canvas_presentedDirect()
+END SUB"#;
+
+/// [`DIRECT_PRESENT`] for a `--debug` build.
+///
+/// `MFB_CANVAS_DUMP` names a file every frame's RGBA is written to, so while it is set
+/// the frame must be read back — the direct present has no CPU pixels to write. Read
+/// once and cached, like `__canvas_damageEnabled`, rather than a `getenv` per frame
+/// (0 unresolved, 1 off, 2 on).
+///
+/// A directly presented frame never reaches `__canvas_presentSurface`, which is where
+/// the stats line is written for every other rendered frame, so it writes it here —
+/// after `__CANVAS_GPU_FRAMES` is bumped, for the reason `__canvas_renderMetal` gives.
+///
+/// `__CANVAS_DIRECT_FRAMES` is the stats line's `directFrames=`: how many of the
+/// `gpuFrames=` never came back to the CPU. `gpuFrames=` alone cannot tell the two
+/// GPU paths apart — both draw the same picture — and the real-window test in
+/// `scripts/test-macapp.sh` needs to know which one it captured.
+#[rustfmt::skip]
+const DIRECT_PRESENT_DEBUG: &str =
+r#"MUT __CANVAS_DUMP_MODE AS Integer = 0
+MUT __CANVAS_DIRECT_FRAMES AS Integer = 0
+
+FUNC __canvas_dumpRequested() AS Boolean
+  IF __CANVAS_DUMP_MODE = 0 THEN
+    __CANVAS_DUMP_MODE = 1
+    IF len(os::getEnvOr("MFB_CANVAS_DUMP", "")) > 0 THEN
+      __CANVAS_DUMP_MODE = 2
+    END IF
+  END IF
+  RETURN __CANVAS_DUMP_MODE = 2
+END FUNC
+
+SUB __canvas_presentedDirect()
+  __CANVAS_DIRECT_FRAMES = __CANVAS_DIRECT_FRAMES + 1
+  __canvas_writeStats()
+END SUB"#;
+
 /// plan-116-J: close the resources a retired group buffer owned.
 ///
 /// **Not "close what the retired buffer named" — close what no LIVE buffer names**, and
@@ -1331,6 +1396,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_renderMetal",
         RENDER_METAL.as_str(),
     ));
+    for helper in
+        RegistryHelper::debug_split("canvas_directPresent", DIRECT_PRESENT, DIRECT_PRESENT_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always("canvas_closeRetired", CLOSE_RETIRED));
 }
 

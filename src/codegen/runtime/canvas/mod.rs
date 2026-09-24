@@ -292,8 +292,33 @@ pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE_MODES: usize = 728;
 /// builds. Spelled again in MFBASIC as the `BlendMode` variant count; the emitters and
 /// the header agree through `HEADER_BLEND`'s 0..3 range.
 pub(crate) const BLEND_MODE_COUNT: usize = 4;
+/// The macOS window's `CAMetalLayer`, and the state of the direct present (bug-686
+/// Phase 4).
+///
+/// A GPU frame in a real window is copied into this layer's next drawable and
+/// presented, instead of being read back into a CPU surface and blitted as a
+/// `CGImage`. The layer is a hidden sublayer of the canvas view's backing layer,
+/// created by the **main** thread when it builds the view — so a headless run, which
+/// builds no view, leaves `…_MTL_LAYER` zero, and that zero is what sends every
+/// headless frame down the readback path the oracle tests compare.
+///
+/// Ownership, one writer per word:
+///
+/// * `LAYER`, `LAYER_READY` and `LAYER_SHOWN` — **main**. `READY` is set once the
+///   layer's device, pixel format and `framebufferOnly` are configured; `SHOWN`
+///   tracks its `hidden` property, which the main thread flips on only when the
+///   graphics thread asks and off when a software (or readback) frame lands.
+/// * `DRAWABLE_W`/`_H` and `LAYER_SHOW` — **graphics**: the drawable size and the
+///   visibility it asks the main thread to apply, read by the main-thread IMP during
+///   a `waitUntilDone:YES` hop, so the graphics thread never touches a layer property.
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER: usize = 760;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_READY: usize = 768;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOWN: usize = 776;
+pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_W: usize = 784;
+pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_H: usize = 792;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOW: usize = 800;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 808;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
