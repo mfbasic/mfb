@@ -9,6 +9,12 @@
 //! assembly ports would each be a place for the oracle to disagree with itself.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
+use crate::codegen::runtime::canvas::{
+    CANVAS_MAX_FRAME_ITEMS, MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
+    METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS,
+    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+};
+use std::sync::LazyLock;
 
 /// Render the currently-installed scene into the surface buffer.
 ///
@@ -133,8 +139,13 @@ END FUNC"#;
 /// success — the same lie both predicates exist to prevent. It was measured, not
 /// assumed: the scene that found it differed from the oracle on 4,610 pixels, all of
 /// them the one triangle.
+///
+/// The frame caps below are not literals in this text: each `LET __CANVAS_*MAX*` line
+/// carries an `@NAME@` token that `RENDER_METAL` replaces with the Rust constant of that
+/// name (`RENDER_CAPS`), so the predicate and the emitter it guards read ONE definition
+/// (bug-686). They used to be two, joined only by a test.
 #[rustfmt::skip]
-const RENDER_METAL: &str =
+const RENDER_METAL_TEMPLATE: &str =
 r#"' plan-116-G: the accumulated group translation of each draw entry, parallel to the
 ' offsets list `__canvas_sceneOffsets` returns, and whether any group was expanded.
 '
@@ -665,21 +676,28 @@ END FUNC
 ' eviction pass dropped -- those draw nothing and take no block. Over-estimating declines
 ' a hair early, which is the safe direction: under-estimating would let the emitter write
 ' past the mapping.
-LET __CANVAS_MAX_FRAME_ITEMS AS Integer = 4096
+'
+' bug-686: Metal's item buffer is larger than Vulkan's, so each backend has its own
+' cap -- `__CANVAS_MAX_FRAME_ITEMS` is Vulkan's, `__CANVAS_METAL_MAX_FRAME_ITEMS`
+' Metal's. Every value on these lines is generated from the Rust constant it names.
+LET __CANVAS_MAX_FRAME_ITEMS AS Integer = @CANVAS_MAX_FRAME_ITEMS@
+LET __CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = @METAL_MAX_FRAME_ITEMS@
 
-LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
+LET __CANVAS_METAL_MAX_EDGES AS Integer = @MAX_EDGES@
 
 ' The glyph samples one frame may carry on Metal, summed over its runs -- a frame-wide
-' region like Vulkan's, and the same size (bug-670). `__canvas_runSamples` below counts
-' a run's share.
-LET __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = 1048576
+' region like Vulkan's (bug-670), and eight times its size since bug-686, because a
+' picture's texels ride it too. `__canvas_runSamples` below counts a run's share.
+LET __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = @METAL_MAX_FRAME_GLYPH_SAMPLES@
 
-LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
+LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = @METAL_MAX_FRAME_EDGES@
 
 ' The gradient stops one frame may carry, summed over its items -- the cap on the
-' third region of both backends' shared buffer, and the same number for both
-' because the region is sized identically on each (plan-116-F).
-LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = 4096
+' gradient region of each backend's shared buffer (plan-116-F). Vulkan's is
+' `__CANVAS_MAX_FRAME_GRADIENT_STOPS`; Metal's was the same number until bug-686
+' found 2,100 two-stop gradients declined by it.
+LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = @MAX_FRAME_GRADIENT_STOPS@
+LET __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = @METAL_MAX_FRAME_GRADIENT_STOPS@
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
@@ -720,7 +738,7 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+  IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
   END IF
   ' The glyph region serves the whole frame, so overflowing it would make one glyph
@@ -736,7 +754,7 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   ' The gradient region is one buffer serving the whole frame, so overflowing it
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
-  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+  IF gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 3: Metal no longer declines a scene containing a group either. The
@@ -777,8 +795,8 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   RETURN TRUE
 END FUNC
 
-LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = 16384
-LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = 1048576
+LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = @VULKAN_MAX_FRAME_EDGES@
+LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = @VULKAN_MAX_FRAME_GLYPH_SAMPLES@
 
 ' The coverage samples one glyph run puts in the frame's glyph region -- the sum of its
 ' cached bitmaps' areas. A run carries cache indices rather than bitmaps, so this is the
@@ -890,6 +908,40 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   __canvas_presentSurface(buffer, width, height)
   RETURN TRUE
 END FUNC"#;
+
+/// The frame caps `RENDER_METAL_TEMPLATE` shares with the native emitters, by the
+/// `@NAME@` token each `LET` line carries. One entry per token; a token with no entry
+/// would reach the MFBASIC compiler as a syntax error, and
+/// `every_cap_token_in_the_render_source_is_generated` pins that none is left.
+const RENDER_CAPS: &[(&str, usize)] = &[
+    ("CANVAS_MAX_FRAME_ITEMS", CANVAS_MAX_FRAME_ITEMS),
+    ("METAL_MAX_FRAME_ITEMS", METAL_MAX_FRAME_ITEMS),
+    ("MAX_EDGES", MAX_EDGES),
+    (
+        "METAL_MAX_FRAME_GLYPH_SAMPLES",
+        METAL_MAX_FRAME_GLYPH_SAMPLES,
+    ),
+    ("METAL_MAX_FRAME_EDGES", METAL_MAX_FRAME_EDGES),
+    ("MAX_FRAME_GRADIENT_STOPS", MAX_FRAME_GRADIENT_STOPS),
+    (
+        "METAL_MAX_FRAME_GRADIENT_STOPS",
+        METAL_MAX_FRAME_GRADIENT_STOPS,
+    ),
+    ("VULKAN_MAX_FRAME_EDGES", VULKAN_MAX_FRAME_EDGES),
+    (
+        "VULKAN_MAX_FRAME_GLYPH_SAMPLES",
+        VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    ),
+];
+
+/// `RENDER_METAL_TEMPLATE` with every cap token replaced by its Rust constant.
+static RENDER_METAL: LazyLock<String> = LazyLock::new(|| {
+    RENDER_CAPS
+        .iter()
+        .fold(RENDER_METAL_TEMPLATE.to_string(), |text, (name, value)| {
+            text.replace(&format!("@{name}@"), &value.to_string())
+        })
+});
 
 /// The per-item content hashes for a scene, in item order.
 ///
@@ -1270,7 +1322,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     }
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
-    pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_renderMetal",
+        RENDER_METAL.as_str(),
+    ));
     pkg.add_helper(RegistryHelper::always("canvas_closeRetired", CLOSE_RETIRED));
 }
 

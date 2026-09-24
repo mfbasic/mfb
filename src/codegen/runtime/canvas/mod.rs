@@ -253,8 +253,9 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
 /// Metal's frame buffer — the same transport, one `MTLBuffer` instead of a Vulkan
 /// buffer plus a descriptor (plan-116-A).
 ///
-/// It carries **two regions**: the item blocks from byte 0, then the polygon edges
-/// from `METAL_EDGE_BASE_WORDS`. Before this, Metal's edges rode a per-item
+/// It carries the item blocks from byte 0, then the polygon edges from
+/// `METAL_EDGE_BASE_WORDS`, then the regions listed at `METAL_BUFFER_BYTES` (gradient
+/// stops, glyph and picture texels, …). Before this, Metal's edges rode a per-item
 /// `setFragmentBytes:` payload, which an instanced draw cannot rebind between
 /// instances — so every polygon would have ended the instanced run, and letters F and
 /// H would each have rediscovered the same conflict. Both backends now carry edges the
@@ -674,11 +675,29 @@ pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 /// block — which is the point: later letters widen the block, and the buffer absorbs
 /// that where the 128-byte push-constant range could not.
 ///
-/// Both `*Renderable` predicates sum a frame's quads against this and decline the
+/// `__canvas_vulkanRenderable` sums a frame's quads against this and declines the
 /// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
 /// already has and for the same reason: a truncated scene is a *different scene*, and
 /// software is the oracle, so declining is never worse than drawing.
+///
+/// **Vulkan's only since bug-686.** Metal's item buffer has its own, much larger cap,
+/// `METAL_MAX_FRAME_ITEMS`; this one stays at 4096 because the Vulkan backend is not
+/// measured by that bug and a shared raise would change it untested.
 pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+
+/// The most **item blocks** one Metal frame may carry — `CANVAS_MAX_FRAME_ITEMS`'s
+/// Metal twin (bug-686).
+///
+/// 4096 quads sent ordinary scenes to software: a terminal screen of text is one quad
+/// per glyph, `examples/wind` publishes about 5,700 blocks a frame, and the 1,000-item
+/// scenes bug-686 measured were a quarter of the way there. 65,536 blocks is 13 MiB of
+/// item buffer at the current `ITEM_BLOCK_SIZE`, and every frame region after it moves
+/// with it — which is why the shader's region bases are generated from these constants
+/// rather than spelled in the MSL (`metal_shader_source`).
+///
+/// `__canvas_metalRenderable` declines a frame past it, exactly as before; the
+/// MFBASIC copy is generated from this constant (`helper_render.rs`).
+pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 
 /// How many 64-bit words one entry of the GPU draw list occupies.
 ///
@@ -705,6 +724,9 @@ pub(crate) const CANVAS_DRAW_ENTRY_COUNT_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.tr
 pub(crate) const CANVAS_DRAW_ENTRY_MODE: usize = 32;
 /// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
 pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+/// Metal's item region in bytes — one `ITEM_BLOCK_SIZE` record per quad, for
+/// `METAL_MAX_FRAME_ITEMS` quads. The first region of the Metal frame buffer.
+pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 
 /// The most edges one **frame** may carry on the Metal path, mirroring
 /// `VULKAN_MAX_FRAME_EDGES` (plan-116-A).
@@ -715,12 +737,12 @@ pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM
 /// between instances, so the edges moved into a region of the frame buffer, exactly
 /// where Vulkan has always kept them, and the cap became a frame total to match.
 ///
-/// **This is the one scene class that newly declines to software**: a Metal scene
-/// whose polygon edges sum past 16384. It previously rendered on the GPU through the
-/// unbounded per-item payload. Software is the oracle, so the picture is at least as
-/// correct. The per-item `MAX_EDGES` decline is deliberately kept beside this one —
-/// unifying the two caps is later work, taken deliberately or not at all.
-pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
+/// A Metal scene whose polygon edges sum past this is declined to software. It was
+/// 16384 until bug-686, which `examples/wind`'s coastline alone exceeds; 262,144 edges
+/// is 4 MiB of region, and a 40,000-edge frame measured within max channel delta 1 of
+/// the software oracle (bug-686 spike C). Software is the oracle, so a declined frame
+/// is at least as correct — truncating instead would draw a *different shape*.
+pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// Where Metal's edge region starts inside the frame buffer, in 32-bit words.
 ///
 /// The item blocks come first, so this is simply past them. The shader adds it to each
@@ -729,22 +751,28 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
 /// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
 /// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
-pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
+pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
 /// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
 ///
 /// A starting value, as the plan says: raise it only against a measured scene. Five
 /// words a stop, so 4096 stops is 80 KiB — noise beside the edge and glyph regions.
 ///
-/// The same number on both backends deliberately. A scene that renders on Metal and
-/// declines on Vulkan (or the reverse) would make "the GPU path" mean something
-/// different per host, and the oracle comparison could not be read the same way on
-/// both.
+/// It was the same number on both backends until bug-686, which found a scene of
+/// 2,100 two-stop gradient rectangles — an ordinary chart — declined on Metal by this
+/// cap alone. Metal's cap is now `METAL_MAX_FRAME_GRADIENT_STOPS`; this one is
+/// Vulkan's, left where it was because that backend is not measured by that bug.
 pub(crate) const MAX_FRAME_GRADIENT_STOPS: usize = 4096;
+/// The most gradient stops one **Metal** frame may carry (bug-686).
+///
+/// Two stops per quad of `METAL_MAX_FRAME_ITEMS`: a gradient has at least two, so this
+/// is the first cap at which a frame of nothing but simple gradient-filled shapes is
+/// declined by the item cap rather than by this one. 2.5 MiB of region.
+pub(crate) const METAL_MAX_FRAME_GRADIENT_STOPS: usize = 2 * METAL_MAX_FRAME_ITEMS;
 /// Five 32-bit words a stop: offset, then the four colour channels.
 pub(crate) const GRADIENT_STOP_WORDS: usize = 5;
 /// Where Metal's gradient region starts, in 32-bit words — after the items and edges.
 pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
-    CANVAS_ITEM_BUFFER_BYTES / 4 + METAL_MAX_FRAME_EDGES * 4;
+    METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 /// The most coverage samples one **frame**'s glyphs may carry on the Metal path — the
 /// same number, and the same one-sample-per-word layout, as
 /// `VULKAN_MAX_FRAME_GLYPH_SAMPLES` (bug-670).
@@ -754,15 +782,24 @@ pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
 /// glyph's publish before the draw ran, and every glyph drew the run's last bitmap. A
 /// frame-wide region, each glyph's slice named by the offset in its own block, is what
 /// Vulkan always did, and it is the only shape an instanced run can read.
-pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
+///
+/// `1 << 23` since bug-686 (it was `1 << 20`, Vulkan's size): a picture's texels ride
+/// this region too, and one 1024×1024 background plus anything else overflowed a
+/// million words. Eight million is a 2560×1440 background with room left for tiles and
+/// text, and 32 MiB of region.
+pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 /// Where Metal's glyph region starts, in 32-bit words — after the gradient stops.
 pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
-    METAL_GRADIENT_BASE_WORDS + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+    METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
 /// gradient stops (five each), then glyph coverage (one sample a word).
-pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES
+///
+/// A sum of the regions' sizes rather than "the last base plus the last size", so
+/// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
+/// computations and a region left out of the chain shows up there.
+pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
-    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.

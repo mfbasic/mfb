@@ -3,15 +3,21 @@ use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
     CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0,
     MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
-    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES,
+    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
+
+/// The injected MFBASIC source as the compiler receives it — caps generated.
+fn source() -> &'static str {
+    RENDER_METAL.as_str()
+}
 
 /// The body of a `FUNC`/`SUB` in the injected MFBASIC source, by name.
 fn body(name: &str) -> &'static str {
-    let start = RENDER_METAL
+    let start = source()
         .find(&format!("__canvas_{name}("))
         .unwrap_or_else(|| panic!("__canvas_{name} is not in RENDER_METAL"));
-    let rest = &RENDER_METAL[start..];
+    let rest = &source()[start..];
     let end = rest
         .find("\nEND ")
         .unwrap_or_else(|| panic!("__canvas_{name} has no END"));
@@ -97,11 +103,11 @@ fn block_instances_keeps_the_blend_split_case() {
 /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
 fn declared(name: &str) -> usize {
     let needle = format!("LET {name} AS Integer = ");
-    let start = RENDER_METAL
+    let start = source()
         .find(&needle)
         .unwrap_or_else(|| panic!("{name} is not declared in RENDER_METAL"))
         + needle.len();
-    let rest = &RENDER_METAL[start..];
+    let rest = &source()[start..];
     let end = rest.find('\n').unwrap_or(rest.len());
     rest[..end].trim().parse().expect("a decimal literal")
 }
@@ -132,10 +138,22 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
     assert_eq!(
         declared("__CANVAS_MAX_FRAME_ITEMS"),
         CANVAS_MAX_FRAME_ITEMS,
-        "the predicate admits a frame with more drawn quads than the item buffer \
-             has blocks — on BOTH backends, since they share this one. The emitters \
-             stop publishing at capacity, so the surplus items would silently not be \
-             drawn",
+        "the Vulkan predicate admits a frame with more drawn quads than the item \
+             buffer has blocks. The emitter stops publishing at capacity, so the \
+             surplus items would silently not be drawn",
+    );
+    // bug-686: Metal's item buffer has its own, larger cap.
+    assert_eq!(
+        declared("__CANVAS_METAL_MAX_FRAME_ITEMS"),
+        METAL_MAX_FRAME_ITEMS,
+        "the Metal predicate admits a frame with more drawn quads than Metal's item \
+             region has blocks. The emitter stops publishing at capacity, so the \
+             surplus items would silently not be drawn",
+    );
+    assert!(
+        body("metalRenderable").contains("quads > __CANVAS_METAL_MAX_FRAME_ITEMS")
+            && body("vulkanRenderable").contains("quads > __CANVAS_MAX_FRAME_ITEMS"),
+        "each predicate must test its own backend's quad cap",
     );
     assert_eq!(
         declared("__CANVAS_VULKAN_MAX_GLYPH_SAMPLES"),
@@ -159,6 +177,37 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
         "the predicate admits a frame whose gradient stops the buffer's third \
              region cannot hold, so one item's stops would be read as another's",
     );
+    // bug-686: Metal's gradient region has its own, larger cap.
+    assert_eq!(
+        declared("__CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS"),
+        METAL_MAX_FRAME_GRADIENT_STOPS,
+        "the Metal predicate admits a frame whose gradient stops Metal's gradient \
+             region cannot hold, so one item's stops would be read as another's",
+    );
+    assert!(
+        body("metalRenderable").contains("gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS")
+            && body("vulkanRenderable")
+                .contains("gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS"),
+        "each predicate must test its own backend's gradient-stop cap",
+    );
+}
+
+/// The caps are generated into the MFBASIC text from the Rust constants (bug-686), so
+/// the template carries `@NAME@` tokens. A token `RENDER_CAPS` does not list would
+/// reach the MFBASIC compiler verbatim; one listed but absent from the template is a
+/// cap nothing reads.
+#[test]
+fn every_cap_token_in_the_render_source_is_generated() {
+    assert!(
+        !source().contains('@'),
+        "an `@NAME@` cap token survived generation; add it to RENDER_CAPS",
+    );
+    for (name, _) in RENDER_CAPS {
+        assert!(
+            RENDER_METAL_TEMPLATE.contains(&format!("= @{name}@\n")),
+            "RENDER_CAPS lists {name}, but no LET line in the template reads it",
+        );
+    }
 }
 
 /// The predicates read the geometry header by slot. `offset + 20` is
@@ -204,9 +253,7 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 fn the_predicates_read_the_edge_count_slot() {
     assert_eq!(HEADER_AUX0, 20);
     assert_eq!(
-        RENDER_METAL
-            .matches(&format!("offset + {HEADER_AUX0}"))
-            .count(),
+        source().matches(&format!("offset + {HEADER_AUX0}")).count(),
         5,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
@@ -226,12 +273,12 @@ fn the_predicates_read_the_edge_count_slot() {
 #[test]
 fn the_text_kind_is_spelled_once() {
     assert_eq!(GEO_KIND_TEXT, "6");
-    assert!(RENDER_METAL.contains("= __CANVAS_GEO_TEXT THEN"));
+    assert!(source().contains("= __CANVAS_GEO_TEXT THEN"));
 }
 
 /// Both predicates test the same kind the emitters and the shaders branch on.
 #[test]
 fn the_polygon_kind_is_spelled_once() {
     assert_eq!(GEO_KIND_POLYGON, "4");
-    assert!(RENDER_METAL.contains("= __CANVAS_GEO_POLYGON THEN"));
+    assert!(source().contains("= __CANVAS_GEO_POLYGON THEN"));
 }

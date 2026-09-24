@@ -270,17 +270,10 @@ END SUB
 
 /// Many polygons that individually fit but together overflow the frame's edge region.
 ///
-/// New in plan-116-A, and it covers a decline that did not exist before it. Metal's
-/// edges used to ride an unbounded per-item `setFragmentBytes:` payload, so the only cap
-/// was per *item*; they now take a slice of one region serving the whole frame
-/// (`METAL_MAX_FRAME_EDGES` = 16384), so the cap is a frame total, exactly as Vulkan's
-/// has always been.
-///
-/// 200 rings of 200 edges is 40,000 edges. Each ring is far inside the per-item
-/// `__CANVAS_METAL_MAX_EDGES` (256), so `TOO_MANY_EDGES` above cannot reach this case —
-/// only the *sum* is over, which is precisely the new condition. The rectangle is there
-/// so the frame is not blank: a fallback that rendered nothing would compare equal to a
-/// fallback that rendered nothing and prove nothing.
+/// plan-116-A declined this scene: 40,000 edges was past the 16,384-edge frame region
+/// that letter introduced. bug-686 raised the region to 262,144 edges, and the scene is
+/// now a Metal acceptance case (`forty_thousand_polygon_edges_draw_on_metal`). The
+/// decline it used to prove is `PAST_THE_FRAME_EDGE_REGION`'s job below.
 const TOO_MANY_FRAME_EDGES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
@@ -300,6 +293,42 @@ SUB main()
       i = i + 1
     END WHILE
     LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
+    scene = collections::append(scene, poly)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
+END SUB
+"#;
+
+/// Polygons whose edges together pass Metal's frame edge region
+/// (`METAL_MAX_FRAME_EDGES` = 262,144 since bug-686).
+///
+/// 1,025 rings of 256 edges is 262,400 edges — 256 past the region, and no ring past
+/// any per-polygon limit, so only the *sum* can decline it. The rings are 4 px across so
+/// the software oracle, which walks every edge for every pixel of a polygon's bounds,
+/// draws the frame in seconds rather than minutes. The rectangle keeps the frame from
+/// being blank.
+const PAST_THE_FRAME_EDGE_REGION: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
+  MUT ring AS Integer = 0
+  WHILE ring < 1025
+    LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
+    LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
+    MUT points AS List OF canvas::Point = []
+    MUT i AS Integer = 0
+    WHILE i < 256
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
+      points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
+      i = i + 1
+    END WHILE
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE
@@ -486,13 +515,17 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
 /// software renderer on the identical scene, so anything other than byte equality means
 /// the Metal path drew part of a scene it should have refused. Asserting it by pixels
 /// rather than by reading a stats flag is the point — a renderer that silently truncated
-/// at 16384 edges would still report `gpuSelected=TRUE` and look healthy.
+/// at the region's end would still report `gpuSelected=TRUE` and look healthy.
+///
+/// bug-686 raised the region from 16,384 edges to 262,144, so the 40,000-edge scene this
+/// test used to decline now draws on Metal (`forty_thousand_polygon_edges_draw_on_metal`)
+/// and this one is past the new region instead.
 #[test]
 fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
     if !cfg!(target_os = "macos") {
         return;
     }
-    let program = build("canvas_metal_frame_edges", TOO_MANY_FRAME_EDGES);
+    let program = build("canvas_metal_frame_edges", PAST_THE_FRAME_EDGE_REGION);
     let (software, _) = render(&program, false, "sw");
     let (gpu, stats) = render(&program, true, "gpu");
     if !metal_built(&stats) {
@@ -504,7 +537,7 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
     );
     if let Err(diff) = compare_exact(&gpu, &software) {
         panic!(
-            "200 rings of 200 edges is 40,000 edges, past METAL_MAX_FRAME_EDGES — the \
+            "1,025 rings of 256 edges is 262,400 edges, past METAL_MAX_FRAME_EDGES — the \
              renderer must decline the whole frame and let the software oracle draw it, \
              so the two frames must be byte-identical, but {diff}"
         );

@@ -52,12 +52,12 @@ use crate::codegen::error::constants::error_constants::{
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE,
-    GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
-    GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
-    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
-    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
-    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
+    BLEND_MODE_COUNT, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
+    GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
+    GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT, GRAPHICS_OFFSET_MTL_TEX_WIDTH,
+    GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES, METAL_EDGE_BASE_WORDS,
+    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
@@ -75,9 +75,10 @@ use crate::codegen::runtime::canvas::{
     ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
     ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
-    MAX_FRAME_GRADIENT_STOPS, METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS,
-    METAL_MAX_FRAME_GLYPH_SAMPLES, PICTURE_SHADOW_SPLIT_BITS,
+    METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_GRADIENT_STOPS, PICTURE_SHADOW_SPLIT_BITS,
 };
+use std::sync::LazyLock;
 
 /// The one-time setup helper's symbol.
 pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
@@ -116,23 +117,33 @@ pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
 /// would put the burden of predicting MSL's alignment rules on the emitter, and a
 /// wrong prediction there is not a compile error — it is a scene that draws with its
 /// fields shifted.
-pub(super) const METAL_SHADER_SOURCE: &str = concat!(
-    "#include <metal_stdlib>\n",
-    "using namespace metal;\n",
-    "constant float FIXED = 65536.0;\n",
-    "constant float PI = 3.141592653589793;\n",
-    // Where the frame buffer's edge region starts, in 32-bit words -- i.e. immediately
-    // past `CANVAS_MAX_FRAME_ITEMS` item blocks, so it MOVES whenever `ITEM_BLOCK_SIZE`
-    // does (114688 -> 131072 when plan-116-B widened the block to 128 bytes). Spelled
-    // as a literal because
-    // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
-    // computed value; `the_metal_shader_region_bases_match_the_buffer_layout` is what
-    // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
-    // anywhere -- every polygon would simply read edges from the wrong place in a
-    // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 212992;\n",
-    "constant int METAL_GRADIENT_BASE = 278528;\n",
-    "constant int METAL_GLYPH_BASE = 299008;\n",
+///
+/// ## The region bases are generated, not spelled
+///
+/// The frame buffer's regions (`METAL_EDGE_BASE`, `METAL_GRADIENT_BASE`,
+/// `METAL_GLYPH_BASE`) start wherever the layout constants in `runtime/canvas` put
+/// them, and every one MOVES when a cap before it or `ITEM_BLOCK_SIZE` changes. They
+/// were integer literals in a `concat!` until bug-686, kept equal to the Rust layout
+/// only by `the_metal_shader_region_bases_match_the_buffer_layout`; a stale one does
+/// not fail anywhere — every polygon, ramp or glyph reads from the wrong offset of a
+/// buffer that is entirely valid memory. The source is now formatted once, on first
+/// use, with the numbers taken from the constants themselves, so there is no second
+/// spelling to fall out of step. The test still reads the formatted text back.
+pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "#include <metal_stdlib>\n\
+         using namespace metal;\n\
+         constant float FIXED = 65536.0;\n\
+         constant float PI = 3.141592653589793;\n\
+         constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
+         constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
+         constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
+         {METAL_SHADER_BODY}"
+    )
+});
+
+/// Everything in the MSL after the region bases — the part with no layout number in it.
+const METAL_SHADER_BODY: &str = concat!(
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -549,8 +560,9 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "}\n",
 );
 
-/// The MSL source, as a C string data object.
-pub(super) const STR_METAL_SHADER: (&str, &str) = ("_mfb_macapp_metal_shader", METAL_SHADER_SOURCE);
+/// The MSL source's C string data object symbol. The text is `METAL_SHADER_SOURCE`,
+/// paired with this in `metal_data_objects`.
+pub(super) const STR_METAL_SHADER: &str = "_mfb_macapp_metal_shader";
 /// The two entry-point names, looked up in the compiled library.
 pub(super) const STR_METAL_VERTEX_FN: (&str, &str) = ("_mfb_macapp_metal_vertex_fn", "mfbVertex");
 pub(super) const STR_METAL_FRAGMENT_FN: (&str, &str) =
@@ -822,7 +834,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // queue
 
     // library = [device newLibraryWithSource:@(MSL) options:nil error:NULL]
-    build_nsstring_from_cstring(&mut asm, abi::LOCAL[3], STR_METAL_SHADER.0);
+    build_nsstring_from_cstring(&mut asm, abi::LOCAL[3], STR_METAL_SHADER);
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // NSString source
     asm.load_selector(SEL_NEW_LIBRARY_WITH_SOURCE.0);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[3]));
@@ -2693,7 +2705,7 @@ fn emit_item_block(asm: &mut Asm) {
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, a glyph run is one per
 /// glyph. That is the same number `__canvas_metalRenderable` sums against
-/// `CANVAS_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
+/// `METAL_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
 ///
 /// Branches to `full` without writing or advancing when the frame is at capacity —
 /// unreachable, because the predicate already declined such a scene to software, and
@@ -2708,7 +2720,7 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
     asm.push(abi::load_u64(cursor, abi::stack_pointer(), OFF_ITEM_CURSOR));
     asm.push(abi::compare_immediate(
         cursor,
-        &CANVAS_MAX_FRAME_ITEMS.to_string(),
+        &METAL_MAX_FRAME_ITEMS.to_string(),
     ));
     asm.push(abi::branch_ge(full));
 
@@ -3124,7 +3136,7 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[5], count));
     asm.push(abi::compare_immediate(
         abi::SCRATCH[6],
-        &MAX_FRAME_GRADIENT_STOPS.to_string(),
+        &METAL_MAX_FRAME_GRADIENT_STOPS.to_string(),
     ));
     asm.push(abi::branch_le(&convert));
 
@@ -3562,8 +3574,9 @@ fn emit_edge_buffer(asm: &mut Asm) {
 
 /// The C strings this module's sends need, for the reconcile data-object list.
 pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
+    let shader: &'static str = METAL_SHADER_SOURCE.as_str();
     vec![
-        STR_METAL_SHADER,
+        (STR_METAL_SHADER, shader),
         STR_METAL_VERTEX_FN,
         STR_METAL_FRAGMENT_FN,
         SEL_NEW_COMMAND_QUEUE,
@@ -3928,9 +3941,11 @@ mod tests {
 
     /// The MSL's `METAL_EDGE_BASE` is `METAL_EDGE_BASE_WORDS`.
     ///
-    /// The shader cannot see a Rust constant — `METAL_SHADER_SOURCE` is a `concat!` of
-    /// string literals, so the number is spelled twice — and this is the only thing
-    /// standing between the two. A disagreement would not fail anywhere: every polygon
+    /// Since bug-686 the bases are formatted into `METAL_SHADER_SOURCE` from the layout
+    /// constants, so they cannot be spelled twice; this reads the formatted text back,
+    /// which is what still catches a base generated from the WRONG constant, and it
+    /// checks the region chain the constants form. A disagreement would not fail
+    /// anywhere: every polygon
     /// would simply read its edges from the wrong place in a buffer that is entirely
     /// valid memory, and the frame would come back with plausible-looking wrong shapes.
     /// That is the exact failure mode `the_shaders_glyph_base_matches_the_buffer_layout`
@@ -3973,7 +3988,8 @@ mod tests {
         // bug-670 added the fourth region; the chain grows by one link.
         assert_eq!(
             METAL_GLYPH_BASE_WORDS * 4,
-            METAL_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
+            METAL_GRADIENT_BASE_WORDS * 4
+                + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
             "the glyph region must start where the gradient region ends"
         );
         assert_eq!(
