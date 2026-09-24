@@ -1784,6 +1784,7 @@ pub(crate) fn lower_module_for_platform(
         let entry_stack_size =
             align(ENTRY_STACK_SIZE + arena_global_slots * 8, 16) + entry_args_region;
         let entry_global_slots = arena_global_slots;
+        let uses_window = crate::codegen::builtins::app::module_uses_app_window(module);
         if module.build_mode.is_app() {
             // App mode (plan-04-macos-app.md §6.6, plan-05-linux-app.md §6.1): the
             // standard program entry runs on a worker thread under the app program
@@ -1796,6 +1797,7 @@ pub(crate) fn lower_module_for_platform(
                 uses_canvas: module_uses_canvas(module)
                     || module_uses_call(module, "canvas.blitSurface"),
                 uses_mouse,
+                uses_window,
                 debug_hooks: module.debug.enabled,
             };
             let app_entry = platform
@@ -1858,6 +1860,16 @@ pub(crate) fn lower_module_for_platform(
             // '_mfb_macapp_sel_delegate' is not a data object").
             if initial_mode == PresentationMode::None || app_spec.uses_canvas {
                 data_objects.extend(platform.app_mode_reconcile_data_objects());
+            }
+            // The `app` window members' process-global state (title, its lock, the
+            // default title, the fullscreen word) plus the backend's sync data —
+            // only for a program that uses one, so no other app program moves.
+            if uses_window {
+                data_objects.extend(crate::codegen::builtins::app::app_window_data_objects(
+                    platform.family(),
+                    &platform.app_default_window_title(&module.project),
+                ));
+                data_objects.extend(platform.app_window_data_objects());
             }
         } else {
             code_functions.push(platform.emit_program_entry(

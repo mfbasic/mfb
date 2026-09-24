@@ -23,6 +23,11 @@ pub(crate) use metal::{
     CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, LIB_QUARTZCORE,
 };
 mod term_view;
+mod window;
+pub(crate) use window::{
+    emit_window_sync_seam, window_data_objects, CLASS_NS_NOTIFICATION_CENTER,
+    NS_WINDOW_DID_ENTER_FULL_SCREEN, NS_WINDOW_DID_EXIT_FULL_SCREEN,
+};
 
 pub(crate) use app_io::*;
 use bootstrap::*;
@@ -80,7 +85,10 @@ const SEL_ACTIVATE: (&str, &str) = (
     "activateIgnoringOtherApps:",
 );
 const SEL_RUN: (&str, &str) = ("_mfb_macapp_sel_run", "run");
-const STR_TITLE: (&str, &str) = ("_mfb_macapp_str_title", "MFBASIC App");
+const STR_TITLE: (&str, &str) = ("_mfb_macapp_str_title", DEFAULT_WINDOW_TITLE);
+/// The title the bootstrap and the reconcile build give the window — what
+/// `app::getTitle` returns before the first `app::setTitle`.
+pub(crate) const DEFAULT_WINDOW_TITLE: &str = "MFBASIC App";
 /// When this environment variable is set the bootstrap skips showing the window
 /// and the AppKit event loop, spawning the worker headlessly. This drives the
 /// automated runtime tests (plan §7.2 Strategy A) through the same construction
@@ -858,7 +866,12 @@ impl Asm {
 /// [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(spec.initial_mode, spec.uses_canvas, spec.uses_mouse),
+        emit_main_bootstrap(
+            spec.initial_mode,
+            spec.uses_canvas,
+            spec.uses_mouse,
+            spec.uses_window,
+        ),
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term, spec.debug_hooks),
@@ -889,6 +902,11 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     if spec.uses_mouse {
         functions.extend(mouse_view::emit_mouse_imps(spec.uses_canvas));
     }
+    // The `app` window members' sync, marshal and fullscreen-tracking IMPs. Gated:
+    // each names the process-global window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.extend(window::emit_window_functions());
+    }
     // plan-62-C Phase 2: the runtime `setMode` reconcile helpers are emitted only
     // for a program that can change mode (its static default is `None`, i.e. it
     // references `app::setMode`). A `Console`-default program never reconciles, so
@@ -908,7 +926,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
         functions.push(emit_canvas_key_down_helper());
-        functions.push(emit_reconcile_helper());
+        functions.push(emit_reconcile_helper(spec.uses_window));
     }
     // plan-98-C Phase 3: the frame blit's worker-side marshal and its main-thread
     // apply. Gated on the program *drawing*, not on its start mode: reaching
@@ -1588,7 +1606,7 @@ mod canvas_reconcile_tests {
     /// exception on the first present rather than drawing anything.
     #[test]
     fn delegate_gets_the_blit_selector() {
-        let func = emit_main_bootstrap(PresentationMode::None, true, false);
+        let func = emit_main_bootstrap(PresentationMode::None, true, false, false);
         let names: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(
             names.contains(&SEL_MFB_BLIT.0),
@@ -1697,7 +1715,7 @@ mod canvas_reconcile_tests {
     /// out the instant a program entered canvas mode.
     #[test]
     fn reconcile_dispatches_canvas_before_the_console_test() {
-        let func = emit_reconcile_helper();
+        let func = emit_reconcile_helper(false);
         let immediates = compare_immediates(&func);
         let canvas = immediates
             .iter()
@@ -1725,7 +1743,7 @@ mod canvas_reconcile_tests {
     /// non-canvas arm; the canvas arm reaches the key through its own builder.
     #[test]
     fn both_non_canvas_arms_tear_the_canvas_view_down() {
-        let func = emit_reconcile_helper();
+        let func = emit_reconcile_helper(false);
         let key_reads = func
             .relocations
             .iter()
@@ -1890,6 +1908,7 @@ mod canvas_reconcile_tests {
             initial_mode: PresentationMode::None,
             uses_canvas: true,
             uses_mouse: false,
+            uses_window: false,
             debug_hooks: false,
         };
         let symbols: Vec<String> = emit_app_program_entry(&spec)
@@ -1913,7 +1932,7 @@ mod canvas_reconcile_tests {
     /// (nil reads as 0), i.e. back into stdin.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = emit_main_bootstrap(PresentationMode::None, false, false);
+        let none = emit_main_bootstrap(PresentationMode::None, false, false, false);
         assert!(
             none.relocations
                 .iter()
@@ -1927,7 +1946,7 @@ mod canvas_reconcile_tests {
         );
         // Console-default keeps exactly one too — the extraction must not have
         // duplicated it into the branch it came from.
-        let console = emit_main_bootstrap(PresentationMode::Console, false, false);
+        let console = emit_main_bootstrap(PresentationMode::Console, false, false, false);
         assert_eq!(calls_external(&console, "_pipe"), 1);
     }
 }

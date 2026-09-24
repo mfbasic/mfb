@@ -217,6 +217,15 @@ pub(crate) trait NativePlanPlatform {
         let _ = uses_mouse;
         Vec::new()
     }
+
+    /// The toolkit imports an app backend's window-sync helpers need (the title
+    /// lock, fullscreen calls, the UI-thread fullscreen tracking) — declared only
+    /// for a program that uses an `app` window member, for the same reason
+    /// `app_mode_imports` gates the mouse class: an unused import still lands in
+    /// the plan.
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        Vec::new()
+    }
 }
 
 mod function_builder;

@@ -6,7 +6,8 @@ use std::sync::OnceLock;
 /// [`supported_helper_specs`], which owns the `ptr::eq` identity contract (bug-382).
 /// As each package migrates, its rows delete from here and it joins the derivation.
 static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
-    // `app` is migrated: its two presentation-mode helpers (`getMode`, `setMode`)
+    // `app` is migrated: its helpers (`getMode`/`setMode` and the window members
+    // `setTitle`/`getTitle`/`setFullscreen`/`getFullscreen`)
     // are DERIVED from the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `APP_*_SPEC` rows live here.
     // `audio` is migrated: its specs (including the two per-direction resource close

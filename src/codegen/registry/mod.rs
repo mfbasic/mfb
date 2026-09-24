@@ -6770,6 +6770,7 @@ mod raw_result_block_ownership {
     /// bypassed.
     const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
         "app.getMode",       // app.Mode
+        "app.getTitle",      // String
         "audio.devices",     // List OF audio.AudioDevice
         "audio.read",        // List OF Byte
         "audio.readTimeout", // List OF Byte
@@ -7048,6 +7049,7 @@ mod raw_result_block_ownership {
     /// helper reds here and forces the same caller's-arena confirmation
     /// `CALLER_ARENA_BLOCK_RESULTS` demands.
     const STRING_RESULT_HELPERS: &[&str] = &[
+        "app.getTitle",
         "big.toRadixString",
         "big.toString",
         "canvas.systemFontTable",

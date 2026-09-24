@@ -97,6 +97,30 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        // The `app` window members' UI-thread sync: the title lock, the UTF-8 →
+        // UTF-16 title conversion and its heap buffer, and the borderless-fullscreen
+        // window calls.
+        const USER32: &str = "user32.dll";
+        vec![
+            import("AcquireSRWLockExclusive", KERNEL32, "_main"),
+            import("ReleaseSRWLockExclusive", KERNEL32, "_main"),
+            import("MultiByteToWideChar", KERNEL32, "_main"),
+            import("GetProcessHeap", KERNEL32, "_main"),
+            import("HeapAlloc", KERNEL32, "_main"),
+            import("HeapFree", KERNEL32, "_main"),
+            import("SetWindowTextW", USER32, "_main"),
+            import("IsWindowVisible", USER32, "_main"),
+            import("GetWindowLongPtrW", USER32, "_main"),
+            import("SetWindowLongPtrW", USER32, "_main"),
+            import("GetWindowPlacement", USER32, "_main"),
+            import("SetWindowPlacement", USER32, "_main"),
+            import("SetWindowPos", USER32, "_main"),
+            import("MonitorFromWindow", USER32, "_main"),
+            import("GetMonitorInfoW", USER32, "_main"),
+        ]
+    }
+
     fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
         // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
         // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
@@ -224,6 +248,19 @@ impl NativePlanPlatform for Platform {
                 import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
             ],
             "os.isAdmin" => vec![import("IsUserAnAdmin", "shell32", required_by)],
+            // The `app` title members: the SRW title lock around the process-global
+            // title pointer, and (setTitle) the process-heap copy of the new title.
+            "app.setTitle" => vec![
+                import("GetProcessHeap", KERNEL32, required_by),
+                import("HeapAlloc", KERNEL32, required_by),
+                import("HeapFree", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+            ],
+            "app.getTitle" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+            ],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
                 import("AcquireSRWLockExclusive", KERNEL32, required_by),
                 import("ReleaseSRWLockExclusive", KERNEL32, required_by),

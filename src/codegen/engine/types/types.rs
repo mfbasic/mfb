@@ -1203,6 +1203,38 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
+    /// The worker-side window sync `app::setTitle` / `app::setFullscreen` run after
+    /// updating the process-global window state (`builtins::app::gen_window`):
+    /// ask the UI thread to make the window's title and fullscreen state match that
+    /// state. Appended into the caller's `abi_function` vreg stream, so it may use
+    /// only role tokens and vregs, and must treat every caller-saved register as
+    /// clobbered. A no-op headless (no window, no event loop to marshal to).
+    /// An external call a backend makes here resolves its library through
+    /// `platform_imports` (POSIX), so an undeclared toolkit symbol is an error, not
+    /// a relocation bound to nothing. `None` means the target has no app window.
+    fn emit_app_window_sync(
+        &self,
+        _symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
+
+    /// The title this backend builds its app window with, which `app::getTitle`
+    /// returns until the program calls `app::setTitle`.
+    fn app_default_window_title(&self, project_name: &str) -> String {
+        project_name.to_string()
+    }
+
+    /// Backend data objects (selector strings, window-state scratch) the window
+    /// sync helpers reference. Emitted only for a program that uses an `app`
+    /// window member, so every other app program keeps its exact data-object set.
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        Vec::new()
+    }
+
     /// plan-98-C Phase 3 seam: hand a finished RGBA8 frame to the platform's canvas
     /// surface.
     ///
@@ -1361,6 +1393,12 @@ pub(crate) struct AppEntrySpec {
     /// handlers unconditionally would leave every other app binary naming an
     /// undefined symbol.
     pub(crate) uses_mouse: bool,
+    /// Whether the program uses an `app` window member (`setTitle`/`getTitle`/
+    /// `setFullscreen`/`getFullscreen`), so the backend emits its window-sync
+    /// helpers and the UI-thread fullscreen tracking. Gated like `uses_mouse`: the
+    /// helpers reference the process-global window state, which is itself emitted
+    /// only for such a program.
+    pub(crate) uses_window: bool,
     /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
     /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
     pub(crate) debug_hooks: bool,

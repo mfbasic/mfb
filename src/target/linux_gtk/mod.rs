@@ -25,6 +25,8 @@ mod app_io;
 mod bootstrap;
 mod mouse;
 mod term_draw;
+mod window;
+pub(crate) use window::{app_window_imports, emit_window_sync_seam, window_data_objects};
 
 pub(crate) use app_io::*;
 pub(crate) use bootstrap::*;
@@ -591,7 +593,7 @@ pub(crate) fn emit_app_program_entry(
     let mut functions = vec![
         emit_libc_start_trampoline()?,
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode, spec.uses_mouse)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -635,8 +637,16 @@ pub(crate) fn emit_app_program_entry(
     // program that can change mode (static default `None`) — a `Console`-default
     // program never reconciles and keeps its exact function set.
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_idle_helper(
+            spec.uses_canvas,
+            spec.uses_window,
+        )?);
+    }
+    // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
+    // name the process-global window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.extend(window::emit_window_functions()?);
     }
     // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
     // drawing area's paint callback. Gated on the program *drawing* rather than on
@@ -680,7 +690,7 @@ pub(crate) fn emit_app_program_entry_x86(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode, spec.uses_mouse)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -721,8 +731,16 @@ pub(crate) fn emit_app_program_entry_x86(
     }
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_idle_helper(
+            spec.uses_canvas,
+            spec.uses_window,
+        )?);
+    }
+    // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
+    // name the process-global window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.extend(window::emit_window_functions()?);
     }
     // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
     // drawing area's paint callback. Gated on the program *drawing* rather than on
@@ -1572,7 +1590,7 @@ mod canvas_reconcile_tests {
     /// program entered canvas mode.
     #[test]
     fn reconcile_dispatches_canvas_before_the_console_test() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let immediates = compare_immediates(&func);
         let canvas = immediates
             .iter()
@@ -1595,7 +1613,7 @@ mod canvas_reconcile_tests {
     /// the one widget instead of leaking a new one per cycle.
     #[test]
     fn canvas_area_is_created_and_ref_sunk() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_drawing_area_new"),
             1,
@@ -1614,7 +1632,7 @@ mod canvas_reconcile_tests {
     /// callback at first present would leave the first exposes blank.
     #[test]
     fn canvas_area_gets_its_draw_func_when_created() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1718,7 +1736,7 @@ mod canvas_reconcile_tests {
     /// plan-98-F would have nothing to build a VkSurfaceKHR from.
     #[test]
     fn native_surface_is_read_after_present() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1744,7 +1762,7 @@ mod canvas_reconcile_tests {
     /// surface, so `ST_WINDOW` is null when it enters canvas mode.
     #[test]
     fn window_build_is_shared_by_the_console_and_canvas_arms() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, RECONCILE_BUILD_SYMBOL),
             2,
@@ -1769,7 +1787,7 @@ mod canvas_reconcile_tests {
     /// function.) A missing teardown drops this to 2.
     #[test]
     fn both_non_canvas_arms_tear_the_canvas_area_down() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_window_set_child"),
             3,
@@ -1815,7 +1833,7 @@ mod canvas_reconcile_tests {
     /// `io::` reads found nothing to read even after switching to `Console`.
     #[test]
     fn the_reconcile_built_window_gets_the_key_controller() {
-        let build = bootstrap::emit_reconcile_build_helper().expect("reconcile build");
+        let build = bootstrap::emit_reconcile_build_helper(false).expect("reconcile build");
         assert_eq!(
             externals(&build, "gtk_event_controller_key_new"),
             1,
@@ -1849,8 +1867,8 @@ mod canvas_reconcile_tests {
     /// read waiting on the old file description forever.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none =
-            bootstrap::emit_activate_handler(PresentationMode::None, false).expect("activate");
+        let none = bootstrap::emit_activate_handler(PresentationMode::None, false, false)
+            .expect("activate");
         assert_eq!(
             externals(&none, "pipe"),
             1,
@@ -1863,8 +1881,8 @@ mod canvas_reconcile_tests {
         );
         // The Console-default path keeps exactly one — the extraction must not have
         // duplicated it into the branch it came from.
-        let console =
-            bootstrap::emit_activate_handler(PresentationMode::Console, false).expect("activate");
+        let console = bootstrap::emit_activate_handler(PresentationMode::Console, false, false)
+            .expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
     }
 }

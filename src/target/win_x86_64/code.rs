@@ -3441,6 +3441,29 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_app_window_sync(
+        &self,
+        symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // The `app` window members: `SendMessageW` the sync request to the main
+        // window (a no-op headless, where there is no window).
+        // Every call here is internal (macOS) or names its DLL (Win32).
+        let _ = platform_imports;
+        app::emit_window_sync_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
+    fn app_default_window_title(&self, project_name: &str) -> String {
+        app::default_window_title(project_name).to_string()
+    }
+
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        app::window_data_objects()
+    }
+
     fn emit_canvas_blit(
         &self,
         symbol: &str,

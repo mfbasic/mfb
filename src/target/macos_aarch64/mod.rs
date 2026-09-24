@@ -35,6 +35,10 @@ impl NativeBackend for Backend {
                 // the CLI gate keeps them out of console builds).
                 "app.getMode",
                 "app.setMode",
+                "app.setTitle",
+                "app.getTitle",
+                "app.setFullscreen",
+                "app.getFullscreen",
                 // plan-98-B: the canvas:: scene surface (app builds only, and gated
                 // on Mode.Canvas at runtime).
                 "canvas.present",

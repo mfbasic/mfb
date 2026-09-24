@@ -245,6 +245,21 @@ impl LinuxPlan<'_> {
                 vec![self.libc_import("clock_gettime", required_by)]
             }
             "datetime.localOffset" => vec![self.libc_import("localtime_r", required_by)],
+            // The `app` title members: the title lock around the process-global
+            // title pointer, and (setTitle) the heap copy of the new title.
+            "app.setTitle" => [
+                "malloc",
+                "free",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+            ]
+            .iter()
+            .map(|name| self.libc_import(name, required_by))
+            .collect(),
+            "app.getTitle" => ["pthread_mutex_lock", "pthread_mutex_unlock"]
+                .iter()
+                .map(|name| self.libc_import(name, required_by))
+                .collect(),
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => {
                 vec![self.libc_import("getenv", required_by)]
             }

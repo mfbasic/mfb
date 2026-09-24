@@ -276,6 +276,30 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_app_window_sync(
+        &self,
+        symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // The `app` window members: hop to the main thread and make the NSWindow
+        // follow the window data (a no-op headless, where no delegate exists).
+        // Every call here is internal (macOS) or names its DLL (Win32).
+        let _ = platform_imports;
+        app::emit_window_sync_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
+    fn app_default_window_title(&self, _project_name: &str) -> String {
+        // The bootstrap titles the window with this fixed string, not the project.
+        app::DEFAULT_WINDOW_TITLE.to_string()
+    }
+
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        app::window_data_objects()
+    }
+
     fn emit_canvas_blit(
         &self,
         symbol: &str,

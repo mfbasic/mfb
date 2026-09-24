@@ -274,6 +274,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
     uses_mouse: bool,
+    uses_window: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
@@ -401,6 +402,11 @@ pub(super) fn emit_activate_handler(
         asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
         asm.call_external("g_signal_connect_data");
 
+        // The `app` window members: follow the user's fullscreen changes.
+        if uses_window {
+            super::window::emit_track_fullscreen(&mut asm);
+        }
+
         // gtk_window_present(window). Nothing is focused on purpose: keys are
         // captured by the window-level key controller connected above, so the design
         // deliberately avoids giving the transcript a focusable widget.
@@ -481,7 +487,7 @@ pub(crate) fn emit_reconcile_seam(
 ///
 /// The scrolled window is `g_object_ref_sink`ed so it survives `gtk_window_set_child`
 /// swapping it out for the canvas area and back.
-pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_build_helper(uses_window: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
     let frame = 16; // lr@0, x19 (the key controller, across g_signal_connect_data)@8
     asm.push(abi::label("entry"));
@@ -558,6 +564,11 @@ pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
+    // The `app` window members: follow the user's fullscreen changes.
+    if uses_window {
+        super::window::emit_track_fullscreen(&mut asm);
+    }
+
     asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(frame));
@@ -614,7 +625,10 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
 /// Exactly one aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE`
 /// (0) so the idle fires once. The state lives in `STATE_SYMBOL` globals (not the
 /// arena), so this main-thread callback needs no arena register.
-pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_idle_helper(
+    uses_canvas: bool,
+    uses_window: bool,
+) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
     let frame = 16; // lr@0, x19(mode)@8
     let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
@@ -657,6 +671,10 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.push(abi::label(&after_console));
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_window_present");
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        super::window::emit_sync_call(&mut asm);
+    }
     // A window now owns aliveness — drop the windowless hold if one is active.
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -734,6 +752,10 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_native_get_surface");
     asm.store_state(abi::c_return(0), ST_CANVAS_SURFACE);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        super::window::emit_sync_call(&mut asm);
+    }
     // A presented window owns aliveness — drop the windowless hold if one is active.
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -1782,7 +1804,7 @@ mod tests {
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
         // The pipe/dup2 wiring this test asserts lives in the Console surface path.
-        let func = emit_activate_handler(PresentationMode::Console, false).unwrap();
+        let func = emit_activate_handler(PresentationMode::Console, false, false).unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

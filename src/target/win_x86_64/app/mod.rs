@@ -22,6 +22,8 @@
 //! window; J-4 the input pipe; J-5 the `term::` TUI grid + mode reconcile.
 
 mod mouse;
+mod window;
+pub(crate) use window::{emit_window_sync_seam, window_data_objects};
 
 use std::collections::HashMap;
 
@@ -376,17 +378,23 @@ pub(super) fn emit_app_program_entry(
     spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![
+    let mut functions = vec![
         emit_main(spec.initial_mode, spec.uses_canvas, spec.debug_hooks),
         emit_worker(),
-        emit_wndproc(spec.uses_canvas, spec.uses_mouse),
+        emit_wndproc(spec.uses_canvas, spec.uses_mouse, spec.uses_window),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
         // like the wndproc it posts to — whether a program ever enters canvas mode is
         // a runtime question, not a static one.
         emit_canvas_blit_helper(),
         emit_editproc(),
         emit_finish(),
-    ])
+    ];
+    // The `app` window members' UI-thread sync. Gated: it names the process-global
+    // window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.push(window::emit_window_sync());
+    }
+    Ok(functions)
 }
 
 /// `_main`: the PE entry. Frame (mirrors spike.rs): shadow [0x00..0x20], outgoing
@@ -1045,7 +1053,7 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
+fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeFunction {
     // Frame (plan-66-J-5 added the WM_PAINT TUI present; plan-98-C Phase 3 the
     // canvas present): shadow[0..0x20], outgoing stack args [0x20..0x60] —
     // `SetDIBitsToDevice` has 8 stack args, the widest call here — saved
@@ -1448,6 +1456,17 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     ins.push(abi::return_());
 
     ins.push(abi::label("wnd_check_reconcile"));
+    // The `app` window members' sync request, ahead of the reconcile test.
+    if uses_window {
+        window::emit_wndproc_arm(
+            from,
+            frame,
+            H0,
+            "wnd_check_reconcile_mode",
+            &mut ins,
+            &mut rel,
+        );
+    }
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
     ins.push(abi::branch_ne("wnd_default"));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "2"));
@@ -1489,6 +1508,10 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
     call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(from, H0, &mut ins, &mut rel);
+    }
     ins.push(abi::branch("wnd_reconcile_done"));
 
     // --- Canvas: bare client area, window shown, HWND published ---
@@ -1519,6 +1542,10 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
     load_addr(abi::mfb_arg(1), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(from, H0, &mut ins, &mut rel);
+    }
     ins.push(abi::branch("wnd_reconcile_done"));
 
     // --- None: unroute io, tear the canvas down, hide the window ---
@@ -4378,12 +4405,18 @@ pub(super) fn app_mode_data_objects(project_name: &str, debug_hooks: bool) -> Ve
     objects
 }
 
-fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
-    let title = if project_name.is_empty() {
+/// The title `_main` gives the window — what `app::getTitle` returns before the
+/// first `app::setTitle`.
+pub(crate) fn default_window_title(project_name: &str) -> &str {
+    if project_name.is_empty() {
         "MFBASIC App"
     } else {
         project_name
-    };
+    }
+}
+
+fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
+    let title = default_window_title(project_name);
     vec![
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
@@ -4460,6 +4493,7 @@ mod tests {
             initial_mode: PresentationMode::Console,
             uses_canvas: true,
             uses_mouse: false,
+            uses_window: false,
             debug_hooks: false,
         }
     }
@@ -4867,6 +4901,7 @@ mod canvas_reconcile_tests {
             initial_mode,
             uses_canvas: true,
             uses_mouse: false,
+            uses_window: false,
             debug_hooks: false,
         }
     }

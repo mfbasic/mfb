@@ -325,6 +325,11 @@ pub(super) fn platform_imports(
         for import in platform.app_mode_imports(module_uses_mouse(module)) {
             push_platform_import(&mut imports, import);
         }
+        if crate::codegen::builtins::app::module_uses_app_window(module) {
+            for import in platform.app_window_imports() {
+                push_platform_import(&mut imports, import);
+            }
+        }
     }
     imports
 }

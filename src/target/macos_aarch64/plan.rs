@@ -192,6 +192,34 @@ impl plan::NativePlanPlatform for Platform {
         .collect()
     }
 
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        // The `app` window members' main-thread sync reads the title under the
+        // title lock and the delegate observes the two fullscreen notifications.
+        [
+            ("libSystem", "_pthread_mutex_lock"),
+            ("libSystem", "_pthread_mutex_unlock"),
+            (
+                "Foundation",
+                crate::target::macos_aarch64::app::CLASS_NS_NOTIFICATION_CENTER,
+            ),
+            (
+                "AppKit",
+                crate::target::macos_aarch64::app::NS_WINDOW_DID_ENTER_FULL_SCREEN,
+            ),
+            (
+                "AppKit",
+                crate::target::macos_aarch64::app::NS_WINDOW_DID_EXIT_FULL_SCREEN,
+            ),
+        ]
+        .iter()
+        .map(|(library, symbol)| PlatformImport {
+            library: (*library).to_string(),
+            symbol: (*symbol).to_string(),
+            required_by: "_main".to_string(),
+        })
+        .collect()
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         // Every import in this table is attributed to the helper's code unit
         // by its runtime symbol, derived once here (bug-329).
@@ -275,6 +303,28 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_localtime_r".to_string(),
                 required_by: required_by.clone(),
             }],
+            // The `app` title members: the title lock around the process-global
+            // title pointer, and (setTitle) the heap copy of the new title.
+            "app.setTitle" | "app.getTitle" => {
+                let names: &[&str] = if spec.call == "app.setTitle" {
+                    &[
+                        "_malloc",
+                        "_free",
+                        "_pthread_mutex_lock",
+                        "_pthread_mutex_unlock",
+                    ]
+                } else {
+                    &["_pthread_mutex_lock", "_pthread_mutex_unlock"]
+                };
+                names
+                    .iter()
+                    .map(|name| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: (*name).to_string(),
+                        required_by: required_by.clone(),
+                    })
+                    .collect()
+            }
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getenv".to_string(),

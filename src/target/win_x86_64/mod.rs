@@ -107,6 +107,10 @@ const RUNTIME_CALLS: &[&str] = &[
     // (`app::emit_reconcile_seam`) that `setMode` appends.
     "app.getMode",
     "app.setMode",
+    "app.setTitle",
+    "app.getTitle",
+    "app.setFullscreen",
+    "app.getFullscreen",
     // plan-98-B: the canvas:: scene surface.
     "canvas.present",
     "canvas.setGroup",

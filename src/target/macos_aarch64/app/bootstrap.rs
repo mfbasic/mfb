@@ -79,6 +79,7 @@ pub(super) fn emit_main_bootstrap(
     initial_mode: PresentationMode,
     uses_canvas: bool,
     uses_mouse: bool,
+    uses_window: bool,
 ) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
@@ -459,7 +460,7 @@ pub(super) fn emit_main_bootstrap(
         // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
         // Extracted so the windowless `None` path can install it too (plan-62-C). A
         // Console-default program never reconciles, so it installs no `mfbReconcile:`.
-        emit_gui_delegate(&mut asm, false, uses_canvas);
+        emit_gui_delegate(&mut asm, false, uses_canvas, uses_window);
 
         // Input-line buffer: an NSMutableString accumulating typed characters until
         // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
@@ -593,7 +594,7 @@ pub(super) fn emit_main_bootstrap(
         emit_input_pipe_wiring(&mut asm, "input_pipe_wired_none");
         // A None-default program references setMode, so it reconciles: install
         // `mfbReconcile:` (its IMP is emitted for this program).
-        emit_gui_delegate(&mut asm, true, uses_canvas);
+        emit_gui_delegate(&mut asm, true, uses_canvas, uses_window);
     }
     asm.push(abi::label("after_show"));
 
@@ -676,7 +677,7 @@ pub(super) fn emit_main_bootstrap(
 /// `None` program has no window, so the terminate handler never fires — but the
 /// launch handler is exactly what spawns its worker under `[NSApp run]`).
 /// Requires `REG_APP` to hold the shared `NSApplication`; clobbers `abi::LOCAL[4]`.
-fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
+fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool, uses_window: bool) {
     // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
     asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
     asm.local_address("x1", STR_DELEGATE_CLASS.0);
@@ -731,6 +732,12 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
+    // The `app` window members: `mfbSyncWindow:` (the worker's title/fullscreen
+    // marshal target) and the two fullscreen-notification IMPs. Gated like
+    // `mfbBlit:` — the IMPs exist only for a program that uses a window member.
+    if uses_window {
+        window::emit_install_window_methods(asm, abi::LOCAL[4]);
+    }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -747,6 +754,10 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
                                                                 // ask `NSApp` for it (main-thread-only).
     asm.local_address(abi::c_arg(2), DELEGATE_GLOBAL_SYM);
     asm.push(abi::store_u64(abi::LOCAL[4], abi::c_arg(2), 0));
+    // Follow the user's own fullscreen changes into the fullscreen word.
+    if uses_window {
+        window::emit_observe_call(asm, abi::LOCAL[4]);
+    }
     asm.load_selector(SEL_SET_DELEGATE.0);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
     asm.push(abi::move_register(abi::c_arg(0), REG_APP));
@@ -1295,7 +1306,16 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window
-                                                                // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+                                                                // [window setTitle:@"MFBASIC App"] — the same title the Console-start bootstrap
+                                                                // gives its window. Without it a window first shown by `setMode` had an empty
+                                                                // title bar, and `app::getTitle` (which reports the default) disagreed with it.
+    build_nsstring_from_cstring(&mut asm, abi::LOCAL[2], STR_TITLE.0);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
+    asm.load_selector(SEL_SET_TITLE.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.external_data(abi::LOCAL[2], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
@@ -1845,7 +1865,7 @@ fn emit_canvas_teardown(asm: &mut Asm, app: &str, window: &str, scratch: &str, l
 /// Only `None`-start programs ever reach here (a program referencing `setMode` is
 /// always `None`-start; a `Console`-start program never references it), so this never
 /// touches a startup-built Console window.
-pub(super) fn emit_reconcile_helper() -> CodeFunction {
+pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_SYMBOL);
     let frame = 64;
     let none_path = format!("{RECONCILE_SYMBOL}_none");
@@ -1919,6 +1939,10 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(&mut asm);
+    }
     asm.push(abi::branch(&done));
     // --- Canvas (plan-98-A Phase 3) ---
     asm.push(abi::label(&canvas_path));
@@ -1930,6 +1954,10 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(&mut asm);
+    }
     asm.push(abi::branch(&done));
     // --- None ---
     asm.push(abi::label(&none_path));

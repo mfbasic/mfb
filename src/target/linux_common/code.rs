@@ -580,6 +580,29 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Some(Ok(()))
     }
 
+    fn emit_app_window_sync(
+        &self,
+        symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // The `app` window members: schedule the window sync on the GTK main loop
+        // (g_idle_add; skipped headless, where no loop runs).
+        self.arch.app().require_gtk();
+        Some(gtk::emit_window_sync_seam(
+            symbol,
+            instructions,
+            relocations,
+            |ins, rel| self.emit_external_call("g_idle_add", symbol, platform_imports, ins, rel),
+        ))
+    }
+
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        self.arch.app().require_gtk();
+        gtk::window_data_objects()
+    }
+
     fn emit_canvas_blit(
         &self,
         symbol: &str,
@@ -1662,6 +1685,7 @@ mod tests {
                 initial_mode: crate::codegen::engine::types::PresentationMode::Console,
                 uses_canvas: false,
                 uses_mouse: false,
+                uses_window: false,
                 debug_hooks: false,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
