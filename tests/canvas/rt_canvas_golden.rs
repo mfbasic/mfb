@@ -936,12 +936,15 @@ fn a_frame_past_the_gradient_stop_cap_declines_to_software() {
     );
 }
 
-/// One gradient with more stops than the whole frame's region holds
-/// (`MAX_FRAME_GRADIENT_STOPS` is 4096).
+/// One gradient with more stops than the whole frame's region holds: 131,073, one past
+/// Metal's `METAL_MAX_FRAME_GRADIENT_STOPS` (131,072 since bug-686; Vulkan's
+/// `MAX_FRAME_GRADIENT_STOPS` is still 4,096, so this is past both).
 ///
 /// Built in a loop rather than spelled out, and deliberately as a SINGLE item: the cap
 /// is a sum, so one item past it on its own proves the sum is consulted before the
-/// upload rather than after — the ordering that matters.
+/// upload rather than after — the ordering that matters. The bar is 2x2 pixels because
+/// a declined frame is drawn by the software renderer, which evaluates the ramp per
+/// pixel against every stop.
 const GRADIENT_OVERFLOW: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
@@ -953,14 +956,14 @@ SUB main()
 
   MUT stops AS List OF canvas::GradientStop = []
   MUT i AS Integer = 0
-  WHILE i < 4200
-    LET t AS Float = toFloat(i) / 4199.0
-    stops = collections::append(stops, canvas::GradientStop[offset := t, color := color::rgb(255 - i / 20, 40, i / 20)])
+  WHILE i < 131073
+    LET t AS Float = toFloat(i) / 131072.0
+    stops = collections::append(stops, canvas::GradientStop[offset := t, color := color::rgb(255 - i / 520, 40, i / 520)])
     i = i + 1
   END WHILE
 
   LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 900.0, y := 0.0], stops := stops]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 2.0, h := 2.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]
 
   canvas::present([bar])
   io::print("rendered")
