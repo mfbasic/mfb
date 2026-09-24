@@ -344,7 +344,7 @@ prevent a use-after-free on a block the renderer is still reading, so a fix that
 frees too eagerly trades a leak for a crash. The drain gate must survive
 unchanged; only the number of blocks it can hold changes.
 
-## STATUS: FIXED (7ac650722)
+## STATUS: FIXED (7ac650722, with bug-684 follow-ups in 8d563b133)
 
 Both documented leaks are gone and `canvas::present` is byte-exactly flat on both
 its exits. `arena.0.live_bytes` at 120 / 240 / 480 presents, paced at 60 Hz:

@@ -232,7 +232,7 @@ The row's scene carries 150 static items beside the `Group` node, which is what 
 the leaked hash block its size: 1,248 B/present, against a 64 B/present budget.
 
 Acceptance: met — RED at 1,248 B/present, contrast GREEN on the same unfixed compiler.
-Commit: (this change)
+Commit: 8d563b133
 
 ### Phase 2 — diagnose
 
@@ -247,7 +247,7 @@ iterations, ruling out `__CANVAS_LAST_GROUP_SIG = sig`), and the `dx`-varying co
 above, which is flat and differs only in whether a scene publish happened.
 
 Acceptance: met.
-Commit: (this change)
+Commit: 8d563b133
 
 ### Phase 3 — fix
 
@@ -257,7 +257,7 @@ Commit: (this change)
 
 Acceptance: met — the Phase 1 row passes, the contrast stays green, and the frame gate
 is byte-for-byte the one bug-683 left.
-Commit: (this change)
+Commit: 8d563b133
 
 ### Phase 4 — validation
 
@@ -273,7 +273,7 @@ Commit: (this change)
 | Group scene, unchanged bytes (was 528 B/present at 60 items) | 37,184 | 37,088 |
 | Group scene, changing bytes (contrast) | 37,568 | 37,568 |
 
-Commit: (this change)
+Commit: 8d563b133
 
 ## Validation Plan
 
@@ -294,7 +294,7 @@ retiring, "retire everything" became "retire it twice", and a partially-filled n
 became "free whatever the allocator last left here". Both are SIGSEGVs, both were hit
 in development, and both are now stated as rules in the code rather than held by luck.
 
-## STATUS: FIXED
+## STATUS: FIXED (8d563b133)
 
 `canvas::publishHashes` retires what it displaces, onto bug-683's list and behind the
 same unchanged frame gate. The Group-scene row is flat where it lost 1,248 bytes a
