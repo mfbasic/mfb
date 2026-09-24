@@ -388,19 +388,18 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
   ' VkPipeline. That does not fail cleanly: it SIGSEGVs inside the driver's JIT-compiled
   ' code, with a backtrace containing no MFBASIC frame at all.
-  MUT out AS List OF Integer = __CANVAS_DRAWS
-  out = collections::append(out, instBase)
-  out = collections::append(out, instCount)
-  out = collections::append(out, toInt(dx * 65536.0))
-  out = collections::append(out, toInt(dy * 65536.0))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instBase)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instCount)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dx * 65536.0))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dy * 65536.0))
   ' The BlendMode every block in this run shares. It travels with the entry because the
   ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
   ' left in the publish walk would apply the LAST item's mode to the whole frame.
-  out = collections::append(out, toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26)))
-  out = collections::append(out, 0)
-  out = collections::append(out, 0)
-  out = collections::append(out, 0)
-  __CANVAS_DRAWS = out
+  LET mode AS Integer = toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, mode)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END SUB
 
 ' Whether two blocks can share one draw call.
@@ -475,12 +474,8 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
         LET nested AS Integer = 0
       CASE ELSE
         LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
-        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, childOffset)
-        __CANVAS_DRAW_BLOCKS = blocks
-        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
-        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
-        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
+        __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
@@ -531,12 +526,15 @@ FUNC __canvas_sceneDraws() AS List OF Integer
         runBase = len(__CANVAS_DRAW_BLOCKS)
       CASE ELSE
         LET itemOffset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, itemOffset)
-        __CANVAS_DRAW_BLOCKS = blocks
-        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
-        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
-        __CANVAS_DRAW_INST = inst
+        ' Straight into the GLOBAL. `MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS`
+        ' is a copy of the whole list -- value semantics: the global is read and then
+        ' reassigned -- so item k copied a k-element list and this walk was O(n^2).
+        ' Appending to the global is site S2 of the in-place self-update table
+        ' (`.ai/collections.md`), an amortised O(1) write into its own headroom. Same
+        ' defect bug-682 removed from `__canvas_geometryFor`, in the places it also
+        ' lived. Measured at 5000 items: this walk went 2372 ms -> 157 ms a frame.
+        __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, itemOffset)
+        __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
         IF runCount = 0 THEN
           runBase = len(__CANVAS_DRAW_BLOCKS) - 1
