@@ -983,35 +983,28 @@ fn fill_polygon(
     Ok(())
 }
 
-pub(crate) fn lower_geo_build(
-    builder: &mut CodeBuilder,
-    args: &[ValueResult],
-    _ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let incoming = args
-        .first()
-        .ok_or_else(|| format!("'{symbol}' expects the DrawItem argument"))?
-        .location
-        .clone();
-    let paint_type = record_type(builder, &ParameterType::named("Paint"))?;
-    let kinds = Kind::ALL
+/// The five kinds, as `(kind, union tag, record type)`.
+fn native_kinds(builder: &CodeBuilder) -> Result<Vec<(Kind, usize, ParameterType)>, String> {
+    Kind::ALL
         .iter()
         .map(|kind| variant(builder, kind.variant()).map(|(tag, record)| (*kind, tag, record)))
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect()
+}
 
-    let item_slot = builder.allocate_stack_object("canvas_geo_item", 8);
-    builder.emit(abi::store_u64(&incoming, abi::stack_pointer(), item_slot));
-    let n_slot = builder.allocate_stack_object("canvas_geo_n", 8);
-
-    // Phase 1: is the item one this builds, and how many floats is its record?
-    let item = builder.temporary_vreg();
+/// `n` = the length in floats of the record `canvas::geoBuild` would build for the
+/// `DrawItem` data union at `item`, or 0 when it is not one this builds. Allocates
+/// nothing and calls nothing.
+pub(super) fn emit_record_size(
+    builder: &mut CodeBuilder,
+    item: &VirtualRegister,
+    n: &VirtualRegister,
+) -> Result<(), String> {
+    let paint_type = record_type(builder, &ParameterType::named("Paint"))?;
+    let kinds = native_kinds(builder)?;
     let tag = builder.temporary_vreg();
     let rec = builder.temporary_vreg();
-    let n = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
-    builder.emit(abi::load_u64(&tag, &item, 0));
-    builder.emit(abi::add_immediate(&rec, &item, 16));
+    builder.emit(abi::load_u64(&tag, item, 0));
+    builder.emit(abi::add_immediate(&rec, item, 16));
     let unsupported = builder.label("canvas_geo_unsupported");
     let sized = builder.label("canvas_geo_sized");
     let size_labels: Vec<String> = kinds
@@ -1032,7 +1025,7 @@ pub(crate) fn lower_geo_build(
             paint_type: paint_type.clone(),
         };
         emit_paint_supported(builder, &view, &unsupported)?;
-        builder.emit(abi::move_immediate(&n, "Integer", &GEO_HEADER.to_string()));
+        builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
         if *kind == Kind::Polygon {
             let points = builder.temporary_vreg();
             emit_field_block(builder, &points, &rec, record, "points")?;
@@ -1047,39 +1040,36 @@ pub(crate) fn lower_geo_build(
                 &EDGE_FLOATS.to_string(),
             ));
             builder.emit(abi::multiply_registers(&count, &count, &five));
-            builder.emit(abi::add_registers(&n, &n, &count));
+            builder.emit(abi::add_registers(n, n, &count));
         }
         builder.emit(abi::branch(&sized));
     }
     builder.emit(abi::label(&unsupported));
-    builder.emit(abi::move_immediate(&n, "Integer", "0"));
+    builder.emit(abi::move_immediate(n, "Integer", "0"));
     builder.emit(abi::label(&sized));
-    builder.emit(abi::store_u64(&n, abi::stack_pointer(), n_slot));
+    Ok(())
+}
 
-    // Phase 2: the one allocation. Everything after it is re-read from the stack.
-    let list_slot = reserve_float_list(builder, n_slot)?;
-
-    // Phase 3: fill it.
+/// Write the record for the `DrawItem` at `item` at `out` (the first float), which
+/// must have room for the length [`emit_record_size`] answered — call it only when
+/// that was non-zero. Allocates nothing and calls nothing.
+pub(super) fn emit_fill_record(
+    builder: &mut CodeBuilder,
+    item: &VirtualRegister,
+    out: &VirtualRegister,
+) -> Result<(), String> {
+    let paint_type = record_type(builder, &ParameterType::named("Paint"))?;
+    let kinds = native_kinds(builder)?;
     let done = builder.label("canvas_geo_done");
-    let n = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
-    builder.emit(abi::compare_immediate(&n, "0"));
-    builder.emit(abi::branch_eq(&done));
-    let out = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&out, abi::stack_pointer(), list_slot));
-    // A fixed-width list is entry-free: its floats start right after the header.
-    builder.emit(abi::add_immediate(&out, &out, COLLECTION_HEADER_SIZE));
     let zero = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&zero, "Integer", "0"));
     for slot in 0..GEO_HEADER {
-        builder.emit(abi::store_u64(&zero, &out, slot * 8));
+        builder.emit(abi::store_u64(&zero, out, slot * 8));
     }
-    let item = builder.temporary_vreg();
     let tag = builder.temporary_vreg();
     let rec = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
-    builder.emit(abi::load_u64(&tag, &item, 0));
-    builder.emit(abi::add_immediate(&rec, &item, 16));
+    builder.emit(abi::load_u64(&tag, item, 0));
+    builder.emit(abi::add_immediate(&rec, item, 16));
     let fill_labels: Vec<String> = kinds
         .iter()
         .map(|_| builder.label("canvas_geo_fill_kind"))
@@ -1098,13 +1088,55 @@ pub(crate) fn lower_geo_build(
             paint_type: paint_type.clone(),
         };
         match kind {
-            Kind::Rect => fill_rect(builder, &out, &rec, record, &view, false, &done)?,
-            Kind::Rounded => fill_rect(builder, &out, &rec, record, &view, true, &done)?,
-            Kind::Circle => fill_circle(builder, &out, &rec, record, &view, &done)?,
-            Kind::Line => fill_line(builder, &out, &rec, record, &view, &done)?,
-            Kind::Polygon => fill_polygon(builder, &out, &rec, record, &view, &done)?,
+            Kind::Rect => fill_rect(builder, out, &rec, record, &view, false, &done)?,
+            Kind::Rounded => fill_rect(builder, out, &rec, record, &view, true, &done)?,
+            Kind::Circle => fill_circle(builder, out, &rec, record, &view, &done)?,
+            Kind::Line => fill_line(builder, out, &rec, record, &view, &done)?,
+            Kind::Polygon => fill_polygon(builder, out, &rec, record, &view, &done)?,
         }
     }
+    builder.emit(abi::label(&done));
+    Ok(())
+}
+
+pub(crate) fn lower_geo_build(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the DrawItem argument"))?
+        .location
+        .clone();
+    let item_slot = builder.allocate_stack_object("canvas_geo_item", 8);
+    builder.emit(abi::store_u64(&incoming, abi::stack_pointer(), item_slot));
+    let n_slot = builder.allocate_stack_object("canvas_geo_n", 8);
+
+    // Phase 1: is the item one this builds, and how many floats is its record?
+    let item = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
+    emit_record_size(builder, &item, &n)?;
+    builder.emit(abi::store_u64(&n, abi::stack_pointer(), n_slot));
+
+    // Phase 2: the one allocation. Everything after it is re-read from the stack.
+    let list_slot = reserve_float_list(builder, n_slot)?;
+
+    // Phase 3: fill it.
+    let done = builder.label("canvas_geo_built");
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    builder.emit(abi::compare_immediate(&n, "0"));
+    builder.emit(abi::branch_eq(&done));
+    let out = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&out, abi::stack_pointer(), list_slot));
+    // A fixed-width list is entry-free: its floats start right after the header.
+    builder.emit(abi::add_immediate(&out, &out, COLLECTION_HEADER_SIZE));
+    let item = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
+    emit_fill_record(builder, &item, &out)?;
     builder.emit(abi::label(&done));
 
     let reg = builder.allocate_register();

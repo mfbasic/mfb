@@ -213,7 +213,7 @@ fn fold_list(
 
 /// Emit `out` = the item hash of the `DrawItem` data union at `item`, or `-1` for a
 /// `Text`, a `Group`, or a tag the union does not have.
-fn emit_item_hash(
+pub(super) fn emit_item_hash(
     builder: &mut CodeBuilder,
     item: &VirtualRegister,
     out: &VirtualRegister,
