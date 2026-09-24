@@ -76,7 +76,9 @@ use crate::codegen::runtime::canvas::{
     ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
     METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES,
-    METAL_MAX_FRAME_GRADIENT_STOPS, PICTURE_SHADOW_SPLIT_BITS,
+    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS,
+    METAL_PICTURE_RECORDS, METAL_PICTURE_RECORDS_OFFSET, METAL_PICTURE_RECORD_BYTES,
+    PICTURE_SHADOW_SPLIT_BITS,
 };
 use std::sync::LazyLock;
 
@@ -1212,6 +1214,11 @@ const OFF_GRAD_CURSOR: usize = 560;
 /// The frame's glyph-sample cursor — the glyph region's twin of `OFF_EDGE_CURSOR`
 /// (bug-670).
 const OFF_GLYPH_CURSOR: usize = 616;
+/// How many records this frame's picture table holds (bug-686,
+/// `METAL_PICTURE_TABLE_BYTES`), reset with the cursors; and the index slot a picture
+/// lookup missed at, parked across the upload that decides whether to record it.
+const OFF_PIC_COUNT: usize = 624;
+const OFF_PIC_SLOT: usize = 632;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1632,6 +1639,9 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_GRAD_CURSOR,
         // bug-670: the glyph region is per frame, like the edge and gradient ones.
         OFF_GLYPH_CURSOR,
+        // bug-686: so is the picture table. Its index is never cleared -- a record
+        // count of 0 makes every slot read as empty (`METAL_PICTURE_TABLE_BYTES`).
+        OFF_PIC_COUNT,
         OFF_BOUND_MODE,
     ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
@@ -3274,7 +3284,9 @@ fn emit_gradient_buffer(asm: &mut Asm) {
 /// a texel. No block is ever freed, so reading it during the frame is safe.
 ///
 /// A picture is ONE quad and does not end the instanced run; it only shares the glyph
-/// region's cursor. Runs **after** `emit_edge_buffer`, which zeroes `arc.z` for every
+/// region's cursor. Since bug-686 each distinct pixel block is copied once per frame:
+/// `emit_picture_lookup` finds a block already uploaded this frame and reuses its
+/// texels, and `emit_picture_record` records each new upload. Runs **after** `emit_edge_buffer`, which zeroes `arc.z` for every
 /// non-polygon, and after `emit_item_block`, which writes `arc.x` as a 16.16 angle.
 ///
 /// When the image cannot be uploaded — a destroyed image (zero size or no block), a
@@ -3372,6 +3384,13 @@ fn emit_picture_buffer(asm: &mut Asm) {
     asm.push(abi::compare_registers(end, temp));
     asm.push(abi::branch_gt(&done));
 
+    // bug-686: has this frame already uploaded this block? Then point the item at those
+    // texels and copy nothing. `height` is dead from here (stored above) and serves as
+    // the record pointer; `header`, `kind`, `temp`, `cursor` and `end` are free until the
+    // fit check. No `compare_immediate` against a wide constant in this stretch: its
+    // encoding borrows x16/x17, which are `cursor` and `end`.
+    emit_picture_lookup(asm, &done);
+
     // Would this picture's texels fit the frame's glyph region?
     asm.push(abi::load_u64(
         cursor,
@@ -3399,6 +3418,8 @@ fn emit_picture_buffer(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC + 12,
     ));
+    // bug-686: record (block, base) so later items naming this block reuse the texels.
+    emit_picture_record(asm);
 
     // dst = contents + (GLYPH_BASE + cursor) * 4, src = block + COLLECTION_HEADER_SIZE.
     // `header` and `kind` are dead from here and serve as the copy's registers.
@@ -3423,6 +3444,170 @@ fn emit_picture_buffer(asm: &mut Asm) {
     asm.push(abi::subtract_immediate(samples, samples, 1));
     asm.push(abi::branch(&copy_head));
     asm.push(abi::label(&done));
+}
+
+/// The picture table's multiplicative hash constant (xorshift*'s), odd so the multiply
+/// is a bijection on the address bits it keeps.
+const PICTURE_HASH_MULTIPLIER: &str = "2685821657736338717";
+
+/// Look the picture's pixel block up in this frame's picture table (bug-686). On a hit,
+/// name the uploaded texels in the item block (base in `arc.z`, width in `misc.w`) and
+/// branch to `done`; on a miss, park the empty index slot the probe ended at in
+/// `OFF_PIC_SLOT` and fall through to the upload.
+///
+/// Live on entry: `block` (`SCRATCH[5]`), `width` (`SCRATCH[2]`), `samples`
+/// (`SCRATCH[4]`). Uses `SCRATCH[0,1,3,6,7,8]`, all dead at the call site.
+///
+/// A slot is live only when its record number is below this frame's count and that
+/// record names the slot back — the sparse-set test `METAL_PICTURE_TABLE_BYTES`
+/// describes — so the index never needs clearing.
+fn emit_picture_lookup(asm: &mut Asm, done: &str) {
+    let probe = format!("{METAL_DRAW_SYMBOL}_picture_probe");
+    let live = format!("{METAL_DRAW_SYMBOL}_picture_live");
+    let miss = format!("{METAL_DRAW_SYMBOL}_picture_miss");
+    let hit = format!("{METAL_DRAW_SYMBOL}_picture_hit");
+    let (index, record_no, record, records, slot, count) = (
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+        abi::SCRATCH[6],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    );
+    let (width, block) = (abi::SCRATCH[2], abi::SCRATCH[5]);
+    const INDEX_BITS: u32 = METAL_PICTURE_INDEX_SLOTS.trailing_zeros();
+
+    // records = contents + RECORDS_OFFSET; index = contents + INDEX_OFFSET.
+    asm.push(abi::load_u64(records, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::move_immediate(
+        index,
+        "Integer",
+        &METAL_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(index, records, index));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        &METAL_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(records, records, record_no));
+    // slot = ((block >> 4) * K) >> (64 - INDEX_BITS). Blocks are 16-byte aligned arena
+    // allocations, so the low four bits carry nothing.
+    asm.push(abi::shift_right_immediate(slot, block, 4));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        PICTURE_HASH_MULTIPLIER,
+    ));
+    asm.push(abi::multiply_registers(slot, slot, record_no));
+    asm.push(abi::shift_right_immediate(
+        slot,
+        slot,
+        (64 - INDEX_BITS) as u8,
+    ));
+    asm.push(abi::load_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+
+    asm.push(abi::label(&probe));
+    asm.push(abi::shift_left_immediate(record_no, slot, 2));
+    asm.push(abi::add_registers(record_no, index, record_no));
+    asm.push(abi::load_u32(record_no, record_no, 0));
+    // Unsigned: a slot holding garbage from before this buffer's first frame is a large
+    // number, and it must read as "not below the count" rather than as negative.
+    asm.push(abi::compare_registers(record_no, count));
+    asm.push(abi::branch_lo(&live));
+    asm.push(abi::branch(&miss));
+    asm.push(abi::label(&live));
+    const _: () = assert!(
+        METAL_PICTURE_RECORD_BYTES == 16,
+        "records are addressed by a shift of 4"
+    );
+    asm.push(abi::shift_left_immediate(record, record_no, 4));
+    asm.push(abi::add_registers(record, records, record));
+    asm.push(abi::load_u32(record_no, record, 12));
+    asm.push(abi::compare_registers(record_no, slot));
+    asm.push(abi::branch_ne(&miss));
+    asm.push(abi::load_u64(record_no, record, 0));
+    asm.push(abi::compare_registers(record_no, block));
+    asm.push(abi::branch_eq(&hit));
+    // Another block's live slot: the next one, wrapping.
+    asm.push(abi::add_immediate(slot, slot, 1));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        &(METAL_PICTURE_INDEX_SLOTS - 1).to_string(),
+    ));
+    asm.push(abi::and_registers(slot, slot, record_no));
+    asm.push(abi::branch(&probe));
+
+    asm.push(abi::label(&hit));
+    asm.push(abi::load_u32(record_no, record, 8));
+    asm.push(abi::store_u32(
+        record_no,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::branch(done));
+
+    asm.push(abi::label(&miss));
+    asm.push(abi::store_u64(slot, abi::stack_pointer(), OFF_PIC_SLOT));
+}
+
+/// Record the picture just given its slice of the glyph region — `block` in
+/// `SCRATCH[5]`, its base in `cursor` (`SCRATCH[7]`) — at the index slot
+/// `emit_picture_lookup` parked (bug-686).
+///
+/// Uses `SCRATCH[0,1,6]` only: `cursor` and `block` are read after this by the copy.
+/// The count check is unreachable — one record per picture item, and the predicate
+/// already caps items at `METAL_PICTURE_RECORDS` — and is kept because the alternative
+/// is a write past the table; an unrecorded picture is still uploaded, only not shared.
+fn emit_picture_record(asm: &mut Asm) {
+    let full = format!("{METAL_DRAW_SYMBOL}_picture_table_full");
+    let (count, at, temp) = (abi::SCRATCH[0], abi::SCRATCH[1], abi::SCRATCH[6]);
+    let (block, cursor) = (abi::SCRATCH[5], abi::SCRATCH[7]);
+
+    asm.push(abi::load_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_RECORDS.to_string(),
+    ));
+    asm.push(abi::compare_registers(count, temp));
+    asm.push(abi::branch_ge(&full));
+
+    // records[count] = (block, cursor, slot)
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::shift_left_immediate(at, count, 4));
+    asm.push(abi::add_registers(at, temp, at));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::store_u64(block, at, 0));
+    asm.push(abi::store_u32(cursor, at, 8));
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_PIC_SLOT));
+    asm.push(abi::store_u32(temp, at, 12));
+    // index[slot] = count -- written AFTER the record, so the slot is never live while
+    // the record it names is stale.
+    asm.push(abi::shift_left_immediate(temp, temp, 2));
+    asm.push(abi::load_u64(at, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::store_u32(count, at, 0));
+    asm.push(abi::add_immediate(count, count, 1));
+    asm.push(abi::store_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+    asm.push(abi::label(&full));
 }
 
 fn emit_edge_buffer(asm: &mut Asm) {
@@ -3622,6 +3807,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
     /// Every `objc_msgSend` in the pipeline setup sets its receiver *after* the
     /// selector lookup that precedes it.
@@ -3842,6 +4028,8 @@ mod tests {
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 8, "drawPair"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
+            (OFF_PIC_COUNT, 8, "picCount"),
+            (OFF_PIC_SLOT, 8, "picSlot"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 
@@ -3992,10 +4180,26 @@ mod tests {
                 + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
             "the glyph region must start where the gradient region ends"
         );
+        // bug-686 added the fifth, the picture table, which the shader never reads.
+        assert_eq!(
+            METAL_PICTURE_RECORDS_OFFSET,
+            METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4,
+            "the picture table must start where the glyph region ends"
+        );
+        assert_eq!(
+            METAL_PICTURE_INDEX_OFFSET,
+            METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES,
+            "the picture index must start where the picture records end"
+        );
         assert_eq!(
             METAL_BUFFER_BYTES,
-            METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4,
-            "the buffer must be exactly its four regions, with nothing past the last"
+            METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
+            "the buffer must be exactly its five regions, with nothing past the last"
+        );
+        assert_eq!(
+            METAL_PICTURE_TABLE_BYTES,
+            METAL_BUFFER_BYTES - METAL_PICTURE_RECORDS_OFFSET,
+            "the picture table is the last region"
         );
     }
 

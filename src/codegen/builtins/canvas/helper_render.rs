@@ -704,6 +704,7 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
@@ -712,8 +713,18 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ' bug-484: a picture's texels ride the same frame-wide region as glyph coverage, one
     ' word each, so they are counted against the same cap -- the region overflowing would
     ' make one picture read another's texels, a plausible wrong image.
+    '
+    ' bug-686: counted once per distinct pixel BLOCK, because the Metal emitter uploads
+    ' each block once per frame and points every later picture of it at those texels
+    ' (`emit_picture_lookup`). The key is the block address the emitter looks up, rebuilt
+    ' from the same two header slots. Vulkan still copies per item, so its predicate still
+    ' counts per item.
     IF kind = __CANVAS_GEO_PICTURE THEN
-      samples = samples + __canvas_pictureSamples(offset)
+      LET block AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      IF NOT collections::contains(pictures, block) THEN
+        pictures = collections::add(pictures, block)
+        samples = samples + __canvas_pictureSamples(offset)
+      END IF
     END IF
     ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
     ' asks. A blended item that both strokes and fills publishes two

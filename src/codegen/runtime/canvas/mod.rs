@@ -792,7 +792,8 @@ pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// gradient stops (five each), then glyph coverage (one sample a word).
+/// gradient stops (five each), then glyph coverage (one sample a word), then the
+/// picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
@@ -800,7 +801,55 @@ pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
 pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
-    + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
+    + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
+    + METAL_PICTURE_TABLE_BYTES;
+
+/// The per-frame **picture table**: which image blocks this frame has already copied
+/// into the glyph region, and where (bug-686). The last region of the Metal frame
+/// buffer, read only by the emitter — the shader never sees it, so it has no MSL base.
+///
+/// `emit_picture_buffer` used to copy a picture's texels for every `Picture` item, so a
+/// tilemap of 2,000 tiles drawn from two images copied 2,000 images and counted them
+/// against the glyph region's cap. It now looks the image's block up here first and, on
+/// a hit, points the item at the texels already uploaded; `__canvas_metalRenderable`
+/// counts each distinct block once to match.
+///
+/// Two parts, a record array and an open-addressed index over it:
+///
+/// * `METAL_PICTURE_RECORDS` records of `METAL_PICTURE_RECORD_BYTES`:
+///   `block` (u64, the pixel block's address), `base` (u32, its first texel in the
+///   glyph region), `slot` (u32, the index slot that names this record);
+/// * `METAL_PICTURE_INDEX_SLOTS` u32 slots, each a record number, probed linearly from
+///   a multiplicative hash of the block address.
+///
+/// **Nothing is cleared between frames.** A slot is live only if its record number is
+/// below this frame's record count AND that record's `slot` names it back — the
+/// sparse-set test — so last frame's slots, or whatever the buffer held at creation,
+/// read as empty without a pass over the index. Every record this frame writes is
+/// written before its slot, and nothing is deleted within a frame, so every live
+/// slot's probe chain is intact.
+///
+/// One record per quad of `METAL_MAX_FRAME_ITEMS` — a picture is one item and every
+/// item at least one quad, so the predicate's own cap means the table is never full;
+/// the index has twice as many slots, so a probe always reaches an empty one.
+pub(crate) const METAL_PICTURE_RECORDS: usize = METAL_MAX_FRAME_ITEMS;
+/// Bytes per picture record: block (8), base (4), index slot (4).
+pub(crate) const METAL_PICTURE_RECORD_BYTES: usize = 16;
+/// Slots in the picture index — a power of two, twice the records.
+pub(crate) const METAL_PICTURE_INDEX_SLOTS: usize = 2 * METAL_PICTURE_RECORDS;
+const _: () = assert!(
+    METAL_PICTURE_INDEX_SLOTS.is_power_of_two(),
+    "the picture index is masked, not divided"
+);
+/// Where the picture records start, in bytes — after the glyph region.
+pub(crate) const METAL_PICTURE_RECORDS_OFFSET: usize =
+    METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
+/// Where the picture index starts, in bytes — after the records.
+pub(crate) const METAL_PICTURE_INDEX_OFFSET: usize =
+    METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES;
+/// The picture table's whole size: records, then index slots.
+pub(crate) const METAL_PICTURE_TABLE_BYTES: usize =
+    METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES + METAL_PICTURE_INDEX_SLOTS * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///
