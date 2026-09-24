@@ -6799,6 +6799,7 @@ mod raw_result_block_ownership {
         "big.toBytes",              // List OF Byte
         "big.toRadixString",        // String
         "big.toString",             // String
+        "canvas.carriedHashes",     // List OF Integer (bug-686)
         "canvas.fontBlobUnchecked", // List OF Byte
         "canvas.fontBytes",         // List OF Byte
         "canvas.getBytes",          // List OF Byte
