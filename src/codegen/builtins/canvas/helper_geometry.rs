@@ -891,26 +891,39 @@ SUB __canvas_geoBeginFrame()
     MUT counts AS List OF Integer = []
     MUT used AS List OF Integer = []
     MUT index AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    ' The floats move a RUN at a time: slots sit in `__CANVAS_GEO_DATA` in slot order,
+    ' so consecutive kept slots are one contiguous span, copied with one `mid` and one
+    ' bulk append. What a frame keeps is usually a single run -- all of the previous
+    ' frame's entries -- and copying it float by float cost ~7 ms a frame on a
+    ' 5,700-item scene (bug-686).
     LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
+    MUT runFrom AS Integer = 0
+    MUT runLength AS Integer = 0
     MUT s AS Integer = 0
     WHILE s < slots
       IF collections::getOr(__CANVAS_GEO_LASTUSED, s, 0) = __CANVAS_GEO_FRAME THEN
         LET from AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, s, 0)
         LET owned AS Integer = collections::getOr(__CANVAS_GEO_COUNTS, s, 0)
         LET hash AS Integer = collections::getOr(__CANVAS_GEO_HASHES, s, 0)
+        IF runLength > 0 AND from <> runFrom + runLength THEN
+          data = collections::append(data, collections::mid(__CANVAS_GEO_DATA, runFrom, runLength))
+          runLength = 0
+        END IF
+        IF runLength = 0 THEN
+          runFrom = from
+        END IF
         index = collections::set(index, hash, len(hashes))
         hashes = collections::append(hashes, hash)
-        offsets = collections::append(offsets, len(data))
+        offsets = collections::append(offsets, len(data) + runLength)
         counts = collections::append(counts, owned)
         used = collections::append(used, __CANVAS_GEO_FRAME)
-        MUT k AS Integer = 0
-        WHILE k < owned
-          data = collections::append(data, collections::getOr(__CANVAS_GEO_DATA, from + k, 0.0))
-          k = k + 1
-        END WHILE
+        runLength = runLength + owned
       END IF
       s = s + 1
     END WHILE
+    IF runLength > 0 THEN
+      data = collections::append(data, collections::mid(__CANVAS_GEO_DATA, runFrom, runLength))
+    END IF
     ' All together, or the offsets name the old arena. The locals are built first and
     ' published here because the loop above READS `__CANVAS_GEO_DATA` through the old
     ' offsets on every iteration.
