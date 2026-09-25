@@ -26,6 +26,7 @@
 use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod gen_env;
+mod gen_host_paths;
 mod gen_introspect;
 mod gen_paths;
 pub(crate) use gen_paths::resource_base_offset;

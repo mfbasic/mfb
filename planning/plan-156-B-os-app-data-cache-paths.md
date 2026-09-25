@@ -358,12 +358,12 @@ and the same for `appCachePath`. `STRING_SELF_UPDATE_SPELLINGS` gets both
 
 ### Phase B1: factor the shared emitters (provably neutral)
 
-- [ ] Create `src/codegen/builtins/os/gen_host_paths.rs` with
+- [x] Create `src/codegen/builtins/os/gen_host_paths.rs` with
       `emit_validate_relative`, `emit_join_result` and
-      `emit_trim_trailing_slashes` (§4.1), and register it in `os/mod.rs`.
-- [ ] Rewrite `lower_app_resource_path` onto `emit_validate_relative` and
-      `emit_join_result`.
-- [ ] Before the change, build the `os` byte-identity fixture with `-ncode` for
+      `emit_trim_trailing_slashes` (§4.1), and register it in `os/mod.rs`. — done: `gen_host_paths.rs` holds `emit_capture_relative`, `emit_validate_relative`, `emit_join_result` and `emit_path_error_tails` (the shared raise tails, added so every member ends identically). `emit_trim_trailing_slashes` moved to B2 with its first caller, so no dead code lands here.
+- [x] Rewrite `lower_app_resource_path` onto `emit_validate_relative` and
+      `emit_join_result`. — done (the mode suffix is passed with its `/` folded in).
+- [x] Before the change, build the `os` byte-identity fixture with `-ncode` for
       the five targets (`macos-aarch64`, `linux-x86_64`, `linux-aarch64`,
       `linux-riscv64`, `windows-x86_64`) into `/tmp/156b1-before/`, and after
       the change into `/tmp/156b1-after/`.
@@ -373,6 +373,10 @@ Acceptance: `appResourcePath` emits the same bytes as before.
   → no output (est. 3 min). A diff means the refactor changed codegen. Objdump
   that ONE target, fix the emitter, and re-run. It is not a reason to abandon
   the factoring.
+  Result: `cmp` → `macos-aarch64 identical`, `linux-x86_64 identical`,
+  `linux-aarch64 identical`, `linux-riscv64 identical`, `windows-x86_64 identical`
+  (the before set was built from `/tmp/156b1-src`, a copy of the fixture, at
+  plan-156-A's HEAD).
 Commit: —
 
 ### Phase B2: POSIX lookups and the macOS/Linux lowering
