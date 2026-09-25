@@ -1,0 +1,30 @@
+' bug-691 repro: the Windows backend's UTF-16 marshalling scratch buffers are
+' allocated from the arena on every call and never freed. 100 calls of
+' os::getEnvOr / os::hasEnv leave 100 x 256 KiB live; 100 fs::fileExists
+' leave 100 x 64 KiB.
+'
+' Build for Windows and run each mode on a Windows host:
+'   mfb init /tmp/p && cp bugs/repro/bug-691-windows-marshal-buffers-leak.mfb /tmp/p/src/main.mfb
+'   mfb build -q --debug -target windows-x86_64 /tmp/p
+'   (on Windows)  set W=env&& p.exe     -- then W=has, W=fs, W=none
+' and read arena.0.live_bytes from the report on stderr.
+
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET which AS String = os::getEnvOr("W", "none")
+  MUT hits AS Integer = 0
+  FOR i = 1 TO 100
+    IF which = "env" THEN
+      IF os::getEnvOr("PATH", "") <> "" THEN hits = hits + 1
+    ELSEIF which = "has" THEN
+      IF os::hasEnv("PATH") THEN hits = hits + 1
+    ELSEIF which = "fs" THEN
+      IF fs::fileExists("C:\\Windows\\notepad.exe") THEN hits = hits + 1
+    END IF
+  NEXT
+  io::print(which & " " & toString(hits))
+  RETURN 0
+END FUNC
