@@ -3,7 +3,10 @@
 '
 ' The program downloads the latest GFS analysis from NOAA NOMADS, decodes the
 ' GRIB2 it arrives in, and animates a few thousand massless tracers through the
-' field. Nothing is bundled but the coastline.
+' field. Once that is on screen, a worker thread fetches the next five days of
+' the same run's forecast, and when the last of it is in, the forecast plays:
+' the wind under the tracers changes hour by hour along a tracker at the bottom
+' of the window. Nothing is bundled but the coastline.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/wind
@@ -18,18 +21,25 @@
 '   f              fullscreen on or off
 '   r              back to the whole world
 '   h              hide or show the captions
+'   space          play or stop the forecast
 '   esc            quit
 '
-' The program is in six files:
-'   grib.mfb    GRIB2: messages, sections, and the two packings NCEP writes
-'   fetch.mfb   which GFS cycle to ask NOMADS for, and the on-disk cache
-'   earth.mfb   the Equal Earth projection, and the window onto it
-'   land.mfb    the coastline resource, and the blue-and-green underlay
-'   flow.mfb    sampling the field, and the swarm of tracers over it
-'   main.mfb    the font, the keys, and the frame loop
+' The mouse works the button and the tracker: click the button to play or stop,
+' and click or drag along the tracker to go to a moment of the forecast.
 '
-' The first run downloads about half a megabyte and takes a few seconds to
-' decode; later runs read the cached file and start straight away.
+' The program is in eight files:
+'   grib.mfb      GRIB2: messages, sections, and the two packings NCEP writes
+'   fetch.mfb     which GFS cycle to ask NOMADS for, and the on-disk cache
+'   forecast.mfb  the worker thread that fetches the five-day forecast
+'   earth.mfb     the Equal Earth projection, and the window onto it
+'   land.mfb      the coastline resource, and the blue-and-green underlay
+'   flow.mfb      sampling the field, and the swarm of tracers over it
+'   timeline.mfb  the play/stop button and the tracker
+'   main.mfb      the font, the keys, the mouse, and the frame loop
+'
+' The first run downloads about half a megabyte and takes a moment to decode
+' before the map appears, then about 23 megabytes more in the background for
+' the forecast; later runs of the same GFS cycle read the cached files instead.
 
 IMPORT app
 IMPORT canvas
@@ -41,6 +51,7 @@ IMPORT fs
 IMPORT io
 IMPORT math
 IMPORT os
+IMPORT thread
 
 ' ---------------------------------------------------------------------------
 ' The font
@@ -148,6 +159,9 @@ END TYPE
 TYPE ToggleFullscreen
 END TYPE
 
+TYPE TogglePlay
+END TYPE
+
 TYPE Quit
 END TYPE
 
@@ -161,6 +175,7 @@ UNION Command
   Reset
   ToggleCaptions
   ToggleFullscreen
+  TogglePlay
   Quit
   Ignore
 END UNION
@@ -182,6 +197,7 @@ FUNC commandFor(key AS String) AS Command
     CASE "r", "R" : RETURN Reset[]
     CASE "h", "H" : RETURN ToggleCaptions[]
     CASE "f", "F" : RETURN ToggleFullscreen[]
+    CASE " " : RETURN TogglePlay[]
     CASE "ESC", "EOF" : RETURN Quit[]
     CASE ELSE : RETURN Ignore[]
   END MATCH
@@ -244,7 +260,7 @@ FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size
     LET margin AS Float = size1 * 1.2
     items = collections::append(items, textItem(face, margin, margin + size1, size1, CAPTION_COLOR, w.label))
     items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, HINT_COLOR, zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
-    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  space play/stop  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
     items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, HINT_COLOR, hint))
   END IF
 
@@ -266,6 +282,70 @@ LET FRAME_MILLIS AS Integer = 16
 ' multi-second dt and every tracer teleports across an ocean.
 LET MAX_STEP_SECONDS AS Float = 0.05
 
+' ---------------------------------------------------------------------------
+' The forecast
+' ---------------------------------------------------------------------------
+'
+' The forecast hours are kept in a list in the order they arrived, which is the
+' order of the hours: index k is hour k * FORECAST_STEP_HOURS, and index 0 is
+' the analysis the program opened on. The frame loop draws through the two
+' either side of the moment shown, and keeps those two in their own bindings,
+' because reading a Winds out of the list copies the whole of both its fields -
+' fine once every few hundred frames, when the moment crosses into the next
+' pair, but not on every frame.
+
+MUT forecastFrames AS List OF Winds = []
+MUT earlierIndex AS Integer = -1
+MUT laterIndex AS Integer = -1
+MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), label := ""]
+MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), label := ""]
+
+FUNC emptyField AS Field
+  RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
+END FUNC
+
+' Point earlierWinds and laterWinds at the pair either side of `hours`, and say
+' how far between them it falls.
+FUNC windsFor(hours AS Float) AS Float
+  LET last AS Integer = len(forecastFrames) - 1
+  LET spacing AS Float = toFloat(FORECAST_STEP_HOURS)
+  LET earlier AS Integer = math::clamp(math::floor(hours / spacing), 0, last)
+  LET later AS Integer = math::min(earlier + 1, last)
+
+  IF earlier <> earlierIndex THEN
+    earlierWinds = collections::get(forecastFrames, earlier)
+    earlierIndex = earlier
+  END IF
+  IF later <> laterIndex THEN
+    laterWinds = collections::get(forecastFrames, later)
+    laterIndex = later
+  END IF
+
+  IF later = earlier THEN RETURN 0.0
+  RETURN math::clamp((hours - toFloat(earlier) * spacing) / spacing, 0.0, 1.0)
+END FUNC
+
+' What the tracker says while the forecast is arriving.
+FUNC fetchedStatus AS String
+  RETURN "fetching the forecast  " & toString(len(forecastFrames) - 1) & " of " & toString(forecastSteps())
+END FUNC
+
+' Take one piece of news from the worker: a forecast hour to add to the end of
+' the list, or word of one it is waiting for.
+FUNC withNews(news AS ForecastNews, p AS Playback) AS Playback
+  MATCH news
+    CASE ForecastFrame(f)
+      forecastFrames = collections::append(forecastFrames, f.winds)
+      RETURN WITH p { loadedHours := toFloat(f.hour), status := fetchedStatus() }
+    CASE ForecastWait(w)
+      RETURN WITH p { status := w.reason & " - asking again shortly" }
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Main
+' ---------------------------------------------------------------------------
+
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   app::setTitle("Wind")
@@ -279,12 +359,22 @@ FUNC main AS Integer
 
   canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS 10 m wind from NOAA NOMADS", "about half a megabyte of GRIB2, then a moment to unpack it"))
 
-  LET winds AS Winds = loadWinds() TRAP(e)
+  LET analysis AS Analysis = loadAnalysis() TRAP(e)
     canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
     waitForKey()
     RETURN 1
   END TRAP
-  app::setTitle("Wind \u{00B7} " & winds.label)
+  LET run AS Cycle = analysis.cycle
+  app::setTitle("Wind \u{00B7} " & analysis.winds.label)
+
+  ' The analysis is on screen from here on; the rest of the run arrives behind
+  ' it. Dropping the handle on the way out - quitting before the fetch is done -
+  ' cancels the worker.
+  forecastFrames = [analysis.winds]
+  LET worker AS Thread OF ForecastNews TO Integer = thread::start(fetchForecast, run)
+  MUT fetching AS Boolean = TRUE
+  MUT playback AS Playback = Playback[startSeconds := run.seconds, totalHours := toFloat(FORECAST_HOURS), loadedHours := 0.0, hours := 0.0, playing := FALSE, status := fetchedStatus()]
+  LET days AS List OF DayMark = dayMarks(playback)
 
   LET world AS Ring = worldOutline()
   loadCoastline()
@@ -293,7 +383,9 @@ FUNC main AS Integer
   MUT view AS View = wholeWorld(size)
   MUT captions AS Boolean = TRUE
   MUT running AS Boolean = TRUE
+  MUT scrubbing AS Boolean = FALSE
   seedSwarm(countFor(view), view)
+  canvas::enableMouse(TRUE)
 
   MUT lastNanos AS Integer = datetime::monotonicNanos()
   DO WHILE running
@@ -307,6 +399,36 @@ FUNC main AS Integer
       IF particleCount() <> countFor(view) THEN seedSwarm(countFor(view), view)
     END IF
 
+    ' The worker's news. Whether it has finished is asked before its queue is
+    ' drained, not after: a worker that sends its last hour and ends between
+    ' the two would otherwise be collected with that hour still unread. The
+    ' handle stays in this function: handing a Thread to another function
+    ' hands it over for good, and it is closed when that function returns.
+    IF fetching THEN
+      LET finished AS Boolean = NOT thread::isRunning(worker)
+      DO WHILE thread::poll(worker, 0)
+        playback = withNews(thread::receive(worker, 0), playback)
+      LOOP
+      IF finished THEN
+        fetching = FALSE
+        MUT problem AS String = ""
+        LET sent AS Integer = thread::waitFor(worker) TRAP(e)
+          problem = e.message
+          RECOVER 0
+        END TRAP
+        IF problem <> "" THEN
+          playback = WITH playback { status := "no forecast: " & problem }
+        ELSEIF sent < forecastSteps() THEN
+          playback = WITH playback { status := "the forecast stopped after " & toString(sent) & " of " & toString(forecastSteps()) & " hours" }
+        ELSE
+          ' All of it is in: start playing, from wherever the thumb was left.
+          playback = WITH playback { status := "", playing := TRUE }
+        END IF
+      END IF
+    END IF
+    LET ready AS Boolean = playback.loadedHours >= playback.totalHours
+    LET track AS Track = trackFor(view.width, view.height, captionSize(view))
+
     DO WHILE pending(0)
       MATCH commandFor(readKey())
         CASE Pan(p) : view = panned(view, p.dx, p.dy)
@@ -317,18 +439,51 @@ FUNC main AS Integer
           ' The window resizes as it goes in or out, and the resize is picked up
           ' at the top of the next frame like any other.
         CASE ToggleFullscreen : app::setFullscreen(NOT app::getFullscreen())
+        CASE TogglePlay : IF ready THEN playback = WITH playback { playing := NOT playback.playing }
         CASE Quit : running = FALSE
         CASE Ignore
       END MATCH
+    LOOP
+
+    ' The mouse only works the button and the tracker. A press on the tracker
+    ' moves the thumb there and keeps it under the pointer for as long as the
+    ' button stays down, playing or not.
+    DO WHILE TRUE
+      LET mouse AS canvas::MouseEvent = canvas::pollMouse()
+      IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
+      IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
+        IF onButton(track, mouse.position) THEN
+          IF ready THEN playback = WITH playback { playing := NOT playback.playing }
+        ELSEIF onTrack(track, mouse.position) THEN
+          scrubbing = TRUE
+          playback = WITH playback { hours := hoursAt(track, playback, mouse.position.x) }
+        END IF
+      ELSEIF mouse.kind = canvas::MouseKind.Drag AND scrubbing THEN
+        playback = WITH playback { hours := hoursAt(track, playback, mouse.position.x) }
+      ELSEIF mouse.kind = canvas::MouseKind.Up THEN
+        scrubbing = FALSE
+      END IF
     LOOP
 
     LET startNanos AS Integer = datetime::monotonicNanos()
     LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, MAX_STEP_SECONDS)
     lastNanos = startNanos
 
+    ' Playing runs the thumb along the line and round to the start again.
+    IF playback.playing AND NOT scrubbing THEN
+      MUT hours AS Float = playback.hours + elapsed * PLAY_HOURS_PER_SECOND
+      IF hours > playback.totalHours THEN hours = 0.0
+      playback = WITH playback { hours := hours }
+    END IF
+    LET mix AS Float = windsFor(playback.hours)
+
     reprojectTrails(view.lon0)
-    stepSwarm(winds, view, elapsed)
-    canvas::present(frameScene(world, view, winds, face, size, captions))
+    stepSwarm(earlierWinds, laterWinds, mix, view, elapsed)
+    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, analysis.winds, face, size, captions)
+    FOR EACH item IN timelineItems(track, playback, days, face)
+      scene = collections::append(scene, item)
+    NEXT
+    canvas::present(scene)
 
     LET spentMillis AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
     IF spentMillis < FRAME_MILLIS THEN os::sleep(FRAME_MILLIS - spentMillis)

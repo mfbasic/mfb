@@ -14,21 +14,31 @@
 ' skipped - the next one back is tried, up to two days into the past. The first
 ' cycle that answers with a GRIB file wins.
 '
-' Downloads are cached in the host temporary directory under the cycle they
-' came from, so the second run of the program starts instantly and a rebuild
-' while working on the drawing costs nothing.
+' The same run also carries a forecast, out to sixteen days. The half-degree
+' files come every three hours, and the program plays the first five days of
+' them (forecast.mfb fetches those on a worker thread once the analysis is up).
+' Every hour of a run is asked for the same way; only the fHHH in the file name
+' changes.
+'
+' Downloads are cached in the host temporary directory under the cycle and hour
+' they came from, so the second run of the program starts instantly and a
+' rebuild while working on the drawing costs nothing. Only the newest cycle is
+' kept: a run is 41 files and about 23 megabytes, and a new one comes out every
+' six hours.
 
 IMPORT datetime
 IMPORT errorCode
 IMPORT fs
 IMPORT http
 IMPORT net
+IMPORT strings
 
 ' One GFS run, in the spellings the URL and the caption each need.
 TYPE Cycle
   day AS String        ' yyyymmdd, as the NOMADS directory names it
   hour AS String       ' HH, ditto
   caption AS String    ' how the run is written on screen
+  seconds AS Integer   ' the run's nominal time, in seconds since the epoch
 END TYPE
 
 ' The outcome of trying one cycle. A cycle that is simply not published yet is
@@ -38,6 +48,13 @@ END TYPE
 TYPE Attempt
   data AS List OF Byte
   problem AS String
+END TYPE
+
+' The analysis the program opens on, and the run it came from - which is the run
+' the forecast is then fetched out of.
+TYPE Analysis
+  cycle AS Cycle
+  winds AS Winds
 END TYPE
 
 ' Seconds in a GFS cycle, and how long after one its analysis hour shows up.
@@ -55,51 +72,84 @@ LET GRID_NAME AS String = "0p50"
 
 FUNC cycleAt(epochSeconds AS Integer) AS Cycle
   LET stamp AS datetime::DateTime = datetime::inZone(datetime::instant(epochSeconds), datetime::utc())
-  RETURN Cycle[day := datetime::format(stamp, "yyyyMMdd"), hour := datetime::format(stamp, "HH"), caption := datetime::format(stamp, "yyyy-MM-dd HH") & "Z"]
+  RETURN Cycle[day := datetime::format(stamp, "yyyyMMdd"), hour := datetime::format(stamp, "HH"), caption := datetime::format(stamp, "yyyy-MM-dd HH") & "Z", seconds := epochSeconds]
 END FUNC
 
-' The NOMADS filter URL for one cycle's 10 m wind. The %2F are literal: the
-' CGI's dir parameter carries a path, and it has to arrive percent-encoded
-' rather than as slashes in the query string.
-FUNC filterUrl(c AS Cycle) AS String
-  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & ".f000&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+' A forecast hour the way the GFS file names write it: f000, f003, ... f384.
+FUNC hourTag(hour AS Integer) AS String
+  RETURN "f" & strings::padLeft(toString(hour), 3, "0")
 END FUNC
 
-' Where a cycle's file is kept between runs.
-FUNC cachePath(c AS Cycle) AS String
+' How a forecast hour of a run is written in a message.
+FUNC hourCaption(c AS Cycle, hour AS Integer) AS String
+  IF hour = 0 THEN RETURN "the " & c.caption & " analysis"
+  RETURN "+" & toString(hour) & " h of the " & c.caption & " run"
+END FUNC
+
+' The NOMADS filter URL for one hour of one cycle's 10 m wind. The %2F are
+' literal: the CGI's dir parameter carries a path, and it has to arrive
+' percent-encoded rather than as slashes in the query string.
+FUNC filterUrl(c AS Cycle, hour AS Integer) AS String
+  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & "." & hourTag(hour) & "&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+END FUNC
+
+FUNC cacheDirectory AS String
   LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-wind-gfs"])
   IF NOT fs::directoryExists(dir) THEN fs::createDirectories(dir)
-  RETURN fs::pathJoin([dir, "gfs-" & c.day & "-" & c.hour & "-10m-" & GRID_NAME & ".grb2"])
+  RETURN dir
 END FUNC
+
+' Every cached file of one cycle starts with this.
+FUNC cachePrefix(c AS Cycle) AS String
+  RETURN "gfs-" & c.day & "-" & c.hour & "-"
+END FUNC
+
+' Where one hour of a cycle is kept between runs.
+FUNC cachePath(c AS Cycle, hour AS Integer) AS String
+  RETURN fs::pathJoin([cacheDirectory(), cachePrefix(c) & hourTag(hour) & "-10m-" & GRID_NAME & ".grb2"])
+END FUNC
+
+' Delete every cached file that is not from cycle c. The program only ever
+' draws the newest run it can find, so an older run's files are never read
+' again once a newer one has been fetched.
+SUB pruneCache(c AS Cycle)
+  LET dir AS String = cacheDirectory()
+  LET keep AS String = cachePrefix(c)
+  FOR EACH name IN fs::listDirectory(dir)
+    IF strings::startsWith(name, "gfs-") AND NOT strings::startsWith(name, keep) THEN fs::deleteFile(fs::pathJoin([dir, name]))
+  NEXT
+END SUB
 
 ' "GRIB" as a big-endian 32-bit number, which is how decodeMessage recognises a
 ' message and how this recognises a real answer.
 LET GRIB_MAGIC AS Integer = 1196575042
 
-' One cycle's file, from the cache if it is there and from NOMADS if it is not.
+' One hour of one cycle, from the cache if it is there and from NOMADS if it is
+' not.
 '
 ' The status code is not enough on its own: the filter CGI answers 200 with a
 ' short HTML page when the cycle's directory exists but the requested field is
 ' not in it, which is exactly what a run still being written looks like. So the
 ' body is checked for the GRIB magic, and a cached file is only trusted if it
-' starts with it too.
-FUNC cycleData(c AS Cycle) AS List OF Byte
-  LET path AS String = cachePath(c)
+' starts with it too. The file is written atomically, so a program closed in the
+' middle of the write leaves no half a file to be trusted next time.
+FUNC cycleData(c AS Cycle, hour AS Integer) AS List OF Byte
+  LET path AS String = cachePath(c, hour)
   IF fs::fileExists(path) THEN
     LET cached AS List OF Byte = fs::readBytes(path)
     IF len(cached) > 16 AND beInt(cached, 0, 4) = GRIB_MAGIC THEN RETURN cached
   END IF
 
-  LET response AS http::Response = http::read(net::toUrl(filterUrl(c)))
-  IF NOT response.ok THEN FAIL error(errorCode::ErrNotFound, "NOMADS answered " & toString(response.status) & " for the " & c.caption & " run")
-  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> GRIB_MAGIC THEN FAIL error(errorCode::ErrNotFound, "the " & c.caption & " run is not published yet")
+  LET response AS http::Response = http::read(net::toUrl(filterUrl(c, hour)))
+  IF NOT response.ok THEN FAIL error(errorCode::ErrNotFound, "NOMADS answered " & toString(response.status) & " for " & hourCaption(c, hour))
+  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> GRIB_MAGIC THEN FAIL error(errorCode::ErrNotFound, hourCaption(c, hour) & " is not published yet")
 
-  fs::writeBytes(path, response.body)
+  fs::writeBytesAtomic(path, response.body)
   RETURN response.body
 END FUNC
 
-FUNC attemptCycle(c AS Cycle) AS Attempt
-  RETURN Attempt[data := cycleData(c), problem := ""]
+FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
+  RETURN Attempt[data := cycleData(c, hour), problem := ""]
 
   TRAP(e)
     RETURN Attempt[data := [], problem := e.message]
@@ -114,15 +164,16 @@ FUNC windsFrom(data AS List OF Byte, c AS Cycle) AS Winds
   RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), label := "GFS 10 m wind  " & c.caption]
 END FUNC
 
-' The most recent GFS 10 m wind analysis this machine can get hold of.
-FUNC loadWinds AS Winds
+' The most recent GFS 10 m wind analysis this machine can get hold of, and the
+' run it belongs to.
+FUNC loadAnalysis AS Analysis
   LET newest AS Integer = (datetime::now().seconds - PUBLISH_DELAY_SECONDS) / CYCLE_SECONDS
   MUT firstProblem AS String = ""
 
   FOR back = 0 TO CYCLES_TO_TRY - 1
     LET c AS Cycle = cycleAt((newest - back) * CYCLE_SECONDS)
-    LET tried AS Attempt = attemptCycle(c)
-    IF len(tried.data) > 0 THEN RETURN windsFrom(tried.data, c)
+    LET tried AS Attempt = attemptCycle(c, 0)
+    IF len(tried.data) > 0 THEN RETURN Analysis[cycle := c, winds := windsFrom(tried.data, c)]
     IF firstProblem = "" THEN firstProblem = tried.problem
   NEXT
 

@@ -3,9 +3,10 @@
 ' A streamline visualisation is one idea repeated a few thousand times: drop a
 ' massless particle on the map, push it along by whatever the wind is at the
 ' place it currently occupies, draw the path it took, and after a while pick it
-' up and drop it somewhere else. The wind field is a still picture - one
-' forecast hour, not a movie - so what is animated is the tracer, not the
-' weather. What you are watching is the shape of the field.
+' up and drop it somewhere else. What you are watching is the shape of the
+' field. While the forecast plays, the field under the tracers changes too: it
+' is blended between the two forecast hours either side of the moment shown, so
+' the weather moves smoothly rather than jumping every three hours.
 '
 ' Three details make the difference between that idea and a picture worth
 ' looking at:
@@ -27,8 +28,10 @@
 '
 ' Particles come in pairs that chase each other. A leader is dropped somewhere
 ' new; its follower is dropped on the very same spot half a lifetime later.
-' Because the field is still, the follower retraces the leader's path exactly,
+' While the field holds still, the follower retraces the leader's path exactly,
 ' so every streamline carries two comets, half a life apart, instead of one.
+' While the forecast plays, the follower goes the way the wind blows half a life
+' later, which is close enough to read as the same streamline.
 '
 ' The swarm is module-level state rather than a value threaded through the
 ' frame. Every one of its lists is updated with the self-assigning shape -
@@ -124,6 +127,18 @@ END FUNC
 
 FUNC windAt(w AS Winds, g AS Geo) AS Vector
   RETURN Vector[east := sampleField(w.east, g), north := sampleField(w.north, g)]
+END FUNC
+
+' The wind at a moment `mix` of the way from one forecast hour to the next, 0
+' being the earlier and 1 the later - a straight blend of the two, which is how
+' anything between two model outputs has to be guessed. At 0 the later hour is
+' not read at all, which is every frame while the forecast is still stopped on
+' a whole hour.
+FUNC windBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Vector
+  LET a AS Vector = windAt(earlier, g)
+  IF mix <= 0.0 THEN RETURN a
+  LET b AS Vector = windAt(later, g)
+  RETURN Vector[east := a.east + (b.east - a.east) * mix, north := a.north + (b.north - a.north) * mix]
 END FUNC
 
 FUNC speedOf(wind AS Vector) AS Float
@@ -315,14 +330,15 @@ SUB seedSwarm(count AS Integer, v AS View)
   NEXT
 END SUB
 
-' Advance the whole swarm by dt seconds of animation.
+' Advance the whole swarm by dt seconds of animation, through the wind `mix` of
+' the way from one forecast hour to the next (windBetween).
 '
 ' A degree of longitude shrinks towards the poles, so an eastward wind turns
 ' into more degrees the further north it blows. The 0.12 floor on that cosine
 ' stops the division running away above 83 degrees, where a particle would
 ' otherwise be flung right round the world in a frame; particles that get that
 ' far are retired on the next line anyway.
-SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
+SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, dt AS Float)
   LET count AS Integer = particleCount()
   IF count = 0 THEN EXIT SUB
 
@@ -344,7 +360,7 @@ SUB stepSwarm(w AS Winds, v AS View, dt AS Float)
     END IF
 
     MUT lon AS Float = collections::get(swarmLon, i)
-    LET wind AS Vector = windAt(w, Geo[lon := lon, lat := lat])
+    LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := lon, lat := lat])
     LET shrink AS Float = math::max(math::cos(radians(lat)), 0.12)
 
     lon = wrapLon(lon + wind.east * drift / shrink)
