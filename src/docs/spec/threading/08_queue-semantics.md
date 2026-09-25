@@ -28,24 +28,32 @@ concurrently.
 
 ## Arena materialization
 
-Each side allocates from its own arena, and no thread may allocate from another
-thread's arena — the allocator's free-list pop is unsynchronized, so a send that
-copied into the *receiver's* arena raced the receiver's own allocations and
-corrupted its free lists (bug-498). A boundary value is therefore deep-copied at
-the send site **in the sender's arena** and the copy is handed across; the reader
-dequeues the already-materialized pointer and owns it from then on, freeing it
-into its own arena when its owner goes out of scope. That adoption is sound
-because a free only touches the freeing thread's arena state, and the block stays
-mapped for the life of the process (no arena but the main one is ever destroyed,
-and that one only at `_mfb_shutdown`). Both directions (`thread.send` parent→worker
-and `thread.emit` worker→parent) follow the same rule; the control-block arena-state
-fields are not consulted by the copy.
+No thread allocates in another thread's arena — an arena's free-list pop is
+unsynchronized. Every value that crosses is deep-copied into the thread's **block
+arena** (`./mfb spec threading control-block`), which belongs to neither thread and
+is only ever touched under the block lock:
 
-The message copy is emitted at the send site; the queue-write helper only stores
-the already-copied pointer into the queue slot. [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+- **Send** (`thread.send`/`emit`/`transferResource`/`emitResource`): the call site
+  passes the sender's value and its type's copy and drop functions. The write helper
+  waits for room, then — with the enqueue now certain — copies the value into the
+  block arena and enqueues the copy, recording the drop function on the queue. A
+  send that fails (full, closed, cancelled, timed out, invalid timeout) never made a
+  copy, so it leaves nothing behind and the sender's value is untouched.
+- **Read** (`thread.receive`/`read`/`acceptResource`/`readResource`): the helper
+  dequeues the block-arena copy and returns it; the call site copies it into the
+  reader's own arena, and that copy is the value user code sees. The queue keeps
+  the block-arena message until the NEXT read on the same queue, which drops it
+  with the drop function the call site passes — one read behind is the earliest
+  safe point, because the call site's copy runs after the helper returns, and each
+  queue has exactly one reader.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
+[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]]
 
-Resource handles move as scalar handles through the resource queues without the
-flat-block deep copy used for data-plane values.
+A resource's copy is its record (and a deep copy of its `STATE`); copying it flags
+the source record `moved|closed`, so the sender's binding cannot act on a handle
+that has left. Because the copy happens only when the enqueue is certain, the flag
+is set exactly when the transfer succeeds.
 
 Timeouts differ between the writing side (`thread::send`, `thread::transfer`) and
 the reading side (`thread::receive`, `thread::accept`).
@@ -80,9 +88,7 @@ For `thread::send` and `thread::transfer`, ownership transfer is atomic with
 enqueue success:
 
 - If enqueue succeeds, the destination side owns the value immediately. While the
-  value is queued, the destination queue owns it: the copy was carved from the
-  sender's arena, which stays mapped for the life of the process, and only the
-  receiver will ever free it (into its own arena).
+  value is queued, the destination queue owns its block-arena copy.
 - If enqueue fails because the queue is full, closed, cancelled, timed out, or
   the timeout is invalid, ownership is not transferred and the sender still owns
   the value.
@@ -154,9 +160,9 @@ the control block `CLOSED` (state 2), sets the cancellation flag, closes and
 clears both data queues (broadcasting their waiters) and wakes the resource plane.
 A worker still running is then `pthread_detach`ed; a worker that had already
 completed is `pthread_join`ed. Separately, each drop gives up its binding's owner
-count, and only the drop that takes the count to 0 frees the thread's plumbing —
-queues, worker arena state, control block — once the worker is joined (bug-622,
-`control-block` § Lifetime). Reassigning a `MUT Thread` evaluates the new value
+count, and only the drop that takes the count to 0 gives up the handle side's
+reference on the control block, which is freed by whichever side lets go last
+(`control-block` § Lifetime). Reassigning a `MUT Thread` evaluates the new value
 first, then drops the old handle before storing the replacement. A handle returned
 from a function moves to the caller's binding. A handle passed to a function is
 closed by the callee's parameter but still released by the caller's binding, which
@@ -171,42 +177,36 @@ general lexical value-cleanup rule owned by `./mfb spec language memory-semantic
 Two thread-specific exclusions apply, because those values are not plain blocks
 this scope owns:
 
-- **Thread-boundary results are runtime-managed.** Values produced by
-  `thread::receive`, `thread::waitFor`, and the data-plane reads live in the
-  thread plumbing and the worker arena that the runtime bulk-reclaims at teardown;
-  on a cancel/timeout path a result is not a clean ownable block at all. Such a
-  binding is therefore *not* registered for a scope-drop value free — it follows
-  the queue/control-block lifetime rules below, not lexical value cleanup. If such
-  a value is re-bound or returned it is deep-copied first, so the copy is owned and
-  freed normally while the original stays runtime-managed.
+- **Thread-boundary results are the call site's copy.** A value produced by
+  `thread::receive`, `thread::waitFor` or `thread::accept` is copied at the call
+  site out of the block arena into the calling thread's arena, and that copy is
+  owned and freed like any fresh value; the block-arena original stays the
+  queue's (or the control block's) and is never freed by the caller.
+  [[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
 - **Resources** stay move-only handles closed by their own close op, never
   `arena_free`d, exactly as before.
 
 When the worker completes:
 
 - Inbound sends fail.
-- The result is stored, and the control block owns any worker-arena lifetime
-  needed to materialize the one parent-visible result retrieval.
+- The result is copied into the block arena and stored (a worker error's message
+  and `ErrorLoc` are copied the same way), so it outlives the worker.
 - `thread::isRunning` returns `FALSE`.
 - `thread::waitFor` returns or propagates the stored result and closes the
   parent `Thread` handle.
 - Remaining outbound messages stay readable until drained.
 
-If a queued value is never received, the destination queue/runtime drops or
-closes it exactly once:
+If a queued value is never received, it is dropped exactly once when the control
+block is freed: the release runs each queue's recorded drop function on every
+message still in its ring and on its last read's, before the block arena is
+destroyed. A resource's drop closes a record that is still open, so a transfer
+nobody accepted does not leak its OS handle. Until then — including after the handle
+side drops a running thread — the messages stay owned by their queues.
+[[src/codegen/runtime/thread/control_block.rs:lower_thread_block_release]]
 
-- Unreceived inbound messages are cleaned up by the worker-side runtime when the
-  worker exits or the thread is torn down.
-- Unreceived outbound messages are cleaned up when the parent drains them,
-  waits and lets lexical cleanup drop the completed `Thread`, or drops/detaches
-  the thread handle according to the source-level `Thread` lifetime rules.
-- Dropping a running `Thread` requests cancellation and detaches the worker; any
-  remaining queued values are still owned by their destination queues until the
-  responsible runtime cleanup path runs.
-- The worker arena may be reclaimed only after the worker result has been
-  transferred out of that arena or the result has otherwise been retrieved, and
-  every worker-to-parent message has either been transferred into outbound queue
-  storage or dropped by cleanup.
+A worker's own arena is not unmapped when the worker finishes; nothing the parent
+can read points into it, because the result and every message are block-arena
+copies.
 
 ## See Also
 

@@ -134,7 +134,7 @@ A thread started with `thread::start` is seeded from the *spawning* thread's
 generator. The parent draws one 64-bit value with `_mfb_rng_next` (advancing the
 parent's own stream) and uses it as the child's seed via `_mfb_rng_seed_at`. The
 draw runs in the parent, where `x19` is the parent arena, so it is race-free; the
-child arena pointer is reloaded from the thread control block afterward (the draw
+child arena pointer is reloaded from the start helper's frame afterward (the draw
 clobbers `x0`–`x18`). [[src/codegen/error/constants/error_constants.rs:RNG_NEXT_SYMBOL]]
 
 ```text

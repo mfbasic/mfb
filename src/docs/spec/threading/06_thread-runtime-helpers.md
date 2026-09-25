@@ -26,6 +26,15 @@ _mfb_rt_thread_thread_readResource     ; resource plane, parent reads outbound
 _mfb_rt_thread_trampoline              ; pthread start routine
 ```
 
+They share six internal helpers, emitted with the trampoline:
+`_mfb_rt_thread_table_acquire`/`_release` (the thread table's slots),
+`_mfb_rt_thread_block_arena_create`/`_destroy`, `_mfb_rt_thread_block_release` (free
+a control block whose release count reached zero) and `_mfb_rt_thread_finish` (the
+worker's exit). The per-type copy and drop functions the helpers call are
+`_mfb_rt_thread_copy_value_<type>` / `_mfb_rt_thread_drop_value_<type>` (see
+`control-block` § The block arena).
+[[src/codegen/runtime/thread/control_block.rs:THREAD_FINISH_SYMBOL]]
+
 Sleeping is not in this set: it is `_mfb_rt_os_os_sleep`, the body behind
 `os::sleep(ms)`, which serves the main thread and a worker alike (see
 `Sleeping inside a worker` below).
@@ -59,29 +68,35 @@ during IR lowering, then the value builder applies the worker-direction split to
 
 ## `thread::start`
 
-`thread::start` allocates and initializes the control block (see `control-block`),
-storing:
+`thread::start` takes the entry, the seed, the two queue limits, and two per-type
+copy functions (the seed type's and the entry's result type's, 0 for a word-sized
+value). It allocates the control block from the heap, zeroes it, and builds it
+(see `control-block`):
 
-- The worker function pointer (a closure: code + env).
-- The input value, copied into the worker arena as a thread-boundary value.
-- A freshly allocated worker runtime arena state (zero-initialized, with RNG seed
-  drawn from the parent stream). The block is sized `ENTRY_GLOBALS_OFFSET +
-  (globals + LINK + term:: state slots) * 8` — the same slot count the entry frame
-  reserves — because the writable globals region is addressed off the arena-state
-  register and is therefore **per-arena**. Sizing it to `ARENA_STATE_SIZE` alone
-  put every global access in a worker past the end of the block (bug-369).
-- The parent's arena state (recorded for the control-block layout; since bug-498
-  no transfer allocates into another thread's arena).
-- Four bounded queues: data inbound/outbound and resource inbound/outbound. The
-  inbound queues take the `inboundLimit`; the outbound queues take the
-  `outboundLimit`.
-- Initial result, cancellation, and OS-handle slots (zeroed).
-- An owner count of 1 — the binding the handle is returned to (bug-622; see
-  `control-block` § Lifetime).
+- An owner count of 1 — the binding the handle is returned to — and a release
+  count of 2 (`control-block` § Lifetime).
+- The worker function pointer (a closure: code + env), and the result type's copy
+  function, which the worker's exit runs.
+- A slot in the thread table, then the block arena.
+- The block lock and the eight queue condition variables, initialized.
+- The seed, deep-copied into the block arena (a word-sized seed is stored as is).
+  The caller's value stays the caller's.
+- Four bounded queues: data inbound/outbound and resource inbound/outbound, each
+  ring carved from the block arena. The inbound queues take the `inboundLimit`; the
+  outbound queues take the `outboundLimit`.
+- A freshly allocated worker arena state from the heap (zero-initialized, the
+  parent's Money rounding mode, an RNG seed drawn from the parent stream, a
+  distinct entropy-fill seed). It is sized `ENTRY_GLOBALS_OFFSET + (globals + LINK
+  + term:: state slots) * 8` — the same slot count the entry frame reserves —
+  because the writable globals region is addressed off the arena-state register
+  and is therefore **per-arena**.
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
-block pointer as the pthread argument (see `os-integration`). A `pthread_create`
-failure is reported as `ErrInterrupted`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+block pointer as the pthread argument (see `os-integration`). Any failure after
+the table slot is taken frees everything built so far through
+`_mfb_rt_thread_block_release`; an allocation failure is `ErrOutOfMemory`, a
+`pthread_*_init` or `pthread_create` failure `ErrInterrupted`, a limit below 1
+`ErrInvalidArgument`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## Sleeping inside a worker
 
@@ -99,8 +114,8 @@ immediate no-op), so a zero sleep never reads the arena.
 
 The worker branch computes an *absolute* deadline (`emit_thread_deadline`) and
 waits on the worker's inbound-queue not-empty condition variable — the same one
-`thread::cancel` broadcasts — under the inbound queue mutex. Each wake re-checks
-the cancel flag (`THREAD_OFFSET_CANCELLED`): if set, it unlocks and returns
+`thread::cancel` broadcasts — with the block lock. Each wake re-checks the cancel
+flag (`CONTROL_OFFSET_CANCELLED`): if set, it unlocks and returns
 `ErrInterrupted` (77050009); otherwise `pthread_cond_timedwait` returning
 `ETIMEDOUT` means the deadline elapsed and the sleep is done. Because the deadline
 is absolute, a spurious wake (a parent `send` broadcasting not-empty) re-enters the
@@ -135,15 +150,19 @@ x1 = input value
 ```
 
 - Captures the returned `Result OF Out` — tag, value, error message, and error
-  source `ErrorLoc` pointer.
-- Closes the inbound and resource queues (broadcasting their waiters), then, under
-  the outbound queue lock, stores the result into the control block and marks the
-  thread `complete` (unless the parent already dropped the handle, in which case
-  the result is discarded). It returns `NULL` to pthread. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+  source `ErrorLoc` pointer — and hands it to `_mfb_rt_thread_finish`, then
+  returns `NULL` to pthread. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
-If the stored result references worker-arena storage, the worker arena remains
-owned by the control block until the result is materialized for the parent or the
-completed thread is released.
+`_mfb_rt_thread_finish` does, under the block lock: unless the parent already
+closed the handle (then the result is discarded), deep-copy the result into the
+block arena — a success value through the result type's copy function, a failure's
+message (`String`) and origin (`ErrorLoc`) through their fixed copy functions; a
+copy that runs out of memory replaces the result with a plain `ErrOutOfMemory` —
+store it and mark the thread `COMPLETED`; close the inbound and both resource
+queues and wake every waiter of all four; and give up the worker's reference. If
+that was the last reference (the handle side let go of a running thread), the
+worker frees the control block itself.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 ## See Also
 

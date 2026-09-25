@@ -295,11 +295,11 @@ re-enters as a no-op), restores the terminal if TUI mode was active, and then
 calls `arena_destroy` on the main arena — except in a program that can still have a
 live worker (one embedding any `thread.` runtime call), where the free is skipped
 on every platform and the OS reclaims the blocks at process exit instead
-(`./mfb spec threading os-integration`). A worker arena is reclaimed the same way
-when its package instance ends; the thread control block must not retain any bare
-handle into a worker arena past the point that arena becomes eligible for
-reclamation, so cross-thread values are first re-materialized in the receiver's
-arena (see `./mfb spec threading isolation`).
+(`./mfb spec threading os-integration`). A worker arena's chunks are not unmapped
+when its worker finishes; its arena-state block (a heap block) is freed with the
+thread's control block. Nothing another thread reads points into a worker arena:
+every value that crosses is copied into the control block's own block arena and
+from there into the receiver's arena (`./mfb spec threading control-block`).
 
 ## Scope-Drop Frees
 

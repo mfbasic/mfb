@@ -335,7 +335,7 @@ arena's live bytes return to 0 on every target the Linux/macOS runners reach.
   Check: `cargo test --test rt_thread_block_arena` → pass on macos-aarch64
   locally and linux-aarch64 on box 2223 (est. 5 min; Linux aarch64 is the
   second arena ABI, and x86_64 is covered by the final gate).
-Commit: —
+Commit: 1745376a7 (with Phase 2's wiring — Correction 7), af005746b
 
 ### Phase 2 — the table and the control block
 
@@ -386,7 +386,7 @@ passes.
   → 0 failures (est. 4 min), plus
   `cargo test --test rt_scope_drop_leaks --test rt_thread_table_growth` → pass
   (est. 3 min).
-Commit: —
+Commit: eee0801a0, 1745376a7
 
 ### Phase 3 — queues under the block lock (largest blast radius last)
 
@@ -407,17 +407,44 @@ Commit: —
       (`emit_close_resource_queues`, the Cancel arm) at the block condvars.
       (`emit_close_queue_locked` / `emit_close_resource_queues_locked` run
       under the block lock; same 50-fixture run.)
-- [ ] Benchmark: `benchmark/` thread rows (list them in Corrections when
+- [x] Benchmark: `benchmark/` thread rows (list them in Corrections when
       run) before and after on macos-aarch64. Throughput within 10%.
-- [ ] Update `src/docs/spec/threading/07_control-block.md` and
+      (Correction 10. Interleaved medians, pre-plan compiler vs this one:
+      `thread sum` 47,661 → 48,245 µs (+1.2%); String round trip, 200,000
+      messages each way 2,025 → 2,186 ms (+7.9%); Integer one-way stream,
+      1,000,000 messages 363 → 185 ms (−49%).)
+- [x] Update `src/docs/spec/threading/07_control-block.md` and
       `08_queue-semantics.md` to the new layout and locking. Cite the new
       symbols with `[[path:Symbol]]` (`.ai/specifications.md`).
+      (Also `06_thread-runtime-helpers`, `09_os-integration`,
+      `11_error-propagation`, `memory/04_arenas`, `stdlib/07_math-rng`,
+      `tooling/09_debug-report`. `scripts/spec-census.sh --citations
+      threading tooling memory stdlib` → MISS-SYMBOL 0; `--links` → 0
+      unresolved; `--render` → 0 leaks; `cargo test --bin mfb spec` → 44
+      passed.)
+- [x] (Added) Close a resource transferred but never accepted. The release
+      frees it with its queue (bug-650's walk did too) but never closed its OS
+      handle — the pre-plan compiler leaked one descriptor per unaccepted
+      transfer (`lsof` on a paused probe: 35 open after 35 transfers). Each
+      queue records its message type's drop function at enqueue; the release
+      runs it on every undelivered and last-read message; a resource's drop
+      closes a still-open record. `rt_thread_block_arena`
+      `an_unaccepted_transfer_is_closed_when_the_thread_is_freed` (200
+      transfers under `ulimit -n 64`) → ok.
+- [x] (Added) Free the sender's record after a transfer of an inline-`TRAP`
+      bound resource. The `TRAP` desugar binds the name as an alias of its
+      owning temporary, so the transfer retired no cleanup and the owner's
+      drop skipped the moved record: 96 B per transfer in the parent (the
+      `network-server --thread` proof grew 96 B per connection, pre-plan
+      compiler identical). `deactivate_moved_resource_arguments` now retires
+      the alias's owner. `rt_thread_block_arena`
+      `a_trapped_bind_transfer_frees_the_senders_record` → ok.
 
 Acceptance: the timeout, cancel and interrupt fixtures pass; the benchmark is
 within 10%.
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**'`
   → 0 failures (est. 4 min); `cargo test --bin mfb spec` → pass (est. 2 min).
-Commit: —
+Commit: eee0801a0, 1745376a7, af005746b, and the spec-pass commit that follows
 
 ## Validation Plan
 
@@ -429,13 +456,18 @@ Commit: —
   `mfb spec tooling debug-report`).
 - Runtime proof: `examples/network-server` (threads per connection) serves
   1,000 requests; the `--debug` report's live bytes return to baseline.
+  **Done** (Correction 11): `--tcp --thread` built `--debug` from a `/tmp`
+  copy, driven by a one-off client (1,000 connections: greet, `BYE`, close;
+  SIGTERM for the report). 1,000 greeted/connected/disconnected; main arena
+  `live_bytes` 5,072 at 100 and at 1,000 connections; the `thread_block`
+  arena 2,064 at both.
 - Doc sync: `threading/07_control-block.md`, `08_queue-semantics.md`,
   `tooling/09_debug-report.md` (the new key).
-- Final gate for A (run once): `bash scripts/artifact-gate.sh target/release/mfb all`
+- ~~Final gate for A (run once): `bash scripts/artifact-gate.sh target/release/mfb all`
   with `.ncodesum` regenerated only for the expected fixtures (est. 15–20 min
   per `.ai/testing-gates.md`; the helpers are emitted per target, so only a
   full-target build catches an ABI slip). The full `cargo test` runs once, at
-  the end of F.
+  the end of F.~~ Replaced by the thread tests only (Correction 13).
 
 ## Open Decisions
 
@@ -507,6 +539,40 @@ Commit: —
    handed over uncopied, bug-655). The bug-655/658 seed-size and
    failed-start seed-free machinery is gone: the caller's value is the
    caller's, freed by its own binding or statement scope.
+
+10. **The benchmark has one thread row, and it measures no messages.**
+    `benchmark/mfb/src/main.mfb` `test_thread_sum` (four compute-bound
+    workers, start + `waitFor`) is the only thread row, so the throughput
+    check also timed a one-off message probe in `/tmp` (a `String` round
+    trip and an `Integer` stream), both compilers built from the same
+    source, runs interleaved to cancel machine drift. An earlier
+    non-interleaved run that overlapped a release build showed +71% on the
+    round trip; it was the load, not the code.
+11. **The `network-server` proof** runs `--tcp --thread` (one worker serves
+    every connection; each socket crosses the resource plane), the example's
+    only threaded mode. The worker arena grows by design (its lists keep every
+    retired connection); the plan's baseline claim is about the parent's arena
+    and the block arena, both flat.
+12. **Phase 1's linux-aarch64 row ran on box 2226, not 2223.** 2223 refused
+    connections (`ssh -p 2223` → "Connection refused"); 2226 is also aarch64
+    glibc. Rather than build cargo there, the three test programs were
+    cross-built locally (`mfb build --debug --target linux-aarch64`), run on
+    2226, and the test's assertions applied to the fetched reports: shapes
+    printed `138890` (the expected total), 512 `thread_block` arenas all
+    `unmaps == maps` and `unmapped_bytes == mapped_bytes`; messages `180000
+    200000`, block-arena peak 240 B; growth `table_capacity 256`, `table_high
+    200`, `table_live 0`. A scoped check that fails on the same mistakes as
+    the cargo run.
+13. **Final gate: the thread tests only** (user instruction, 2026-09-24: "Do
+    not run the full suite as a final gate, only run the thread tests. If main
+    changes and there are not code overlap do not run the full suite, only run
+    the thread tests."). The `.ncodesum` goldens that link the thread runtime
+    were found by listing every fixture that carries one and grepping its
+    sources for `thread` (`find tests -name '*.ncodesum'` → 34 fixture dirs, 2
+    use threads: `byte-identity/thread`, `byte-identity/resource-xfer-slots`),
+    and regenerated for all five targets from the release compiler; the
+    per-target ABI is additionally exercised by running the three
+    `rt_thread_*` programs on linux-aarch64 (2226) and windows-x86_64 (2230).
 
 ## Summary
 
