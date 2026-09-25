@@ -35,7 +35,7 @@ See plan-156-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-156-D complete | `ls planning/plan-156-D-*` → no match | NOT MET |
+| plan-156-D complete | `ls planning/plan-156-D-*` → no match | MET (2026-09-25: "no matches found"; archived) |
 
 ## 1. Goal
 

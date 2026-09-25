@@ -227,7 +227,7 @@ Acceptance: all Phase 1 tests pass.
   wind,browser/app}` build. `cargo test errorcode` not run: the error table did
   not change (the runtime error is moot). `cargo test --bin mfb verify` → 492
   passed, `… diagnostics` → 6 passed.
-Commit: —
+Commit: f9895926e
 
 ## Validation Plan
 
