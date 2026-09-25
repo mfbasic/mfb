@@ -104,20 +104,40 @@ closed by their owning scope. Reuse the §15.6 tests' shapes for threads.
 
 ### Phase 1 — failing tests
 
-- [ ] `tests/rt-behavior/threads/thread-pool-list/` (8 workers in a
+- [x] `tests/rt-behavior/threads/thread-pool-list/` (8 workers in a
       `List OF RES Thread`), `thread-transfer-parent-view/` (a coordinator
       thread waits a transferred view), and `bug692-record-thread-copy/`
       (expects the compile error).
-- [ ] `tests/syntax/threads/thread_transfer_self_invalid/` and
+      (Pool: expected `workers 8 total 204`; today
+      `TYPE_COLLECTION_OWNERSHIP_VIOLATION` at the `List OF RES Thread`.
+      Transfer: expected `coordinator answered 50`; today four
+      `TYPE_THREAD_NOT_SENDABLE`. bug-692 split per Correction 1: the runtime
+      fixture spells the field `RES` and expects the copy to alias one open
+      thread — `5`, `5` — and today fails in codegen ("native runtime call
+      'thread.waitFor' has no return type"); the bare-field reproduction is
+      `tests/syntax/threads/bug692_record_thread_field_invalid/`, which today
+      builds and runs, and must answer `TYPE_RESOURCE_REQUIRES_RES`. Goldens are
+      the hand-written `build.log` and `.run`; `.ast`/`.ir` are recorded once
+      each program compiles.)
+- [x] `tests/syntax/threads/thread_transfer_self_invalid/` and
       `thread_worker_transfer_invalid/` for the two rule codes.
-- [ ] `tests/rt-error/threads/thread-transfer-to-own-worker-alias-rt/`:
-      expects `ErrThreadTransferToSelf`.
+      (Worker: today three `TYPE_THREAD_NOT_SENDABLE` (the channel type at
+      lines 11 and 16, the transfer at 17); expected
+      `TYPE_THREAD_WORKER_NOT_TRANSFERABLE`. Self: Correction 2 — `transfer(t, t)`
+      is `TYPE_CALL_ARGUMENT_MISMATCH` today and stays so; the fixture guards
+      that.)
+- [x] ~~`tests/rt-error/threads/thread-transfer-to-own-worker-alias-rt/`:
+      expects `ErrThreadTransferToSelf`.~~ — moot: no program can transfer a
+      thread's view to that thread (Correction 2), so there is nothing for the
+      fixture to run.
 
 Acceptance: all fail for the documented reason (today's rejections or
 successes).
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/threads/thread-pool-list' 'rt-behavior/threads/thread-transfer-parent-view' 'rt-behavior/threads/bug692-*' 'rt-error/threads/thread-transfer-to-own-*'`
   → 4 failures; the syntax fixtures are compared by hand (sync-goldens skips
   `syntax/**`) (est. 2 min).
+  Result: "acceptance tests failed: 5 mismatch(es) (3 test(s) ran)" — the three
+  runtime fixtures (the rt-error one is moot), each for the reason above.
 Commit: —
 
 ### Phase 2 — storage and bug-692
@@ -161,6 +181,33 @@ Commit: —
 - Final gate: at the end of F.
 
 ## Corrections
+
+1. **A record with a `RES` field is copyable; the copy aliases.** §3 calls
+   non-copyability "the existing §15.6 rule", and the checkable outcome wants
+   bug-692's copy to be a compile error. §15.6 says the reverse
+   (`15_resource-management.md`: "copying the record copies the pointer and
+   aliases the same resource, it does not duplicate it"), and a record with a
+   `RES fs::File` field copies today (`LET copy AS H = h` builds). So a thread
+   follows §15.6 like every other resource: a bare `Thread` field is
+   `TYPE_RESOURCE_REQUIRES_RES` (the bug's reproduction, now a syntax fixture),
+   and a `RES` field's record copies as an alias of one open thread, closed once
+   by its owning scope. bug-692's hazard — two values each closing the thread,
+   the second `waitFor` failing — is gone either way: the field is a pointer,
+   and `waitFor` is repeatable (plan-156-C).
+
+2. **A thread can never be transferred to itself; `2-203-0140` and
+   `7-703-0011` are moot.** `thread::transfer(dest, v)` requires `v` to have
+   `dest`'s resource-channel type, and `dest`'s type contains that type, so `v`
+   being a view of `dest`'s own thread needs an infinite type. A union variant
+   is a nominal, so no union closes the loop, and a generic instantiates to the
+   same infinite type; routing through a third thread only moves the equation.
+   Measured: `thread::transfer(t, t)` is `TYPE_CALL_ARGUMENT_MISMATCH` ("has
+   argument type(s) (Thread OF RES Thread OF Integer TO Integer TO Integer, …),
+   expected … Res"). A rule and a runtime check for a case no program can
+   express would be dead code, so neither is added;
+   `thread_transfer_self_invalid` pins the existing rejection.
+   `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` stays: a `ThreadWorker` channel type is
+   spellable.
 
 ## Summary
 

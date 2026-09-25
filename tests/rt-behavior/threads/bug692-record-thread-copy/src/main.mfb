@@ -1,0 +1,24 @@
+IMPORT io
+IMPORT thread
+
+' bug-692: a record held a Thread in a plain field, and copying the record gave
+' two values one thread; the second waitFor failed. A thread field is now a RES
+' field (spec 15.6): it holds a copy of the one handle pointer. Copying the
+' record copies the pointer, so both records name the same open thread, and it
+' is closed once, by the scope that owns it.
+
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+TYPE H
+  t AS RES Thread OF Integer TO Integer
+END TYPE
+
+FUNC main AS Integer
+  LET h AS H = H[t := thread::start(work, 5)]
+  LET copy AS H = h
+  io::print(toString(thread::waitFor(h.t)))
+  io::print(toString(thread::waitFor(copy.t)))
+  RETURN 0
+END FUNC

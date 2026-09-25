@@ -1,0 +1,21 @@
+IMPORT io
+IMPORT thread
+
+' bug-692: a Thread in a plain record field. A thread is a resource, so the
+' field must be marked RES, exactly like a file field.
+
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+TYPE H
+  t AS Thread OF Integer TO Integer
+END TYPE
+
+FUNC main AS Integer
+  LET h AS H = H[t := thread::start(work, 5)]
+  LET copy AS H = h
+  io::print(toString(thread::waitFor(h.t)))
+  io::print(toString(thread::waitFor(copy.t)))
+  RETURN 0
+END FUNC

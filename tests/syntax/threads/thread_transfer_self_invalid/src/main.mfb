@@ -1,0 +1,16 @@
+IMPORT thread
+
+' A thread cannot be handed its own Thread: the value transferred must have the
+' thread's resource-channel type, and a Thread's type contains that type, so no
+' thread's resource channel can carry the thread itself. The call is an argument
+' mismatch.
+
+ISOLATED FUNC boss(worker AS ThreadWorker OF Nothing RES (Thread OF Integer TO Integer) TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Nothing RES (Thread OF Integer TO Integer) TO Integer = thread::start(boss, 1)
+  thread::transfer(t, t)
+  RETURN 0
+END FUNC

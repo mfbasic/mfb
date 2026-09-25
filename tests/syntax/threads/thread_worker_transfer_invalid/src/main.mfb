@@ -1,0 +1,24 @@
+IMPORT thread
+
+' A ThreadWorker belongs to the worker it was handed to for that worker's whole
+' run, so it can never travel on a resource channel: neither as a channel's type
+' nor as the value transferred.
+
+ISOLATED FUNC inner(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+ISOLATED FUNC takesWorkers(worker AS ThreadWorker OF Nothing RES (ThreadWorker OF Integer TO Integer) TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+ISOLATED FUNC handsItselfOver(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RES other AS Thread OF Nothing RES (ThreadWorker OF Integer TO Integer) TO Integer = thread::start(takesWorkers, n)
+  thread::transfer(other, worker)
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Integer TO Integer = thread::start(handsItselfOver, 1)
+  RETURN thread::waitFor(t) - 1
+END FUNC

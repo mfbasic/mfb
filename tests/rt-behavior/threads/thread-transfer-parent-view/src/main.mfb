@@ -1,0 +1,23 @@
+IMPORT io
+IMPORT thread
+
+' A parent Thread view is a sendable resource: main starts a job, hands the job's
+' view to a coordinator thread on the coordinator's resource channel, and the
+' coordinator waits for the job there. The job belongs to whoever holds its view.
+
+ISOLATED FUNC square(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n * n
+END FUNC
+
+ISOLATED FUNC coordinator(worker AS ThreadWorker OF Nothing RES (Thread OF Integer TO Integer) TO Integer, extra AS Integer) AS Integer
+  RES job AS Thread OF Integer TO Integer = thread::accept(worker)
+  RETURN thread::waitFor(job) + extra
+END FUNC
+
+FUNC main AS Integer
+  RES job AS Thread OF Integer TO Integer = thread::start(square, 7)
+  RES boss AS Thread OF Nothing RES (Thread OF Integer TO Integer) TO Integer = thread::start(coordinator, 1)
+  thread::transfer(boss, job)
+  io::print("coordinator answered " & toString(thread::waitFor(boss)))
+  RETURN 0
+END FUNC
