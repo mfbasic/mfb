@@ -161,6 +161,7 @@ LITERALS = {
     "canvas::Line": "canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 1.0, y2 := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Arc": "canvas::Arc[x := 1.0, y := 1.0, radius := 2.0, startAngle := 0.0, endAngle := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Polygon": "canvas::Polygon[points := [canvas::Point[0.0, 0.0]], paint := canvas::fill(color::fromName(\"red\"))]",
+    "canvas::FrameStats": "canvas::FrameStats[dt := 0.0, pps := 0.0, fps := 0.0, displayHz := 60.0, frameSeconds := 0.0, presents := 0, frames := 0, renderer := canvas::Renderer.Software]",
     "KFix": "KFix[p := 1, q := 2.5]",
     "KVar": 'KVar[s := "v"]',
 }
