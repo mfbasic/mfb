@@ -610,7 +610,7 @@ fn is_res_marked_resource_collection(type_: &crate::types::ParameterType) -> boo
 
 /// Collection-update builtins whose first argument is the collection being
 /// updated and whose remaining arguments may insert resource elements.
-fn is_insertion_builtin(callee: &str) -> bool {
+pub(super) fn is_insertion_builtin(callee: &str) -> bool {
     // The collection ops moved to `collections::` arrive qualified
     // (`collections.append`, ...); map back to the bare op so a freed bare name
     // in user code is never treated as a collection insertion
@@ -629,6 +629,14 @@ fn is_insertion_builtin(callee: &str) -> bool {
 }
 
 fn call_arg_expr(arg: &HirCallArg) -> &HirExpression {
+    match arg {
+        HirCallArg::Positional(expr) => expr,
+        HirCallArg::Named { value, .. } => value,
+    }
+}
+
+/// [`call_arg_expr`], mutably — for `resource_hoist`, which rewrites the element.
+pub(super) fn call_arg_expr_mut(arg: &mut HirCallArg) -> &mut HirExpression {
     match arg {
         HirCallArg::Positional(expr) => expr,
         HirCallArg::Named { value, .. } => value,

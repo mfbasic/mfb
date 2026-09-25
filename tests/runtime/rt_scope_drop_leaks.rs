@@ -6644,6 +6644,62 @@ fn a_return_from_a_while_with_a_condition_temp_frees_every_block() {
     );
 }
 
+// ------------------------------------------------- bug-695: unbound resource temporaries
+
+/// bug-695: a resource produced straight into a container — never bound `RES` — is
+/// owned like a named binding in that position (spec 15.6) and closed once. Before the
+/// fix none of these was ever closed: each iteration leaked the record (and the open
+/// descriptor, or the running worker). Growth 0 between 50 and 100 iterations means
+/// every one of them was dropped, since the record is freed only after its close.
+#[cfg(unix)]
+#[test]
+fn a_resource_temporary_in_a_container_is_closed() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let file_shapes = [
+        (
+            "b695_list_append",
+            "    MUT pool AS List OF RES fs::File = []\n    pool = collections::append(pool, fs::openFile(\"{P}\"))\n    total = total + len(pool)\n",
+        ),
+        (
+            "b695_list_literal",
+            "    LET pool AS List OF RES fs::File = [fs::openFile(\"{P}\"), fs::openFile(\"{P}\")]\n    total = total + len(pool) - 1\n",
+        ),
+        (
+            "b695_record_literal",
+            "    LET h AS H = H[f := fs::openFile(\"{P}\")]\n    total = total + 1\n",
+        ),
+    ];
+    for (name, body) in file_shapes {
+        let body = body.replace("{P}", path);
+        let source = format!(
+            "IMPORT collections\nIMPORT fs\nIMPORT io\nTYPE H\n  f AS RES fs::File\nEND TYPE\n\
+SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+        );
+        let grew = thread_loop_growth(name, &source, "total=50", "total=100");
+        assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
+    }
+    let thread_shapes = [
+        (
+            "b695_thread_pool",
+            "    MUT pool AS List OF RES Thread OF Integer TO Integer = []\n    pool = collections::append(pool, thread::start(work, 1))\n    total = total + len(pool)\n",
+        ),
+        (
+            "b695_thread_record",
+            "    LET h AS T = T[t := thread::start(work, 1)]\n    total = total + thread::waitFor(h.t)\n",
+        ),
+    ];
+    for (name, body) in thread_shapes {
+        let source = format!(
+            "IMPORT collections\nIMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
+TYPE T\n  t AS RES Thread OF Integer TO Integer\nEND TYPE\n\
+SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+        );
+        let grew = thread_loop_growth(name, &source, "total=50", "total=100");
+        assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
+    }
+}
+
 // ------------------------------------------------- bug-622: thread start + waitFor
 
 /// bug-622: a `thread::start` + `thread::waitFor` loop, measured on the `--debug` report's

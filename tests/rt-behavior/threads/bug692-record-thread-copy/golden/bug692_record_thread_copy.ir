@@ -42,7 +42,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 19, "mutable": false, "name": "h", "type": "H", "value": { "kind": "constructor", "type": "H", "args": [{ "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "work", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$res_tmp0", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "work", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "h", "type": "H", "value": { "kind": "constructor", "type": "H", "args": [{ "kind": "local", "name": "$res_tmp0" }] } },
     { "op": "bind", "line": 20, "mutable": false, "name": "copy", "type": "H", "value": { "kind": "local", "name": "h" } },
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "memberAccess", "type": "Thread OF Integer TO Integer", "target": { "kind": "local", "name": "h" }, "member": "t" }] }] }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "memberAccess", "type": "Thread OF Integer TO Integer", "target": { "kind": "local", "name": "copy" }, "member": "t" }] }] }] } },

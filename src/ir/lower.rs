@@ -379,6 +379,11 @@ impl LowerContext<'_> {
             .call_is_fallible(target, arg_types, self.type_index())
     }
 
+    /// bug-695: whether `type_` names a `RESOURCE` this project declares.
+    pub(super) fn is_declared_resource(&self, type_: &ParameterType) -> bool {
+        self.type_index.resources.contains(type_)
+    }
+
     /// The declared-kind oracle (plan-140-A) this context reads, for the built-in
     /// censuses that answer per overload. bug-679 needs it in `ir::fallible`, where
     /// `toInt(<enum>)`'s infallibility cannot be seen from the `ParameterType`.
@@ -650,6 +655,10 @@ pub(super) fn function_return_type(function: &HirFunction) -> ParameterType {
 }
 
 fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrFunction {
+    // bug-695: name every resource produced straight into a container, before the
+    // escape analysis below and the body lowering both read the function.
+    let hoisted = super::resource_hoist::hoist_resource_temporaries(function, context);
+    let function = &hoisted;
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
@@ -3055,7 +3064,7 @@ fn attributed_string_type() -> ParameterType {
     ParameterType::named("AttributedString")
 }
 
-fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
+pub(super) fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
     let name = format!("${prefix}{}", context.next_temp_id);
     context.next_temp_id += 1;
     name
@@ -5896,6 +5905,8 @@ struct TypeIndex {
     variants: HashMap<ParameterType, ParameterType>,
     variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
     variant_fields: HashMap<ParameterType, Vec<IrField>>,
+    /// The `RESOURCE` types this project declares (bug-695's hoist asks).
+    resources: std::collections::HashSet<ParameterType>,
 }
 
 /// plan-140-B: the built-in resolver's enum oracle over the declared and
@@ -6042,12 +6053,22 @@ impl TypeIndex {
                 }
             }
         }
+        let resources = hir
+            .files
+            .iter()
+            .flat_map(|file| &file.items)
+            .filter_map(|item| match item {
+                HirItem::Resource(resource) => Some(ParameterType::declared(&resource.name)),
+                _ => None,
+            })
+            .collect();
         Self {
             records,
             enums,
             variants,
             variant_unions,
             variant_fields,
+            resources,
         }
     }
 

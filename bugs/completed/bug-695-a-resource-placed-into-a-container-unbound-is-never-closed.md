@@ -5,8 +5,29 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness (resource leak: OS handles, and for a `Thread` a worker never cancelled)
 
-Status: Open
-Regression Test: none yet
+Status: Fixed
+Regression Test: tests/runtime/rt_scope_drop_leaks.rs
+(`a_resource_temporary_in_a_container_is_closed`)
+
+## STATUS: FIXED (see the commit that archives this document)
+
+A new IR-lowering pass, `ir/resource_hoist.rs`, names each such temporary before
+the escape analysis runs: a producer call in an element position whose type is a
+resource becomes `RES $res_tmpN AS T = <call>` just before its statement, and the
+element becomes `$res_tmpN`, so it floats exactly like a named binding. The pass
+never reorders evaluation (it stops hoisting at the first earlier expression with
+an effect it did not hoist) and leaves anything it cannot type in place.
+
+Verified: the reproduction prints `opened 200` under `ulimit -n 64`; the record
+form likewise, with the `--debug` report flat; `H[t := thread::start(work, 5)]`
+ends with `thread.table_live 0`. The regression test fails without the pass
+(`b695_list_append: main-arena live_bytes grew 4800 B`) and passes with it. An
+IR sweep over all 958 fixtures with `.ir` goldens changed exactly two, both
+this shape (`syntax/resources/ownership-collection-resource-valid`,
+`rt-behavior/threads/bug692-record-thread-copy`); `artifact-gate all` → 0 diffs.
+Probed for the double-close direction: a returned list literal of temporaries, a
+returned record, a map value, and a non-resource call ahead of a producer (not
+hoisted, order preserved) — every run with `double_free_skips 0`.
 
 Spec §15.6 (`15_resource-management.md`): "A resource element placed into a
 collection may be any pointer to the resource — a named `RES` binding or a

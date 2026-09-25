@@ -60,6 +60,7 @@ mod variant_corpus_tests;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
+mod resource_hoist;
 pub(crate) mod shape;
 #[cfg(test)]
 mod test_support;
