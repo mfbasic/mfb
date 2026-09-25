@@ -1306,6 +1306,19 @@ pub(crate) fn lower_function(
         // per-function costs, and separating it from allocation is what says
         // whether a slow function is slow to *lower* or slow to *color*.
         let _span = crate::trace::span("emit ops");
+        // plan-156-E: a parameter that declares a thread view's STATE default-builds it
+        // when the view has none yet — the worker entry's own view arrives without one
+        // (the runtime builds the view, not its STATE); a view that already carries
+        // STATE is left alone. The same lazy init a `RES … STATE` binding runs.
+        for param in &function.params {
+            if let ParameterType::Stateful { base, state } = &param.type_ {
+                if matches!(**base, ParameterType::ThreadHandle { .. }) {
+                    if let Some(slot) = builder.locals.get(&param.name).map(|l| l.stack_offset) {
+                        builder.emit_resource_state_init(slot, state, &param.type_)?;
+                    }
+                }
+            }
+        }
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
             builder.emit_return_exit(None, None)?;

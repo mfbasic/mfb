@@ -134,7 +134,9 @@ templateType
                | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
                | (ident | qualifiedIdent) "OF" type { "," type } ;
-threadBody     = [ type ] [ "RES" type ] "TO" type ;  (* message defaults to Nothing *)
+threadBody     = [ type ] [ "RES" type ] "TO" type [ "STATE" type ] ;
+               (* message defaults to Nothing; a trailing STATE is the view's own,
+                  never the output's (§15) *)
 funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
 
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;

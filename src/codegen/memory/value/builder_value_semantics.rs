@@ -1588,7 +1588,9 @@ impl CodeBuilder<'_> {
             // Integer` — the two types in that message being different is the
             // whole clue.
             "thread.start" => match self.static_type_name(args.first()?)? {
-                ParameterType::Func(params, _, true) => match params.first()? {
+                // plan-156-E: the worker's view STATE is its own; the parent's handle
+                // is built from the channels alone.
+                ParameterType::Func(params, _, true) => match &params.first()?.without_state() {
                     ParameterType::ThreadHandle { msg, res, out, .. } => {
                         Some(ParameterType::thread_handle(
                             false,
@@ -1637,14 +1639,16 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// The static type of a thread op's handle argument, `RES` marker stripped: a view
-    /// read out of a `RES` record field or collection element is typed `RES Thread OF
-    /// …` (plan-156-D), and every thread op answers by the `ThreadHandle` inside.
+    /// The static type of a thread op's handle argument, `RES` marker and view `STATE`
+    /// stripped: a view read out of a `RES` record field or collection element is typed
+    /// `RES Thread OF …` (plan-156-D), a view may carry its own STATE (plan-156-E), and
+    /// every thread op answers by the `ThreadHandle` inside.
     fn thread_handle_arg_type(&self, args: &[NirValue]) -> Option<ParameterType> {
-        match self.static_type_name(args.first()?)? {
-            ParameterType::Res(inner) => Some(*inner),
-            other => Some(other),
-        }
+        let type_ = match self.static_type_name(args.first()?)? {
+            ParameterType::Res(inner) => *inner,
+            other => other,
+        };
+        Some(type_.without_state())
     }
 
     pub(crate) fn lower_match_compare(

@@ -463,7 +463,14 @@ impl<'a> FileParser<'a> {
             } else {
                 None
             };
-            let state_type = if resource {
+            // plan-156-E: a thread view is a resource, so its parameter may carry the
+            // view's STATE with or without the `RES` keyword — a resource parameter
+            // needs no `RES` — and the thread types are the ones the parser can tell
+            // apart by their spelling.
+            let thread_view = type_name.as_deref().is_some_and(|name| {
+                name.starts_with("Thread OF ") || name.starts_with("ThreadWorker OF ")
+            });
+            let state_type = if resource || thread_view {
                 self.parse_optional_state()
             } else {
                 None

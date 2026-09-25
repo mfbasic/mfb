@@ -112,20 +112,52 @@ Acceptance: both fail (an internal error and `TYPE_BINDING_MISMATCH`).
   Result: "acceptance tests failed: 4 mismatch(es) (2 test(s) ran)" — both
   `build.log`s, plus bug-693's `.ast`/`.ir`, which exist once it parses and are
   recorded in Phase 2.
-Commit: —
+Commit: 75af2df32
 
 ### Phase 2 — parse, type, store
 
-- [ ] `src/types.rs` and `src/ast/expr.rs`: the §3 parse rule; fix the two
+- [x] `src/types.rs` and `src/ast/expr.rs`: the §3 parse rule; fix the two
       stale doc comments.
-- [ ] `src/ast/items.rs:parse_params`: STATE on resource-typed parameters.
-- [ ] Agreement per §3. The view-record STATE lifecycle is in
+      (`ParameterType::parse`'s thread arm lifts an output's own top-level
+      `Stateful` onto the handle, `Stateful{ThreadHandle, S}`, and `with_state`
+      builds the same, so `t.with_state(s) == parse(t STATE s)` still holds.
+      `ast/expr.rs` needed nothing: `parse_type_name` stops before `STATE`, which
+      the binding / parameter parsers read — Correction 2. Both doc comments
+      fixed. Every structural thread match that could meet a stateful view now
+      strips it: `builtin_resource_close_function`,
+      `is_builtin_sendable_resource_type`, `resource_record_freed_at_drop`, the
+      codegen handle-type helper and `thread.start`'s return type, the native
+      plan's storage class, and the registry's `unify`, where a thread-handle
+      pattern matches a stateful view by its handle — which is also why
+      `thread::start` never compares the two views' STATE.)
+- [x] `src/ast/items.rs:parse_params`: STATE on resource-typed parameters.
+      (A parameter whose type spells `Thread OF …`/`ThreadWorker OF …` reads a
+      `STATE` without `RES` — the thread types being the resource types the
+      parser can tell apart by spelling.)
+- [x] Agreement per §3. The view-record STATE lifecycle is in
       `thread::start`, the trampoline and the drop.
-- [ ] Grammar: `19_grammar.md` `threadBody` gains the STATE clause.
+      (Agreement: the parent's is an ordinary resource's; the worker's is its
+      parameter's; `unify` strips a view's STATE, so `thread::start` compares
+      neither — pinned by `thread_start_does_not_compare_parent_and_worker_state`.
+      Lifecycle — Correction 3: not in `thread::start` or the trampoline, which
+      cannot know the STATE type. The parent's `RES … STATE P` binding runs the
+      existing lazy `emit_resource_state_init`, and its drop frees it through the
+      cleanup's `state_type`; a parameter declaring a thread view's STATE runs
+      the same lazy init at function entry, which is where the worker's view
+      gets its default, and the worker's STATE goes with its arena. `--debug` of
+      `thread-view-state-independent`: `arena.0.live_bytes 0`,
+      `thread.table_live 0`, `double_free_skips 0`.)
+- [x] Grammar: `19_grammar.md` `threadBody` gains the STATE clause.
 
 Acceptance: both Phase 1 fixtures pass; existing STATE tests pass.
   Check: the Phase 1 `test-accept.sh` command → 0 failures (est. 1 min);
   `cargo test --bin mfb state` → pass (est. 2 min).
+  Result: `bug693-worker-state` → `5`; `thread-view-state-independent` →
+  `parent starts at 0` / `parent 7` / `worker 10` / `parent still 7`; with the
+  thread and resource sets → "acceptance tests passed" after recording the two
+  fixtures' `.ast`/`.ir` (220 ran); `cargo test --release --bin mfb -- verify
+  state` → 562 passed; full `cargo test --bin mfb` → 4327 passed; IR sweep over
+  960 fixtures → 0 differ; `artifact-gate all` → 2152 checked, 0 diffs.
 Commit: —
 
 ## Validation Plan
@@ -145,6 +177,23 @@ Commit: —
    fixtures is 0, so nothing relies on the old binding to `out`. The
    independent-state fixture fails at parse, on the worker's `STATE` without
    `RES`, rather than on the binding's type.
+
+2. **`src/ast/expr.rs` needed no change.** `parse_type_name` already stops before
+   a `STATE` keyword; the binding and parameter parsers read the clause
+   themselves and HIR attaches it with `with_state`. So the §3 parse rule lives in
+   `ParameterType::parse` and `with_state` (`src/types.rs`), which is where the
+   clause becomes the handle's.
+
+3. **The STATE lifecycle is the binding's and the parameter's, not
+   `thread::start`'s or the trampoline's.** Neither runtime helper knows the
+   STATE type (one start helper and one trampoline serve every thread), so each
+   would need per-type code. The existing lazy `emit_resource_state_init` does
+   the same job where the type IS known: the parent's `RES … STATE P` binding
+   runs it (as for any stateful resource), and a parameter declaring a thread
+   view's STATE runs it at function entry — the worker entry's view arrives with
+   none. The parent's drop frees its STATE through the cleanup's `state_type`;
+   the worker's STATE is in the worker's arena, which the worker unmaps as it
+   finishes (plan-156-B).
 
 ## Summary
 

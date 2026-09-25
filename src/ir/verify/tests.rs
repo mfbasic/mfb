@@ -8420,6 +8420,20 @@ fn cause_walk_reports_func_and_thread_handle_as_other_not_resource() {
     assert_eq!(cause_for(vec![], "Thread OF String TO Integer"), None);
 }
 
+/// plan-156-E: each view of a thread carries its own STATE, and `thread::start` never
+/// compares the parent's with the worker's — here they are different types, and the
+/// program is clean.
+#[test]
+fn thread_start_does_not_compare_parent_and_worker_state() {
+    let src = "IMPORT thread\n\
+TYPE P\n  n AS Integer\nEND TYPE\n\
+TYPE W\n  label AS String\nEND TYPE\n\
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer\n  worker.state.label = \"w\"\n  RETURN n\nEND FUNC\n\
+FUNC main AS Integer\n  RES t AS Thread OF Integer TO Integer STATE P = thread::start(work, 5)\n  t.state.n = 1\n  RETURN thread::waitFor(t)\nEND FUNC\n";
+    let got = crate::testutil::check_src(src);
+    assert!(got.is_empty(), "the two views' STATE types need not agree: {got:?}");
+}
+
 /// plan-156-D: a parent `Thread` is a sendable resource, so a thread may declare a
 /// resource plane of them — no sendability rule fires.
 #[test]

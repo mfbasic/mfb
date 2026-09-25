@@ -2665,6 +2665,17 @@ fn unify(
     if let ParameterType::Res(inner) = pattern {
         return unify(inner, concrete, bindings, strict);
     }
+    // plan-156-E: a thread view's STATE is the view's own, not part of its channel
+    // types, so a thread-handle pattern matches a stateful view by its handle (and
+    // `thread::start` never compares a parent's STATE with its worker's). A `Var`
+    // still binds the whole type.
+    if let ParameterType::Stateful { base, .. } = concrete {
+        if matches!(**base, ParameterType::ThreadHandle { .. })
+            && !matches!(pattern, ParameterType::Var(_))
+        {
+            return unify(pattern, base, bindings, strict);
+        }
+    }
     if matches!(concrete, ParameterType::Unknown) {
         if let ParameterType::Var(name) = pattern {
             bindings.entry(*name).or_insert(ParameterType::Unknown);

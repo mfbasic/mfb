@@ -68,7 +68,10 @@ impl CodeBuilder<'_> {
     /// control block it names lives on its own reference — so a thread started per loop
     /// iteration does not leak a record per iteration.
     pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
-        if matches!(type_, ParameterType::ThreadHandle { worker: false, .. }) {
+        if matches!(
+            type_.without_state(),
+            ParameterType::ThreadHandle { worker: false, .. }
+        ) {
             return true;
         }
         let base = type_.without_state();

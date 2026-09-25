@@ -1082,10 +1082,11 @@ impl TypeEnv {
     /// recurse (cycle-guarded).
     ///
     /// plan-106-B: the container/FUNC/Result/RES/Thread tests are variant matches.
-    /// The ` STATE ` test stays a name test on purpose — the clause rides INSIDE a
-    /// resource's nominal spelling (`parse` has no `STATE` arm), so there is no
-    /// variant to match. The remaining tests are name lookups into the declaration
-    /// tables.
+    /// The ` STATE ` test stays a name test on purpose: `parse` builds a
+    /// [`Stateful`](ParameterType::Stateful) only for a single-token base or a
+    /// thread handle, and a clause on any other composite still rides inside one
+    /// opaque nominal spelling, where only the name can see it. The remaining tests
+    /// are name lookups into the declaration tables.
     pub(super) fn is_defaultable(
         &self,
         type_: &ParameterType,

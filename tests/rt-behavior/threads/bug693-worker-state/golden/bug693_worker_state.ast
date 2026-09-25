@@ -1,0 +1,54 @@
+{
+  "project": "bug693_worker_state",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "W",
+      "line": 8,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "work",
+      "line": 12,
+      "params": [
+      { "name": "worker", "type": "ThreadWorker OF Integer TO Integer", "resource": true, "state": "W", "default": null, "line": 12 },
+      { "name": "n", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "stateAssignment", "resource": "worker", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "worker" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "3" } }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "work" }, { "kind": "number", "value": "5" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -630,13 +630,26 @@ impl ParameterType {
         // The resource plane defaults to `Nothing` when absent (elided by `name`).
         // A bare opaque `Thread` / `ThreadWorker` (no ` OF ` body) is not a handle
         // and falls through to `Named`.
+        //
+        // plan-156-E: a ` STATE X` after the output is the VIEW's — each view of a
+        // thread is a resource record carrying its own STATE — so when the output
+        // parses to its own top-level `Stateful`, the clause is lifted onto the
+        // handle. (An output is data, and data carries no STATE.)
         if let Some((kind, message, resource, output)) = thread_parts_full(name) {
-            return ParameterType::thread_handle(
+            let (output, state) = ParameterType::parse(output).split_state();
+            let handle = ParameterType::thread_handle(
                 kind == THREAD_WORKER_TYPE,
                 ParameterType::parse(message),
                 resource.map_or(ParameterType::Nothing, ParameterType::parse),
-                ParameterType::parse(output),
+                output,
             );
+            return match state {
+                Some(state) => ParameterType::Stateful {
+                    base: Box::new(handle),
+                    state: Box::new(state),
+                },
+                None => handle,
+            };
         }
         if let Some(elem) = name.strip_prefix("List OF ") {
             return ParameterType::list_of(ParameterType::parse(elem));
@@ -775,11 +788,11 @@ impl ParameterType {
     /// [`parse`](Self::parse) produces for the concatenated spelling
     /// (`"{self} STATE {state}"`) — structurally, with no round trip.
     ///
-    /// `STATE` is **not** a variant. Outside a thread plane `parse` has no arm for
-    /// it, so `File STATE Cursor` falls through to the nominal tail as one opaque
-    /// [`Named`](Self::Named). Inside a container the clause therefore lands on the
-    /// *element*: `parse("List OF File STATE Cursor")` is
-    /// `ListOf(Named("File STATE Cursor"))`, because the container arm strips its
+    /// `parse` builds a [`Stateful`](Self::Stateful) for a leaf whose own spelling
+    /// is a single token (`File STATE Cursor`), and for a thread handle, whose
+    /// trailing clause is its view's (plan-156-E). Inside a container the clause
+    /// lands on the *element*: `parse("List OF File STATE Cursor")` is
+    /// `ListOf(Stateful(File, Cursor))`, because the container arm strips its
     /// prefix and re-parses the whole remainder.
     ///
     /// So the fold below recurses into the **last child each shape renders** — the
@@ -806,16 +819,11 @@ impl ParameterType {
             ParameterType::Func(params, ret, isolated) => {
                 ParameterType::Func(params.clone(), Box::new(ret.with_state(state)), *isolated)
             }
-            ParameterType::ThreadHandle {
-                worker,
-                msg,
-                res,
-                out,
-            } => ParameterType::ThreadHandle {
-                worker: *worker,
-                msg: msg.clone(),
-                res: res.clone(),
-                out: Box::new(out.with_state(state)),
+            // plan-156-E: a thread type's clause is its view's, lifted onto the handle
+            // exactly as `parse` lifts it.
+            ParameterType::ThreadHandle { .. } => ParameterType::Stateful {
+                base: Box::new(self.clone()),
+                state: Box::new(state.clone()),
             },
             // A user generic renders its arguments last, comma-joined; the clause
             // abuts the final one.

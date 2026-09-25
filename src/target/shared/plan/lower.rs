@@ -169,7 +169,9 @@ pub(super) fn storage_for_type(
         ParameterType::Fixed => (StorageClass::Fixed, 8, 8),
         ParameterType::Money => (StorageClass::Money, 8, 8),
         t if t.is_named("Scalar") => (StorageClass::Scalar, 4, 4),
-        _ if is_reference_type(type_) => (StorageClass::Reference, 8, 8),
+        // The base, as for a resource below: a thread view carrying its STATE
+        // (plan-156-E) is still one pointer to its record.
+        _ if is_reference_type(&base_type) => (StorageClass::Reference, 8, 8),
         // A resource (optionally `File STATE T`) is a pointer to its record.
         _ if crate::codegen::builtins::is_resource_type(&base_type) => {
             (StorageClass::Reference, 8, 8)

@@ -104,7 +104,7 @@ pub(crate) fn is_builtin_backed_resource(type_: &ParameterType) -> bool {
 /// for it: the codegen paths that ask that question (layouts, copies, transfers) keep
 /// their own thread arms.
 pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&'static str> {
-    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+    if let ParameterType::ThreadHandle { worker, .. } = type_.without_state() {
         return (!worker).then_some(crate::codegen::builtins::thread::DROP);
     }
     match registry().resolve_type(&type_.without_state().name()) {
@@ -151,7 +151,7 @@ pub(crate) fn builtin_consuming_parameter_index(target: &str) -> Option<usize> {
 /// receiver, and the control block it names belongs to no thread. A `ThreadWorker`
 /// is not a resource the program holds at all.
 pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
-    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+    if let ParameterType::ThreadHandle { worker, .. } = type_.without_state() {
         return !worker;
     }
     match registry().resolve_type(&type_.without_state().name()) {
