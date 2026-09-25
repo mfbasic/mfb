@@ -116,6 +116,64 @@ fn compact_in_place_on_an_entry_list_probes_the_payload_order() {
     }
 }
 
+/// bug-652: the range form on an entry list first tries the cases that cost only
+/// the removed entries — nothing removed, everything removed, a truncation whose
+/// removed payloads are the data tail — before the probe; the marks form has no
+/// such case and goes straight to the probe.
+#[test]
+fn compact_in_place_range_form_on_an_entry_list_tries_the_truncation_first() {
+    let range = label_stems(&program(
+        "String",
+        "[\"a\", \"bb\", \"ccc\"]",
+        "",
+        "x = collections::take(x, 2)",
+    ));
+    for label in [
+        "compact_range_retract",
+        "compact_range_tidy",
+        "compact_range_general",
+    ] {
+        assert!(
+            range.contains(label),
+            "`take` on a List OF String must try the truncation (`{label}`): {range:?}"
+        );
+    }
+    let marks = label_stems(&program(
+        "String",
+        "[\"a\", \"bb\", \"ccc\"]",
+        LONGISH,
+        "x = collections::filter(x, longish)",
+    ));
+    assert!(
+        !marks.iter().any(|stem| stem.starts_with("compact_range")),
+        "`filter` must keep the full walk: {marks:?}"
+    );
+}
+
+/// bug-652: a range's dropped-element pass jumps over the kept run instead of
+/// testing every entry; the marks form tests every entry.
+#[test]
+fn compact_in_place_range_drop_pass_skips_the_kept_run() {
+    const NODE: &str = "TYPE Node\n  kids AS List OF Node\n  tag AS Integer\nEND TYPE\n\n\
+                        FUNC keepAll(n AS Node) AS Boolean\n  RETURN n.tag >= 0\nEND FUNC\n\n";
+    let init = "[Node[kids := [], tag := 1], Node[kids := [], tag := 2]]";
+    let range = label_stems(&program("Node", init, NODE, "x = collections::drop(x, 1)"));
+    assert!(
+        range.contains("compact_drop_loop") && range.contains("compact_drop_outside"),
+        "`drop` on a graph-owning list must skip the kept run in its drop pass: {range:?}"
+    );
+    let marks = label_stems(&program(
+        "Node",
+        init,
+        NODE,
+        "x = collections::filter(x, keepAll)",
+    ));
+    assert!(
+        marks.contains("compact_drop_loop") && !marks.contains("compact_drop_outside"),
+        "`filter` must test every entry in its drop pass: {marks:?}"
+    );
+}
+
 /// plan-142-C: `sort`/`sortBy` apply their index permutation in place — one
 /// cycle-following pass over the fixed-width lanes or the entry table — instead of
 /// gathering a new list.
