@@ -107,7 +107,7 @@ and the screenshot shows fading trails with no antimeridian streaks.
   the antimeridian or the view edge is two runs, and a young particle has no
   run. `blocks=1186` on the same run is those plus the map and the caption
   glyphs. The screenshot check is above.
-Commit: —
+Commit: df3e5a42e
 
 ## Validation Plan
 
