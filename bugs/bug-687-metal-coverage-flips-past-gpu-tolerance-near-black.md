@@ -9,7 +9,9 @@ Status: Open — **option 2 chosen (owner, 2026-09-25)**: emulate more precision
 shader; the comparison instrument and `GPU_DEFAULT` stay as they are. **STOPPED at the
 Phase 1 model gate (2026-09-25): option 2 as designed does not reach `GPU_DEFAULT` on the
 {301/97} row** — the residual is the 16.16 narrowing of the vertices, not shader
-arithmetic. A new owner decision is needed; see "Phase 1 results".
+arithmetic (see "Phase 1 results"). **V5 chosen (owner, 2026-09-25)**: carry each
+vertex at double-float precision and evaluate the polygon distance and the inverse
+transform in double-float in both shaders — Phase 2 below.
 Regression Test: `tests/canvas/rt_canvas_metal.rs` (the four `*over_black*` rows) and the
 `star251x97`, `star301x97`, `star301x2`, `polygonsblack` rows of
 `scripts/test-canvas-gpu-rows.sh` — RED at HEAD, see Phase 1 results
@@ -96,6 +98,16 @@ rather than for where an edge happens to land.
 the shaders: Metal (`src/codegen/runtime/canvas/metal.rs`, the embedded MSL) and Vulkan
 (`src/codegen/runtime/canvas/shaders/mfb_canvas.frag`, rebuilt to
 `mfb_canvas.frag.spv`), since bug-688 showed lavapipe trips the same flip.
+
+**Revised 2026-09-25 (owner): V5.** Phase 1's model showed option 2 as first written
+(exact 16.16 edge vectors + double-float distance) cannot pass {301/97}: the residual is
+the CPU's 16.16 narrowing of the vertices. The owner chose V5 from the Phase 1 table:
+upload each vertex coordinate at double-float precision (two 32-bit words per
+coordinate) and compute the polygon's distance, crossing test, coverage rounding and
+inverse transform in double-float in both shaders. The quantisation
+`int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` is unchanged; `tests/common/canvas_image.rs`
+and every tolerance stay as they are. (The MSL lives in
+`src/target/macos_aarch64/app/metal.rs`, not `src/codegen/runtime/canvas/metal.rs`.)
 
 **Known risk, stated before implementing.** The root cause above says no finite-precision
 change reaches zero, and the C model's exact-integer edge vectors cut mismatches from 145
@@ -202,9 +214,11 @@ only moves the input error from ~1e-5 px to ~1e-12 px. Options 1 and 3 are uncha
 
 ### Phase 2: the shaders
 
-- [ ] Metal MSL and Vulkan GLSL: compute edge vectors from exact integer differences and
-      evaluate the signed distance in double-float on the edge loop; keep the
-      quantisation `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` unchanged. Rebuild the SPIR-V.
+- [ ] Metal MSL and Vulkan GLSL (V5, owner 2026-09-25): each vertex coordinate carried
+      as its 16.16 word plus a residual word, both backends' edge upload, region layout
+      and buffer size to match; the polygon distance, crossing test, coverage rounding
+      and inverse transform in double-float; the quantisation
+      `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` unchanged. Rebuild the SPIR-V.
 - [ ] Measure the per-pixel cost on the bug-686 rows (`scripts/test-canvas-gpu-rows.sh`,
       `tools/canvas-bench`); record it here. On lavapipe the numbers describe a CPU, not a
       GPU (bug-688) — say so next to them.
