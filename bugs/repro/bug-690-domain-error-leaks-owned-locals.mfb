@@ -1,0 +1,70 @@
+' bug-690 repro: an inline domain error (a failing conversion, a division by
+' zero) that propagates out of a function with no function-level TRAP returns
+' without the scope-drop walk, so every owned local of that function leaks.
+' A failing CALL (a) and a FAIL (c) free them; the inline raises (b, d) do not.
+'
+' Copy into a scratch project (`mfb init /tmp/p`, replace src/main.mfb), then
+'   mfb build -q --debug /tmp/p
+'   for w in a b c d; do W=$w /tmp/p/build/p.out 2>&1 | grep -E '^arena.0.(alloc|free)_calls|live_bytes'; done
+
+IMPORT io
+IMPORT os
+
+TYPE D
+  lon AS Float
+  age AS Integer
+END TYPE
+
+FUNC conv(text AS String) AS Integer
+  RETURN toInt(text)
+END FUNC
+
+' The failure is a call's: the local is freed.
+SUB a(text AS String)
+  LET q AS D = D[lon := 0.5, age := 1]
+  LET n AS Integer = conv(text)
+  io::print(toString(n + q.age))
+END SUB
+
+' The failure is an inline conversion's: the local leaks.
+SUB b(text AS String)
+  LET q AS D = D[lon := 0.5, age := 1]
+  LET n AS Integer = toInt(text)
+  io::print(toString(n + q.age))
+END SUB
+
+' A FAIL: the local is freed.
+SUB c(text AS String)
+  LET q AS D = D[lon := 0.5, age := 1]
+  IF text = "x" THEN FAIL error(77050002, "neg")
+  io::print(toString(q.age))
+END SUB
+
+' The failure is an operator's (division by zero): the local leaks.
+SUB d(v AS Integer)
+  LET q AS D = D[lon := 0.5, age := 1]
+  LET n AS Integer = 10 / v
+  io::print(toString(n + q.age))
+END SUB
+
+FUNC main() AS Integer
+  LET which AS String = os::getEnvOr("W", "0")
+  IF which = "a" THEN
+    a("x") TRAP(e)
+      RECOVER
+    END TRAP
+  ELSEIF which = "b" THEN
+    b("x") TRAP(e)
+      RECOVER
+    END TRAP
+  ELSEIF which = "c" THEN
+    c("x") TRAP(e)
+      RECOVER
+    END TRAP
+  ELSEIF which = "d" THEN
+    d(0) TRAP(e)
+      RECOVER
+    END TRAP
+  END IF
+  RETURN 0
+END FUNC
