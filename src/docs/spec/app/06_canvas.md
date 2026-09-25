@@ -415,6 +415,35 @@ Both wrappers call `__canvas_ensureGraphics` and then log the present
 starts the graphics thread, even one identical to the empty initial scene.
 [[src/codegen/builtins/canvas/func_present.rs:BODY]]
 
+**`present` never waits; `waitFrame` is the pacing call.** `canvas::waitFrame` returns
+once both of these hold:
+
+1. **Nothing is owed.** The render loop has picked up every redraw asked for so far —
+   the redraw flag is clear.
+2. **The floor has passed.** At least one display interval (`1 / displayHz`, or 1/60 s
+   when the rate is unknown) has elapsed since `waitFrame` last returned.
+
+It also returns at once when the graphics thread is stopping. The floor holds on every
+backend, because none of them waits for the display: without it, an unchanged scene
+(nothing is ever owed) or a cheap one would spin.
+
+It waits for the redraw to be *picked up*, not *drawn*. Waiting until the frame has
+finished would serialize the threads: the worker would idle while the frame renders,
+and the renderer would idle while the worker builds the next scene. Pickup leaves one
+frame in flight.
+
+`waitFrame` waits on a condition variable of its own, broadcast when a redraw is taken
+and on stop. The render loop's condition is woken by `pthread_cond_signal`, which wakes
+one waiter, so sharing it could hand a render-loop wake-up to the worker.
+
+The floor's deadline is kept in the clock the condition variable's timed wait uses,
+`CLOCK_REALTIME`. It is never later than `now + interval`, so a wall-clock step costs
+at most one interval. The next interval is measured from the deadline when the return
+is less than one interval late, so wake-up latency does not accumulate; otherwise it is
+measured from the return, so a loop that fell behind gets no burst of catch-up returns.
+[[src/codegen/runtime/canvas/mod.rs:emit_await_pickup]]
+[[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]
+
 ## Named groups
 
 `canvas::setGroup(name, items)` installs a list of items under a name;

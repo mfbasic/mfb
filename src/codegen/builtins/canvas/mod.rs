@@ -153,6 +153,20 @@ evicted entry took, so a program presenting items with new coordinates every
 frame reaches a steady memory size — set by how much is on screen, not by how
 long it has been running — and can animate indefinitely at that size.
 
+`present` **returns at once**; it never waits for the frame to be drawn. An animation
+loop that should run at the display's pace ends each iteration with
+`canvas::waitFrame`, and reads the time step to advance by from
+`canvas::getFrameStats().dt`:
+
+```
+DO WHILE running
+  LET s AS canvas::FrameStats = canvas::getFrameStats()
+  step(math::min(s.dt, MAX_STEP))
+  canvas::present(scene())
+  canvas::waitFrame()
+LOOP
+```
+
 `present` **copies the whole scene** — item fields, polygon point lists, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
 its own, so you are free to change or discard whatever you built the list

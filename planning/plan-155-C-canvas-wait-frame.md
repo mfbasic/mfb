@@ -273,19 +273,21 @@ Corrections 4) and box 2230 — every bound held (below).
     `926`, resize `finished` and a frame at 640x480. The unchanged loop's ~33 ms per
     20 ms interval is the default ~15.6 ms Windows timer tick rounding
     `SleepConditionVariableSRW`'s timeout up — a floor, never early.
-Commit: —
+Commit: `9b90a502b`
 
 ### Phase 2 — docs and wind
 
-- [ ] Man page for `waitFrame`: `intro`, `desc` and `example` (the loop in
+- [x] Man page for `waitFrame`: `intro`, `desc` and `example` (the loop in
       this plan's header), following `.ai/man-content.md`. Add it to
-      `cli_canvas_man_examples_compile.rs:MEMBERS`.
-- [ ] `present`'s man `desc` (`func_present.rs:DESC`) and `MODULE_DESC`: say
+      `cli_canvas_man_examples_compile.rs:MEMBERS`. → the example is a bounded
+      60-iteration version of the header loop (a page example must end);
+      `cargo test --test cli_canvas_man_examples_compile` → 1 passed.
+- [x] `present`'s man `desc` (`func_present.rs:DESC`) and `MODULE_DESC`: say
       that `present` returns immediately, and point animation loops at
       `waitFrame` + `getFrameStats`.
-- [ ] Spec, `06_canvas.md`: `waitFrame`'s two conditions, the floor, and why
+- [x] Spec, `06_canvas.md`: `waitFrame`'s two conditions, the floor, and why
       it is "picked up", not "drawn", cited to `emit_await_pickup`.
-- [ ] `.ai/canvas-threading.md`:
+- [x] `.ai/canvas-threading.md`:
       - §8, rows R22–R25:
         - R22 `waitFrame` while the graphics thread stops;
         - R23 before the first present;
@@ -294,25 +296,50 @@ Commit: —
       - §9, one line: `waitFrame` waits and never repaints.
       - §15 (from plan-155-B): the second condition variable and why it is
         separate.
-- [ ] `examples/wind/src/main.mfb`: remove `FRAME_MILLIS`, `lastNanos`,
+- [x] `examples/wind/src/main.mfb`: remove `FRAME_MILLIS`, `lastNanos`,
       `startNanos`, `spentMillis` and the sleep. Use
       `math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)` and end the
       loop body with `canvas::waitFrame()`. Rewrite the comment above
       `FRAME_MILLIS` to explain the new loop. Drop `IMPORT datetime` and
-      `IMPORT os` if nothing else uses them.
-- [ ] Runtime proof: run wind windowed on this Mac for 15 s with
+      `IMPORT os` if nothing else uses them. → `IMPORT datetime` dropped; `IMPORT os`
+      stays (`os::name()`); `mfb build --app examples/wind` → success.
+- [x] Runtime proof: run wind windowed on this Mac for 15 s with
       `MFB_CANVAS_STATS` in a `--debug` build, and log `getFrameStats()` once
       a second to stderr in a scratch copy (not committed). Record `pps`,
       `fps` and `displayHz`: `pps` should sit near `displayHz`, where before
       it was capped near 62 by the 16 ms sleep. Record the numbers, not the
-      prediction.
+      prediction. → measured, windowed, `displayHz=120.00` throughout (logged with
+      `io::print`, which has no stderr twin — stdout serves):
+      - `--debug` + `MFB_CANVAS_STATS`: `pps` 18-19, `fps` 18, 357 stats lines, all
+        `directFrames` (a real window).
+      - release: `pps=26.00 fps=26.00`; `waitFrame` waited 47 ms in total over 420
+        presents.
+      - the old loop, built by the pre-plan compiler and timed the same way: ~34 ms of
+        work a frame, 420 frames in 15 s (~28 fps) — it was never near 62.
+      Wind is work-bound on this machine (its step + scene take ~35-38 ms), so its `pps`
+      cannot reach 120; the prediction was wrong (Corrections 7). The display-pace claim
+      is shown by a light windowed loop instead (`/tmp/p155/pace`, the example's shape,
+      5 s): `pps=120.03 fps=119.96`, `120.00/119.99`, `119.98/120.07` at
+      `displayHz=120.00`.
+- [x] (added) The floor's cadence (Corrections 6): that light loop first measured
+      `pps=99-100` at 120 Hz. `LAST_WAIT` now takes the deadline when a return is less
+      than an interval late. Re-proved: this Mac 120.0; 2226 unchanged-scene loops
+      1004/503/251/25 ms at 25/50/100/1000 Hz; the five box programs re-run on 2226
+      (689/689/returned/723/finished, 37 frames at 640x480) and 2230
+      (2018/601/returned/940/finished, frame at 640x480); `rt_canvas_frame_stats` 11
+      passed and `static_scene` 2 passed locally.
 
 Acceptance: docs render and examples run; wind builds, runs, and its measured
-`pps` tracks `displayHz`.
+`pps` tracks `displayHz`. **Corrected** (Corrections 7): wind's `pps` is bound by its
+own ~35-38 ms of work, so the checkable form is — a light loop measures `pps` within
+1% of `displayHz` in a real window, and wind's `waitFrame` time is under 1% of its loop
+(47 ms of ~16.5 s).
   Check: `scripts/man-run-examples.sh canvas --run` → all pass (est. 3 min);
   `cargo test --bin mfb spec` → pass (est. 2 min);
   `mfb build examples/wind` → success (est. 1 min); the runtime proof above
   (est. 3 min, needs a real window).
+  Verified: examples 31 built / 31 ran / 0 failed; spec 44 passed, `MISS-SYMBOL 0`,
+  `man-census --memory-scope` 0 unclassified; wind builds; runtime as recorded above.
 Commit: —
 
 ## Validation Plan
@@ -365,6 +392,22 @@ Commit: —
 5. **`DIV` is Float division.** The wrapper first computed `1000000000000 DIV mhz` and
    failed to compile (`Assignment to interval has type Float`); `/` on two Integers is
    the integer division (`mfb spec language operators`: "`DIV` always returns `Float`").
+6. **The floor lost its cadence.** §3 said "Store `LAST_WAIT = now` (not `deadline`: a
+   loop that fell behind does not get a burst of catch-up returns)". Measured in a real
+   window, a loop doing almost nothing ran at 99-100 presents a second on a 120 Hz
+   display: every return is ~1.7 ms past its deadline, and restarting each interval from
+   the return adds that to every frame. The rule is now the deadline when the return is
+   less than one interval late, and `now` otherwise — cadence kept, and still no burst
+   (a loop an interval or more behind restarts from now). Re-measured: 120.0.
+7. **Wind cannot show `pps` tracking `displayHz`.** The acceptance assumed wind's loop
+   is faster than a display interval. Measured, it is not: its step and scene take ~35-38
+   ms (release) on this Mac, and the old loop was already at ~28 fps, never at the 62
+   its sleep would allow. `waitFrame` waited 47 ms in 16.5 s of wind, so it is not
+   what bounds it. The criterion is replaced by the checkable pair in the Phase 2
+   acceptance — a light loop at the display rate, and wind's wait share — rather than
+   dropped.
+8. **Final gate narrowed by the user** (plan-155-A Correction 5): the canvas test set,
+   not `cargo test`.
 
 ## Summary
 

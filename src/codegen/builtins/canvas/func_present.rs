@@ -14,6 +14,11 @@ uncovered, until the next `present` replaces it. A static picture is therefore p
 nothing thereafter, and a program that never changes its content never calls
 `present` again.
 
+`present` **returns at once** — it does not wait for the frame to be drawn, so a
+program that presents progress while it computes is never slowed by it. To run an
+animation loop at the display's pace, end each iteration with `canvas::waitFrame`, and
+advance the animation by `canvas::getFrameStats().dt`.
+
 `present` **copies the whole scene**. Everything it reaches — the item fields, a
 `canvas::Polygon`'s point list, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
 once `present` returns the installed scene is entirely its own. You are free to

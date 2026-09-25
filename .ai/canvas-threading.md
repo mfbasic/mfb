@@ -346,6 +346,10 @@ row names the rule from above that protects it.
 | R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
 | R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
 | R21 | 200 × install/remove of a group owning a resource | `groupBytes=` returns to baseline | plan-116-J + §13's gate |
+| R22 | `waitFrame` in progress while the graphics thread stops | `waitFrame` returns; shutdown completes | §15: the stop path broadcasts `FRAME_COND` beside its `COND` signal, and `awaitPickup` returns on `STOPPING` |
+| R23 | `waitFrame` before the first present | returns after the display floor; the program exits normally | §15: `waitFrame` calls `ensureGraphics` itself, so the mutex and both condition variables exist; nothing is owed |
+| R24 | `waitFrame` after a present, with the previous frame held mid-render | returns only once the render loop has *taken* the redraw — one frame in flight | §15: `waitForRedraw` broadcasts `FRAME_COND` as it clears `PENDING` |
+| R25 | a resize lands while the worker is in `waitFrame` | the loop finishes; the next frame is at the new size | §15: `waitFrame` waits on `FRAME_COND` only, so the resize's `COND` signal can only wake the render loop |
 
 **R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
 nothing live names it** — where "live" is the scene about to be published *plus every
@@ -384,7 +388,9 @@ stopped) before the worker's entry unwinds.
 * **No lock on the building slot.** The language is single-worker (spec: one runtime
   worker pthread, no user thread primitive), so a second concurrent `present` is not
   a thing that can happen. A lock there would guard an impossible caller.
-* **No time-based repaint.** §4.
+* **No time-based repaint.** §4. `canvas::waitFrame` (plan-155-C) waits on time and
+  never repaints: it signals nothing, so a static scene under a `present` +
+  `waitFrame` loop still costs one frame.
 * **No cross-thread arena free.** §3.
 
 ## 10. The renderer branch, and what the Metal backend inherits
@@ -960,6 +966,16 @@ publish test rather than inside it — the first present of any scene, even one 
 to the empty initial scene, starts the thread. `notePresent` still checks `STARTED`
 (an out-of-memory spawn leaves it 0), and `frameCounters` reads without the lock while it
 is 0, when nothing has written a word.
+
+**`canvas::waitFrame` has its own condition variable** (plan-155-C,
+`GRAPHICS_OFFSET_FRAME_COND`). `signalRedraw` and the stop path wake `COND` with
+`pthread_cond_signal`, which wakes one waiter; a worker waiting on `COND` could take the
+wake-up a resize meant for the render loop, leaving the redraw owed and the worker
+waiting for a pickup that never comes. `syncFrame` has that hazard, but only under the
+`MFB_CANVAS_SYNC` test switch. `waitFrame` waits on `FRAME_COND` alone, broadcast where
+its answer can change: in `waitForRedraw` as `PENDING` is cleared, and on stop. Reusing
+`COND` with broadcasts everywhere would also fix the lost wake-up, at the price of waking
+the render loop for every `waitFrame` event and the reverse.
 
 **Why rings and not a moving average.** An average updated per event never decays: a
 static scene would report its last rate forever. A rate over the trailing second counts

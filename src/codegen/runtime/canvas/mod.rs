@@ -2336,9 +2336,10 @@ fn emit_realtime_nanos(
 ///
 /// Times are `CLOCK_REALTIME`, the clock `pthread_cond_timedwait` takes. So that a
 /// wall-clock step backwards cannot stall the loop, the deadline is never later than
-/// `now + interval`; a step costs at most one interval. `LAST_WAIT` becomes the time of
-/// the return, not the deadline, so a loop that fell behind gets no burst of catch-up
-/// returns.
+/// `now + interval`; a step costs at most one interval. `LAST_WAIT` becomes the deadline
+/// when the return is less than one interval late, so the wake-up latency does not
+/// stretch every interval, and the time of the return otherwise, so a loop that fell
+/// behind gets no burst of catch-up returns.
 pub(crate) fn emit_await_pickup(
     builder: &mut CodeBuilder,
     interval: &Operand,
@@ -2430,10 +2431,24 @@ pub(crate) fn emit_await_pickup(
     }
     builder.emit(abi::branch(&again));
 
+    // The next interval runs from the deadline when this return is on schedule (less
+    // than one interval late), and from now when it is not. Measuring from the return
+    // alone adds the wake-up latency to every interval — measured: a 120 Hz loop ran
+    // at 99-100 presents a second — while measuring from the deadline alone would let a
+    // loop that fell behind return back-to-back until it caught up.
     builder.emit(abi::label(&done));
+    let on_time = builder.label("canvas_await_on_time");
+    let stamped = builder.label("canvas_await_stamped");
     emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
     state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::subtract_registers(&cap, &now, &deadline));
+    builder.emit(abi::compare_registers(&cap, &interval_value));
+    builder.emit(abi::branch_lt(&on_time));
     builder.emit(abi::store_u64(&now, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    builder.emit(abi::branch(&stamped));
+    builder.emit(abi::label(&on_time));
+    builder.emit(abi::store_u64(&deadline, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    builder.emit(abi::label(&stamped));
     emit_graphics_lock(
         &symbol,
         &scratch,
