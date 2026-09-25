@@ -31,52 +31,21 @@ pub(crate) const THREAD_QUEUE_HEAD_OFFSET: usize = 144;
 pub(crate) const THREAD_QUEUE_TAIL_OFFSET: usize = 152;
 pub(crate) const THREAD_QUEUE_CLOSED_OFFSET: usize = 160;
 /// The ring: `capacity` entries of [`THREAD_QUEUE_ENTRY_SIZE`] bytes, allocated from the
-/// block arena by `thread::start`.
+/// block arena by `thread::start`. An entry is the queued value: the block-arena copy
+/// the sender's helper made, or the word itself for a value that crosses as its word.
 pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 168;
-/// Head of a singly-linked list of message copies to reclaim (bug-147.5b, bug-646).
-/// A `thread.send` deep-copies the message into the SENDER's own arena (bug-498) and
-/// hands the block across. Two paths orphan that copy, and both park it here (under the
-/// block lock, using the dead block's own first two words as `{next, size}`):
-/// - a failed send (queue full / closed / cancelled) never hands the copy over at all
-///   (bug-147.5b);
-/// - a SUCCESSFUL hand-over whose reader has finished with it — the reader copies the
-///   queued block AGAIN into its own arena, after which the queued block has no owner
-///   (bug-646). The read helper parks the PREVIOUS read's block on its next read — see
-///   [`THREAD_QUEUE_LAST_READ_PTR_OFFSET`].
-///
-/// **The list is drained by the SENDING side** — [`thread_queue_write_helper`] at the
-/// top of its next write, and the handle side's final release for the two inbound
-/// queues — because every block on it was carved by that queue's sender and
-/// `arena_free` pushes onto the FREEING thread's own bins.
-pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 176;
-/// bug-646: the block the last successful read handed to the reader, and its byte size
-/// (0 = "not reclaimable", the same sentinel the write helper's arg 3 uses). The NEXT
-/// read on the same queue moves it onto the pending-free list: the call site's copy of
-/// block N runs after the helper returns, and the next read on this queue is strictly
-/// after that on the same thread (each queue has exactly one reader).
-pub(crate) const THREAD_QUEUE_LAST_READ_PTR_OFFSET: usize = 184;
-pub(crate) const THREAD_QUEUE_LAST_READ_SIZE_OFFSET: usize = 192;
-/// bug-650 case 2: the STATE-block byte size that travelled with the block the last
-/// read handed out — the third word of its ring entry — or 0 when the message has no
-/// STATE. Only the SIZE needs carrying: the STATE POINTER is read back from the record
-/// itself at `RESOURCE_OFFSET_STATE` (+24), which a pending-free node's `{next, size}`
-/// words (+0 and +8) do not overwrite.
-pub(crate) const THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET: usize = 200;
-pub(crate) const THREAD_QUEUE_SIZE: usize = 208;
-/// bug-646: one ring entry is `{value, size, state_size, _}` — the enqueued value (a
-/// pointer for every block-shaped message, the scalar itself otherwise), the byte size
-/// the sender computed for it, and (bug-650 case 2) the byte size of the STATE block
-/// hanging off it. 32 rather than 24 so the index-to-offset conversion stays a shift.
-pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 32;
-/// Byte offset of the STATE size within a pending-free node (bug-650 case 2): a node
-/// reuses the dead block's own words `{next@0, size@8, state_size@16}`. Written and read
-/// on the resource planes only, where every block is one resource record.
-pub(crate) const PENDING_FREE_STATE_SIZE: usize = 16;
-/// Byte offset of the STATE size within a ring entry (bug-650 case 2).
-pub(crate) const THREAD_QUEUE_ENTRY_STATE_SIZE: usize = 16;
+/// The block-arena message the last read on this queue handed out, still owned by
+/// the queue (0 = none). The reader's call site copies it into its own arena AFTER the
+/// read helper returns, so it cannot be dropped then; the NEXT read on the same queue
+/// drops it (each queue has exactly one reader, so that read is strictly later on the
+/// same thread). One left over when the thread is freed goes with the block arena.
+pub(crate) const THREAD_QUEUE_LAST_READ_OFFSET: usize = 176;
+pub(crate) const THREAD_QUEUE_SIZE: usize = 184;
+/// One ring entry: the queued value.
+pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 8;
 /// `log2(THREAD_QUEUE_ENTRY_SIZE)` — the shift that turns a ring index into a byte
 /// offset.
-pub(crate) const THREAD_QUEUE_ENTRY_SHIFT: u8 = 5;
+pub(crate) const THREAD_QUEUE_ENTRY_SHIFT: u8 = 3;
 
 pub(crate) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
     match platform.family() {
@@ -557,12 +526,14 @@ pub(crate) fn lower_thread_start_helper(
     const ARENA_OFFSET: usize = 48;
     // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
     const ATTR_OFFSET: usize = 56;
-    // bug-655: arg 4, the seed block's byte size, parked before the calls below clobber
-    // the argument registers. Stored beside the seed pointer itself.
-    const DATA_SIZE_OFFSET: usize = 120;
+    // plan-156-A: args 4 and 5, the seed type's and the result type's copy functions
+    // (0 for a value that crosses as its word), parked before the calls below clobber
+    // the argument registers.
+    const SEED_COPY_OFFSET: usize = 120;
     const SAVED_ARENA_OFFSET: usize = 128;
     // The worker's arena-state block, until it is stored in the control block.
     const WORKER_OFFSET: usize = 136;
+    const RESULT_COPY_OFFSET: usize = 144;
     // Largest queue limit whose ring size (`capacity * THREAD_QUEUE_ENTRY_SIZE`) still
     // fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
@@ -591,7 +562,8 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), IN_LIMIT_OFFSET),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), OUT_LIMIT_OFFSET),
-        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), SEED_COPY_OFFSET),
+        abi::store_u64(abi::c_arg(5), abi::stack_pointer(), RESULT_COPY_OFFSET),
         abi::compare_immediate(abi::c_arg(2), "1"),
         abi::branch_lt(&invalid_limit),
         abi::compare_immediate(abi::c_arg(3), "1"),
@@ -632,10 +604,8 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64("%v10", "%v9", CONTROL_OFFSET_ENTRY),
         abi::load_u64("%v10", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("%v10", "%v9", CONTROL_OFFSET_DATA),
-        // bug-655: the seed's size travels with the seed pointer, so the handle side's
-        // final release can free the block the worker has been reading.
-        abi::load_u64("%v10", abi::stack_pointer(), DATA_SIZE_OFFSET),
-        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_DATA_SIZE),
+        abi::load_u64("%v10", abi::stack_pointer(), RESULT_COPY_OFFSET),
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_RESULT_COPY),
         // The table slot. From here on every failure releases the block through
         // `_mfb_rt_thread_block_release`, which frees whatever the block holds so far.
         abi::move_register(abi::c_arg(0), "%v9"),
@@ -668,6 +638,30 @@ pub(crate) fn lower_thread_start_helper(
     ctx.instructions.extend([
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&init_error),
+    ]);
+    // plan-156-A: the worker's seed is its own copy, made in the block arena (bug-655's
+    // leak came from handing over the caller's block uncopied; "`data` is copied into
+    // the thread" is the documented contract). No lock is needed: the worker does not
+    // exist yet, so nothing else can reach the block. A word-sized seed is stored as is.
+    let seed_stored = format!("{symbol}_seed_stored");
+    ctx.instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SEED_COPY_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&seed_stored),
+    ]);
+    emit_call_in_block_arena(
+        ctx.instructions,
+        ARENA_OFFSET,
+        SAVED_ARENA_OFFSET,
+        SEED_COPY_OFFSET,
+        DATA_OFFSET,
+    );
+    ctx.instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&oom),
+        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+        abi::store_u64(RESULT_VALUE_REGISTER, "%v9", CONTROL_OFFSET_DATA),
+        abi::label(&seed_stored),
     ]);
     // The four queues: the data queues bounded by the two limits, and the resource
     // plane's (§7) inbound (parent→worker) bounded like the inbound data queue and

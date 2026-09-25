@@ -1,9 +1,11 @@
 //! plan-130-C: the `arena` section of the `--debug` report.
 //!
 //! A `--debug` build keeps a process-global registry of arena states — the main
-//! thread's, each `thread::start` worker's, and the canvas graphics thread's — and the
+//! thread's, each `thread::start` worker's and its block arena's, and the canvas graphics
+//! thread's — and the
 //! report lists them in registration order: `arena.count <n>`,
-//! `arena.registry_overflow <n>`, then per arena `arena.<i>.kind <main|worker|graphics>`
+//! `arena.registry_overflow <n>`, then per arena
+//! `arena.<i>.kind <main|worker|graphics|thread_block>`
 //! and one `arena.<i>.<counter> <value>` line per allocator event counter.
 
 #![cfg(unix)]
@@ -72,10 +74,10 @@ fn registration(case: &str, lines: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Three `thread::start` workers plus the main thread: four arenas, registered in
-/// start order, none dropped.
+/// Three `thread::start` workers plus the main thread: seven arenas (each thread's
+/// block arena, then its worker's), registered in start order, none dropped.
 #[test]
-fn three_workers_register_four_arenas() {
+fn three_workers_register_seven_arenas() {
     let source = concat!(
         "IMPORT io\n",
         "IMPORT thread\n",
@@ -98,21 +100,27 @@ fn three_workers_register_four_arenas() {
     let (stdout, stderr) = run_ok("workers", &exe);
     assert_eq!(stdout, "6\n", "the workers ran");
     let lines = arena_lines("workers", &stderr);
+    // plan-156-A: each `thread::start` registers the thread's block arena (the control
+    // block's own arena, which every value crossing the boundary is copied into) and
+    // then the worker's arena.
     assert_eq!(
         registration("workers", &lines),
         vec![
-            "arena.count 4",
+            "arena.count 7",
             "arena.registry_overflow 0",
             "arena.0.kind main",
-            "arena.1.kind worker",
+            "arena.1.kind thread_block",
             "arena.2.kind worker",
-            "arena.3.kind worker",
+            "arena.3.kind thread_block",
+            "arena.4.kind worker",
+            "arena.5.kind thread_block",
+            "arena.6.kind worker",
         ],
         "arena section:\n{stderr}"
     );
     // Each worker builds a string, which it allocates in its own arena: the counts land
     // in the worker's slot, not the parent's.
-    for index in 1..4 {
+    for index in [2, 4, 6] {
         assert!(
             counter("workers", &lines, index, "alloc_calls") >= 1,
             "worker arena {index} counted no allocation:\n{stderr}"

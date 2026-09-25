@@ -70,7 +70,8 @@ pub(crate) const CONTROL_OFFSET_RESULT_COPY: usize = 136;
 /// The OS thread handle (`pthread_t` / Windows `HANDLE`). Zeroed once the worker is
 /// joined or detached, so no path joins it twice.
 pub(crate) const CONTROL_OFFSET_OS_HANDLE: usize = 144;
-/// The entry closure and the seed the trampoline hands it.
+/// The entry closure and the seed the trampoline hands it — the seed is the block-arena
+/// copy the start helper made (or the word itself for a word-sized seed).
 pub(crate) const CONTROL_OFFSET_ENTRY: usize = 152;
 pub(crate) const CONTROL_OFFSET_DATA: usize = 160;
 /// The worker's arena-state block (a heap block: arena state, seed scratch word and
@@ -79,10 +80,6 @@ pub(crate) const CONTROL_OFFSET_WORKER_ARENA: usize = 168;
 /// bug-622: how many parent-side bindings still hold this handle (see
 /// `simple_thread_handle_helper`'s `Drop` arm). Parent-thread only.
 pub(crate) const CONTROL_OFFSET_OWNERS: usize = 176;
-/// bug-655: the byte size of the seed block at [`CONTROL_OFFSET_DATA`], or 0 when the
-/// seed carves no block (a scalar) or is one this compiler does not size. The handle
-/// side frees the seed with it once the worker is finished.
-pub(crate) const CONTROL_OFFSET_DATA_SIZE: usize = 184;
 /// The four queues, embedded ([`THREAD_QUEUE_SIZE`] bytes each). Each is a ring of
 /// `{value, …}` entries in the block arena plus its two condvars; all four share the
 /// block lock.

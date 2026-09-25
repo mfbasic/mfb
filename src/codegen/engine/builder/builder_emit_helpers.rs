@@ -639,41 +639,56 @@ impl CodeBuilder<'_> {
             );
         }
 
-        // bug-658: the seed slots a FAILED `thread::start` has to release (None for
-        // every other target). Set by the branch below.
-        let mut failed_start_seed: Option<(usize, usize)> = None;
+        use crate::codegen::runtime::thread::ThreadValueFn;
         let arg_values = if target == "thread.start" {
-            // bug-655: `thread::start` hands the worker the caller's seed block
-            // uncopied, and nothing owned it afterwards. Size it here — the only place
-            // its type is known — and pass that as arg 4, so the release that frees the
-            // rest of the thread's plumbing can free the seed too. Computed inside the
-            // hook, i.e. after every argument is spilled but before the argument
-            // registers are loaded, because sizing clobbers caller-saved registers.
-            let size_slot = self.allocate_stack_object("runtime_thread_start_seed_size", 8);
-            let seed_slot_cell = std::cell::Cell::new(usize::MAX);
-            let values = self.emit_prepared_call_args_hooked(
-                args,
-                "runtime_call_arg",
-                |builder, values, slots| {
-                    if let Some(slot) = slots.get(1) {
-                        seed_slot_cell.set(*slot);
-                    }
-                    builder.emit_thread_seed_size(values, slots, size_slot)
-                },
-            )?;
-            if seed_slot_cell.get() != usize::MAX {
-                failed_start_seed = Some((seed_slot_cell.get(), size_slot));
-            }
-            let scratch = self.temporary_vreg();
-            self.emit(abi::load_u64(&scratch, abi::stack_pointer(), size_slot));
-            self.emit(abi::move_register(&abi::argument_register(4)?, &scratch));
+            // plan-156-A: the start helper deep-copies the seed into the new thread's
+            // block arena, so the worker reads its own copy and the caller's value stays
+            // the caller's (its statement-scope free or binding still owns it). Arg 4 is
+            // the seed type's copy function; arg 5 is the entry's result type's, which
+            // the worker's exit runs to move the result into the block arena. 0 for a
+            // value that crosses as its word.
+            let values = self.emit_prepared_call_args(args, "runtime_call_arg")?;
+            let seed_type = values
+                .get(1)
+                .map(|value| value.type_.clone())
+                .unwrap_or(ParameterType::Nothing);
+            let out_type = match result_type {
+                ParameterType::ThreadHandle { out, .. } => (**out).clone(),
+                _ => ParameterType::Nothing,
+            };
+            self.emit_thread_value_fn_address(
+                ThreadValueFn::Copy,
+                &seed_type,
+                abi::argument_register(4)?,
+            );
+            self.emit_thread_value_fn_address(
+                ThreadValueFn::Copy,
+                &out_type,
+                abi::argument_register(5)?,
+            );
+            self.emit_symbol_call(symbol);
+            values
+        } else if matches!(
+            target,
+            "thread.receive" | "thread.read" | "thread.acceptResource" | "thread.readResource"
+        ) {
+            // plan-156-A: arg 2 is the message type's drop function. The read helper runs
+            // it on the block-arena message this queue's PREVIOUS read handed out — this
+            // call's copy of its own message (below) runs after the helper returns, so
+            // the message it returns can only be dropped on the next read.
+            let values = self.emit_prepared_call_args(args, "runtime_call_arg")?;
+            self.emit_thread_value_fn_address(
+                ThreadValueFn::Drop,
+                result_type,
+                abi::argument_register(2)?,
+            );
             self.emit_symbol_call(symbol);
             values
         } else {
             self.emit_raw_call(symbol, args, "runtime_call_arg")?
         };
-        // A moved cross-arena data argument (e.g. `thread.start`) must not be freed
-        // by this statement's temp cleanup (plan-25).
+        // A moved cross-arena resource argument must not be freed by this statement's
+        // temp cleanup (plan-25).
         self.claim_moved_thread_arg_temp(target, &arg_values);
 
         // An inline `TRAP` traps the raw `Result`: do not auto-propagate on
@@ -681,15 +696,6 @@ impl CodeBuilder<'_> {
         // current arena) for the trap to inspect. Owned handles/resources passed
         // to a consuming helper are consumed regardless of success or failure.
         if raw {
-            // bug-658: a FAILED `thread::start` under an inline `TRAP` never reaches the
-            // release that frees the seed — the handler binds the CLOSED stub, which
-            // has no seed — and the caller has already given up its
-            // own claim on the block. Release it here, on the Err tag, while the seed
-            // pointer is still in its frame slot. Emitted BEFORE
-            // `materialize_current_result`, which consumes the result registers.
-            if let Some((seed_slot, size_slot)) = failed_start_seed {
-                self.emit_failed_thread_start_seed_free(seed_slot, size_slot, true)?;
-            }
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
@@ -726,18 +732,12 @@ impl CodeBuilder<'_> {
         // A runtime helper error originates at this call site: stamp the origin
         // before propagating so a trapped error reports the true location.
         // `thread.waitFor` instead propagates a worker's terminal error whose
-        // origin (and message) must be deep-copied out of the worker arena before
-        // the impending `thread.drop` cleanup frees it.
+        // origin (and message) must be deep-copied out of the thread's block arena
+        // before the impending `thread.drop` cleanup frees it.
         if target == "thread.waitFor" {
             self.emit_finalize_worker_error_source()?;
         } else {
             self.emit_stamp_current_error_source()?;
-        }
-        // bug-658: same release on the propagating half. This path leaves the statement
-        // for good, and the seed was claimed out of the temp cleanup before the call, so
-        // without this the block is stranded exactly as in the trapped case.
-        if let Some((seed_slot, size_slot)) = failed_start_seed {
-            self.emit_failed_thread_start_seed_free(seed_slot, size_slot, false)?;
         }
         self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));

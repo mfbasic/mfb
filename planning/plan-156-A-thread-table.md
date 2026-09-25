@@ -312,15 +312,23 @@ Proves §4.2's premise before anything depends on it.
       by `_mfb_arena_alloc` through `emit_arena_map` — Correction 5. Exercised
       by every thread started: `scripts/test-accept.sh target/debug/mfb …
       'rt-behavior/thread*/**'` → "acceptance tests passed (50 test(s) ran)".)
-- [ ] Add a codegen helper that saves `ARENA_STATE_REGISTER`, points it at a
+- [x] Add a codegen helper that saves `ARENA_STATE_REGISTER`, points it at a
       given arena, runs `copy_value_to_current_arena` for a value, and
       restores it. It is called from nothing yet except a test.
-- [ ] Tests: `tests/runtime/rt_thread_block_arena.rs`. Copy a String, a record
+      (`emit_with_arena` / `emit_call_in_block_arena` in `control_block.rs`; the
+      copy itself is a per-type function the helpers call — Correction 6. It is
+      called from the start, write, read and exit helpers rather than "nothing
+      but a test": no program can reach an unwired helper, so the test goes
+      through the wiring — Correction 7.)
+- [x] Tests: `tests/runtime/rt_thread_block_arena.rs`. Copy a String, a record
       with a list, and a union into a block arena from a worker, destroy it,
       and run 10,000 iterations. A `--debug` build's report shows the block
       arena returned all its bytes (`arena.<n>.live_bytes 0` for the block
       arena; the block arena registers with the debug registry like any
       arena).
+      (Seeds and results of all three shapes, 10,000 iterations; the report
+      check is every chunk unmapped plus a bounded peak — Correction 8.
+      `cargo test --test rt_thread_block_arena` → 2 passed (macos-aarch64).)
 
 Acceptance: the helper round-trips all three value shapes and the block
 arena's live bytes return to 0 on every target the Linux/macOS runners reach.
@@ -341,30 +349,36 @@ still their own objects, now allocated in the block arena.
       own them — Correction 1. `rg -c 'THREAD_OFFSET_|THREAD_BLOCK_SIZE' src
       --glob '*.rs'` → only doc-comment mentions in two layout files, fixed with
       the spec pass; build green.)
-- [~] The `_mfb_rt_thread_table` data symbol, emitted beside the debug
+- [x] The `_mfb_rt_thread_table` data symbol, emitted beside the debug
       registry in `src/codegen/engine/builder/mod.rs`, plus slot alloc/free
       helpers with growth (§4.1).
       (Emitted beside the thread trampoline, under the same `thread.start`
-      gate — Correction 1. Acquire/release run on every start/release in the 50
-      fixtures above; remaining: the growth path is exercised only by
-      `rt_thread_table_growth`, not yet written.)
+      gate — Correction 1. Growth proven by `rt_thread_table_growth`:
+      `thread.table_capacity` > 64 after 200 live blocks.)
 - [x] `lower_thread_start_helper`: take a slot, allocate the block with
       `emit_heap_alloc`, create the block arena, and put the queues in it.
       The handle value is the block pointer.
       (Queue rings are carved from the block arena; the queue headers are
       embedded in the block — Correction 2. A failed start releases everything
       it built through `_mfb_rt_thread_block_release`. 50 fixtures pass.)
-- [ ] The trampoline: under the block lock, copy the result into the block
+- [x] The trampoline: under the block lock, copy the result into the block
       arena, set COMPLETED, and broadcast.
+      (`_mfb_rt_thread_finish`, which the trampoline calls with the result; a
+      worker error's message and `ErrorLoc` are copied too. Covered by
+      `rt_thread_block_arena` and the 50 thread fixtures.)
 - [x] The WaitFor/Drop arms: read the state and result from the block, then
       free the block with §4.4's rule (`refs`) in place of
       `emit_release_thread_plumbing`'s parent-arena frees.
       (`emit_release_reference` in `runtime_helpers_thread.rs`; the worker's
       side is `_mfb_rt_thread_finish`. 50 fixtures pass, including
       `thread-drop-cleanup`'s five drop paths.)
-- [ ] Tests: `tests/runtime/rt_thread_table_growth.rs`. Start and `waitFor`
+- [x] Tests: `tests/runtime/rt_thread_table_growth.rs`. Start and `waitFor`
       5,000 threads sequentially, and hold 200 live at once. The debug report
       shows `live_bytes` back at baseline after all are waited.
+      (Baseline = the same program at 1,000 threads: the main arena's
+      `live_bytes` is identical at 1,000 and 5,000; `table_live` 0; the new
+      `thread.` report section. `cargo test --test rt_thread_table_growth` → 1
+      passed.)
 
 Acceptance: every existing thread test passes unchanged and the growth test
 passes.
@@ -381,8 +395,14 @@ Commit: —
       (Landed with Phase 2 — Correction 2. The timeout/cancel/interrupt
       fixtures `thread-queue-timeout-cancel`, `thread-timeout-convention-rt`
       pass in the 50-fixture run.)
-- [ ] Delete the pending-free lists and their reclaimers (bug-646, and the
+- [x] Delete the pending-free lists and their reclaimers (bug-646, and the
       bug-650 walks become block-arena destruction).
+      (The send copies into the block arena only once the enqueue is certain,
+      so a failed send leaves no orphan; a read drops the previous read's
+      message from the block arena. `rt_thread_block_arena`'s message case: a
+      40,000-message exchange peaks under 4 KB in its block arena;
+      `thread-resource-transfer-fail-{leak,reclaim}` and `rt_scope_drop_leaks`
+      (153 passed) stay green.)
 - [x] Re-point cancel, drop and timeout wakeups
       (`emit_close_resource_queues`, the Cancel arm) at the block condvars.
       (`emit_close_queue_locked` / `emit_close_resource_queues_locked` run
@@ -419,9 +439,11 @@ Commit: —
 
 ## Open Decisions
 
-- The block arena's copy-in through a re-pointed `ARENA_STATE_REGISTER`
+- ~~The block arena's copy-in through a re-pointed `ARENA_STATE_REGISTER`
   (recommended) vs a dedicated "copy into arena X" entry in
-  `builder_arena_transfer.rs`. Decide on Phase 1's result.
+  `builder_arena_transfer.rs`. Decide on Phase 1's result.~~ Decided
+  2026-09-24: a re-pointed register, around per-type copy functions the
+  helpers call (Correction 6).
 
 ## Corrections
 
@@ -456,6 +478,35 @@ Commit: —
    on demand by `_mfb_arena_alloc` (through `emit_arena_map`) and unmapped by
    `_mfb_arena_destroy`, exactly as for every other arena. It registers in
    the `--debug` registry as a new `thread_block` kind.
+6. **Open Decision resolved: per-type copy functions called by the helpers.**
+   Neither option as written. A copy spliced into the call site with the
+   arena register re-pointed leaves the register on the block arena along
+   any error path out of the copy (an OOM raise returns straight out of the
+   caller), and the trampoline, which must copy the result, is type-agnostic.
+   So each call site passes the ADDRESS of a per-type function
+   (`value_functions.rs`: `_mfb_rt_thread_copy_value_<T>` /
+   `_mfb_rt_thread_drop_value_<T>`, requested during lowering and emitted
+   once per module), and the helper calls it under the block lock between
+   `emit_with_arena`'s save and restore, which every return path reaches.
+   The reads keep the call-site copy (out of the block arena, into the
+   reader's arena) so the result-ownership predicates the registry tests
+   pin are unchanged; the helper drops the previous read's message.
+7. **The Phase 1 helper is reached through the wiring.** "Called from nothing
+   yet except a test" is not realizable: a runtime test is a program, and a
+   program reaches only wired helpers. Phase 1's test therefore landed with
+   Phase 2's wiring (the seed, result and message copies).
+8. **Phase 1's report check, strengthened.** `live_bytes 0` would require
+   every block-arena block to be freed individually, but the seed and the
+   result are freed with the arena itself (§4.4 destroys it); their bytes
+   return to the OS at the unmap, which is the stronger property. The test
+   asserts, for every registered `thread_block` arena, `unmaps == maps` and
+   `unmapped_bytes == mapped_bytes`, and separately that a long message
+   exchange keeps the block arena's `peak_live_bytes` under 4 KB (so
+   per-message drops really happen).
+9. **The seed is copied** into the block arena at `thread::start` (it was
+   handed over uncopied, bug-655). The bug-655/658 seed-size and
+   failed-start seed-free machinery is gone: the caller's value is the
+   caller's, freed by its own binding or statement scope.
 
 ## Summary
 

@@ -133,7 +133,8 @@ pub(crate) enum ParkedErrorSource {
     /// `emit_build_error_loc`.
     StampedCallSite,
     /// `emit_finalize_worker_error_source` — a propagated `thread::waitFor` error.
-    /// The WORKER's `ErrorLoc` has already been deep-copied into THIS arena by
+    /// The worker's `ErrorLoc` (in the thread's block arena) has already been
+    /// deep-copied into THIS arena by
     /// `copy_value_to_current_arena` (or, when `waitFor` raised its own error,
     /// stamped with `emit_build_error_loc`); either way the pointer the park sees
     /// is this frame's copy, never the worker's original. `x19` is per-thread, so

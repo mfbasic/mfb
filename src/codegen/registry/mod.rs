@@ -6744,8 +6744,8 @@ mod raw_result_block_ownership {
     /// Every one is in the `thread` family, and every one's declared return type is
     /// a type VARIABLE — `thread::waitFor` is `Out`, `thread::receive` is `Msg` —
     /// so the concrete type is only known at the instantiation, and it can perfectly
-    /// well be a `String`. The block behind it was allocated by the WORKER, in the
-    /// worker's arena; `materialize_current_result`'s `worker_error_source` flag
+    /// well be a `String`. The block behind it lives in the thread's block arena
+    /// (plan-156-A); `materialize_current_result`'s `worker_error_source` flag
     /// exists for exactly that reason on the error side. Freeing one from the
     /// calling thread writes this thread's free list into another thread's heap.
     ///

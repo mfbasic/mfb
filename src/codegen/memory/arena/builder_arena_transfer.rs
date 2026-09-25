@@ -119,7 +119,8 @@ pub(crate) enum TrappedErrorSource {
     /// a runtime helper trapped here, which has no MFB-level origin of its own.
     CurrentLocation,
     /// An inline-trapped `thread::waitFor`: the message and origin live in the
-    /// WORKER arena and are deep-copied into this one before they are inlined.
+    /// thread's block arena (plan-156-A) and are deep-copied into this one before
+    /// they are inlined.
     WorkerArena,
 }
 
@@ -205,7 +206,7 @@ impl CodeBuilder<'_> {
         success_type: &ParameterType,
         text: String,
         // When true (an inline-trapped `thread::waitFor`), the error's message and
-        // origin live in the worker arena and arrive in x2/x3; they are deep-copied
+        // origin live in the thread's block arena and arrive in x2/x3; they are deep-copied
         // into the caller arena. Otherwise the error originates at this inline
         // expression and its `ErrorLoc` is built from the current source location.
         worker_error_source: bool,
@@ -313,7 +314,7 @@ impl CodeBuilder<'_> {
             // audited its producer says `OwnedByThisFrame`; every other site — an
             // operator temp already registered for the statement-scope free, a
             // `.mfb` callee's block bug-561 already owns, a `thread::waitFor` result
-            // that lives in the WORKER's arena — says `OwnedElsewhere` and nothing
+            // that lives in the thread's block arena — says `OwnedElsewhere` and nothing
             // is emitted at all.
             if raw_success == RawSuccessBlock::OwnedByThisFrame {
                 // The runtime guard: `copy_value_to_current_arena` is a deep copy
@@ -535,7 +536,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(scratch9.clone(), abi::stack_pointer(), raw));
                 message_borrowed_slot = raw;
                 // A propagated worker error: deep-copy its message and origin out of
-                // the (still-alive) worker arena into the caller arena. If the helper
+                // the thread's block arena (alive until this side lets go of the
+                // handle) into the caller arena. If the helper
                 // raised its own error (source == 0), stamp this inline expression.
                 self.emit(abi::load_u64(
                     scratch9.clone(),
@@ -800,10 +802,10 @@ impl CodeBuilder<'_> {
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
             // bug-479: a thread handle is carried by POINTER, exactly like the
-            // non-sendable resource arm below and for the same reasons. It is a
-            // 120-byte block holding pointers to its two message queues and two
-            // resource queues, so a deep copy would duplicate the block while the
-            // queues stayed behind — every send into the copy would be lost.
+            // non-sendable resource arm below and for the same reasons. It is the
+            // control block the worker shares (plan-156-A), so a deep copy would
+            // duplicate the block while the worker kept using the original — every
+            // send into the copy would be lost.
             //
             // Carrying the pointer is sound here because the only materialization
             // that reaches this arm is a SAME-ARENA one: an inline `TRAP` wrapping

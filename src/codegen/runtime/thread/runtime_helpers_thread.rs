@@ -70,13 +70,6 @@ pub(crate) fn worker_arena_state_size(arena_global_slots: usize) -> usize {
     ENTRY_GLOBALS_OFFSET + arena_global_slots * 8
 }
 
-/// What `thread.drop` needs when it lets go of a finished thread — whether its arenas
-/// are in the `--debug` arena registry.
-#[derive(Clone, Copy)]
-pub(crate) struct ThreadRelease {
-    pub(crate) debug_arena_registry: bool,
-}
-
 // ---------------------------------------------------------------------------
 // Block-lock primitives. Every one reads the control block from the frame word
 // `block` (an `arena_free`, a lock or a wait clobbers every caller-saved register,
@@ -193,9 +186,7 @@ fn emit_close_resource_queues_locked(ctx: &mut EmitCtx, block: usize) -> Result<
 }
 
 /// Drop one of the block's two references (plan-156-A §4.4) and, when it was the
-/// last, free the block. `block` is the frame word holding the block. `pre_free` is
-/// emitted after the count reached zero and before the block is freed — the
-/// handle side's frees of its own parent-arena blocks.
+/// last, free the block. `block` is the frame word holding the block.
 ///
 /// The count only changes under the block lock, so exactly one side sees it reach
 /// zero. A handle-side caller that sees zero joins a worker it has not yet joined or
@@ -206,10 +197,7 @@ fn emit_release_reference(
     block: usize,
     scratch: usize,
     join_first: bool,
-    release: ThreadRelease,
-    pre_free: impl FnOnce(&mut EmitCtx) -> Result<(), String>,
 ) -> Result<(), String> {
-    let _ = release;
     let site = ctx.instructions.len();
     let kept = format!("{}_release_{site}_kept", ctx.symbol);
     let joined = format!("{}_release_{site}_joined", ctx.symbol);
@@ -242,7 +230,6 @@ fn emit_release_reference(
             abi::label(&joined),
         ]);
     }
-    pre_free(ctx)?;
     ctx.instructions.extend([
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), block),
         abi::branch_link(THREAD_BLOCK_RELEASE_SYMBOL),
@@ -253,195 +240,13 @@ fn emit_release_reference(
     Ok(())
 }
 
-/// The handle side's frees of the blocks IT carved from its own arena that the
-/// thread still referenced: every message the parent sent that is still in, or was
-/// last read from, an inbound queue (bug-646/bug-650), and the seed (bug-655). Run by
-/// the handle side after the release count reached zero — the worker is finished, so
-/// nothing reads them — and only there: a worker that releases last cannot free
-/// another thread's arena blocks.
-///
-/// `block` holds the control block; the other four words are free frame scratch that
-/// survives `arena_free`'s register clobber.
-fn emit_free_parent_arena_blocks(
-    ctx: &mut EmitCtx,
-    block: usize,
-    ring_index: usize,
-    ring_left: usize,
-    ring_entry: usize,
-    ring_state: usize,
-) -> Result<(), String> {
-    let symbol = ctx.symbol;
-    let site = ctx.instructions.len();
-    for queue in [
-        CONTROL_OFFSET_INBOUND_QUEUE,
-        CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE,
-    ] {
-        let label = |what: &str| format!("{symbol}_parent_free_{site}_{queue}_{what}");
-        let drain = label("drain");
-        let drained = label("drained");
-        let retire = label("retire");
-        let ring_loop = label("ring");
-        let ring_wrap = label("ring_wrap");
-        let ring_done = label("ring_done");
-        let ring_state_done = label("ring_state_done");
-        let drain_state_done = label("drain_state_done");
-        let resource_plane = queue == CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE;
-        ctx.instructions.extend([
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::add_immediate("%v9", "%v8", queue),
-            // bug-646: the block the reader's LAST read handed out was never retired
-            // (no further read followed it): park it on the pending-free list so the
-            // drain below frees it with everything else. Size 0 = not reclaimable.
-            abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_eq(&retire),
-            abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-            abi::compare_immediate("%v11", "0"),
-            abi::branch_eq(&retire),
-            abi::load_u64("%v12", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-            abi::store_u64("%v12", "%v10", 0),
-            abi::store_u64("%v11", "%v10", 8),
-        ]);
-        if resource_plane {
-            // bug-650 case 2: its STATE size rides the node's third word — on the
-            // resource plane only, where every block is one resource record.
-            ctx.instructions.extend([
-                abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
-                abi::store_u64("%v11", "%v10", PENDING_FREE_STATE_SIZE),
-            ]);
-        }
-        ctx.instructions.extend([
-            abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-            abi::label(&retire),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
-            // bug-650 case 1: every message still IN the ring — sent, never received.
-            // Walk `count` entries from `head` and free each by its recorded size.
-            abi::load_u64("%v10", "%v9", THREAD_QUEUE_HEAD_OFFSET),
-            abi::store_u64("%v10", abi::stack_pointer(), ring_index),
-            abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-            abi::store_u64("%v10", abi::stack_pointer(), ring_left),
-            abi::label(&ring_loop),
-            abi::load_u64("%v10", abi::stack_pointer(), ring_left),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_eq(&ring_done),
-            abi::subtract_immediate("%v10", "%v10", 1),
-            abi::store_u64("%v10", abi::stack_pointer(), ring_left),
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::add_immediate("%v9", "%v8", queue),
-            abi::load_u64("%v10", abi::stack_pointer(), ring_index),
-            abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-            abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
-            abi::add_registers("%v11", "%v11", "%v12"),
-            abi::store_u64("%v11", abi::stack_pointer(), ring_entry),
-            // Advance the index (wrapping at capacity) before the free below.
-            abi::add_immediate("%v10", "%v10", 1),
-            abi::load_u64("%v12", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
-            abi::compare_registers("%v10", "%v12"),
-            abi::branch_lt(&ring_wrap),
-            abi::move_immediate("%v10", "Integer", "0"),
-            abi::label(&ring_wrap),
-            abi::store_u64("%v10", abi::stack_pointer(), ring_index),
-            abi::load_u64(abi::c_arg(0), "%v11", 0),
-            abi::compare_immediate(abi::c_arg(0), "0"),
-            abi::branch_eq(&ring_loop),
-        ]);
-        if resource_plane {
-            ctx.instructions.extend([
-                abi::store_u64(abi::c_arg(0), abi::stack_pointer(), ring_state),
-                abi::load_u64(abi::c_arg(1), "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
-                abi::compare_immediate(abi::c_arg(1), "0"),
-                abi::branch_eq(&ring_state_done),
-                abi::load_u64(abi::c_arg(0), abi::c_arg(0), RESOURCE_OFFSET_STATE),
-                abi::compare_immediate(abi::c_arg(0), "0"),
-                abi::branch_eq(&ring_state_done),
-                abi::branch_link(ARENA_FREE_SYMBOL),
-            ]);
-            ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-            ctx.instructions.extend([
-                abi::label(&ring_state_done),
-                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ring_state),
-                abi::load_u64("%v11", abi::stack_pointer(), ring_entry),
-            ]);
-        }
-        ctx.instructions.extend([
-            abi::load_u64(abi::c_arg(1), "%v11", 8),
-            abi::compare_immediate(abi::c_arg(1), "0"),
-            abi::branch_eq(&ring_loop),
-            abi::branch_link(ARENA_FREE_SYMBOL),
-        ]);
-        ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-        ctx.instructions.extend([
-            abi::branch(&ring_loop),
-            abi::label(&ring_done),
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::add_immediate("%v9", "%v8", queue),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_COUNT_OFFSET),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_HEAD_OFFSET),
-            abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_TAIL_OFFSET),
-            abi::label(&drain),
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::add_immediate("%v9", "%v8", queue),
-            abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_eq(&drained),
-            abi::load_u64("%v11", "%v10", 0),
-            abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        ]);
-        if resource_plane {
-            ctx.instructions.extend([
-                abi::store_u64("%v10", abi::stack_pointer(), ring_index),
-                abi::load_u64(abi::c_arg(1), "%v10", PENDING_FREE_STATE_SIZE),
-                abi::compare_immediate(abi::c_arg(1), "0"),
-                abi::branch_eq(&drain_state_done),
-                abi::load_u64(abi::c_arg(0), "%v10", RESOURCE_OFFSET_STATE),
-                abi::compare_immediate(abi::c_arg(0), "0"),
-                abi::branch_eq(&drain_state_done),
-                abi::branch_link(ARENA_FREE_SYMBOL),
-            ]);
-            ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-            ctx.instructions.extend([
-                abi::label(&drain_state_done),
-                abi::load_u64("%v10", abi::stack_pointer(), ring_index),
-            ]);
-        }
-        ctx.instructions.extend([
-            abi::load_u64(abi::c_arg(1), "%v10", 8),
-            abi::move_register(abi::c_arg(0), "%v10"),
-            abi::branch_link(ARENA_FREE_SYMBOL),
-        ]);
-        ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-        ctx.instructions
-            .extend([abi::branch(&drain), abi::label(&drained)]);
-    }
-    // bug-655: the SEED block. `thread::start` stores the caller's pointer rather than
-    // copying it, so the worker read this block for its whole life; the worker is
-    // finished now and this is the arena that carved it. Size 0 = nothing to free.
-    let seed_done = format!("{symbol}_parent_free_{site}_seed_done");
-    ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), block),
-        abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_DATA),
-        abi::compare_immediate(abi::c_arg(0), "0"),
-        abi::branch_eq(&seed_done),
-        abi::load_u64(abi::c_arg(1), "%v8", CONTROL_OFFSET_DATA_SIZE),
-        abi::compare_immediate(abi::c_arg(1), "0"),
-        abi::branch_eq(&seed_done),
-        abi::branch_link(ARENA_FREE_SYMBOL),
-    ]);
-    ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    ctx.instructions.push(abi::label(&seed_done));
-    Ok(())
-}
-
 pub(crate) fn simple_thread_handle_helper(
     symbol: &str,
     op: ThreadSimpleOp,
-    release: ThreadRelease,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
-    const FRAME_SIZE: usize = 112;
+    const FRAME_SIZE: usize = 64;
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
     const TAG_OFFSET: usize = 24;
@@ -453,12 +258,6 @@ pub(crate) fn simple_thread_handle_helper(
     // Drop only: the drop mode (`THREAD_DROP_CLOSE` | `THREAD_DROP_RELEASE`), rewritten
     // to `DROP_MODE_FREE` when this drop's release takes the owner count to 0.
     const MODE_OFFSET: usize = 56;
-    // Drop only: the parent-arena frees' ring cursor, remaining count, entry, and the
-    // record whose STATE block is freed ahead of it (bug-650).
-    const RING_INDEX_OFFSET: usize = 64;
-    const RING_LEFT_OFFSET: usize = 72;
-    const RING_ENTRY_OFFSET: usize = 80;
-    const RING_STATE_OFFSET: usize = 88;
     const DROP_MODE_FREE: &str = "7";
 
     let mut instructions = Vec::new();
@@ -750,23 +549,7 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::compare_immediate("%v9", DROP_MODE_FREE),
                 abi::branch_ne(&done),
             ]);
-            emit_release_reference(
-                &mut ctx,
-                HANDLE_OFFSET,
-                REFS_OFFSET,
-                true,
-                release,
-                |ctx| {
-                    emit_free_parent_arena_blocks(
-                        ctx,
-                        HANDLE_OFFSET,
-                        RING_INDEX_OFFSET,
-                        RING_LEFT_OFFSET,
-                        RING_ENTRY_OFFSET,
-                        RING_STATE_OFFSET,
-                    )
-                },
-            )?;
+            emit_release_reference(&mut ctx, HANDLE_OFFSET, REFS_OFFSET, true)?;
             ctx.instructions.extend([
                 abi::label(&done),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -893,23 +676,7 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::compare_immediate("%v9", "0"),
                 abi::branch_eq(&stub),
             ]);
-            emit_release_reference(
-                &mut ctx,
-                HANDLE_OFFSET,
-                REFS_OFFSET,
-                true,
-                release,
-                |ctx| {
-                    emit_free_parent_arena_blocks(
-                        ctx,
-                        HANDLE_OFFSET,
-                        RING_INDEX_OFFSET,
-                        RING_LEFT_OFFSET,
-                        RING_ENTRY_OFFSET,
-                        RING_STATE_OFFSET,
-                    )
-                },
-            )?;
+            emit_release_reference(&mut ctx, HANDLE_OFFSET, REFS_OFFSET, true)?;
             ctx.instructions.extend([
                 abi::branch(&keep),
                 abi::label(&stub),
@@ -1168,26 +935,24 @@ pub(crate) fn thread_queue_write_helper(
     const HANDLE_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
     const TIMEOUT_OFFSET: usize = 24;
-    const TIMESPEC_OFFSET: usize = 40;
-    // Byte size of the message copy (arg 3), so a failed send can record it on the
-    // pending-free list for the sender to reclaim (bug-147.5b). Must sit past the
-    // 16-byte timespec at [40, 56) (bug-163).
-    const DATA_SIZE_OFFSET: usize = 56;
-    // bug-650 case 2: byte size of the message's STATE block (arg 4), 0 when it has none.
-    const DATA_STATE_SIZE_OFFSET: usize = 64;
-    let resource_plane = matches!(
-        queue_offset,
-        CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE | CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE
-    );
+    // The 16-byte absolute deadline, [32, 48).
+    const TIMESPEC_OFFSET: usize = 32;
+    // plan-156-A: arg 3, the message type's copy function (0 = the word is the value).
+    const COPY_OFFSET: usize = 48;
+    // The block arena, and the caller's arena parked across the copy into it.
+    const ARENA_OFFSET: usize = 56;
+    const SAVED_ARENA_OFFSET: usize = 64;
 
     let invalid = format!("{symbol}_invalid");
     let timeout_ok = format!("{symbol}_timeout_ok");
     let closed = format!("{symbol}_closed");
     let interrupted = format!("{symbol}_interrupted");
     let timeout = format!("{symbol}_timeout");
+    let copy_failed = format!("{symbol}_copy_failed");
     let wait_loop = format!("{symbol}_wait_loop");
     let wait_indefinite = format!("{symbol}_wait_indefinite");
     let enqueue = format!("{symbol}_enqueue");
+    let store = format!("{symbol}_store");
     let tail_wrap = format!("{symbol}_tail_wrap");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
@@ -1204,8 +969,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), DATA_SIZE_OFFSET),
-        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
+        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), COPY_OFFSET),
         // plan-73-A: a non-negative `timeoutMs` is a real timeout (0 = one immediate
         // attempt, N = wait N ms). The unbounded sentinel (i64::MIN) is the omit=block
         // form and is accepted; any OTHER negative value is `ErrInvalidArgument`.
@@ -1224,29 +988,7 @@ pub(crate) fn thread_queue_write_helper(
     }
     emit_thread_deadline(&mut ctx, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
     emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
-    // bug-646: drain the queue's pending-free list — every block on it was carved by
-    // THIS side (the sender allocates the boundary copy in its own arena, bug-498), so
-    // this is the thread whose bins the memory must go back to. Each node carries
-    // `{next, size}` in its own first two words.
-    let write_drain_loop = format!("{symbol}_pending_free_drain");
-    let write_drain_done = format!("{symbol}_pending_free_done");
     ctx.instructions.extend([
-        abi::label(&write_drain_loop),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::compare_immediate("%v10", "0"),
-        abi::branch_eq(&write_drain_done),
-        abi::load_u64("%v11", "%v10", 0),
-        abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v10", 8),
-        abi::move_register(abi::c_arg(0), "%v10"),
-        abi::branch_link(ARENA_FREE_SYMBOL),
-    ]);
-    ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    ctx.instructions.extend([
-        abi::branch(&write_drain_loop),
-        abi::label(&write_drain_done),
         abi::label(&wait_loop),
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
     ]);
@@ -1301,9 +1043,33 @@ pub(crate) fn thread_queue_write_helper(
         THREAD_QUEUE_NOT_FULL_OFFSET,
         None,
     )?;
+    // plan-156-A: the enqueue is now certain — the queue has room and is open — so
+    // copy the message into the block arena, under the block lock that serializes
+    // every allocation in it. Copying only here means a failed send (full, closed,
+    // cancelled, timed out) never made a copy, and a resource's source is flagged
+    // `moved` (by its copy) only when it really moves (bug-425).
     ctx.instructions.extend([
         abi::branch(&wait_loop),
         abi::label(&enqueue),
+        abi::load_u64("%v9", abi::stack_pointer(), COPY_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&store),
+        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
+        abi::store_u64("%v9", abi::stack_pointer(), ARENA_OFFSET),
+    ]);
+    emit_call_in_block_arena(
+        ctx.instructions,
+        ARENA_OFFSET,
+        SAVED_ARENA_OFFSET,
+        COPY_OFFSET,
+        DATA_OFFSET,
+    );
+    ctx.instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&copy_failed),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
+        abi::label(&store),
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
         abi::add_immediate("%v9", "%v8", queue_offset),
         abi::load_u64("%v10", "%v9", THREAD_QUEUE_TAIL_OFFSET),
@@ -1312,13 +1078,6 @@ pub(crate) fn thread_queue_write_helper(
         abi::add_registers("%v11", "%v11", "%v12"),
         abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("%v12", "%v11", 0),
-        // bug-646: the entry's second word is the copy's byte size (0 = not
-        // reclaimable), so the reader can hand the block back for the sender to free.
-        abi::load_u64("%v12", abi::stack_pointer(), DATA_SIZE_OFFSET),
-        abi::store_u64("%v12", "%v11", 8),
-        // bug-650 case 2: the entry's third word is the STATE block's byte size.
-        abi::load_u64("%v12", abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
-        abi::store_u64("%v12", "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),
@@ -1359,6 +1118,17 @@ pub(crate) fn thread_queue_write_helper(
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&timeout)]);
     raise_error_into(symbol, "ErrTimeout", ctx.instructions, ctx.relocations);
+    // The copy ran out of memory. Whatever it allocated before failing stays in the
+    // block arena until the block is freed; its own error is discarded (it was built
+    // with the arena register on the block arena) and a plain one raised here.
+    ctx.instructions
+        .extend([abi::branch(&unlock), abi::label(&copy_failed)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        ctx.instructions,
+        ctx.relocations,
+    );
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&invalid)]);
     raise_error_into(
@@ -1367,40 +1137,9 @@ pub(crate) fn thread_queue_write_helper(
         ctx.instructions,
         ctx.relocations,
     );
-    let skip_orphan_push = format!("{symbol}_skip_orphan_push");
     ctx.instructions.extend([
         abi::branch(&done),
         abi::label(&unlock),
-        // bug-147.5b: a failed send (tag != Ok) leaves the message copy orphaned (in the
-        // SENDER's arena since bug-498). Still holding the lock, push it onto the queue's
-        // pending-free list — reusing the dead block's own first two words as
-        // `{next, size}` — so this side reclaims it on its next write. The result
-        // registers are live, so scratch stays in %v8-%v11.
-        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&skip_orphan_push),
-        // Size 0: not a reclaimable block (a scalar, or a type whose exact copy size is
-        // not computed) — skip rather than risk a wrong-size `arena_free`.
-        abi::load_u64("%v10", abi::stack_pointer(), DATA_SIZE_OFFSET),
-        abi::compare_immediate("%v10", "0"),
-        abi::branch_eq(&skip_orphan_push),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v8", "%v8", queue_offset),
-        abi::load_u64("%v9", abi::stack_pointer(), DATA_OFFSET),
-        abi::load_u64("%v11", "%v8", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::store_u64("%v11", "%v9", 0),
-        abi::store_u64("%v10", "%v9", 8),
-        abi::store_u64("%v9", "%v8", THREAD_QUEUE_PENDING_FREE_OFFSET),
-    ]);
-    if resource_plane {
-        // bug-650 case 2: the orphan's STATE block goes with it (third word of the
-        // node, in range because a resource-plane block is one resource record).
-        ctx.instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), DATA_STATE_SIZE_OFFSET),
-            abi::store_u64("%v10", "%v9", PENDING_FREE_STATE_SIZE),
-        ]);
-    }
-    ctx.instructions.extend([
-        abi::label(&skip_orphan_push),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(
@@ -1455,17 +1194,21 @@ pub(crate) fn thread_queue_read_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
     let worker_self = mode == ThreadReadMode::WorkerSelf;
-    let resource_plane = matches!(
-        queue_offset,
-        CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE | CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE
-    );
-    const FRAME_SIZE: usize = 80;
+    const FRAME_SIZE: usize = 96;
     const HANDLE_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
+    // plan-156-A: arg 2, the message type's drop function (0 = the word is the value).
+    const DROP_OFFSET: usize = 24;
     const VALUE_OFFSET: usize = 32;
     const TAG_OFFSET: usize = 40;
     const ERROR_OFFSET: usize = 48;
+    // The 16-byte absolute deadline, [56, 72).
     const TIMESPEC_OFFSET: usize = 56;
+    // The block arena, the caller's arena parked across the drop, and the message
+    // being dropped.
+    const ARENA_OFFSET: usize = 72;
+    const SAVED_ARENA_OFFSET: usize = 80;
+    const RETIRED_OFFSET: usize = 88;
 
     let invalid = format!("{symbol}_invalid");
     let found = format!("{symbol}_found");
@@ -1477,6 +1220,7 @@ pub(crate) fn thread_queue_read_helper(
     let closed = format!("{symbol}_closed");
     let timeout = format!("{symbol}_timeout");
     let head_wrap = format!("{symbol}_head_wrap");
+    let head_advance = format!("{symbol}_head_advance");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
     let mut instructions = Vec::new();
@@ -1491,6 +1235,7 @@ pub(crate) fn thread_queue_read_helper(
     ctx.instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), DROP_OFFSET),
     ]);
     if worker_self {
         // The caller's `x0` is this worker's own control block (the handle is
@@ -1513,40 +1258,31 @@ pub(crate) fn thread_queue_read_helper(
     ]);
     emit_thread_deadline(&mut ctx, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
     emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
-    // bug-646: retire the block the PREVIOUS read handed out. The call site deep-copies
-    // the queued block into the reader's OWN arena, after which the queued block —
-    // carved by the sender (bug-498) — has no owner. It cannot be parked the instant it
-    // is handed out (the call-site copy has not run yet), so each read parks the one
-    // before it: each queue has exactly one reader, so "the previous read" is a strictly
-    // earlier point on THIS thread. The SENDER drains the list (its arena carved them).
-    let retire_clear = format!("{symbol}_pending_free_clear");
-    let retire_done = format!("{symbol}_pending_free_done");
+    // plan-156-A: drop the block-arena message the PREVIOUS read handed out (bug-646's
+    // "one read behind"). The call site copies a message into the reader's own arena
+    // after this helper returns, so the message a read returns stays queue-owned until
+    // the next read on this queue — strictly later, on this same thread, since each
+    // queue has exactly one reader. The drop runs on the block arena, under the lock.
+    let retire_done = format!("{symbol}_retire_done");
     ctx.instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
         abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
+        abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
         abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&retire_done),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-        abi::compare_immediate("%v11", "0"),
-        abi::branch_eq(&retire_clear),
-        abi::load_u64("%v12", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::store_u64("%v12", "%v10", 0),
-        abi::store_u64("%v11", "%v10", 8),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
+        abi::store_u64("%v10", abi::stack_pointer(), RETIRED_OFFSET),
+        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
+        abi::store_u64("%v9", abi::stack_pointer(), ARENA_OFFSET),
     ]);
-    if resource_plane {
-        // bug-650 case 2: carry the parked block's STATE size into the node's third word.
-        ctx.instructions.extend([
-            abi::load_u64("%v11", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
-            abi::store_u64("%v11", "%v10", PENDING_FREE_STATE_SIZE),
-        ]);
-    }
+    emit_call_in_block_arena(
+        ctx.instructions,
+        ARENA_OFFSET,
+        SAVED_ARENA_OFFSET,
+        DROP_OFFSET,
+        RETIRED_OFFSET,
+    );
     ctx.instructions.extend([
-        abi::label(&retire_clear),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
         abi::label(&retire_done),
         abi::label(&wait_loop),
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -1616,14 +1352,13 @@ pub(crate) fn thread_queue_read_helper(
         abi::add_registers("%v11", "%v11", "%v12"),
         abi::load_u64("%v13", "%v11", 0),
         abi::store_u64("%v13", abi::stack_pointer(), VALUE_OFFSET),
-        // bug-646: remember the block (and the size the sender recorded with it) as the
-        // one to retire on this queue's next read.
-        abi::load_u64("%v12", "%v11", 8),
-        abi::store_u64("%v13", "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
-        abi::store_u64("%v12", "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-        // bug-650 case 2: and the STATE size the sender recorded in the third word.
-        abi::load_u64("%v12", "%v11", THREAD_QUEUE_ENTRY_STATE_SIZE),
-        abi::store_u64("%v12", "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
+        // Remember a block-arena message as the one the next read drops. Only when this
+        // type has a drop function: a word-sized message is not a pointer at all.
+        abi::load_u64("%v12", abi::stack_pointer(), DROP_OFFSET),
+        abi::compare_immediate("%v12", "0"),
+        abi::branch_eq(&head_advance),
+        abi::store_u64("%v13", "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
+        abi::label(&head_advance),
         abi::add_immediate("%v10", "%v10", 1),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
         abi::compare_registers("%v10", "%v11"),
@@ -1724,10 +1459,11 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 }
 
 /// `_mfb_rt_thread_finish(block, tag, value, message, source)`: the worker's exit,
-/// called by the trampoline with the entry's result. Under the block lock it publishes
-/// the result and `COMPLETED` (unless the handle side already closed the thread, which
-/// then reads nothing), closes the inbound and both resource queues and wakes every
-/// waiter of every queue, and drops the worker's reference. When that was the last
+/// called by the trampoline with the entry's result. Under the block lock it copies
+/// the result into the block arena and publishes it with `COMPLETED` (unless the handle
+/// side already closed the thread, which then reads nothing), closes the inbound and
+/// both resource queues and wakes every waiter of every queue, and drops the worker's
+/// reference. When that was the last
 /// reference — the handle side let go of a thread that was still running — the worker
 /// frees the block itself.
 pub(crate) fn lower_thread_finish(
@@ -1735,14 +1471,34 @@ pub(crate) fn lower_thread_finish(
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
     let symbol = THREAD_FINISH_SYMBOL;
-    const LOCALS: usize = 64;
+    const LOCALS: usize = 80;
     const BLOCK: usize = 8;
     const TAG: usize = 16;
     const VALUE: usize = 24;
     const MESSAGE: usize = 32;
     const SOURCE: usize = 40;
     const REFS: usize = 48;
+    // The block arena, the caller's (the worker's) arena parked across a copy, and
+    // the result type's copy function.
+    const ARENA: usize = 56;
+    const SAVED_ARENA: usize = 64;
+    const COPY: usize = 72;
     let result_closed = format!("{symbol}_result_closed");
+    let result_store = format!("{symbol}_result_store");
+    let error_copy = format!("{symbol}_error_copy");
+    let message_done = format!("{symbol}_message_done");
+    let source_done = format!("{symbol}_source_done");
+    let copy_failed = format!("{symbol}_copy_failed");
+    // The worker's error travels as a `String` message and an `ErrorLoc` origin; their
+    // copy functions are fixed, requested here for this module.
+    let string_copy = super::value_functions::request(
+        super::value_functions::ThreadValueFn::Copy,
+        &crate::types::ParameterType::String,
+    );
+    let loc_copy = super::value_functions::request(
+        super::value_functions::ThreadValueFn::Copy,
+        &crate::types::ParameterType::named("ErrorLoc"),
+    );
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
@@ -1760,11 +1516,80 @@ pub(crate) fn lower_thread_finish(
         relocations: &mut relocations,
     };
     emit_block_lock(&mut ctx, BLOCK)?;
+    // A handle side that already closed the thread reads no result: skip the copies.
+    // Otherwise move the result into the block arena — everything the parent reads
+    // must outlive this worker's own arena. The copies run under the block lock with
+    // the arena register on the block arena.
     ctx.instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
         abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
         abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
         abi::branch_eq(&result_closed),
+        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
+        abi::store_u64("%v9", abi::stack_pointer(), ARENA),
+        abi::load_u64("%v9", abi::stack_pointer(), TAG),
+        abi::compare_immediate("%v9", RESULT_OK_TAG),
+        abi::branch_ne(&error_copy),
+        // Success: the value, through the result type's copy function (0 = a word).
+        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_COPY),
+        abi::store_u64("%v9", abi::stack_pointer(), COPY),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&result_store),
+    ]);
+    emit_call_in_block_arena(ctx.instructions, ARENA, SAVED_ARENA, COPY, VALUE);
+    ctx.instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&copy_failed),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE),
+        abi::branch(&result_store),
+        // Failure: the message and the origin (either may be absent).
+        abi::label(&error_copy),
+        abi::load_u64("%v9", abi::stack_pointer(), MESSAGE),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&message_done),
+    ]);
+    crate::codegen::runtime::thread::emit_with_arena(ctx.instructions, ARENA, SAVED_ARENA, |i| {
+        i.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), MESSAGE),
+            abi::branch_link(&string_copy),
+        ]);
+    });
+    ctx.relocations.push(internal_branch(symbol, &string_copy));
+    ctx.instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&copy_failed),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), MESSAGE),
+        abi::label(&message_done),
+        abi::load_u64("%v9", abi::stack_pointer(), SOURCE),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&source_done),
+    ]);
+    crate::codegen::runtime::thread::emit_with_arena(ctx.instructions, ARENA, SAVED_ARENA, |i| {
+        i.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), SOURCE),
+            abi::branch_link(&loc_copy),
+        ]);
+    });
+    ctx.relocations.push(internal_branch(symbol, &loc_copy));
+    ctx.instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&copy_failed),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), SOURCE),
+        abi::label(&source_done),
+        abi::branch(&result_store),
+        // A copy ran out of memory: the parent gets a plain `ErrOutOfMemory` (static
+        // message, no origin) instead of a result that would point into this worker's
+        // arena.
+        abi::label(&copy_failed),
+    ]);
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
+    ctx.instructions.extend([
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE),
+        abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, abi::stack_pointer(), MESSAGE),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SOURCE),
+        abi::label(&result_store),
+        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
         abi::load_u64("%v9", abi::stack_pointer(), TAG),
         abi::store_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_TAG),
         abi::load_u64("%v9", abi::stack_pointer(), VALUE),

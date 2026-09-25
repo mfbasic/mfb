@@ -20,6 +20,7 @@ mod clock;
 mod perf;
 pub(crate) mod process;
 mod shutdown;
+mod thread;
 #[cfg(test)]
 mod tests;
 mod write;
@@ -121,6 +122,7 @@ pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] = &[
     &perf::PerfFeature,
     &arena::ArenaFeature,
     &process::ProcessFeature,
+    &thread::ThreadFeature,
 ];
 
 /// Whether `module` carries the report: a `--debug` build of a program with an

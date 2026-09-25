@@ -1155,6 +1155,9 @@ pub(crate) fn lower_module_for_platform(
     // finalization dispatch selection + register allocation through it instead of
     // naming AArch64 directly (plan-00-H/I additivity).
     mir::set_backend(platform.backend());
+    // plan-156-A: the per-type thread value functions this module's call sites
+    // request are collected while its functions lower; start from none.
+    crate::codegen::runtime::thread::value_functions::reset();
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
     // same codegen. The legacy flat binary_repr -> native package bridge is no
@@ -1508,11 +1511,13 @@ pub(crate) fn lower_module_for_platform(
     // have a live worker — on EVERY platform family. This is not a platform
     // preference, it is a use-after-free.
     //
-    // `thread.start` `arena_alloc`s BOTH the worker's thread control block and the
-    // worker's entire arena-state block (arena state + the per-arena globals
-    // region, stored at `THREAD_OFFSET_ARENA_STATE`) out of the SPAWNING thread's
-    // arena, so a running worker's two pinned registers — its arena register and
-    // `abi::CURRENT_THREAD` — both point INTO the main arena's blocks. Dropping a
+    // `thread.start` used to `arena_alloc` BOTH the worker's thread control block and
+    // the worker's entire arena-state block (arena state + the per-arena globals
+    // region) out of the SPAWNING thread's arena, so a running worker's two pinned
+    // registers — its arena register and `abi::CURRENT_THREAD` — both pointed INTO the
+    // main arena's blocks. plan-156-A moved both to the process heap; whether any
+    // other worker pointer into the main arena remains is plan-156-B's audit, and
+    // until it proves none does, the skip stays. Dropping a
     // `Thread` handle only cancels and broadcasts (detached semantics, bug-205), so
     // a program that returns from `main` without `thread::waitFor` reaches
     // `_mfb_shutdown` with those blocks live; `_mfb_arena_destroy` then
@@ -2868,6 +2873,26 @@ pub(crate) fn lower_module_for_platform(
         )?);
         code_functions.push(lower_thread_finish(&platform_imports, platform)?);
         data_objects.push(thread_table_data_object(platform.family()));
+    }
+    // plan-156-A: every per-type copy/drop function a thread call site (or the
+    // worker exit above) asked for. Unconditional: a module can send or receive
+    // without starting a thread (a package's worker entry).
+    for (symbol, kind, type_) in crate::codegen::runtime::thread::value_functions::take_requested()
+    {
+        code_functions.push(crate::codegen::runtime::thread::lower_thread_value_function(
+            kind,
+            &type_,
+            &symbol,
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
     }
     // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
     // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.

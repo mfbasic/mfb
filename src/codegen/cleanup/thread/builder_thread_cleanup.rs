@@ -92,31 +92,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&skip));
     }
 
-    /// A thread `start`/`transferResource`/`emitResource` moves its data argument
-    /// (`args[1]`) across the arena boundary. If that argument was a fresh heap
-    /// temporary, claim it so the statement-scope free never reclaims a block the
-    /// worker/queue may still reference — conservatively preserving the
-    /// pre-plan-25 behaviour (these cross-arena values were never freed by the
-    /// sender). A `Local` data argument is an aliasing source that was never
+    /// A thread `transferResource`/`emitResource` moves its resource argument
+    /// (`args[1]`) across the thread boundary. If that argument was a fresh heap
+    /// temporary, claim it so the statement-scope free never reclaims a record whose
+    /// handle has moved. A `Local` argument is an aliasing source that was never
     /// registered, so this is a no-op for it (plan-25).
     ///
-    /// bug-629 Part A / bug-649: `thread.send` and `thread.emit` are NOT in that
-    /// list. They are the two targets whose helper deep-copies the message into
-    /// the sender's own arena and hands the COPY across
-    /// (`emit_thread_send_runtime_helper_call`, bug-498), so the original never
-    /// crosses anything and claiming it only removed its one owner — 32 B per
-    /// parent send, 16 B per worker send, leaked forever. The copy has its own
-    /// owner on both outcomes: a delivered one is reclaimed through the queue's
-    /// pending-free list by the sender (bug-646), a failed send's orphan by the
-    /// same list (bug-147.5b). `thread.start` stays claimed because it does NOT
-    /// copy — it stores the caller's pointer in `CONTROL_OFFSET_DATA` and the
-    /// worker body reads it as its argument for the thread's whole life, so the
-    /// statement-scope free would be a use-after-free.
+    /// `thread.start`, `thread.send` and `thread.emit` are NOT in the list: their
+    /// helpers deep-copy the value into the thread's block arena (plan-156-A) and
+    /// hand the COPY across, so the original never crosses and its owner frees it as
+    /// usual (bug-629 Part A / bug-649 for the sends; before plan-156-A the seed was
+    /// handed over uncopied and had to be claimed).
     pub(crate) fn claim_moved_thread_arg_temp(&mut self, target: &str, arg_values: &[ValueResult]) {
-        if matches!(
-            target,
-            "thread.start" | "thread.transferResource" | "thread.emitResource"
-        ) {
+        if matches!(target, "thread.transferResource" | "thread.emitResource") {
             if let Some(arg) = arg_values.get(1) {
                 self.claim_pending_temp(arg);
             }
@@ -141,169 +129,6 @@ impl CodeBuilder<'_> {
             }
             _ => {}
         }
-    }
-
-    /// bug-655: the byte size of a `thread.start` seed block into `out_slot`, or 0 when
-    /// there is nothing to free.
-    ///
-    /// The predicate is deliberately the SAME one the send site uses for its message
-    /// copy — arena-transferable AND one of the shapes
-    /// `emit_inlined_block_size_from_ptr_slot` sizes exactly. A scalar seed carves no
-    /// block and answers 0, which is not a leak; anything else unsized keeps the
-    /// established fail-safe of skipping the free rather than guessing a size.
-    ///
-    /// Unlike the send site this sizes the CALLER'S OWN value, not a copy of it, because
-    /// `thread.start` hands that block over rather than copying. For the shapes this
-    /// predicate admits the two are the same tight single block, which is what makes the
-    /// size correct for the original as well.
-    pub(crate) fn emit_thread_seed_size(
-        &mut self,
-        arg_values: &[ValueResult],
-        arg_slots: &[usize],
-        out_slot: usize,
-    ) -> Result<(), String> {
-        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_slot));
-        let (Some(seed), Some(slot)) = (arg_values.get(1), arg_slots.get(1)) else {
-            return Ok(());
-        };
-        // The gate that makes this sound at all: only a block THIS statement freshly
-        // allocated and still owns may be handed to the thread to free. A string
-        // LITERAL seed is a static symbol, not arena memory — freeing it is a bus error
-        // — and a `Local` seed is still owned by its binding, whose scope-drop frees it
-        // — freeing it again is a double free. Both were measured as crashes before this
-        // gate; `claim_moved_thread_arg_temp` claims on exactly the same condition, so
-        // the seed is freed by the thread precisely when the caller stops freeing it.
-        if !self.pending_temp_would_be_claimed(seed) {
-            return Ok(());
-        }
-        let seed_type = seed.type_.clone();
-        let sizable = self.type_is_arena_transferable(&seed_type)
-            && (seed_type == ParameterType::String
-                || self.type_model.record_fields.contains_key(&seed_type)
-                || self.union_is_data(&seed_type)
-                || matches!(seed_type, ParameterType::ResultOf(_))
-                || typed_is_collection_type(&seed_type));
-        if !sizable {
-            return Ok(());
-        }
-        let skip = self.label("runtime_thread_start_seed_size_skip");
-        let ptr = self.temporary_vreg();
-        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), *slot));
-        self.emit(abi::compare_immediate(&ptr, "0"));
-        self.emit(abi::branch_eq(&skip));
-        self.emit_inlined_block_size_from_ptr_slot(&seed_type, *slot, out_slot)?;
-        self.emit(abi::label(&skip));
-        self.reset_temporary_registers();
-        Ok(())
-    }
-
-    /// bug-658: release a FAILED `thread::start`'s seed block.
-    ///
-    /// On the success path the thread owns the seed and frees it at its release
-    /// (bug-655). A failed start has no thread to do that: the inline `TRAP` binds the
-    /// zeroed CLOSED stub, which has no seed, and the propagating path
-    /// leaves the statement entirely — while `claim_moved_thread_arg_temp` has already
-    /// taken the block out of the caller's temp cleanup, because at the point the claim
-    /// is emitted nobody knows yet whether the start will succeed. The claim is a
-    /// compile-time decision; the outcome is a run-time fact. This is the run-time half.
-    ///
-    /// Called only on the Err branch, so the success path is untouched. The size slot
-    /// carries bug-655's ownership gate with it: it is non-zero only when the seed was a
-    /// fresh temp this statement owned, so a literal seed (a static symbol) and a
-    /// `Local` seed (its binding's) are both skipped here for the same reason they are
-    /// skipped at release — freeing either is a bus error or a double free.
-    pub(crate) fn emit_failed_thread_start_seed_free(
-        &mut self,
-        seed_slot: usize,
-        size_slot: usize,
-        check_tag: bool,
-    ) -> Result<(), String> {
-        let done = self.label("runtime_thread_start_failed_seed_done");
-        // `check_tag` on the inline-`TRAP` path, where BOTH outcomes flow through here
-        // and the tag is still live in the result register: a successful start owns the
-        // seed and frees it at its release, so freeing it here too is a double free
-        // (measured as a SIGSEGV before this guard). The propagating path is already on
-        // its error branch, so the tag is known and the check would be dead code.
-        // `arena_free` is a CALL, so it clobbers every caller-saved register — including
-        // the four the raw path's `materialize_current_result` reads immediately after
-        // this. Park them across the free and reload. Missing this did not leak, it
-        // CRASHED: the trapped binding was built from whatever the free left behind
-        // (measured as a SIGSEGV). Same hazard bug-425 records for the enqueue tag.
-        let parked = if check_tag {
-            let tag = self.allocate_stack_object("thread_start_failed_seed_tag", 8);
-            let value = self.allocate_stack_object("thread_start_failed_seed_value", 8);
-            let message = self.allocate_stack_object("thread_start_failed_seed_message", 8);
-            let source = self.allocate_stack_object("thread_start_failed_seed_source", 8);
-            self.emit(abi::store_u64(
-                RESULT_TAG_REGISTER,
-                abi::stack_pointer(),
-                tag,
-            ));
-            self.emit(abi::store_u64(
-                RESULT_VALUE_REGISTER,
-                abi::stack_pointer(),
-                value,
-            ));
-            self.emit(abi::store_u64(
-                RESULT_ERROR_MESSAGE_REGISTER,
-                abi::stack_pointer(),
-                message,
-            ));
-            self.emit(abi::store_u64(
-                RESULT_ERROR_SOURCE_REGISTER,
-                abi::stack_pointer(),
-                source,
-            ));
-            Some((tag, value, message, source))
-        } else {
-            None
-        };
-        if check_tag {
-            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-            self.emit(abi::branch_eq(&done));
-        }
-        let size = self.temporary_vreg();
-        self.emit(abi::load_u64(&size, abi::stack_pointer(), size_slot));
-        self.emit(abi::compare_immediate(&size, "0"));
-        self.emit(abi::branch_eq(&done));
-        let ptr = self.temporary_vreg();
-        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), seed_slot));
-        self.emit(abi::compare_immediate(&ptr, "0"));
-        self.emit(abi::branch_eq(&done));
-        self.emit(abi::move_register(abi::c_arg(0), &ptr));
-        self.emit(abi::load_u64(
-            abi::c_arg(1),
-            abi::stack_pointer(),
-            size_slot,
-        ));
-        self.emit_arena_free_call();
-        // Null the slot so no later edge can reach the block again.
-        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), seed_slot));
-        self.emit(abi::label(&done));
-        if let Some((tag, value, message, source)) = parked {
-            self.emit(abi::load_u64(
-                RESULT_TAG_REGISTER,
-                abi::stack_pointer(),
-                tag,
-            ));
-            self.emit(abi::load_u64(
-                RESULT_VALUE_REGISTER,
-                abi::stack_pointer(),
-                value,
-            ));
-            self.emit(abi::load_u64(
-                RESULT_ERROR_MESSAGE_REGISTER,
-                abi::stack_pointer(),
-                message,
-            ));
-            self.emit(abi::load_u64(
-                RESULT_ERROR_SOURCE_REGISTER,
-                abi::stack_pointer(),
-                source,
-            ));
-        }
-        self.reset_temporary_registers();
-        Ok(())
     }
 
     pub(crate) fn emit_thread_send_runtime_helper_call(
@@ -337,163 +162,19 @@ impl CodeBuilder<'_> {
             arg_slots.push(slot);
             self.reset_temporary_registers();
         }
-        // The message argument is copied below (into THIS thread's arena) and the
-        // copy handed across, so the original is dead after this call and the
-        // statement-scope temp cleanup frees it (bug-629 Part A / bug-649). The
-        // resource targets keep the claim — see `claim_moved_thread_arg_temp`.
+        // The resource targets keep the claim — see `claim_moved_thread_arg_temp`.
+        // A data message is copied by the helper, so its original stays owned here and
+        // the statement-scope temp cleanup frees it (bug-629 Part A / bug-649).
         self.claim_moved_thread_arg_temp(target, &arg_values);
 
-        self.reset_temporary_registers();
-        // bug-425: a thread-sendable resource (File/Socket/UdpSocket) is flagged
-        // `moved|closed` on its *source* record by `copy_resource_to_current_arena`.
-        // Defer that store from copy time to the enqueue-success branch below, so a
-        // failed transfer (`ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`) leaves
-        // the sender's handle open and closable, matching the man-page contract and
-        // the already success-gated `deactivate_moved_resource_arguments`.
-        //
-        // bug-546: the sendability test is the MODEL's, not the builtin registry's.
-        // Asking `builtins::is_thread_sendable_resource_type` here meant bug-425's
-        // fix never reached a user-declared `RESOURCE … THREAD_SENDABLE`: the flag
-        // was stored at copy time, so a FAILED `thread::transfer` left the sender's
-        // handle flagged moved and the very next use in its `TRAP` handler raised
-        // `ErrResourceMoved` (7-703-0009) — the opposite of what
-        // `mfb man thread transfer` promises ("If the transfer fails, the sending
-        // binding is still open, so a `TRAP` handler can close it or try again").
-        let defer_resource_flag =
-            matches!(target, "thread.transferResource" | "thread.emitResource")
-                && self.is_sendable_resource_nominal(&arg_values[1].type_);
-        let copied_message_slot =
-            self.allocate_stack_object("runtime_thread_send_copied_message", 8);
-        // Allocated only when deferring, so data-plane sends keep their slot layout.
-        let source_resource_slot = if defer_resource_flag {
-            Some(self.allocate_stack_object("runtime_thread_send_source_resource", 8))
-        } else {
-            None
-        };
-        // bug-498: the message is deep-copied into the SENDER's own arena (the
-        // pinned `ARENA_STATE_REGISTER` is left alone) and the copy is handed across
-        // through the queue. This lowering used to repoint the arena register at the
-        // DESTINATION thread's arena state (the worker's, or the parent's for
-        // `thread.emit`) and allocate there —
-        // unlocked, while that thread was allocating from the same arena. The
-        // allocator's quick-bin pop is a plain load/store of a free-list head, so the
-        // two racing pops handed one block out twice or tore a `next` link; both
-        // threads then faulted at the same PC in `_mfb_arena_alloc`
-        // (`tests/rt_thread_send_cross_arena.rs`).
-        //
-        // Allocating here is race-free because only this thread touches this arena's
-        // state. Handing the block over is sound because a free is a push into the
-        // FREEING thread's own bins (`arena_free` never consults which arena carved
-        // the block — `.ai/canvas-threading.md` §2), and the block stays mapped: no
-        // arena but the main one is ever destroyed, and that one only at
-        // `_mfb_shutdown`. The receiver therefore owns the copy exactly as before and
-        // reclaims it in its own arena; a failed send still parks the orphan on the
-        // queue's pending-free list for the reader to adopt and free (bug-147.5b).
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
-        // Stash the source resource pointer before arg_slots[1] is overwritten with
-        // the destination copy below; the enqueue-success branch flags it moved.
-        if let Some(slot) = source_resource_slot {
-            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slot));
-        }
-        self.suppress_resource_source_flag = defer_resource_flag;
-        let copied = self.copy_value_to_current_arena(&arg_values[1].type_, &scratch9)?;
-        self.suppress_resource_source_flag = false;
-        self.emit(abi::store_u64(
-            &copied,
-            abi::stack_pointer(),
-            copied_message_slot,
-        ));
-        self.reset_temporary_registers();
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            copied_message_slot,
-        ));
-        self.emit(abi::store_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            arg_slots[1],
-        ));
-
-        // Byte size of the message copy, passed as arg 3 so a failed send can reclaim
-        // it via the queue's pending-free list (bug-147.5b). Computed ONLY for a flat
-        // block type whose exact copy size `emit_inlined_block_size_from_ptr_slot`
-        // returns (the `copy_flat_block` path — String / record / data-union / Result
-        // / flat collection, all copied tight so the block size equals the alloc);
-        // otherwise 0 = "not reclaimable" (a scalar has no copy block; a resource or
-        // resource-embedding value copies through a path we do not size here and keeps
-        // the pre-existing bounded leak rather than risk a wrong-size free).
-        let msg_type = arg_values[1].type_.clone();
-        let size_slot = self.allocate_stack_object("runtime_thread_send_copy_size", 8);
-        let size_computable = self.type_is_arena_transferable(&msg_type)
-            && (msg_type == ParameterType::String
-                || self.type_model.record_fields.contains_key(&msg_type)
-                || self.union_is_data(&msg_type)
-                || matches!(msg_type, ParameterType::ResultOf(_))
-                || typed_is_collection_type(&msg_type));
-        // bug-425: a thread-sendable resource copies to exactly one
-        // RESOURCE_RECORD_SIZE block, so its size IS known. Hand it to the failed-send
-        // pending-free path so a failed transfer's orphaned destination copy is
-        // reclaimed on the destination's next read rather than stranded until worker
-        // teardown.
-        //
-        // bug-650 case 2: this used to decline a *stateful* resource — the record's
-        // separate STATE block could not be described by one size, so BOTH were left to
-        // leak (128 B per transfer measured: a 96 B record plus a 32 B `Cursor`). The
-        // ring entry now carries a second size, so the record's size goes in arg 3 and
-        // the STATE block's in arg 4, and the reclaimer frees both.
-        let resource_reclaimable = defer_resource_flag;
-        if size_computable {
-            self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
-        } else if resource_reclaimable {
-            let size = self.temporary_vreg();
-            self.emit(abi::move_immediate(&size, "Integer", RESOURCE_RECORD_SIZE));
-            self.emit(abi::store_u64(&size, abi::stack_pointer(), size_slot));
-        } else {
-            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), size_slot));
-        }
-        self.reset_temporary_registers();
-
-        // Arg 4 (bug-650 case 2): the byte size of the copied record's STATE block, 0
-        // when the message has none. Read the copy's own `RESOURCE_OFFSET_STATE` word
-        // and size the block it points at with the same `emit_inlined_block_size_…` the
-        // data plane uses, so a variable-length STATE (a record with an inlined
-        // `String`) is sized exactly rather than assumed constant. A null pointer means
-        // the sender never initialized the STATE, so there is nothing to free: the size
-        // must stay 0, and the guard below is what keeps the sizer off a null.
-        let state_size_slot = self.allocate_stack_object("runtime_thread_send_state_size", 8);
-        self.emit(abi::store_u64(
-            abi::ZERO,
-            abi::stack_pointer(),
-            state_size_slot,
-        ));
-        if let (true, Some(state_type)) = (resource_reclaimable, msg_type.state()) {
-            let state_done = self.label("runtime_thread_send_state_size_done");
-            let state_ptr_slot = self.allocate_stack_object("runtime_thread_send_state_ptr", 8);
-            let record = self.temporary_vreg();
-            let state_ptr = self.temporary_vreg();
-            self.emit(abi::load_u64(
-                &record,
-                abi::stack_pointer(),
-                copied_message_slot,
-            ));
-            self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
-            self.emit(abi::store_u64(
-                &state_ptr,
-                abi::stack_pointer(),
-                state_ptr_slot,
-            ));
-            self.emit(abi::compare_immediate(&state_ptr, "0"));
-            self.emit(abi::branch_eq(&state_done));
-            self.emit_inlined_block_size_from_ptr_slot(
-                &state_type,
-                state_ptr_slot,
-                state_size_slot,
-            )?;
-            self.emit(abi::label(&state_done));
-            self.reset_temporary_registers();
-        }
-
+        // plan-156-A: the helper deep-copies the message into the thread's block arena
+        // under the block lock, and only once the enqueue is certain (the queue has
+        // room and is open), so a failed send leaves nothing behind and the sender's
+        // value is untouched. Arg 3 is the message type's copy function (0 for a value
+        // that crosses as its word). A thread-sendable resource's copy flags its source
+        // `moved|closed` as it copies (`copy_resource_to_current_arena`) — which now
+        // happens exactly when the transfer succeeds, the property bug-425 had to defer
+        // the flag to the enqueue-success branch to get.
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
             self.emit(abi::move_register(
@@ -501,61 +182,30 @@ impl CodeBuilder<'_> {
                 &scratch9,
             ));
         }
-        // Arg 3: the message-copy size (0 when not reclaimable).
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
-        self.emit(abi::move_register(&abi::argument_register(3)?, &scratch9));
-        // Arg 4: the STATE block's size (0 when the message has none) — bug-650 case 2.
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            state_size_slot,
-        ));
-        self.emit(abi::move_register(&abi::argument_register(4)?, &scratch9));
+        let msg_type = arg_values[1].type_.clone();
+        self.emit_thread_value_fn_address(
+            crate::codegen::runtime::thread::ThreadValueFn::Copy,
+            &msg_type,
+            abi::argument_register(3)?,
+        );
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value
-        // remains owned by the caller (the former source checker restores the binding into
-        // the handler scope); the success continuation treats it as moved.
+        // remains owned by the caller (the former source checker restores the binding
+        // into the handler scope); the success continuation treats it as moved.
         if raw {
-            // bug-425: stash the enqueue tag before `materialize_current_result`
-            // consumes the result registers, so the source can be flagged moved
-            // only when the enqueue actually succeeded.
-            let send_tag_slot = if defer_resource_flag {
-                let slot = self.allocate_stack_object("runtime_thread_send_raw_tag", 8);
-                self.emit(abi::store_u64(
-                    RESULT_TAG_REGISTER,
-                    abi::stack_pointer(),
-                    slot,
-                ));
-                Some(slot)
-            } else {
-                None
-            };
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
-            let _ = arg_values;
             // thread.send/emit errors originate at this call site, not a worker.
             // bug-566: `thread.send`/`emit`/`transferResource`/`emitResource` all
             // return `Nothing` — there is no success block at all — and every
             // `thread.*` target is foreign-arena anyway.
-            let result = self.materialize_current_result(
+            return self.materialize_current_result(
                 result_type,
                 format!("callResult {target}"),
                 false,
                 RawSuccessBlock::OwnedElsewhere,
-            )?;
-            if let (Some(tag_slot), Some(source_slot)) = (send_tag_slot, source_resource_slot) {
-                // Flag the source moved only on the Ok tag; a trapped failure keeps
-                // the sender's handle (the handler's restored binding closes it).
-                let flag_done = self.label("runtime_thread_send_raw_flag_done");
-                let tag = self.temporary_vreg();
-                self.emit(abi::load_u64(&tag, abi::stack_pointer(), tag_slot));
-                self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
-                self.emit(abi::branch_ne(&flag_done));
-                self.emit_flag_resource_source_moved(source_slot);
-                self.emit(abi::label(&flag_done));
-            }
-            return Ok(result);
+            );
         }
 
         let ok_label = self.label("runtime_thread_send_ok");
@@ -566,11 +216,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
-        // bug-425: enqueue succeeded — now flag the source `moved|closed`, the store
-        // `copy_resource_to_current_arena` deferred (see `suppress_resource_source_flag`).
-        if let Some(source_slot) = source_resource_slot {
-            self.emit_flag_resource_source_moved(source_slot);
-        }
 
         if *result_type != ParameterType::Nothing {
             return Err(format!(

@@ -1144,11 +1144,12 @@ impl CodeBuilder<'_> {
     /// an inline `TRAP`'s `materialize_current_result` sees — is not this frame's.
     ///
     /// `x19` (the arena state) is PER-THREAD. A block produced by
-    /// `thread::waitFor`, `thread::receive` or `thread.result` was allocated by the
-    /// WORKER, in the worker's arena, and `materialize_current_result`'s
+    /// `thread::waitFor`, `thread::receive` or `thread.result` lives in the thread's
+    /// block arena (plan-156-A: the control block's own arena, which every value
+    /// crossing the boundary is copied into), and `materialize_current_result`'s
     /// `worker_error_source` flag exists for exactly that reason on the error side.
     /// Freeing one of those from this thread writes this thread's free list into
-    /// another thread's heap.
+    /// another arena's heap.
     ///
     /// It is a package prefix rather than a per-member list because the property is
     /// a property of the `thread` FAMILY: every member of it marshals across the
@@ -1210,7 +1211,7 @@ impl CodeBuilder<'_> {
     /// arm and never leaked, which is why the leak looked resource-kind-specific.
     ///
     /// Two exclusions, both inherited rather than restated: a `thread.*` result is
-    /// the WORKER's record (`runtime_call_result_is_foreign_arena`) and must keep
+    /// the thread's block-arena record (`runtime_call_result_is_foreign_arena`) and must keep
     /// its deep copy, and a **borrowed** element result (`collections::get`,
     /// `tcp::poll` over a list) is a pointer into a collection whose owner closes
     /// it, which [`Self::raw_result_is_borrowed_resource`] answers for.
@@ -1307,8 +1308,8 @@ impl CodeBuilder<'_> {
     /// returned result is unaffected because its owner claims the temp
     /// (`claim_pending_temp`) exactly as it does for a marked native producer.
     ///
-    /// The raw `thread.*` block is excluded (it is the WORKER's — `x19` is
-    /// per-thread). bug-622 A: `block` is never that raw block for a call in
+    /// The raw `thread.*` block is excluded (it is the thread's block arena's —
+    /// `x19` is per-thread). bug-622 A: `block` is never that raw block for a call in
     /// [`Self::runtime_call_result_is_copied_at_call_site`] — it is the operand
     /// `copy_value_to_current_arena` just allocated in this arena — so those calls
     /// are marked too, and an unbound `len(thread::waitFor(t))` frees its copy.

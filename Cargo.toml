@@ -975,6 +975,14 @@ name = "rt_thread_send_cross_arena"
 path = "tests/runtime/rt_thread_send_cross_arena.rs"
 
 [[test]]
+name = "rt_thread_block_arena"
+path = "tests/runtime/rt_thread_block_arena.rs"
+
+[[test]]
+name = "rt_thread_table_growth"
+path = "tests/runtime/rt_thread_table_growth.rs"
+
+[[test]]
 name = "rt_trapped_call_capability_gate"
 path = "tests/runtime/rt_trapped_call_capability_gate.rs"
 

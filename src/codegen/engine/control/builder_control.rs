@@ -1117,7 +1117,7 @@ impl CodeBuilder<'_> {
                         let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
                         // A raw thread-boundary result (`t.result`) is owned by the
-                        // thread runtime / worker arena, not this scope, so it is
+                        // thread runtime / block arena, not this scope, so it is
                         // neither zero-initialized nor freed here. A
                         // `thread::receive`/`waitFor`/… value is the call site's copy
                         // into this arena and is owned like any fresh value (bug-622 A).

@@ -56,13 +56,6 @@ pub(crate) fn lower_start(
     Ok(finish(builder, parts, ctx.call))
 }
 
-/// bug-622: what `thread.drop` needs when it lets go of a finished thread.
-fn thread_release(ctx: &AbiCtx) -> crate::codegen::runtime::thread::ThreadRelease {
-    crate::codegen::runtime::thread::ThreadRelease {
-        debug_arena_registry: ctx.debug_arena_registry,
-    }
-}
-
 /// `thread::isRunning`.
 pub(crate) fn lower_is_running(
     builder: &mut CodeBuilder,
@@ -73,7 +66,6 @@ pub(crate) fn lower_is_running(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::IsRunning,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -90,7 +82,6 @@ pub(crate) fn lower_wait_for(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::WaitFor,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -113,7 +104,6 @@ pub(crate) fn lower_cancel(
     let parts = simple_thread_handle_helper(
         &symbol,
         op,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -130,7 +120,6 @@ pub(crate) fn lower_poll(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::Poll,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
