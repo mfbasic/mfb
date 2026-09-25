@@ -111,6 +111,9 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     ' ellipse in `__canvas_ellipseHeader` -- no trigonometry on this path.
     RETURN __canvas_ellipseDistance(px, py, p0, p1, p2, p3, ca, sa) - radius
   END IF
+  IF kind = __CANVAS_GEO_POLYLINE THEN
+    RETURN __canvas_polylineScan(tail, edges, px, py, radius, cap, FALSE)
+  END IF
   RETURN __canvas_edgeDistance(tail, edges, px, py)
 END FUNC"#;
 
@@ -162,9 +165,85 @@ r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py
   RETURN best
 END FUNC"#;
 
+/// The distance to a `PolyLine`'s stroke, or the path parameter of its nearest point
+/// (plan-154-A).
+///
+/// One walk for both answers, chosen by `wantParam`, so the segment that decides the
+/// colour is by construction the one that decides the coverage — two walks could break a
+/// tie at a corner differently. The draw loop asks for the parameter only for a polyline
+/// with colours.
+///
+/// Each segment is measured with **exactly** `__canvas_segmentDistance`'s arithmetic —
+/// `(w·v) / len2`, a divide, not the tail's `invLenSq` multiply — and cut with exactly
+/// `__canvas_segmentDistanceButt`'s end planes. That is what makes a two-point path draw
+/// the pixels of the `canvas::Line` between the same points, which the golden checks:
+/// `x * (1 / y)` and `x / y` differ in the last bit, and a last bit moves an antialiased
+/// edge byte.
+///
+/// The union of the segments' bands is the `min` of their distances, which is what makes
+/// every interior corner round for free. Only the first and last live segments take a
+/// butt plane, each on its outer end only, so an interior end stays round and the
+/// corner stays filled. A zero-length segment is skipped: its point is already inside
+/// its neighbours' round ends. The one exception is a path with no live segment, whose
+/// header names segment 0 as both first and last; it is then measured as the point it is,
+/// which is the round dot a zero-length round `Line` draws.
+///
+/// The parameter is `(segment + t) / segments` with `t` clamped to the segment, so it is
+/// continuous across a corner: the end of segment `i` and the start of `i + 1` are both
+/// `i + 1`, and a tie there picks the same colour either way.
+#[rustfmt::skip]
+const POLYLINE_SCAN: &str =
+r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py AS Float, half AS Float, cap AS Integer, wantParam AS Boolean) AS Float
+  LET offset AS Integer = tail - __CANVAS_GEO_HEADER
+  LET first AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_FIRST, 0.0))
+  LET last AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_LAST, 0.0))
+  MUT best AS Float = 1000000.0
+  MUT bestParam AS Float = 0.0
+  MUT e AS Integer = first
+  WHILE e <= last
+    LET base AS Integer = tail + e * 5
+    LET ax AS Float = collections::getOr(__CANVAS_GEO_DATA, base, 0.0)
+    LET ay AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 1, 0.0)
+    LET vx AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 2, 0.0)
+    LET vy AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 3, 0.0)
+    LET len2 AS Float = vx * vx + vy * vy
+    IF len2 > 0.0 OR first = last THEN
+      LET wx AS Float = px - ax
+      LET wy AS Float = py - ay
+      MUT t AS Float = 0.0
+      IF len2 > 0.0 THEN
+        t = (wx * vx + wy * vy) / len2
+      END IF
+      LET clamped AS Float = __canvas_minF(__canvas_maxF(t, 0.0), 1.0)
+      LET dx AS Float = wx - vx * clamped
+      LET dy AS Float = wy - vy * clamped
+      MUT d AS Float = math::sqrt(dx * dx + dy * dy) - half
+      IF cap = 0 THEN
+        LET length AS Float = math::sqrt(len2)
+        IF e = first THEN
+          d = __canvas_maxF(d, 0.0 - t * length)
+        END IF
+        IF e = last THEN
+          d = __canvas_maxF(d, (t - 1.0) * length)
+        END IF
+      END IF
+      IF d < best THEN
+        best = d
+        bestParam = (toFloat(e) + clamped) / toFloat(edges)
+      END IF
+    END IF
+    e = e + 1
+  END WHILE
+  IF wantParam THEN
+    RETURN bestParam
+  END IF
+  RETURN best
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_kinds", KINDS));
     pkg.add_helper(RegistryHelper::always("canvas_intUtil", INT_UTIL));
     pkg.add_helper(RegistryHelper::always("canvas_edgeDistance", EDGE_DISTANCE));
+    pkg.add_helper(RegistryHelper::always("canvas_polylineScan", POLYLINE_SCAN));
     pkg.add_helper(RegistryHelper::always("canvas_geoDistance", GEO_DISTANCE));
 }

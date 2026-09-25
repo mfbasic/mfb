@@ -1,6 +1,6 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
-    GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_CAP,
+    GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, HEADER_CAP,
     HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_SLOTS,
     PICTURE_SHADOW_SPLIT_BITS,
 };
@@ -67,6 +67,8 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         ("__CANVAS_GEO_GROUP", GEO_KIND_GROUP),
         // bug-484.
         ("__CANVAS_GEO_PICTURE", GEO_KIND_PICTURE),
+        // plan-154-A.
+        ("__CANVAS_GEO_POLYLINE", GEO_KIND_POLYLINE),
     ] {
         assert_eq!(
             declared(name).to_string(),

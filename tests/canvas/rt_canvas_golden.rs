@@ -1239,3 +1239,148 @@ fn the_gpu_draws_the_group_scene_the_reference_shows() {
         );
     }
 }
+
+/// `canvas::PolyLine` (plan-154-A): joins, both caps, per-point colours, and the
+/// degenerate paths.
+///
+/// - **Row 1** is one zig-zag drawn twice, round caps left and butt caps right, with the
+///   butt one's two end points marked. Every interior corner is round in both — a
+///   polyline has no other join — so the two differ only at the ends.
+/// - **Row 2** is a 180° switch-back, where the two segments overlap for most of their
+///   length and a join that is not a true union would show a seam; and a butt path whose
+///   end points are repeated, with a zero-length segment in the middle. The repeated
+///   end points must leave the ends BUTT (plan-154-A Correction A2): the cut moves to the
+///   last segment with length.
+/// - **Row 3** is the per-point colours: an orange trail fading to transparent, and a
+///   red→green→blue path, mixed in linear light as a gradient is.
+/// - **Row 4** is fewer colours than points (the rest take `paint.stroke`, white), a
+///   two-point diagonal, a path whose points all coincide with round caps (a dot) and
+///   with butt caps (nothing), and a one-point path (nothing). The absences are part of
+///   the reference.
+const POLYLINES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(52, 56, 66))]
+  LET mark AS color::Color = color::rgb(255, 255, 255)
+
+  ' Row 1 -- one zig-zag, round caps left and butt caps right.
+  LET ink AS color::Color = color::rgb(255, 214, 92)
+  LET zigRound AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 150.0], canvas::Point[x := 140.0, y := 50.0], canvas::Point[x := 220.0, y := 150.0], canvas::Point[x := 300.0, y := 50.0], canvas::Point[x := 380.0, y := 150.0]], colors := [], cap := canvas::CapStyle.Round, paint := canvas::stroke(ink, 22.0)]
+  LET zigButt AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 500.0, y := 150.0], canvas::Point[x := 580.0, y := 50.0], canvas::Point[x := 660.0, y := 150.0], canvas::Point[x := 740.0, y := 50.0], canvas::Point[x := 820.0, y := 150.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(ink, 22.0)]
+  LET markA AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 150.0, radius := 2.0, paint := canvas::fill(mark)]
+  LET markB AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 150.0, radius := 2.0, paint := canvas::fill(mark)]
+
+  ' Row 2 -- a switch-back, and a butt path with repeated end points and a zero-length
+  ' middle segment.
+  LET cool AS color::Color = color::rgb(120, 214, 255)
+  LET switchBack AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 250.0], canvas::Point[x := 380.0, y := 250.0], canvas::Point[x := 120.0, y := 280.0]], colors := [], cap := canvas::CapStyle.Round, paint := canvas::stroke(cool, 18.0)]
+  LET repeated AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 500.0, y := 230.0], canvas::Point[x := 500.0, y := 230.0], canvas::Point[x := 660.0, y := 230.0], canvas::Point[x := 660.0, y := 230.0], canvas::Point[x := 820.0, y := 300.0], canvas::Point[x := 820.0, y := 300.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(cool, 18.0)]
+  LET markC AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 230.0, radius := 2.0, paint := canvas::fill(mark)]
+  LET markD AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 2.0, paint := canvas::fill(mark)]
+
+  ' Row 3 -- per-point colours.
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 420.0], canvas::Point[x := 110.0, y := 370.0], canvas::Point[x := 170.0, y := 350.0], canvas::Point[x := 230.0, y := 360.0], canvas::Point[x := 290.0, y := 400.0], canvas::Point[x := 340.0, y := 440.0], canvas::Point[x := 390.0, y := 450.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(255, 140, 40, 212), color::rgba(255, 140, 40, 170), color::rgba(255, 140, 40, 128), color::rgba(255, 140, 40, 85), color::rgba(255, 140, 40, 42), color::rgba(255, 140, 40, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 16.0)]
+  LET rainbow AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 500.0, y := 440.0], canvas::Point[x := 660.0, y := 350.0], canvas::Point[x := 820.0, y := 440.0]], colors := [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, 255)], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]
+
+  ' Row 4 -- fewer colours than points, a two-point path, the coincident pair, and a
+  ' one-point path.
+  LET partial AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 590.0], canvas::Point[x := 110.0, y := 540.0], canvas::Point[x := 160.0, y := 590.0], canvas::Point[x := 210.0, y := 540.0], canvas::Point[x := 260.0, y := 590.0], canvas::Point[x := 310.0, y := 540.0]], colors := [color::rgb(228, 148, 255), color::rgb(228, 148, 255), color::rgb(80, 40, 200)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
+  LET twoPoint AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 380.5, y := 530.25], canvas::Point[x := 520.75, y := 600.5]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(160, 255, 170), 14.0)]
+  LET dotRound AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 620.0, y := 570.0], canvas::Point[x := 620.0, y := 570.0], canvas::Point[x := 620.0, y := 570.0]], colors := [], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(160, 255, 170), 24.0)]
+  LET dotButt AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 570.0], canvas::Point[x := 720.0, y := 570.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(160, 255, 170), 24.0)]
+  LET single AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 820.0, y := 570.0]], colors := [color::rgb(255, 0, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(160, 255, 170), 24.0)]
+
+  canvas::present([ground, zigRound, zigButt, markA, markB, switchBack, repeated, markC, markD, trail, rainbow, partial, twoPoint, dotRound, dotButt, single])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The polyline reference renders exactly.
+///
+/// Same rule as the other references: a mismatch is a bug hunt, not a re-baseline.
+#[test]
+fn polylines_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_polylines", POLYLINES);
+    let reference = golden_path("polyline");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the polyline scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the round/butt zig-zag, row 2 the switch-back \
+             and the repeated-end butt path, row 3 the per-point colours, row 4 the \
+             partial colours, the two-point path and the degenerate ones (the butt \
+             coincident path and the one-point path are meant to be absent)."
+        );
+    }
+}
+
+/// A two-point `PolyLine` draws the pixels of the `Line` between the same points.
+///
+/// plan-154-A's falsifying check. A polyline measures each segment with
+/// `__canvas_segmentDistance`'s own arithmetic and cuts a butt end with
+/// `__canvas_segmentDistanceButt`'s planes; if either drifted by a last bit — the tail's
+/// `invLenSq` multiply in place of the divide, say — an antialiased edge byte would move
+/// and this would fail where the golden alone might not be looked at closely enough.
+/// Both caps, a fractional diagonal, and a thin line whose edge is almost all
+/// antialiasing.
+#[test]
+fn a_two_point_polyline_draws_the_line_between_its_points() {
+    fn scene(item: &str) -> String {
+        let draw = |x1: f64, y1: f64, x2: f64, y2: f64, cap: &str, width: f64| match item {
+            "line" => format!(
+                "canvas::Line[x1 := {x1:?}, y1 := {y1:?}, x2 := {x2:?}, y2 := {y2:?}, cap := canvas::CapStyle.{cap}, paint := canvas::stroke(color::rgb(250, 200, 90), {width:?})]"
+            ),
+            _ => format!(
+                "canvas::PolyLine[points := [canvas::Point[x := {x1:?}, y := {y1:?}], canvas::Point[x := {x2:?}, y := {y2:?}]], colors := [], cap := canvas::CapStyle.{cap}, paint := canvas::stroke(color::rgb(250, 200, 90), {width:?})]"
+            ),
+        };
+        let items = [
+            draw(80.0, 100.0, 380.0, 100.0, "Round", 30.0),
+            draw(500.0, 100.0, 800.0, 100.0, "Butt", 30.0),
+            draw(90.25, 220.5, 400.75, 410.125, "Round", 17.5),
+            draw(510.25, 220.5, 820.75, 410.125, "Butt", 17.5),
+            draw(100.1, 520.3, 780.9, 590.7, "Butt", 1.5),
+        ];
+        let lets: String = items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| format!("  LET i{i} AS canvas::DrawItem = {item}\n"))
+            .collect();
+        format!(
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
+             app::setMode(app::Mode.Canvas)\n{lets}  canvas::present([i0, i1, i2, i3, i4])\n  \
+             io::print(\"rendered\")\nEND SUB\n"
+        )
+    }
+    let lines = render("canvas_polyline_as_line_a", &scene("line"));
+    let polylines = render("canvas_polyline_as_line_b", &scene("polyline"));
+    let painted = lines.pixels.chunks(4).filter(|p| p[0] != 0).count();
+    assert!(painted > 10_000, "the Line scene drew {painted} pixels, so it proves nothing");
+    if let Err(diff) = compare_exact(&polylines, &lines) {
+        panic!(
+            "a two-point PolyLine differs from the Line between the same points: {diff}\n\
+             `__canvas_polylineScan` must measure a segment with exactly \
+             `__canvas_segmentDistance`'s and `__canvas_segmentDistanceButt`'s arithmetic."
+        );
+    }
+}

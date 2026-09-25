@@ -779,6 +779,11 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-154-A: the Metal shader has no PolyLine branch yet, so a frame holding one is
+    ' declined to software rather than drawn as whatever an unknown kind draws.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
+      RETURN FALSE
+    END IF
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -917,6 +922,11 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-154-A: as in `__canvas_metalRenderable` -- no PolyLine branch in
+    ' `mfb_canvas.frag` yet, so the frame is declined to software.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
+      RETURN FALSE
     END IF
   NEXT
   IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN

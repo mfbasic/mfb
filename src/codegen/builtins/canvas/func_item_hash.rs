@@ -52,7 +52,7 @@ const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 
 /// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's; a variant
 /// in neither list fails the build rather than falling to a default nobody chose.
-const HASHED: [&str; 8] = [
+const HASHED: [&str; 9] = [
     "Rectangle",
     "RoundedRect",
     "Circle",
@@ -61,6 +61,7 @@ const HASHED: [&str; 8] = [
     "Polygon",
     "Picture",
     "Ellipse",
+    "PolyLine",
 ];
 const NOT_HASHED: [&str; 2] = ["Text", "Group"];
 
