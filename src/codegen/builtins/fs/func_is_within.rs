@@ -135,7 +135,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrAccessDenied",
+                "ErrInvalidArgument",
+                "ErrNotFound",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_is_within),
         }],
     });

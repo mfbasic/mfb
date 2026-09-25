@@ -109,7 +109,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrWriteFailed",
+                "ErrResourceClosed",
+            ],
             body: Body::abi_function(lower_fs_write_all),
         }],
     });

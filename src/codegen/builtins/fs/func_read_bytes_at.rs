@@ -124,7 +124,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrResourceClosed",
+                "ErrInvalidArgument",
+            ],
             body: Body::abi_function(lower_fs_read_bytes_at),
         }],
     });

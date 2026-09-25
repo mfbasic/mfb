@@ -91,7 +91,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_delete_file),
         }],
     });

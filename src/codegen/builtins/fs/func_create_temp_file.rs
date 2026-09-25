@@ -107,7 +107,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::Optional,
             }],
             return_type: ParameterType::named(super::FILE_TYPE_ID),
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrAccessDenied",
+                "ErrInvalidArgument",
+                "ErrNotFound",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_create_temp_file),
         }],
     });

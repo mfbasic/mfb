@@ -126,7 +126,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrAccessDenied",
+                "ErrInvalidArgument",
+                "ErrNotFound",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_write_text_atomic),
         }],
     });

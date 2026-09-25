@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrInvalidArgument"],
             body: Body::abi_function(lower_fs_directory_exists),
         }],
     });

@@ -129,7 +129,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named(super::FILE_TYPE_ID),
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_open),
         }],
     });

@@ -91,7 +91,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrWriteFailed",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_read_bytes),
         }],
     });
