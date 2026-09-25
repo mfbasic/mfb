@@ -2481,7 +2481,6 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.FrameStats", FieldKindRow::Arm('F')),
     ("canvas.Transform", FieldKindRow::Arm('F')),
     ("canvas.GradientStop", FieldKindRow::Arm('F')),
-    ("canvas.FrameStats", FieldKindRow::Arm('F')),
     ("canvas.Gradient", SIZE_VARIES),
     ("canvas.Paint", SIZE_VARIES),
     ("canvas.Rectangle", SIZE_VARIES),
