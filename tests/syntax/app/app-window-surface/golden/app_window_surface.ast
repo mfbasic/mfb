@@ -1,0 +1,35 @@
+{
+  "project": "app_window_surface",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "app", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "before", "type": "String", "value": { "kind": "call", "callee": "app.getTitle", "arguments": [] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setTitle", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Window " }, "right": { "kind": "identifier", "value": "before" } }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "after", "type": "String", "value": { "kind": "call", "callee": "app.getTitle", "arguments": [] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "after" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "was", "type": "Boolean", "value": { "kind": "call", "callee": "app.getFullscreen", "arguments": [] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setFullscreen", "arguments": [{ "kind": "unary", "operator": "NOT", "operand": { "kind": "identifier", "value": "was" } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "app.Mode" }, "member": "Canvas" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setFullscreen", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "app.getFullscreen", "arguments": [] }] }] }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

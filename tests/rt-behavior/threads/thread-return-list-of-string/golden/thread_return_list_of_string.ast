@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnListOfString" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnListOfString" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "list", "values": [{ "kind": "string", "value": "send-list-a" }, { "kind": "string", "value": "send-list-b" }] }, { "kind": "number", "value": "10" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "result", "type": "List OF String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
       {

@@ -1,0 +1,266 @@
+' ---------------------------------------------------------------------------
+' Tests: tar extractTo.
+'
+' The same shape as the zip extractor's tests, and for the same reason: every
+' refusal asserts the target directory is still EMPTY afterwards, because
+' refusing after writing half the archive would be its own vulnerability.
+'
+' Hostile names cannot be produced by this package's writer -- it refuses them
+' at add time -- so those archives are assembled by patching raw bytes. The
+' extractor has to defend against archives no well-behaved writer would make.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT datetime
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+PRIVATE FUNC freshDir(tag AS String) AS String
+  LET path AS String = fs::pathJoin([fs::tempDirectory(), "tartest-" & tag & "-" & toString(datetime::monotonicNanos())])
+  fs::createDirectories(path)
+  RETURN path
+END FUNC
+
+PRIVATE SUB removeTree(path AS String)
+  FOR EACH child IN fs::listDirectory(path)
+    LET full AS String = fs::pathJoin([path, child])
+    IF fs::directoryExists(full) THEN
+      removeTree(full)
+    ELSE
+      fs::deleteFile(full)
+    END IF
+  NEXT
+  fs::deleteDirectory(path)
+END SUB
+
+PRIVATE FUNC countIn(path AS String) AS Integer
+  RETURN len(fs::listDirectory(path))
+END FUNC
+
+' A one-entry archive whose name is `hostile`, built by patching a finished
+' archive's header in place and repairing its checksum.
+'
+' The name field is 100 bytes at offset 0 of the first header, so a replacement
+' of any length up to 100 fits without moving anything.
+PRIVATE FUNC archiveNamed(hostile AS String) AS List OF Byte
+  MUT b AS Builder = create()
+  b = addText(b, "placeholder.txt", "payload")
+  LET raw AS List OF Byte = finish(b)
+  MUT out AS List OF Byte = raw
+  ' Clear the 100-byte name field, then write the hostile name into it.
+  FOR i = 0 TO 99
+    out = collections::set(out, i, toByte(0))
+  NEXT
+  LET wanted AS List OF Byte = encoding::utf8Encode(hostile)
+  FOR i = 0 TO len(wanted) - 1
+    out = collections::set(out, i, collections::get(wanted, i))
+  NEXT
+  RETURN repairChecksum(out)
+END FUNC
+
+' Recompute the first header's checksum so the archive parses and the test
+' reaches the name check rather than stopping at a bad header.
+PRIVATE FUNC repairChecksum(raw AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = raw
+  FOR i = 148 TO 155
+    out = collections::set(out, i, toByte(32))
+  NEXT
+  MUT sum AS Integer = 0
+  FOR i = 0 TO 511
+    sum = sum + toInt(collections::get(out, i))
+  NEXT
+  ' Six octal digits, right-aligned and zero-padded, then NUL and space.
+  MUT text AS String = ""
+  MUT rest AS Integer = sum
+  IF rest = 0 THEN
+    text = "0"
+  END IF
+  WHILE rest > 0
+    text = toString(rest MOD 8) & text
+    rest = rest / 8
+  END WHILE
+  WHILE len(text) < 6
+    text = "0" & text
+  END WHILE
+  LET digits AS List OF Byte = encoding::utf8Encode(text)
+  FOR i = 0 TO 5
+    out = collections::set(out, 148 + i, collections::get(digits, i))
+  NEXT
+  out = collections::set(out, 154, toByte(0))
+  RETURN collections::set(out, 155, toByte(32))
+END FUNC
+
+PRIVATE FUNC goodArchive() AS List OF Byte
+  MUT b AS Builder = create()
+  b = addDirectory(b, "docs")
+  b = addText(b, "docs/readme.txt", "read me")
+  b = addText(b, "top.txt", "at the top")
+  RETURN finish(b)
+END FUNC
+
+TESTING
+  TGROUP "tar extractTo"
+    TCASE "files and directories are written, and the file count returned"
+      LET into AS String = freshDir("good")
+      LET raw AS List OF Byte = goodArchive()
+      expectInteger(extractTo(open(raw), into), 2)
+      expectEqual(fs::directoryExists(fs::pathJoin([into, "docs"])), TRUE)
+      expectString(fs::readText(fs::pathJoin([into, "docs", "readme.txt"])), "read me")
+      expectString(fs::readText(fs::pathJoin([into, "top.txt"])), "at the top")
+      removeTree(into)
+    END TCASE
+
+    TCASE "extracting from a file source writes the same bytes"
+      LET into AS String = freshDir("filesrc")
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, goodArchive())
+      fs::flush(f)
+      expectInteger(extractTo(open(f), into), 2)
+      expectString(fs::readText(fs::pathJoin([into, "docs", "readme.txt"])), "read me")
+      fs::close(f)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an empty archive writes nothing and returns zero"
+      LET into AS String = freshDir("empty")
+      expectInteger(extractTo(open(finish(create())), into), 0)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a missing target directory is refused"
+      LET absent AS String = fs::pathJoin([fs::tempDirectory(), "tartest-absent-xyz"])
+      LET raw AS List OF Byte = goodArchive()
+      expectTrap(extractTo(open(raw), absent), errorCode::ErrNotFound)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar extractTo refuses traversal"
+    TCASE "a parent-relative name is refused and nothing is written"
+      LET into AS String = freshDir("dotdot")
+      LET raw AS List OF Byte = archiveNamed("../escape.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a deeper escape is refused and nothing is written"
+      LET into AS String = freshDir("deep")
+      LET raw AS List OF Byte = archiveNamed("a/../../escape.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an absolute name is refused and nothing is written"
+      LET into AS String = freshDir("abs")
+      LET raw AS List OF Byte = archiveNamed("/tmp/escape.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a backslash name is refused and nothing is written"
+      LET into AS String = freshDir("backslash")
+      LET raw AS List OF Byte = archiveNamed("a\\b.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a Windows drive name is refused and nothing is written"
+      LET into AS String = freshDir("drive")
+      LET raw AS List OF Byte = archiveNamed("C:evil.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "one hostile entry stops the whole extraction"
+      ' The safe entry comes FIRST, so a lazily-validating extractor would
+      ' already have written it before reaching the hostile one.
+      LET into AS String = freshDir("mixed")
+      MUT b AS Builder = create()
+      b = addText(b, "safe.txt", "harmless")
+      b = addText(b, "placeholder.txt", "payload")
+      LET raw AS List OF Byte = finish(b)
+      ' The second header starts after the first header plus its data block.
+      MUT out AS List OF Byte = raw
+      LET secondAt AS Integer = 1024
+      FOR i = 0 TO 99
+        out = collections::set(out, secondAt + i, toByte(0))
+      NEXT
+      LET wanted AS List OF Byte = encoding::utf8Encode("../escape.txt")
+      FOR i = 0 TO len(wanted) - 1
+        out = collections::set(out, secondAt + i, collections::get(wanted, i))
+      NEXT
+      ' Repair the second header's checksum in place.
+      FOR i = 148 TO 155
+        out = collections::set(out, secondAt + i, toByte(32))
+      NEXT
+      MUT sum AS Integer = 0
+      FOR i = 0 TO 511
+        sum = sum + toInt(collections::get(out, secondAt + i))
+      NEXT
+      MUT text AS String = ""
+      MUT rest AS Integer = sum
+      WHILE rest > 0
+        text = toString(rest MOD 8) & text
+        rest = rest / 8
+      END WHILE
+      WHILE len(text) < 6
+        text = "0" & text
+      END WHILE
+      LET digits AS List OF Byte = encoding::utf8Encode(text)
+      FOR i = 0 TO 5
+        out = collections::set(out, secondAt + 148 + i, collections::get(digits, i))
+      NEXT
+      out = collections::set(out, secondAt + 154, toByte(0))
+      expectTrap(extractTo(open(out), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar extractTo limits and links"
+    TCASE "a total over maxTotalBytes is refused before writing"
+      LET into AS String = freshDir("toolarge")
+      LET raw AS List OF Byte = goodArchive()
+      expectTrap(extractTo(open(raw), into, 4), errorCode::ErrTooLarge)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an archive containing a symlink is refused entirely"
+      ' fs cannot create links, and a silently incomplete tree is worse than a
+      ' refusal. The SAFE entry comes first, so this also asserts that nothing
+      ' was written before the link was reached.
+      LET into AS String = freshDir("symlink")
+      MUT b AS Builder = create()
+      b = addText(b, "safe.txt", "harmless")
+      b = addSymlink(b, "link", "safe.txt")
+      expectTrap(extractTo(open(finish(b)), into), errorCode::ErrUnsupported)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an archive containing a hardlink is refused entirely"
+      LET into AS String = freshDir("hardlink")
+      LET raw AS List OF Byte = fixtureLinks()
+      expectTrap(extractTo(open(raw), into), errorCode::ErrUnsupported)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+END TESTING
+
+PRIVATE FUNC fixtureLinks() AS List OF Byte
+  FOR EACH f IN allFixtures()
+    IF f.label = "links" THEN
+      RETURN f.bytes
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "test: no links fixture")
+END FUNC

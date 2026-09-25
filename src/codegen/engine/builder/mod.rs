@@ -167,13 +167,15 @@ pub(crate) struct CodeBuilder<'a> {
     /// here is only ever a direct invoke target and never escapes, so it is freed
     /// at scope end.
     pub(crate) value_used_locals: HashSet<String>,
-    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
-    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
-    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// plan-86 E, bug-689: bindings `e = collections::get(L, i)` (or `getOr`) that
+    /// hold an ALIAS into `L`'s element instead of an owned copy
+    /// (`analysis::borrow_get`). Such a `get` returns a borrow instead of a fresh
     /// `copy_flat_block`, and the binding registers no scope-drop free (the container
     /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
     /// (a freed borrow is a double-free into the container).
     pub(crate) borrow_get_locals: HashSet<String>,
+    /// bug-689: the element-bound `get → WITH → set` updates of this function.
+    pub(crate) element_updates: ElementUpdates,
     /// plan-86 E: true inside the `lower_value` frame of the ONE borrowed `get`
     /// node (a `borrow_get_locals` binding's initializer), so
     /// `materialize_owned_element` returns the aliasing borrow instead of copying
@@ -212,6 +214,33 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
+    /// bug-623 B: locals that provably own the resource record they hold
+    /// (`resource::cleanup::record_ownership`). Only these free the record at drop;
+    /// any other resource binding keeps the close and leaves the record alone.
+    pub(crate) record_owning_locals: HashSet<String>,
+    /// bug-623 B: locals whose single store is a bare `Local(src)` — followed by a
+    /// `RETURN` to find the binding that owns a returned union's box.
+    pub(crate) resource_alias_sources: HashMap<String, String>,
+    /// bug-645: owner collections whose owned-list drain provably owns every block it
+    /// reaches — each element's resource record (and a union element's `{tag,record}`
+    /// box), and the collection block itself. Any other owner collection keeps the
+    /// close-only drain and leaks those blocks
+    /// (`resource::cleanup::record_ownership::owning_collections`).
+    pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// bug-648: the inline-`TRAP` temps that receive a borrowed store, and the rule
+    /// that classifies each store (`resource::cleanup::trap_ownership`).
+    pub(crate) trap_ownership: crate::codegen::resource::cleanup::trap_ownership::TrapOwnership,
+    /// bug-648: the flag slot of each bound `Mixed` resource temp, written at every
+    /// store with whether that store handed the temp an owned value. The temp's drop
+    /// closes only when it is set.
+    pub(crate) trap_owner_flags: HashMap<String, usize>,
+    /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
+    /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
+    /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
+    pub(crate) live_resource_aliases: HashMap<String, String>,
+    /// Resource-union alias class: bind-time `name -> src` for a union wrapping a local
+    /// (`RES c AS Union = u`) — the alias whose `RETURN` retires `src`'s close.
+    pub(crate) live_union_wraps: HashMap<String, String>,
     /// plan-118-D: record types this module constructs often enough to get their
     /// own `construct.T` function. A construction of a type in here marshals and
     /// calls instead of inlining the allocation, the failure block, the field
@@ -415,6 +444,33 @@ pub(crate) struct CodeBuilder<'a> {
     /// form, so the spare is invisible outside the buffer. Reset to 0 on any
     /// non-self-append bind/assign of the local and zeroed at function entry.
     pub(crate) string_capacity_slots: HashMap<String, usize>,
+    /// plan-142-B: the frame slot of this function's self-update scratch — a
+    /// `List OF Integer` block the in-place arms use as raw bytes (per-element
+    /// marks, results) so that no arm allocates per statement. `Some` only when
+    /// the body holds a self-update that may need it
+    /// (`prescan_self_update_scratch`); zeroed at entry, grown on demand, freed at
+    /// every exit by a function-level cleanup.
+    pub(crate) self_update_scratch: Option<usize>,
+    /// plan-142-G: in a lambda that borrows its creator's scratch
+    /// (`scratch_closure_captures`), the closure-env word holding the address of
+    /// the creator's scratch slot. `self_update_scratch` is then a working copy
+    /// that `emit_reserve_self_update_scratch` loads from and publishes back
+    /// through that address, and the lambda frees nothing: the creator owns it.
+    pub(crate) self_update_scratch_env: Option<usize>,
+    /// plan-145-C: the scalar updates of a mixed `WITH` (one collection field served
+    /// by a seam arm, the rest scalars) — `(field index, new value)` in source
+    /// order. The arm's field route evaluates and spills them in
+    /// `open_inplace_dest`, its first emission, after every gate: so an arm that
+    /// declines emits none of them, and the values are computed before the arm
+    /// mutates anything. `try_inplace_mixed_with` then stores them.
+    pub(crate) field_pre_emit: Option<Vec<(usize, NirValue)>>,
+    /// plan-145-C: `(field index, slot)` for each `field_pre_emit` value, once the
+    /// field route has spilled them.
+    pub(crate) field_pre_emitted: Option<Vec<(usize, usize)>>,
+    /// plan-142-C: set by the in-place `math` arm around its call to the member's
+    /// lowering; `emit_alloc_result_list` takes it and returns the self-update
+    /// scratch instead of allocating the result list.
+    pub(crate) simd_result_into: Option<()>,
     /// For backends whose `RegisterModel::math_pool_base` is `None` (no free
     /// physical to pin, e.g. x86), the per-kernel virtual register holding the
     /// SIMD math constant-pool base, keyed by the function symbol it was minted
@@ -518,6 +574,34 @@ pub(crate) struct CodeBuilder<'a> {
     /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
     /// asks `move_sites` about.
     pub(crate) current_op_key: Option<usize>,
+    /// plan-147-D: which call arguments of the NIR function being lowered may be
+    /// HANDED to the callee instead of lent (plan-147-C). `None` in a synthesized
+    /// builder, where every argument is lent.
+    pub(crate) handover: Option<crate::codegen::engine::analysis::handover::HandOverArgs>,
+    /// plan-147-D: the `call_key` of the `Call`/`CallResult` node being lowered —
+    /// what `emit_call` asks `handover` about, alongside `current_op_key`.
+    pub(crate) current_call_key: Option<usize>,
+    /// plan-147-E: the argument positions of the call just lowered whose in-place
+    /// self-update fired, so the hand-over nulls those locals' slots instead of
+    /// claiming a temporary that was never built. Written by
+    /// `emit_prepared_call_args_with_site` and taken immediately after.
+    pub(crate) args_updated_in_place: Vec<usize>,
+    /// plan-146-D: the frame slot caching `os::appResourcePath`'s base block for the
+    /// in-place arm (`prescan_string_app_resource_base`), or `None` in a function with
+    /// no `s = os::appResourcePath(s)`.
+    pub(crate) string_app_resource_base: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates with `os::appResourcePath`, the
+    /// closure-environment word holding the address of the CREATOR's base-path
+    /// cache slot.
+    pub(crate) string_app_resource_base_env: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates a by-ref-captured `String`, the
+    /// closure-environment word holding the address of the OWNER's capacity shadow,
+    /// per captured local (`string_shadow_captures`). Empty everywhere else.
+    pub(crate) string_shadow_env: std::collections::HashMap<String, usize>,
+    /// plan-146-D: the module (project) name, which `os::appResourcePath`'s app-mode
+    /// resource suffix embeds (`share/<module>`). Empty in a synthesized function,
+    /// which lowers no NIR statement and so no self-update.
+    pub(crate) module_name: String,
 }
 
 impl<'a> CodeBuilder<'a> {
@@ -568,9 +652,17 @@ impl<'a> CodeBuilder<'a> {
             address_taken_locals: HashSet::new(),
             value_used_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),
+            element_updates: ElementUpdates::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
             current_returns_param_borrow: false,
+            record_owning_locals: HashSet::new(),
+            resource_alias_sources: HashMap::new(),
+            owned_list_owning_collections: HashSet::new(),
+            trap_ownership: Default::default(),
+            trap_owner_flags: HashMap::new(),
+            live_resource_aliases: HashMap::new(),
+            live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
@@ -602,6 +694,11 @@ impl<'a> CodeBuilder<'a> {
             for_each_iterable_state_fields: Vec::new(),
             for_each_iterable_record_fields: Vec::new(),
             string_capacity_slots: HashMap::new(),
+            self_update_scratch: None,
+            self_update_scratch_env: None,
+            field_pre_emit: None,
+            field_pre_emitted: None,
+            simd_result_into: None,
             math_pool_base_vreg: None,
             vector_natives: HashMap::new(),
             next_vector_native: 0,
@@ -616,9 +713,35 @@ impl<'a> CodeBuilder<'a> {
             enclosing_loop_reassigned: Vec::new(),
             graph_copy_walker: None,
             move_sites: None,
+            handover: None,
+            current_call_key: None,
+            args_updated_in_place: Vec::new(),
             current_op_key: None,
+            string_app_resource_base: None,
+            string_shadow_env: std::collections::HashMap::new(),
+            string_app_resource_base_env: None,
+            module_name: String::new(),
         }
     }
+}
+
+/// bug-689: the element-bound bindings of the function being lowered
+/// (`analysis::borrow_get::ElementBinding`), keyed for the lowering.
+#[derive(Default)]
+pub(crate) struct ElementUpdates {
+    /// By binding name. A single-expression update adds its hidden binding here.
+    pub(crate) bindings:
+        HashMap<String, crate::codegen::engine::analysis::borrow_get::ElementBinding>,
+    /// The `p = WITH p { … }` statements (`op_key`) → `p`.
+    pub(crate) updates: HashMap<usize, String>,
+    /// The write-backs `xs = set(xs, i, p)` (`op_key`) — each lowered as nothing.
+    pub(crate) write_backs: HashSet<usize>,
+    /// While an element update tries its in-place routes: the owner whose block is
+    /// an element inside a list's data region. No route may grow it
+    /// (`field_is_last_inlined`).
+    pub(crate) field_owner: Option<String>,
+    /// Counter for the hidden bindings of single-expression updates.
+    pub(crate) hidden: usize,
 }
 
 #[derive(Clone)]
@@ -681,19 +804,6 @@ pub(crate) struct LoopLabels {
 }
 
 #[derive(Clone)]
-pub(crate) struct ThreadCleanup {
-    pub(crate) name: String,
-    pub(crate) symbol: String,
-    /// Close the handle (`THREAD_DROP_CLOSE`). False for a handle moved into a callee:
-    /// the callee's parameter closes it, and the caller may still read it.
-    pub(crate) close: bool,
-    /// Give up this binding's owner count (`THREAD_DROP_RELEASE`, bug-622). False on a
-    /// trap route for a handle the `TRAP` handler can still name: the handler's own exit
-    /// releases it.
-    pub(crate) release: bool,
-}
-
-#[derive(Clone)]
 pub(crate) struct ResourceCleanup {
     pub(crate) name: String,
     pub(crate) symbol: String,
@@ -714,6 +824,25 @@ pub(crate) struct ResourceCleanup {
     /// `arena_free` a poison value and segfaulted every `net::` program during
     /// cleanup (plan-52-B Phase 2).
     pub(crate) has_io_buffers: bool,
+    /// bug-623: whether the drop also frees the 96-byte record itself, after the
+    /// close and the block reclaim, and nulls the binding's slot. True only for the
+    /// kinds `CodeBuilder::resource_record_freed_at_drop` names (the `tcp`, `udp`
+    /// and `tls` handles); every other kind keeps its record as the tombstone.
+    pub(crate) frees_record: bool,
+    /// bug-623 D: a successful `thread::transfer` moved this binding's resource to
+    /// another thread. The drop then closes nothing, since the handle is the
+    /// receiver's. It frees only the sender's 96-byte tombstone record, and only
+    /// when that record carries the moved bit, so a transfer that failed frees
+    /// nothing here. The tombstone stays readable until then: every use of the
+    /// binding after the transfer still sees `moved`. Set by
+    /// `retire_moved_resource_cleanup` in place of removing the cleanup, and only
+    /// for a cleanup that `frees_record`.
+    pub(crate) moved_record_only: bool,
+    /// bug-648: for an inline-`TRAP` temp whose stores are sometimes borrowed, the
+    /// stack slot recording whether the value it holds now is owned. The drop closes
+    /// and reclaims nothing while it reads 0. `None` for every binding that owns
+    /// unconditionally.
+    pub(crate) owner_flag_slot: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -726,6 +855,17 @@ pub(crate) struct ResourceUnionCleanup {
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
     pub(crate) state_type: Option<ParameterType>,
+    /// bug-623 B: the variant tags whose record this binding's drop frees after the
+    /// close — the `resource_record_freed_at_drop` variants, and only when the binding
+    /// owns the record (`record_owning_locals`). Empty for a union wrapping a live
+    /// binding, whose record that binding frees.
+    pub(crate) record_free_tags: Vec<usize>,
+    /// Resource-union alias class: whether the drop closes the active variant (and frees
+    /// its STATE). False for a union wrapping an aliasing source (`RES c AS Union = u`),
+    /// whose record another binding owns: that drop frees only the union's own box.
+    pub(crate) closes_variant: bool,
+    /// bug-648: the same run-time ownership flag as `ResourceCleanup.owner_flag_slot`.
+    pub(crate) owner_flag_slot: Option<usize>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -739,13 +879,24 @@ pub(crate) struct ResourceUnionCleanup {
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
 #[derive(Clone)]
 pub(crate) enum OwnedListDrop {
-    /// A single registered close op applied to each node's record pointer.
-    Concrete(String),
+    /// A single registered close op applied to each node's record pointer, plus what
+    /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
+    /// its two per-`File` I/O buffers, and — for a `resource_record_freed_at_drop`
+    /// kind — the 96-byte record. Exactly the descriptor `ActiveCleanup::Resource`
+    /// carries for a lone binding, because the reclaim is the same one.
+    Concrete {
+        close: String,
+        state_type: Option<ParameterType>,
+        has_io_buffers: bool,
+        frees_record: bool,
+    },
     /// A resource-union element: `(tag, close_symbol)` per variant, plus the
-    /// union's uniform `STATE` type (when it has one) to free after the close.
+    /// union's uniform `STATE` type (when it has one) to free after the close, and the
+    /// variant tags whose record the drain may free (bug-645).
     Union {
         variants: Vec<(usize, String)>,
         state_type: Option<ParameterType>,
+        record_free_tags: Vec<usize>,
     },
 }
 
@@ -757,6 +908,10 @@ pub(crate) struct OwnedListCleanup {
     pub(crate) head_slot: usize,
     /// How each node's resource is closed (concrete close op vs union dispatch).
     pub(crate) drop: OwnedListDrop,
+    /// bug-645: whether this collection provably owns each element's blocks, so the
+    /// drain may free them after the close. False keeps the close-only drain — a
+    /// bounded leak rather than a double free (`record_ownership::owning_collections`).
+    pub(crate) owns_elements: bool,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /
@@ -870,7 +1025,6 @@ pub(crate) struct PendingClosure {
 
 #[derive(Clone)]
 pub(crate) enum ActiveCleanup {
-    Thread(ThreadCleanup),
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
     OwnedList(OwnedListCleanup),
@@ -915,6 +1069,11 @@ pub(crate) struct TypeModel {
     /// plan-111-C: keyed by `(enum TYPE, member name)`. The member name is a
     /// member, not a type, so it stays a `String`.
     pub(crate) enum_members: HashMap<(ParameterType, String), usize>,
+    /// plan-140-C: each enum's member names in declaration (ordinal) order,
+    /// derived from `enum_members` once the model is finished. The ONE ordering
+    /// both sides of `toString(<enum>)` read — the string pre-pass registers
+    /// these names and `lower_enum_to_string` loads them.
+    pub(crate) enum_names: HashMap<ParameterType, Vec<String>>,
     /// plan-111-C: keyed by the record TYPE. The `String` in the value is a
     /// FIELD name.
     pub(crate) record_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
@@ -1004,6 +1163,9 @@ pub(crate) fn lower_module_for_platform(
     // finalization dispatch selection + register allocation through it instead of
     // naming AArch64 directly (plan-00-H/I additivity).
     mir::set_backend(platform.backend());
+    // plan-156-A: the per-type thread value functions this module's call sites
+    // request are collected while its functions lower; start from none.
+    crate::codegen::runtime::thread::value_functions::reset();
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
     // same codegen. The legacy flat binary_repr -> native package bridge is no
@@ -1086,7 +1248,13 @@ pub(crate) fn lower_module_for_platform(
     // each a row: without them their cost lands in this stage's self time, which
     // is exactly the "where did the rest of the minute go" gap the profiler
     // exists to close.
-    let string_symbols = crate::trace::timed("string symbols", || string_symbols(module));
+    // plan-140-B: the type model is built before the string pre-pass, which reads
+    // its enum table (the two must agree on which types are enums).
+    let type_model = crate::trace::timed("type model", || {
+        TypeModel::from_module_and_packages(module, packages)
+    })?;
+    let string_symbols =
+        crate::trace::timed("string symbols", || string_symbols(module, &type_model));
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
@@ -1130,8 +1298,11 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),
+            // The annotation names every slot, `retiredHead` included — it was six
+            // names against ten words, which read as if the retirement side were not
+            // part of this object at all. bug-683 turned those four words into one.
             layout: "mfb.runtime.canvas_scene.v1 { u64 revision, count, items, hashes, \
-                     layers, layerCount }"
+                     layers, layerCount, retiredHead }"
                 .to_string(),
             align: 8,
             size: CANVAS_SCENE_SLOTS * 8,
@@ -1257,6 +1428,18 @@ pub(crate) fn lower_module_for_platform(
     {
         data_objects.extend(term::console_data_objects());
     }
+    // plan-94-B: the mouse-tracking escapes and the injection variable's name.
+    // Gated on the mouse members rather than on `term::` at all, so a program that
+    // only draws a box carries neither — the same reason the escape table above was
+    // trimmed to two entries (bug-326-A21), and the same key that reserves the
+    // mouse arena region.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
+    {
+        data_objects.extend(term::mouse_data_objects());
+    }
     // TLS helpers reference read-only C strings (library names + symbol names)
     // for their load-time dlopen/dlsym.
     if native_plan
@@ -1319,9 +1502,6 @@ pub(crate) fn lower_module_for_platform(
             platform.family(),
         ));
     }
-    let type_model = crate::trace::timed("type model", || {
-        TypeModel::from_module_and_packages(module, packages)
-    })?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's
     // registered close op resolves it through `resolve_closer_symbol`, so the
     // scope-drop call site and the thunk's own "am I a close op?" test cannot
@@ -1339,11 +1519,13 @@ pub(crate) fn lower_module_for_platform(
     // have a live worker — on EVERY platform family. This is not a platform
     // preference, it is a use-after-free.
     //
-    // `thread.start` `arena_alloc`s BOTH the worker's thread control block and the
-    // worker's entire arena-state block (arena state + the per-arena globals
-    // region, stored at `THREAD_OFFSET_ARENA_STATE`) out of the SPAWNING thread's
-    // arena, so a running worker's two pinned registers — its arena register and
-    // `abi::CURRENT_THREAD` — both point INTO the main arena's blocks. Dropping a
+    // `thread.start` used to `arena_alloc` BOTH the worker's thread control block and
+    // the worker's entire arena-state block (arena state + the per-arena globals
+    // region) out of the SPAWNING thread's arena, so a running worker's two pinned
+    // registers — its arena register and `abi::CURRENT_THREAD` — both pointed INTO the
+    // main arena's blocks. plan-156-A moved both to the process heap; whether any
+    // other worker pointer into the main arena remains is plan-156-B's audit, and
+    // until it proves none does, the skip stays. Dropping a
     // `Thread` handle only cancels and broadcasts (detached semantics, bug-205), so
     // a program that returns from `main` without `thread::waitFor` reaches
     // `_mfb_shutdown` with those blocks live; `_mfb_arena_destroy` then
@@ -1466,6 +1648,49 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
+    // plan-94-A §4.4a: the mouse-state region — the decoded-event ring, its cursors
+    // and the stdin decoder's partial-sequence buffer. A THIRD conditionally-reserved
+    // region, appended past the presentation-mode word.
+    //
+    // Appending is load-bearing, not tidiness: every program that does not use mouse
+    // keeps `term_state_offset` and `presentation_mode_offset` byte-identical, so no
+    // existing entry frame or golden moves. The rejected alternative — growing
+    // `TERM_STATE_SLOTS` — would have shifted the presentation-mode word for every
+    // program using both `term::` and `app::`, and would have given a canvas-only
+    // program (which reserves no `term::` state at all) nowhere to put its ring.
+    //
+    // Keyed on the member symbols rather than on the package prefix, because
+    // `_mfb_rt_term_` is already true for any `term::` program: a program that draws
+    // a box and never touches the mouse must not pay for a ring. Matching the
+    // suffix covers both packages' spellings (`_mfb_rt_term_term_pollMouse`,
+    // `_mfb_rt_canvas_canvas_pollMouse`) without enumerating four symbols that would
+    // then have to be kept in step with the registry.
+    let uses_mouse = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"));
+    let mouse_state_offset = if uses_mouse {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base + link_slot_count + term_state_slots + presentation_mode_slots) * 8,
+        )
+    } else {
+        None
+    };
+    let mouse_state_slots = if uses_mouse { MOUSE_STATE_SLOTS } else { 0 };
+    // plan-94-A §4.4b: the process-global mouse-mode word. Not part of any arena,
+    // because an app backend's mouse handler runs on the UI thread and has no arena
+    // state to read — see `MOUSE_MODE_SYMBOL`. Emitted only when the program uses
+    // mouse, so every other program keeps its exact data-object set.
+    if uses_mouse {
+        data_objects.push(CodeDataObject {
+            symbol: MOUSE_MODE_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.mouse_mode.v1 { u64 mode }".to_string(),
+            align: 8,
+            size: 8,
+            value: "00".repeat(8),
+        });
+    }
     // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
     // (plan-98-B put it one region past the presentation-mode word), but arena state is
     // per-thread and the graphics thread has to see what the worker published, so it
@@ -1499,8 +1724,11 @@ pub(crate) fn lower_module_for_platform(
     // this same number in `lower_thread_start_helper` (bug-369). Before that, a
     // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
     // in a worker ran off the end of the block into neighbouring arena memory.
-    let arena_global_slots =
-        globals_base + link_slot_count + term_state_slots + presentation_mode_slots;
+    let arena_global_slots = globals_base
+        + link_slot_count
+        + term_state_slots
+        + presentation_mode_slots
+        + mouse_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -1569,6 +1797,7 @@ pub(crate) fn lower_module_for_platform(
         let entry_stack_size =
             align(ENTRY_STACK_SIZE + arena_global_slots * 8, 16) + entry_args_region;
         let entry_global_slots = arena_global_slots;
+        let uses_window = crate::codegen::builtins::app::module_uses_app_window(module);
         if module.build_mode.is_app() {
             // App mode (plan-04-macos-app.md §6.6, plan-05-linux-app.md §6.1): the
             // standard program entry runs on a worker thread under the app program
@@ -1580,6 +1809,8 @@ pub(crate) fn lower_module_for_platform(
                 initial_mode,
                 uses_canvas: module_uses_canvas(module)
                     || module_uses_call(module, "canvas.blitSurface"),
+                uses_mouse,
+                uses_window,
                 debug_hooks: module.debug.enabled,
             };
             let app_entry = platform
@@ -1622,8 +1853,11 @@ pub(crate) fn lower_module_for_platform(
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
-            data_objects
-                .extend(platform.app_mode_data_objects(&module.project, module.debug.enabled));
+            data_objects.extend(platform.app_mode_data_objects(
+                &module.project,
+                module.debug.enabled,
+                uses_mouse,
+            ));
             // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
             // program that can change mode (static default `None`) — matching where
             // its reconcile helpers are emitted, so a Console-default program that
@@ -1639,6 +1873,16 @@ pub(crate) fn lower_module_for_platform(
             // '_mfb_macapp_sel_delegate' is not a data object").
             if initial_mode == PresentationMode::None || app_spec.uses_canvas {
                 data_objects.extend(platform.app_mode_reconcile_data_objects());
+            }
+            // The `app` window members' process-global state (title, its lock, the
+            // default title, the fullscreen word) plus the backend's sync data —
+            // only for a program that uses one, so no other app program moves.
+            if uses_window {
+                data_objects.extend(crate::codegen::builtins::app::app_window_data_objects(
+                    platform.family(),
+                    &platform.app_default_window_title(&module.project),
+                ));
+                data_objects.extend(platform.app_window_data_objects());
             }
         } else {
             code_functions.push(platform.emit_program_entry(
@@ -1722,9 +1966,80 @@ pub(crate) fn lower_module_for_platform(
                     &callback_referenced_functions,
                     &synthesized_constructors,
                     type_model.clone(),
+                    &module.project,
+                    None,
                 )
             },
         )?);
+    }
+    // plan-147-D: the owned variants. A function lowers once above as its base
+    // symbol with every parameter lent; here it lowers once more for each distinct
+    // owned-parameter mask an approved call site asks for.
+    //
+    // The demand is a FIXPOINT: a variant's own body has call sites, and those sites
+    // can approve hand-overs of their own, asking for further variants. The set of
+    // `(function, mask)` pairs is finite (one function has at most `2^params` masks,
+    // and only masks a real site names are ever requested), so the loop terminates.
+    // The base lowerings above are never revisited, which is what keeps a function's
+    // own symbol and ABI unchanged (plan-147-A §2.3 row S13).
+    //
+    // Letter D Phase 1 lands the machinery with NO demand: `variant_demand` returns
+    // an empty set until Phase 2 wires the caller side up, so codegen here is
+    // byte-identical.
+    {
+        let mut emitted: HashSet<(String, u64)> = HashSet::new();
+        let mut pending: Vec<(String, u64)> = variant_demand(module, &functions, &type_model)
+            .into_iter()
+            .collect();
+        pending.sort();
+        while let Some((name, mask)) = pending.pop() {
+            if !emitted.insert((name.clone(), mask)) {
+                continue;
+            }
+            let Some(function) = functions.get(name.as_str()) else {
+                return Err(format!(
+                    "plan-147-D: an owned variant was demanded for `{name}`, which is \
+                     not a function of this module"
+                ));
+            };
+            let base = nir::function_symbol(&function.name);
+            let symbol =
+                crate::codegen::engine::function::function_lowering::OwnedVariant::symbol_for(
+                    &base, mask,
+                );
+            // The collision guard the naming scheme deliberately does NOT assume away:
+            // a mangled segment can be lowercase (a package prefix is), so `own1f` is
+            // not structurally impossible as a type segment. Fail loudly rather than
+            // alias two functions.
+            if function_symbols
+                .values()
+                .any(|existing| *existing == symbol)
+            {
+                return Err(format!(
+                    "plan-147-D: the owned-variant symbol `{symbol}` already names a \
+                     function of this module"
+                ));
+            }
+            let variant =
+                crate::codegen::engine::function::function_lowering::OwnedVariant { mask, symbol };
+            code_functions.push(lower_function(
+                function,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                &callback_referenced_functions,
+                &synthesized_constructors,
+                type_model.clone(),
+                &module.project,
+                Some(&variant),
+            )?);
+        }
+        crate::trace::count("owned variants", emitted.len() as u64);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
         code_functions.push(lower_builtin_function_wrapper(
@@ -2236,6 +2551,7 @@ pub(crate) fn lower_module_for_platform(
                     ArenaLayout {
                         term_state_offset,
                         presentation_mode_offset,
+                        mouse_state_offset,
                         global_slots: arena_global_slots,
                         debug_arena_registry: crate::codegen::debug::feature_active(
                             module,
@@ -2311,6 +2627,84 @@ pub(crate) fn lower_module_for_platform(
         .any(|symbol| symbol == "_mfb_rt_fs_fs_listDirectory")
     {
         code_functions.push(lower_sort_string_list_helper());
+    }
+    let uses_thread_start = runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_start");
+    if uses_thread_start {
+        code_functions.push(platform.emit_thread_trampoline(
+            &platform_imports,
+            uses_stdin,
+            ArenaInitSymbols {
+                link_init: link_init_symbol,
+                global_init: global_initializer_symbol.as_deref(),
+            },
+        )?);
+        code_functions.push(crate::codegen::runtime::thread::lower_thread_finish(
+            uses_stdout_buffer,
+            &platform_imports,
+            platform,
+        )?);
+    }
+    // plan-156-A: the thread table, the control block's block arena and its release —
+    // shared by every `thread` helper that starts or lets go of a thread. Gated on the
+    // release being referenced, not on `thread::start` alone: the parent view's drop
+    // (`thread.drop`) releases a block too, and a module can hold a `Thread` it did not
+    // start (a helper binding one it was lent).
+    let uses_block_release = uses_thread_start
+        || code_functions.iter().any(|function| {
+            function.relocations.iter().any(|relocation| {
+                relocation.to == crate::codegen::runtime::thread::THREAD_BLOCK_RELEASE_SYMBOL
+            })
+        });
+    if uses_block_release {
+        use crate::codegen::runtime::thread::{
+            lower_thread_block_arena_create, lower_thread_block_arena_destroy,
+            lower_thread_block_release, lower_thread_table_acquire, lower_thread_table_release,
+            thread_table_data_object,
+        };
+        code_functions.push(lower_thread_table_acquire(&platform_imports, platform)?);
+        code_functions.push(lower_thread_table_release(&platform_imports, platform)?);
+        code_functions.push(lower_thread_block_arena_create(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_arena_destroy(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_release(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        data_objects.push(thread_table_data_object(platform.family()));
+    }
+    // plan-156-A: every per-type copy/drop function a thread call site (or the
+    // worker exit above) asked for. Unconditional: a module can send or receive
+    // without starting a thread (a package's worker entry). Emitted before the
+    // relocation-gated shared helpers below, which these functions call (a `String`
+    // message's drop is `_mfb_rt_drop_owned_string`).
+    for (symbol, kind, type_) in crate::codegen::runtime::thread::value_functions::take_requested()
+    {
+        code_functions.push(
+            crate::codegen::runtime::thread::lower_thread_value_function(
+                kind,
+                &type_,
+                &symbol,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
     }
     // Map hash index (plan-02 Phase 6): the probe lazily builds the buckets and is
     // the only caller of the build helper; the put helper backs the in-place `set`
@@ -2525,19 +2919,6 @@ pub(crate) fn lower_module_for_platform(
     if module_uses_call(module, "fs.pathJoin") {
         code_functions
             .push(crate::codegen::builtins::fs::gen_path_builder::lower_fs_path_join_helper());
-    }
-    if runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
-    {
-        code_functions.push(platform.emit_thread_trampoline(
-            &platform_imports,
-            uses_stdin,
-            ArenaInitSymbols {
-                link_init: link_init_symbol,
-                global_init: global_initializer_symbol.as_deref(),
-            },
-        )?);
     }
     // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
     // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.
@@ -2803,6 +3184,7 @@ pub(crate) fn lower_runtime_helper(
                 string_symbols,
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
+                arena_layout.mouse_state_offset,
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,
@@ -3620,4 +4002,61 @@ pub(crate) fn standard_error_message_symbol(message: &str) -> Option<&'static st
     standard_error_messages()
         .iter()
         .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
+}
+
+/// plan-147-D: the `(function, owned-parameter mask)` pairs the module's approved
+/// call sites ask for.
+///
+/// The SAME `collect_handover_args` the caller side consults in `emit_call`, run
+/// over every function of the module. Asking one analysis twice — rather than
+/// deriving the demand some other way — is what guarantees that every variant symbol
+/// a caller emits is a variant this loop actually lowers; a mismatch would be an
+/// undefined symbol at link time.
+fn variant_demand(
+    module: &NirModule,
+    functions: &HashMap<String, &NirFunction>,
+    type_model: &TypeModel,
+) -> HashSet<(String, u64)> {
+    // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
+    // does not, so it can approve hand-overs the base cannot and ask for further
+    // variants. `fill(collections::append(xs, n), n - 1)` is the shape that needs it —
+    // only inside `fill$own1` is `xs` owned, and only there is the recursive call's
+    // argument handed on. The set is finite (one function has at most `2^params`
+    // masks, and only masks a real site names are requested), so this terminates.
+    let empty = crate::codegen::engine::analysis::handover::ParamSet::new();
+    let mut demand: HashSet<(String, u64)> = HashSet::new();
+    let mut pending: Vec<(String, u64)> = Vec::new();
+    for function in &module.functions {
+        for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &empty,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((name.clone(), mask)) {
+                pending.push((name, mask));
+            }
+        }
+    }
+    while let Some((name, mask)) = pending.pop() {
+        let Some(function) = functions.get(name.as_str()) else {
+            continue;
+        };
+        let owned: crate::codegen::engine::analysis::handover::ParamSet = function
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index < 64 && mask & (1u64 << index) != 0)
+            .map(|(_, param)| param.name.clone())
+            .collect();
+        for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
+            function, type_model, functions, &owned,
+        )
+        .demanded_variants()
+        {
+            if demand.insert((next.clone(), next_mask)) {
+                pending.push((next, next_mask));
+            }
+        }
+    }
+    demand
 }

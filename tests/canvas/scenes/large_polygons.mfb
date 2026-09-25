@@ -1,0 +1,45 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float, wobble AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    LET rr AS Float = r + wobble * math::sin(a * 7.0) + wobble * 0.3 * math::sin(a * 53.0)
+    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+FUNC star(n AS Integer, k AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat((i * k) MOD n) * 6.283185307179586 / toFloat(n)
+    points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Polygon[points := ring(1000, 120.0, 130.0, 90.0, 12.0), paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET b AS canvas::DrawItem = canvas::Polygon[points := ring(4000, 340.0, 130.0, 90.0, 12.0), paint := canvas::fill(color::rgba(255, 160, 0, 200))]
+  LET c AS canvas::DrawItem = canvas::Polygon[points := ring(600, 560.0, 130.0, 90.0, 12.0), paint := canvas::stroke(color::rgb(120, 255, 90), 4.0)]
+  LET t AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 780.0, ty := 130.0]
+  LET d AS canvas::DrawItem = canvas::Polygon[points := ring(500, 0.0, 0.0, 90.0, 12.0), paint := WITH canvas::fill(color::rgb(230, 80, 200)) { transform := t }]
+  LET e AS canvas::DrawItem = canvas::Polygon[points := star(301, 5, 450.0, 440.0, 180.0), paint := canvas::fill(color::rgb(250, 250, 120))]
+  ' A mid-grey ground (bug-688), so no rim pixel sits near black. There one coverage step
+  ' is several sRGB levels, and fp32 against the f64 oracle flips a step wherever a
+  ' distance lands on a quantisation boundary (bug-687): on Vulkan (Mesa lavapipe) the
+  ' rotated ring `d` over black differed at (736, 52) by one step of coverage, 4/255 vs
+  ' 5/255, which encodes 29 vs 33. Over grey one step is one level.
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  canvas::present([ground, a, b, c, d, e])
+END SUB

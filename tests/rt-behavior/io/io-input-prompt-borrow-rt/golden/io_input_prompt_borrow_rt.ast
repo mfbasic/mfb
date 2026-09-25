@@ -1,0 +1,40 @@
+{
+  "project": "io_input_prompt_borrow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "prompt", "type": "String", "value": { "kind": "string", "value": "prompt> " }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "before=[" }, "right": { "kind": "identifier", "value": "prompt" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 11 },
+      { "kind": "assignment", "name": "prompt", "value": { "kind": "call", "callee": "io.input", "arguments": [{ "kind": "identifier", "value": "prompt" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=[" }, "right": { "kind": "identifier", "value": "prompt" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 15,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "eof_trap=TRUE" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prompt_intact=[" }, "right": { "kind": "identifier", "value": "prompt" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "project": "toInt_enum_package",
+  "files": [
+  {
+    "path": "src/layers.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Layer",
+      "line": 2,
+      "members": [
+      { "name": "Ground", "line": 3 },
+      { "name": "Liquid", "line": 3 },
+      { "name": "Surface", "line": 3 },
+      { "name": "Gas", "line": 3 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "enum_pkg_tiny", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Layer" }, "member": "Ground" }] }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Layer" }, "member": "Gas" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "enum_pkg_tiny.Suit" }, "member": "Clubs" }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "enum_pkg_tiny.Suit" }, "member": "Spades" }] }] }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "enum_pkg_tiny.Suit", "value": { "kind": "call", "callee": "enum_pkg_tiny.favorite", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "enum_pkg_tiny.rank", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "enum_pkg_tiny.Suit" }, "member": "Diamonds" }] }] }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

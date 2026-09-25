@@ -123,7 +123,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 72 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 72 },
       { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 73 }
       ],
       "trap": {
@@ -145,7 +145,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fnLevel=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "startViaFunctionTrap", "arguments": [] }] } }] }, "line": 81 },
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 84,
@@ -157,10 +157,10 @@
       }, "line": 84 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inline-result=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] } }] }, "line": 88 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "closedAnswers", "arguments": [{ "kind": "string", "value": "inline" }, { "kind": "identifier", "value": "t" }] }, "line": 89 },
-      { "kind": "binding", "mutable": false, "name": "u", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 93 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "u", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 93 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain-result=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "u" }] }] } }] }, "line": 94 },
       { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "closedAnswers", "arguments": [{ "kind": "string", "value": "plain" }, { "kind": "identifier", "value": "u" }] }, "line": 95 },
-      { "kind": "binding", "mutable": false, "name": "r", "type": "Thread OF RES fs.File TO Integer", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "Thread OF RES fs.File TO Integer", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 99,
@@ -171,7 +171,7 @@
         ]
       }, "line": 99 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "res=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "r" }] }] } }] }, "line": 103 },
-      { "kind": "binding", "mutable": false, "name": "m", "type": "Thread OF String RES fs.File TO Integer", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "m", "type": "Thread OF String RES fs.File TO Integer", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 105,

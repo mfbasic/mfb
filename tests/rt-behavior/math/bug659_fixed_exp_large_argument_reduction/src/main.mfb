@@ -1,0 +1,45 @@
+IMPORT io
+IMPORT math
+
+' bug-659: math::exp on a Fixed reduced its argument with an UNCHECKED Q32.32
+' multiply by 1/ln2. Past |x| = 2^31 * ln2 ~ 1.4885e9 that product wrapped, so
+' n = round(x / ln2) came out with the WRONG SIGN — and because
+' emit_fixed_scale_by_power_of_two dispatches on the sign of n (doubling with an
+' ErrOverflow check for n >= 0, halving with NO check for n < 0), overflow and
+' underflow silently swapped: exp(-2e9) raised ErrOverflow and exp(2e9)
+' returned 0.00.
+'
+' The contract this pins: exp on a Fixed raises ErrOverflow for EVERY argument
+' whose true result leaves Fixed range, and returns 0.00 for every argument
+' whose true result underflows to zero, with no magnitude of input at which the
+' two swap. The ordinary range (exp 21 / exp 22 / exp -40) is unchanged.
+FUNC probe(v AS Float) AS String
+  LET x AS Fixed = toFixed(v)
+  LET r = toString(math::exp(x)) TRAP(e)
+    RECOVER "RAISED " & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+SUB main()
+  ' Ordinary range — must stay byte-identical.
+  io::print("exp(21)        = " & probe(21.0))
+  io::print("exp(21.4)      = " & probe(21.4))
+  io::print("exp(22)        = " & probe(22.0))
+  io::print("exp(-40)       = " & probe(-40.0))
+  io::print("exp(-100)      = " & probe(-100.0))
+  io::print("exp(-1000000)  = " & probe(-1000000.0))
+  ' Straddling the wrap point 2^31 * ln2 = 1488522190.6 on the positive side:
+  ' every one of these overflows Fixed range.
+  io::print("exp(1e9)       = " & probe(1000000000.0))
+  io::print("exp(1488522191)= " & probe(1488522191.0))
+  io::print("exp(1.5e9)     = " & probe(1500000000.0))
+  io::print("exp(2e9)       = " & probe(2000000000.0))
+  io::print("exp(2147483647)= " & probe(2147483647.0))
+  ' Mirrored negative side: every one of these underflows to zero.
+  io::print("exp(-1e9)      = " & probe(-1000000000.0))
+  io::print("exp(-1488522191)=" & probe(-1488522191.0))
+  io::print("exp(-1.5e9)    = " & probe(-1500000000.0))
+  io::print("exp(-2e9)      = " & probe(-2000000000.0))
+  io::print("exp(-2147483647)=" & probe(-2147483647.0))
+END SUB

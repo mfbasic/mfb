@@ -16,9 +16,9 @@ finished. So `isRunning` is useful for deciding whether to do something else
 meanwhile, and not for deciding it is safe to skip `thread::waitFor` — every
 thread still has to be collected.
 
-`isRunning` does not close the handle and does not retrieve the result; only
-`thread::waitFor` does either. After `waitFor` has closed the handle, calling
-`isRunning` on it raises `ErrResourceClosed`.
+`isRunning` does not retrieve the result; only `thread::waitFor` does. After
+the thread has finished — whether or not `waitFor` has collected it — it
+answers `FALSE`.
 
 A cancelled thread is still running until it actually stops — `thread::cancel`
 asks, and the worker decides when to notice."#;
@@ -31,7 +31,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(workers::double, 5)
+  RES t AS Thread OF Nothing TO Integer = thread::start(workers::double, 5)
   IF thread::isRunning(t) THEN
     io::print("still working")
   END IF

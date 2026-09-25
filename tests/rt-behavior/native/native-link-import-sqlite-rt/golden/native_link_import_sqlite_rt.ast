@@ -16,7 +16,7 @@
       "name": "cellText",
       "line": 9,
       "params": [
-      { "name": "cell", "type": "SqlValue", "default": null, "line": 9 }
+      { "name": "cell", "type": "sqlite3.SqlValue", "default": null, "line": 9 }
       ],
       "returnType": "String",
       "body": [
@@ -26,7 +26,7 @@
         "line": 10,
         "cases": [
         {
-          "pattern": { "kind": "union", "type": "SqlInt", "binding": "i" },
+          "pattern": { "kind": "union", "type": "sqlite3.SqlInt", "binding": "i" },
           "guard": null,
           "line": 11,
           "body": [
@@ -34,7 +34,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "SqlText", "binding": "t" },
+          "pattern": { "kind": "union", "type": "sqlite3.SqlText", "binding": "t" },
           "guard": null,
           "line": 13,
           "body": [
@@ -63,7 +63,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sqlite3.create", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "sqlite3.Db", "value": { "kind": "call", "callee": "sqlite3.create", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 21 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite3.createTable", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "users" }, { "kind": "string", "value": "id INTEGER, name TEXT" }] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite3.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (1, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "alice" }] }] }, "line": 23 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite3.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (2, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "bob" }] }] }, "line": 24 },

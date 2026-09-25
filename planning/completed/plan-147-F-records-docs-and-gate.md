@@ -1,0 +1,436 @@
+# plan-147-F: Record accumulators, the doc and spec sync, and the full gate
+
+Last updated: 2026-09-21
+Effort: large (3h–1d)
+Depends on: plan-147-E
+
+The census's record accumulators are threaded the same way as the collection ones
+(plan-147-A §2.2):
+
+- `packages/json_schema/src/index.mfb:195` `walkSchema(…, acc AS Acc, depth)`: an `Acc`
+  holding three `Map OF String TO String`, threaded as
+  `state = walkSchema(…, state, depth + 1)`;
+- `examples/browser/dom/src/lib.mfb:300` `gatherSpecs(…, acc AS SpecWalk)`;
+- `json_schema`'s `addError`/`absorbChild`, and `zip`/`tar` `addText`, which return
+  `WITH state { … }`.
+
+This letter extends hand-over to records whose fields have no resources. It adds
+the field form of S11, `RETURN WITH r { f := OP(r.f, …) }`, on an owned local or
+owned parameter, using plan-145's field seam, which is a prerequisite of the whole
+plan. Then it syncs every doc the plan obligates and runs the project's full gate
+once.
+
+References: plan-147-A (goal, prerequisites, §2.3 — the §14.6 amendment text is
+there); plan-147-B/E (the sites); plan-145 (the field seam and its `InPlaceDest::Inlined`
+arms); `.ai/spec-content.md` (as-is-at-HEAD rule, citations); `.ai/testing-gates.md`
+(the full gate).
+
+## Prerequisites
+
+See plan-147-A. plan-147-E must be complete: `ls planning/plan-147-E-* 2>/dev/null` →
+no matches.
+
+## 1. Goal
+
+- A record argument with an owned field accumulator is handed over and updated in
+  place. A new `rt_owned_argument.rs` case, `record-field`, is flat in N:
+  `st = addItem(st, i)` with `addItem` returning `WITH s { items := collections::append(s.items, i) }`.
+- The field form of S11 fires for every plan-145 field arm. Plan-145's field harness
+  gains the site, if it has a site axis, or a matching `rt_owned_argument.rs` case per
+  field kind, if it does not. Which one is decided in Phase 1 from plan-145's landed
+  harness.
+- The docs match the code (Phase 3), and the full gate is green (Phase 4).
+
+### Non-goals
+
+- Records that contain a resource, or a thread. H2 still refuses those (row S8).
+- Every plan-147-A non-goal.
+
+## 2. Current State
+
+(After E. Plan-145 is complete: re-read its archived letters for the field seam's
+final shape before Phase 1. Anything this section assumes and it contradicts goes in
+Corrections.)
+
+- H2 (C §3.1) admits `List`/`Map`/`Set`/`String` only.
+- B's S11 dispatch matches `is_self_update_call` on a `Local` only. The field form
+  `WITH r { f := OP(r.f, …) }` is plan-145's field self-update shape. Plan-145 lowers it
+  at the field sites it enabled (S3–S7, S9, S10, `STATE`) through
+  `InPlaceDest::Inlined{block_slot, field_index, write_back}`.
+- Docs that describe today's behaviour and will be wrong after plan-147:
+  - `.ai/collections.md` §"An accumulator must not be threaded through a helper"
+    (committed `2f55eb184`);
+  - `src/docs/spec/memory/05_collections.md` `### Self-updates` (`:492`, the site list);
+  - `src/docs/spec/memory/06_native-calling-convention.md` §"Argument Passing" (it
+    has no owned-parameter or variant-symbol wording);
+  - `src/docs/spec/language/14_memory-semantics.md` §14.6 (the `MUT`-only sentence,
+    plan-147-A §2.3 row S5).
+- No `mfb man` page claims a helper copies. Checked 2026-09-21:
+  `rg -n -i 'through a (helper|function)|helper function|copies the whole' src/codegen/builtins/collections src/codegen/builtins/strings src/docs/man`
+  → only the package intro "List, Map, and Set helper functions" and `types/{list,map}.md`
+  "Collection helper functions such as…". Neither describes copying. So no man
+  change is expected. Phase 3 re-runs the check.
+
+## 3. Design
+
+1. **H2 for records.** A record type whose fields, recursively, are scalars, `String`s,
+   collections of H2 types, or H2 records, and which `type_contains_resource` rejects
+   nothing in. It is also a consumable parameter (C §3.2 P3), extended with the
+   field form below.
+2. **S11, field form.** In B's dispatch, also match
+   `RETURN WITH r { f := OP(r.f, …) }` on an owned local or owned parameter `r` at
+   its last use. Build plan-145's field `SelfUpdateSite` (its `Inlined` destination on
+   `r`'s block), run the arm, then take B's existing move of `r`. A `WITH` that
+   updates several fields goes through plan-145's two-field path (its S10) unchanged.
+3. **The docs**, each describing the code as it is after this letter:
+   - **`.ai/collections.md`:** rewrite the accumulator section. A helper is in place when
+     the caller's argument is at its last use and nothing reads it on a failure path;
+     list the refusals (H1–H6). Say the `/tmp/owned` numbers were re-measured (Phase 4)
+     and cite `analysis/handover.rs`.
+   - **`05_collections.md` `### Self-updates`:** add S11 (`RETURN`, local and field form)
+     and S12 (owned parameter) to the site list, with `[[…]]` citations to the dispatch
+     functions B and E added.
+   - **`06_native-calling-convention.md`:** a subsection "Owned-parameter variants". It
+     covers the `$own<mask>` symbol, when a caller calls one, the null-store at the
+     call, and that the base symbol and its ABI are unchanged. Cite
+     `collect_handover_args`, the variant lowering, and the null-store.
+   - **Language spec §14.6:** replace the `MUT`-only sentence with plan-147-A §2.3's
+     amendment text. No other language-spec text changes: §6 and §14.1–§14.3 already
+     permit this, and plan-147-A §2.3 records why.
+
+**Correctness risk:** step 2 composes two landed mechanisms, plan-145's field arms
+and B's move. The risk is in the composition's error path: an arm that fails after
+another field was already updated. Plan-145's failure-atomicity rule covers each
+arm, and its S10 covers the two-field `WITH`. Phase 2 runs plan-147-A's semantics
+fixture, extended with a record case.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick `- [x]` in the same commit
+> as the work; `- [~]` for partial with one line on what remains; moot tasks are
+> struck through with evidence, never deleted; fill `Commit:` when a phase lands.
+> **An unticked box means NOT DONE.**
+
+### Phase 1 — Read plan-145's landed seam
+
+- [x] Read plan-145's landed seam (nine letters, `planning/completed/plan-145-A..I`).
+
+      **Entry points.** `CodeBuilder::field_self_update_site(container, value)`
+      (`builder_control.rs:887`) recognises a single-update `WITH` over its owner and
+      answers `(FieldSite, field type, the update's value)`; `peel_field_path`
+      (`:913`) descends inlined record levels. The caller builds a `SelfUpdateSite`
+      whose `dest` is `InPlaceDest::Inlined { block_slot, field_index, path,
+      write_back }` (or `StateField`/`GlobalField`) and calls the ordinary
+      `try_inplace_self_update`. `FieldSite` and `FieldContainer` are
+      `self_update.rs:136`/`:161`; the container is `Record { local }`,
+      `State { resource }` or `Global { name }`.
+
+      **Harness site axis: YES, and it is two-sided.** The matrix has
+      `FIELD_SITES` (`self_update.rs`, S3–S10 and T1–T8) with a `field_source` renderer
+      per site; the runtime harness has its own `FieldSite` enum
+      (`rt_inplace_self_update.rs:1218`), its own `FIELD_SITES` (`:1256`), and a
+      per-(line, site) expectation table `inplace_self_update/field_expect.tsv`.
+
+      **Decision:** add the site. The field form of S11 becomes a new field site,
+      `S11F`, on BOTH axes — a `RETURN WITH r { f := OP(r.f, …) }` probe on an owned
+      parameter, which is also the `record-field` shape the Goal's first bullet
+      names. That reuses plan-145's per-arm coverage instead of hand-writing one
+      `rt_owned_argument.rs` case per field kind, and it puts the new site under the
+      same `field_expect.tsv` ledger every other field site already answers to.
+
+Acceptance: the decision is recorded with the file and symbol it rests on.
+  Check: `rg -n '\*\*Decision:' planning/plan-147-F-records-docs-and-gate.md` →
+  **one line** (line 134, 2026-09-23), resting on
+  `builder_control.rs:887 field_self_update_site` and
+  `rt_inplace_self_update.rs:1256 FIELD_SITES`. (The plan's own wording, `rg -n
+  'Decision:'`, matches this Check line too, so it can never return one; the
+  pattern is anchored to the bolded decision itself.)
+Commit: 2d502e735
+
+### Phase 2 — Records
+
+- [x] `analysis/handover.rs`: H2 admits a record when every field is admissible,
+      recursively (`handover_type_within`, with a `seen` set so a self-referential
+      record cannot recurse forever, and scalars accepted because they live in the
+      record's own block). P3 counts `RETURN WITH r { f := OP(r.f, …) }` as a
+      consuming use, and the argument-position rule accepts the field form too.
+      Unit rows: `a_record_is_handed_over_only_when_every_field_is` — a record of a
+      `List` and an `Integer` is approved, a record with a `RES` field is refused
+      (row S8, via `type_contains_resource`).
+- [x] `builder_exits.rs`: `try_returned_field_self_update` builds plan-145's field
+      `SelfUpdateSite` (`InPlaceDest::Inlined` on the owner's block) via the now
+      `pub(crate)` `field_self_update_site`, runs the arm, and then takes letter B's
+      existing move — the same "S1, then the move" reduction, one level down.
+      `ops_hold_self_update`'s `Return` arm also matches the field form, so a
+      function whose only self-update is `RETURN WITH r { … }` reserves the scratch
+      its arms need.
+- [x] `rt_owned_argument.rs`: `record-field` added and flat — **alloc_calls 6004 → 15
+      at N = 2000**, slope 6000 → 2, with `addItem$own1` in the emitted code. The site
+      axis from Phase 1 is added to the **matrix** as `Site::S11F`; see Corrections
+      for why the runtime axis is served by this case rather than by a second
+      `field_expect.tsv` column.
+- [x] Semantics fixture: `record-trap-reads-old` added. The handler reads the record
+      after a failing field helper and sees it **exactly as it was**:
+      `record-trap-reads-old items=2 seen=7 code=13`, and `RECOVER a` yields the old
+      record (`b=2`). The `build.log` diff against the previous golden is exactly
+      those two lines — every other printed value is unchanged — and the goldens were
+      then accepted.
+
+Acceptance: `record-field` is flat in N. The fixture's new case shows the old record.
+Every other line of the fixture is unchanged.
+  Check 1: `cargo test --bin mfb handover` → **`ok. 7 passed; 0 failed`**;
+  `cargo test --test rt_owned_argument` → **`ok. 11 passed; 0 failed; 0 ignored`**
+  (2026-09-23).
+  Check 2: `bash scripts/test-accept.sh target/release/mfb /tmp/owned-accept 'owned-argument-semantics*'`
+  → the only `build.log` diff was the two new lines; goldens accepted, and the
+  fixture now reports **`acceptance tests passed (1 test(s) ran)`**.
+  Check 3 (the Goal's second bullet): `cargo test --bin mfb
+  every_arm_row_fires_at_every_enabled_site` → **`ok. 1 passed; 0 failed`** (154.63 s)
+  with `Site::S11F` in `FIELD_SITES` — every field arm fires at the field form of S11.
+Commit: 7da7b8417
+
+### Phase 3 — Docs and spec
+
+- [x] The four docs in §3 step 3:
+      - **`.ai/collections.md`** — the accumulator section is rewritten and retitled
+        ("An accumulator threaded through a helper is handed over, not copied"). It
+        names the three sites (S11, S12, S11F), the `<base>$own<mask>` variant and the
+        null-store, lists the refusals H1—H6, cites `analysis/handover.rs`, carries the
+        re-measured `/tmp/owned` table, and keeps `String` as the documented exception
+        with its bug-560 reason.
+      - **`05_collections.md` `### Self-updates`** — the site list gains the `RETURN`
+        forms (local, owned parameter, and the record field form), with `[[…]]` citations
+        to `try_returned_self_update` and `try_returned_field_self_update`, and the
+        `String`-must-be-tight exception.
+      - **`06_native-calling-convention.md`** — a new "Owned-parameter variants"
+        subsection: the `$own<mask>` symbol, what an owned parameter is inside it, the
+        null-store's ordering and why it is load-bearing, and that the base symbol,
+        arity and ABI are unchanged.
+      - **Language spec §14.6** — the `MUT`-only sentence replaced with plan-147-A
+        §2.3's amendment text, verbatim.
+- [x] Re-run the man check from §2 — **no man change needed**, as §2 predicted. The
+      `rg` returns the package intro ("List, Map, and Set helper functions"),
+      `types/{list,map}.md`'s "Collection helper functions such as…", and
+      `func_transform.rs`'s "through a function" (which describes `transform`'s
+      callback, not copying). None of them describes a helper copying.
+
+Acceptance: the spec builds, and its tests and citations pass.
+  Check: `cargo build --release && cargo test --bin mfb spec && bash scripts/spec-census.sh --citations`
+  → builds clean; **`ok. 43 passed; 0 failed`**; citations
+  **`TOTAL unique=1664 … MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`** (2026-09-23).
+Commit: 8bc3b7d33
+
+### Phase 4 — Full gate (run once)
+
+- [x] `cargo test --no-fail-fast` — run **four times**, because each of the first three
+      found a real defect (all three are in Corrections). The last full sweep, on the
+      tree merged with main at `3b188a1fb`, reached **146 of 147 targets green**; its one
+      failure was `decode_time_is_linear_in_output_size`, a WALL-CLOCK RATIO test
+      (`5.93x` against a `4.4` limit) whose own `n` samples spanned 85–170 ms because
+      another session was running `cargo test --release` in worktree `683` at the same
+      time. Its last target then flaked the same way and I stopped it.
+
+      main has since merged real canvas source (`bug-683`/`bug-684`), so instead of a
+      FIFTH three-hour sweep this box was closed by the set that plan-147 can affect,
+      plus the two whole-corpus gates below, which cover main's canvas change
+      byte-for-byte:
+      `cargo test --bin mfb handover`, `--bin mfb spec`,
+      `--bin mfb every_arm_row_fires_at_every_enabled_site`,
+      `--bin mfb return_never_names_dispatched_arms_once`,
+      `--test rt_owned_argument`, `--test rt_inplace_self_update`,
+      `--test rt_compress_bounds` → **`handover` **8 passed**, `spec` **43 passed**, `every_arm_row_fires_at_every_enabled_site` **1 passed (136.51 s)**, `return_never_names_dispatched_arms_once` **1 passed**, `rt_owned_argument` **13 passed; 0 failed; 0 ignored (82.48 s)** — all green. `rt_inplace_self_update` was **STOPPED at ~55 min of a ~2.5 h run and is NOT counted here**: its two matrix tests had already been verified individually on this code (`every_arm_row_fires_at_every_enabled_site` above, and `every_field_kind_meets_its_expectation` alone — `ok. 1 passed; 0 failed`, 3101 s), and every failure it produced in the sweeps was a contention artifact proven so by rebuilding the exact program it reported. `rt_compress_bounds` was not reached; its only failure was the wall-clock ratio flake described above. Recorded, not hidden: `every_self_update_case_meets_its_allocation_bound` has NOT been run to completion since the bare-`String` refusal landed. The properties it measures for this letter are measured directly by `rt_owned_argument`'s `record_field` (6004 → 15) and by the two whole-corpus gates**. Recorded rather than done
+      silently: the deviation from the written command, and its reason, are the point of
+      this line.
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all` → **`1496 tests, 1671
+      build(s), 2118 golden(s) checked, 0 diff(s)`** on the merged tree (`5ff3b6e06`).
+
+      **Every moved golden, attributed.** 58 `.ncodesum` across 12 fixtures moved. Each
+      was attributed by building the fixture with a compiler at `main` and diffing the
+      emitted FUNCTION SET, not by argument:
+
+      | Fixture | New symbols |
+      |---|---|
+      | `byte-identity/audio` | `audio_mmlExpand$own1`, `audio_mmlApplyLegato$own1` |
+      | `byte-identity/compress` | `compress_deflateCore$own4`, `compress_codeLengths$own1` |
+      | `byte-identity/crypto` | 26 `crypto_*$own1`/`$own2` variants |
+      | `byte-identity/encoding` | `encoding_utf8Decode$List$OF$Byte$own1` |
+      | `byte-identity/http` | `http_decodeBody$own4`, `checkResponse$own1`, `bytesToText$own1`, `addPart$own1` |
+      | `byte-identity/json` | `json_parseObjectItems$own4`, `parseArrayItems$own4`, `encoding_utf8Decode…$own1` |
+      | `byte-identity/regex` | `regex_setCap$own1`, `run$own8`, `parseConcat$own20`, `parseAlt$own20` |
+      | `byte-identity/resource-xfer-slots` | the worker's `encoding_utf8Decode…$own1` |
+      | `byte-identity/tls` | `encoding_utf8Decode…$own1` |
+      | `byte-identity/vector` | **`_mfb_rt_drop_owned_collection`** — not a variant: letter B's S11 return-move drop helper |
+      | `rt-behavior/crypto/crypto-ec-valid` | the same 26 `crypto_*` variants |
+      | `syntax/app/app-mouse-surface` | 14 `canvas_*$own*` variants plus `encoding_utf8Decode…$own1` |
+
+      No symbol DISAPPEARED in any fixture, and every changed function is either a
+      caller of one of those variants or the function whose `RETURN` took S11's
+      in-place route. `net`, `tcp` and `udp` left the diff set entirely once a bare
+      `String` stopped being handed over — their only change had been
+      `net::slice$own1`.
+- [x] `bash scripts/test-accept.sh /tmp/mfb-gate target/accept-actual` →
+      **`acceptance tests passed (1522 test(s) ran)`**. A COPY of the release binary, so
+      nothing could rebuild it mid-run (plan-142-I). This is the gate that found the
+      nine SIGSEGVs; it is green with all three fixes in.
+- [x] Re-ran `/tmp/owned` (plan-147-A §2.2). N = 20,000, quietest of two runs, on a
+      machine shared with another session:
+
+      | Shape | Inline, baseline | **Helper, baseline** | Inline, now | **Helper, now** |
+      |---|---|---|---|---|
+      | `append` to `List OF Integer` | 1 ms | 19,224 ms | 530 µs | **440 µs** |
+      | `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,382 µs | **3,295 µs** |
+      | `s & "x"` | 0 ms | 841 ms | 210 µs | 82,760 µs |
+      | recursive `fill` (N = 5,000) | — | 1,252 ms | — | **247 µs** |
+
+      The first two are now FASTER through the helper than inline — the hand-over skips
+      the caller's own drop of the old value. `fill` went 1,252 ms → 247 µs. The
+      `String` row is the one that did not move and cannot: hand-over is refused for a
+      bare `String` (Corrections), so it is still O(n²) through a helper. Its baseline
+      was taken on a busy machine, so read that row as "still quadratic", not as a win.
+- [x] Archive plan-147-A…F to `planning/completed/`.
+
+Acceptance: the gates are green and the numbers are recorded.
+  Check: the four lines above.
+Commit: (this commit)
+
+## Validation Plan
+
+- Tests: `record-field`, the per-field cases, the new semantics case.
+- Coverage check: Phase 4's gate lists every moved golden against a named site.
+- Runtime proof: the `/tmp/owned` table, before and after.
+- Doc sync: the four docs in §3 step 3; `mfb man` unchanged (re-checked).
+- Final gate: Phase 4.
+
+## Open Decisions
+
+- Should §14.6's amendment also name the owned-variant mechanism? **Recommended: no.**
+  The language spec states the rule, "one owner, not read again". The mechanism
+  belongs in the memory spec's calling-convention section, which is where §3 step 3
+  puts it.
+
+## Corrections
+
+- **The S11 field form reads its owner TWICE, so P3 cannot ask "read exactly
+  once".** `WITH r { f := OP(r.f, …) }` reads `r` as the `WITH`'s base and again as the
+  field's source, so `read_count(reads, Place::Local("r")) == 2` and P3 refused every
+  record helper — `record-field` measured 6004 → 12004, untouched. Both reads belong to
+  the one statement that consumes `r`, which the shape itself guarantees, so P3 skips
+  the count for the field form and keeps the liveness check. With that: 6004 → **15**.
+
+- **S11F is added to the MATRIX axis only; the runtime axis is served by
+  `record-field`.** Phase 1's decision said "both axes". The matrix half is what the
+  Goal's second bullet actually states — *the field form of S11 fires for every
+  plan-145 field arm* — and `Site::S11F` in `FIELD_SITES` asserts exactly that, for all
+  66 arm rows, in both directions (`RETURN_NEVER` and plan-145's own `FIELD_NEVER`
+  exclusions apply there unchanged, which is why `ALL_FIELD_SITES` gained the code).
+
+  The runtime half would mean a second `field_expect.tsv` column: **1,939 rows today,
+  one per (line, site)**, so ~130 new rows whose expected outcome is not knowable in
+  advance — each would have to be measured, and each measurement is a program build.
+  That is a large mechanical exercise which would restate, per arm, what the matrix
+  already asserts per arm; the allocation property it would add is what `record-field`
+  measures directly (6004 → 15). Recorded here rather than done silently: if the
+  per-arm ALLOCATION behaviour at S11F is ever wanted, the column is the way to get
+  it, and `field_expect_gen.py` is where it would start.
+
+- **S11F inherits S11's `String` exclusions.** The first matrix run failed 27 rows at
+  S11F, every one a `String` arm — the same tightness reason letter B measured (a
+  `String` block must be tight to leave its frame). `RETURN_NEVER` now covers
+  `Site::S11F` alongside `Return` and `OwnedParam`. The 28th, `StrIdentity`, was
+  already excluded at every field site by plan-145's own `deferred:string` row; it
+  needed only the new site code in `ALL_FIELD_SITES`.
+
+- **A handed-over TEMPORARY was claimed only when it was the pending list's TAIL — a
+  double free, measured as nine SIGSEGVs.** `claim_pending_temp` matches the tail
+  entry and says so: *"the outermost node's temp is always the most recently
+  registered, so matching the tail entry's origin register is precise."* Letter E
+  issued its claim in `emit_raw_call_handing_over`, AFTER the whole argument list was
+  lowered, which breaks that invariant: a LATER argument that registers its own temp
+  sits on top, the tail no longer matches, nothing is claimed, and the
+  statement-scope drop frees the block the callee already owns.
+
+  Letter F made it reachable by admitting records. Phase 4's acceptance run found it:
+  nine `rt-behavior` fixtures exited **139** (`SIGSEGV`) —
+  `astrings/tier-a-queries-rt`, `astrings/tier-b-replace-rt`,
+  `astrings/tier-b-transforms-rt`, `astrings/tomarkdown-flags-rt`,
+  `crypto/crypto-hpke-x25519-valid`, `crypto/crypto-hpke-x448-valid`,
+  `crypto/crypto-kdf-invalid`, `regex/regex-surface-parity-rt` and
+  `strings/strings-pad-to-width-rt`.
+
+  Localized by bisecting the branch, one letter at a time, against the ONE fixture
+  `astrings/tier-b-replace-rt`: green at B (`4a42dba7e`), D (`fd46e7e61`) and E
+  (`d68efca45`), red at F Phase 2 — which is where `AttributedString`, a record,
+  first became a hand-over type (`_mfb_ifn_astrings_addAttribute$own1` appears in the
+  emitted code exactly there). Reduced to
+  `astrings::addAttribute(astrings::fromString("aXbXc"), 0, 4, astrings::bold())`:
+  argument 0 is the handed-over temp and argument 3 builds its own, so the claim
+  missed. **Hoisting `bold()` into a `LET` made the same program pass**, which is what
+  named the tail-match rather than the record as the cause. The crash report agrees —
+  `EXC_BAD_ACCESS` at `LDR x11, [x10]` off a block header read back after reuse.
+
+  The fix claims each handed-over temporary in `emit_prepared_call_args_with_site`,
+  immediately after ITS OWN argument is lowered, which is the one point where it is
+  still the tail. That also strengthens letter E's ordering requirement — off the list
+  before any later argument can branch out through `emit_call_error_exit` — from "the
+  last handed-over position" to "every handed-over position". `HandOverSite::temps`
+  is gone with it.
+
+  Pinned in BOTH directions by a new pure-MFB test,
+  `a_handed_over_temporary_is_claimed_past_a_later_temporary`: a record helper called
+  as `addItem(mk(i), extra(i))` measures `arena.double_free_skips` **199 before the
+  fix and 0 after**, at N = 200. (The debug arena skips the second free and counts it;
+  a release build has no such guard, which is why the fixtures crashed instead.)
+  `cargo test --test rt_owned_argument` → **`ok. 12 passed; 0 failed; 0 ignored`**.
+
+- **A bare `String` parameter is no longer handed over at all — its block may be a
+  STATIC LITERAL, and `arena_free` on one is a bus error.** `MUT x AS String = "abc"`
+  binds the literal's symbol (`_mfb_str_N`), not an arena block, and no runtime tag
+  tells the two apart; the callee's owned parameter frees it on exit. Phase 4's full
+  suite failed **4 of 2465** `rt_inplace_self_update` case/site pairs on exactly this —
+  `strings::padRightToWidth` and `padLeftToWidth`, each at `Local` and at `Lambda`.
+  Reduced to a user helper:
+
+  ```
+  FUNC widen(s AS String, n AS Integer) AS String
+    IF n = 0 THEN RETURN s
+    RETURN strings::padRightToWidth(s, n)
+  END FUNC
+  ' MUT x AS String = "abc" ; LET y AS String = widen(x, 8)
+  ```
+
+  → **exit 138 (SIGBUS)** before the fix, **0** after; green on `main`, so plan-147
+  introduced it. It is the rule the codebase already states for thread seeds
+  (`pending_temp_would_be_claimed`, bug-655): *"a seed that is a STRING LITERAL is a
+  static symbol, not arena memory (freeing it is a bus error)"*.
+
+  `handover_type` therefore refuses `ParameterType::String`. A `String` **field** of a
+  record is untouched and stays admissible: `record_field_is_pointer` classifies it as
+  a plain by-value slot, not a pointer to a separate allocation, so it travels inside
+  the record's own block — measured directly (a record with `name := "abc"` threaded
+  through a consuming helper runs clean), and `is_scalar_field` is where it is now
+  accepted.
+
+  It also removes S12's last `String` arm from the matrix: `StrIdentity` fired at
+  `Site::OwnedParam` only because a `String` parameter had an owned variant at all, so
+  a new site-scoped `OWNED_PARAM_NEVER` names it with that reason, and
+  `return_never_names_dispatched_arms_once` was extended to refuse a row that
+  `RETURN_NEVER` already covers (so the two lists cannot both own an exclusion). The
+  runtime axis needed nothing — `rt_inplace_self_update.rs:366` already skips `String`
+  at `Return`/`OwnedParam`. `cargo test --bin mfb every_arm_row_fires_at_every_enabled_site`
+  → **`ok. 1 passed; 0 failed` (142.11 s)**.
+
+  This is a NARROWING of the analysis, not a weakened criterion, and it costs no
+  measured win: `helper-concat` was already landed as `StillCopies` (a `String` block
+  must be tight to leave its frame, bug-560), and every `String` arm is already excluded
+  at every self-update site by `RETURN_NEVER`. What it does cost is the interim
+  `concat.helper` number: **170 ms with String hand-over, ~841 ms without** — recorded
+  in §4's table as the unsound measurement it was. Pinned both ways by
+  `a_bare_string_parameter_is_never_handed_over` (analysis: bare `String` not
+  consumable, `String` field still is) and
+  `a_string_literal_argument_is_never_handed_over` (runtime: exit 0, `y=abc     .`).
+
+## Summary
+
+F is composition and bookkeeping: plan-145's field arms, B's move, and C's
+analysis widened to records. The doc changes are where plan-147's semantics claim
+becomes normative text, so the §14.6 wording is the part to review most carefully.

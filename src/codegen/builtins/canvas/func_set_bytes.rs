@@ -10,7 +10,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_image::{emit_closed_guard, IMAGE_DIRTY, IMAGE_PIXELS};
+use super::gen_image::{emit_closed_guard, IMAGE_PIXELS};
 
 const INTRO: &str = r#"Replace an image's pixels."#;
 
@@ -98,7 +98,8 @@ pub(crate) fn lower_set_bytes(
 
     // Copy into a fresh shadow and swap it in. Replacing the block rather than
     // overwriting in place keeps this correct when the old shadow is still being
-    // read — the backend may be uploading from it on another thread.
+    // read — a frame on the graphics thread may be sampling it — and the new address
+    // is what tells every renderer the content changed (`gen_image.rs`, bug-484).
     let pixels_again = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &pixels_again,
@@ -110,11 +111,6 @@ pub(crate) fn lower_set_bytes(
     let target = builder.temporary_vreg();
     builder.emit(abi::load_u64(&target, abi::stack_pointer(), record_slot));
     builder.emit(abi::store_u64(&fresh, &target, IMAGE_PIXELS));
-    // Mark dirty AFTER the pointer swap, so a reader that sees the dirty flag is
-    // guaranteed to see the new pixels rather than the old ones.
-    let one = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&one, "Integer", "1"));
-    builder.emit(abi::store_u64(&one, &target, IMAGE_DIRTY));
 
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -141,7 +137,69 @@ pub(crate) fn lower_set_bytes(
     })
 }
 
+/// The public `setBytes`: the swap, then redraw trigger 5 (bug-484).
+///
+/// The new pixels "appear on the next rendered frame" with no `present` — but nothing
+/// renders a frame unless something signals one, and an identical re-present is refused
+/// by the frame skip. So a `setBytes` on an image the live scene draws signals the
+/// redraw itself (`.ai/canvas-threading.md` section 4, trigger 5), and waits for it under
+/// `MFB_CANVAS_SYNC` exactly as `present` does.
+///
+/// **Only** when something live names the image: the installed items, the installed
+/// layers, or any group. Mutating an image no scene draws changes nothing visible, and
+/// repainting for it would turn an off-screen buffer update into a frame (race row R10).
+/// Identity is the backend id through `canvas::imageHandle`, as plan-116-J compares it.
+///
+/// The swap stays native (`canvas::setBytesRaw`); this wrapper exists because the
+/// liveness question is a `MATCH` over `DrawItem`, which codegen should not open-code.
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __canvas_setBytes(RES image AS Image, pixels AS List OF Byte) AS Nothing
+  canvas::setBytesRaw(image, pixels)
+  LET handle AS Integer = canvas::imageHandle(image)
+  MUT live AS Boolean = __canvas_anythingNamesImage(canvas::installedItems(), handle)
+  FOR EACH layer IN canvas::installedLayers()
+    IF __canvas_listNamesImage(layer.items, handle) THEN
+      live = TRUE
+    END IF
+  NEXT
+  IF live THEN
+    __canvas_ensureGraphics()
+    canvas::signalRedraw()
+    canvas::syncFrame()
+  END IF
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "setBytesRaw",
+        intro: "Swap an image's pixel block, without the redraw.",
+        desc: "Internal. The native half of `canvas::setBytes`.",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "image",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::res(ParameterType::named(super::IMAGE_TYPE_ID)),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "pixels",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::Byte),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Nothing,
+            errors: vec!["ErrBadPixelCount", "ErrResourceClosed", "ErrOutOfMemory"],
+            body: Body::abi_function(lower_set_bytes),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "setBytes",
         intro: INTRO,
@@ -169,7 +227,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec!["ErrBadPixelCount", "ErrResourceClosed", "ErrOutOfMemory"],
-            body: Body::abi_function(lower_set_bytes),
+            body: Body::mfb(BODY, "__canvas_setBytes"),
         }],
     });
 }

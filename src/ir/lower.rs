@@ -375,7 +375,22 @@ impl LowerContext<'_> {
     /// `arg_types` discriminates the built-ins whose fallibility depends on the
     /// overload rather than the name (bug-486 — `toString(<List OF Byte>)`).
     pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
-        self.fallible.call_is_fallible(target, arg_types)
+        self.fallible
+            .call_is_fallible(target, arg_types, self.type_index())
+    }
+
+    /// bug-695: whether `type_` names a `RESOURCE` this project declares.
+    pub(super) fn is_declared_resource(&self, type_: &ParameterType) -> bool {
+        self.type_index.resources.contains(type_)
+    }
+
+    /// The declared-kind oracle (plan-140-A) this context reads, for the built-in
+    /// censuses that answer per overload. bug-679 needs it in `ir::fallible`, where
+    /// `toInt(<enum>)`'s infallibility cannot be seen from the `ParameterType`.
+    /// Returned as the trait object, not the concrete `TypeIndex`, which is
+    /// private to this module: the caller only ever asks it a kind question.
+    pub(super) fn type_index(&self) -> &dyn builtins::TypeKinds {
+        self.type_index
     }
 }
 
@@ -592,6 +607,8 @@ fn lower_field(field: &HirTypeField) -> IrField {
 fn lower_variant(variant: &crate::hir::HirUnionVariant, type_index: &TypeIndex) -> IrVariant {
     IrVariant {
         name: variant.type_.name().into_owned(),
+        // bug-657: keep the elaborated type, not just its rendering.
+        type_: variant.type_.clone(),
         fields: type_index
             .records
             .get(&variant.type_)
@@ -638,6 +655,10 @@ pub(super) fn function_return_type(function: &HirFunction) -> ParameterType {
 }
 
 fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrFunction {
+    // bug-695: name every resource produced straight into a container, before the
+    // escape analysis below and the body lowering both read the function.
+    let hoisted = super::resource_hoist::hoist_resource_temporaries(function, context);
+    let function = &hoisted;
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
@@ -1203,8 +1224,15 @@ fn lower_statement_inner(
             };
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
-                    let lowered =
+                    let base =
                         lower_expression_with_expected(value, Some(&target.type_), locals, context);
+                    // bug-648 E: a union-typed slot (the trapped producer returns the
+                    // union) receiving a VARIANT needs the same explicit wrap a
+                    // `LET`/`RETURN` delivery gets — the trailing `Bind name = $trap_val`
+                    // is union-to-union and adds none, so an unwrapped variant reached
+                    // the binding with no tag.
+                    let lowered =
+                        wrap_union_value(base, value, Some(&target.type_), locals, context);
                     vec![IrOp::Assign {
                         name: slot,
                         value: lowered,
@@ -1797,7 +1825,13 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types) == Some(true);
+        && trap_hoist_kind(
+            &root,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+        ) == Some(true);
     let check_root = match &root {
         // bug-486: the census is asked with the root call's ARGUMENT types, not
         // its name alone. `toString` is infallible on every argument type but
@@ -1809,6 +1843,7 @@ fn lower_inline_trap(
                 || context.fallible.call_is_fallible(
                     target,
                     &ir_call_arg_types(target, args, locals, &context.binding_types),
+                    context.type_index,
                 )
         }
         _ => hoists.is_empty() || root_operator_raises,
@@ -2114,11 +2149,17 @@ fn lower_inline_trap(
             type_,
             explicit_type,
         } => {
+            let value = wrap_trap_slot_value(
+                IrValue::Local(slot.expect("bind target has a value slot")),
+                &success_type,
+                Some(&type_),
+                context,
+            );
             ops.push(IrOp::Bind {
                 mutable,
                 name: name.clone(),
                 type_: type_.clone(),
-                value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
+                value: Some(value),
                 explicit_type,
                 loc: stmt_loc,
             });
@@ -2128,7 +2169,19 @@ fn lower_inline_trap(
             locals.insert(name, type_);
         }
         InlineTrapTarget::Assign { name } => {
-            let value = IrValue::Local(slot.expect("assign target has a value slot"));
+            // The ordinary assign path resolves its target's declared type the
+            // same way before lowering the value with it as `expected`; see the
+            // `HirStatement::Assign` arm.
+            let expected = locals
+                .get(&name)
+                .or_else(|| context.binding_types.get(&name))
+                .cloned();
+            let value = wrap_trap_slot_value(
+                IrValue::Local(slot.expect("assign target has a value slot")),
+                &success_type,
+                expected.as_ref(),
+                context,
+            );
             if locals.contains_key(&name) {
                 ops.push(IrOp::Assign {
                     name,
@@ -2144,6 +2197,10 @@ fn lower_inline_trap(
             }
         }
         InlineTrapTarget::StateAssign { resource } => {
+            // No wrap here: a STATE type must be "a copyable, defaultable data
+            // type" (`TYPE_STATE_INVALID`, 2-203-0085), which rejects a union
+            // outright, so a STATE write can never need the variant->union
+            // coercion the two arms above do.
             ops.push(IrOp::StateAssign {
                 resource,
                 value: IrValue::Local(slot.expect("state-assign target has a value slot")),
@@ -2154,6 +2211,50 @@ fn lower_inline_trap(
     }
 
     ops
+}
+
+/// Coerce an inline-`TRAP`'s staged slot value to the target's declared type.
+///
+/// The slot is typed with the PRODUCER's type, which for `LET v AS Val =
+/// makeNum(7) TRAP …` is the variant `Num`, not the union `Val`. Every other
+/// binding and assignment path runs its value through [`wrap_union_value`],
+/// which inserts the `UnionWrap` that gives the value its `{tag, payload}`
+/// union representation. [`lower_inline_trap`] delivered a bare
+/// `IrValue::Local(slot)` instead, so the binding held an untagged variant:
+/// `MATCH` on it read a tag that was never written and fell through EVERY case,
+/// silently, with a clean exit (bug-642's widened scope). For a RESOURCE union
+/// the same omission also made the bind look like the aliasing shape
+/// (`NirValue::Local` rather than `NirValue::UnionWrap`) to
+/// `runtime::usage::push_op_helpers`, which then declared none of the variants'
+/// close helpers while the used-side scan counted them all — the build failure
+/// bug-642 was filed for.
+///
+/// `variant_belongs_to_union` is a lookup in a by-name table, so a union is not
+/// a variant of itself and an already-union-typed producer (`shapeOf` returning
+/// `Shape`) is left alone. The declared type is `STATE`-stripped for both the
+/// membership test and the wrap, matching what the ordinary path emits for
+/// `RES c AS Chan STATE Cur` (`union: "Chan"`).
+fn wrap_trap_slot_value(
+    value: IrValue,
+    slot_type: &ParameterType,
+    declared: Option<&ParameterType>,
+    context: &LowerContext<'_>,
+) -> IrValue {
+    let Some(declared) = declared else {
+        return value;
+    };
+    let union_type = declared.without_state();
+    if context
+        .type_index
+        .variant_belongs_to_union(slot_type, &union_type)
+    {
+        return IrValue::UnionWrap {
+            union_type,
+            member_type: slot_type.clone(),
+            value: Box::new(value),
+        };
+    }
+    value
 }
 
 /// One call lifted out of an inline-`TRAP` scrutinee (bug-457).
@@ -2210,6 +2311,7 @@ fn hoist_trap_calls(
         context.fallible,
         locals,
         &context.binding_types,
+        context.type_index,
         0,
         &mut fallible,
     );
@@ -2222,7 +2324,13 @@ fn hoist_trap_calls(
     // `len(stringify(parse(a))) + len(stringify(parse(b)))` left the second `len` behind and
     // failed the build with `Checked wraps a call to len`.
     let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(root, context.fallible, locals, &context.binding_types) == Some(true);
+        && trap_hoist_kind(
+            root,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+        ) == Some(true);
     let limit = if root_is_checked_operator {
         fallible.len()
     } else {
@@ -2250,6 +2358,9 @@ fn scan_trap_operands(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
@@ -2265,14 +2376,14 @@ fn scan_trap_operands(
         // captured values are evaluated in this expression.
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                scan_trap_call(capture, fallible, locals, globals, next, out);
+                scan_trap_call(capture, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Call { args, .. }
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                scan_trap_call(arg, fallible, locals, globals, next, out);
+                scan_trap_call(arg, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -2283,33 +2394,33 @@ fn scan_trap_operands(
         | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
-            scan_trap_call(value, fallible, locals, globals, next, out)
+            scan_trap_call(value, fallible, locals, globals, kinds, next, out)
         }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            scan_trap_call(target, fallible, locals, globals, next, out);
+            scan_trap_call(target, fallible, locals, globals, kinds, next, out);
             for update in updates {
-                scan_trap_call(&update.value, fallible, locals, globals, next, out);
+                scan_trap_call(&update.value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                scan_trap_call(value, fallible, locals, globals, next, out);
+                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                scan_trap_call(key, fallible, locals, globals, next, out);
-                scan_trap_call(value, fallible, locals, globals, next, out);
+                scan_trap_call(key, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
-            scan_trap_call(left, fallible, locals, globals, next, out);
+            scan_trap_call(left, fallible, locals, globals, kinds, next, out);
             if !is_short_circuit_operator(*op) {
-                scan_trap_call(right, fallible, locals, globals, next, out);
+                scan_trap_call(right, fallible, locals, globals, kinds, next, out);
             }
         }
     }
@@ -2328,11 +2439,16 @@ fn trap_hoist_kind(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
 ) -> Option<bool> {
     match value {
-        IrValue::Call { target, args, .. } => Some(
-            fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals, globals)),
-        ),
+        IrValue::Call { target, args, .. } => Some(fallible.call_is_fallible(
+            target,
+            &ir_call_arg_types(target, args, locals, globals),
+            kinds,
+        )),
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
         // exempt.
@@ -2359,14 +2475,17 @@ fn scan_trap_call(
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
+    // bug-679: the declared-kind oracle, so `toInt(<enum>)` is seen as the
+    // infallible overload it is and stays a plain `Call`.
+    kinds: &dyn builtins::TypeKinds,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
-    scan_trap_operands(value, fallible, locals, globals, depth, out);
-    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals) {
+    scan_trap_operands(value, fallible, locals, globals, kinds, depth, out);
+    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals, kinds) {
         out.push(checked);
     }
 }
@@ -2529,8 +2648,13 @@ fn rewrite_trap_call(
     // The scan's fallibility verdict is recomputed here rather than read off
     // `fallible[position]`, because a non-raising operator is not indexed at all
     // and must not consume a position.
-    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types)
-    else {
+    let Some(checked) = trap_hoist_kind(
+        value,
+        context.fallible,
+        locals,
+        &context.binding_types,
+        context.type_index,
+    ) else {
         return;
     };
     assert_eq!(
@@ -2940,7 +3064,7 @@ fn attributed_string_type() -> ParameterType {
     ParameterType::named("AttributedString")
 }
 
-fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
+pub(super) fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
     let name = format!("${prefix}{}", context.next_temp_id);
     context.next_temp_id += 1;
     name
@@ -3880,8 +4004,14 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                let resolved =
-                    builtins::resolve_call_return_type_typed(&canonical_callee, &arg_types, false);
+                // plan-140-B: with the type index as the enum oracle, so
+                // `toInt(<enum>)` types as `Integer`.
+                let resolved = builtins::resolve_call_return_type_with_kinds(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                    context.type_index,
+                );
                 // A package-provided override of an overridable general builtin
                 // (`toString(net::Url)` → the package's renderer, plan-01-overload
                 // §B.2) yields the builtin's conventional result type — the same
@@ -4120,20 +4250,21 @@ fn thread_resource_plane_target(name: &str) -> &str {
 /// while `List OF alias.T` looks up `"List OF alias"`, misses, and comes back
 /// unchanged — as do a container's or a user generic's ARGUMENTS. This
 /// reproduces exactly that, which is why it does not recurse.
-/// bug-554: the BARE enum name behind a package-qualified enum-member read
+/// bug-554: the enum TYPE behind a package-qualified enum-member read
 /// (`pkg::Colour.Red`), or `None` when the target is not one.
 ///
-/// An imported package's types are installed under their bare names on purpose
-/// (`resolver::packages::install_package_type_names`), and the parser's
-/// type-position normalizer never sees this spelling because a member read is a
-/// VALUE. So `Colour.Red` typed as `Colour` while `recpkg::Colour.Red` — the
-/// prefixed form §13 says is the one to write for an imported name — typed as
-/// `Unknown` and died at the use site with `TYPE_UNKNOWN_VALUE`.
+/// The parser's type-position normalizer never sees this spelling because a
+/// member read is a VALUE, so the target arrives as `binding.Colour`. bug-632: an
+/// imported enum's identity is `<package>.Colour` (the import binding resolved
+/// to its package), which is how `TypeIndex` keys it, so that is both the lookup
+/// and the answer. It used to be the bare leaf, when imported types were
+/// installed bare — the spelling that let a consumer's own `Colour` and the
+/// package's collide.
 ///
 /// Deliberately fails CLOSED: the prefix must be a live `IMPORT` binding, the
-/// leaf must be a single segment, and the leaf must already be a known enum
-/// **declaring this very member**. Anything else keeps the qualified spelling,
-/// so resolution still reports what was written.
+/// leaf must be a single segment, and the qualified name must already be a known
+/// enum **declaring this very member**. Anything else keeps the spelling as
+/// written, so resolution still reports it.
 fn qualified_imported_enum(
     target: &HirExpression,
     member: &str,
@@ -4143,15 +4274,17 @@ fn qualified_imported_enum(
         return None;
     };
     let (binding, leaf) = type_name.split_once('.')?;
-    if leaf.contains('.') || !context.current_imports.contains_key(binding) {
+    if leaf.contains('.') {
         return None;
     }
+    let package = context.current_imports.get(binding)?;
+    let qualified = format!("{package}.{leaf}");
     context
         .type_index
         .enums
-        .get(&ParameterType::declared(leaf))
+        .get(&ParameterType::declared(&qualified))
         .is_some_and(|members| members.iter().any(|name| name == member))
-        .then(|| leaf.to_string())
+        .then_some(qualified)
 }
 
 fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> ParameterType {
@@ -4877,12 +5010,25 @@ fn lower_expression_with_expected(
             // (plan-01-overload.md §B.2 / Phase 6), e.g. `toString(net::Url)` ->
             // `#net_urlToString`. User overrides need no routing here — the
             // monomorphizer already rewrote them to a concrete symbol (Phase 5).
+            // plan-140-C: the §18.3 gap-fill rule applies here too — the
+            // built-in stays authoritative for a type it accepts, so an enum
+            // argument (which `toString` accepts) never routes to a package
+            // helper that merely shares its bare type name (`color`'s `Color`).
             let package_override =
                 if crate::codegen::builtins::general::is_overridable(&canonical_callee) {
                     arguments
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
+                        .filter(|type_| {
+                            builtins::resolve_call_return_type_with_kinds(
+                                &canonical_callee,
+                                std::slice::from_ref(type_),
+                                false,
+                                context.type_index,
+                            )
+                            .is_none()
+                        })
                         .and_then(|type_| {
                             builtins::general_override_target(&canonical_callee, &type_)
                         })
@@ -5348,15 +5494,14 @@ fn lower_expression_with_expected(
         HirExpression::MemberAccess { target, member } => {
             let member_type =
                 expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
-            // bug-554: a package-qualified enum-member read lowers to the SAME
-            // node the bare spelling does. Everything downstream — codegen's
-            // member resolution, `ir::verify`'s `enums` table, the merged
-            // package IR — knows the enum by its bare name only, so leaving
-            // `recpkg.Colour` in the target would trade a front-end
-            // `TYPE_UNKNOWN_VALUE` for a later unresolved reference.
-            if let Some(bare) = qualified_imported_enum(target, member, context) {
+            // bug-554: a package-qualified enum-member read lowers to a member
+            // access on the enum's TYPE name. bug-632: that name is the enum's
+            // package-qualified identity (`recpkg.Colour`, binding resolved to
+            // its package), which `ir::verify`'s `enums` table and the merged
+            // package IR (`ir::package::qualify_package_types`) both key.
+            if let Some(enum_type) = qualified_imported_enum(target, member, context) {
                 return IrValue::MemberAccess {
-                    target: Box::new(IrValue::Local(bare)),
+                    target: Box::new(IrValue::Local(enum_type)),
                     member: member.clone(),
                     type_: member_type,
                 };
@@ -5760,6 +5905,20 @@ struct TypeIndex {
     variants: HashMap<ParameterType, ParameterType>,
     variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
     variant_fields: HashMap<ParameterType, Vec<IrField>>,
+    /// The `RESOURCE` types this project declares (bug-695's hoist asks).
+    resources: std::collections::HashSet<ParameterType>,
+}
+
+/// plan-140-B: the built-in resolver's enum oracle over the declared and
+/// imported enums. A qualified built-in spelling falls back to its bare leaf.
+impl builtins::TypeKinds for TypeIndex {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        self.enums.contains_key(t) || {
+            let name = t.name();
+            let bare = builtins::builtin_qualified_bare_leaf(&name);
+            bare != name.as_ref() && self.enums.contains_key(&ParameterType::named(bare))
+        }
+    }
 }
 
 impl TypeIndex {
@@ -5894,12 +6053,14 @@ impl TypeIndex {
                 }
             }
         }
+        let resources = super::lower_link::native_resource_types(hir);
         Self {
             records,
             enums,
             variants,
             variant_unions,
             variant_fields,
+            resources,
         }
     }
 

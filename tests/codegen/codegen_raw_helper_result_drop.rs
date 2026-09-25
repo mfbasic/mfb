@@ -207,7 +207,7 @@ fn a_trapped_helper_resource_result_gains_no_owner() {
 fn a_trapped_thread_wait_for_result_is_never_given_an_owner() {
     let plan = main_of(
         "b566_thread",
-        "\x20 LET t AS Thread OF String TO String = thread::start(worker, \"seed\")\n\
+        "\x20 RES t AS Thread OF String TO String = thread::start(worker, \"seed\")\n\
         \x20 LET out AS String = thread::waitFor(t) TRAP(e)\n\
         \x20   RECOVER \"x\"\n\
         \x20 END TRAP\n\

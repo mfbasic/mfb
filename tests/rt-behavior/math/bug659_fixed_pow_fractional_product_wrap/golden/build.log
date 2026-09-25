@@ -1,0 +1,23 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap
+Wrote AST to tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap/bug659_fixed_pow_fractional_product_wrap.ast
+Wrote IR to tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap/bug659_fixed_pow_fractional_product_wrap.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap
+Wrote executable to tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap/build/bug659_fixed_pow_fractional_product_wrap.out
+[exit 0]
+$ tests/rt-behavior/math/bug659_fixed_pow_fractional_product_wrap/build/bug659_fixed_pow_fractional_product_wrap.out
+pow(2, 10.5)         = 1448.15
+pow(1.5, 20.5)       = 4072.59
+pow(2, 40.5)         = RAISED 77050010
+pow(0.5, 40.5)       = 0.00
+pow(2e9, 1e8+.5)     = RAISED 77050010
+pow(2e9, 2e8+.5)     = RAISED 77050010
+pow(2e9, 4e8+.5)     = RAISED 77050010
+pow(2e9, 1e9+.5)     = RAISED 77050010
+pow(2e9, 2147483646.5)=RAISED 77050010
+pow(0.5, 2e8+.5)     = 0.00
+pow(0.5, 1e9+.5)     = 0.00
+pow(1e-9, 2e8+.5)    = 0.00
+pow(1e-9, 4e8+.5)    = 0.00
+pow(1e-9, 2147483646.5)=0.00
+[exit 0]

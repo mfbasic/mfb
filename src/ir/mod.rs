@@ -60,6 +60,7 @@ mod variant_corpus_tests;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
+mod resource_hoist;
 pub(crate) mod shape;
 #[cfg(test)]
 mod test_support;
@@ -98,8 +99,8 @@ pub use lower::{
 pub(crate) use op::IrOp;
 pub use package::{
     apply_package_identity, merge_package, order_bindings_dependencies_first,
-    package_qualified_reference_names, package_referenced_names, prefix_package_symbols,
-    PackageInitialization,
+    order_builtin_bindings_first, package_qualified_reference_names, package_referenced_names,
+    prefix_package_symbols, PackageInitialization,
 };
 pub(crate) use types::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,

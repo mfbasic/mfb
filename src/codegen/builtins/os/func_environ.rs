@@ -2,7 +2,9 @@
 //! `Body::abi_function` lowering ([`lower_environ`]).
 
 use super::gen_env::{emit_env_lock, emit_env_unlock_return};
-use super::gen_shared::{alloc_reloc, push_alloc_error, void_result};
+use super::gen_shared::{
+    alloc_reloc, emit_release_marshalled_result, push_alloc_error, void_result,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
@@ -233,6 +235,22 @@ pub(crate) fn lower_environ(
     ]);
     push_alloc_error(&symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
+    if ctx.platform.family() == PlatformFamily::Windows {
+        // bug-696: the Windows `char**` is a marshalled buffer this body owns —
+        // the map holds copies of every entry by now.
+        emit_release_marshalled_result(
+            &mut EmitCtx {
+                symbol: symbol.as_str(),
+                platform_imports: ctx.platform_imports,
+                platform: ctx.platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &envp,
+            &symbol,
+            &mut vregs,
+        )?;
+    }
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol: symbol.as_str(),

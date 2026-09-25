@@ -148,7 +148,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES Db TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "drain" }, { "kind": "number", "value": "2000" }] }, "line": 90 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF RES Db TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "drain" }, { "kind": "number", "value": "2000" }] }, "line": 90 },
       { "kind": "binding", "mutable": true, "name": "moved", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 91 },
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 92 },
       {

@@ -946,7 +946,13 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // tables that are keyed by a declared name. Those two are declared-NAME
     // boundaries in the exact sense this class enumerates -- a name crossing into
     // the type domain at a table key -- not a decision made below the AST.
-    ("declared_sites", "codegen", 52),
+    //
+    // 52 -> 45: bug-632 routes codegen's package-type reads through
+    // `manifest::package::qualify_package_type` (`TypeModel::from_module_and_packages`
+    // and `add_package_type_export` take the package's own names and qualify
+    // them), so seven `declared` calls that each turned a `.mfp` spelling into a
+    // table key are now one shared conversion.
+    ("declared_sites", "codegen", 45),
     // 47 -> 48: `ir::verify` seeds an imported package's exported record layouts
     // so a rule about an imported record's FIELDS -- comparability -- has a table
     // to read (without them `Map OF pkg::Box TO V` was accepted for a `Box`
@@ -966,7 +972,11 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // them decides anything by COMPARING a spelling. One prior site is folded
     // into a shared `imported_type` binding, hence +5/-1.
     ("declared_sites", "ir", 52),
-    ("declared_sites", "manifest", 1),
+    // 1 -> 2: bug-632's `package_type_owners` asks the built-in-resource
+    // predicate about a name decoded from the `.mfp` RESOURCE table, so a
+    // package's reference to `fs.File` is not mistaken for a type it declares.
+    // A wire decode crossing into the type domain, exactly as the rows above.
+    ("declared_sites", "manifest", 2),
     // 8 -> 9: bug-631 gives the monomorphizer an imported package's exported
     // record layouts (`collect_imported_records`, `monomorph/helpers.rs`) so a
     // field of an imported record types for overload resolution instead of as
@@ -976,7 +986,11 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // over the same `ImportedTypeDef` list (the `ir` row's 47 -> 48 entry), and
     // it decides nothing by comparing a spelling.
     ("declared_sites", "monomorph", 9),
-    ("declared_sites", "resolver", 8),
+    // 8 -> 6: bug-632 installs an imported package's types under their
+    // package-qualified identity, built with `named` from the package name and
+    // the export's own spelling, so the two `declared` calls that keyed them
+    // bare are gone (`resolver::packages::install_package_type_names`).
+    ("declared_sites", "resolver", 6),
     ("declared_sites", "target", 8),
     ("str_type_params", "codegen", 3),
 ];

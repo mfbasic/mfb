@@ -5,15 +5,15 @@ code (plan-98-D Phase 1) and binding on plan-98-E/F, which swap the *renderer* b
 this boundary without changing any rule here.
 
 Read this before touching the graphics thread, the scene ring, the resize handshake,
-or the texture free.
+or how an image reaches a frame.
 
 ## 1. The three threads, and what each owns
 
 | Thread | Owns | Never touches |
 |---|---|---|
 | **main** (UI) | the window, the surface/layer, the event pump, resize notifications | the scene, the geometry cache, the pixel buffer |
-| **worker** (language) | the program, the scene arena, `canvas::present`, `canvas::setBytes`, `canvas::destroyImage` | the surface, the pixel buffer, any texture's OS backing |
-| **graphics** | the render loop, the geometry cache, the pixel buffer, texture uploads and frees | the window, the scene *slots it does not hold* |
+| **worker** (language) | the program, the scene arena, `canvas::present`, `canvas::setBytes`, `canvas::destroyImage` | the surface, the pixel buffer, the GPU frame buffers |
+| **graphics** | the render loop, the geometry cache, the pixel buffer, copying a frame's picture texels into its GPU buffer | the window, the scene *slots it does not hold* |
 
 Main and worker already exist (`WORKER_SYMBOL` spawned from the UI-thread
 surface-ready callback on all three platforms). Graphics is the third, spawned the
@@ -72,32 +72,83 @@ a pointer. The three that exist are:
 
 ```
 items / hashes / layers          the published scene   (what the renderer reads)
-retiredItems / retiredHashes /
-retiredLayers + retiredFrame     the block just displaced
+retiredHead                      -> node { next, items, hashes, layers, frame }
+                                    one node per publish still waiting for a frame
                                  (plus a fresh block being built inside present)
 ```
+
+The retirement side is a **list**, not a slot (bug-683). It was one slot, and a second
+publish inside one rendered frame overwrote the pointer already there and lost a whole
+scene copy — 16 KB a present on the program that found it. One slot cannot be enough:
+`present` is not rate-limited to one call per frame, every block displaced since the
+last frame tick may be the one a render in flight is reading, and freeing the older one
+to make room is the exact use-after-free retirement exists to prevent. So the number of
+blocks held is whatever the schedule produced. Nodes are newest-first and carry the
+frame they were retired at; the list is bounded in practice by presents per rendered
+frame, and the first publish after a frame completes drains it to empty.
 
 ### Ordering
 
 **Worker, in `canvas::present`:**
 
 1. Deep-copy the caller's scene into a fresh block.
-2. Compare against the published block; if the content is identical, stop — the
-   frame skip (§3.1).
-3. **Reclaim**: if a previous retirement exists and `frames > retiredFrame`, free it.
-4. **Retire**: move the currently-published pointers into the retired slots and stamp
-   `retiredFrame = frames`.
-5. Publish the new pointers, then the revision **last**.
+2. Compare against the published block; if the content is identical, **free the fresh
+   copy** and stop — the frame skip (§3.1). The free is step 2's own, and it is the
+   only one ahead of the drain gate: the block was allocated in this call and never
+   published, so no renderer can have seen it. Omitting it leaked one whole scene per
+   no-op re-present (bug-683), which is the case `mfb man canvas` calls free.
+3. **Reclaim**: if the retirement list is non-empty and `frames > head.frame`, free
+   every node on it. Testing the head alone suffices because the head carries the
+   largest stamp, so that one comparison proves a frame has completed since every node
+   behind it.
+4. **Retire**: allocate a node, move the currently-published pointers into it, **mark
+   the publish pending** (below), stamp `frame = frames`, and link it at the head. A
+   publish that displaces nothing — the first of a program, and the first of each
+   shape — allocates no node.
+5. Mark pending (again, for the no-node case), publish the new pointers, then the
+   revision **last**. `canvas::publishHashes` follows with the scene's hashes and the
+   revision they belong to.
 6. Signal the redraw condition.
 
-**Graphics, at frame start:** read the published pointers and copy what it needs.
+**Graphics, at frame start:** take ONE snapshot of the published pointers
+(`canvas::sceneSnapshot`) and use only it for the whole frame.
+
+### The scene is read under a sequence lock (bug-686)
+
+A frame used to read the items, the layers and the hashes at several points, and the
+hashes are published by a second call after the scene. So a frame could pair one
+publish's items with another's items or hashes, and since a cache hit is trusted on its
+hash alone (§14) it drew the other scene's geometry — measured as 12,000 wrong records
+in 13 frames of two alternating 6,000-item scenes (`rt_canvas_geo_native`,
+`a_frame_never_draws_one_scenes_geometry_for_anothers_items`).
+
+* `pending` (`CANVAS_SCENE_PENDING_OFFSET`) is `revision + 1` while a publish is
+  writing the region and equal to the revision otherwise. `publishScene` closes it by
+  bumping the revision; `publishHashes` (which starts no new scene) by setting it back.
+* The reader reads the revision, `pending`, the pointers, and `pending` again, and
+  retries until both reads of `pending` equal the revision. The hashes count only if the
+  revision they were published for (`CANVAS_SCENE_HASHES_REVISION_OFFSET`, read before
+  and after the pointer) is the snapshot's; otherwise the frame hashes its own items.
+* On AArch64 the marks are store-releases, the reader's loads load-acquires, and
+  `scene_base::emit_scene_barrier` (`stlr` then `ldar` of `pending`) keeps the plain
+  pointer stores between the mark and the revision. x86-64 keeps stores in order and
+  loads in order by itself. There is no fence op in the backend: that barrier is the
+  cheapest store-store fence the existing ops make.
+* **The mark comes before the retirement stamp.** A frame whose snapshot names a block
+  being displaced read `pending` before the mark, so it had not completed when the
+  frame counter is read for the stamp (a load-acquire on AArch64) — and the block is
+  freed only after the counter passes the stamp. The snapshot's raw pointers therefore
+  stay valid for the whole frame. They live in `Integer` globals (`__CANVAS_SNAP_*`),
+  never in a list MFBASIC owns; MFBASIC gets copies (`canvas::snapshotItems` and
+  friends, `__canvas_frameItems`).
 
 ### Why retirement rather than an immediate free
 
 The block a publish replaces may be the one the renderer is copying *right now*.
-Freeing it there is a use-after-free. Waiting until the frame counter has passed
-`retiredFrame` means a frame has **completed** since the retirement, so no render can
-still hold it — the same drain gate §7 specifies for textures, and deliberately so.
+Freeing it there is a use-after-free. Waiting until the frame counter has passed a
+node's stamp means a frame has **completed** since the retirement, so no render can
+still hold it — the same drain gate plan-98-D once specified for textures in §7
+(which bug-484 found no texture to apply to) and §13 applies to group buffers.
 
 ### Who frees
 
@@ -134,6 +185,11 @@ Exactly five, and **time is not among them** — a static scene costs zero frame
 
 Trigger 5 is conditional on purpose: mutating an image no scene draws changes nothing
 visible, and repainting for it would turn an off-screen buffer update into a frame.
+It is implemented by bug-484: the public `canvas::setBytes` is an MFBASIC wrapper
+(`func_set_bytes.rs`) over the native swap `canvas::setBytesRaw`, and it signals — and
+under `MFB_CANVAS_SYNC` waits — only when the installed items, layers or any group name
+the image. Before that nothing signalled at all, and re-presenting the unchanged scene
+could not stand in for it: the frame skip refuses an identical scene.
 
 ## 5. Resize handshake
 
@@ -150,6 +206,18 @@ Main never touches the pixel buffer, and graphics never touches the window. The 
 is not involved at all — the guarantee `term::` does not give: **a canvas resizes and
 repaints correctly while the program is blocked in `io::input`.**
 
+**The display rate is published the same way, and triggers no redraw** (plan-155-A).
+The main thread writes the window's monitor's refresh rate, in millihertz, into
+`GRAPHICS_OFFSET_DISPLAY_MHZ` with one plain store: macOS on every canvas entry and on
+`NSWindowDidChangeScreenNotification` (`app/display.rs`, the screen's *maximum* rate,
+guarded by `respondsToSelector:` because the binary's minimum is 11.0 and the property
+is 12+); GTK where the canvas reconcile reads the window's `GdkSurface`, and on that
+surface's `enter-monitor` (connected once per surface); Windows when the canvas window
+is shown, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
+`0` means unknown — and on GTK it is what the first frame usually reports, because an
+unmapped Wayland surface has no monitor until the compositor sends `enter`. A rate changes no pixel, so nothing is signalled — §4's triggers
+stay five.
+
 A frame already in flight when the resize lands finishes at the old size and is
 presented; the next frame is at the new size. Tearing the frame mid-render would mean
 drawing part of the picture at each size.
@@ -159,49 +227,65 @@ drawing part of the picture at each size.
 never reached the renderer still *looks* plausible. The test therefore measures a
 fixed-size shape as a fraction of the window (`test-macapp.sh` Case 3g).
 
-## 6. Dirty-texture upload
+## 6. Image upload — implemented by bug-484 without a texture
 
-1. **Worker**, in `canvas::setBytes`: write the CPU shadow, then set the texture's
-   `dirty` flag (release). Signal a redraw only if the id is in the live scene.
-2. **Graphics**, at frame start: for each dirty texture, upload once and clear the
-   flag (acquire).
+This section was written (plan-98-D) for a texture protocol — a per-image GPU texture,
+a `dirty` flag, upload-once-per-frame — that never got a consumer. bug-484 drew
+`canvas::Picture` with **no texture object at all**, and that is what the rules below
+now describe:
 
-Multiple `setBytes` between two frames **coalesce** to one upload, mirroring the
-scene skip and for the same reason: only the last value was ever going to be seen.
+1. **Worker**, in `canvas::setBytes`: copy the new pixels into a **fresh** block and
+   swap the record's pointer (`IMAGE_PIXELS`) to it. The old block is not freed and
+   not written. Then signal a redraw if the live scene names the image (§4 trigger 5).
+2. **Graphics**, while building a frame: a picture's geometry header captures the
+   block address current at that moment (`__canvas_pictureHeader`). The software
+   renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
+   copy its texels, one packed word each, into the frame buffer's glyph region. Each
+   emitter copies a distinct block ONCE per frame and points every later picture of it
+   at those texels (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since
+   bug-688, the same table layout), and each predicate counts each distinct block once.
 
-Uploading into a texture a still-in-flight frame is sampling needs a per-texture ring
-or a barrier. That is **plan-98-E/F's problem, not this document's**: the software
-backend has no in-flight frame — the blit completes before the next frame starts —
-so the upload is unconditionally safe here. E/F must revisit this section.
+Why this holds up where the texture design needed care:
 
-## 7. Deferred texture free — the closed flag, not a refcount
+* **Coalescing is inherent.** Each frame reads whatever block is current when it is
+  built, so N `setBytes` between two frames cost N swaps and one read — the last value
+  wins, exactly as the scene skip.
+* **Upload racing a draw cannot happen.** The copy is part of building the frame's
+  own buffer on the graphics thread, from a block nobody writes after publishing it.
+  There is no GPU object that an in-flight frame and a new upload could share, so no
+  per-texture ring or barrier.
+* **The block address is the content generation.** It is in the header, so a
+  `setBytes` changes the header: the geometry cache's confirmation misses, and the
+  damage diff sees a changed item (`__canvas_appendDraw` folds the address into the
+  draw hash, because the worker's published hash predates the swap).
+
+The cost is the per-frame copy of every drawn picture's texels on the GPU paths, and
+that those texels share the glyph region's frame cap — a frame whose pictures and
+glyphs together overflow it is declined to software by both predicates. A texture
+cache would trade that for exactly the protocol above; do it only with a measured scene
+that needs it. The superseded `dirty` and last-drawn-frame record words were removed.
+
+## 7. Closing an image — the closed flag, not a refcount
 
 **There is no refcount.** MFB owns an `Image` through the RES model: scope-drop or
 `canvas::destroyImage` sets `closed@16` (plan-98-B), and that is the whole ownership
-story. What plan-98-D adds is *when the OS-side backing may be released*.
+story.
 
-Two counters, both graphics-private:
-
-* `lastUsedFrame` — stamped on a texture each time a frame **draws** it.
-* `lastCompletedFrame` — advanced once per frame, when that frame's present
-  completes. (Software: when the blit returns. E/F: from the GPU fence or completion
-  handler — the same counter, so the free code is unchanged.)
-
-**The rule:**
-
-> A closed texture's OS backing is freed when
-> **`closed AND lastUsedFrame < lastCompletedFrame`**.
-
-Read as: MFB is done with it (`closed`), *and* no frame that drew it is still
-outstanding (`lastUsedFrame < lastCompletedFrame`).
-
-Supporting rules, each of which the gate depends on:
+plan-98-D wrote this section for a deferred free of a per-image GPU texture, gated on
+`closed AND lastUsedFrame < lastCompletedFrame`. bug-484 drew pictures with no such
+texture (§6), so there is **nothing to free** and no gate: the image's record and its
+pixel blocks are never freed by anyone, and the frame counter comparison has no
+subject. The rules the gate depended on are the ones that remain, and they are now
+the whole mechanism:
 
 * **Close never frees.** `canvas::destroyImage` and scope-drop set the flag and
   nothing else. This is what makes them safe at any instant, from the worker, with no
-  knowledge of what the graphics thread is doing.
-* **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
-  the moment it closes, and the gate is guaranteed to open.
+  knowledge of what the graphics thread is doing — a frame that already captured the
+  pixel block's address keeps drawing from valid memory (R1,
+  `destroying_an_image_mid_frame_lets_the_frame_finish`).
+* **A closed image is skipped in new frames.** A picture's header is built through
+  `canvas::imageShadow`, which answers `0` for a closed image, and `0` builds the empty
+  header (R2).
 * **A directly closed image cannot be named again — and since plan-116-I the compiler
   is what says so.** `canvas::destroyImage`'s parameter is a plain `canvas::Image`, not
   a `RES` one, so passing a resource to it is a **move**: a program that calls
@@ -237,8 +321,8 @@ row names the rule from above that protects it.
 
 | # | Interleaving | Required outcome | Protected by |
 |---|---|---|---|
-| R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
-| R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
+| R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the image and completes normally | §7 "close never frees" |
+| R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the picture (there is no free — bug-484, §7) | §7 skip-in-new-frames |
 | R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
 | R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
@@ -247,9 +331,9 @@ row names the rule from above that protects it.
 | R7 | resize while graphics is mid-render | the in-flight frame completes at the old size; the next is at the new size | §5 clear-at-frame-start |
 | R8 | resize with the worker blocked in `io::input` | repaint happens with zero worker involvement | §5 main↔graphics only |
 | | *(proven on the Vulkan path too: `MFB_CANVAS_RESIZE_W`/`_H` resize while the worker sits in `os::sleep`, and both renderers repaint at the new size)* | | |
-| R9 | N `setBytes` between two frames | one upload, last value wins | §6 coalescing |
+| R9 | N `setBytes` between two frames | one read, last value wins | §6 coalescing |
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
-| R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
+| R11 | `setBytes` → `destroyImage` → frame | the closed image draws nothing; nothing reads past the close | §7 skip-in-new-frames |
 | R12 | program exits while a frame is in flight | no use-after-free of the scene slots or the pixel buffer | shutdown must join graphics before the worker's frame unwinds |
 | R13 | present → `removeGroup` → graphics mid-frame | the in-flight frame completes and still draws the group it had already resolved | §13 retire-then-drain |
 | R14 | the same, then a completed frame, then a present **of an unchanged scene** | the buffer is freed exactly once and `groupBytes=` drops | §13 gate at the top of `present`, not on the publish path |
@@ -262,6 +346,10 @@ row names the rule from above that protects it.
 | R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
 | R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
 | R21 | 200 × install/remove of a group owning a resource | `groupBytes=` returns to baseline | plan-116-J + §13's gate |
+| R22 | `waitFrame` in progress while the graphics thread stops | `waitFrame` returns; shutdown completes | §15: the stop path broadcasts `FRAME_COND` beside its `COND` signal, and `awaitPickup` returns on `STOPPING` |
+| R23 | `waitFrame` before the first present | returns after the display floor; the program exits normally | §15: `waitFrame` calls `ensureGraphics` itself, so the mutex and both condition variables exist; nothing is owed |
+| R24 | `waitFrame` after a present, with the previous frame held mid-render | returns only once the render loop has *taken* the redraw — one frame in flight | §15: `waitForRedraw` broadcasts `FRAME_COND` as it clears `PENDING` |
+| R25 | a resize lands while the worker is in `waitFrame` | the loop finishes; the next frame is at the new size | §15: `waitFrame` waits on `FRAME_COND` only, so the resize's `COND` signal can only wake the render loop |
 
 **R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
 nothing live names it** — where "live" is the scene about to be published *plus every
@@ -277,11 +365,16 @@ ring's `emit_reclaim_retired` sits would never run for it, because that code is 
 the publish label, and a test that changed the scene would pass against that wrong
 placement.
 
-**Rows R1, R2, R9, R10 and R11 are not yet reachable.** They are the texture and
-dirty-upload rows, and there is no texture: `Picture` draws nothing until plan-98-G
-brings the sampler, and `canvas::createImage` allocates nothing outside MFB's own
-resource record. They become testable in plan-98-E, which is where the deferred free
-lands (plan-98-D Correction 13). Every other row is test-proven today.
+**Rows R1, R2, R9, R10 and R11 became reachable with bug-484**, which gave `Picture`
+its first renderer. They were written as the texture and dirty-upload rows; with no
+texture (§6) they are image-read rows, and they are pinned by
+`destroying_an_image_mid_frame_lets_the_frame_finish` (R1),
+`the_frame_after_a_destroy_skips_the_picture` (R2) and
+`set_bytes_then_destroy_then_a_frame_draws_nothing` (R11) in
+`tests/canvas/rt_canvas_graphics_thread.rs`, and
+`set_bytes_twice_between_frames_shows_the_last` (R9) and
+`set_bytes_on_an_undrawn_image_does_not_repaint` (R10) in
+`tests/canvas/rt_canvas_picture.rs`. Every row is now test-proven.
 
 R12 is **not** named by plan-98-D's design; it was found writing this document. The
 scene slots live in the worker's arena and the worker's arena state lives on the
@@ -295,7 +388,9 @@ stopped) before the worker's entry unwinds.
 * **No lock on the building slot.** The language is single-worker (spec: one runtime
   worker pthread, no user thread primitive), so a second concurrent `present` is not
   a thing that can happen. A lock there would guard an impossible caller.
-* **No time-based repaint.** §4.
+* **No time-based repaint.** §4. `canvas::waitFrame` (plan-155-C) waits on time and
+  never repaints: it signals nothing, so a static scene under a `present` +
+  `waitFrame` loop still costs one frame.
 * **No cross-thread arena free.** §3.
 
 ## 10. The renderer branch, and what the Metal backend inherits
@@ -328,10 +423,20 @@ Three consequences for anything added here later:
 * **The Metal objects live in the graphics-state block**, not in the app module's own
   storage, for the reason in §2: the graphics thread creates them and is the only
   thread that may touch them, and the arena is per-thread. `GRAPHICS_OFFSET_MTL_*`.
-* **The frame is rendered offscreen and read back**, then leaves through the same
-  `canvas::blitSurface` the software path uses. That is what makes the two backends
-  comparable — the tolerance comparator diffs an RGBA8 buffer, and a frame that only
-  ever existed in a drawable is not one.
+* **The frame is rendered offscreen.** Where it goes next depends on who needs its
+  pixels (bug-686 Phase 4). In a real window Metal GPU-copies it into the canvas view's
+  `CAMetalLayer` sublayer's next drawable and presents it (`canvas::metalPresentScene`):
+  no CPU surface, no readback, no swizzle, no `CGImage` blit — which at a full-screen
+  surface had been ~10 ms of fixed cost per megapixel. It is read back and leaves through
+  the same `canvas::blitSurface` the software path uses whenever something needs the
+  pixels on the CPU: a headless run (no window layer — so **every test is on the readback
+  path**, which is what keeps the oracle comparisons meaningful), damage mode (keeps the
+  previous frame), a `--debug` build writing `MFB_CANVAS_DUMP`, or a frame with no
+  drawable. All layer property changes (show/hide, drawable size, colour space) run on
+  the MAIN thread through `mfbMetalLayer:`, and only when the state changes; a software
+  frame's blit hides the Metal layer in the same main-thread step that sets its image.
+  The stats line's `directFrames=` counts the frames that took the direct path, which is
+  how `scripts/test-macapp.sh` Case 3h tells the two apart in a real window.
 * **The graphics thread has no autorelease pool**, so the frame renderer pushes and
   pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
   thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
@@ -340,9 +445,11 @@ The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
 `canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
 two probes of overlapping facts can disagree and one of them did. It has the same offscreen
 shape: it renders into an image and reads it back so the frame leaves through
-`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain, which
-is what lets it be tested on a box with no display server — and no reachable Linux box has
-one.
+`canvas::blitSurface` like every other — always, in a window too: there is no Vulkan twin
+of Metal's direct present (bug-688 left it to be measured on real GPU hardware, which no
+reachable box has). It needs no `VkSurfaceKHR` and no swapchain, which is what lets it be
+tested headless; box 2226 now has a GNOME Wayland session, but its Vulkan driver, like
+every reachable one, is Mesa's CPU lavapipe.
 
 ### A group is one instanced draw per node, with an offset bound to BOTH stages
 
@@ -442,30 +549,27 @@ must therefore be a region of a frame buffer reached by an index carried in the 
 not a payload. That is what forced Metal's polygon edges to move (below), and it is the
 shape any future per-item payload has to take.
 
-**The two predicates are still not the same predicate, but they differ less than they
-did.** Both now decline a *frame* whose polygons sum past their edge cap
-(`VULKAN_MAX_FRAME_EDGES` / `METAL_MAX_FRAME_EDGES`, both 16384) and a frame with more
-drawn *quads* than `CANVAS_MAX_FRAME_ITEMS`. What still differs:
+**The two predicates are two functions with the same caps.** Each backend has its own
+constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into its own
+predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
+262,144 polygon edges, 131,072 gradient stops and 8M glyph/picture texels a frame, each a
+frame SUM, with each distinct picture block counted once. Neither has a per-polygon edge
+cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
+Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
+Metal's instructions did not change), and the shader's `edgeDistance` walks only the
+edges within reach of the pixel's band, which is bit-identical to walking them all.
+bug-688 measured that on Vulkan too: the same scenes rendered with and without the index
+gave byte-identical GPU frames on lavapipe, stars and spikes included.
 
-* `__canvas_metalRenderable` additionally declines a single *polygon* past `MAX_EDGES`.
-  Nothing forces that any more — Metal's edges used to cross as a `setFragmentBytes:`
-  payload, which was per-item and small, and plan-116-A moved them into a region of the
-  frame buffer exactly where Vulkan's have always lived, so Metal's edge base
-  (`ITEM_ARC_EDGE_BASE`) is now a real per-item value instead of always zero. The
-  per-item cap is kept **by policy**: decline parity with what Metal declined before was
-  that letter's gate. Unifying the two caps is later work, to be taken deliberately.
-* The glyph caps differ in *shape*: Metal's is per glyph (`METAL_MAX_GLYPH_SAMPLES`,
-  its bitmap still rides `setFragmentBytes:`), Vulkan's is a frame total
-  (`VULKAN_MAX_FRAME_GLYPH_SAMPLES`, its bitmaps ride the shared buffer).
-
-A scene can therefore still be GPU-renderable on one backend and not the other, and that
-is correct. The reason a frame buffer needs a per-item *index* at all is unchanged and
-worth restating: a command buffer is recorded once and executed once, so rewriting — or
-re-binding — one buffer per item would give every item the *last* one's data.
-
-Metal scenes whose polygons sum past 16384 edges are the one class that plan-116-A newly
-declines to software. Software is the oracle, so the picture is at least as correct;
+Before bug-688 Vulkan kept plan-116-A's 4,096 quads and stops, 16,384 edges and 1M
+texels, so `examples/wind`, a 5,000-quad scene, a tilemap and a 1080p background all
+fell back to software there. A cap past which a frame is declined is still a real
+limit: software is the oracle, so a declined frame is at least as correct, and
 truncating instead would draw a *different shape*.
+
+The reason a frame buffer needs a per-item *index* at all is unchanged and worth
+restating: a command buffer is recorded once and executed once, so rewriting — or
+re-binding — one buffer per item would give every item the *last* one's data.
 
 ## 11. Test affordances
 
@@ -473,9 +577,10 @@ Three environment variables, all off by default and none on the production path:
 
 * `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
   first completed frame and then resize the surface to these dimensions, by calling
-  the same handler the platform's resize signal calls. A resize is a *window* event
-  and no reachable Linux box has a display server, so without this the handshake
-  could be implemented and never executed. Waiting for a frame first is the whole
+  the same handler the platform's resize signal calls. A resize is a *window* event,
+  and until box 2226's GNOME Wayland session no reachable Linux box had a display
+  server, so without this the handshake could be implemented and never executed; it is
+  still the only scripted resize a test can drive. Waiting for a frame first is the whole
   point: resizing before one exists builds the render target once at the new size and
   proves nothing, where resizing after one forces the tear-down-and-rebuild.
 
@@ -510,7 +615,13 @@ Three environment variables, all off by default and none on the production path:
 * `MFB_CANVAS_STATS` — **a `--debug` build only**, like `MFB_CANVAS_DUMP` (plan-130-E).
   **Append** one line per rendered frame with the geometry-cache
   and glyph-cache counters (`entries=`, `floats=`, `glyphs=`, `glyphBytes=`,
-  `glyphEvictions=`). Appends rather than overwrites because the interesting quantity is
+  `glyphEvictions=`), `generations=` (geometry builds — one per CHANGED item per frame
+  since bug-686), `directFrames=` (Metal frames presented straight to the window), and
+  the cumulative phase timers `phaseOffsetsMs=` / `phaseDrawsMs=` / `phaseDamageMs=` /
+  `phaseRenderMs=` (bug-686 Phase 0; `__canvas_phaseMark` is an empty SUB in a normal
+  build). `tools/canvas-bench/` reads them. **A `--debug` build is ~35% slower on this
+  path** (116 vs 157 frames/5 s on 1,000 moving polygons), and much more on
+  allocation-heavy code, so judge frame rates on a release build. Appends rather than overwrites because the interesting quantity is
   the delta between frames. It is also the **only** window onto either cache: both live
   in globals owned by the graphics thread, so a program asking from `main` asks the
   worker, whose copies are its own and always empty (§1).
@@ -562,7 +673,16 @@ lost — on the one path whose entire job is to report edges.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
-  frame-level assertion needs this.
+  frame-level assertion needs this. **Any non-empty value enables it** —
+  `MFB_CANVAS_SYNC=0` is ON (`__canvas_ensureGraphics` tests the length), which is how a
+  "pipelined" measurement in bug-686 silently ran serialized. Leave it unset to pipeline.
+
+* `MFB_CANVAS_DISPLAY_HZ` — pin the display refresh rate the runtime reports
+  (plan-155-A), in whole hertz. Stored ×1000 into `GRAPHICS_OFFSET_DISPLAY_OVERRIDE`
+  by `__canvas_ensureGraphics`, and it wins over the rate the main thread publishes,
+  which it never overwrites (a separate word). It exists because a headless run has no
+  window and so no monitor to ask; the stats line's `displayHz=` shows what the runtime
+  would use.
 
 A fourth selects the renderer rather than observing it:
 
@@ -773,6 +893,96 @@ Two consequences worth stating because they are easy to get wrong in the other o
   in its offset — otherwise a moved group changes no geometry and reports "nothing
   changed".
 
+## 14. The geometry cache and item hashes (bug-686)
+
+The graphics thread's geometry cache (`helper_geometry.rs`, kept by the inline native
+members of `func_geo_cache.rs`) is keyed by the item's content hash through
+`__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
+and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
+`setBytes` swaps without the item changing (`__canvas_pictureIsCurrent`). That is only
+sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
+resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
+at ~0.3 per frame at 10,000 items.
+
+Lifetime rules, and why:
+
+* **Nothing is evicted inside a frame.** Slots are stamped with the frame that used them;
+  `canvas::geoBeginFrame`, at the one point no offset is live (the top of
+  `__canvas_sceneOffsets`), drops what the previous frame did not use once the stale
+  floats reach the live ones, moving kept floats down in place and keeping the arena's
+  capacity. So every
+  offset a frame resolves stays valid until that frame is drawn — the old 256-slot LRU
+  needed `__CANVAS_GEO_LIVE` to protect offsets it had evicted mid-frame, and that list
+  is gone.
+* **Glyph eviction pins only what the frame in progress uses** — slots stamped this
+  frame. The cache can hold the previous scene's text too, and pinning it would pin
+  everything; an unused TEXT slot is forgotten instead (`canvas::geoForget`: out of the
+  index for good, its glyph indices being about to be renumbered), and rebuilt if it is
+  named again.
+* **One resolve per frame, over one snapshot.** `canvas::sceneResolve` resolves every
+  index of the frame's snapshot (§3) by its frame hash and builds the natively built
+  kinds' misses in place; MFBASIC sees only what it leaves (pictures, text, groups,
+  declined kinds), and `canvas::sceneLayout` / `canvas::sceneDrawsFlat` lay the draw list
+  out from the offsets — items AND layers (the draw list used to walk items only, and a
+  `presentLayers` scene drew nothing on Metal).
+* **A picture is never resolved on its hash alone** — `sceneResolve` refers every picture
+  hit back to `__canvas_geometryFor`, which re-reads the image.
+
+The worker computes the hashes in `canvas::present`: `canvas::carriedHashes` (native,
+taken BEFORE `publishScene` replaces the installed scene) carries the installed hash of
+every item whose payload bytes are unchanged, and only the rest are hashed. Byte equality
+only ever says "different" too often — two identically BUILT items are not byte-equal
+(list headroom, padding), so a rebuilt scene is hashed, never mis-carried. `Text` and
+`Picture` are never carried: their hash folds in a resource id that answers 0 once
+closed, with the item's bytes unchanged.
+
+## 15. Frame statistics (plan-155-B)
+
+`canvas::getFrameStats` compares two things two different threads do — the worker's
+presents and the graphics thread's drawn frames — so everything it reads is in the
+**graphics state**, not in MFBASIC globals. `__CANVAS_FRAMES`, `__CANVAS_SKIPPED` and
+`__CANVAS_GPU_FRAMES` are graphics-thread globals (§2): the worker's copies are its own
+and always zero, which is why the stats line, written on the graphics thread, is the
+only place they are visible.
+
+Two event logs, each a total, a ring head and a 64-entry ring of `canvas::frameNanos`
+timestamps (`GRAPHICS_OFFSET_PRESENTS…LAST_RENDERER`):
+
+* **presents** — written by `canvas::notePresent` from both present wrappers,
+  unconditionally, identical re-presents included;
+* **drawn** — written by `canvas::frameDone` when its `drew` argument is TRUE, inside
+  the critical section it already held for `FRAMES` and the broadcast. `FRAMES` itself
+  still counts every loop iteration, skipped ones too — a `syncFrame` waiter is released
+  by a skipped frame, so the two counters must stay separate.
+
+**One lock, one snapshot.** `canvas::frameCounters` copies both logs, the last render
+time and renderer, and the display rate into one list inside one critical section, so
+`pps - fps` never compares two samples taken at different moments. It allocates the list
+before locking; the critical section is loads and stores.
+
+**The mutex must exist before either writer locks it.** It is initialized by
+`startGraphics`, so both wrappers now call `__canvas_ensureGraphics()` ahead of their
+publish test rather than inside it — the first present of any scene, even one identical
+to the empty initial scene, starts the thread. `notePresent` still checks `STARTED`
+(an out-of-memory spawn leaves it 0), and `frameCounters` reads without the lock while it
+is 0, when nothing has written a word.
+
+**`canvas::waitFrame` has its own condition variable** (plan-155-C,
+`GRAPHICS_OFFSET_FRAME_COND`). `signalRedraw` and the stop path wake `COND` with
+`pthread_cond_signal`, which wakes one waiter; a worker waiting on `COND` could take the
+wake-up a resize meant for the render loop, leaving the redraw owed and the worker
+waiting for a pickup that never comes. `syncFrame` has that hazard, but only under the
+`MFB_CANVAS_SYNC` test switch. `waitFrame` waits on `FRAME_COND` alone, broadcast where
+its answer can change: in `waitForRedraw` as `PENDING` is cleared, and on stop. Reusing
+`COND` with broadcasts everywhere would also fix the lost wake-up, at the price of waking
+the render loop for every `waitFrame` event and the reverse.
+
+**Why rings and not a moving average.** An average updated per event never decays: a
+static scene would report its last rate forever. A rate over the trailing second counts
+ring entries newer than `now - 1 s`; when all 64 are, the ring spans under a second and
+the rate is taken from its span (`__canvas_rate`), so a fast loop is measured, not
+capped at 64.
+
 ## See also
 
 * `planning/completed/plan-98-A-*` — cross-cutting invariants 1, 2, 4, 5, 7, 8.
@@ -804,23 +1014,28 @@ It was five until plan-116-F added a **third** buffer region; the sixth is item 
    every slot above must shift, with `DRAW_FRAME` growing to match. An overlap
    corrupts a pointer the `objc_msgSend` sequence reads and produces a **black GPU
    frame that reports success**.
-4. **`METAL_EDGE_BASE`**, an integer literal in the MSL that must equal
-   `CANVAS_ITEM_BUFFER_BYTES / 4`. Stale, every polygon reads its edges from the wrong
-   offset of a buffer that is entirely valid memory.
-5. **`METAL_GRADIENT_BASE`** (plan-116-F), the same kind of literal for the buffer's
-   *third* region, which must equal `CANVAS_ITEM_BUFFER_BYTES / 4 +
-   METAL_MAX_FRAME_EDGES * 4`. Fixing item 4 alone and not this one leaves the gradient
-   region overlapping the edge region — one item's stops read as another's, a plausible
-   wrong ramp rather than a failure. Vulkan's twin is `VULKAN_GRADIENT_BASE_WORDS`,
-   derived in Rust and mirrored by `GRADIENT_BASE` in the GLSL.
+4. **`METAL_EDGE_BASE`** and every later Metal region base (band, gradient, glyph,
+   picture table). Since bug-686 these are no longer literals: `METAL_SHADER_SOURCE` is
+   built at first use with the bases formatted in from the `METAL_*_BASE_WORDS`
+   constants, so they move with `ITEM_BLOCK_SIZE` by construction. The region-chain
+   test still pins that each region starts where the previous one ends.
+5. **Vulkan's region bases** (glyph, gradient, band). Since bug-688 these are not
+   literals either: the GLSL declares them `layout(constant_id = N) const int`, and the
+   pipeline feeds `VULKAN_SPEC_CONSTANTS` through `VkSpecializationInfo`, so they move
+   with every cap by construction and the checked-in SPIR-V never spells a layout number.
+   Vulkan's item buffer is its own binding, so `ITEM_BLOCK_SIZE` does not move them; a
+   cap does.
 6. The `.spv` blobs, via `scripts/regen-spirv.sh`.
 
 Items 3, 4 and 5 are caught by `the_draw_frame_slots_do_not_overlap`,
 `the_metal_shader_region_bases_match_the_buffer_layout` (Metal — it guards **both**
 bases and the region chain, despite plan-116-F having found it named for the edge one
-alone) and `the_shaders_gradient_base_matches_the_buffer_layout` (Vulkan), which fired
-on **every** one of those letters and were the only thing that noticed. Item 2 has no guard beyond the
-reflection — plan-116-D shipped the fragment half alone and found it that way.
+alone), and on Vulkan `the_pipeline_specializes_every_region_base` (the GLSL's
+name-to-id pairing, and that the blob was regenerated) with
+`the_shared_buffer_holds_every_region` (the chain). Their literal-comparing
+predecessors fired on **every** plan-116 letter and were the only thing that noticed.
+Item 2 has no guard beyond the reflection — plan-116-D shipped the fragment half alone
+and found it that way.
 
 ### A layout constant shared by MFBASIC source and the emitter has no compiler between them
 
@@ -836,4 +1051,8 @@ Two real cases:
   record's header as data: wrong colours, no crash.
 
 Define the width once as a Rust constant, derive the emitter's literals from it, and pin
-the MFBASIC side with a unit test that reads the source string.
+the MFBASIC side with a unit test that reads the source string. The render predicates' frame
+caps go one step further since bug-686: each `LET __CANVAS_*MAX*` line carries an `@NAME@`
+token that `RENDER_METAL` replaces with the Rust constant at first use (`RENDER_CAPS`), so
+there is one definition, and `every_cap_token_in_the_render_source_is_generated` pins that
+no token is left behind.

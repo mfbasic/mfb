@@ -610,6 +610,7 @@ fn union(name: &str, variants: &[&str]) -> IrType {
             .iter()
             .map(|v| IrVariant {
                 name: (*v).to_string(),
+                type_: crate::types::ParameterType::parse(v),
                 fields: vec![],
                 loc: IrSourceLoc::default(),
             })
@@ -3566,6 +3567,21 @@ fn rejects_state_type_not_defaultable() {
     );
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(
+        &project(vec![f], vec![union("Shape", &["A", "B"])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
+/// bug-674: a `RES` parameter's `STATE` is held to the same rule as a binding's.
+#[test]
+fn rejects_param_state_type_not_defaultable() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("h", "fs.File STATE Shape", None)],
+        vec![],
+    );
     expect_rule(
         &project(vec![f], vec![union("Shape", &["A", "B"])]),
         "TYPE_STATE_INVALID",
@@ -6829,11 +6845,28 @@ fn enum_missing_member_wording() {
 // --- compatible: qualified bare-name ---------------------------------------
 
 #[test]
-fn accepts_qualified_type_name_match() {
-    // A return of a `pkg.Point`-typed value where `Point` is expected resolves
-    // via bare-name equality in compatible().
+fn a_qualified_type_name_and_a_bare_one_are_different_types() {
+    // bug-632: a `pkg.Point` value and a local `Point` are DIFFERENT types —
+    // spec §13 gives an imported type a package-qualified identity, and the
+    // bare-name equality this case used to assert is the confusion that
+    // qualification exists to prevent (an importer's own `Point` would have
+    // accepted the package's, whatever its fields).
     let body = vec![ret(IrValue::Local("p".to_string()))];
     let f = func_returns("run", "Point", vec![param("p", "pkg.Point", None)], body);
+    expect_rule(
+        &project(vec![f], vec![record("Point", &["x"])]),
+        "TYPE_RETURN_MISMATCH",
+    );
+
+    // The same identity on both sides still matches: a package's own type is
+    // compatible with itself.
+    let body = vec![ret(IrValue::Local("p".to_string()))];
+    let f = func_returns(
+        "run",
+        "pkg.Point",
+        vec![param("p", "pkg.Point", None)],
+        body,
+    );
     accept(&project(vec![f], vec![record("Point", &["x"])]));
 }
 
@@ -7022,6 +7055,88 @@ fn res_transfer_moves_source() {
     ];
     let f = owner_fn("run", "Nothing", body, &["a", "b"]);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+// --- plan-156-C: a parent Thread view is a resource --------------------------
+
+const THREAD_VIEW: &str = "Thread OF Integer TO Integer";
+
+fn thread_op(target: &str, handle: &str, returns: &str) -> IrOp {
+    eval(IrValue::Call {
+        target: target.to_string(),
+        args: vec![IrValue::Local(handle.to_string())],
+        type_: crate::types::ParameterType::parse(returns),
+        loc: IrSourceLoc::default(),
+    })
+}
+
+/// `RES b = a` hands the view over, exactly as for `fs.File`: `a` is moved.
+#[test]
+fn a_thread_view_transfer_moves_the_source() {
+    let body = vec![
+        bind("a", THREAD_VIEW, None, true, false),
+        bind(
+            "b",
+            THREAD_VIEW,
+            Some(IrValue::Local("a".to_string())),
+            true,
+            false,
+        ),
+        thread_op("thread.isRunning", "a", "Boolean"),
+    ];
+    let f = owner_fn("run", "Nothing", body, &["a", "b"]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// `RETURN t` consumes the view: its close obligation leaves with it, so a read of
+/// `t` after the return is a read of a moved resource.
+#[test]
+fn returning_a_thread_view_consumes_it() {
+    let body = vec![
+        bind("t", THREAD_VIEW, None, true, false),
+        IrOp::Return {
+            value: Some(IrValue::Local("t".to_string())),
+            loc: IrSourceLoc::default(),
+        },
+        thread_op("thread.isRunning", "t", "Boolean"),
+    ];
+    let f = owner_fn("make", THREAD_VIEW, body, &["t"]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// Passing the view to a function lends it (§15): the caller's next op on it is a
+/// read of a live resource, not a use after move.
+#[test]
+fn passing_a_thread_view_to_a_function_borrows_it() {
+    let body = vec![
+        bind("t", THREAD_VIEW, None, true, false),
+        thread_op("peek", "t", "Boolean"),
+        thread_op("thread.isRunning", "t", "Boolean"),
+        thread_op("thread.waitFor", "t", "Integer"),
+    ];
+    let f = owner_fn("run", "Nothing", body, &["t"]);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_USE_AFTER_MOVE"),
+        "a lent thread view was treated as moved: {got:?}"
+    );
+}
+
+/// `RES` on a thread binding is a resource binding, not `RES` on data.
+#[test]
+fn res_on_a_thread_binding_is_accepted() {
+    let body = vec![bind("t", THREAD_VIEW, None, true, false)];
+    let f = owner_fn("run", "Nothing", body, &["t"]);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_RES_REQUIRES_RESOURCE");
+}
+
+/// plan-156-F: a thread is bound with `RES` only — a `LET`/`MUT` thread binding is the
+/// rule every other resource gets.
+#[test]
+fn a_let_thread_binding_requires_res() {
+    let body = vec![bind("t", THREAD_VIEW, None, true, false)];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
 }
 
 // --- thread.result member --------------------------------------------------
@@ -8010,9 +8125,14 @@ fn skips_the_testing_desugared_trap_guard() {
     );
 }
 
-/// A record that is NOT thread-sendable because it holds a thread handle.
+/// A record that is NOT thread-sendable because it holds a worker's own view.
+/// (plan-156-D: a parent `Thread` is a sendable resource now, so it no longer
+/// makes a record unsendable — a `ThreadWorker` still does.)
 fn unsendable_record() -> IrType {
-    record_typed("BadMessage", &[("handle", "Thread OF String TO Integer")])
+    record_typed(
+        "BadMessage",
+        &[("handle", "ThreadWorker OF String TO Integer")],
+    )
 }
 
 #[test]
@@ -8292,11 +8412,78 @@ fn cause_walk_reports_func_and_thread_handle_as_other_not_resource() {
             "FUNC(Integer) AS String"
         )))
     );
+    // plan-156-D: a worker's own view never crosses, and says so by its own cause.
     assert_eq!(
-        cause_for(vec![], "Thread OF String TO Integer"),
-        Some(super::resources::Unsendable::Other(ParameterType::parse(
-            "Thread OF String TO Integer"
+        cause_for(vec![], "ThreadWorker OF String TO Integer"),
+        Some(super::resources::Unsendable::Worker(ParameterType::parse(
+            "ThreadWorker OF String TO Integer"
         )))
+    );
+    // A parent `Thread` is a sendable resource: it crosses on a resource plane.
+    assert_eq!(cause_for(vec![], "Thread OF String TO Integer"), None);
+}
+
+/// plan-156-E: each view of a thread carries its own STATE, and `thread::start` never
+/// compares the parent's with the worker's — here they are different types, and the
+/// program is clean.
+#[test]
+fn thread_start_does_not_compare_parent_and_worker_state() {
+    let src = "IMPORT thread\n\
+TYPE P\n  n AS Integer\nEND TYPE\n\
+TYPE W\n  label AS String\nEND TYPE\n\
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer\n  worker.state.label = \"w\"\n  RETURN n\nEND FUNC\n\
+FUNC main AS Integer\n  RES t AS Thread OF Integer TO Integer STATE P = thread::start(work, 5)\n  t.state.n = 1\n  RETURN thread::waitFor(t)\nEND FUNC\n";
+    let got = crate::testutil::check_src(src);
+    assert!(
+        got.is_empty(),
+        "the two views' STATE types need not agree: {got:?}"
+    );
+}
+
+/// plan-156-D: a parent `Thread` is a sendable resource, so a thread may declare a
+/// resource plane of them — no sendability rule fires.
+#[test]
+fn a_thread_may_carry_parent_threads_on_its_resource_plane() {
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES (Thread OF Integer TO Integer) TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    for rule in [
+        "TYPE_THREAD_NOT_SENDABLE",
+        "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+        "TYPE_THREAD_WORKER_NOT_TRANSFERABLE",
+    ] {
+        assert!(!got.iter().any(|r| r == rule), "{rule}: {got:?}");
+    }
+}
+
+/// A `ThreadWorker` on a resource plane gets its own rule, not the generic one.
+#[test]
+fn a_thread_worker_on_a_resource_plane_is_not_transferable() {
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES (ThreadWorker OF Integer TO Integer) TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter()
+            .any(|r| r == "TYPE_THREAD_WORKER_NOT_TRANSFERABLE"),
+        "{got:?}"
+    );
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
     );
 }
 
@@ -8506,6 +8693,8 @@ fn a_stray_recover_counts_as_diverging() {
     assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }
 
+/// plan-156-D: a parent `Thread` is a resource, so a collection holds it as a `RES`
+/// element — a bare one is told to add the marker, exactly like `List OF fs::File`.
 #[test]
 fn rejects_a_thread_handle_as_a_list_element() {
     let f = func(
@@ -8513,10 +8702,7 @@ fn rejects_a_thread_handle_as_a_list_element() {
         vec![param("xs", "List OF Thread OF Integer TO Integer", None)],
         vec![ret(int_const("0"))],
     );
-    expect_rule(
-        &project(vec![f], vec![]),
-        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
 }
 
 #[test]
@@ -8526,6 +8712,62 @@ fn rejects_a_thread_handle_as_a_map_value() {
         vec![param(
             "m",
             "Map OF String TO Thread OF Integer TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
+/// The accept path: a `RES` thread element, map value and record field are legal
+/// (plan-156-D) — none of the collection or marker rules fires.
+#[test]
+fn accepts_res_thread_elements_values_and_fields() {
+    let mut ty = record_typed("Holder", &[("t", "RES Thread OF Integer TO Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func(
+        "run",
+        vec![
+            param("xs", "List OF RES Thread OF Integer TO Integer", None),
+            param(
+                "m",
+                "Map OF String TO RES Thread OF Integer TO Integer",
+                None,
+            ),
+        ],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![ty]));
+    for rule in [
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+        "TYPE_RESOURCE_REQUIRES_RES",
+        "TYPE_RES_REQUIRES_RESOURCE",
+    ] {
+        assert!(
+            !got.iter().any(|r| r == rule),
+            "a RES thread slot is legal; {rule} must not fire: {got:?}"
+        );
+    }
+}
+
+/// bug-692: a bare `Thread` record field needs the `RES` marker, like any resource.
+#[test]
+fn rejects_a_bare_thread_record_field() {
+    let mut ty = record_typed("Holder", &[("t", "Thread OF Integer TO Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    expect_rule(&project(vec![f], vec![ty]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
+/// A worker's own view never lives in a collection: it is not a resource the program
+/// owns, and the collection rule still refuses it.
+#[test]
+fn rejects_a_thread_worker_as_a_list_element() {
+    let f = func(
+        "run",
+        vec![param(
+            "xs",
+            "List OF ThreadWorker OF Integer TO Integer",
             None,
         )],
         vec![ret(int_const("0"))],
@@ -8573,6 +8815,7 @@ fn rejects_a_thread_carrying_union_as_a_map_key() {
         variants: vec![
             IrVariant {
                 name: "Holder".to_string(),
+                type_: ParameterType::parse("Holder"),
                 fields: vec![IrField {
                     visibility: None,
                     name: "t".to_string(),
@@ -8583,6 +8826,7 @@ fn rejects_a_thread_carrying_union_as_a_map_key() {
             },
             IrVariant {
                 name: "Plain".to_string(),
+                type_: ParameterType::parse("Plain"),
                 fields: vec![IrField {
                     visibility: None,
                     name: "n".to_string(),

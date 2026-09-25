@@ -1301,12 +1301,35 @@ mod tests {
         }
         assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
             "crypto.randomInt",
-            &integers
+            &integers,
+            &crate::codegen::builtins::NoTypeKinds
         ));
         assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
             "crypto.randomInt",
-            &bigs
+            &bigs,
+            &crate::codegen::builtins::NoTypeKinds
         ));
+    }
+
+    #[test]
+    fn clock_derived_identifiers_declare_the_clock_overflow() {
+        // bug-640: `uuid7` and `ulid` read `datetime::nowNanos`, which raises
+        // `ErrOverflow` for a clock reading outside the `Integer` nanosecond range
+        // (`tests/runtime/rt_datetime_clock_overflow.rs` pins the clock and observes
+        // both raising 77050010). A member that can raise it must declare it.
+        for name in ["crypto.uuid7", "crypto.ulid"] {
+            let function = registry()
+                .resolve_func(name)
+                .unwrap_or_else(|| panic!("{name} is registered"))
+                .function;
+            for implementation in &function.implementations {
+                assert!(
+                    implementation.errors.contains(&"ErrOverflow"),
+                    "{name} declares {:?}",
+                    implementation.errors
+                );
+            }
+        }
     }
 
     #[test]

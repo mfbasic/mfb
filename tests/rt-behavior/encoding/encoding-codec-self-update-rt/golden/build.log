@@ -1,0 +1,30 @@
+$ mfb build -ast -ir tests/rt-behavior/encoding/encoding-codec-self-update-rt
+Wrote AST to tests/rt-behavior/encoding/encoding-codec-self-update-rt/encoding_codec_self_update_rt.ast
+Wrote IR to tests/rt-behavior/encoding/encoding-codec-self-update-rt/encoding_codec_self_update_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/encoding/encoding-codec-self-update-rt
+Wrote executable to tests/rt-behavior/encoding/encoding-codec-self-update-rt/build/encoding_codec_self_update_rt.out
+[exit 0]
+$ tests/rt-behavior/encoding/encoding-codec-self-update-rt/build/encoding_codec_self_update_rt.out
+esc_all=&amp;&lt;&gt;&quot;&apos;
+esc_mixed=&lt;a href=&apos;#&apos;&gt;Tom &amp; Jerry&lt;/a&gt;
+esc_empty=[]
+esc_nonascii=café ☕ 日本
+esc_once=&amp;amp;
+esc_self=a&lt;b&amp;c
+esc_round=a<b&c
+form=name+%3D+a+b+%26+c
+form_nonascii=caf%C3%A9
+form_self=a+b%2Bc
+form_round=a b+c
+pct=a%20b%2Fc%3Fd%3De
+pct_unreserved=aZ0-._~
+pct_self=a%20b
+pct_round=a b
+puny_enc=xn--bcher-kva.de
+puny_dec=bücher.de
+puny_ascii=example.com
+puny_empty=[]
+puny_self=xn--mnchen-3ya.example
+puny_round=münchen.example
+[exit 0]

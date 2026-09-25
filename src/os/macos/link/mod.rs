@@ -238,6 +238,12 @@ fn app_info_plist(project_name: &str, app_version: &str) -> String {
             "  <string>AppIcon</string>\n",
             "  <key>NSPrincipalClass</key>\n",
             "  <string>NSApplication</string>\n",
+            // plan-157-C: the purpose string macOS shows in the privacy prompt the
+            // first time the app touches the user's Documents folder
+            // (`os::userDocumentsPath`). Unconditional: the link stage does not see
+            // which calls the program makes, and an unused purpose string is inert.
+            "  <key>NSDocumentsFolderUsageDescription</key>\n",
+            "  <string>{name} reads and writes files in your Documents folder.</string>\n",
             "</dict>\n",
             "</plist>\n"
         ),
@@ -313,6 +319,11 @@ fn dylib_path(library: &str) -> Result<String, String> {
         }
         "CoreGraphics" => {
             "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics".to_string()
+        }
+        // plan-148-B: `canvas::systemFontTable`. Versioned install name, matching
+        // `dylib_for_library` in the object plan.
+        "CoreText" => {
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText".to_string()
         }
         "Foundation" => "/System/Library/Frameworks/Foundation.framework/Foundation".to_string(),
         "libobjc" => "/usr/lib/libobjc.A.dylib".to_string(),

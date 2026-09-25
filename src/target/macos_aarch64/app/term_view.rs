@@ -352,6 +352,68 @@ fn emit_color_from_packed(asm: &mut Asm, sel_off: usize) {
 /// Fills the dirty rect black, then for each cell paints its background rect (when
 /// non-black) and its glyph in the cell's foreground colour and the monospaced
 /// font (plan-01-term.md §6.3).
+/// `NSRectFill` the cell `drawRect:`'s loop is on — (col `LOCAL[5]`, row
+/// `LOCAL[4]`) of the grid whose state is `LOCAL[0]` — in whatever colour is set.
+///
+/// The cell's edges are rounded to whole points, each from its own index
+/// (`round(col*cellW)` to `round((col+1)*cellW)`), so neighbouring cells share an
+/// exact edge. `cellW` is fractional, and filling the raw `col*cellW` rectangles
+/// anti-aliased both edges: a run of filled cells showed a faint seam at every
+/// column boundary.
+fn emit_fill_current_cell(asm: &mut Asm) {
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        TV_CELL_W_OFFSET,
+    ));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[0],
+    )); // cellW
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        TV_CELL_H_OFFSET,
+    ));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[0],
+    )); // cellH
+        // One axis: d_origin = round(i*cell), d_extent = round((i+1)*cell) - origin.
+        // `cell` is consumed last, so its register may double as the extent.
+    for (index, cell, origin, tmp) in [
+        (
+            abi::LOCAL[5],
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[0],
+            abi::FP_SCRATCH[4],
+        ),
+        (
+            abi::LOCAL[4],
+            abi::FP_SCRATCH[3],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[5],
+        ),
+    ] {
+        asm.push(abi::signed_convert_to_float_d(tmp, index));
+        asm.push(abi::float_multiply_d(tmp, tmp, cell));
+        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[1], tmp)); // start
+        asm.push(abi::add_immediate(abi::SCRATCH[2], index, 1));
+        asm.push(abi::signed_convert_to_float_d(tmp, abi::SCRATCH[2]));
+        asm.push(abi::float_multiply_d(tmp, tmp, cell));
+        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[2], tmp)); // end
+        asm.push(abi::subtract_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+        )); // extent
+        asm.push(abi::signed_convert_to_float_d(origin, abi::SCRATCH[1]));
+        asm.push(abi::signed_convert_to_float_d(cell, abi::SCRATCH[2]));
+    }
+    // d0 = x, d1 = y, d2 = width, d3 = height.
+    asm.call_external(NS_RECT_FILL, LIB_APPKIT);
+}
+
 pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     let mut asm = Asm::new(TERM_VIEW_DRAW_RECT_SYMBOL);
     // Frame: lr@0; callee-saved x19(state)@8, x20(cells)@16, x21(rows)@24,
@@ -360,7 +422,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // sel@120; set sel@128; setObject:forKey: sel@136; fg key@144;
     // stringWithChars sel@152; glyph buffer@160; bold NSNumber@168; underline
     // NSNumber@176; stroke-width key@184; underline-style key@192;
-    // removeObjectForKey: sel@200.
+    // removeObjectForKey: sel@200; pass (0 = fills, 1 = glyphs)@208.
     let frame = 224;
     let (off_rx, off_ry, off_rw, off_rh) = (88, 96, 104, 112);
     let off_color_sel = 120;
@@ -374,6 +436,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     let off_strokekey = 184;
     let off_ulkey = 192;
     let off_removeobj_sel = 200;
+    let off_pass = 208;
     let saved: [(&str, usize); 10] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
@@ -452,19 +515,55 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // No state / no grid yet -> nothing more to paint.
     asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
     asm.push(abi::branch_eq("draw_done"));
-    asm.push(abi::load_u64(abi::LOCAL[1], abi::LOCAL[0], TV_CELLS_OFFSET)); // cells
+    // Paint the FRONT buffer — the last presented frame — never the grid the
+    // program is drawing into (see TV_FRONT_CELLS_OFFSET).
+    asm.push(abi::load_u64(
+        abi::LOCAL[1],
+        abi::LOCAL[0],
+        TV_FRONT_CELLS_OFFSET,
+    )); // cells
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
     asm.push(abi::branch_eq("draw_done"));
-    asm.push(abi::load_u64(abi::LOCAL[2], abi::LOCAL[0], TV_ROWS_OFFSET));
-    asm.push(abi::load_u64(abi::LOCAL[3], abi::LOCAL[0], TV_COLS_OFFSET));
+    asm.push(abi::load_u64(
+        abi::LOCAL[2],
+        abi::LOCAL[0],
+        TV_FRONT_ROWS_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::LOCAL[3],
+        abi::LOCAL[0],
+        TV_FRONT_COLS_OFFSET,
+    ));
 
-    // font = [NSFont userFixedPitchFontOfSize:N]
+    // font = [NSFont fontWithName:@"Menlo-Regular" size:N], falling back to
+    // [NSFont userFixedPitchFontOfSize:N] only if Menlo is unavailable — the SAME
+    // font `_mfb_macapp_term_init` measured the cell grid with. Drawing in a
+    // different face than the cells were sized for is what left box-drawing rules
+    // dashed and block fills striped: the user fixed-pitch font (Monaco) has
+    // shorter box and block glyphs than Menlo's line height. LOCAL[4] is free here
+    // (the row counter is set further down).
+    asm.external_data(abi::LOCAL[4], CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING_WITH_UTF8.0);
+    asm.local_address("x2", STR_MENLO_FONT.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // Menlo name NSString
+    asm.external_data(abi::LOCAL[6], CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_FONT_WITH_NAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4])); // name
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6])); // NSFont class
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // font (nil if Menlo absent)
+    asm.push(abi::compare_immediate(abi::LOCAL[6], "0"));
+    asm.push(abi::branch_ne("draw_font_ready"));
     asm.external_data(abi::LOCAL[6], CLASS_NS_FONT, LIB_APPKIT);
     asm.load_selector(SEL_USER_FIXED_FONT.0);
     emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // font
+    asm.push(abi::label("draw_font_ready"));
 
     // attrs = [NSMutableDictionary dictionary]; [attrs setObject:font forKey:NSFontAttributeName]
     // (the foreground colour key is set per cell below).
@@ -551,11 +650,24 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_removeobj_sel,
     ));
 
+    // Two passes over the grid, as a terminal paints: pass 0 fills every cell's
+    // background (and every full block, which is a fill too), pass 1 draws every
+    // glyph. Doing both per cell in one sweep let the NEXT row's background paint
+    // over the part of a glyph that overhangs its cell — a `q` in a coloured
+    // panel lost its descender and read as `a`.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::label("draw_pass"));
+
     // for row in 0..rows: for col in 0..cols
     asm.push(abi::move_immediate(abi::LOCAL[4], "Integer", "0"));
     asm.push(abi::label("draw_row"));
     asm.push(abi::compare_registers(abi::LOCAL[4], abi::LOCAL[2]));
-    asm.push(abi::branch_ge("draw_done"));
+    asm.push(abi::branch_ge("draw_pass_end"));
     asm.push(abi::move_immediate(abi::LOCAL[5], "Integer", "0"));
     asm.push(abi::label("draw_col"));
     asm.push(abi::compare_registers(abi::LOCAL[5], abi::LOCAL[3]));
@@ -583,7 +695,14 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         abi::SCRATCH[0],
     )); // cell ptr (callee-saved)
 
-    // --- background: fill the cell rect when bg is non-black ---
+    // --- background: fill the cell rect when bg is non-black (pass 0 only) ---
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+    asm.push(abi::branch_ne("draw_skip_bg"));
     asm.push(abi::load_u32(
         abi::SCRATCH[2],
         abi::LOCAL[8],
@@ -598,43 +717,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_set_sel,
     ));
     asm.call_external("_objc_msgSend", LIB_OBJC); // [bgColor set]
-    asm.push(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::LOCAL[0],
-        TV_CELL_W_OFFSET,
-    ));
-    asm.push(abi::float_move_d_from_x(
-        abi::FP_SCRATCH[2],
-        abi::SCRATCH[0],
-    )); // cellW
-    asm.push(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::LOCAL[0],
-        TV_CELL_H_OFFSET,
-    ));
-    asm.push(abi::float_move_d_from_x(
-        abi::FP_SCRATCH[3],
-        abi::SCRATCH[0],
-    )); // cellH
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[4],
-        abi::LOCAL[5],
-    ));
-    asm.push(abi::float_multiply_d(
-        abi::FP_SCRATCH[0],
-        abi::FP_SCRATCH[4],
-        abi::FP_SCRATCH[2],
-    )); // px
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[5],
-        abi::LOCAL[4],
-    ));
-    asm.push(abi::float_multiply_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[5],
-        abi::FP_SCRATCH[3],
-    )); // py
-    asm.call_external(NS_RECT_FILL, LIB_APPKIT);
+    emit_fill_current_cell(&mut asm);
     asm.push(abi::label("draw_skip_bg"));
 
     // --- glyph: paint in the cell foreground colour when non-blank ---
@@ -655,6 +738,44 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         APP_WIDE_TRAIL,
     ));
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_eq("draw_col_next"));
+    // A FULL BLOCK (U+2588) is painted as the cell rectangle in the foreground
+    // colour, not drawn from the font — what terminals do. The font's glyph sits a
+    // few points lower than the cell and a hair narrower, so a `term::fillRect` of
+    // them showed seams between columns and spilled into the row below.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "9608"));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_ne("draw_not_full_block"));
+    // A fill: pass 0's job; pass 1 has nothing left to draw here.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+    asm.push(abi::branch_ne("draw_col_next"));
+    asm.push(abi::load_u32(
+        abi::SCRATCH[2],
+        abi::LOCAL[8],
+        CELL_FG_OFFSET,
+    ));
+    emit_color_from_packed(&mut asm, off_color_sel); // x0 = fg colour
+    asm.push(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_set_sel,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC); // [fgColor set]
+    emit_fill_current_cell(&mut asm);
+    asm.push(abi::branch("draw_col_next"));
+    asm.push(abi::label("draw_not_full_block"));
+    // Every other glyph is pass 1's.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("draw_col_next"));
     // [attrs setObject:[color from cell.fg] forKey:NSForegroundColorAttributeName]
     asm.push(abi::load_u32(
@@ -791,7 +912,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::load_u64(
         abi::SCRATCH[2],
         abi::LOCAL[0],
-        TV_POOL_OFFSET,
+        TV_FRONT_POOL_OFFSET,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
     asm.push(abi::branch_eq("draw_col_next")); // no pool -> nothing to draw
@@ -940,6 +1061,22 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::add_immediate(abi::LOCAL[4], abi::LOCAL[4], 1));
     asm.push(abi::branch("draw_row"));
 
+    // End of a pass: after the fills, go round again for the glyphs.
+    asm.push(abi::label("draw_pass_end"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne("draw_done"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    asm.push(abi::branch("draw_pass"));
     asm.push(abi::label("draw_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in saved {
@@ -1316,6 +1453,205 @@ pub(super) fn emit_term_clear_helper() -> CodeFunction {
     CodeFunction {
         name: "macapp.term.clear".to_string(),
         symbol: TERM_CLEAR_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// IMP for `TermView mfbPresent:` (`void mfbPresent:(id self, SEL _cmd, id)`):
+/// publish the grid the program has drawn as the frame `drawRect:` paints, then
+/// request the redraw. Main-thread only (marshaled by `term::sync`/`io::flush`),
+/// so it is serialised with every grid write and with `setFrameSize:`.
+///
+/// Copies `TV_CELLS` (and the EGC pool) into the front buffer, reallocating the
+/// front when the grid's dimensions changed since the last present. Without this
+/// step `drawRect:` read the live grid, and a display pass landing between the
+/// marshaled writes of a frame painted it half-drawn — a redraw loop that starts
+/// each frame with `term::clear` flickered black.
+pub(super) fn emit_term_present_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_PRESENT_SYMBOL);
+    // Frame: lr@0, x19(self)@8, x20(state)@16, x21(cell count)@24.
+    let frame = 32;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // self
+
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY)
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq("pr_display"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_CELLS_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq("pr_display"));
+
+    // n = rows * cols
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::LOCAL[1],
+        TV_ROWS_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[2],
+        abi::LOCAL[1],
+        TV_COLS_OFFSET,
+    ));
+    asm.push(abi::multiply_registers(
+        abi::LOCAL[2],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+    ));
+
+    // Reuse the front buffer when it exists and matches the grid's dimensions.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::LOCAL[1],
+        TV_FRONT_CELLS_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[3], "0"));
+    asm.push(abi::branch_eq("pr_alloc"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::LOCAL[1],
+        TV_FRONT_ROWS_OFFSET,
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[3], abi::SCRATCH[1]));
+    asm.push(abi::branch_ne("pr_alloc"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::LOCAL[1],
+        TV_FRONT_COLS_OFFSET,
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[3], abi::SCRATCH[2]));
+    asm.push(abi::branch_eq("pr_copy"));
+
+    // (Re)allocate: free the old front pair (free(NULL) is a no-op), calloc the
+    // new one, and record its dimensions.
+    asm.push(abi::label("pr_alloc"));
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_CELLS_OFFSET,
+    ));
+    asm.call_external("_free", LIB_SYSTEM);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_POOL_OFFSET,
+    ));
+    asm.call_external("_free", LIB_SYSTEM);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &CELL_SIZE.to_string(),
+    ));
+    asm.call_external("_calloc", LIB_SYSTEM);
+    asm.push(abi::store_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_CELLS_OFFSET,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &APP_POOL_BYTES_PER_CELL.to_string(),
+    ));
+    asm.call_external("_calloc", LIB_SYSTEM);
+    asm.push(abi::store_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_POOL_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_ROWS_OFFSET,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_FRONT_ROWS_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_COLS_OFFSET,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_FRONT_COLS_OFFSET,
+    ));
+
+    // memcpy(front, cells, n * CELL_SIZE); skipped if the calloc failed, which
+    // leaves drawRect: painting a black surface rather than a torn one.
+    asm.push(abi::label("pr_copy"));
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_CELLS_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq("pr_display"));
+    asm.push(abi::load_u64(abi::c_arg(1), abi::LOCAL[1], TV_CELLS_OFFSET));
+    asm.push(abi::shift_left_immediate(abi::c_arg(2), abi::LOCAL[2], 4)); // * 16
+    asm.call_external("_memcpy", LIB_SYSTEM);
+
+    // memcpy(frontPool, pool, n * APP_POOL_BYTES_PER_CELL) when both exist: a
+    // pooled cell's glyph word only names its slot, so the slot must travel too.
+    asm.push(abi::load_u64(abi::c_arg(1), abi::LOCAL[1], TV_POOL_OFFSET));
+    asm.push(abi::compare_immediate(abi::c_arg(1), "0"));
+    asm.push(abi::branch_eq("pr_display"));
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        TV_FRONT_POOL_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq("pr_display"));
+    const _: () = assert!(APP_POOL_BYTES_PER_CELL == 64, "the pool copy shifts by 6");
+    asm.push(abi::shift_left_immediate(abi::c_arg(2), abi::LOCAL[2], 6)); // * 64
+    asm.call_external("_memcpy", LIB_SYSTEM);
+
+    // [self setNeedsDisplay:YES] — already on the main thread.
+    asm.push(abi::label("pr_display"));
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // YES
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.present".to_string(),
+        symbol: TERM_PRESENT_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {

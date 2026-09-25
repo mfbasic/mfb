@@ -9,6 +9,12 @@
 //! assembly ports would each be a place for the oracle to disagree with itself.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
+use crate::codegen::runtime::canvas::{
+    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
+    METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS,
+};
+use std::sync::LazyLock;
 
 /// Render the currently-installed scene into the surface buffer.
 ///
@@ -58,8 +64,7 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
   END IF
   ' plan-116-G: indexed rather than `FOR EACH`, because each draw entry now carries an
   ' accumulated group translation alongside its geometry offset. The two travel in
-  ' parallel globals written by `__canvas_sceneOffsets`, the arrangement
-  ' `__CANVAS_GEO_LIVE` already uses in that function -- one list per fact, indexed
+  ' parallel globals written by `__canvas_sceneOffsets` -- one list per fact, indexed
   ' together. A scene with no groups leaves every entry at 0.0 and draws exactly what it
   ' drew before this letter.
   MUT di AS Integer = 0
@@ -73,9 +78,14 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     END IF
     di = di + 1
   END WHILE
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Kept only for damage mode, the one reader (`__canvas_damageFor` answers a full
+  ' redraw otherwise): the assignment is a whole-frame copy -- 20 MB at 2880x1800,
+  ' measured at 6 ms a frame -- paid on every frame for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   __canvas_presentSurface(buffer, width, height)
 END FUNC"#;
 
@@ -93,10 +103,11 @@ END FUNC"#;
 ///
 /// Phase 2's SDF fragment shader evaluates the same distance functions the software
 /// rasteriser does, so every kind now passes — including `__CANVAS_GEO_NONE`, which
-/// both backends draw as nothing. **One condition remains**: a polygon's edges cross
-/// as a `setFragmentBytes:` payload, which Metal caps at 4 KB, so a polygon past
-/// `__CANVAS_METAL_MAX_EDGES` is declined. Clamping it instead would render a
-/// *different polygon* and read as a geometry bug.
+/// both backends draw as nothing. What remains are the frame buffer's region caps —
+/// quads, polygon edges, gradient stops and glyph/picture texels, each a frame SUM.
+/// There is no per-polygon edge cap since bug-686: the old one (256 edges, justified by
+/// a 4 KB `setFragmentBytes:` payload that plan-116-A removed) sent every detailed
+/// polygon to software, and its twin in the emitter drew such a polygon as nothing.
 ///
 /// It reads the geometry header by slot rather than through a helper because that is
 /// what the header is for: a fixed 22-float layout both backends index directly
@@ -110,12 +121,12 @@ END FUNC"#;
 /// polygon and Vulkan caps their sum. The two really are different conditions, and a
 /// scene can be GPU-renderable on one backend and not the other.
 ///
-/// **A glyph run is bounded rather than refused**, and the two bounds have different
-/// shapes for a real reason. Metal's bitmap rides `setFragmentBytes:`, copied into the
-/// command buffer per draw, so its cap is 4 KiB **per glyph** — about 64x64, a glyph at
-/// roughly 200 px. Vulkan's bitmaps are copied into one buffer that serves the whole
-/// recording, so its cap is a **frame** total. Neither truncates: a clipped glyph is a
-/// different glyph and would read as a rasteriser bug.
+/// **A glyph run is bounded rather than refused**, and on both backends the bound is a
+/// **frame** total: each glyph's bitmap is copied into a region of one buffer that
+/// serves the whole frame, and its block names its slice (bug-670 moved Metal onto
+/// Vulkan's design — its per-glyph `setFragmentBytes:` payload, capped at 4 KiB, was
+/// overwritten before the instanced draw read it). Neither truncates: a clipped glyph is
+/// a different glyph and would read as a rasteriser bug.
 ///
 /// Both predicates declined `__CANVAS_GEO_TEXT` outright for as long as neither backend
 /// could draw one, and that was not caution — the version before it *accepted* a kind
@@ -129,8 +140,13 @@ END FUNC"#;
 /// success — the same lie both predicates exist to prevent. It was measured, not
 /// assumed: the scene that found it differed from the oracle on 4,610 pixels, all of
 /// them the one triangle.
+///
+/// The frame caps below are not literals in this text: each `LET __CANVAS_*MAX*` line
+/// carries an `@NAME@` token that `RENDER_METAL` replaces with the Rust constant of that
+/// name (`RENDER_CAPS`), so the predicate and the emitter it guards read ONE definition
+/// (bug-686). They used to be two, joined only by a test.
 #[rustfmt::skip]
-const RENDER_METAL: &str =
+const RENDER_METAL_TEMPLATE: &str =
 r#"' plan-116-G: the accumulated group translation of each draw entry, parallel to the
 ' offsets list `__canvas_sceneOffsets` returns, and whether any group was expanded.
 '
@@ -186,7 +202,6 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
     CASE ELSE
       LET offset AS Integer = __canvas_geometryFor(item, hash)
       out = collections::append(out, offset)
-      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
       __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, gdx)
       __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, gdy)
       ' The accumulated offset is folded into the recorded hash, not just carried
@@ -195,7 +210,18 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       ' identical when a node's `dx`/`dy` change, so a hash that ignored the offset
       ' reported "nothing changed" and the moved group was never repainted -- measured
       ' as `frames=1 skipped=1 damage=none` for a group moved 500px.
-      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, gdx), gdy))
+      '
+      ' bug-484: a picture also folds in its image's pixel-block address. `canvas::setBytes`
+      ' repaints without a `present`, so the scene's published hash -- computed by the
+      ' worker when the scene was presented -- still names the OLD pixels, and the damage
+      ' diff would report "nothing changed" and skip exactly the frame `setBytes` asked
+      ' for. The geometry was just built on this thread from the live image, so its header
+      ' holds the current block.
+      MUT drawHash AS Integer = hash
+      IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_PICTURE THEN
+        drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)), __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      END IF
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(drawHash, gdx), gdy))
       RETURN out
   END MATCH
 END FUNC
@@ -265,10 +291,10 @@ END FUNC
 '      exists so that two draws of one group differ only by a translation. If the blocks
 '      were duplicated per reference, the offset could simply be baked into each copy
 '      when it is written, and none of that machinery would be needed.
-'   2. It bounds what reuse costs. `__CANVAS_MAX_FRAME_ITEMS` is 4096; a UI drawing one
-'      200-item panel at thirty positions costs 200 blocks under sharing and 6000 under
-'      duplication -- over the cap, so the frame would decline to software and the
-'      feature would be slowest exactly where it is most used.
+'   2. It bounds what reuse costs. The quad cap was 4096 when this was written; a UI
+'      drawing one 200-item panel at thirty positions costs 200 blocks under sharing and
+'      6000 under duplication -- over that cap, so the frame would have declined to
+'      software and the feature been slowest exactly where it is most used.
 '   3. It is this letter's stated goal (1), reuse, expressed in the buffer.
 '
 ' The consequence for the predicates is that **two different things are capped**: the
@@ -282,6 +308,31 @@ END FUNC
 ' it" means once the group can itself contain groups.
 MUT __CANVAS_DRAWS AS List OF Integer = []
 MUT __CANVAS_DRAW_BLOCKS AS List OF Integer = []
+
+' bug-686: what `__canvas_sceneOffsets` resolved, per scene INDEX (the installed items,
+' then every layer's items -- the order `canvas::installedHashes()` is in): the item's
+' geometry offset, or -1 for a `Group` node. `__canvas_sceneDraws` lays the draw list out
+' from this instead of resolving every item a second time.
+MUT __CANVAS_TOP_OFFSETS AS List OF Integer = []
+' The scene's items, in the same order -- fetched only on a frame where some item could
+' not be resolved from its hash alone (a miss, a picture, a group), and empty otherwise.
+' A frame whose items are all cached never copies the scene out of the ring.
+MUT __CANVAS_FRAME_ITEMS AS List OF DrawItem = []
+MUT __CANVAS_FRAME_ITEMS_READY AS Boolean = FALSE
+' bug-686: the frame's ONE view of the installed scene, taken by `canvas::sceneSnapshot`
+' at the top of `__canvas_sceneOffsets` -- raw pointers into the worker's arena, which is
+' why they are Integers: nothing here owns them. Every reader in the frame goes through
+' them (natively) or through copies of them (`canvas::snapshotItems` and friends).
+MUT __CANVAS_SNAP_ITEMS AS Integer = 0
+MUT __CANVAS_SNAP_LAYERS AS Integer = 0
+MUT __CANVAS_SNAP_HASHES AS Integer = 0
+' The frame's item hashes, in scene order: the ones published for the snapshot's scene,
+' or -- when the snapshot caught a scene whose hashes are not published yet -- computed
+' here from its items.
+MUT __CANVAS_FRAME_HASHES AS List OF Integer = []
+' Frames that hashed their own scene because its hashes were not published yet --
+' `snapshotRehashed=` on the `--debug` stats line.
+MUT __CANVAS_SNAP_REHASHED AS Integer = 0
 ' Slot index -> the base of that group's own run in `__CANVAS_DRAW_BLOCKS`, and its
 ' length. Parallel lists rather than a Map because a Map of Integer to Integer would
 ' allocate per frame and this is walked once per group node.
@@ -377,19 +428,18 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
   ' VkPipeline. That does not fail cleanly: it SIGSEGVs inside the driver's JIT-compiled
   ' code, with a backtrace containing no MFBASIC frame at all.
-  MUT out AS List OF Integer = __CANVAS_DRAWS
-  out = collections::append(out, instBase)
-  out = collections::append(out, instCount)
-  out = collections::append(out, toInt(dx * 65536.0))
-  out = collections::append(out, toInt(dy * 65536.0))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instBase)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instCount)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dx * 65536.0))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dy * 65536.0))
   ' The BlendMode every block in this run shares. It travels with the entry because the
   ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
   ' left in the publish walk would apply the LAST item's mode to the whole frame.
-  out = collections::append(out, toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26)))
-  out = collections::append(out, 0)
-  out = collections::append(out, 0)
-  out = collections::append(out, 0)
-  __CANVAS_DRAWS = out
+  LET mode AS Integer = toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, mode)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END SUB
 
 ' Whether two blocks can share one draw call.
@@ -464,12 +514,8 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
         LET nested AS Integer = 0
       CASE ELSE
         LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
-        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, childOffset)
-        __CANVAS_DRAW_BLOCKS = blocks
-        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
-        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
-        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
+        __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
@@ -499,6 +545,17 @@ SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float,
 END SUB
 
 FUNC __canvas_sceneDraws() AS List OF Integer
+  ' bug-686: a frame with no group node is laid out natively, in one pass over the
+  ' offsets `__canvas_sceneOffsets` resolved -- the walk below, specialised to one run at
+  ' no offset. A frame with a group comes back FALSE, untouched, and takes the walk.
+  IF canvas::sceneDrawsFlat() THEN
+    __canvas_drawsVerify()
+    RETURN __CANVAS_DRAWS
+  END IF
+  RETURN __canvas_sceneDrawsWalk()
+END FUNC
+
+FUNC __canvas_sceneDrawsWalk() AS List OF Integer
   __CANVAS_DRAWS = []
   __CANVAS_DRAW_BLOCKS = []
   __CANVAS_DRAW_INST = []
@@ -506,122 +563,202 @@ FUNC __canvas_sceneDraws() AS List OF Integer
   __CANVAS_DRAW_MEMO_SLOT = []
   __CANVAS_DRAW_MEMO_BASE = []
   __CANVAS_DRAW_MEMO_COUNT = []
-  LET hashes AS List OF Integer = canvas::installedHashes()
-  MUT index AS Integer = 0
+  LET hashes AS List OF Integer = []
   MUT runBase AS Integer = 0
   MUT runCount AS Integer = 0
-  FOR EACH item IN canvas::installedItems()
-    MATCH item
-      CASE Group(g)
-        ' A group ends the current run.
-        __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
-        runCount = 0
-        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
-        runBase = len(__CANVAS_DRAW_BLOCKS)
-      CASE ELSE
-        LET itemOffset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, itemOffset)
-        __CANVAS_DRAW_BLOCKS = blocks
-        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
-        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
-        __CANVAS_DRAW_INST = inst
-        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
-        IF runCount = 0 THEN
-          runBase = len(__CANVAS_DRAW_BLOCKS) - 1
-        END IF
-        runCount = runCount + 1
-    END MATCH
+  ' bug-686: the offsets `__canvas_sceneOffsets` already resolved, one per scene index --
+  ' the installed items AND every layer's items. This walk used to resolve every item
+  ' again (a second full pass of geometry lookups per frame), and it walked only
+  ' `canvas::installedItems()`, so a scene installed with `presentLayers` published no
+  ' blocks at all and Metal drew an empty frame.
+  LET count AS Integer = len(__CANVAS_TOP_OFFSETS)
+  ' Bound once, not written inline as `getOr`'s default: a module-function call in a
+  ' LATER operand makes the global list operand a snapshot (`.ai/collections.md`,
+  ' bug-496), and snapshotting the whole scene per item made this walk O(n^2).
+  LET none AS DrawItem = __canvas_noItem()
+  MUT index AS Integer = 0
+  WHILE index < count
+    LET itemOffset AS Integer = collections::getOr(__CANVAS_TOP_OFFSETS, index, 0 - 1)
+    IF itemOffset < 0 THEN
+      ' A group node: it ends the current run, then lays out (or reuses) its own.
+      MATCH collections::getOr(__CANVAS_FRAME_ITEMS, index, none)
+        CASE Group(g)
+          __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+          runCount = 0
+          __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
+          runBase = len(__CANVAS_DRAW_BLOCKS)
+        CASE ELSE
+          LET unreachable AS Integer = 0
+      END MATCH
+    ELSE
+      ' Straight into the GLOBAL (site S2 of the in-place self-update table,
+      ' `.ai/collections.md`), an amortised O(1) write -- binding it to a local first
+      ' copied the whole list per item and made this walk O(n^2).
+      __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, itemOffset)
+      __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
+      __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
+      IF runCount = 0 THEN
+        runBase = len(__CANVAS_DRAW_BLOCKS) - 1
+      END IF
+      runCount = runCount + 1
+    END IF
     index = index + 1
-  NEXT
+  END WHILE
   __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
   RETURN __CANVAS_DRAWS
 END FUNC
 
+' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named
+' by nothing resolves to no slot and draws nothing, so reaching it is harmless.
+FUNC __canvas_noItem() AS DrawItem
+  RETURN Group[name := "", dx := 0.0, dy := 0.0]
+END FUNC
+
+' Every item of the frame's scene -- the snapshot `canvas::sceneSnapshot` took (bug-686)
+' -- in `__CANVAS_FRAME_HASHES` order: the flat items, then each layer's.
+FUNC __canvas_flatScene() AS List OF DrawItem
+  MUT out AS List OF DrawItem = canvas::snapshotItems()
+  FOR EACH layer IN canvas::snapshotLayers()
+    FOR EACH item IN layer.items
+      out = collections::append(out, item)
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' The frame's items, copied out of the snapshot at most once a frame.
+SUB __canvas_ensureFrameItems()
+  IF NOT __CANVAS_FRAME_ITEMS_READY THEN
+    __CANVAS_FRAME_ITEMS = __canvas_flatScene()
+    __CANVAS_FRAME_ITEMS_READY = TRUE
+  END IF
+END SUB
+
+FUNC __canvas_frameItems() AS List OF DrawItem
+  __canvas_ensureFrameItems()
+  RETURN __CANVAS_FRAME_ITEMS
+END FUNC
+
 FUNC __canvas_sceneOffsets() AS List OF Integer
-  MUT offsets AS List OF Integer = []
-  LET hashes AS List OF Integer = canvas::installedHashes()
-  MUT index AS Integer = 0
+  ' bug-682/bug-686: the one point in a frame where NO geometry offset is live -- the
+  ' previous frame's are dead and this frame's do not exist yet -- so it is the only place
+  ' the cache may drop a slot or move a float. Nothing after this point in the frame does.
+  canvas::geoBeginFrame()
+
+  ' bug-686: ONE consistent view of the installed scene for the whole frame -- its items,
+  ' its layers and its hashes, all one publish's. The worker publishes the hashes in a
+  ' second call after the scene, so a frame can catch a scene whose hashes are the
+  ' previous scene's; a hit is trusted on its hash alone, so those are refused
+  ' (`sceneSnapshot` answers FALSE) and the frame hashes its own items instead.
+  __CANVAS_FRAME_ITEMS = []
+  __CANVAS_FRAME_ITEMS_READY = FALSE
+  IF canvas::sceneSnapshot() THEN
+    __CANVAS_FRAME_HASHES = canvas::snapshotHashes()
+  ELSE
+    __CANVAS_FRAME_HASHES = __canvas_hashScene(__canvas_frameItems(), [])
+    __CANVAS_SNAP_REHASHED = __CANVAS_SNAP_REHASHED + 1
+  END IF
+
+  ' bug-686, pass 1, native: every item resolved from its frame hash, and every miss
+  ' of a kind `canvas::geoBuild` builds built on the spot -- into `__CANVAS_TOP_OFFSETS`,
+  ' one per scene index. What it leaves at -1 (a picture, a `Text`, a `Group`, a declined
+  ' paint or kind) is this function's. On a scene of the common kinds that is nothing,
+  ' and the scene is never copied out of the ring.
+  LET pending AS Integer = canvas::sceneResolve()
   __CANVAS_DRAW_DX = []
   __CANVAS_DRAW_DY = []
   __CANVAS_DRAW_HASHES = []
-  ' Published as it goes, not at the end. The geometry cache is smaller than a large
-  ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
-  ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
-  ' know that those glyphs are live; without it a 300-item scene lost six of them,
-  ' silently, because their cache indices were renumbered out from under the offsets
-  ' this function had already returned.
-  __CANVAS_GEO_LIVE = []
-  ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
-  ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
-  ' resolved before the call writes into the block that pass released
-  ' (`.ai/collections.md`). `__canvas_appendDraw` keeps that discipline.
-  FOR EACH item IN canvas::installedItems()
-    offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
-    index = index + 1
-  NEXT
-  FOR EACH layer IN canvas::installedLayers()
-    FOR EACH item IN layer.items
-      offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
-      index = index + 1
-    NEXT
-  NEXT
+  MUT side AS List OF Integer = []
+  MUT spans AS List OF Integer = []
+  IF pending > 0 THEN
+    __canvas_ensureFrameItems()
+    ' Bound once -- see `__canvas_sceneDraws`: a call in `getOr`'s default would snapshot
+    ' the whole global scene list per item.
+    LET none AS DrawItem = __canvas_noItem()
+    ' Pass 2: each index pass 1 left goes through `__canvas_appendDraw`, which builds a
+    ' missing item's geometry, re-reads a picture's image, and expands a group into its
+    ' children. Its entries land in `side` and the `__CANVAS_DRAW_*` globals, and the
+    ' span -- (index, first entry, entry count) -- tells `canvas::sceneLayout` where.
+    LET count AS Integer = len(__CANVAS_TOP_OFFSETS)
+    MUT i AS Integer = 0
+    WHILE i < count
+      IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
+        LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
+        LET before AS Integer = len(side)
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0)
+        spans = collections::append(spans, i)
+        spans = collections::append(spans, before)
+        spans = collections::append(spans, len(side) - before)
+        MATCH item
+          CASE Group(g)
+            __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, 0 - 1)
+          CASE ELSE
+            __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, collections::getOr(side, before, 0 - 1))
+        END MATCH
+      END IF
+      i = i + 1
+    END WHILE
+  END IF
+  ' Pass 3, native: the frame's draw entries in scene order -- one per resolved index,
+  ' the span for each other -- replacing the `__CANVAS_DRAW_*` globals.
+  LET offsets AS List OF Integer = canvas::sceneLayout(spans, side)
+  __canvas_geoVerifyFrame(pending)
   RETURN offsets
 END FUNC
 
 ' The frame's item buffer holds one block per drawn QUAD, and both backends index it by
-' instance -- so this is the one cap that is neither Metal's nor Vulkan's, it is the
-' shared transport's (plan-116-A, `CANVAS_MAX_FRAME_ITEMS`). A shape is one quad; a glyph
-' run is one per glyph, because each glyph is its own quad with its own block.
+' instance (plan-116-A). A shape is one quad; a glyph run is one per glyph, because each
+' glyph is its own quad with its own block.
 '
 ' Counting the run's whole glyph count over-estimates by the glyphs whose cache entry the
 ' eviction pass dropped -- those draw nothing and take no block. Over-estimating declines
 ' a hair early, which is the safe direction: under-estimating would let the emitter write
 ' past the mapping.
-LET __CANVAS_MAX_FRAME_ITEMS AS Integer = 4096
+'
+' Each backend has its own cap (bug-686 gave Metal its own; bug-688 gave Vulkan its own
+' at the same size) -- `__CANVAS_VULKAN_MAX_FRAME_ITEMS` and
+' `__CANVAS_METAL_MAX_FRAME_ITEMS`. Every value on these lines is generated from the Rust
+' constant it names.
+LET __CANVAS_VULKAN_MAX_FRAME_ITEMS AS Integer = @VULKAN_MAX_FRAME_ITEMS@
+LET __CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = @METAL_MAX_FRAME_ITEMS@
 
-LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
+' The glyph samples one frame may carry on Metal, summed over its runs -- a frame-wide
+' region like Vulkan's (bug-670), and eight times its size since bug-686, because a
+' picture's texels ride it too. `__canvas_runSamples` below counts a run's share.
+LET __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = @METAL_MAX_FRAME_GLYPH_SAMPLES@
 
-LET __CANVAS_METAL_MAX_GLYPH_SAMPLES AS Integer = 4096
-
-' The largest bitmap in a glyph run. Metal's cap is PER GLYPH, not per frame, because
-' its bitmaps ride `setFragmentBytes:` -- the same payload its edges ride -- and that is
-' copied into the command buffer per draw. Vulkan's is per frame for the opposite
-' reason: one buffer serves the whole recording.
-FUNC __canvas_runLargestGlyph(offset AS Integer) AS Integer
-  LET glyphs AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-  MUT worst AS Integer = 0
-  MUT g AS Integer = 0
-  WHILE g < glyphs
-    LET entry AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + g * 3, 0.0))
-    IF entry >= 0 THEN
-      LET base AS Integer = entry * 5
-      LET samples AS Integer = collections::getOr(__CANVAS_GLYPH_META, base + 2, 0) * collections::getOr(__CANVAS_GLYPH_META, base + 3, 0)
-      IF samples > worst THEN
-        worst = samples
-      END IF
-    END IF
-    g = g + 1
-  END WHILE
-  RETURN worst
-END FUNC
-
-LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
+LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = @METAL_MAX_FRAME_EDGES@
 
 ' The gradient stops one frame may carry, summed over its items -- the cap on the
-' third region of both backends' shared buffer, and the same number for both
-' because the region is sized identically on each (plan-116-F).
-LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = 4096
+' gradient region of each backend's shared buffer (plan-116-F). Both were 4,096 until
+' bug-686 found 2,100 two-stop gradients declined by it; each is now two per quad.
+LET __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS AS Integer = @VULKAN_MAX_FRAME_GRADIENT_STOPS@
+LET __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = @METAL_MAX_FRAME_GRADIENT_STOPS@
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
+  MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
-      IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
-        RETURN FALSE
+      samples = samples + __canvas_runSamples(offset)
+    END IF
+    ' bug-484: a picture's texels ride the same frame-wide region as glyph coverage, one
+    ' word each, so they are counted against the same cap -- the region overflowing would
+    ' make one picture read another's texels, a plausible wrong image.
+    '
+    ' bug-686: counted once per distinct pixel BLOCK, because the Metal emitter uploads
+    ' each block once per frame and points every later picture of it at those texels
+    ' (`emit_picture_lookup`). The key is the block address the emitter looks up, rebuilt
+    ' from the same two header slots. Vulkan does the same since bug-688.
+    IF kind = __CANVAS_GEO_PICTURE THEN
+      LET block AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      IF NOT collections::contains(pictures, block) THEN
+        pictures = collections::add(pictures, block)
+        samples = samples + __canvas_pictureSamples(offset)
       END IF
     END IF
     ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
@@ -636,18 +773,23 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF stops >= 2 THEN
       gradientStops = gradientStops + stops
     END IF
+    ' bug-686: no per-polygon cap. A polygon of any size draws, bounded only by the
+    ' frame's edge region below; the emitter indexes a large one by band so the shader
+    ' does not walk every edge per pixel.
     IF kind = __CANVAS_GEO_POLYGON THEN
-      ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
-      ' frame buffer, so this one is no longer forced by the transport -- but declining
-      ' the same scenes Metal declined before is that letter's gate, and unifying the
-      ' two backends' caps is later work, taken deliberately or not at all.
-      IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
-        RETURN FALSE
-      END IF
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-154-B: a PolyLine's segments take the same region, one edge each.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+  IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
+  ' The glyph region serves the whole frame, so overflowing it would make one glyph
+  ' read another's coverage -- declined rather than drawn wrongly (bug-670).
+  IF samples > __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES THEN
     RETURN FALSE
   END IF
   ' The FRAME cap, new in plan-116-A and the one scene class Metal newly declines: its
@@ -658,7 +800,7 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   ' The gradient region is one buffer serving the whole frame, so overflowing it
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
-  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+  IF gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 3: Metal no longer declines a scene containing a group either. The
@@ -678,15 +820,34 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   IF NOT __canvas_metalRenderable(offsets) THEN
     RETURN FALSE
   END IF
+  ' bug-686 Phase 4: in a window, present the GPU frame straight to the window's
+  ' `CAMetalLayer` -- no CPU surface, no readback, no swizzle, no `CGImage` blit, which
+  ' at a full-screen surface were the whole frame budget. Only when nothing needs the
+  ' frame's pixels on the CPU: damage mode keeps them (`__CANVAS_KEPT`) and a `--debug`
+  ' dump writes them. `metalPresentScene` answers FALSE when there is nowhere to present
+  ' (headless: no window layer, decided before Metal is touched) or no drawable this
+  ' frame, and the frame then takes the readback path below -- so every headless test
+  ' still compares exactly the pixels it always did.
+  IF NOT __canvas_damageEnabled() AND NOT __canvas_dumpRequested() THEN
+    IF canvas::metalPresentScene(width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS) THEN
+      __CANVAS_GPU_FRAMES = __CANVAS_GPU_FRAMES + 1
+      __canvas_presentedDirect()
+      RETURN TRUE
+    END IF
+  END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
   ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset. Same
   ' arguments as the Vulkan twin, and deliberately so -- the two backends walking
   ' different lists is how a group ends up correct on one and at the origin on the other.
   canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Damage mode only -- see `__canvas_renderScene`: a whole-frame copy otherwise paid
+  ' for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
   ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
   ' only frame a headless test renders.
@@ -695,8 +856,8 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   RETURN TRUE
 END FUNC
 
-LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = 16384
-LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = 1048576
+LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = @VULKAN_MAX_FRAME_EDGES@
+LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = @VULKAN_MAX_FRAME_GLYPH_SAMPLES@
 
 ' The coverage samples one glyph run puts in the frame's glyph region -- the sum of its
 ' cached bitmaps' areas. A run carries cache indices rather than bitmaps, so this is the
@@ -717,15 +878,34 @@ FUNC __canvas_runSamples(offset AS Integer) AS Integer
   RETURN total
 END FUNC
 
+' The words one picture puts in the frame's glyph region: its image's texel count, from
+' the aux pair its header carries (bug-484).
+FUNC __canvas_pictureSamples(offset AS Integer) AS Integer
+  RETURN toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 21, 0.0))
+END FUNC
+
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
+    END IF
+    ' bug-484: as in `__canvas_metalRenderable` -- texels share the glyph region's cap.
+    '
+    ' bug-688: counted once per distinct pixel BLOCK, as Metal counts them, because the
+    ' Vulkan emitter now uploads each block once per frame too (`emit_picture_lookup` in
+    ' `vulkan.rs`). A tilemap of 2,000 tiles from two images is 2,048 texels, not 2M.
+    IF kind = __CANVAS_GEO_PICTURE THEN
+      LET block AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      IF NOT collections::contains(pictures, block) THEN
+        pictures = collections::add(pictures, block)
+        samples = samples + __canvas_pictureSamples(offset)
+      END IF
     END IF
     ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
     ' list asks. A blended item that both strokes and fills publishes two
@@ -742,8 +922,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-154-C: a PolyLine's segments take the same region, one edge each.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
   NEXT
-  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+  IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN
     RETURN FALSE
   END IF
   IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
@@ -752,7 +936,7 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   ' The gradient region is one buffer serving the whole frame, so overflowing it
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
-  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+  IF gradientStops > __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 2: Vulkan no longer declines a scene containing a group. The
@@ -784,9 +968,13 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset.
   canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
-  __CANVAS_KEPT = buffer
-  __CANVAS_KEPT_W = width
-  __CANVAS_KEPT_H = height
+  ' Damage mode only -- see `__canvas_renderScene`: a whole-frame copy otherwise paid
+  ' for nothing (bug-686).
+  IF __canvas_damageEnabled() THEN
+    __CANVAS_KEPT = buffer
+    __CANVAS_KEPT_W = width
+    __CANVAS_KEPT_H = height
+  END IF
   ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
   ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
   ' only frame a headless test renders.
@@ -795,6 +983,42 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   RETURN TRUE
 END FUNC"#;
 
+/// The frame caps `RENDER_METAL_TEMPLATE` shares with the native emitters, by the
+/// `@NAME@` token each `LET` line carries. One entry per token; a token with no entry
+/// would reach the MFBASIC compiler as a syntax error, and
+/// `every_cap_token_in_the_render_source_is_generated` pins that none is left.
+const RENDER_CAPS: &[(&str, usize)] = &[
+    ("VULKAN_MAX_FRAME_ITEMS", VULKAN_MAX_FRAME_ITEMS),
+    ("METAL_MAX_FRAME_ITEMS", METAL_MAX_FRAME_ITEMS),
+    (
+        "METAL_MAX_FRAME_GLYPH_SAMPLES",
+        METAL_MAX_FRAME_GLYPH_SAMPLES,
+    ),
+    ("METAL_MAX_FRAME_EDGES", METAL_MAX_FRAME_EDGES),
+    (
+        "VULKAN_MAX_FRAME_GRADIENT_STOPS",
+        VULKAN_MAX_FRAME_GRADIENT_STOPS,
+    ),
+    (
+        "METAL_MAX_FRAME_GRADIENT_STOPS",
+        METAL_MAX_FRAME_GRADIENT_STOPS,
+    ),
+    ("VULKAN_MAX_FRAME_EDGES", VULKAN_MAX_FRAME_EDGES),
+    (
+        "VULKAN_MAX_FRAME_GLYPH_SAMPLES",
+        VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    ),
+];
+
+/// `RENDER_METAL_TEMPLATE` with every cap token replaced by its Rust constant.
+static RENDER_METAL: LazyLock<String> = LazyLock::new(|| {
+    RENDER_CAPS
+        .iter()
+        .fold(RENDER_METAL_TEMPLATE.to_string(), |text, (name, value)| {
+            text.replace(&format!("@{name}@"), &value.to_string())
+        })
+});
+
 /// The per-item content hashes for a scene, in item order.
 ///
 /// A layered scene flattens into one hash list in draw order, which is exactly the
@@ -802,11 +1026,28 @@ END FUNC"#;
 /// renderer needs no shape-specific hash lookup.
 #[rustfmt::skip]
 const HASH_SCENE: &str =
-r#"FUNC __canvas_hashScene(items AS List OF DrawItem) AS List OF Integer
-  MUT out AS List OF Integer = []
-  FOR EACH item IN items
-    out = collections::append(out, __canvas_hashItem(item))
-  NEXT
+r#"' bug-686: `carried` is `canvas::carriedHashes(items)`, taken before the publish --
+' the installed hash for every item whose bytes did not change, `-1` for the rest.
+' `canvas::sceneHashes` keeps the carried ones and hashes the rest natively in one pass
+' over the list, except a `Text` or a `Group`, which it leaves at `-1` for
+' `__canvas_hashItem`'s MFBASIC arms below. So a scene of the common kinds costs the
+' worker one native call and never extracts an item from the list. `items` and
+' `carried` have the same length by construction; `sceneHashes` treats a short
+' `carried` as all `-1`.
+FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) AS List OF Integer
+  MUT out AS List OF Integer = canvas::sceneHashes(items, carried)
+  LET count AS Integer = len(out)
+  MUT i AS Integer = 0
+  WHILE i < count
+    IF collections::getOr(out, i, 0) < 0 THEN
+      ' Never read: every index below `count` is present. A group naming nothing
+      ' would draw nothing, so it is also a harmless value if it ever were.
+      LET none AS DrawItem = Group[name := "", dx := 0.0, dy := 0.0]
+      LET item AS DrawItem = collections::getOr(items, i, none)
+      out = collections::set(out, i, __canvas_hashItem(item))
+    END IF
+    i = i + 1
+  END WHILE
   RETURN out
 END FUNC
 
@@ -820,11 +1061,24 @@ FUNC __canvas_hashLayers(layers AS List OF DrawLayer) AS List OF Integer
   RETURN out
 END FUNC"#;
 
-/// Start the graphics thread on the first present, and settle sync mode with it.
+/// Start the graphics thread on the first present, and settle sync mode and the
+/// renderer with it.
 ///
 /// The guard makes this one `os::getEnvOr` per program rather than per frame, and it
 /// keeps the environment read in MFBASIC — where it is already portable — instead of
 /// putting a per-platform `getenv` on the spawn path.
+///
+/// **The renderer.** A program in a real window draws on the GPU (Metal on macOS,
+/// Vulkan on Linux and Windows, where a pipeline exists); a headless run — any of the three
+/// `MFB_*_HEADLESS` switches the tests use — draws in software.
+/// `MFB_CANVAS_GPU` overrides both ways: `0` forces software, any other value
+/// forces the GPU. The software renderer is the exact-match oracle the goldens and
+/// the GPU backends are measured against, and every test that renders runs
+/// headless, so it stays the default *there*; a window is where frame rate is
+/// felt — a full-window canvas redraw in software runs at about 8 frames a second
+/// on Apple silicon, against about 55 on Metal. A GPU that is unavailable, or a
+/// scene it declines, still falls back to software per frame
+/// (`__canvas_renderFrame`).
 #[rustfmt::skip]
 const ENSURE_GRAPHICS: &str =
 r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
@@ -832,10 +1086,32 @@ r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
 FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
-    canvas::setGpuMode(len(os::getEnvOr("MFB_CANVAS_GPU", "")) > 0)
+    canvas::setGpuMode(__canvas_wantGpu())
+    __canvas_readDisplayOverride()
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF
+END FUNC
+
+' plan-155-A: a test affordance, off by default -- pin the display rate the runtime
+' reports, since a headless run has no monitor to ask. Read once, by whichever asks
+' first: the first present, or (plan-155-B) a `canvas::getFrameStats` made before it.
+MUT __CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = FALSE
+
+SUB __canvas_readDisplayOverride()
+  IF NOT __CANVAS_DISPLAY_OVERRIDE_READ THEN
+    canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
+    __CANVAS_DISPLAY_OVERRIDE_READ = TRUE
+  END IF
+END SUB
+
+FUNC __canvas_wantGpu() AS Boolean
+  LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
+  IF len(choice) > 0 THEN RETURN choice <> "0"
+  IF len(os::getEnvOr("MFB_MACAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  IF len(os::getEnvOr("MFB_GTKAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  IF len(os::getEnvOr("MFB_WINAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
+  RETURN TRUE
 END FUNC"#;
 
 // `__canvas_renderLoop`/`__canvas_renderFrame` are one body in both builds except for
@@ -845,26 +1121,37 @@ macro_rules! render_loop_head {
     () => {
         r#"FUNC __canvas_renderLoop() AS Nothing
   WHILE canvas::waitForRedraw()
+    ' plan-155-B: time the frame and report whether -- and by which renderer -- it
+    ' was drawn, for `canvas::getFrameStats`. `__canvas_renderFrame` sets the two
+    ' globals on every path out of it.
+    LET started AS Integer = canvas::frameNanos()
     __canvas_renderFrame()
-    canvas::frameDone()
+    LET finished AS Integer = canvas::frameNanos()
+    canvas::frameDone(__CANVAS_LAST_DREW, __CANVAS_LAST_RENDERER, finished - started, finished)
   END WHILE
 END FUNC
 
 FUNC __canvas_renderFrame() AS Nothing
+  ' Not drawn until a backend says so: the skip below returns with these unchanged.
+  __CANVAS_LAST_DREW = FALSE
+  __CANVAS_LAST_RENDERER = 0
   LET size AS Size = __canvas_surfaceSize()
+  __canvas_phaseMark(0)
   ' The geometry is built once, here, and the offsets are then handed to whichever
   ' backend draws them. It has to happen before the damage diff rather than inside the
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  __canvas_phaseMark(1)
   ' plan-116-H Phase 1: build the GPU draw list beside the software one. Nothing
   ' consumes it yet -- both backends still decline a group scene -- but it is built every
   ' frame so `MFB_CANVAS_STATS` can report it, which is the only way a test can see a
   ' structure that exists on the graphics thread and is handed straight to an emitter.
   '
-  ' Cheap despite walking the tree a second time: both walks resolve geometry through
-  ' `__canvas_geometryFor`, which IS the cache, so the second one hits it.
+  ' bug-686: it lays the list out from the offsets `__canvas_sceneOffsets` just resolved
+  ' rather than resolving every item again.
   LET draws AS List OF Integer = __canvas_sceneDraws()
+  __canvas_phaseMark(2)
   ' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
   ' worker action to land mid-render.
   '
@@ -892,6 +1179,7 @@ FUNC __canvas_renderFrame() AS Nothing
   LET hashes AS List OF Integer = __CANVAS_DRAW_HASHES
   LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
   __CANVAS_DAMAGE = damage
+  __canvas_phaseMark(3)
   IF len(damage) = 0 THEN
     ' Nothing changed, so nothing is presented. The loop still calls `frameDone`, so a
     ' `present` waiting under MFB_CANVAS_SYNC is released -- a skipped frame is a frame
@@ -917,17 +1205,28 @@ macro_rules! render_loop_tail {
   ' honest reading here -- the capability the plan named (`VK_KHR_incremental_present`,
   ' Metal dirty rects) belongs to presenting a swapchain drawable, which this renderer
   ' does not do at all (Correction 24).
+  ' plan-155-B: the renderer ordinals are `canvas::Renderer`'s -- 0 Software, 1 Metal,
+  ' 2 Vulkan. A GPU arm that declines leaves them for the next arm to set.
   IF canvas::useGpu() AND canvas::metalReady() THEN
     IF __canvas_renderMetal(offsets, size.width, size.height) THEN
+      __CANVAS_LAST_DREW = TRUE
+      __CANVAS_LAST_RENDERER = 1
+      __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   IF canvas::useGpu() AND canvas::vulkanReady() THEN
     IF __canvas_renderVulkan(offsets, size.width, size.height) THEN
+      __CANVAS_LAST_DREW = TRUE
+      __CANVAS_LAST_RENDERER = 2
+      __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   __canvas_renderScene(offsets, damage, size.width, size.height)
+  __CANVAS_LAST_DREW = TRUE
+  __CANVAS_LAST_RENDERER = 0
+  __canvas_phaseMark(4)
 END FUNC"#
     };
 }
@@ -942,7 +1241,7 @@ END FUNC"#
 /// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
 /// when all three of its conditions hold: the program asked for a GPU
 /// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
-/// is set by `MFB_CANVAS_GPU`), a pipeline exists (`canvas::metalReady` /
+/// is set by `__canvas_wantGpu`), a pipeline exists (`canvas::metalReady` /
 /// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
 ///
 /// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
@@ -956,8 +1255,9 @@ END FUNC"#
 /// primitive, so the only scene still declined is one carrying a polygon with more
 /// edges than a `setFragmentBytes:` payload holds.
 ///
-/// The software path stays the default regardless: it is the oracle the GPU path is
-/// measured against, so it cannot become the thing being measured.
+/// The software path stays the default for headless runs, which is every test that
+/// renders: it is the oracle the GPU path is measured against, so it cannot become
+/// the thing being measured. A real window asks for the GPU (`__canvas_wantGpu`).
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
 /// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
@@ -967,6 +1267,34 @@ END FUNC"#
 /// a repaint no `present` caused — a resize, an expose — draw the right picture.
 const RENDER_LOOP: &str = concat!(render_loop_head!(), render_loop_tail!());
 
+/// bug-686 Phase 0: where a frame's time goes, reported on the `MFB_CANVAS_STATS` line.
+///
+/// `__canvas_renderFrame` marks five points: the frame's start, then the end of the scene
+/// walk, of the draw list, of the damage diff and of the render (the predicate, the
+/// backend's own work, readback and present). A normal build's mark is an empty `SUB`;
+/// a `--debug` build's accumulates the nanoseconds between consecutive marks per phase,
+/// and `__canvas_phaseText` reports each total in milliseconds. Cumulative, like
+/// `generations=`, because the interesting quantity is the delta between frames.
+const PHASE_TIMERS: &str = r#"SUB __canvas_phaseMark(phase AS Integer)
+END SUB"#;
+
+#[rustfmt::skip]
+const PHASE_TIMERS_DEBUG: &str = r#"MUT __CANVAS_PHASE_AT AS Integer = 0
+MUT __CANVAS_PHASE_NS AS List OF Integer = [0, 0, 0, 0]
+
+SUB __canvas_phaseMark(phase AS Integer)
+  LET now AS Integer = canvas::frameNanos()
+  IF phase > 0 AND __CANVAS_PHASE_AT > 0 THEN
+    LET spent AS Integer = collections::getOr(__CANVAS_PHASE_NS, phase - 1, 0) + (now - __CANVAS_PHASE_AT)
+    __CANVAS_PHASE_NS = collections::set(__CANVAS_PHASE_NS, phase - 1, spent)
+  END IF
+  __CANVAS_PHASE_AT = now
+END SUB
+
+FUNC __canvas_phaseText() AS String
+  RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000)
+END FUNC"#;
+
 /// [`RENDER_LOOP`] for a `--debug` build: a skipped frame also writes the
 /// `MFB_CANVAS_STATS` line.
 const RENDER_LOOP_DEBUG: &str = concat!(
@@ -974,6 +1302,56 @@ const RENDER_LOOP_DEBUG: &str = concat!(
     "    __canvas_writeStats()\n",
     render_loop_tail!()
 );
+
+/// bug-686 Phase 4: the two `--debug`-only facts `__canvas_renderMetal` needs about a
+/// directly presented frame — normal-build bodies.
+///
+/// A normal build has no frame dump (plan-130-E), so nothing ever needs a GPU frame's
+/// pixels on the CPU for it, and nothing writes a stats line. Both bodies are therefore
+/// the answer, not a stub: `FALSE`, and nothing to do.
+#[rustfmt::skip]
+const DIRECT_PRESENT: &str =
+r#"FUNC __canvas_dumpRequested() AS Boolean
+  RETURN FALSE
+END FUNC
+
+SUB __canvas_presentedDirect()
+END SUB"#;
+
+/// [`DIRECT_PRESENT`] for a `--debug` build.
+///
+/// `MFB_CANVAS_DUMP` names a file every frame's RGBA is written to, so while it is set
+/// the frame must be read back — the direct present has no CPU pixels to write. Read
+/// once and cached, like `__canvas_damageEnabled`, rather than a `getenv` per frame
+/// (0 unresolved, 1 off, 2 on).
+///
+/// A directly presented frame never reaches `__canvas_presentSurface`, which is where
+/// the stats line is written for every other rendered frame, so it writes it here —
+/// after `__CANVAS_GPU_FRAMES` is bumped, for the reason `__canvas_renderMetal` gives.
+///
+/// `__CANVAS_DIRECT_FRAMES` is the stats line's `directFrames=`: how many of the
+/// `gpuFrames=` never came back to the CPU. `gpuFrames=` alone cannot tell the two
+/// GPU paths apart — both draw the same picture — and the real-window test in
+/// `scripts/test-macapp.sh` needs to know which one it captured.
+#[rustfmt::skip]
+const DIRECT_PRESENT_DEBUG: &str =
+r#"MUT __CANVAS_DUMP_MODE AS Integer = 0
+MUT __CANVAS_DIRECT_FRAMES AS Integer = 0
+
+FUNC __canvas_dumpRequested() AS Boolean
+  IF __CANVAS_DUMP_MODE = 0 THEN
+    __CANVAS_DUMP_MODE = 1
+    IF len(os::getEnvOr("MFB_CANVAS_DUMP", "")) > 0 THEN
+      __CANVAS_DUMP_MODE = 2
+    END IF
+  END IF
+  RETURN __CANVAS_DUMP_MODE = 2
+END FUNC
+
+SUB __canvas_presentedDirect()
+  __CANVAS_DIRECT_FRAMES = __CANVAS_DIRECT_FRAMES + 1
+  __canvas_writeStats()
+END SUB"#;
 
 /// plan-116-J: close the resources a retired group buffer owned.
 ///
@@ -1084,12 +1462,25 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_ensureGraphics",
         ENSURE_GRAPHICS,
     ));
+    for helper in
+        RegistryHelper::debug_split("canvas_phaseTimers", PHASE_TIMERS, PHASE_TIMERS_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     for helper in RegistryHelper::debug_split("canvas_renderLoop", RENDER_LOOP, RENDER_LOOP_DEBUG) {
         pkg.add_helper(helper);
     }
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
-    pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_renderMetal",
+        RENDER_METAL.as_str(),
+    ));
+    for helper in
+        RegistryHelper::debug_split("canvas_directPresent", DIRECT_PRESENT, DIRECT_PRESENT_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always("canvas_closeRetired", CLOSE_RETIRED));
 }
 

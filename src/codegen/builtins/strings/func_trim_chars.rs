@@ -74,9 +74,23 @@ pub(crate) fn lower(
     if args.len() != 2 {
         return Err("strings.trimChars: no native lowering for these arguments".to_string());
     }
-    let value = &args[0];
-    let chars = &args[1];
+    let (ptr, len) = window(builder, &args[0], &args[1])?;
+    let result = builder.emit_materialize_string_from_bytes(&ptr, &len)?;
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::String,
+        location: Operand::from(result.render()),
+        text: "strings.trimChars".to_string(),
+    })
+}
 
+/// plan-146-C: the window half — the `[start, end)` of the trimmed result inside
+/// `value`'s bytes.
+pub(crate) fn window(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    chars: &ValueResult,
+) -> Result<(VirtualRegister, VirtualRegister), String> {
     let scratch16 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
     let scratch10 = builder.temporary_vreg();
@@ -209,13 +223,7 @@ pub(crate) fn lower(
     builder.emit(abi::subtract_registers(&scratch12, &scratch11, &scratch10));
     builder.emit(abi::add_immediate(&scratch13, &scratch16, 8));
     builder.emit(abi::add_registers(&scratch13, &scratch13, &scratch10));
-    let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::String,
-        location: Operand::from(result.render()),
-        text: "strings.trimChars".to_string(),
-    })
+    Ok((scratch13, scratch12))
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

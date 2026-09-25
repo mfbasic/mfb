@@ -58,10 +58,9 @@
 
 use crate::ast::LoopKind;
 use crate::codegen::collection::layout::type_contains_resource;
+use crate::codegen::engine::analysis::borrow_get::collect_borrow_gets;
 use crate::codegen::engine::builder::TypeModel;
-use crate::codegen::engine::function::function_lowering::{
-    collect_address_taken_locals, collect_borrow_get_locals,
-};
+use crate::codegen::engine::function::function_lowering::collect_address_taken_locals;
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirMatchCase, NirMatchPattern, NirOp, NirValue};
 use crate::types::ParameterType;
@@ -75,14 +74,14 @@ pub(crate) enum Place {
 }
 
 impl Place {
-    fn root(&self) -> &str {
+    pub(crate) fn root(&self) -> &str {
         match self {
             Place::Local(name) | Place::Field(name, _) => name,
         }
     }
 }
 
-type Places = HashSet<Place>;
+pub(crate) type Places = HashSet<Place>;
 
 /// The `(op, place)` pairs whose read is the place's last, and the MATCH views that borrow.
 #[derive(Clone, Debug, Default)]
@@ -175,17 +174,17 @@ impl Canon {
 }
 
 /// The places `value` reads, each local named as itself.
-fn reads_of(value: &NirValue) -> Vec<Place> {
+pub(crate) fn reads_of(value: &NirValue) -> Vec<Place> {
     Canon::default().reads(value)
 }
 
 /// Remove `name` and every field of it.
-fn kill(live: &mut Places, name: &str) {
+pub(crate) fn kill(live: &mut Places, name: &str) {
     live.retain(|place| place.root() != name);
 }
 
 /// Whether a read of `place` could be observed again through `live`.
-fn place_live(live: &Places, place: &Place) -> bool {
+pub(crate) fn place_live(live: &Places, place: &Place) -> bool {
     match place {
         Place::Local(name) => live.iter().any(|other| other.root() == name),
         Place::Field(name, _) => live.contains(&Place::Local(name.clone())) || live.contains(place),
@@ -193,7 +192,7 @@ fn place_live(live: &Places, place: &Place) -> bool {
 }
 
 /// How many of `reads` read `place` (a whole-local read reads every field of it).
-fn read_count(reads: &[Place], place: &Place) -> usize {
+pub(crate) fn read_count(reads: &[Place], place: &Place) -> usize {
     match place {
         Place::Local(name) => reads.iter().filter(|read| read.root() == name).count(),
         Place::Field(name, _) => reads
@@ -648,7 +647,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
     struct Scan<'a> {
         model: &'a TypeModel,
         shape: &'a ViewShape,
-        borrow_get: &'a HashSet<String>,
+        pinned_borrows: &'a HashSet<String>,
         bound: HashSet<String>,
         read: HashSet<String>,
         excluded: HashSet<String>,
@@ -677,7 +676,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
                     {
                         self.excluded.insert(name.clone());
                     }
-                    if self.borrow_get.contains(name) {
+                    if self.pinned_borrows.contains(name) {
                         if let Some(value) = value {
                             self.exclude_reads(value);
                         }
@@ -726,11 +725,16 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
 
     let mut address_taken = HashSet::new();
     collect_address_taken_locals(&function.body, &mut address_taken);
-    let borrow_get = collect_borrow_get_locals(&function.body, &address_taken);
+    // bug-689: this analysis cannot follow calls, so it answers "no call writes a
+    // global" — which makes its borrow set a SUPERSET of the lowering's, the safe
+    // direction here: every name it returns is only excluded. A windowed borrow's
+    // container needs no exclusion (no read of it inside the window can move or
+    // hand it over); a pinned one's initializer reads are pinned as before.
+    let borrow_get = collect_borrow_gets(&function.body, &address_taken, &|_, _| false);
     let mut scan = Scan {
         model,
         shape,
-        borrow_get: &borrow_get,
+        pinned_borrows: &borrow_get.pinned,
         bound: HashSet::new(),
         read: HashSet::new(),
         excluded: HashSet::new(),
@@ -738,7 +742,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
     scan.visit_ops(&function.body);
     let mut excluded = scan.excluded;
     excluded.extend(address_taken);
-    excluded.extend(borrow_get.iter().cloned());
+    excluded.extend(borrow_get.names.iter().cloned());
     excluded.extend(function.params.iter().map(|param| param.name.clone()));
     // A name this function never binds has an owner this analysis cannot see.
     excluded.extend(scan.read.difference(&scan.bound).cloned());
@@ -906,6 +910,70 @@ fn analyze(
         }
     }
     sites
+}
+
+/// plan-147-C: the liveness `collect_last_use_moves` computes, for an analysis that
+/// asks a DIFFERENT question of the same facts — "may this call argument be handed
+/// to the callee?" rather than "may this store move?".
+///
+/// Deliberately conservative in one place: every `MATCH` view is treated as
+/// **borrowed**, so a read through a view is charged to the view's source and keeps
+/// that source live. `collect_last_use_moves` narrows to a fixed point to find which
+/// views may own; hand-over has no need of that extra reach, and borrowing only ever
+/// adds liveness, so it can only refuse a hand-over, never license a wrong one.
+pub(crate) struct LiveOut<'f> {
+    /// Each op's live-out set, keyed by [`op_key`], with the op itself.
+    pub(crate) after: HashMap<usize, (&'f NirOp, Places)>,
+    /// What any `TRAP` handler reads: live after every op.
+    pub(crate) trap_live: Places,
+    /// The roots no site may name (module doc, "Fail closed").
+    pub(crate) excluded: HashSet<String>,
+}
+
+/// [`LiveOut`] for `function`.
+pub(crate) fn live_out_of<'f>(function: &'f NirFunction, model: &TypeModel) -> LiveOut<'f> {
+    let shape = ViewShape::of(function);
+    let excluded = excluded_roots(function, model, &shape);
+    let exhaustive = exhaustive_matches(function, model, &shape);
+    // No view owns: the conservative choice documented above.
+    let canon = shape.canon(&HashSet::new());
+
+    struct AllReads<'c> {
+        canon: &'c Canon,
+        places: Places,
+    }
+    impl NirVisitor for AllReads<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            self.places.extend(self.canon.reads(value));
+        }
+    }
+    let mut all = AllReads {
+        canon: &canon,
+        places: Places::new(),
+    };
+    all.visit_ops(&function.body);
+
+    let mut liveness = Liveness {
+        trap_live: Places::new(),
+        universe: all.places,
+        loops: Vec::new(),
+        after: HashMap::new(),
+        canon,
+        exhaustive,
+    };
+    let mut handler_live = Places::new();
+    collect_trap_handlers(&function.body, &mut |body| {
+        handler_live.extend(liveness.ops_in(body, Places::new()));
+    });
+    liveness.trap_live = handler_live;
+    liveness.after.clear();
+    liveness.ops_in(&function.body, Places::new());
+
+    LiveOut {
+        after: liveness.after,
+        trap_live: liveness.trap_live,
+        excluded,
+    }
 }
 
 /// The move sites and borrowed views of `function` (module doc).

@@ -30,12 +30,14 @@ cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
+A package's exported surface may not name a type the package declares without `EXPORT`: an `EXPORT TYPE` field (at any field visibility), an `EXPORT UNION` variant's field, an `EXPORT FUNC`/`SUB` parameter or return type, or an `EXPORT LET`/`MUT` type that reaches one — through `List`, `Set`, `Map`, `Result`, `RES`, `FUNC` and `Thread` types — fails the package build with `EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, because the compiled package's type table carries only exported types and no importer could resolve the name. A union's variant record itself need not be exported, and a type imported from another package may be re-exported. [[src/ir/shape.rs:export_names_non_exported_type_diagnostics]]
+
 Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
 `PRIVATE`, `PUBLIC` (the default) or `EXPORT`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
-Top-level bindings initialize before `main`, and an imported package's bindings initialize before those of every project that imports it — its consumer's and any other package's — so a top-level `LET`/`MUT` initializer may read a package's `EXPORT`ed binding (`LET limit = pkg::Limit`) or call a package function that reads its own globals, and sees their initialized values. Within one project, bindings initialize in declaration order. [[src/ir/package.rs:order_bindings_dependencies_first]]
+Top-level bindings initialize before `main`, and an imported package's bindings initialize before those of every project that imports it — its consumer's and any other package's — so a top-level `LET`/`MUT` initializer may read a package's `EXPORT`ed binding (`LET limit = pkg::Limit`) or call a package function that reads its own globals, and sees their initialized values. Within one project, bindings initialize in declaration order. [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. They are recognized by their internalized names, which no program can spell. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
 
 Double-colon notation is reserved for package access. Dot notation is reserved for field access into data values and enum members:
 
@@ -136,8 +138,18 @@ compiler resolves the first identifier in the import using this order: [[src/res
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The
 compiler does not implicitly import undeclared packages from this directory.
-Each package is responsible for declaring its own dependencies; dependency
-declarations are not inherited from importers and imports are not transitive.
+
+Imports remain non-transitive for **names**: a package cannot export an
+imported package or create a re-export chain, and an importing project cannot
+write `basepkg::` merely because a package it declares imports `basepkg` —
+that still requires its own `IMPORT basepkg`. But a native build merges
+exactly the packages `project.json` declares, so the importing project's
+`packages[]` must declare a package's **whole dependency closure**: every
+package any declared package's own import table names, not only the packages
+the project's own source names in an `IMPORT`. This is a declaration/merging
+rule, not a visibility one — see `./mfb spec tooling project-manifest` for the
+`direct`/`requiredBy` fields that record why each entry is there and the
+diagnostics that refuse an inconsistent closure.
 
 ## 13.1 Package identity, versions, and manifests
 

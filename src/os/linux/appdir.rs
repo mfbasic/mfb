@@ -18,7 +18,7 @@ use crate::target::linux_gtk::gtk_app_id;
 ///
 /// The suffix names the **container**, never its contents — the executable
 /// stays `usr/bin/<name>`, so `AppRun`, the `.desktop`, `StartupWMClass`, and
-/// `os::resourcePath`'s `strip "bin/<name>", append "share/<name>"` derivation
+/// `os::appResourcePath`'s `strip "bin/<name>", append "share/<name>"` derivation
 /// are identical across flavors. This mirrors the console path, where
 /// `<name>-glibc.out` is a flavored *filename* wrapping an unflavored program.
 ///

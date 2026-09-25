@@ -454,6 +454,30 @@ pub(super) fn collect_imported_records(
         .collect()
 }
 
+/// The ENUM types exported by imported packages, keyed by the bare declared
+/// nominal exactly as [`collect_imported_records`] keys a record (plan-140-A).
+pub(super) fn collect_imported_enums(
+    project_dir: &Path,
+    source: &HirProject,
+) -> HashSet<ParameterType> {
+    let packages = source
+        .files
+        .iter()
+        .flat_map(|file| file.import_bindings())
+        .map(|(_, package)| package)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|package| {
+            crate::manifest::package::resolved_package_file(project_dir, &package)
+        })
+        .collect::<Vec<_>>();
+    crate::manifest::package::imported_type_defs_from_files(&packages)
+        .into_iter()
+        .filter(|def| matches!(def.kind, crate::ir::ImportedTypeKind::Enum))
+        .map(|def| ParameterType::named(&def.name))
+        .collect()
+}
+
 pub(super) fn collect_imported_overloads(
     project_dir: &Path,
     source: &HirProject,
@@ -464,8 +488,15 @@ pub(super) fn collect_imported_overloads(
     let mut bindings: HashMap<String, String> = HashMap::new();
     for file in &source.files {
         for (binding, package) in file.import_bindings() {
-            qualifiers.insert(format!("{binding}."));
-            qualifiers.insert(format!("{package}."));
+            // bug-632: only a BUILT-IN package's qualifier is stripped. An imported
+            // user package's type is package-qualified on both sides of the match
+            // — the argument by the parser (`ov.A`) and the candidate below — so
+            // stripping it would turn `ov.A` and another package's `pb.A` back
+            // into one bare `A`.
+            if crate::codegen::builtins::is_builtin_import(&package) {
+                qualifiers.insert(format!("{binding}."));
+                qualifiers.insert(format!("{package}."));
+            }
             bindings.insert(binding, package);
         }
     }
@@ -481,6 +512,11 @@ pub(super) fn collect_imported_overloads(
         let Ok(exports) = crate::binary_repr::read_package_exports(&package_file) else {
             continue;
         };
+        // bug-632: the package's own type names, so each candidate's parameter
+        // types carry the same `<package>.<Name>` identity the argument does.
+        let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+            .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
+            .unwrap_or_default();
         // Group exported functions/subs by base name (the part before `$`).
         let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> =
             HashMap::new();
@@ -510,7 +546,9 @@ pub(super) fn collect_imported_overloads(
                     param_types: export
                         .params
                         .iter()
-                        .map(|param| param.type_.clone())
+                        .map(|param| {
+                            crate::manifest::package::qualify_package_type(&param.type_, &owners)
+                        })
                         .collect(),
                     // Rewrite to the importer-facing `binding.name`, not
                     // `package.name`: the post-monomorph resolver maps import
@@ -634,9 +672,15 @@ pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpress
 /// lowered function, which made the seeding O(F^2) in the function count.
 pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType, ParameterType) {
     let returns = match function.kind {
-        crate::ast::FunctionKind::Func => {
-            opt_type(&function.returns).unwrap_or(ParameterType::Unknown)
-        }
+        // bug-671: a `FUNC … AS RES T STATE S` return carries its payload, as
+        // the IR's `function_return_type` does, so `f().state.x` types.
+        crate::ast::FunctionKind::Func => match opt_type(&function.returns) {
+            Some(returns) => match (&function.return_state_type, function.return_resource) {
+                (Some(state), true) => returns.with_state(state),
+                _ => returns,
+            },
+            None => ParameterType::Unknown,
+        },
         crate::ast::FunctionKind::Sub => ParameterType::Nothing,
     };
     let params = function
@@ -730,6 +774,7 @@ mod tests {
             body: Vec::new(),
             trap: None,
             line: 1,
+            internal_origin: false,
         }
     }
 
@@ -1275,7 +1320,25 @@ mod tests {
         assert!(score
             .iter()
             .all(|o| o.qualified_name.starts_with("package_simple.score")));
-        // The binding/package qualifier prefix is captured.
-        assert!(qualifiers.iter().any(|q| q == "package_simple."));
+        // bug-632: a USER package's qualifier is NOT captured — its types are
+        // package-qualified on both sides of the overload match, so stripping the
+        // qualifier would merge two packages' same-named types. Only a built-in
+        // import contributes a qualifier.
+        assert!(
+            !qualifiers.iter().any(|q| q == "package_simple."),
+            "a user package's qualifier must not be stripped: {qualifiers:?}"
+        );
+        // Each candidate's parameter types carry the package's identity, so they
+        // compare equal to an argument the parser canonicalized the same way.
+        assert!(
+            score.iter().all(|overload| overload.param_types.iter().all(
+                |type_| !matches!(type_, ParameterType::Named(sym) if sym.resolve() == "Vec2")
+            )),
+            "an owned nominal parameter is package-qualified: {:?}",
+            score
+                .iter()
+                .map(|o| o.param_types.iter().map(|t| t.name()).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
     }
 }

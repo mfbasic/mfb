@@ -104,38 +104,38 @@ END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED2: &str =
 r#"FUNC __vector_angle_fixed2(a AS Fixed2, b AS Fixed2) AS Fixed
-  LET la AS Fixed = math::sqrt(__vector_dot_fixed2(a, a))
-  LET lb AS Fixed = math::sqrt(__vector_dot_fixed2(b, b))
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y))
   IF la = 0.0 OR lb = 0.0 THEN
     FAIL error(77050002, "vector::angle with a zero-length vector")
   END IF
-  LET cosv AS Fixed = __vector_dot_fixed2(a, b) / (la * lb)
-  LET clamped AS Fixed = math::clamp(cosv, toFixed(-1.0), toFixed(1.0))
-  RETURN math::acos(clamped)
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y)) / (la * lb)
+  LET clamped AS Float = math::clamp(cosv, -1.0, 1.0)
+  RETURN toFixed(math::acos(clamped))
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED3: &str =
 r#"FUNC __vector_angle_fixed3(a AS Fixed3, b AS Fixed3) AS Fixed
-  LET la AS Fixed = math::sqrt(__vector_dot_fixed3(a, a))
-  LET lb AS Fixed = math::sqrt(__vector_dot_fixed3(b, b))
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y) + toFloat(a.z) * toFloat(a.z))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z))
   IF la = 0.0 OR lb = 0.0 THEN
     FAIL error(77050002, "vector::angle with a zero-length vector")
   END IF
-  LET cosv AS Fixed = __vector_dot_fixed3(a, b) / (la * lb)
-  LET clamped AS Fixed = math::clamp(cosv, toFixed(-1.0), toFixed(1.0))
-  RETURN math::acos(clamped)
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z)) / (la * lb)
+  LET clamped AS Float = math::clamp(cosv, -1.0, 1.0)
+  RETURN toFixed(math::acos(clamped))
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED4: &str =
 r#"FUNC __vector_angle_fixed4(a AS Fixed4, b AS Fixed4) AS Fixed
-  LET la AS Fixed = math::sqrt(__vector_dot_fixed4(a, a))
-  LET lb AS Fixed = math::sqrt(__vector_dot_fixed4(b, b))
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y) + toFloat(a.z) * toFloat(a.z) + toFloat(a.w) * toFloat(a.w))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z) + toFloat(b.w) * toFloat(b.w))
   IF la = 0.0 OR lb = 0.0 THEN
     FAIL error(77050002, "vector::angle with a zero-length vector")
   END IF
-  LET cosv AS Fixed = __vector_dot_fixed4(a, b) / (la * lb)
-  LET clamped AS Fixed = math::clamp(cosv, toFixed(-1.0), toFixed(1.0))
-  RETURN math::acos(clamped)
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z) + toFloat(a.w) * toFloat(b.w)) / (la * lb)
+  LET clamped AS Float = math::clamp(cosv, -1.0, 1.0)
+  RETURN toFixed(math::acos(clamped))
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_INTEGER2: &str =

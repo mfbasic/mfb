@@ -1,0 +1,63 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_override_toint_enum_precedence",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 5,
+    "visibility": "public",
+    "name": "Cash",
+    "fields": [
+    { "visibility": null, "line": 6, "name": "cents", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 9,
+    "visibility": "public",
+    "name": "Color",
+    "members": [
+    { "name": "Red" },
+    { "name": "Green" },
+    { "name": "Blue" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "toInt$Cash",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "m", "line": 13, "type": "Cash", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "cents" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "m", "type": "Cash", "value": { "kind": "constructor", "type": "Cash", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt$Cash", "args": [{ "kind": "local", "name": "m" }] }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "7" }] }] }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

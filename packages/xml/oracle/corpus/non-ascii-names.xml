@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<données xmlns:é="urn:accent">
+  <élément attribut="valeur">contenu accentué</élément>
+  <é:préfixé é:attr="x"/>
+  <日本語>テキスト</日本語>
+</données>

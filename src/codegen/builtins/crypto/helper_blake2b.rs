@@ -19,6 +19,14 @@ IMPORT collections
 
 ' Unkeyed BLAKE2b (RFC 7693) over `data`, producing `outLen` bytes (1..64).
 FUNC __crypto_blake2b(data AS List OF Byte, outLen AS Integer) AS List OF Byte
+  LET none AS List OF Byte = []
+  RETURN __crypto_blake2b3(none, data, none, outLen)
+END FUNC
+
+' Unkeyed BLAKE2b over the concatenation `pre` ‖ `mid` ‖ `post`, without building it:
+' a block lying wholly inside `mid` is compressed where it lies, and only a block
+' straddling a boundary, and the padded final block, are gathered (plan-142-E).
+FUNC __crypto_blake2b3(pre AS List OF Byte, mid AS List OF Byte, post AS List OF Byte, outLen AS Integer) AS List OF Byte
   MUT h AS List OF Integer = []
   MUT i AS Integer = 0
   WHILE i < 8
@@ -26,24 +34,51 @@ FUNC __crypto_blake2b(data AS List OF Byte, outLen AS Integer) AS List OF Byte
     i = i + 1
   END WHILE
   h = collections::set(h, 0, bits::bxor(collections::get(h, 0), bits::bxor(16842752, outLen)))
-  LET n AS Integer = len(data)
+  LET a AS Integer = len(pre)
+  LET b AS Integer = a + len(mid)
+  LET n AS Integer = b + len(post)
   MUT off AS Integer = 0
   MUT t AS Integer = 0
   WHILE n - off > 128
     t = t + 128
-    h = __crypto_blake2bCompress(h, __crypto_slice(data, off, off + 128), t, FALSE)
+    IF off >= a AND off + 128 <= b THEN
+      h = __crypto_blake2bCompress(h, mid, off - a, t, FALSE)
+    ELSE
+      h = __crypto_blake2bCompress(h, __crypto_gather3(pre, mid, post, off, off + 128), 0, t, FALSE)
+    END IF
     off = off + 128
   END WHILE
-  MUT tail AS List OF Byte = __crypto_slice(data, off, n)
+  MUT tail AS List OF Byte = __crypto_gather3(pre, mid, post, off, n)
   t = t + n - off
   WHILE len(tail) < 128
     tail = collections::append(tail, toByte(0))
   END WHILE
-  h = __crypto_blake2bCompress(h, tail, t, TRUE)
+  h = __crypto_blake2bCompress(h, tail, 0, t, TRUE)
   MUT out AS List OF Byte = []
   i = 0
   WHILE i < outLen
     out = collections::append(out, toByte(bits::band(bits::sr(collections::get(h, i / 8), (i MOD 8) * 8), 255)))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' Bytes [start, stop) of `pre` ‖ `mid` ‖ `post`; never more than one block.
+FUNC __crypto_gather3(pre AS List OF Byte, mid AS List OF Byte, post AS List OF Byte, start AS Integer, stop AS Integer) AS List OF Byte
+  LET a AS Integer = len(pre)
+  LET b AS Integer = a + len(mid)
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = start
+  WHILE i < stop
+    IF i < a THEN
+      out = collections::append(out, collections::get(pre, i))
+    ELSE
+      IF i < b THEN
+        out = collections::append(out, collections::get(mid, i - a))
+      ELSE
+        out = collections::append(out, collections::get(post, i - b))
+      END IF
+    END IF
     i = i + 1
   END WHILE
   RETURN out

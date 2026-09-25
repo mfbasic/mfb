@@ -1,0 +1,58 @@
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' plan-140-C: `toString` of an enum value is the member's name as written in
+' the `ENUM`, without the type name. It never fails.
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+TYPE Swatch
+  label AS String
+  hue AS Color
+END TYPE
+
+FUNC favorite() AS Color
+  RETURN Color.Green
+END FUNC
+
+FUNC main AS Integer
+  ' Every member of a user enum, in declaration order.
+  io::print(toString(Color.Red))
+  io::print(toString(Color.Green))
+  io::print(toString(Color.Blue))
+
+  ' Runtime values: from a list, a record field, and a function's result.
+  LET allColors AS List OF Color = [Color.Red, Color.Green, Color.Blue]
+  FOR EACH c IN allColors
+    io::print(toString(c))
+  NEXT
+  LET s AS Swatch = Swatch["sky", Color.Blue]
+  io::print(toString(s.hue))
+  io::print(toString(favorite()))
+
+  ' Appending to the result copies it, exactly as for a string literal.
+  MUT label = toString(collections::get(allColors, 0))
+  label = label & "!"
+  io::print(label)
+  io::print(toString(Color.Red))
+
+  ' The result is an ordinary String: a Map key, and concatenated.
+  MUT counts AS Map OF String TO Integer = Map OF String TO Integer {}
+  counts = collections::set(counts, toString(Color.Blue), 3)
+  io::print(toString(collections::get(counts, "Blue")))
+  io::print(typeName(s.hue) & "." & toString(s.hue))
+
+  ' Inside an inline TRAP: the conversion never fails, so the handler never runs.
+  LET t AS String = toString(Color.Green) TRAP(e)
+    io::print("trapped " & toString(e.code))
+    RETURN 1
+  END TRAP
+  io::print(t)
+
+  ' A built-in package's enum.
+  io::print(toString(datetime::Weekday.Monday))
+  io::print(toString(datetime::Weekday.Sunday))
+  RETURN 0
+END FUNC

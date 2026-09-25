@@ -1,0 +1,287 @@
+' ---------------------------------------------------------------------------
+' Tests: reading a tar archive.
+'
+' Every positive case runs TWICE over the same archive -- once from a
+' `List OF Byte` and once from an `fs::File` holding the same bytes -- and
+' asserts the same values both ways.
+'
+' The case that matters most is `gnu` against `pax`: both fixtures carry the
+' same 200-byte name, stored as a GNU `L` record in one and a PAX `x` record in
+' the other. A reader that handled only one dialect would pass most of this file
+' and fail that comparison.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+
+PRIVATE FUNC fixtureNamed(label AS String) AS Fixture
+  FOR EACH f IN allFixtures()
+    IF f.label = label THEN
+      RETURN f
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "test: no fixture named " & label)
+END FUNC
+
+PRIVATE FUNC sameBytesT(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Describe the first way `archive` disagrees with the oracle, or "".
+PRIVATE FUNC oracleMismatch(archive AS Archive, fixture AS Fixture) AS String
+  IF len(entries(archive)) <> len(fixture.entries) THEN
+    RETURN fixture.label & ": " & toString(len(entries(archive))) & " entries, oracle says " & toString(len(fixture.entries))
+  END IF
+  FOR i = 0 TO len(fixture.entries) - 1
+    LET actual AS Entry = collections::get(entries(archive), i)
+    LET want AS ExpectedEntry = collections::get(fixture.entries, i)
+    LET where AS String = fixture.label & " entry " & toString(i) & ": "
+    IF actual.name <> want.name THEN
+      RETURN where & "name " & actual.name & " <> " & want.name
+    END IF
+    IF actual.kind <> want.kind THEN
+      RETURN where & "kind " & toString(actual.kind) & " <> " & toString(want.kind)
+    END IF
+    IF actual.isDirectory <> want.isDirectory THEN
+      RETURN where & "isDirectory disagrees"
+    END IF
+    IF actual.size <> want.size THEN
+      RETURN where & "size " & toString(actual.size) & " <> " & toString(want.size)
+    END IF
+    IF actual.mode <> want.mode THEN
+      RETURN where & "mode " & toString(actual.mode) & " <> " & toString(want.mode)
+    END IF
+    IF actual.modifiedSeconds <> want.modifiedSeconds THEN
+      RETURN where & "mtime " & toString(actual.modifiedSeconds) & " <> " & toString(want.modifiedSeconds)
+    END IF
+    IF actual.uid <> want.uid OR actual.gid <> want.gid THEN
+      RETURN where & "uid/gid disagree"
+    END IF
+    IF actual.user <> want.user OR actual.group <> want.group THEN
+      RETURN where & "user/group disagree: " & actual.user & "/" & actual.group
+    END IF
+    IF actual.linkTarget <> want.linkTarget THEN
+      RETURN where & "linkTarget " & actual.linkTarget & " <> " & want.linkTarget
+    END IF
+    ' Contents, for the entries that have any.
+    IF actual.kind = KindFile THEN
+      LET expected AS List OF Byte = encoding::base64Decode(want.contentBase64)
+      IF NOT sameBytesT(read(archive, actual), expected) THEN
+        RETURN where & "contents differ from the oracle"
+      END IF
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+TESTING
+  TGROUP "tar read"
+    TCASE "every fixture matches the oracle, from memory"
+      FOR EACH fixture IN allFixtures()
+        LET raw AS List OF Byte = fixture.bytes
+        expectString(oracleMismatch(open(raw), fixture), "")
+      NEXT
+    END TCASE
+
+    TCASE "every fixture matches the oracle, from a file"
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        fs::writeAllBytes(f, fixture.bytes)
+        fs::flush(f)
+        expectString(oracleMismatch(open(f), fixture), "")
+        fs::close(f)
+      NEXT
+    END TCASE
+
+    TCASE "a plain ustar archive lists its entries"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 3)
+      expectString(readText(archive, find(archive, "readme.txt")), "a readme\n")
+      expectEqual(find(archive, "docs/").isDirectory, TRUE)
+      expectString(readText(archive, find(archive, "docs/inner.txt")), "inside docs\n")
+    END TCASE
+
+    TCASE "a GNU long name is read from its L record"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      LET archive AS Archive = open(raw)
+      expectEqual(has(archive, longName()), TRUE)
+      expectString(readText(archive, find(archive, longName())), "a very long name\n")
+    END TCASE
+
+    TCASE "a GNU long link target is read from its K record"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      LET archive AS Archive = open(raw)
+      LET link AS Entry = find(archive, "link")
+      expectInteger(link.kind, KindSymlink)
+      expectString(link.linkTarget, longLink())
+    END TCASE
+
+    TCASE "a PAX long name is read from its x record"
+      LET raw AS List OF Byte = fixtureNamed("pax").bytes
+      LET archive AS Archive = open(raw)
+      expectEqual(has(archive, longName()), TRUE)
+      expectString(readText(archive, find(archive, longName())), "a very long name\n")
+    END TCASE
+
+    TCASE "GNU and PAX agree on the same long name"
+      ' The dialects store it completely differently; the reader must not care.
+      LET gnuRaw AS List OF Byte = fixtureNamed("gnu").bytes
+      LET paxRaw AS List OF Byte = fixtureNamed("pax").bytes
+      LET fromGnu AS Entry = find(open(gnuRaw), longName())
+      LET fromPax AS Entry = find(open(paxRaw), longName())
+      expectString(fromGnu.name, fromPax.name)
+      expectInteger(fromGnu.size, fromPax.size)
+      expectInteger(len(fromGnu.name), 200)
+    END TCASE
+
+    TCASE "a PAX archive carries a non-ASCII name"
+      LET raw AS List OF Byte = fixtureNamed("pax").bytes
+      LET archive AS Archive = open(raw)
+      expectString(readText(archive, find(archive, "café/naïve.txt")), "unicode name\n")
+    END TCASE
+
+    TCASE "links are listed with their targets"
+      LET raw AS List OF Byte = fixtureNamed("links").bytes
+      LET archive AS Archive = open(raw)
+      expectInteger(find(archive, "soft").kind, KindSymlink)
+      expectString(find(archive, "soft").linkTarget, "real.txt")
+      expectInteger(find(archive, "hard").kind, KindHardlink)
+      expectString(find(archive, "hard").linkTarget, "real.txt")
+    END TCASE
+
+    TCASE "an archive written by bsdtar reads the same way"
+      LET raw AS List OF Byte = fixtureNamed("bsdtar").bytes
+      LET archive AS Archive = open(raw)
+      expectString(readText(archive, find(archive, "data/one.txt")), "written by bsdtar\n")
+      expectInteger(find(archive, "data/two.txt").size, 600)
+    END TCASE
+
+    TCASE "the two sources return identical entry bytes"
+      FOR EACH fixture IN allFixtures()
+        RES f AS fs::File = fs::createTempFile()
+        fs::writeAllBytes(f, fixture.bytes)
+        fs::flush(f)
+        LET raw AS List OF Byte = fixture.bytes
+        LET fromMemory AS Archive = open(raw)
+        LET fromFile AS Archive = open(f)
+        FOR i = 0 TO len(entries(fromMemory)) - 1
+          LET a AS Entry = collections::get(entries(fromMemory), i)
+          LET b AS Entry = collections::get(entries(fromFile), i)
+          expectString(b.name, a.name)
+          IF a.kind = KindFile THEN
+            expectEqual(sameBytesT(read(fromMemory, a), read(fromFile, b)), TRUE)
+          END IF
+        NEXT
+        fs::close(f)
+      NEXT
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar read refusals"
+    TCASE "reading a symlink entry is refused"
+      LET raw AS List OF Byte = fixtureNamed("links").bytes
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "soft")), errorCode::ErrUnsupported)
+      expectTrap(read(archive, find(archive, "hard")), errorCode::ErrUnsupported)
+    END TCASE
+
+    TCASE "reading a directory entry is refused"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "docs/")), errorCode::ErrUnsupported)
+    END TCASE
+
+    TCASE "maxBytes below the entry size is refused"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "readme.txt"), 2), errorCode::ErrTooLarge)
+      ' Still readable afterwards: the refusal read nothing.
+      expectInteger(len(read(archive, find(archive, "readme.txt"))), 9)
+    END TCASE
+
+    TCASE "a missing name raises ErrNotFound"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      expectTrap(find(open(raw), "absent.txt"), errorCode::ErrNotFound)
+    END TCASE
+
+    TCASE "a corrupted header checksum is refused"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      ' Change a byte of the first header's name; its checksum no longer fits.
+      LET broken AS List OF Byte = collections::set(raw, 0, toByte(88))
+      expectTrap(open(broken), ErrorChecksum)
+    END TCASE
+
+    TCASE "an entry claiming more data than the archive holds is refused"
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      ' Overwrite the size field (offset 124, 12 bytes) with a huge octal value.
+      MUT broken AS List OF Byte = raw
+      FOR i = 0 TO 10
+        broken = collections::set(broken, 124 + i, toByte(55))
+      NEXT
+      broken = collections::set(broken, 135, toByte(0))
+      ' The checksum now disagrees too, so either refusal is correct; assert it
+      ' is refused rather than silently read.
+      LET refused AS Integer = openAndCount(broken)
+      expectInteger(refused, -1)
+    END TCASE
+
+    TCASE "an archive ending mid-block is refused"
+      ' Cut inside the first entry's data, BEFORE the two zero blocks that mark
+      ' the end. Trimming from the end instead would leave those blocks intact,
+      ' and the walk would stop at them correctly -- which is why this cuts to a
+      ' length that is not a whole number of blocks and has no terminator.
+      LET raw AS List OF Byte = fixtureNamed("ustar").bytes
+      LET cut AS List OF Byte = collections::mid(raw, 0, 700)
+      expectTrap(open(cut), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' Open and count, or -1 when the archive is refused for any reason.
+PRIVATE FUNC openAndCount(raw AS List OF Byte) AS Integer
+  LET count AS Integer = len(entries(open(raw))) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN count
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Found by the letter-D fuzzer (plan-139-D Phase 2).
+'
+' A GNU long-name record is NUL-TERMINATED: the name is everything before the
+' first NUL, and the record's size counts the terminator. The reader used to
+' strip NULs from anywhere in the record and keep the rest, which silently
+' joins a name to whatever followed it -- `a\0bbb` became the single name
+' `abbb` rather than `a`, and this reader and Python then disagreed about what
+' the entry was called.
+' ---------------------------------------------------------------------------
+TESTING
+  TGROUP "GNU long name termination"
+    TCASE "a long name stops at its first NUL"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      ' The `L` pseudo-entry's header is block 2 and its data -- the 200-byte
+      ' name -- is block 3, at offset 1536. Plant a NUL after `long/`.
+      LET broken AS List OF Byte = collections::set(raw, 1536 + 5, toByte(0))
+      LET archive AS Archive = open(broken)
+      ' "long/" -- the five bytes before the NUL, and nothing after it.
+      expectEqual(has(archive, "long/"), TRUE)
+      expectEqual(has(archive, longName()), FALSE)
+    END TCASE
+
+    TCASE "an untouched long name is still read whole"
+      LET raw AS List OF Byte = fixtureNamed("gnu").bytes
+      expectEqual(has(open(raw), longName()), TRUE)
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/scope/global-init-calls-builtin-tables-valid
+Wrote AST to tests/rt-behavior/scope/global-init-calls-builtin-tables-valid/global_init_calls_builtin_tables_valid.ast
+Wrote IR to tests/rt-behavior/scope/global-init-calls-builtin-tables-valid/global_init_calls_builtin_tables_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/scope/global-init-calls-builtin-tables-valid
+Wrote executable to tests/rt-behavior/scope/global-init-calls-builtin-tables-valid/build/global_init_calls_builtin_tables_valid.out
+[exit 0]
+$ tests/rt-behavior/scope/global-init-calls-builtin-tables-valid/build/global_init_calls_builtin_tables_valid.out
+[1,[2,{"k":3}]]
+TRUE
+676399814 TRUE
+aaaaaaaaaabbbbbbbbbb
+102,51,153
+3 TRUE
+[exit 0]

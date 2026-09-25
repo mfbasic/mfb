@@ -87,7 +87,7 @@ ISOLATED FUNC drain(t AS ThreadWorker OF RES Db TO Integer, rounds AS Integer) A
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF RES Db TO Integer = thread::start(drain, 2000)
+  RES t AS Thread OF RES Db TO Integer = thread::start(drain, 2000)
   MUT moved AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 2000

@@ -30,6 +30,8 @@ Reassigning a `MUT` first drops the old value in the binding, then initializes t
 
 Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource pointer as described in §15.
 
+This includes a module-level `MUT` passed to a function that reassigns it, directly or through anything it calls (including a callback a built-in invokes): the parameter keeps the value the global had at the call. Native lowering passes a global argument without copying; it copies one into a statement-scope temporary only when the call can reach a reassignment of that global, and assumes it can when a callee's body is not visible. [[src/codegen/engine/value/operand_snapshot.rs:want_arguments_the_call_can_free]] [[src/codegen/engine/value/store_reach.rs:call_reaches_store]]
+
 Returning a value moves it into the caller's return slot. Returning a local collection is valid because ownership leaves the callee before local scope cleanup. Returning a `MUT` collection freezes the mutable buffer into an immutable owned collection value. Returning a non-copyable local value moves it; the callee does not drop that moved-from binding.
 
 A default argument is evaluated on each call that omits the argument, with its names resolved where the function is declared — never in the caller's scope (`mfb spec language functions`) — and is then passed under the same rules as explicit arguments.
@@ -62,9 +64,9 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 `List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a non-owning alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
 
-Ordinary containers cannot store thread handles, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
+Ordinary containers cannot store a `ThreadWorker`, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a parent `Thread` included — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
-No two live mutable bindings may refer to the same collection buffer. A `MUT` collection buffer may be destructively updated only while it is owned by that single live `MUT` binding. Reads produce owned values, not aliases into the buffer.
+No two live mutable bindings may refer to the same collection buffer. A collection buffer may be destructively updated only while exactly one binding owns it and that binding's current value is not read again after the update — a single live `MUT` binding, or any owned binding (including a parameter the caller handed over) at its last use. No program can observe the difference from a copy. Reads produce owned values, not aliases into the buffer.
 
 ## 14.7 Drop order
 
@@ -90,7 +92,7 @@ The compiler must diagnose:
 - Capturing `MUT` bindings in closures.
 - Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
-- Storing thread handles in ordinary collections, or using a resource handle as a `Map` key.
+- Storing a `ThreadWorker` in an ordinary collection, or using a resource handle as a `Map` key.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
 `.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (see `./mfb spec package verifier-rules`).

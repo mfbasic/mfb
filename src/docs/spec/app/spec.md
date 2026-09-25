@@ -33,9 +33,14 @@ Neither shape emits a console `.out`. See `./mfb spec architecture artifacts`.
   handling).
 - `term-backend` — the GUI `term::` grid/cell model, the drawing surface, and the
   content-view swap on `term::on`/`off`.
+- `presentation-mode` — the `app::Mode` model: the per-arena mode word, the static
+  initial mode, the surface-reconcile seam, and mode-gated I/O.
 - `canvas` — the 2D drawing surface of `Mode.Canvas`: the retained-scene model,
   what installing a scene guarantees, and why images are named rather than
   embedded.
+- `window` — the window title and fullscreen state behind `app::setTitle`/
+  `getTitle`/`setFullscreen`/`getFullscreen`: the process-global state, the title
+  lock, and each backend's window sync.
 
 ## See Also
 

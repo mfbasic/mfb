@@ -489,6 +489,185 @@ missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 types); any other key type falls back to a generic linear scan over the live
 lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
+The result is an owned value (`mfb spec language memory-semantics` §14.6): an
+element held inline — a record, a data union, a nested collection — is copied
+into a fresh arena block, and an element whose type reaches a type cycle is
+deep-copied. [[src/codegen/memory/owned.rs:materialize_owned_element]]
+
+The copy is skipped — the result is the address of the element inside the
+container — when no program can tell the two apart. For a record or data-union
+element (freeable-flat, not a `String`) that is:
+
+- **A scalar field read straight off the call.** `get(xs, i).f`, through any
+  chain of record fields, when the field it finally yields is a numeric,
+  `Boolean`, `Byte` or enum value. The field is loaded before anything else
+  runs, so the address is dead when the chain ends. Any container, `get` or
+  `getOr`. [[src/codegen/memory/value/builder_value_semantics.rs:scalar_field_of_borrowable_get]]
+- **A binding read only as a borrow.** `LET e = get(xs, i)` whose every read is
+  a field access or a `MATCH` over it (with that match's variant extracts), and
+  which is never stored, returned, passed, captured or reassigned whole — and
+  whose container cannot change while it is live:
+  - *pinned*: the container is a local bound once, never reassigned and not
+    address-taken, and for `getOr` the default is such a local too. The
+    function's move and hand-over analyses then leave everything the
+    initializer reads alone;
+  - *windowed* (`get` only): every read of `e` lies in the statements from its
+    bind to the last statement of the same block that reads it, and none of
+    those statements rebinds or reassigns a local container or reads it other
+    than as the first argument of `get`/`getOr`/`len` or a `FOR EACH`
+    iterable, and none can reach a store to a module-level container.
+  [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+- **An element-bound update** (see *Self-updates*).
+
+The binding registers no scope-drop free: the container owns the element.
+A `String` element is always copied — its `get` builds the `String` block, so
+there is no element block to point at — and so is a `getOr` over a default
+the statement built (on a miss the result would be that temporary).
+
+### Self-updates
+
+A self-update — `x = f(x, …)` of a `List`, `Map` or `Set` for a builtin `f`, and
+`s = s & t` or `s = f(s, …)` of a `String` — mutates `x`'s own block instead of
+building a new value, wherever `x` is bound: a function local, a module-level
+global, a local inside a `FOR EACH` over itself, or a `MUT` captured by reference
+in a `collections::forEach` lambda. The operation's result and every other value
+are exactly what the copying form would give; the difference is that no second
+copy of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+
+The same mutation happens at a `RETURN`, which is what lets a collection be
+threaded through a helper without copying:
+
+- `RETURN f(x, …)` where `x` is an owned local read for the last time updates
+  `x`'s block and then moves that block out as the return value, exactly as
+  `RETURN x` already moves it.
+  [[src/codegen/engine/control/builder_exits.rs:try_returned_self_update]]
+- The same `RETURN` inside an owned-parameter variant (see the calling
+  convention) updates the parameter's block, so
+  `acc = helper(acc, …)` costs what the inline self-update costs.
+- `RETURN WITH r { f := g(r.f, …) }` updates the field inside `r`'s own block and
+  moves `r` out, which is the same mutation for a record accumulator.
+  [[src/codegen/engine/control/builder_exits.rs:try_returned_field_self_update]]
+
+A `String` is the exception at a `RETURN`: its block must be tight to leave the
+frame it was grown in, so a `String` returned from a helper is copied to its exact
+length. Every other property is unchanged. For the same reason there is nothing to
+gain by handing a bare `String` argument over, and it is never handed over — see the
+calling convention, which also gives the soundness reason.
+
+`acc = helper(acc, …)` on a `String` therefore still costs a copy per call, while
+`acc = acc & piece` in the function that owns `acc` is amortized O(1).
+
+For a `String` the builtins fall into four families, and every one of them writes
+into `s`'s own block:
+
+- **identity** — `s = toString(s)` emits nothing at all;
+- **window** — `strings::left`, `right`, `mid`, `stripPrefix`, `stripSuffix`,
+  `trim`, `trimStart`, `trimEnd`, `trimChars`, `graphemeAt`, `fs::pathBaseName`,
+  `pathDirName`, `pathExtension`: the result is a run of `s`'s own bytes, moved
+  down to the start of the block;
+- **grow** — `strings::padLeft`, `padRight`, `padLeftToWidth`, `padRightToWidth`,
+  `repeat`, `os::appResourcePath`: the added bytes are written into the block's spare
+  capacity, which grows geometrically, so a loop that grows `s` allocates
+  `O(log n)` times;
+- **rewrite** — `strings::upper`, `lower`, `caseFold`, `normalizeNfc`,
+  `strings::replace`, `fs::pathNormalize`: the result is built in the function's
+  self-update scratch (a writer would otherwise overtake the reader — `ß`
+  uppercases to `SS`) and copied back.
+  [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+
+`fs::readText`, `fs::canonicalPath`, `io::input`, `os::getEnv`, `os::getEnvOr`,
+the `encoding` codecs, `net::percentDecode` and `regex::replace` have no in-place
+form: their result is not built from `s`'s bytes. They read `s` without copying
+it (the host reads the block's own NUL-terminated bytes), so there is no copy to
+avoid.
+
+A `String` binding that a self-update leaves shorter than its block keeps the
+bytes it gave up as **spare capacity**, tracked by the compiler beside the
+binding — in a frame slot for a local, a hidden global beside a global, and, for a
+`MUT` captured by reference, in the OWNER's slot, whose address the closure
+environment carries so the lambda and its creator always agree.
+[[src/codegen/collection/assign/string_self_update.rs:string_shadow_captures]]
+The spare capacity is never observable: `len` and every copy, return and transfer
+read `byteLength` bytes and hand on the tight form.
+
+- **Failure atomicity.** Every error the operation can raise — a callback's, an
+  index or domain error, `ErrOutOfMemory` — is raised before `x` is written, so a
+  failed self-update leaves `x` unchanged.
+- **Snapshots stay snapshots.** A `FOR EACH` over `x` whose body writes `x` walks
+  the value `x` held when the loop began (a copy made once at entry); a call
+  handed `x` while a callee or callback can write it receives the value at the
+  call. [[src/codegen/engine/control/builder_control.rs:lower_for_each]]
+- **No per-statement allocation.** State an operation needs per element lives in a
+  per-function scratch block, grown geometrically; a lambda borrows the scratch of
+  the function that created it. A global `String`'s spare capacity is kept in a
+  hidden global beside it. [[src/codegen/collection/assign/self_update.rs:add_global_string_capacities]]
+- **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
+  codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
+  result is a new value.
+
+A **field** of a record or of a `RES … STATE` payload is a site too:
+`r = WITH r { f := op(r.f, …) }`, `h.state.f = op(h.state.f, …)`, and the same
+through a module-level record, a nested record field (`o.inner.f`), a `FOR EACH`
+over the field, or a record captured by reference. The field is updated where it
+lies in its owner's block; the owner is not rebuilt.
+[[src/codegen/engine/control/builder_control.rs:field_self_update_site]]
+
+- **Scalar and fixed-size fields are stored.** A `WITH` whose every update is a
+  scalar field, a pointer field (a `json::Json`) or a record of compile-time fixed
+  size (`vector::Float3`, `color::Color`, the `datetime` types) evaluates every new
+  value first, in source order, then writes each into its slot or over its
+  sub-block. A failing value therefore leaves the owner unchanged.
+  [[src/codegen/engine/control/builder_control.rs:try_inplace_scalar_fields]]
+- **One collection field beside scalars.** A `WITH` updating one collection field
+  with a self-update and other fields with scalars runs the collection's
+  operation in place and stores the scalars. `WITH` evaluates its updates in source
+  order against the old record: a scalar is computed before the operation mutates
+  anything, and a scalar written after the operation in source order is moved
+  ahead only when it has no effect and neither it nor the operation can fail with
+  a different error; otherwise the whole `WITH` is rebuilt.
+  [[src/codegen/engine/control/builder_control.rs:try_inplace_mixed_with]]
+- **Growth needs the last field.** An operation that can reallocate the
+  collection (a growing insert, a repack) grows the owner's block, so it runs in
+  place only when the field — and every record on a nested path — is its owner's
+  last inlined field; elsewhere the statement is rebuilt. An operation that only
+  shrinks or rewrites at the same width runs at any field.
+  [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
+- **Rebuilt by design.** A field whose size depends on its value — a `String`, a
+  collection updated by an operation with no in-place form, a record holding a
+  `String`, a collection or a data union — is rebuilt: its new value's size is
+  known only after it is built.
+  [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
+
+A **list element** is a field site too. Both spellings update element `i` where
+it lies in `xs`'s data region:
+
+```text
+MUT p = collections::get(xs, i)       ' xs = collections::set(xs, i,
+…reads of p's fields…                 '   WITH collections::get(xs, i) { … })
+p = WITH p { … }
+xs = collections::set(xs, i, p)
+```
+
+`p` holds the element's address, the `WITH` is lowered by the field routes above
+with the element as the owner, and the `set` writes nothing. This is exact
+because the `WITH` and the `set` are adjacent statements (nothing can observe
+`xs` between them), `i` is built from constants and locals none of which is
+written before the `set` (so the `set` names the slot the `get` read), `p` is
+read only through its fields before the `WITH` and never after the `set`, and
+`xs` is a local that is neither rebound nor read other than by a lookup, or a
+global nothing in between can store to. The `get` raises a bad index before
+anything is written, and the field routes are failure-atomic, so a failed
+update leaves `xs` unchanged. [[src/codegen/engine/analysis/borrow_get.rs:ElementBinding]]
+
+No route may grow the element: its block is a span of the list's data region,
+not an allocation. Every growing field route asks
+`field_is_last_inlined`, which answers no for an element owner. An update no
+route serves — a growing field, a `String` field, a second collection field —
+is lowered as `xs = collections::set(xs, i, WITH p { … })`: the `WITH` builds a
+new record from the element and `set` replaces it, resizing the payload when it
+must. [[src/codegen/engine/control/builder_control.rs:lower_element_update]]
+[[src/codegen/collection/assign/inplace_dest.rs:field_is_last_inlined]]
+
 ### `append`
 
 `List` `append` has two paths:
@@ -507,9 +686,8 @@ lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
 `collections::set(name, index/key, item)` on a uniquely-owned `MUT` local (the
 `name = collections::set(name, …)` self-assignment idiom) mutates the live buffer
-in place, like `append`. It is excluded while the binding is an active `FOR EACH`
-iterable — an overwrite of an existing entry is observable to the snapshotting
-iterator, unlike a beyond-`count` append, so that case takes the value path.
+in place, like `append`. Inside a `FOR EACH` over the binding the loop walks its
+own copy (see *Self-updates*), so the overwrite is not observable to it.
 [[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload is the **same size**

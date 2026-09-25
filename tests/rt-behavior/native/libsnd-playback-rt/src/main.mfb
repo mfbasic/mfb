@@ -20,7 +20,7 @@ IMPORT audio
 IMPORT libsnd
 
 FUNC main() AS Integer
-  LET path AS String = os::resourcePath("tone.flac")
+  LET path AS String = os::appResourcePath("tone.flac")
   LET s = libsnd::loadSound(path)
 
   io::print("rate=" & toString(s.samplerate))

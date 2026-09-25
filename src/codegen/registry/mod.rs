@@ -39,7 +39,7 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
     pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
     pub(crate) build_mode: crate::target::NativeBuildMode,
-    /// The module (project) name — the build identity `os.resourcePath` bakes into
+    /// The module (project) name — the build identity `os.appResourcePath` bakes into
     /// its bundle/AppDir resource-base path. Threaded from the dispatch; empty (`""`)
     /// on the inline (`abi_inline`) path, which no resource-path member takes. Most
     /// abi bodies ignore it.
@@ -64,10 +64,15 @@ pub(crate) struct AbiCtx<'a> {
     /// bodies (presentation-mode load/store + the app-mode `ErrWrongMode` gate);
     /// carries the `ArenaLayout` value byte-for-byte. Most abi bodies ignore it.
     pub(crate) presentation_mode_offset: Option<usize>,
-    /// The arena offset of the `canvas::` retained-scene region, or `None` when the
-    /// program uses no `canvas::`. Read by the `canvas` `abi_function` bodies
-    /// (`present`/`presentLayers`); carries the `ArenaLayout` value byte-for-byte.
-    /// Every other abi body ignores it.
+    /// plan-94-A §4.4a: the arena offset of the mouse-state region (the decoded-event
+    /// ring, its cursors and the decoder's partial-sequence buffer), or `None` when
+    /// the program uses no `enableMouse`/`pollMouse`. Read by the mouse `abi_function`
+    /// bodies and by the stdin decoder plan-94-B installs; carries the `ArenaLayout`
+    /// value byte-for-byte. Every other abi body ignores it.
+    ///
+    /// The mouse-MODE word is deliberately not here: it is process-global
+    /// (`MOUSE_MODE_SYMBOL`), because a UI-thread handler has no arena state.
+    pub(crate) mouse_state_offset: Option<usize>,
     /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
     /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
     /// `thread.start` alone consumes it to size a spawned worker's arena block so its
@@ -2162,6 +2167,17 @@ fn qualify_type_leaves_inner(
             owners,
             qualify_own,
         ))),
+        // A callback's signature names types too (`json::parse`'s reviver is
+        // `FUNC(String, Json) AS Json`). Left bare, its leaves denote no registry type,
+        // so strict matching could not hold a callback argument to them (bug-638).
+        ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+            params
+                .iter()
+                .map(|param| qualify_type_leaves_inner(param, package, owners, qualify_own))
+                .collect(),
+            Box::new(qualify_type_leaves_inner(ret, package, owners, qualify_own)),
+            *isolated,
+        ),
         other => other.clone(),
     }
 }
@@ -2420,15 +2436,25 @@ pub(crate) fn general_override_target(
     // `parse`<->`name` round trip — the old form compared the same two
     // spellings.
     let spelled = arg_type.name();
-    // bug-480 Phase 4b: the argument now arrives package-qualified (`vector.Float2`),
+    // bug-480 Phase 4b: the argument arrives package-qualified (`vector.Float2`),
     // while the descriptor row still spells the bare member id it declares
-    // (`Float2`) -- `arg_type` is a `&'static str` and stays one. Compare against
-    // the owning package's qualified spelling as well, so `toString(vector::abs(v))`
-    // still finds `__vector_float2ToString` instead of falling through to the
-    // general builtin and reporting the vector type as un-stringable.
+    // (`Float2`) -- `arg_type` is a `&'static str` and stays one. So the comparison
+    // qualifies the ROW, and `toString(vector::abs(v))` finds
+    // `__vector_toString_float2` instead of falling through to the general builtin
+    // and reporting the vector type as un-stringable.
+    //
+    // The match is on the package's own type IDENTITY, never on a bare spelling
+    // (bug-668). A bare `Color`/`Url`/`Float2` is necessarily a USER type: since
+    // bug-480 Phase 4b a built-in value type's declared identity IS the qualified
+    // name, so a consumer writing the bare leaf gets SYMBOL_UNKNOWN_TYPE, and the
+    // injected companions are qualified by the parser (`qualify_own_builtin_type`).
+    // While the bare arm stood, a user `TYPE Color` matched the `color` row: the
+    // call type-checked and the build then died with `NIR call target
+    // '#color_toString' does not resolve`, because the program never imported
+    // `color`. A user type the built-in rejects is a TYPE_CALL_ARGUMENT_MISMATCH,
+    // exactly as a `TYPE Colour` already was.
     let overrides_arg_type = |package: &RegistryPackage, o: &RegistryOverride| {
-        o.arg_type == spelled
-            || format!("{}.{}", package.import_name(), o.arg_type) == spelled.as_ref()
+        format!("{}.{}", package.import_name(), o.arg_type) == spelled.as_ref()
     };
     registry().packages().iter().find_map(|package| {
         package
@@ -2492,8 +2518,9 @@ pub(crate) fn alias_call_return_type(qualified: &str) -> Option<Cow<'static, str
 
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
 /// type (the [`unify`] leaf case). Exact types match, and two *different known scalars*
-/// are the only definite incompatibility — a nominal vs anything else is accepted
-/// conservatively (the type checker never emits a false rejection). Container,
+/// never do. LENIENT mode accepts a nominal against anything else; STRICT mode holds a
+/// scalar-vs-nominal pair, a resource parameter and a registry value-type parameter to
+/// identity, and accepts any other nominal pair. Container,
 /// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
 /// reach here; [`unify`] handles them first.
 fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool) -> bool {
@@ -2551,14 +2578,49 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     // satisfies a `File` parameter, but an unrelated resource or a resource UNION does NOT
     // satisfy a concrete resource close-op parameter (`fs::close(<Stream union>)` must be
     // rejected — a use-after-free class error the legacy exact-name `DefaultResolver`
-    // caught). A NON-resource nominal parameter stays coarse: a value-UNION parameter like
-    // `Json` must still accept a variant that widens into it (`json::stringify(JsonNull)`),
-    // and lenient dispatch/inference stays coarse everywhere so overload selection and type
-    // propagation are unperturbed.
+    // caught). A NON-resource value type is the next rule's; lenient dispatch/inference
+    // stays coarse everywhere so overload selection and type propagation are unperturbed.
     if strict && is_resource_type_name(&pattern.name()) {
         return resource_base_eq(pattern, concrete);
     }
+    // STRICT (argument validation): a REGISTRY value type — a built-in record, enum or
+    // union — is a nominal identity too (bug-638). `datetime::toMillis(datetime::DateTime)`
+    // resolved against its `datetime.Instant` parameter and read the `DateTime`'s leading
+    // words as an `Instant`. The union arm keeps the widening this rule used to stay
+    // coarse for (`json::stringify(JsonNull)`). A nominal the registry does not declare
+    // (`Scalar`, `AttributedString`) stays coarse.
+    if strict {
+        if let Some(accepts) = value_type_accepts(&pattern.name(), concrete) {
+            return accepts;
+        }
+    }
     true
+}
+
+/// Whether the registry value type `declared` (package-qualified, `datetime.Instant`)
+/// accepts a `concrete` argument in strict matching, or `None` when `declared` names no
+/// registry record, enum or union. A record or enum accepts only itself; a union accepts
+/// itself or any of its variants, a variant spelled bare being local to the union's
+/// package (`JsonNull` is `json.JsonNull`) and one spelled `pkg::Name` naming that
+/// package's type (`http.Stream`'s `tcp::Socket`). A variant that is itself a union
+/// widens transitively. A resource variant's `STATE` clause is transparent (bug-427).
+fn value_type_accepts(declared: &str, concrete: &ParameterType) -> Option<bool> {
+    let package = declared.split_once('.')?.0;
+    let actual = concrete.without_state().name().into_owned();
+    match registry().resolve_type(declared)? {
+        ResolvedType::Record(_) | ResolvedType::Enum(_) => Some(actual == declared),
+        ResolvedType::Union(union) => Some(
+            actual == declared
+                || union.variants.iter().any(|variant| {
+                    let variant = match variant.name.split_once("::") {
+                        Some((owner, leaf)) => format!("{owner}.{leaf}"),
+                        None => format!("{package}.{}", variant.name),
+                    };
+                    variant == actual || value_type_accepts(&variant, concrete) == Some(true)
+                }),
+        ),
+        ResolvedType::Resource(_) => None,
+    }
 }
 
 /// Whether `name` (a parameter's type leaf, possibly carrying a `STATE` clause) names a
@@ -2602,6 +2664,17 @@ fn unify(
     }
     if let ParameterType::Res(inner) = pattern {
         return unify(inner, concrete, bindings, strict);
+    }
+    // plan-156-E: a thread view's STATE is the view's own, not part of its channel
+    // types, so a thread-handle pattern matches a stateful view by its handle (and
+    // `thread::start` never compares a parent's STATE with its worker's). A `Var`
+    // still binds the whole type.
+    if let ParameterType::Stateful { base, .. } = concrete {
+        if matches!(**base, ParameterType::ThreadHandle { .. })
+            && !matches!(pattern, ParameterType::Var(_))
+        {
+            return unify(pattern, base, bindings, strict);
+        }
     }
     if matches!(concrete, ParameterType::Unknown) {
         if let ParameterType::Var(name) = pattern {
@@ -2828,9 +2901,147 @@ fn substitute(
     })
 }
 
+/// Whether an overload has a **self-update form** `x = f(x, …)` for a collection `x`
+/// (plan-142-A) or a `String` `x` (plan-146-A): its first parameter is, or can be
+/// instantiated to, a `List`, `Map` or `Set` — or is a `String` or an
+/// `AttributedString` — and its return type can equal that first parameter under one
+/// substitution of the signature's type variables. An `Arg(n)` return echoes
+/// parameter `n`'s type. The census in `collection::assign::self_update` requires a
+/// `SELF_UPDATE_TABLE` row for every function with such an overload.
+///
+/// Unlike [`unify`], both sides are patterns here — `transform(List OF T, …) AS
+/// List OF U` is self-update-shaped because `U` can be `T` — so this runs its own
+/// two-sided unification over one binding map.
+///
+/// Test-only: its one consumer is the census test; the compiler never asks it.
+#[cfg(test)]
+pub(crate) fn self_update_shaped(imp: &Implementation) -> bool {
+    let Some(first) = imp.params.first() else {
+        return false;
+    };
+    let ret = match &imp.return_type {
+        ParameterType::Arg(n) => match imp.params.get(*n) {
+            Some(p) => &p.ty,
+            None => return false,
+        },
+        other => other,
+    };
+    let mut bindings = BTreeMap::new();
+    if !types_coincide(&first.ty, ret, &mut bindings) {
+        return false;
+    }
+    matches!(
+        resolve_bound(strip_res(&first.ty), &bindings),
+        ParameterType::ListOf(_) | ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
+    ) || matches!(
+        resolve_bound(strip_res(&first.ty), &bindings),
+        ParameterType::Var(_)
+    ) || is_string_self_update_type(strip_res(&first.ty))
+}
+
+/// plan-146-A: a `String` (or `astrings::AttributedString`) first parameter whose
+/// return type is the same type is a `String` self-update form `s = f(s, …)`.
+/// The declared type itself, not a binding: no generic overload's result can be
+/// the first argument's `String` type (plan-143 findings, the generic census).
+#[cfg(test)]
+fn is_string_self_update_type(ty: &ParameterType) -> bool {
+    *ty == ParameterType::String || ty.is_named("AttributedString")
+}
+
+#[cfg(test)]
+fn strip_res(ty: &ParameterType) -> &ParameterType {
+    match ty {
+        ParameterType::Res(inner) => strip_res(inner),
+        other => other,
+    }
+}
+
+#[cfg(test)]
+/// Follow `Var` bindings until an unbound variable or a non-variable type.
+fn resolve_bound<'a>(
+    ty: &'a ParameterType,
+    bindings: &'a BTreeMap<Symbol, ParameterType>,
+) -> &'a ParameterType {
+    let mut ty = ty;
+    while let ParameterType::Var(name) = ty {
+        match bindings.get(name) {
+            Some(bound) => ty = strip_res(bound),
+            None => break,
+        }
+    }
+    ty
+}
+
+#[cfg(test)]
+fn occurs(name: Symbol, ty: &ParameterType, bindings: &BTreeMap<Symbol, ParameterType>) -> bool {
+    match resolve_bound(strip_res(ty), bindings) {
+        ParameterType::Var(other) => *other == name,
+        ParameterType::ListOf(e) | ParameterType::SetOf(e) | ParameterType::ResultOf(e) => {
+            occurs(name, e, bindings)
+        }
+        ParameterType::MapOf(k, v) | ParameterType::MapEntryOf(k, v) => {
+            occurs(name, k, bindings) || occurs(name, v, bindings)
+        }
+        ParameterType::UserOf(_, args) => args.iter().any(|a| occurs(name, a, bindings)),
+        ParameterType::Func(params, ret, _) => {
+            params.iter().any(|p| occurs(name, p, bindings)) || occurs(name, ret, bindings)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+/// Two-sided unification: can `a` and `b` (either may hold type variables) be made
+/// equal by one substitution? Records the substitution in `bindings`.
+fn types_coincide(
+    a: &ParameterType,
+    b: &ParameterType,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
+) -> bool {
+    let a = resolve_bound(strip_res(a), bindings).clone();
+    let b = resolve_bound(strip_res(b), bindings).clone();
+    match (&a, &b) {
+        (ParameterType::Var(x), ParameterType::Var(y)) if x == y => true,
+        (ParameterType::Var(x), other) | (other, ParameterType::Var(x)) => {
+            if occurs(*x, other, bindings) {
+                return false;
+            }
+            bindings.insert(*x, other.clone());
+            true
+        }
+        (ParameterType::ListOf(x), ParameterType::ListOf(y))
+        | (ParameterType::SetOf(x), ParameterType::SetOf(y))
+        | (ParameterType::ResultOf(x), ParameterType::ResultOf(y)) => {
+            types_coincide(x, y, bindings)
+        }
+        (ParameterType::MapOf(k1, v1), ParameterType::MapOf(k2, v2))
+        | (ParameterType::MapEntryOf(k1, v1), ParameterType::MapEntryOf(k2, v2)) => {
+            types_coincide(k1, k2, bindings) && types_coincide(v1, v2, bindings)
+        }
+        (ParameterType::UserOf(n1, a1), ParameterType::UserOf(n2, a2)) => {
+            n1 == n2
+                && a1.len() == a2.len()
+                && a1
+                    .iter()
+                    .zip(a2)
+                    .all(|(x, y)| types_coincide(x, y, bindings))
+        }
+        (ParameterType::Func(p1, r1, i1), ParameterType::Func(p2, r2, i2)) => {
+            i1 == i2
+                && p1.len() == p2.len()
+                && p1
+                    .iter()
+                    .zip(p2)
+                    .all(|(x, y)| types_coincide(x, y, bindings))
+                && types_coincide(r1, r2, bindings)
+        }
+        (x, y) => x == y,
+    }
+}
+
 /// Whether a type mentions any [`ParameterType::Var`] — i.e. it is generic and has no
 /// single static nominal type independent of a call's arguments.
-fn contains_var(ty: &ParameterType) -> bool {
+pub(crate) fn contains_var(ty: &ParameterType) -> bool {
     match ty {
         // `Var` is arg-dependent; `Arg(_)` echoes an argument verbatim — neither has a
         // single static nominal type independent of the call.
@@ -4700,8 +4911,10 @@ mod tests {
     ///   resource UNION does not satisfy a concrete resource close-op parameter.
     ///   `fs::close(<some union>)` must stay rejected — the legacy exact-name
     ///   resolver caught it, and it is a use-after-free class error;
-    /// * a value nominal stays coarse, so a variant still widens into its union
-    ///   (`json::stringify(JsonNull)` against a `Json` parameter);
+    /// * a value nominal the registry does not declare (the bare `Json` below)
+    ///   stays coarse; a registry value type is held to identity, its union still
+    ///   accepting its variants
+    ///   (`strict_matching_holds_builtin_value_types_to_their_identity`);
     /// * and STATE/ownership are transparent either way (bug-427): a
     ///   `File STATE Cursor` argument satisfies a bare `File` parameter, and a
     ///   `RES ` marker matches through on either side.
@@ -4767,6 +4980,86 @@ mod tests {
             &ParameterType::String,
             false
         ));
+    }
+
+    /// bug-638: a REGISTRY value type — a built-in record, enum or union — is a
+    /// nominal identity in strict mode, not a coarse "any nominal".
+    ///
+    /// `datetime::toMillis(at AS datetime::Instant)` resolved for a
+    /// `datetime::DateTime` argument, so the call compiled and read the
+    /// `DateTime`'s leading words as an `Instant`. A record or enum parameter
+    /// takes exactly its own type; a union parameter takes itself or one of its
+    /// variants; and a callback parameter's nominal leaves are held to the same
+    /// rule. Lenient dispatch is unchanged.
+    #[test]
+    fn strict_matching_holds_builtin_value_types_to_their_identity() {
+        let to_millis =
+            |arg: &str, strict: bool| resolve_call("datetime.toMillis", &[arg.to_string()], strict);
+        assert_eq!(
+            to_millis("datetime.Instant", true).as_deref(),
+            Some("Integer")
+        );
+        for wrong in [
+            "datetime.DateTime",
+            "datetime.Date",
+            "datetime.Duration",
+            "Instant",
+        ] {
+            assert_eq!(
+                to_millis(wrong, true),
+                None,
+                "a `{wrong}` must not satisfy a `datetime.Instant` parameter"
+            );
+        }
+        assert_eq!(
+            to_millis("datetime.DateTime", false).as_deref(),
+            Some("Integer"),
+            "lenient dispatch stays coarse"
+        );
+
+        // An enum parameter takes only its own enum.
+        let text = "String".to_string();
+        assert!(resolve_call("crypto.hash", &["crypto.Hash".into(), text.clone()], true).is_some());
+        assert_eq!(
+            resolve_call(
+                "crypto.hash",
+                &["crypto.SymmetricCipher".into(), text],
+                true
+            ),
+            None,
+            "a different enum must not satisfy a `crypto.Hash` parameter"
+        );
+
+        // A union parameter takes itself and its variants, and nothing else.
+        for accepted in ["json.Json", "json.JsonBool", "json.JsonObj"] {
+            assert!(
+                resolve_call("json.stringify", &[accepted.to_string()], true).is_some(),
+                "a `{accepted}` must satisfy a `json.Json` parameter"
+            );
+        }
+        assert_eq!(
+            resolve_call("json.stringify", &["datetime.Instant".to_string()], true),
+            None,
+            "a record that is not a variant must not satisfy a union parameter"
+        );
+        // A variant spelled with another package's qualifier (`http.Stream`'s
+        // `tcp::Socket`) widens too.
+        assert!(resolve_call("http.done", &["tcp.Socket".to_string()], true).is_some());
+
+        // A callback's nominal leaves are identities as well.
+        let parse = |callback: &str| {
+            resolve_call(
+                "json.parse",
+                &["String".to_string(), callback.to_string()],
+                true,
+            )
+        };
+        assert!(parse("FUNC(String, json.Json) AS json.Json").is_some());
+        assert_eq!(
+            parse("FUNC(String, datetime.Instant) AS datetime.Instant"),
+            None,
+            "a callback over a different record must not satisfy a `Json` reviver"
+        );
     }
 
     /// No registered descriptor may declare a [`ParameterType::Named`] whose name
@@ -5066,10 +5359,21 @@ mod tests {
             general_override_target("toString", &crate::types::ParameterType::parse("Nope")),
             None
         );
-        // The migrated `vector` package DOES own `toString(Float3)` now (add_override).
+        // The migrated `vector` package DOES own `toString(vector.Float3)` now
+        // (add_override) — keyed by that package-qualified identity.
+        assert_eq!(
+            general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("vector.Float3")
+            ),
+            Some("__vector_toString_float3")
+        );
+        // bug-668: and NOT by the bare leaf, which only a user `TYPE Float3` can
+        // spell. Matching it hijacked the call to `__vector_toString_float3` in a
+        // program that never imported `vector`.
         assert_eq!(
             general_override_target("toString", &crate::types::ParameterType::parse("Float3")),
-            Some("__vector_toString_float3")
+            None
         );
 
         // A malformed (unqualified) name never panics.
@@ -6451,8 +6755,8 @@ mod raw_result_block_ownership {
     /// Every one is in the `thread` family, and every one's declared return type is
     /// a type VARIABLE — `thread::waitFor` is `Out`, `thread::receive` is `Msg` —
     /// so the concrete type is only known at the instantiation, and it can perfectly
-    /// well be a `String`. The block behind it was allocated by the WORKER, in the
-    /// worker's arena; `materialize_current_result`'s `worker_error_source` flag
+    /// well be a `String`. The block behind it lives in the thread's block arena
+    /// (plan-156-A); `materialize_current_result`'s `worker_error_source` flag
     /// exists for exactly that reason on the error side. Freeing one from the
     /// calling thread writes this thread's free list into another thread's heap.
     ///
@@ -6477,6 +6781,7 @@ mod raw_result_block_ownership {
     /// bypassed.
     const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
         "app.getMode",       // app.Mode
+        "app.getTitle",      // String
         "audio.devices",     // List OF audio.AudioDevice
         "audio.read",        // List OF Byte
         "audio.readTimeout", // List OF Byte
@@ -6506,8 +6811,11 @@ mod raw_result_block_ownership {
         "big.toBytes",              // List OF Byte
         "big.toRadixString",        // String
         "big.toString",             // String
+        "canvas.carriedHashes",     // List OF Integer (bug-686)
         "canvas.fontBlobUnchecked", // List OF Byte
         "canvas.fontBytes",         // List OF Byte
+        "canvas.frameCounters",     // List OF Integer (plan-155-B)
+        "canvas.geoBuild",          // List OF Float (bug-686)
         "canvas.getBytes",          // List OF Byte
         "canvas.getSize",           // canvas.Size
         "canvas.groupItems",        // List OF canvas.DrawItem
@@ -6515,7 +6823,10 @@ mod raw_result_block_ownership {
         "canvas.installedItems",    // List OF canvas.DrawItem
         "canvas.installedLayers",   // List OF canvas.DrawLayer
         "canvas.newSurface",        // List OF Byte
+        "canvas.pollMouse",         // canvas.MouseEvent (plan-94-A)
         "canvas.retiredItems",      // List OF canvas.DrawItem
+        "canvas.sceneHashes",       // List OF Integer (bug-686)
+        "canvas.systemFontTable",   // String
         "crypto.generate",          // crypto.KeyPair
         "crypto.hash",              // List OF Byte
         "crypto.open",              // List OF Byte
@@ -6528,6 +6839,7 @@ mod raw_result_block_ownership {
         "fs.readAll",               // String
         "fs.readAllBytes",          // List OF Byte
         "fs.readBytes",             // List OF Byte
+        "fs.readBytesAt",           // List OF Byte
         "fs.readLine",              // String
         "fs.readText",              // String
         "fs.tempDirectory",         // String
@@ -6537,6 +6849,9 @@ mod raw_result_block_ownership {
         "net.lookup",               // List OF net.Address
         "net.ping",                 // net.PingResult
         "net.pingAddr",             // net.PingResult
+        "os.appCachePath",          // String
+        "os.appDataPath",           // String
+        "os.appResourcePath",       // String
         "os.arch",                  // String
         "os.args",                  // List OF String
         "os.environ",               // Map OF String TO String
@@ -6546,7 +6861,8 @@ mod raw_result_block_ownership {
         "os.hostName",              // String
         "os.name",                  // String
         "os.prog",                  // String
-        "os.resourcePath",          // String
+        "os.userDocumentsPath",     // String
+        "os.userHomePath",          // String
         "os.userName",              // String
         "os.version",               // String
         "process.didSignal",        // process.Signal
@@ -6559,6 +6875,7 @@ mod raw_result_block_ownership {
         "tcp.remoteAddress",        // net.Address
         "term.getBackground",       // color.Color
         "term.getForeground",       // color.Color
+        "term.pollMouse",           // term.MouseEvent (plan-94-A)
         "term.terminalSize",        // term.TermSize
         "tls.localAddress",         // net.Address
         "tls.localAddressListener", // net.Address
@@ -6595,6 +6912,66 @@ mod raw_result_block_ownership {
             ty,
             ParameterType::Var(_) | ParameterType::ThreadHandle { .. }
         )
+    }
+
+    /// A package companion may not call a `collections` member whose body is MFBASIC
+    /// source (`sort`, `distinct`, `sortBy`, …) — plan-148-B found this the hard way.
+    ///
+    /// The `collections` source reaches a build only when the *program* imports
+    /// `collections` (`codegen::builtins::collections::augmented_project`, run from
+    /// `parse_project` because the monomorphizer needs it). Companions are injected
+    /// later, by the resolver's augmentation chain, so a companion's call to a
+    /// source-generic member compiles when the program happens to import `collections`
+    /// and otherwise fails at link with "NIR call target '#collections_sort' does not
+    /// resolve" — a failure that depends on the user's imports, not on the companion.
+    /// The native members (`append`, `getOr`, `mid`, …) have no such dependency.
+    #[test]
+    fn no_companion_calls_a_source_generic_collections_member() {
+        let reg = crate::codegen::registry::registry();
+        let collections = reg
+            .resolve_package("collections")
+            .expect("collections is registered");
+        let generic: Vec<&str> = collections
+            .functions()
+            .iter()
+            .filter(|f| {
+                f.implementations
+                    .iter()
+                    .any(|i| matches!(i.body, crate::codegen::registry::Body::Mfb { .. }))
+            })
+            .map(|f| f.name)
+            .collect();
+        assert!(
+            generic.contains(&"sort"),
+            "the census of source-generic members found no `sort`: {generic:?}",
+        );
+        let mut offenders = Vec::new();
+        for package in reg.packages() {
+            if package.import_name() == "collections" {
+                continue;
+            }
+            let mut sources = vec![package.get_mfb()];
+            sources.extend(
+                package
+                    .helpers()
+                    .iter()
+                    .filter_map(|h| h.body.map(str::to_string)),
+            );
+            for source in &sources {
+                for name in &generic {
+                    if source.contains(&format!("collections::{name}(")) {
+                        offenders.push(format!("{}: collections::{name}", package.import_name()));
+                    }
+                }
+            }
+        }
+        offenders.sort();
+        offenders.dedup();
+        assert!(
+            offenders.is_empty(),
+            "companion source calls a source-generic collections member, which links \
+             only when the program itself imports collections: {offenders:#?}",
+        );
     }
 
     #[test]
@@ -6688,8 +7065,10 @@ mod raw_result_block_ownership {
     /// helper reds here and forces the same caller's-arena confirmation
     /// `CALLER_ARENA_BLOCK_RESULTS` demands.
     const STRING_RESULT_HELPERS: &[&str] = &[
+        "app.getTitle",
         "big.toRadixString",
         "big.toString",
+        "canvas.systemFontTable",
         "fs.canonicalPath",
         "fs.currentDirectory",
         "fs.readAll",
@@ -6699,6 +7078,9 @@ mod raw_result_block_ownership {
         "io.input",
         "io.readChar",
         "io.readLine",
+        "os.appCachePath",
+        "os.appDataPath",
+        "os.appResourcePath",
         "os.arch",
         "os.executablePath",
         "os.getEnv",
@@ -6706,7 +7088,8 @@ mod raw_result_block_ownership {
         "os.hostName",
         "os.name",
         "os.prog",
-        "os.resourcePath",
+        "os.userDocumentsPath",
+        "os.userHomePath",
         "os.userName",
         "os.version",
         "process.receive",

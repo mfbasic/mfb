@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "tostring_boolean_self_append",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "flag",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": true, "name": "a", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "flag", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "assign", "line": 13, "name": "a", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "String", "value": "!" } } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 15, "mutable": true, "name": "b", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "flag", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "assign", "line": 16, "name": "b", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "b" }, "right": { "kind": "const", "type": "String", "value": "?" } } },
+    { "op": "assign", "line": 17, "name": "b", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "b" }, "right": { "kind": "const", "type": "String", "value": "?" } } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "flag", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "c" }] } },
+    { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

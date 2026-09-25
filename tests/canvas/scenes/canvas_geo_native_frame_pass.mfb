@@ -1,0 +1,54 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT io
+
+FUNC shapes(frame AS Integer) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = []
+  LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 2.5, ty := 0.0]
+  MUT k AS Integer = 0
+  WHILE k < 120
+    LET x AS Float = toFloat((k * 37) MOD 700) + toFloat(frame) * 1.25
+    LET y AS Float = toFloat((k * 53) MOD 500)
+    LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 6.0, h := 4.5, paint := canvas::fillStroke(color::rgba(k, 100, 200, 180), color::rgb(1, 2, 3), 1.5)]
+    LET blended AS canvas::DrawItem = canvas::Circle[x := x, y := y + 9.0, radius := 3.0, paint := WITH canvas::fillStroke(color::rgb(9, 9, 9), color::rgb(200, 1, 1), 2.0) { blend := canvas::BlendMode.Multiply }]
+    LET seg AS canvas::DrawItem = canvas::Line[x1 := x, y1 := y, x2 := x + 10.0, y2 := y + 3.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 0), 1.0)]
+    LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := x, y := y], canvas::Point[x := x + 8.0, y := y + 1.0], canvas::Point[x := x + 3.0, y := y + 7.0]], paint := canvas::fill(color::rgb(0, 255, 0))]
+    items = collections::append(items, box)
+    items = collections::append(items, blended)
+    items = collections::append(items, seg)
+    items = collections::append(items, tri)
+    IF k MOD 30 = 0 THEN
+      LET moved AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 5.0, h := 5.0, paint := WITH canvas::fill(color::rgb(1, 2, 3)) { transform := t }]
+      LET oval AS canvas::DrawItem = canvas::Ellipse[x := x, y := y, radiusX := 6.0, radiusY := 3.0, angle := 0.25, paint := canvas::fill(color::rgb(9, 9, 200))]
+      items = collections::append(items, moved)
+      items = collections::append(items, oval)
+    END IF
+    k = k + 1
+  END WHILE
+  RETURN items
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES img AS canvas::Image = canvas::createImage(2, 1, [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)])
+  LET badge AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 1.0, w := 3.0, h := 3.0, paint := canvas::fill(color::rgb(4, 4, 4))]
+  canvas::setGroup("badge", [badge])
+  MUT frame AS Integer = 0
+  WHILE frame < 8
+    MUT items AS List OF canvas::DrawItem = shapes(frame)
+    LET pic AS canvas::DrawItem = canvas::Picture[x := toFloat(frame), y := 600.0, w := 8.0, h := 4.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+    items = collections::append(items, pic)
+    IF frame >= 6 THEN
+      LET node AS canvas::DrawItem = canvas::Group[name := "badge", dx := toFloat(frame), dy := 3.0]
+      items = collections::append(items, node)
+    END IF
+    canvas::present(items)
+    frame = frame + 1
+  END WHILE
+  LET back AS canvas::DrawLayer = canvas::DrawLayer[items := shapes(20)]
+  LET front AS canvas::DrawLayer = canvas::DrawLayer[items := shapes(21)]
+  canvas::presentLayers([back, front])
+  io::print("rendered")
+END SUB

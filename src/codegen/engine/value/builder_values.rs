@@ -32,6 +32,8 @@ impl<'a> CodeBuilder<'a> {
             module_name: "",
             term_state_offset: None,
             presentation_mode_offset: None,
+            // The mouse-state region is likewise an `abi_function` concern.
+            mouse_state_offset: None,
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",
@@ -580,6 +582,21 @@ impl CodeBuilder<'_> {
     /// thread-spawn move) now owns its block and will free it exactly once. The
     /// outermost node's temp is always the most recently registered, so matching
     /// the tail entry's origin register is precise.
+    /// Whether [`Self::claim_pending_temp`] would claim `result` — i.e. it is the
+    /// statement's most recent pending temporary, a block this frame freshly allocated
+    /// and still owns.
+    ///
+    /// bug-655: `thread.start` may only hand the seed block's ownership to the thread
+    /// when this is true. A seed that is a STRING LITERAL is a static symbol, not arena
+    /// memory (freeing it is a bus error), and a seed that is a `Local` is still owned
+    /// by that binding, whose own scope-drop frees it (freeing it again is a double free
+    /// — segfault). Both were measured before this gate existed; neither is hypothetical.
+    pub(crate) fn pending_temp_would_be_claimed(&self, result: &ValueResult) -> bool {
+        self.pending_temp_frees
+            .last()
+            .is_some_and(|temp| temp.location == result.location)
+    }
+
     pub(crate) fn claim_pending_temp(&mut self, result: &ValueResult) {
         if self
             .pending_temp_frees
@@ -783,6 +800,43 @@ impl CodeBuilder<'_> {
     ///
     /// Fresh-producing nodes (`Call`, `Constructor`, literals, `Binary`, …) and
     /// non-freeable types (scalars, resources, threads) are returned unchanged.
+    /// plan-147-E: whether the bind being lowered moves an owned parameter rather
+    /// than copying it (`handover`'s `param_binds`, computed once per function).
+    ///
+    /// Answers `false` in a synthesized builder, at an op the analysis never saw, and
+    /// for anything but a bare `Local` — the fail-closed direction, where the copy
+    /// stands.
+    fn owned_param_bind_moves(&self, value: &NirValue) -> bool {
+        if !matches!(value, NirValue::Local(_)) {
+            return false;
+        }
+        let Some(op) = self.current_op_key else {
+            return false;
+        };
+        self.handover
+            .as_ref()
+            .is_some_and(|handover| handover.moves_owned_param(op))
+    }
+
+    /// Retire `name`'s owned-value cleanup and null its slot: the block now belongs
+    /// to the binding being lowered.
+    fn release_owned_param_to_binding(&mut self, name: &str) {
+        let Some(local) = self.locals.get(name) else {
+            return;
+        };
+        let stack_offset = local.stack_offset;
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == stack_offset)
+        }) {
+            self.active_cleanups.remove(index);
+        }
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
+    }
+
     pub(crate) fn lower_value_owned(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let result = self.lower_value(value)?;
         // A register-native vector reaching an owner boundary (a binding, global,
@@ -793,6 +847,23 @@ impl CodeBuilder<'_> {
             let block = self.vector_value_as_block(result)?;
             self.claim_pending_temp(&block);
             return Ok(block);
+        }
+        // plan-147-E: `MUT y = p` where `p` is an owned PARAMETER at its last use hands
+        // the block to the new binding instead of copying it. That is the
+        // `__json_parseArrayItems` shape (`MUT acc = items`, then a loop of in-place
+        // appends), where the entry copy is the whole cost.
+        //
+        // The transfer is the same one `plan_returned_move` makes: retire the
+        // parameter's own `OwnedValue` cleanup and null its slot, so the block has
+        // exactly one owner — the new binding, whose own cleanup the bind registers.
+        // A null slot is "moved-from, not dropped" (§14.7), which every drop already
+        // handles.
+        if self.owned_param_bind_moves(value) {
+            if let NirValue::Local(name) = value {
+                let name = name.clone();
+                self.release_owned_param_to_binding(&name);
+                return Ok(result);
+            }
         }
         if self.value_needs_owning_copy(value)
             && self.is_freeable_flat_value(&result.type_)
@@ -1073,11 +1144,12 @@ impl CodeBuilder<'_> {
     /// an inline `TRAP`'s `materialize_current_result` sees — is not this frame's.
     ///
     /// `x19` (the arena state) is PER-THREAD. A block produced by
-    /// `thread::waitFor`, `thread::receive` or `thread.result` was allocated by the
-    /// WORKER, in the worker's arena, and `materialize_current_result`'s
+    /// `thread::waitFor`, `thread::receive` or `thread.result` lives in the thread's
+    /// block arena (plan-156-A: the control block's own arena, which every value
+    /// crossing the boundary is copied into), and `materialize_current_result`'s
     /// `worker_error_source` flag exists for exactly that reason on the error side.
     /// Freeing one of those from this thread writes this thread's free list into
-    /// another thread's heap.
+    /// another arena's heap.
     ///
     /// It is a package prefix rather than a per-member list because the property is
     /// a property of the `thread` FAMILY: every member of it marshals across the
@@ -1119,6 +1191,56 @@ impl CodeBuilder<'_> {
     ) -> bool {
         !Self::runtime_call_result_is_foreign_arena(target)
             && (self.is_freeable_flat_value(result_type) || self.owns_graph(result_type))
+    }
+
+    /// bug-643: whether the RAW result of a runtime helper is a **resource record**
+    /// this frame's own arena holds — the one owned shape
+    /// [`Self::runtime_result_is_caller_owned`] deliberately answers `false` for,
+    /// because `is_freeable_flat_value` excludes resources (their record is
+    /// reclaimed by the resource cleanup, never by a generic `arena_free`).
+    ///
+    /// The distinction matters at exactly one place: the inline-`TRAP` `Result`
+    /// wrap (`materialize_current_result`). For a **sendable** resource it used to
+    /// route the producer's record through `copy_resource_to_current_arena`, which
+    /// allocates a SECOND 96-byte record, copies the header into it, and tombstones
+    /// the source `moved|closed`. That is right across a thread boundary and wrong
+    /// in the same arena: the producer's record is already here, nothing else names
+    /// it, the moved bit makes `emit_resource_block_reclaim` skip it — so every
+    /// `RES c = udp::bind(…) TRAP … END TRAP` leaked one record per bind. A
+    /// non-sendable resource (`tls::Socket`, audio) already takes the pointer-carry
+    /// arm and never leaked, which is why the leak looked resource-kind-specific.
+    ///
+    /// Two exclusions, both inherited rather than restated: a `thread.*` result is
+    /// the thread's block-arena record (`runtime_call_result_is_foreign_arena`) and must keep
+    /// its deep copy, and a **borrowed** element result (`collections::get`,
+    /// `tcp::poll` over a list) is a pointer into a collection whose owner closes
+    /// it, which [`Self::raw_result_is_borrowed_resource`] answers for.
+    pub(crate) fn runtime_result_is_owned_resource_record(
+        &self,
+        target: &str,
+        result_type: &ParameterType,
+    ) -> bool {
+        // plan-156-C: `thread::start` allocates the parent view in the CALLER's arena,
+        // like any opener, even though its package's other results are foreign.
+        (target == "thread.start" || !Self::runtime_call_result_is_foreign_arena(target))
+            && !Self::target_returns_borrowed_resource(target)
+            && self.is_sendable_resource_nominal(result_type)
+    }
+
+    /// bug-648: whether a trapped call's success value is a resource (or resource
+    /// union) ELEMENT that its collection still owns and closes — the
+    /// [`RawSuccessBlock::BorrowedResource`] answer. The `Result` wrap carries it by
+    /// pointer, because the deep copy tombstones its source `moved|closed`, and the
+    /// `TRAP` temp that receives it does not own it (`trap_ownership`). A
+    /// non-resource `get` (a `String`, a record) keeps its owned copy.
+    pub(crate) fn raw_result_is_borrowed_resource(
+        &self,
+        target: &str,
+        result_type: &ParameterType,
+    ) -> bool {
+        Self::target_returns_borrowed_resource(target)
+            && (self.resource_cleanup_symbol(result_type).is_some()
+                || self.resource_union_cleanup(result_type).is_some())
     }
 
     /// bug-576: whether a runtime helper must MARK its result fresh
@@ -1188,8 +1310,8 @@ impl CodeBuilder<'_> {
     /// returned result is unaffected because its owner claims the temp
     /// (`claim_pending_temp`) exactly as it does for a marked native producer.
     ///
-    /// The raw `thread.*` block is excluded (it is the WORKER's — `x19` is
-    /// per-thread). bug-622 A: `block` is never that raw block for a call in
+    /// The raw `thread.*` block is excluded (it is the thread's block arena's —
+    /// `x19` is per-thread). bug-622 A: `block` is never that raw block for a call in
     /// [`Self::runtime_call_result_is_copied_at_call_site`] — it is the operand
     /// `copy_value_to_current_arena` just allocated in this arena — so those calls
     /// are marked too, and an unbound `len(thread::waitFor(t))` frees its copy.
@@ -1253,13 +1375,22 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. }
             | NirValue::CallResult { target, .. }
             | NirValue::RuntimeCall { target, .. } => {
-                matches!(
-                    crate::codegen::registry::native_bare_target(target),
-                    Some("get" | "getOr")
-                ) || matches!(target.as_str(), "tcp.poll" | "udp.poll" | "tls.poll")
+                Self::target_returns_borrowed_resource(target)
             }
             _ => false,
         }
+    }
+
+    /// The call TARGETS whose resource result is a pointer to a resource another
+    /// owner still closes — the borrowed-element shapes named in
+    /// [`Self::value_aliases_live_resource`]'s doc, split out so the raw
+    /// inline-`TRAP` path can ask the same question of a bare target string
+    /// (bug-643) instead of restating the list.
+    pub(crate) fn target_returns_borrowed_resource(target: &str) -> bool {
+        matches!(
+            crate::codegen::registry::native_bare_target(target),
+            Some("get" | "getOr")
+        ) || matches!(target, "tcp.poll" | "udp.poll" | "tls.poll")
     }
 
     /// A NIR value node that yields a pointer to a **pre-existing** arena block
@@ -1537,6 +1668,38 @@ impl CodeBuilder<'_> {
     /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
     /// block, and a by-value scalar/float is stored inline; freeing either would
     /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
+    /// The free type of every word of the env of a closure over `lambda` with
+    /// `captures`: one per capture, plus the borrowed-scratch address a lambda
+    /// that borrows its creator's scratch carries past them (never freed).
+    pub(crate) fn closure_env_free_types(
+        &self,
+        lambda: &str,
+        captures: &[NirValue],
+    ) -> Vec<ParameterType> {
+        let mut types: Vec<ParameterType> =
+            captures.iter().map(|c| self.capture_free_type(c)).collect();
+        if self.scratch_closure_captures(lambda).is_some() {
+            types.push(ParameterType::Integer);
+        }
+        // plan-146-G: one further word per by-ref `String` capture that shares its
+        // owner's capacity shadow. The env free is sized from this list, so a word
+        // missing here under-frees the block — the allocator then hands part of it
+        // out again while the closure still holds the rest.
+        for _ in crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+            self.functions,
+            lambda,
+        ) {
+            types.push(ParameterType::Integer);
+        }
+        if crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+            self.functions,
+            lambda,
+        ) {
+            types.push(ParameterType::Integer);
+        }
+        types
+    }
+
     pub(crate) fn capture_free_type(&self, capture: &NirValue) -> ParameterType {
         match capture {
             NirValue::Local(name) => self
@@ -1794,13 +1957,46 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     function_slot,
                 ));
+                // plan-142-G: a lambda that borrows this frame's self-update
+                // scratch finds its slot's address one word past the captures. The
+                // prescan gave this frame a scratch of its own for it; a frame that
+                // only borrows one cannot lend it on.
+                let borrowed_scratch = match self.scratch_closure_captures(name) {
+                    None => None,
+                    Some(_) => match (self.self_update_scratch, self.self_update_scratch_env) {
+                        (Some(slot), None) => Some(slot),
+                        _ => {
+                            return Err(format!(
+                                "native closure `{name}` borrows a self-update scratch its \
+                                 creator does not own"
+                            ))
+                        }
+                    },
+                };
+                // plan-146-G: a lambda that self-updates a by-ref-captured `String`
+                // works on the OWNER's block, so it shares the owner's capacity
+                // shadow through one further environment word per such capture.
+                let shared_shadows: Vec<(String, usize)> =
+                    crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                        self.functions,
+                        name,
+                    );
                 let env_slot = if captures.is_empty() {
                     None
                 } else {
                     let env_register = self.allocate_register();
                     let env_slot = self.allocate_stack_object("closure_env", 8);
                     let alloc_ok = self.label("closure_env_alloc_ok");
-                    let env_size = (captures.len() * 8).to_string();
+                    let shares_resource_base =
+                        crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+                            self.functions,
+                            name,
+                        );
+                    let env_words = captures.len()
+                        + usize::from(borrowed_scratch.is_some())
+                        + shared_shadows.len()
+                        + usize::from(shares_resource_base);
+                    let env_size = (env_words * 8).to_string();
                     self.emit(abi::move_immediate(
                         abi::return_register(),
                         "Integer",
@@ -1834,6 +2030,58 @@ impl CodeBuilder<'_> {
                         let env_register = self.allocate_register();
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
+                    }
+                    if let Some(scratch_slot) = borrowed_scratch {
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(
+                            &holder,
+                            abi::stack_pointer(),
+                            scratch_slot,
+                        ));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        self.emit(abi::store_u64(&holder, &env_register, captures.len() * 8));
+                    }
+                    for (position, (local, _)) in shared_shadows.iter().enumerate() {
+                        // The owner's shadow slot, which its own prescan allocated
+                        // for exactly this capture (`prescan_string_self_appends`).
+                        let Some(shadow_slot) = self.string_capacity_slots.get(local).copied()
+                        else {
+                            return Err(format!(
+                                "native closure `{name}` shares the capacity shadow of `{local}`, \
+                                 which its creator does not have"
+                            ));
+                        };
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(
+                            &holder,
+                            abi::stack_pointer(),
+                            shadow_slot,
+                        ));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        let index =
+                            captures.len() + usize::from(borrowed_scratch.is_some()) + position;
+                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
+                    }
+                    if shares_resource_base {
+                        // plan-146-G: the address of this frame's `os::appResourcePath`
+                        // base cache, which the lambda fills on its first call and
+                        // this frame owns and frees.
+                        let Some(base_slot) = self.string_app_resource_base else {
+                            return Err(format!(
+                                "native closure `{name}` shares an os.appResourcePath base cache \
+                                 its creator does not have"
+                            ));
+                        };
+                        let holder = self.allocate_register();
+                        self.emit(abi::add_immediate(&holder, abi::stack_pointer(), base_slot));
+                        let env_register = self.allocate_register();
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                        let index = captures.len()
+                            + usize::from(borrowed_scratch.is_some())
+                            + shared_shadows.len();
+                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
                     }
                     Some(env_slot)
                 };
@@ -1888,8 +2136,7 @@ impl CodeBuilder<'_> {
                 // free it — so a program without such a call emits not one extra
                 // instruction here.
                 if self.closure_temp_wanted && !captures.is_empty() {
-                    let capture_types: Vec<ParameterType> =
-                        captures.iter().map(|c| self.capture_free_type(c)).collect();
+                    let capture_types = self.closure_env_free_types(name, captures);
                     let slot = self.allocate_stack_object("closure_temp", 8);
                     self.emit(abi::store_u64(
                         &closure_register,
@@ -2102,7 +2349,15 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .cloned()
                     .unwrap_or_else(|| target.to_string());
-                self.emit_call(target, &symbol, args, None)
+                // plan-147-D: name the call node so `emit_call` can ask `handover`
+                // whether this SITE hands anything over. Restored afterwards so a
+                // nested call cannot inherit an outer site's answer.
+                let previous_call = self
+                    .current_call_key
+                    .replace(crate::codegen::engine::analysis::handover::call_key(value));
+                let result = self.emit_call(target, &symbol, args, None);
+                self.current_call_key = previous_call;
+                result
             }
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
@@ -2244,8 +2499,17 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::codegen::builtins::inline_builtin_is_infallible(target, &inline_arg_types)
-                {
+                // bug-679: `NoTypeKinds` deliberately, and unreachable for the one
+                // name that would care. Every `toInt` form returned above through
+                // `lower_inline_conversion_raw`, so the enum overload never
+                // arrives here; and codegen holds no declaration table anyway, so
+                // the oracle's `false` is both correct and the over-approximating
+                // side for anything that did.
+                if crate::codegen::builtins::inline_builtin_is_infallible(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
@@ -2263,7 +2527,11 @@ impl CodeBuilder<'_> {
                 // so this never fires today; it fails loudly if a *future* inline
                 // builtin is added to `native_builtin_target` without a raw or
                 // infallible lowering, instead of miscompiling.
-                if crate::codegen::builtins::inline_trap_unsupported(target, &inline_arg_types) {
+                if crate::codegen::builtins::inline_trap_unsupported(
+                    target,
+                    &inline_arg_types,
+                    &crate::codegen::builtins::NoTypeKinds,
+                ) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
                          without a raw or infallible lowering; add one to \
@@ -2296,7 +2564,13 @@ impl CodeBuilder<'_> {
                 let wrap_error_label = self.label("result_wrap_error");
                 let have_payload_label = self.label("result_have_payload");
                 let result_slot = self.allocate_stack_object("raw_result", 8);
-                self.emit_call(target, &symbol, args, Some(&success_type.name()))?;
+                // plan-147-D: the trapped call form is an approved site like any other.
+                let previous_call = self
+                    .current_call_key
+                    .replace(crate::codegen::engine::analysis::handover::call_key(value));
+                let call = self.emit_call(target, &symbol, args, Some(&success_type.name()));
+                self.current_call_key = previous_call;
+                call?;
                 self.emit(abi::store_u64(
                     RESULT_TAG_REGISTER,
                     abi::stack_pointer(),
@@ -3050,7 +3324,10 @@ impl CodeBuilder<'_> {
     /// the exact spill/reset/reload the former `bits::gen_two_integers` did by hand,
     /// now owned by the dispatch so every multi-arg `AbiInline` body gets
     /// non-aliasing operands (and byte-identically to the pre-migration bodies).
-    fn lower_abi_inline_args(&mut self, args: &[NirValue]) -> Result<Vec<ValueResult>, String> {
+    pub(crate) fn lower_abi_inline_args(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<Vec<ValueResult>, String> {
         if args.len() <= 1 {
             let mut values = Vec::with_capacity(args.len());
             for arg in args {
@@ -3178,11 +3455,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
+        let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
+            RawSuccessBlock::BorrowedResource
+        } else {
+            RawSuccessBlock::OwnedElsewhere
+        };
         self.materialize_current_result(
             &success_type,
             format!("callResult {target}"),
             false,
-            RawSuccessBlock::OwnedElsewhere,
+            raw_success,
         )
     }
 
@@ -3211,11 +3493,16 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
+        let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
+            RawSuccessBlock::BorrowedResource
+        } else {
+            RawSuccessBlock::OwnedElsewhere
+        };
         self.materialize_current_result(
             &success_type,
             format!("callResult {target}"),
             false,
-            RawSuccessBlock::OwnedElsewhere,
+            raw_success,
         )
     }
 
@@ -3549,8 +3836,18 @@ impl CodeBuilder<'_> {
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type
             // is the catalogued runtime spec's (derived by `registry::runtime_specs`).
+            // bug-630: a GENERIC descriptor return never resolves here. The
+            // catalog freezes `thread.waitFor`'s `Var("Out")` into the ABI string
+            // `"Out"`, and `declared("Out")` is not a type — it used to flow into
+            // the assignment's marshalling and fail there ("native inlined field
+            // size not available for type 'Out'"), which named the symptom and
+            // hid the cause. The seven generic rows are all `thread.*` and every
+            // one is typed from its handle argument above, so declining costs
+            // nothing and turns a mis-lowering into the resolver's own error.
             .or_else(|| {
-                runtime::spec_for_call(target).map(|spec| ParameterType::declared(spec.abi.returns))
+                runtime::spec_for_call(target)
+                    .filter(|spec| !spec.abi.returns_generic)
+                    .map(|spec| ParameterType::declared(spec.abi.returns))
             })
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {

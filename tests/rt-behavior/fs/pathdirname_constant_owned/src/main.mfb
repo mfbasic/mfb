@@ -1,0 +1,23 @@
+IMPORT io
+IMPORT fs
+
+' bug-667 (extended by plan-143 finding F3): `fs::pathDirName` used to return a
+' read-only `.` or `/` constant for a path with no directory part or the root.
+' The binding that owned it freed read-only data at scope end (SIGBUS).
+
+FUNC main() AS Integer
+  LET a AS String = fs::pathDirName("abc")
+  io::print("[" & a & "]")
+  LET b AS String = fs::pathDirName("/")
+  io::print("[" & b & "]")
+  LET c AS String = fs::pathDirName("/abc")
+  io::print("[" & c & "]")
+  MUT d AS String = fs::pathDirName("")
+  d = d & "/x"
+  io::print("[" & d & "]")
+  MUT e AS String = fs::pathDirName("a/b/c")
+  e = fs::pathDirName(e)
+  e = fs::pathDirName(e)
+  io::print("[" & e & "]")
+  RETURN 0
+END FUNC

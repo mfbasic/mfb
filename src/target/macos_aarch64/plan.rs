@@ -1,7 +1,8 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::macos_aarch64::app::{
-    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
-    CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_NS_NOTIFICATION_CENTER, CLASS_NS_SCREEN, LIB_QUARTZCORE, NS_WINDOW_DID_CHANGE_SCREEN,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
@@ -83,7 +84,7 @@ impl plan::NativePlanPlatform for Platform {
             .collect()
     }
 
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
         // plan-04-macos-app.md §6.5. The Obj-C runtime drives every AppKit call;
         // the `_OBJC_CLASS_$_*` symbols are referenced as external data (read via
         // the GOT) both to obtain the class pointers and to force-load AppKit and
@@ -175,6 +176,48 @@ impl plan::NativePlanPlatform for Platform {
             symbol: (*symbol).to_string(),
             required_by: "_main".to_string(),
         })
+        .chain(
+            // plan-94-C: `mouseMoved:` reaches a view only if it carries a
+            // tracking area, so the class must be bound — but ONLY for a mouse
+            // program. An unused import is still recorded in the plan, so
+            // declaring it alongside the fixed list above diffed the goldens of
+            // every app fixture that never touches the mouse.
+            uses_mouse
+                .then(|| PlatformImport {
+                    library: "AppKit".to_string(),
+                    symbol: "_OBJC_CLASS_$_NSTrackingArea".to_string(),
+                    required_by: "_main".to_string(),
+                })
+                .into_iter(),
+        )
+        .collect()
+    }
+
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        // The `app` window members' main-thread sync reads the title under the
+        // title lock and the delegate observes the two fullscreen notifications.
+        [
+            ("libSystem", "_pthread_mutex_lock"),
+            ("libSystem", "_pthread_mutex_unlock"),
+            (
+                "Foundation",
+                crate::target::macos_aarch64::app::CLASS_NS_NOTIFICATION_CENTER,
+            ),
+            (
+                "AppKit",
+                crate::target::macos_aarch64::app::NS_WINDOW_DID_ENTER_FULL_SCREEN,
+            ),
+            (
+                "AppKit",
+                crate::target::macos_aarch64::app::NS_WINDOW_DID_EXIT_FULL_SCREEN,
+            ),
+        ]
+        .iter()
+        .map(|(library, symbol)| PlatformImport {
+            library: (*library).to_string(),
+            symbol: (*symbol).to_string(),
+            required_by: "_main".to_string(),
+        })
         .collect()
     }
 
@@ -244,11 +287,14 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_getentropy".to_string(),
                 required_by: required_by.clone(),
             }],
-            "datetime.nowNanos" | "datetime.monotonicNanos" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_clock_gettime".to_string(),
-                required_by: required_by.clone(),
-            }],
+            // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => {
+                vec![PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_clock_gettime".to_string(),
+                    required_by: required_by.clone(),
+                }]
+            }
             // plan-67-C: perf_start/perf_end read the monotonic clock inline
             // (arena-free) via the same libc entry the datetime helper uses.
             "perf.start" | "perf.end" => vec![PlatformImport {
@@ -261,6 +307,28 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_localtime_r".to_string(),
                 required_by: required_by.clone(),
             }],
+            // The `app` title members: the title lock around the process-global
+            // title pointer, and (setTitle) the heap copy of the new title.
+            "app.setTitle" | "app.getTitle" => {
+                let names: &[&str] = if spec.call == "app.setTitle" {
+                    &[
+                        "_malloc",
+                        "_free",
+                        "_pthread_mutex_lock",
+                        "_pthread_mutex_unlock",
+                    ]
+                } else {
+                    &["_pthread_mutex_lock", "_pthread_mutex_unlock"]
+                };
+                names
+                    .iter()
+                    .map(|name| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: (*name).to_string(),
+                        required_by: required_by.clone(),
+                    })
+                    .collect()
+            }
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getenv".to_string(),
@@ -337,9 +405,26 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            // plan-55-B: `os.resourcePath` reuses the same exe-path acquisition as
+            // plan-157-B/C: `HOME` through `getenv`, then the `passwd` fallback; each
+            // call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase"
+            | "os.userDocumentsPath"
+            | "os.userDocumentsPathBase" => ["_getenv", "_getuid", "_getpwuid"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            // plan-55-B: `os.appResourcePath` reuses the same exe-path acquisition as
             // `os.executablePath`, so it needs the identical libc import.
-            "os.executablePath" | "os.resourcePath" => vec![PlatformImport {
+            "os.executablePath" | "os.appResourcePath" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetExecutablePath".to_string(),
                 required_by: required_by.clone(),
@@ -477,6 +562,81 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_ioctl".to_string(),
                 required_by: required_by.clone(),
             }],
+            // plan-94-B. `_write` for the 1000/1002/1006 mode set/reset;
+            // `_clock_gettime` for the ring's event stamp; `_getenv` for the
+            // `MFB_MOUSE_INJECT` test affordance. `term.pollMouse` reads the clock
+            // too — it measures every candidate against one "now" — but emits no
+            // ANSI and reads no environment.
+            //
+            // bug-669: `_poll` on every mouse member, because a mouse program's
+            // `io::` reads carry the decoder's escape-delay wait, and a program
+            // may read keys without ever calling `io::pollInput`.
+            "term.enableMouse" => ["_write", "_clock_gettime", "_getenv", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            "term.pollMouse" => ["_clock_gettime", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            // plan-94-C: the canvas members reach the same ring and the same
+            // clock. `enableMouse` additionally runs the `MFB_MOUSE_INJECT`
+            // affordance, whose decode path stamps an event.
+            "canvas.enableMouse" => ["_clock_gettime", "_getenv", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            "canvas.pollMouse" => ["_clock_gettime", "_poll"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            // plan-148-B: the installed-font enumeration. CoreText names the faces,
+            // CoreFoundation carries the arrays, strings and URLs they come in.
+            "canvas.systemFontTable" => [
+                ("CoreText", "_CTFontManagerCopyAvailableFontURLs"),
+                ("CoreText", "_CTFontManagerCreateFontDescriptorsFromURL"),
+                ("CoreText", "_CTFontCreateWithFontDescriptor"),
+                ("CoreText", "_CTFontCopyTable"),
+                ("CoreText", "_CTFontCopyVariation"),
+                ("CoreText", "_CTFontCopyFullName"),
+                ("CoreText", "_CTFontCopyPostScriptName"),
+                ("CoreFoundation", "_CFArrayGetCount"),
+                ("CoreFoundation", "_CFArrayGetValueAtIndex"),
+                ("CoreFoundation", "_CFURLCopyFileSystemPath"),
+                ("CoreFoundation", "_CFStringCreateMutable"),
+                ("CoreFoundation", "_CFStringAppend"),
+                ("CoreFoundation", "_CFStringAppendCharacters"),
+                ("CoreFoundation", "_CFStringGetLength"),
+                ("CoreFoundation", "_CFStringGetCharacterAtIndex"),
+                ("CoreFoundation", "_CFStringGetMaximumSizeForEncoding"),
+                ("CoreFoundation", "_CFStringGetCString"),
+                ("CoreFoundation", "_CFRelease"),
+                ("libSystem", "_strlen"),
+                ("libSystem", "_memcpy"),
+            ]
+            .iter()
+            .map(|(library, symbol)| PlatformImport {
+                library: (*library).to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: required_by.clone(),
+            })
+            .collect(),
             // `term.isOn`, `term.get*` only read the term-state global and
             // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {
@@ -523,7 +683,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_mkdir".to_string(),
@@ -532,6 +692,24 @@ impl plan::NativePlanPlatform for Platform {
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
+                    required_by: required_by.clone(),
+                },
+            ],
+            // bug-694 C5: `stat` tells an existing final directory from a file.
+            "fs.createDirectories" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_mkdir".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "___error".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_stat".to_string(),
                     required_by: required_by.clone(),
                 },
             ],
@@ -590,7 +768,9 @@ impl plan::NativePlanPlatform for Platform {
             | "fs.setBuffered"
             | "fs.isBuffered"
             | "fs.flush"
-            | "fs.eof" => {
+            | "fs.eof"
+            | "fs.size"
+            | "fs.readBytesAt" => {
                 let mut imports = vec![
                     PlatformImport {
                         library: "libSystem".to_string(),
@@ -712,6 +892,9 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -720,6 +903,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
+            | "canvas.metalPresentScene"
             | "canvas.useGpu"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
@@ -734,6 +918,10 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_cond_wait",
                 "_pthread_cond_signal",
                 "_pthread_cond_broadcast",
+                // plan-155-C: `canvas::awaitPickup`'s display floor — a timed wait on
+                // `CLOCK_REALTIME`.
+                "_pthread_cond_timedwait",
+                "_clock_gettime",
                 "_getenv",
             ]
             .into_iter()
@@ -772,6 +960,35 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 }),
             )
+            .chain(
+                // bug-686 Phase 4: the window's `CAMetalLayer` a GPU frame is
+                // presented into, and the `CATransaction` its property changes are
+                // bracketed in. QuartzCore, not Metal. Canvas-gated for the reason the
+                // Metal rows above are.
+                [CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: LIB_QUARTZCORE.to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: required_by.clone(),
+                    }),
+            )
+            .chain(
+                // plan-155-A: the display-rate publish reads `NSScreen` and observes
+                // `NSWindowDidChangeScreenNotification` through the default center.
+                // Canvas-gated for the reason the Metal rows are.
+                [
+                    ("AppKit", CLASS_NS_SCREEN),
+                    ("AppKit", NS_WINDOW_DID_CHANGE_SCREEN),
+                    ("Foundation", CLASS_NS_NOTIFICATION_CENTER),
+                ]
+                .into_iter()
+                .map(|(library, symbol)| PlatformImport {
+                    library: library.to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                }),
+            )
             .collect(),
             "thread.start"
             | "thread.isRunning"
@@ -800,6 +1017,10 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_cond_signal",
                 "_pthread_cond_broadcast",
                 "_clock_gettime",
+                // plan-156-A: the control block, its block-arena state, the worker's
+                // arena-state block and the thread table's slot array live in the heap.
+                "_malloc",
+                "_free",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {
@@ -1057,7 +1278,9 @@ impl plan::NativePlanPlatform for Platform {
                 // through dlopen/dlsym at load time; only dlopen/dlsym (plus
                 // errno) are statically imported. `tls.listen` additionally
                 // reads the PEM certificate/key files via the libc file calls.
-                let mut symbols = vec!["_dlopen", "_dlsym", "___error"];
+                // bug-623 D: plus `calloc`/`free`, which carry the Network.framework
+                // ctx blocks on the C heap (`gen_macos::CTX_SIZE`).
+                let mut symbols = vec!["_dlopen", "_dlsym", "___error", "_calloc", "_free"];
                 if call == "tls.listen" {
                     symbols.extend(["_open", "_read", "_lseek", "_close"]);
                 }

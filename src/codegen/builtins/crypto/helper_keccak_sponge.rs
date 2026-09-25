@@ -1,10 +1,12 @@
 //! `__crypto_keccakSponge` — shared private helper for the `crypto` package.
 //!
-//! The Keccak sponge (FIPS 202 §4) over `__crypto_keccakF`: pad the message with
-//! the domain `suffix` (`0x06` SHA-3, `0x1f` SHAKE) and `pad10*1` to a whole number
-//! of `rateLanes × 8`-byte blocks, absorb each block by XORing its little-endian
-//! lanes into the state and permuting, then squeeze `outLen` bytes a block at a
-//! time, permuting between blocks. The only data-dependent quantities are the
+//! The Keccak sponge (FIPS 202 §4) over `__crypto_keccakF`: absorb the message a
+//! `rateLanes × 8`-byte block at a time by XORing its little-endian lanes into the
+//! state and permuting, then squeeze `outLen` bytes a block at a time, permuting
+//! between blocks. Whole blocks are read straight out of `data`; only the final
+//! block — the shorter-than-a-block tail, the domain `suffix` (`0x06` SHA-3,
+//! `0x1f` SHAKE) and `pad10*1` — is built, so the message is never copied
+//! (plan-142-E: this used to copy all of `data` into a padded buffer first). The only data-dependent quantities are the
 //! PUBLIC message and output lengths; no branch or index depends on message or
 //! state contents.
 //!
@@ -20,25 +22,33 @@ r#"' Keccak sponge: absorb `data` at `rateLanes` lanes per block under domain `s
 ' with pad10*1, then squeeze `outLen` bytes (FIPS 202 §4, §5).
 FUNC __crypto_keccakSponge(data AS List OF Byte, rateLanes AS Integer, suffix AS Integer, outLen AS Integer) AS List OF Byte
   LET rate AS Integer = rateLanes * 8
-  MUT msg AS List OF Byte = __crypto_copyBytes(data)
-  msg = collections::append(msg, toByte(suffix))
-  WHILE (len(msg) MOD rate) <> 0
-    msg = collections::append(msg, toByte(0))
-  END WHILE
-  LET last AS Integer = len(msg) - 1
-  msg = collections::set(msg, last, toByte(bits::bor(toInt(collections::get(msg, last)), 128)))
+  LET n AS Integer = len(data)
   MUT state AS List OF Integer = __crypto_keccakZero()
   MUT off AS Integer = 0
-  WHILE off < len(msg)
+  WHILE n - off >= rate
     MUT lane AS Integer = 0
     WHILE lane < rateLanes
-      LET mixed AS Integer = bits::bxor(collections::get(state, lane), __crypto_leLane(msg, off + lane * 8))
+      LET mixed AS Integer = bits::bxor(collections::get(state, lane), __crypto_leLane(data, off + lane * 8))
       state = collections::set(state, lane, mixed)
       lane = lane + 1
     END WHILE
     state = __crypto_keccakF(state)
     off = off + rate
   END WHILE
+  MUT tail AS List OF Byte = __crypto_slice(data, off, n)
+  tail = collections::append(tail, toByte(suffix))
+  WHILE len(tail) < rate
+    tail = collections::append(tail, toByte(0))
+  END WHILE
+  LET last AS Integer = rate - 1
+  tail = collections::set(tail, last, toByte(bits::bor(toInt(collections::get(tail, last)), 128)))
+  MUT fl AS Integer = 0
+  WHILE fl < rateLanes
+    LET mixedTail AS Integer = bits::bxor(collections::get(state, fl), __crypto_leLane(tail, fl * 8))
+    state = collections::set(state, fl, mixedTail)
+    fl = fl + 1
+  END WHILE
+  state = __crypto_keccakF(state)
   MUT out AS List OF Byte = []
   WHILE len(out) < outLen
     MUT sq AS Integer = 0

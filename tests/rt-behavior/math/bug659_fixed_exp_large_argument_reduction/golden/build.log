@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction
+Wrote AST to tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction/bug659_fixed_exp_large_argument_reduction.ast
+Wrote IR to tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction/bug659_fixed_exp_large_argument_reduction.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction
+Wrote executable to tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction/build/bug659_fixed_exp_large_argument_reduction.out
+[exit 0]
+$ tests/rt-behavior/math/bug659_fixed_exp_large_argument_reduction/build/bug659_fixed_exp_large_argument_reduction.out
+exp(21)        = 1318815732.25
+exp(21.4)      = 1967441881.50
+exp(22)        = RAISED 77050010
+exp(-40)       = 0.00
+exp(-100)      = 0.00
+exp(-1000000)  = 0.00
+exp(1e9)       = RAISED 77050010
+exp(1488522191)= RAISED 77050010
+exp(1.5e9)     = RAISED 77050010
+exp(2e9)       = RAISED 77050010
+exp(2147483647)= RAISED 77050010
+exp(-1e9)      = 0.00
+exp(-1488522191)=0.00
+exp(-1.5e9)    = 0.00
+exp(-2e9)      = 0.00
+exp(-2147483647)=0.00
+[exit 0]

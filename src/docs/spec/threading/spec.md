@@ -20,12 +20,14 @@ The model has these requirements:
 - A thread entry point is an `ISOLATED FUNC` — one this project declares, at any visibility, or an imported package's `EXPORT ISOLATED FUNC`.
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
+- Both handles are resources. The parent's is bound with `RES`, and its drop
+  cancels a worker still running; the worker's belongs to the runtime.
 - The parent communicates with the worker through bounded typed queues, split by
   direction (inbound parent→worker, outbound worker→parent) on each plane.
 - All values that cross a thread boundary have thread-sendable types.
 - The data plane is resource-free; sendable resource handles move on the
   dedicated resource plane without being copied.
-- The worker outcome is stored internally and retrieved exactly once by `thread::waitFor(t)`, closing the parent `Thread` handle.
+- The worker outcome is stored internally and read by `thread::waitFor(t)`, as many times as it is called; the parent `Thread` handle closes when it is dropped.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
 - Native code generation must resolve all worker and package calls at link time;

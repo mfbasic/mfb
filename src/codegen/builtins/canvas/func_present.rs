@@ -8,11 +8,16 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Install a list of `canvas::DrawItem`s as the canvas's current content."#;
 
-const DESC: &str = r#"`present` **installs** a scene. It is not a per-frame draw call: the runtime keeps
-rendering the installed scene — on vsync, on resize, on damage — until the next
-`present` replaces it. A static picture is therefore presented once and costs
+const DESC: &str = r#"`present` **installs** a scene. It is not a per-frame draw call: the runtime draws
+the installed scene, and draws it again only when the window is resized or
+uncovered, until the next `present` replaces it. A static picture is therefore presented once and costs
 nothing thereafter, and a program that never changes its content never calls
 `present` again.
+
+`present` **returns at once** — it does not wait for the frame to be drawn, so a
+program that presents progress while it computes is never slowed by it. To run an
+animation loop at the display's pace, end each iteration with `canvas::waitFrame`, and
+advance the animation by `canvas::getFrameStats().dt`.
 
 `present` **copies the whole scene**. Everything it reaches — the item fields, a
 `canvas::Polygon`'s point list, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
@@ -132,13 +137,20 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
     canvas::groupReclaim(due)
     due = canvas::nextReclaimableGroup()
   END WHILE
+  ' bug-686: the hashes of the items that did not change, carried from the scene
+  ' installed NOW -- so this must come before `publishScene` replaces it.
+  LET carried AS List OF Integer = canvas::carriedHashes(items)
   LET installed AS Boolean = canvas::publishScene(items)
   LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
   __CANVAS_LAST_GROUP_SIG = sig
+  ' plan-155-B: every present is counted, identical ones included, so the thread (and
+  ' with it the mutex the count is kept under) starts on the first present of any
+  ' scene. `ensureGraphics` is idempotent -- one Boolean test after the first call.
+  __canvas_ensureGraphics()
+  canvas::notePresent(canvas::frameNanos())
   IF installed OR moved THEN
-    canvas::publishHashes(__canvas_hashScene(items))
-    __canvas_ensureGraphics()
+    canvas::publishHashes(__canvas_hashScene(items, carried))
     canvas::signalRedraw()
     canvas::syncFrame()
   END IF

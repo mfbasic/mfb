@@ -167,14 +167,67 @@ pub(crate) fn verify_and_report_packages(
         }
     }
 
-    if refusals.is_empty() {
+    // A package that failed verification is refused already; its import table is
+    // untrusted input and says nothing the user can act on yet.
+    let closure_refused = refusals.is_empty() && refuse_inconsistent_closure(project_dir, manifest);
+
+    for (rule, detail) in &refusals {
+        rules::show_general_diagnostic(rule, detail);
+    }
+    if refusals.is_empty() && !closure_refused {
         Ok(())
     } else {
-        for (rule, detail) in &refusals {
-            rules::show_general_diagnostic(rule, detail);
-        }
         Err(())
     }
+}
+
+/// bug-628: refuse a manifest whose `packages[]` is not the closure its packages'
+/// import tables describe, and a declared package that does not provide what an
+/// importer was compiled against. Reports every finding, located at the
+/// `packages` field, and returns whether any was found.
+///
+/// The build only reports: rewriting `project.json` is `mfb pkg update`'s job,
+/// and merging a package the manifest does not declare would build something the
+/// manifest does not describe.
+fn refuse_inconsistent_closure(project_dir: &Path, manifest: &HashMap<String, JsonValue>) -> bool {
+    let project_path = project_dir.join("project.json");
+    let contents = std::fs::read_to_string(&project_path).unwrap_or_default();
+    let (line, column) = crate::manifest::field_position(&contents, "packages");
+    let end = column + "\"packages\"".len();
+
+    let mut findings: Vec<(&'static str, String)> = Vec::new();
+    match crate::manifest::closure::check(project_dir, manifest) {
+        Ok(issues) => findings.extend(issues.iter().map(|issue| {
+            (
+                "PACKAGE_DEPENDENCIES_INCONSISTENT",
+                format!(
+                    "{}; run `mfb pkg update` to rewrite project.json",
+                    issue.message()
+                ),
+            )
+        })),
+        Err(err) => findings.push((
+            "PACKAGE_DEPENDENCIES_INCONSISTENT",
+            format!("cannot read the dependency closure: {err}"),
+        )),
+    }
+    // A conflict is only meaningful between packages the manifest agrees on.
+    if findings.is_empty() {
+        findings.extend(
+            crate::manifest::closure::conflicts(project_dir, manifest)
+                .iter()
+                .map(|conflict| {
+                    (
+                        "PACKAGE_VERSION_CONFLICT",
+                        format!("{}; run `mfb pkg verify` for details", conflict.message()),
+                    )
+                }),
+        );
+    }
+    for (rule, detail) in &findings {
+        rules::show_diagnostic(rule, detail, &project_path, line, column, end);
+    }
+    !findings.is_empty()
 }
 
 /// A dependency `source` that resolves to a file on disk the project controls,

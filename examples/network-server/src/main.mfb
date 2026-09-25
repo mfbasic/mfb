@@ -117,9 +117,12 @@ SUB serveTcp(host AS String, port AS Integer)
   LET bound AS net::Address = tcp::localAddress(server)
   io::print("Listening tcp " & bound.host & ":" & toString(bound.port))
 
-  ' One connection per index across four parallel lists. A resource cannot be a
-  ' record field (mfb spec §15), so the per-connection state that travels with a
-  ' socket lives beside it rather than inside it.
+  ' One connection per index across four parallel lists rather than one list of
+  ' a Conn record holding the socket and its state together: appending such a
+  ' record to an owned list inside a loop fails to lower ("owned-list element
+  ' type 'Conn' has no registered close op") — a compiler limitation, not a
+  ' language one — so the per-connection state that travels with a socket lives
+  ' beside it rather than inside it.
   MUT conns AS List OF RES tcp::Socket = []
   MUT ids AS List OF String = []
   MUT counts AS List OF Integer = []
@@ -386,10 +389,11 @@ END SUB
 ' and reports. thread::transfer closes this end of the handle, so there is no
 ' window in which both threads can touch the same socket.
 '
-' One worker serves every connection rather than one worker per connection: a
-' Thread handle is itself an owned handle and cannot be stored in a collection
-' (TYPE_COLLECTION_OWNERSHIP_VIOLATION), so a thread-per-connection server would
-' have no way to hold, poll or reap its handles.
+' One worker serves every connection rather than one worker per connection: it
+' keeps the design to a single accept loop and a single worker loop no matter
+' how many clients are attached, mirroring the single-threaded transport's one
+' set of parallel lists instead of growing a list of worker handles alongside
+' it.
 
 SUB serveTcpThreaded(host AS String, port AS Integer)
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
@@ -399,12 +403,10 @@ SUB serveTcpThreaded(host AS String, port AS Integer)
   LET bound AS net::Address = tcp::localAddress(server)
   io::print("Listening tcp " & bound.host & ":" & toString(bound.port) & " (threaded)")
 
-  ' No inline TRAP on thread::start: an inline TRAP on it fails native lowering
-  ' ("native inlined field size not available for type 'ThreadWorker OF ...'",
-  ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
-  ' start instead — the only error that can reach it, since every other call here
-  ' traps at its own site.
-  LET worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp")
+  RES worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp") TRAP(e)
+    io::printError("Cannot start the connection worker — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
 
   DO
     RES sock AS tcp::Socket = tcp::accept(server) TRAP(e)
@@ -415,12 +417,6 @@ SUB serveTcpThreaded(host AS String, port AS Integer)
       RECOVER
     END TRAP
   LOOP UNTIL FALSE
-  EXIT SUB
-
-  TRAP(e)
-    io::printError("Cannot start the connection worker — " & e.message)
-    EXIT PROGRAM 1
-  END TRAP
 END SUB
 
 SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPath AS String)
@@ -431,12 +427,10 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
   LET bound AS net::Address = tls::localAddress(server)
   io::print("Listening tls " & bound.host & ":" & toString(bound.port) & " (threaded)")
 
-  ' No inline TRAP on thread::start: an inline TRAP on it fails native lowering
-  ' ("native inlined field size not available for type 'ThreadWorker OF ...'",
-  ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
-  ' start instead — the only error that can reach it, since every other call here
-  ' traps at its own site.
-  LET worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls")
+  RES worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls") TRAP(e)
+    io::printError("Cannot start the connection worker — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
 
   ' The handshake still completes here, on the main thread: tls::accept is the
   ' handshake. Only the finished session crosses to the worker. Unlike the
@@ -451,12 +445,6 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
       RECOVER
     END TRAP
   LOOP UNTIL FALSE
-  EXIT SUB
-
-  TRAP(e)
-    io::printError("Cannot start the connection worker — " & e.message)
-    EXIT PROGRAM 1
-  END TRAP
 END SUB
 
 ' --------------------------------------------------------------------- main --

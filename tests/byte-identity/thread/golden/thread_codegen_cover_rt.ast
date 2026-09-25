@@ -22,7 +22,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 11 },
-      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t1", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 19 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 20 },
       {
@@ -63,9 +63,9 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "wf2" }] }, "line": 55 },
       { "kind": "binding", "mutable": false, "name": "res1", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 58 },
       { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "res1" } }, "line": 59 },
-      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t2", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }] }, "line": 62 },
       { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t2" }] } }, "line": 63 },
-      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t3", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 66 },
       { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t3" }] } }, "line": 67 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [] }, "line": 70 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [] }, "line": 71 },

@@ -151,7 +151,8 @@ impl CodeBuilder<'_> {
     }
 
     /// `math.sqrt(values AS Float[])` — vectorized square root (plan-01-simd
-    /// §4.4). `ErrInvalidArgument` if any lane is negative.
+    /// §4.4). `ErrFloatDomain` if any lane is negative (bug-617: this said
+    /// `ErrInvalidArgument`, which is the FIXED form's error, not this one's).
     fn lower_math_sqrt_array(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdUnaryKernel;
         let input = arg.clone();

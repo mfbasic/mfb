@@ -241,10 +241,26 @@ impl LinuxPlan<'_> {
         let mut imports = sigpipe_imports;
         imports.extend(match spec.call {
             "crypto.randomBytes" => vec![self.libc_import("getentropy", required_by)],
-            "datetime.nowNanos" | "datetime.monotonicNanos" => {
+            // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => {
                 vec![self.libc_import("clock_gettime", required_by)]
             }
             "datetime.localOffset" => vec![self.libc_import("localtime_r", required_by)],
+            // The `app` title members: the title lock around the process-global
+            // title pointer, and (setTitle) the heap copy of the new title.
+            "app.setTitle" => [
+                "malloc",
+                "free",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+            ]
+            .iter()
+            .map(|name| self.libc_import(name, required_by))
+            .collect(),
+            "app.getTitle" => ["pthread_mutex_lock", "pthread_mutex_unlock"]
+                .iter()
+                .map(|name| self.libc_import(name, required_by))
+                .collect(),
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => {
                 vec![self.libc_import("getenv", required_by)]
             }
@@ -264,9 +280,31 @@ impl LinuxPlan<'_> {
                 self.libc_import("getuid", required_by),
                 self.libc_import("getpwuid", required_by),
             ],
-            // plan-55-B: `os.resourcePath` reuses the `readlink("/proc/self/exe")`
+            // plan-157-B/C: `HOME`/`XDG_*` through `getenv`, then the `passwd`
+            // fallback; each call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase" => vec![
+                self.libc_import("getenv", required_by),
+                self.libc_import("getuid", required_by),
+                self.libc_import("getpwuid", required_by),
+            ],
+            // plan-157-C: the Documents lookup also reads `user-dirs.dirs`.
+            "os.userDocumentsPath" | "os.userDocumentsPathBase" => vec![
+                self.libc_import("getenv", required_by),
+                self.libc_import("getuid", required_by),
+                self.libc_import("getpwuid", required_by),
+                self.libc_import("open", required_by),
+                self.libc_import("read", required_by),
+                self.libc_import("close", required_by),
+                self.libc_import("__errno_location", required_by),
+            ],
+            // plan-55-B: `os.appResourcePath` reuses the `readlink("/proc/self/exe")`
             // acquisition, so it needs the same import.
-            "os.executablePath" | "os.resourcePath" => {
+            "os.executablePath" | "os.appResourcePath" => {
                 vec![self.libc_import("readlink", required_by)]
             }
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
@@ -366,6 +404,41 @@ impl LinuxPlan<'_> {
                 imports
             }
             "term.terminalSize" => vec![self.libc_import("ioctl", required_by)],
+            // plan-94-B. `write` for the 1000/1002/1006 mode set/reset,
+            // `clock_gettime` for the ring's event stamp, `getenv` for the
+            // `MFB_MOUSE_INJECT` test affordance. `pollMouse` reads the clock too
+            // (it measures every candidate against one "now") but emits no ANSI
+            // and reads no environment.
+            //
+            // bug-669: `poll` on every mouse member, because a mouse program's
+            // `io::` reads carry the decoder's escape-delay wait, and a program
+            // may read keys without ever calling `io::pollInput`.
+            "term.enableMouse" => vec![
+                self.libc_import("write", required_by),
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("getenv", required_by),
+                self.libc_import("poll", required_by),
+            ],
+            "term.pollMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("poll", required_by),
+            ],
+            // plan-94-D: the canvas members reach the same ring and clock.
+            "canvas.enableMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("getenv", required_by),
+                self.libc_import("poll", required_by),
+            ],
+            "canvas.pollMouse" => vec![
+                self.libc_import("clock_gettime", required_by),
+                self.libc_import("poll", required_by),
+            ],
+            // plan-148-C: fontconfig arrives through `dlopen`/`dlsym`, never a
+            // DT_NEEDED — a canvas program must still start without it.
+            "canvas.systemFontTable" => ["dlopen", "dlsym", "strlen", "strcmp", "memcpy"]
+                .into_iter()
+                .map(|symbol| self.libc_import(symbol, required_by))
+                .collect(),
             "fs.exists" => vec![self.libc_import("access", required_by)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", required_by)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", required_by)],
@@ -378,9 +451,15 @@ impl LinuxPlan<'_> {
                 self.libc_import("unlink", required_by),
                 self.libc_import("__errno_location", required_by),
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 self.libc_import("mkdir", required_by),
                 self.libc_import("__errno_location", required_by),
+            ],
+            // bug-694 C5: `stat` tells an existing final directory from a file.
+            "fs.createDirectories" => vec![
+                self.libc_import("mkdir", required_by),
+                self.libc_import("__errno_location", required_by),
+                self.libc_import("stat", required_by),
             ],
             "fs.deleteDirectory" => vec![
                 self.libc_import("rmdir", required_by),
@@ -413,7 +492,9 @@ impl LinuxPlan<'_> {
             | "fs.setBuffered"
             | "fs.isBuffered"
             | "fs.flush"
-            | "fs.eof" => {
+            | "fs.eof"
+            | "fs.size"
+            | "fs.readBytesAt" => {
                 let mut imports = vec![
                     self.libc_import("open", required_by),
                     self.libc_import("read", required_by),
@@ -493,6 +574,9 @@ impl LinuxPlan<'_> {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -515,6 +599,8 @@ impl LinuxPlan<'_> {
                 "pthread_cond_wait",
                 "pthread_cond_signal",
                 "pthread_cond_broadcast",
+                // plan-155-C: `canvas::awaitPickup`'s display floor is a timed wait.
+                "pthread_cond_timedwait",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {
@@ -522,6 +608,10 @@ impl LinuxPlan<'_> {
                 symbol: symbol.to_string(),
                 required_by: required_by.to_string(),
             })
+            // ... on a deadline read from `CLOCK_REALTIME`.
+            .chain(std::iter::once(
+                self.libc_import("clock_gettime", required_by),
+            ))
             .chain(
                 // plan-98-F: the Vulkan loader arrives through `dlopen`/`dlsym`, never
                 // a DT_NEEDED on libvulkan — a canvas program must still exec on a
@@ -571,6 +661,13 @@ impl LinuxPlan<'_> {
                 symbol: symbol.to_string(),
                 required_by: required_by.to_string(),
             })
+            // plan-156-A: the control block, its block-arena state, the worker's
+            // arena-state block and the thread table's slot array live in the heap.
+            .chain(
+                ["malloc", "free"]
+                    .into_iter()
+                    .map(|symbol| self.libc_import(symbol, required_by)),
+            )
             .collect(),
             call if call.starts_with("audio.") => {
                 // The Linux audio backend resolves libasound.so.2 at first use

@@ -30,6 +30,7 @@
 
 mod abi_inline;
 mod app_surface;
+mod builtin_record_arguments;
 mod canvas;
 mod collection_compare;
 mod collections;
@@ -38,10 +39,13 @@ mod data_layout;
 mod diagnostics;
 mod entry;
 mod fixture_projects;
+mod fs_declared_errors;
 mod harness;
 mod imported_types;
 mod inplace;
+mod inplace_compact;
 mod inplace_fields;
+mod inplace_inline_repack;
 mod link;
 mod link_out_widths;
 mod link_struct_widths;

@@ -1,0 +1,304 @@
+' ---------------------------------------------------------------------------
+' Tests: UTF-8 decoding and the XML character classes.
+'
+' The class tests check each range at its BOUNDARIES -- the first and last
+' scalar in the range, and the one just outside it -- because an off-by-one in
+' a range silently refuses a legal name or accepts an illegal one, and neither
+' shows up on ASCII documents.
+'
+' The decoder tests check the four encodings a lenient decoder repairs and this
+' one must refuse: overlong forms, surrogate halves, values above #x10FFFF, and
+' truncated sequences.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' A byte list written as code points, for the malformed sequences no String
+' literal can hold.
+PRIVATE FUNC bytesOf(values AS List OF Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR EACH v IN values
+    out = collections::append(out, toByte(v))
+  NEXT
+  RETURN out
+END FUNC
+
+PRIVATE FUNC decodedCode(values AS List OF Integer) AS Integer
+  RETURN decodeAt(bytesOf(values), 0).code
+END FUNC
+
+PRIVATE FUNC decodedSize(values AS List OF Integer) AS Integer
+  RETURN decodeAt(bytesOf(values), 0).size
+END FUNC
+
+TESTING
+  TGROUP "UTF-8 decoding"
+    TCASE "each sequence length decodes to its scalar"
+      ' "A", U+00E9, U+20AC, U+10348
+      expectInteger(decodedCode([65]), 65)
+      expectInteger(decodedSize([65]), 1)
+      expectInteger(decodedCode([195, 169]), 233)
+      expectInteger(decodedSize([195, 169]), 2)
+      expectInteger(decodedCode([226, 130, 172]), 8364)
+      expectInteger(decodedSize([226, 130, 172]), 3)
+      expectInteger(decodedCode([240, 144, 141, 136]), 66376)
+      expectInteger(decodedSize([240, 144, 141, 136]), 4)
+    END TCASE
+
+    TCASE "an overlong form is refused rather than folded to its short form"
+      ' C0 80 and C1 BF are overlong encodings of U+0000 and U+007F.
+      expectInteger(decodedCode([192, 128]), -1)
+      expectInteger(decodedCode([193, 191]), -1)
+      ' E0 80 80 is an overlong three-byte U+0000; E0 9F BF an overlong U+07FF.
+      expectInteger(decodedCode([224, 128, 128]), -1)
+      expectInteger(decodedCode([224, 159, 191]), -1)
+      ' F0 80 80 80 and F0 8F BF BF are overlong four-byte forms.
+      expectInteger(decodedCode([240, 128, 128, 128]), -1)
+      expectInteger(decodedCode([240, 143, 191, 191]), -1)
+      ' The shortest legal form at each boundary still decodes.
+      expectInteger(decodedCode([194, 128]), 128)
+      expectInteger(decodedCode([224, 160, 128]), 2048)
+      expectInteger(decodedCode([240, 144, 128, 128]), 65536)
+    END TCASE
+
+    TCASE "a surrogate half is refused"
+      ' ED A0 80 is U+D800, ED BF BF is U+DFFF: never valid UTF-8.
+      expectInteger(decodedCode([237, 160, 128]), -1)
+      expectInteger(decodedCode([237, 191, 191]), -1)
+      ' U+D7FF, just below the surrogates, decodes.
+      expectInteger(decodedCode([237, 159, 191]), 55295)
+    END TCASE
+
+    TCASE "a scalar above U+10FFFF is refused"
+      ' F4 90 80 80 is U+110000; F5.. is out of range outright.
+      expectInteger(decodedCode([244, 144, 128, 128]), -1)
+      expectInteger(decodedCode([245, 128, 128, 128]), -1)
+      expectInteger(decodedCode([255]), -1)
+      ' U+10FFFF itself decodes.
+      expectInteger(decodedCode([244, 143, 191, 191]), 1114111)
+    END TCASE
+
+    TCASE "a truncated or stray continuation sequence is refused"
+      expectInteger(decodedCode([195]), -1)
+      expectInteger(decodedCode([226, 130]), -1)
+      expectInteger(decodedCode([240, 144, 141]), -1)
+      expectInteger(decodedCode([128]), -1)
+      expectInteger(decodedCode([191]), -1)
+      ' A second, third or fourth byte that is not a continuation, at each
+      ' sequence length.
+      expectInteger(decodedCode([226, 65, 172]), -1)
+      expectInteger(decodedCode([226, 130, 65]), -1)
+      expectInteger(decodedCode([240, 65, 141, 136]), -1)
+      expectInteger(decodedCode([240, 144, 65, 136]), -1)
+      expectInteger(decodedCode([240, 144, 141, 65]), -1)
+    END TCASE
+
+    TCASE "decoding past the end of the input reports no scalar"
+      LET empty AS List OF Byte = []
+      expectInteger(decodeAt(empty, 0).code, -1)
+      expectInteger(decodeAt(strings::toBytes("ab"), 5).code, -1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "XML character classes"
+    TCASE "isChar covers the four §2.2 ranges and nothing else"
+      expectEqual(isChar(9), TRUE)
+      expectEqual(isChar(10), TRUE)
+      expectEqual(isChar(13), TRUE)
+      expectEqual(isChar(0), FALSE)
+      expectEqual(isChar(8), FALSE)
+      expectEqual(isChar(11), FALSE)
+      expectEqual(isChar(12), FALSE)
+      expectEqual(isChar(31), FALSE)
+      expectEqual(isChar(32), TRUE)
+      expectEqual(isChar(55295), TRUE)
+      expectEqual(isChar(55296), FALSE)
+      expectEqual(isChar(57343), FALSE)
+      expectEqual(isChar(57344), TRUE)
+      expectEqual(isChar(65533), TRUE)
+      expectEqual(isChar(65534), FALSE)
+      expectEqual(isChar(65535), FALSE)
+      expectEqual(isChar(65536), TRUE)
+      expectEqual(isChar(1114111), TRUE)
+      expectEqual(isChar(1114112), FALSE)
+    END TCASE
+
+    TCASE "isSpace is exactly the four §2.3 whitespace characters"
+      expectEqual(isSpace(32), TRUE)
+      expectEqual(isSpace(9), TRUE)
+      expectEqual(isSpace(13), TRUE)
+      expectEqual(isSpace(10), TRUE)
+      expectEqual(isSpace(11), FALSE)
+      expectEqual(isSpace(12), FALSE)
+      expectEqual(isSpace(160), FALSE)
+    END TCASE
+
+    TCASE "every NameStartChar range boundary is in, and one past it is out"
+      ' ":" and "_" are NameStartChars; "-", "." and digits are not.
+      expectEqual(isNameStartChar(58), TRUE)
+      expectEqual(isNameStartChar(95), TRUE)
+      expectEqual(isNameStartChar(45), FALSE)
+      expectEqual(isNameStartChar(46), FALSE)
+      expectEqual(isNameStartChar(48), FALSE)
+      ' [A-Z] and [a-z], with the characters flanking them.
+      expectEqual(isNameStartChar(64), FALSE)
+      expectEqual(isNameStartChar(65), TRUE)
+      expectEqual(isNameStartChar(90), TRUE)
+      expectEqual(isNameStartChar(91), FALSE)
+      expectEqual(isNameStartChar(96), FALSE)
+      expectEqual(isNameStartChar(97), TRUE)
+      expectEqual(isNameStartChar(122), TRUE)
+      expectEqual(isNameStartChar(123), FALSE)
+      ' [#xC0-#xD6], [#xD8-#xF6], [#xF8-#x2FF]
+      expectEqual(isNameStartChar(191), FALSE)
+      expectEqual(isNameStartChar(192), TRUE)
+      expectEqual(isNameStartChar(214), TRUE)
+      expectEqual(isNameStartChar(215), FALSE)
+      expectEqual(isNameStartChar(216), TRUE)
+      expectEqual(isNameStartChar(246), TRUE)
+      expectEqual(isNameStartChar(247), FALSE)
+      expectEqual(isNameStartChar(248), TRUE)
+      expectEqual(isNameStartChar(767), TRUE)
+      expectEqual(isNameStartChar(768), FALSE)
+      ' [#x370-#x37D], [#x37F-#x1FFF]
+      expectEqual(isNameStartChar(879), FALSE)
+      expectEqual(isNameStartChar(880), TRUE)
+      expectEqual(isNameStartChar(893), TRUE)
+      expectEqual(isNameStartChar(894), FALSE)
+      expectEqual(isNameStartChar(895), TRUE)
+      expectEqual(isNameStartChar(8191), TRUE)
+      expectEqual(isNameStartChar(8192), FALSE)
+      ' [#x200C-#x200D], [#x2070-#x218F]
+      expectEqual(isNameStartChar(8203), FALSE)
+      expectEqual(isNameStartChar(8204), TRUE)
+      expectEqual(isNameStartChar(8205), TRUE)
+      expectEqual(isNameStartChar(8206), FALSE)
+      expectEqual(isNameStartChar(8303), FALSE)
+      expectEqual(isNameStartChar(8304), TRUE)
+      expectEqual(isNameStartChar(8591), TRUE)
+      expectEqual(isNameStartChar(8592), FALSE)
+      ' [#x2C00-#x2FEF], [#x3001-#xD7FF]
+      expectEqual(isNameStartChar(11263), FALSE)
+      expectEqual(isNameStartChar(11264), TRUE)
+      expectEqual(isNameStartChar(12271), TRUE)
+      expectEqual(isNameStartChar(12272), FALSE)
+      expectEqual(isNameStartChar(12288), FALSE)
+      expectEqual(isNameStartChar(12289), TRUE)
+      expectEqual(isNameStartChar(55295), TRUE)
+      expectEqual(isNameStartChar(55296), FALSE)
+      ' [#xF900-#xFDCF], [#xFDF0-#xFFFD], [#x10000-#xEFFFF]
+      expectEqual(isNameStartChar(63743), FALSE)
+      expectEqual(isNameStartChar(63744), TRUE)
+      expectEqual(isNameStartChar(64975), TRUE)
+      expectEqual(isNameStartChar(64976), FALSE)
+      expectEqual(isNameStartChar(65007), FALSE)
+      expectEqual(isNameStartChar(65008), TRUE)
+      expectEqual(isNameStartChar(65533), TRUE)
+      expectEqual(isNameStartChar(65534), FALSE)
+      expectEqual(isNameStartChar(65535), FALSE)
+      expectEqual(isNameStartChar(65536), TRUE)
+      expectEqual(isNameStartChar(983039), TRUE)
+      expectEqual(isNameStartChar(983040), FALSE)
+    END TCASE
+
+    TCASE "isNameChar adds exactly the §2.3 continuation characters"
+      expectEqual(isNameChar(45), TRUE)
+      expectEqual(isNameChar(46), TRUE)
+      expectEqual(isNameChar(47), FALSE)
+      expectEqual(isNameChar(48), TRUE)
+      expectEqual(isNameChar(57), TRUE)
+      expectEqual(isNameChar(58), TRUE)
+      expectEqual(isNameChar(183), TRUE)
+      expectEqual(isNameChar(182), FALSE)
+      expectEqual(isNameChar(184), FALSE)
+      expectEqual(isNameChar(767), TRUE)
+      expectEqual(isNameChar(768), TRUE)
+      expectEqual(isNameChar(879), TRUE)
+      expectEqual(isNameChar(880), TRUE)
+      expectEqual(isNameChar(8254), FALSE)
+      expectEqual(isNameChar(8255), TRUE)
+      expectEqual(isNameChar(8256), TRUE)
+      expectEqual(isNameChar(8257), FALSE)
+      ' A space never continues a name.
+      expectEqual(isNameChar(32), FALSE)
+    END TCASE
+
+    TCASE "isName accepts non-ASCII names and refuses a bad first character"
+      expectEqual(isName("a"), TRUE)
+      expectEqual(isName("svg:svg"), TRUE)
+      expectEqual(isName("a-b.c_d"), TRUE)
+      expectEqual(isName("élément"), TRUE)
+      expectEqual(isName(""), FALSE)
+      expectEqual(isName("1a"), FALSE)
+      expectEqual(isName("-a"), FALSE)
+      expectEqual(isName("a b"), FALSE)
+      expectEqual(isName("a<b"), FALSE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the scanner"
+    TCASE "CRLF and a lone CR both normalize to LF"
+      ' "a\r\nb\rc" -> "a\nb\nc"
+      LET input AS List OF Byte = bytesOf([97, 13, 10, 98, 13, 99])
+      LET out AS List OF Byte = normalizeLineEnds(input)
+      expectString(sliceText(out, 0, len(out)), "a\nb\nc")
+      expectInteger(len(out), 5)
+    END TCASE
+
+    TCASE "input with no CR is returned unchanged"
+      LET input AS List OF Byte = strings::toBytes("a\nb\n")
+      LET out AS List OF Byte = normalizeLineEnds(input)
+      expectString(sliceText(out, 0, len(out)), "a\nb\n")
+    END TCASE
+
+    TCASE "a trailing CR becomes a trailing LF"
+      LET out AS List OF Byte = normalizeLineEnds(bytesOf([97, 13]))
+      expectString(sliceText(out, 0, len(out)), "a\n")
+    END TCASE
+
+    TCASE "a UTF-8 BOM is skipped, and nothing else is"
+      expectInteger(skipBom(bytesOf([239, 187, 191, 60])), 3)
+      expectInteger(skipBom(strings::toBytes("<a/>")), 0)
+      expectInteger(skipBom(bytesOf([239, 187])), 0)
+    END TCASE
+
+    TCASE "column counts scalars, not bytes, after a multi-byte character"
+      ' "é€x" on one line: x is the third character, so column 3.
+      LET input AS List OF Byte = strings::toBytes("é€x")
+      expectString(positionText(input, 5), "line 1, column 3")
+      ' After two line ends, the count restarts.
+      LET lines AS List OF Byte = strings::toBytes("ab\ncd\nef")
+      expectString(positionText(lines, 0), "line 1, column 1")
+      expectString(positionText(lines, 3), "line 2, column 1")
+      expectString(positionText(lines, 7), "line 3, column 2")
+    END TCASE
+
+    TCASE "requireScalar refuses a non-Char and bad UTF-8 as ErrInvalidFormat"
+      ' U+0000 and U+FFFE are well-formed UTF-8 but not XML Chars.
+      expectTrap(requireScalar(bytesOf([0]), 0), 77050003)
+      expectTrap(requireScalar(bytesOf([239, 191, 190]), 0), 77050003)
+      expectTrap(requireScalar(bytesOf([192, 128]), 0), 77050003)
+      expectNTrap(requireScalar(strings::toBytes("a"), 0))
+    END TCASE
+
+    TCASE "findFrom and matchAt locate the run delimiters"
+      LET input AS List OF Byte = strings::toBytes("<!-- c -->rest")
+      expectInteger(findFrom(input, "-->", 0), 7)
+      expectInteger(findFrom(input, "]]>", 0), -1)
+      expectEqual(matchAt(input, 0, "<!--"), TRUE)
+      expectEqual(matchAt(input, 1, "<!--"), FALSE)
+    END TCASE
+
+    TCASE "scanName stops at the first character that cannot continue a name"
+      LET input AS List OF Byte = strings::toBytes("item id=\"1\"")
+      expectInteger(scanName(input, 0, len(input)), 4)
+      ' A name may not start here, so the offset does not advance.
+      LET digits AS List OF Byte = strings::toBytes("1bad")
+      expectInteger(scanName(digits, 0, len(digits)), 0)
+      ' Nor at the very end of the input.
+      LET ab AS List OF Byte = strings::toBytes("ab")
+      expectInteger(scanName(ab, 2, 2), 2)
+    END TCASE
+  END TGROUP
+END TESTING

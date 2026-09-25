@@ -301,6 +301,11 @@ impl CodeBuilder<'_> {
             &value_type,
             None,
         )?;
+        // `set_in_place` copied the key's (and a `String` value's) bytes into the
+        // result; the blocks rebuilt above for it have no other reader
+        // (`tests/runtime/rt_merge_fast_path_frees.rs`).
+        self.free_collection_loop_item(key_slot, &ParameterType::String)?;
+        self.free_collection_loop_item(value_slot, &value_type)?;
         // i += 1 (reload — set_in_place clobbers caller-saved scratch).
         let i2 = self.temporary_vreg();
         self.emit(abi::load_u64(&i2, abi::stack_pointer(), i_slot));

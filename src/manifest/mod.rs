@@ -1,3 +1,4 @@
+pub mod closure;
 pub mod entry;
 pub mod json_edit;
 pub mod libraries;
@@ -2167,6 +2168,8 @@ mod tests {
             pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
 
         let updated =
@@ -2208,6 +2211,8 @@ mod tests {
             pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
             ident_key: String::new(),
+            direct: None,
+            required_by: None,
         };
 
         let updated =

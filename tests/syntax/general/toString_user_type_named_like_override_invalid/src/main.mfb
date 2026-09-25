@@ -1,0 +1,40 @@
+' bug-668: a user type whose BARE name equals a builtin package's override type
+' must not be routed to that package's renderer.
+'
+' `toString` is overridable, and `color`, `net` and `vector` each register an
+' override for one of their own value types (`color::Color`, `net::Url`,
+' `vector::Float2`). The override table was keyed by the type's BARE spelling, so
+' a user `TYPE Color` matched the `color` row: the call type-checked and then the
+' build died with `NIR call target '#color_toString' does not resolve`, because
+' the program never imported `color`.
+'
+' A package override applies to that package's OWN type only. A user type the
+' built-in rejects is a `TYPE_CALL_ARGUMENT_MISMATCH` at the call, exactly as a
+' `TYPE Colour` already was.
+'
+' The partner assertions — the overrides themselves still fire for the packages'
+' own types — are `tests/rt-behavior/color/color_to_string_rt` and the `toString`
+' calls in `tests/byte-identity/vector`.
+
+TYPE Color
+  r AS Integer
+END TYPE
+
+TYPE Url
+  href AS String
+END TYPE
+
+TYPE Float2
+  x AS Float
+  y AS Float
+END TYPE
+
+FUNC main AS Integer
+  LET c AS Color = Color[1]
+  LET u AS Url = Url["https://example.com"]
+  LET v AS Float2 = Float2[1.0, 2.0]
+  LET colorText AS String = toString(c)
+  LET urlText AS String = toString(u)
+  LET vectorText AS String = toString(v)
+  RETURN 0
+END FUNC

@@ -1,0 +1,419 @@
+# plan-156-C: two view records, the hidden drop op, borrow-on-pass, repeatable `waitFor`
+
+Last updated: 2026-09-24
+Effort: large (3h–1d)
+Depends on: plan-156-B
+
+This is the semantic flip:
+- **Views.** `Thread` and `ThreadWorker` become resources in the verifier and
+  the codegen. Each is a standard resource record pointing at the control
+  block (plan-156-A).
+- **Passing** either view to a function lends it: the caller keeps it.
+- **Scope end.** The parent view's drop, at the end of its scope, cancels and
+  detaches through a hidden drop op.
+- **`thread::waitFor`** is repeatable and closes nothing.
+- **Spelling.** `RES` becomes a real binding for a thread, which fixes
+  bug-691. `LET`/`MUT` bindings are still **accepted** in C and get exactly
+  the same resource semantics, so the corpus keeps building. F makes `RES`
+  the only spelling and migrates the corpus.
+
+**Checkable outcome:**
+- `/tmp/thrrepro`'s shape runs: a helper `drain(t)` called in a loop, then the
+  caller's `thread::isRunning(t)` and `waitFor`.
+- bug-691's reproduction prints `TRUE` then `5`.
+- Two `waitFor(t)` calls both return the result.
+
+References: plan-156-A §The plan-156 feature (the settled semantics); spec
+§15 (`15_resource-management.md`), §16; bug-691; bug-622 (the owner count
+this deletes); `.ai/resources-packages.md`, `.ai/codegen-invariants.md`.
+
+## Prerequisites
+
+See plan-156-A. Additionally:
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-156-B complete | `ls planning/plan-156-B-*` → no match | MET (2026-09-24: "no matches found"; archived in `09b0e5017`) |
+
+## 1. Goal
+
+- A `Thread` value passed to a user function, stored in a `RES`/`LET`
+  binding, or returned behaves exactly as §15 specifies for a resource.
+- The parent view's scope drop cancels and detaches a running worker.
+- `waitFor` never closes.
+
+### Non-goals
+
+- No storage in records, lists or maps, and no parent-view transfer (D). Those
+  keep today's rejections: `TYPE_COLLECTION_OWNERSHIP_VIOLATION`,
+  `TYPE_THREAD_NOT_SENDABLE`. The record-field hole (bug-692) is D's.
+- No per-view STATE (E).
+- `LET`/`MUT` stay accepted (F rejects them).
+- Message and cancel semantics are unchanged.
+
+## 2. Current State
+
+- Type: `src/types.rs:ParameterType::ThreadHandle { worker, msg, res, out }`.
+  Thread is deliberately **not** a registry resource
+  (`src/codegen/builtins/thread/mod.rs:register`: `add_source_types` "without
+  the RES resource-table machinery").
+- Resources are recognised by nominal name
+  (`src/codegen/resource/mod.rs:builtin_resource_close_function`,
+  `is_builtin_resource_type` via `registry().resolve_type`). A generic
+  `Thread OF …` has no single name, so it needs a structural `ThreadHandle`
+  arm.
+- The predicates that need that arm, all present today (2026-09-24 research):
+  - `ir/verify/link.rs`: `close_op_for`, `is_resource_or_resource_union`,
+    `provably_data_type`, `consumed_resource`, `contains_thread`,
+    `contains_resource_or_thread`.
+  - `ir/verify/resources.rs`: `is_copyable`, `is_resource_type`,
+    `is_defaultable`, `res_axis_slot`.
+  - `ir/verify/mod.rs:is_thread_type`.
+  - `ir/shape.rs:is_resource_type`.
+  - `codegen/builtins/mod.rs:is_resource_type`.
+  - `codegen/resource/mod.rs:builtin_resource_close_function`.
+  - `CodeBuilder::is_thread_type`.
+  - `target/shared/plan/symbols.rs:is_thread_type`, `ops_have_thread_owner`.
+- `ThreadHandle` appears 105 times in `src` (`grep -rn ThreadHandle src | wc -l`),
+  in 28 non-test files.
+- The hidden-drop-op precedent is `process::Process`:
+  - `src/codegen/builtins/process/mod.rs:DROP = "process.__drop"`, registered
+    as `RegistryResource.close_function`;
+  - lowered by name in `codegen/engine/builder/mod.rs`
+    (`lower_process_drop_helper`);
+  - also named in the per-target lists `target/{linux_common,win_x86_64,macos_aarch64}`
+    and `target/shared/runtime/mod.rs`;
+  - `process::waitFor` returns a value and leaves the handle open.
+- Thread cleanup today:
+  - `ActiveCleanup::Thread(ThreadCleanup{name, symbol, close, release})`
+    (`codegen/engine/builder/mod.rs`);
+  - owner increment on alias and parameter
+    (`builder_control.rs:lower_ops_inner`, `function_lowering.rs:lower_function`,
+    `builder_thread_cleanup.rs:emit_thread_owner_increment`);
+  - move-on-pass (`deactivate_moved_thread_arguments`,
+    `maybe_deactivate_moved_thread_local`);
+  - return (`builder_exits.rs:emit_return_exit_inner` →
+    `deactivate_thread_cleanup`);
+  - the drop call (`emit_thread_cleanup_call` → `thread.drop(h, CLOSE|RELEASE)`,
+    an `os_alias` of cancel, `thread/lowering.rs:lower_cancel`).
+- Not deletable: `builder_thread_cleanup.rs` also holds the send and seed
+  lowering (`emit_thread_send_runtime_helper_call`,
+  `claim_moved_thread_arg_temp`, `emit_thread_seed_size`,
+  `emit_failed_thread_start_seed_free`).
+- Resource records: `RESOURCE_OFFSET_TAG=0`, `HANDLE=8`, `CLOSED=16` (bit 0
+  closed, bit 1 moved), `STATE=24`, `RESOURCE_RECORD_SIZE_BYTES=96`. Tags
+  1–12 are taken, plus 255 for native (`error_constants.rs`).
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Tests pinning move-on-pass, aliasing and one-shot `waitFor` | `rt_scope_drop_leaks.rs`: `B622_MOVED_TO_CALLEE`, `B622_REASSIGNED`, `B622_ALIAS`, `B622_MOVED_REUSE`, `B622_INLINE_TRAP_START`, `B622_TRAP_ROUTED`, plus 3 plumbing tests; fixtures `syntax/threads/func_thread_waitFor_valid` (`doubleWaitCloses`), `rt-behavior/threads/func_thread_result_valid`, `rt-behavior/thread/thread-start-inline-trap-rt` (`closedAnswers`) | census 2026-09-24 (`rg -n 'B622_' tests/runtime/rt_scope_drop_leaks.rs`; `rg -ln 'doubleWaitCloses\|closedAnswers' tests`) |
+| Drop-semantics fixture | `rt-behavior/threads/thread-drop-cleanup` (5 drop cases + `makeThread`'s return) | same census |
+
+## 3. Design
+
+- **Resource tag.** `RESOURCE_TAG_THREAD` (next free, 13) for the parent view,
+  and `RESOURCE_TAG_THREAD_WORKER` (14).
+- **The parent view** is a 96-byte resource record in the binding's arena:
+  `HANDLE` = control-block pointer, `CLOSED` per §15, STATE slot reserved
+  (E).
+  - `thread::start` returns a fresh record.
+  - The trampoline builds the worker's own record in the worker arena and
+    passes it as the entry's first argument.
+- **Every `thread::*` builtin** reads the control block through
+  `record.HANDLE`. That's one extra load per call; all `THREAD_OFFSET_`/
+  `CONTROL_OFFSET_` users go through a single `emit_control_block_of(view)`
+  helper.
+- **Hidden drop op.** `thread.__drop`, the registered close op for
+  `ThreadHandle` (worker = false). It cancels and detaches a running worker,
+  then releases the parent side of the block (A §4.4, whose `refs` replaces
+  the owner count).
+  - `ThreadHandle` with worker = true has **no** drop op: the runtime closes
+    it at worker return.
+  - The verifier knows the one op through `close_op_for`, so `RETURN` and
+    scope drop are standard resource events.
+- **Borrow-on-pass.** Delete the non-`thread.` arm of
+  `deactivate_moved_thread_arguments`, the parameter owner increment, the
+  alias owner increment, `ThreadCleanup`, and `ActiveCleanup::Thread`.
+  Threads use `ActiveCleanup::Resource` with the `thread.__drop` symbol
+  (`resource_cleanup_symbol`).
+- **`waitFor`.** Waits on the block condvar until the worker is closed, then
+  copies the result out of the block arena into the caller's arena on every
+  call. It no longer sets any closed flag on the parent view.
+- **`LET`/`MUT` in C.** A `LET` thread binding lowers exactly like a `RES`
+  one, and the `Bind` arm treats it as a resource binding. It stays
+  temporarily accepted; F turns it into `TYPE_RESOURCE_REQUIRES_RES`, the
+  existing rule.
+
+Correctness risk: the drop, which is now on the resource path, must still
+cancel a running worker on every exit path (`RETURN`, `FAIL`, trap routing,
+`EXIT PROGRAM`). `thread-drop-cleanup` covers all five paths and must keep
+passing unchanged.
+
+Byte-identity is not the gate. `.ir` and `.ncodesum` of every thread fixture
+are expected to diff. `.ast` must not diff in C, since C changes no syntax.
+
+## Phases
+
+> Keep checkboxes current (see plan-156-A's note). **An unticked box means NOT
+> DONE.**
+
+### Phase 1 — failing tests for the new semantics
+
+- [x] `tests/rt-behavior/threads/thread-borrow-on-pass/`: `/tmp/thrrepro`'s
+      helper-in-a-loop shape, expected to print its total and result, exit 0.
+      Fails today with `7-703-0004`.
+      (Expected `total 15 result 5`; today `Error: 7-703-0004`, exit 255.)
+- [x] `tests/rt-behavior/threads/thread-waitfor-repeatable/`: two
+      `waitFor(t)` calls both print 5. Fails today.
+      (Today prints `5`, then `Error: 7-703-0004`, exit 255.)
+- [x] bug-691's reproduction as `tests/rt-behavior/threads/bug691-res-thread-param/`.
+      (Expected `TRUE`, `5`; today `TRUE`, then `Error: 7-703-0004`, exit 255.
+      Goldens: `.ast`/`.ir` recorded from today's compiler with
+      `scripts/sync-goldens.sh`, the `build.log` run section hand-set to the
+      expected output; Phase 3 re-syncs them.)
+
+Acceptance: all three fail for the documented reason.
+  Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/threads/thread-borrow-on-pass' 'rt-behavior/threads/thread-waitfor-repeatable' 'rt-behavior/threads/bug691-*'`
+  → 3 failures (est. 1 min).
+  Result: "acceptance tests failed: 3 mismatch(es) (3 test(s) ran)", each
+  `+Error: 7-703-0004`.
+Commit: 18922642e
+
+### Phase 2 — the verifier sees a resource
+
+- [x] Add the `ThreadHandle` arms to every predicate listed in §2 (each file
+      named there). `close_op_for` answers `thread.__drop` for worker = false
+      and `None` for worker = true.
+      (`close_op_for` answers `thread.drop` — the existing hidden drop code
+      form, Correction 1 — for a parent view and `None` for a worker view. The
+      rest, predicate by predicate: `is_resource_or_resource_union`,
+      `consumed_resource`, `resources.rs:is_resource_type` answer through
+      `close_op_for`; `provably_data_type`, `is_copyable`, `is_defaultable`
+      already answer "no" for a `ThreadHandle`; `contains_thread` /
+      `contains_resource_or_thread` / `verify::is_thread_type` are unchanged
+      because threads stay out of collections until D; `res_axis_slot` exempts
+      a thread view until D opens storage (non-goal "keep today's
+      rejections"); `ir/shape.rs:is_resource_type`,
+      `codegen/builtins:is_resource_type`, `builtin_resource_close_function`,
+      `CodeBuilder::is_thread_type` and `plan/symbols.rs` are codegen/registry
+      lookups and change with the codegen in Phase 3.)
+- [x] `ops.rs` Bind arm: a `ThreadHandle` is a resource, so `RES` is accepted
+      and `LET`/`MUT` temporarily map to it (comment: "until plan-156-F").
+- [x] Verifier unit tests in `src/ir/verify/tests.rs`: `TYPE_USE_AFTER_MOVE`
+      after `RETURN t`; a borrowed parameter is not a move.
+      (`returning_a_thread_view_consumes_it`,
+      `passing_a_thread_view_to_a_function_borrows_it`, plus
+      `a_thread_view_transfer_moves_the_source`, `res_on_a_thread_binding_is_accepted`,
+      `a_let_thread_binding_is_accepted_until_the_clean_break`. The two move
+      tests fail without the `close_op_for` arm — a thread is then not
+      tracked as a resource at all.)
+
+Acceptance: the new unit tests pass; existing verifier tests pass.
+  Check: `cargo test --bin mfb verify` → pass (est. 3 min).
+  Result: 487 passed. The thread syntax fixtures are unchanged by it
+  (`test-accept.sh target/debug/mfb … 'syntax/threads/**'` → 39 passed).
+Commit: 5d1b00379
+
+### Phase 3 — view records, drop op, borrow, repeatable `waitFor`
+
+- [x] Register `thread.__drop` (a `RegistryResource`-equivalent structural
+      entry), lower it, and add it to the per-target runtime lists beside
+      `process.__drop`.
+      (Correction 1: it is the existing `thread.drop`, already in the per-target
+      lists and planned by `module_has_thread_owner`. Registered structurally in
+      `resource::builtin_resource_close_function` — a `ThreadHandle` arm, `DROP`
+      for a parent view, `None` for a worker — which every resource path asks
+      (`resource_cleanup_symbol`, the `RETURN` deactivation, the verifier's
+      `close_op_for`, whose Phase 2 arm now defers to it).
+      `builtins::is_resource_type` stays registry-only on purpose: the layout,
+      copy and transfer paths that ask it keep their own thread arms. Lowered by
+      `simple_thread_handle_helper`'s `Drop` arm, now one argument (the view):
+      close the view, mark the block `CLOSED` and cancelled, close every queue,
+      join a `COMPLETED` / detach a `RUNNING` worker unless the OS handle is
+      already zero, release the handle side's reference.)
+- [x] `thread::start` and the trampoline build the view records (§3). Add
+      `emit_control_block_of` and re-point every builtin.
+      (`RESOURCE_TAG_THREAD` 13 / `RESOURCE_TAG_THREAD_WORKER` 14. The parent
+      view is allocated in the caller's arena as `thread::start`'s first act and
+      freed on every failure path; the worker view is embedded in the control
+      block at `CONTROL_OFFSET_WORKER_VIEW` (960; `CONTROL_BLOCK_SIZE` 1056),
+      Correction 2, and the trampoline passes its address. `emit_control_block_of`
+      opens `simple_thread_handle_helper` (isRunning/waitFor/cancel/poll/drop),
+      `thread_queue_write_helper` (send/emit/transfer), `thread_queue_read_helper`
+      (receive/read/accept) and the worker form of the stdin subscription;
+      `isCancelled` and `os::sleep` read the pinned block register and take no
+      view. A null or closed view answers `ErrResourceClosed` through
+      `emit_view_closed_exit`. The inline-`TRAP` closed default is
+      `emit_closed_resource_record` with the thread tag;
+      `emit_closed_thread_handle` is deleted. The parent view's record is freed
+      by its drop (`resource_record_freed_at_drop`): `rt_scope_drop_leaks`'s
+      thread loops grow 0 B.)
+- [x] Delete the owner count, move-on-pass, `ThreadCleanup` and
+      `ActiveCleanup::Thread` (§3). Threads go through the resource cleanup.
+      (Deleted: `CONTROL_OFFSET_OWNERS`, `THREAD_DROP_CLOSE`/`RELEASE`,
+      `ThreadCleanup`, `ActiveCleanup::Thread` and its arms in `emit_cleanups`,
+      `emit_cleanup_branch_to_depth`, the scope pop and `trap_route_cleanups`;
+      `emit_thread_cleanup_call`/`_for_name`, `emit_thread_owner_increment`,
+      `thread_value_is_fresh_handle`, `deactivate_thread_cleanup`,
+      `maybe_deactivate_moved_thread_local`, `deactivate_moved_thread_arguments`
+      (all six call sites), `thread_drop_symbol`, `CodeBuilder::is_thread_type`,
+      the parameter cleanup in `lower_function`, and the thread arms of the
+      `Bind` and `Assign` lowering. `cargo build` → no warnings.)
+- [x] `waitFor` per §3. Update `func_wait_for.rs` DESC ("closes the handle" →
+      repeatable).
+      (The helper waits for `COMPLETED` and answers the stored result without
+      touching the state or the outbound queue; the first call joins, later
+      calls see the zero OS handle. Prose updated in `func_wait_for.rs` (DESC and
+      the `t` parameter), `func_is_running.rs`, `func_start.rs`, `func_cancel.rs`
+      (scope-end drop) and the package `MODULE_DESC`, all of which said
+      `waitFor` closes. `mfb man thread waitFor` renders it;
+      `scripts/man-census.sh --memory-scope` → "unclassified memory-vocabulary
+      hits: 0".)
+- [x] Re-baseline only the disproved expectations. Proof for each is spec §15
+      plus the settled design:
+  - `B622_MOVED_REUSE`, `B622_MOVED_TO_CALLEE`: the caller now reads the
+    handle after the call.
+  - `doubleWaitCloses` and `closedAnswers`: a second `waitFor` now returns
+    the result.
+  - Commit each change with that proof (AGENTS.md "never edit a test to
+    pass").
+  (Done, and the list was short — Correction 3. Each was a disproved line,
+  corrected in place: `B622_MOVED_REUSE` now counts `NOT isRunning` after the
+  lent call (`done=50`); `B622_MOVED_TO_CALLEE`'s program stands, its doc now
+  says the caller's drop frees; `doubleWaitCloses` → `doubleWaitRepeats`
+  (returns `second - first`); `closedAnswers`' golden now reads
+  `inline-cancel=NOTRAISED` / `plain-cancel=NOTRAISED`, the two spellings
+  still agreeing line for line, and its comments no longer claim a closed
+  handle. Also disproved: `B622_ALIAS` (a second `waitFor` through the other
+  name returns 3: `repeated=50`), `B622_TRAPPED_QUERY` (the trapped
+  `isRunning` after `waitFor` succeeds: `done=50`, the trapped wrapper still
+  built), `B622_TRAP_ROUTED` (its handler read of `t` is now
+  `TYPE_USE_AFTER_MOVE` — measured with `mfb build` on the program — so the
+  handler answers -1 itself), `thread-queue-timeout-cancel` (the callee's
+  trap route no longer closes a lent thread, so the handler's `waitFor`
+  answers the worker's own 7: `worker timeout 7`, `cancelled 7`), and
+  `func_thread_result_valid` (the second retrieval now must equal 41).
+  Separately `codegen_thread_c_return_x86_64` failed on a false positive,
+  Correction 6.)
+
+Acceptance: Phase 1's three fixtures pass; `thread-drop-cleanup` passes
+unchanged; the re-baselined tests assert the new behavior.
+  Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**' 'syntax/threads/**'`
+  → 0 failures (est. 5 min); `cargo test --test rt_scope_drop_leaks` → pass
+  (est. 3 min).
+  Result: the check glob plus `byte-identity/{thread,resource-xfer-slots}` and
+  `rt-error/threads/**` → "acceptance tests passed (97 test(s) ran)";
+  `thread-drop-cleanup` passes with its goldens untouched.
+  `cargo test --release --test rt_scope_drop_leaks` → 151 passed, 2 failed
+  before the re-baseline (the two named in Correction 3), then
+  `… rt_scope_drop_leaks thread` → "5 passed; 0 failed", main-arena growth 0 B.
+  Cross-run of the three Phase 1 fixtures, `thread-drop-cleanup`,
+  `thread-queue-timeout-cancel` and `thread-start-inline-trap-rt` (built
+  `-target`, run remotely, output compared with the golden run section):
+  linux-aarch64 box 2226 → 6/6, windows-x86_64 box 2230 → 6/6.
+  `scripts/artifact-gate.sh target/release/mfb all` → "2142 golden(s) checked,
+  0 diff(s)" after the two thread fixtures' `.ncodesum` (expected, §3) and
+  Correction 8's stale golden were regenerated.
+Commit: a9253dbb5 (code), 21762a894 (re-baselines)
+
+## Validation Plan
+
+- Tests: the Phase 1 fixtures, the verifier unit tests, `rt_scope_drop_leaks`
+  re-baselined with proof.
+- Runtime proof: `examples/wind` with its queue drain moved back into a
+  helper `withNews(worker, p)` in a scratch copy under `/tmp`: it runs to
+  autoplay.
+  **Done**: the scratch copy's frame loop calls `drainNews(worker, playback)`
+  (the poll/receive/`withNews` loop, lent the handle), then reads
+  `thread::isRunning(worker)` itself; built `--app`, run headless with an open
+  stdin. The helper ran 170 times, the last with `loaded=120.00 running=FALSE`,
+  then `p156 collected sent=40 again=40 playing=TRUE status=` — the forecast
+  complete, a second `waitFor` answering 40 again, autoplay on.
+- Doc sync: `func_wait_for.rs` DESC (`mfb man thread waitFor`) and
+  `func_cancel.rs` prose about drop. The spec prose waits for F; C's
+  behavior is documented in F in one pass.
+- Final gate: at the end of F.
+
+## Corrections
+
+1. **The drop op is the existing `thread.drop`, not a new `thread.__drop`.**
+   `thread.drop` is already the hidden, non-user-callable drop code form
+   (an `os_alias` of `cancel`'s body) with its runtime symbol, its catalog
+   spec and its per-target import entries; `process.__drop`'s double
+   underscore is that package's spelling of the same idea. Reusing it avoids
+   a rename across the per-target lists with no change in meaning. Named
+   `crate::codegen::builtins::thread::DROP`.
+
+2. **The worker view lives in the control block, not the worker arena.** A
+   96-byte record embedded at `CONTROL_OFFSET_WORKER_VIEW` needs no allocation
+   in the machine-floor trampoline, has no failure path, and lives exactly as
+   long as the worker's reference — which is as long as anything can name it.
+   The block grows from 960 to 1056 bytes, inside rv64's 2047 immediate range.
+
+3. **The re-baseline list was incomplete.** Five more expectations pinned the
+   old semantics and were disproved by it: `B622_ALIAS`, `B622_TRAPPED_QUERY`
+   and `B622_TRAP_ROUTED` in `rt_scope_drop_leaks`, and the fixtures
+   `thread-queue-timeout-cancel` and `func_thread_result_valid` (details on the
+   Phase 3 task). None is weakened: each now asserts the new outcome.
+
+4. **The spec is updated in C, not deferred to F.** C deleted
+   `emit_thread_owner_increment` and `emit_closed_thread_handle`, which the spec
+   cited, and made its "`waitFor` retrieves once and closes" sentences false at
+   HEAD; `.ai/specifications.md` keeps the spec current with every compiler
+   change. So C rewrote exactly what it falsified: `threading/07` (Views,
+   Lifetime, layout, states), `06`, `08`, `12`, `spec.md`, and `language/04`,
+   `16`. `scripts/spec-census.sh --citations` → 0 misses. F still owns the
+   `RES`-only wording.
+
+5. **No closed view is reachable from MFBASIC in C**, so no fixture pins the
+   closed-view answers. A handler naming a thread its route dropped is
+   `TYPE_USE_AFTER_MOVE`, and an inline `TRAP` must `RECOVER` a live value or
+   diverge, so the closed default is never observed. The runtime still answers
+   `ErrResourceClosed` for a null or closed view (`emit_control_block_of`),
+   which D's moved views will reach.
+
+6. **`codegen_thread_c_return_x86_64` had a false positive.** Its scan of the
+   four instructions after each libc call treated `add_imm` as write-only; the
+   queue init reloads `rdi` from the frame and then adds to it in place
+   (`ldr_u64 rdi,[rsp+56]; add_imm rdi,rdi,256` after `pthread_cond_init`,
+   dumped from the linux-x86_64 `.ncode`), which the scan reported as reading
+   the call's result from `rdi`. The scan now ends at the first rewrite of
+   `rdi`; a read before it still fails.
+
+7. **`LET b = t` of a thread is an alias in C, not a move.** The verifier's
+   move of a resource bind applies to `RES`; a `LET`/`MUT` thread binding from
+   another is an alias (the `B622_ALIAS` program compiles and both names read
+   the one open view, which only `t`'s drop closes). F's `RES`-only rule
+   makes it a move.
+
+8. **A stale golden from plan-156-A.** `artifact-gate all` diffed
+   `syntax/app/app-mouse-surface` on four targets, at HEAD before C as well.
+   Bisected: the branch base's compiler reproduces the golden, and the one
+   changed function is `_mfb_rt_os_os_sleep`, whose worker branch is the
+   cancellable wait A moved onto the block lock (its operands now address the
+   control block's inbound queue). This app is the only fixture whose goldens
+   cover `os::sleep`'s code, and A's checks did not include it. Regenerated
+   with `scripts/regen-native-goldens.sh`; not a behavior change.
+
+9. **Two thread programs did not build natively** (found by the corpus unit
+   test `no_corpus_function_lowers_to_an_empty_body`; the fixtures' own
+   acceptance runs dump only AST and IR). `func_thread_emit_valid`, a
+   worker-only program, failed with "internal relocation target
+   '_mfb_rt_drop_owned_string' is not defined": the per-type value functions
+   were emitted after the relocation-gated shared helpers they call.
+   `thread-message-plane-constructors-valid`, which takes `Thread` parameters
+   and starts nothing, failed on `_mfb_rt_thread_block_release`: the drop
+   helper was planned but the block-release group was gated on `thread::start`.
+   Fixed: the thread group and the value functions are emitted before those
+   helpers, the table/release group is gated on the release being referenced,
+   and a `Thread` parameter no longer plans `thread.drop` (it borrows). Both
+   now build (`mfb build` → "Wrote executable"). By the code, both failed since
+   plan-156-A as well — not measured at that commit.
+
+## Summary
+
+The semantic core. The risk is the drop path's cancel on every exit, guarded
+by `thread-drop-cleanup`, and the deletion of the bug-622 owner count, whose
+job A's `refs` and the resource drop now do.

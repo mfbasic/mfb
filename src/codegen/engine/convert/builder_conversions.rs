@@ -20,8 +20,12 @@ impl CodeBuilder<'_> {
         let value = self.materialize_float(value)?;
         // `toInt(value)` with a `Byte` or `Scalar` is a width-preserving move: a
         // Byte's value and a Scalar's zero-extended codepoint are already their
-        // Integer value. The 2-arg radix form is `String`-only, so both are 1-arg.
-        if matches!(value.type_.name().as_ref(), "Byte" | "Scalar") {
+        // Integer value. So is an enum (plan-140-B): its value IS the member's
+        // 0-based declaration index. The 2-arg radix form is `String`-only, so all
+        // three are 1-arg.
+        if matches!(value.type_.name().as_ref(), "Byte" | "Scalar")
+            || self.type_model.is_enum_type(&value.type_)
+        {
             let register = self.allocate_register();
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {

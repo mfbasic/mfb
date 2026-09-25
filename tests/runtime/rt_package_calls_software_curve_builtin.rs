@@ -56,7 +56,7 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
         .iter()
         .map(|dep| {
             format!(
-                "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+                "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\"direct\":true,\"requiredBy\":[]}}"
             )
         })
         .collect::<Vec<_>>()

@@ -124,6 +124,7 @@ pub(super) fn rich_project() -> IrProject {
             includes: vec![],
             variants: vec![IrVariant {
                 name: "Dot".to_string(),
+                type_: crate::types::ParameterType::parse("Dot"),
                 fields: vec![IrField {
                     visibility: None,
                     name: "p".to_string(),

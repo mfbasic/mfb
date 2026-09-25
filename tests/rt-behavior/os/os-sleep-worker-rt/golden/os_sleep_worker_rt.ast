@@ -20,7 +20,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "os_sleep_workers.sleepThenReturn" }, { "kind": "string", "value": "seed" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "os_sleep_workers.sleepThenReturn" }, { "kind": "string", "value": "seed" }] }, "line": 12 },
       { "kind": "binding", "mutable": false, "name": "t0", "type": "Integer", "value": { "kind": "call", "callee": "datetime.monotonicNanos", "arguments": [] }, "line": 13 },
       { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 14 },
       { "kind": "binding", "mutable": false, "name": "t1", "type": "Integer", "value": { "kind": "call", "callee": "datetime.monotonicNanos", "arguments": [] }, "line": 15 },

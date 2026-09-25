@@ -1,0 +1,71 @@
+' ---------------------------------------------------------------------------
+' Tests: the expansion guards.
+'
+' Each case asserts BOTH that the limit fires and that a document just inside
+' it still parses -- a guard that rejects everything protects nothing, and a
+' guard that never fires protects nothing either.
+'
+' The node limit is exercised through `parseWithLimits` at a small limit rather
+' than by building a million-node document, which would be far too slow for a
+' unit test. The boundary is what matters, and it is the same boundary
+' `xml::parse` reaches at NODE_LIMIT.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' `depth` nested elements: <d><d>...</d></d>.
+PRIVATE FUNC nested(depth AS Integer) AS String
+  RETURN strings::repeat("<d>", depth) & strings::repeat("</d>", depth)
+END FUNC
+
+TESTING
+  TGROUP "the depth limit"
+    TCASE "nesting exactly at the depth limit parses"
+      expectNTrap(parse(nested(DEPTH_LIMIT)))
+    END TCASE
+
+    TCASE "nesting one level past the depth limit fails ErrDepthExceeded"
+      expectTrap(parse(nested(DEPTH_LIMIT + 1)), 77050024)
+      expectTrap(parse(nested(DEPTH_LIMIT + 50)), 77050024)
+    END TCASE
+
+    TCASE "the depth limit is the 256 the plan chose, matching json::parse"
+      expectInteger(DEPTH_LIMIT, 256)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the node limit"
+    TCASE "a document exactly at the limit parses, one node past it fails"
+      ' <a><b/><c/></a> is three nodes: the root and its two children.
+      LET xml AS String = "<a><b/><c/></a>"
+      expectNTrap(parseWithLimits(xml, 3))
+      expectTrap(parseWithLimits(xml, 2), 93140001)
+    END TCASE
+
+    TCASE "text, comments and processing instructions each count as a node"
+      ' <a>x<!--c--><?p d?></a> is five: the root, the text, the comment, the
+      ' PI, and nothing else.
+      LET xml AS String = "<a>x<!--c--><?p d?></a>"
+      expectNTrap(parseWithLimits(xml, 4))
+      expectTrap(parseWithLimits(xml, 3), 93140001)
+    END TCASE
+
+    TCASE "prolog and epilog nodes are counted too"
+      LET xml AS String = "<!--before--><a/><!--after-->"
+      expectNTrap(parseWithLimits(xml, 3))
+      expectTrap(parseWithLimits(xml, 2), 93140001)
+    END TCASE
+
+    TCASE "the limit fires before the whole document is built"
+      ' A deep document whose node count is far past a tiny limit still fails
+      ' as the limit, not as depth or as anything else.
+      expectTrap(parseWithLimits(nested(100), 5), 93140001)
+    END TCASE
+
+    TCASE "xml::parse uses NODE_LIMIT, and the exported code is the documented one"
+      expectInteger(NODE_LIMIT, 1000000)
+      expectInteger(ErrorNodeLimit, 93140001)
+    END TCASE
+  END TGROUP
+END TESTING

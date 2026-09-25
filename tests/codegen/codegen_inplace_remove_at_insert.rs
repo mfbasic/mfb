@@ -1,6 +1,8 @@
 //! plan-121-B: `insert`, `removeAt` and Set `remove` take an in-place path on a
-//! uniquely-owned plain `MUT` local — and, just as importantly, DECLINE when a
-//! live `FOR EACH` is walking the collection.
+//! uniquely-owned plain `MUT` local — and, just as importantly, never shift the
+//! entries a live `FOR EACH` is walking. Until plan-142-F they declined under such
+//! a loop; since then the loop walks a copy of the binding made at entry (the
+//! `operand_snapshot` slot), and the self-update runs in place on the binding.
 //!
 //! Both halves need a codegen-inspection test, for opposite reasons:
 //!
@@ -9,13 +11,14 @@
 //!   just gets slow again — `list (Fixed) insert` was 61× c -O0 and
 //!   `set (Fixed) remove` 677× precisely because no arm existed, and nothing was
 //!   red.
-//! * **Refused.** A missed *decline* does not get slow, it MISCOMPILES, and the
+//! * **Kept apart.** A shift under the loop does not get slow, it MISCOMPILES, and the
 //!   symptom is a skipped or repeated element rather than a crash. That is the
 //!   asymmetry plan-121-A's gate inventory exists to pin: `append` may proceed
 //!   under a live `FOR EACH` because it writes only beyond the count the loop
 //!   snapshotted at entry, while `removeAt` shifts survivors *down* — rewriting
 //!   entries below that snapshot — and `insert` shifts up from an index inside
-//!   it. Both must decline where `append` does not.
+//!   it. The loop must walk its own copy (plan-142-F) — or, before that, the arm
+//!   declined.
 //!
 //! Build-only `--ncode` checks cross-built for `linux-x86_64`, matching the
 //! sibling suites: the in-place gates are shared, target-independent codegen, so
@@ -43,6 +46,16 @@ fn label_count(plan: &Value, symbol: &str, needle: &str) -> usize {
                     .is_some_and(|name| name.contains(needle))
         })
         .count()
+}
+
+/// Whether the named function has a stack slot of `kind` — `operand_snapshot`
+/// is the copy a `FOR EACH` over a binding its body writes walks (plan-142-F).
+fn has_slot(plan: &Value, symbol: &str, kind: &str) -> bool {
+    function(plan, symbol)["stackSlots"]
+        .as_array()
+        .expect("stackSlots array")
+        .iter()
+        .any(|slot| slot["type"].as_str() == Some(kind))
 }
 
 fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
@@ -94,13 +107,12 @@ fn remove_at_on_a_plain_local_mutates_in_place() {
     );
 }
 
-/// The decline that matters. `removeAt` shifts survivors DOWN, rewriting entries
-/// below the count a live `FOR EACH` snapshotted at loop entry — which the loop
-/// can observe as a skipped element. `append` is safe in the same position
-/// because it writes only *past* that count; `removeAt` is not, and may not
-/// borrow `append`'s reasoning.
+/// The separation that matters. `removeAt` shifts survivors DOWN, rewriting
+/// entries a live `FOR EACH` over the same block would see — a skipped element.
+/// So the loop walks a copy made at entry (plan-142-F), and the `removeAt` runs
+/// in place on the binding, which the loop no longer reads.
 #[test]
-fn remove_at_declines_under_a_live_for_each() {
+fn remove_at_under_a_live_for_each_runs_in_place_on_a_loop_copy() {
     let plan = ncode(
         "inplace_removeat_foreach",
         "IMPORT collections\n\
@@ -120,13 +132,14 @@ fn remove_at_declines_under_a_live_for_each() {
         \x20 RETURN walk(4)\n\
          END FUNC\n",
     );
-    assert_eq!(
-        label_count(&plan, "_mfb_fn_walk", "remove_inplace"),
-        0,
-        "a `removeAt` inside a live `FOR EACH` over the same binding must take \
-         the COPYING path: the in-place shift moves entries below the count the \
-         loop snapshotted at entry, so the loop would observe it. This is the one \
-         place `removeAt` may not reuse `append`'s permissive gate."
+    assert!(
+        has_slot(&plan, "_mfb_fn_walk", "operand_snapshot"),
+        "a `FOR EACH` whose body rewrites its iterable must walk a copy of it: the \
+         in-place shift would otherwise move entries the loop reads"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_walk", "remove_inplace") >= 1,
+        "with the loop on its own copy, the `removeAt` runs in place"
     );
 }
 
@@ -157,9 +170,10 @@ fn insert_on_a_plain_local_mutates_in_place() {
 }
 
 /// `insert` shifts entries UP starting at an index inside the live range, so a
-/// concurrent `FOR EACH` can observe the move just as it can for `removeAt`.
+/// `FOR EACH` over the same block could observe the move just as for `removeAt`:
+/// the loop walks a copy, and the `insert` runs in place.
 #[test]
-fn insert_declines_under_a_live_for_each() {
+fn insert_under_a_live_for_each_runs_in_place_on_a_loop_copy() {
     let plan = ncode(
         "inplace_insert_foreach",
         "IMPORT collections\n\
@@ -179,11 +193,13 @@ fn insert_declines_under_a_live_for_each() {
         \x20 RETURN walk(4)\n\
          END FUNC\n",
     );
-    assert_eq!(
-        label_count(&plan, "_mfb_fn_walk", "insert_inplace"),
-        0,
-        "an `insert` inside a live `FOR EACH` over the same binding must take the \
-         copying path — the shift moves entries the loop already snapshotted"
+    assert!(
+        has_slot(&plan, "_mfb_fn_walk", "operand_snapshot"),
+        "a `FOR EACH` whose body rewrites its iterable must walk a copy of it"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_walk", "insert_inplace") >= 1,
+        "with the loop on its own copy, the `insert` runs in place"
     );
 }
 
@@ -218,11 +234,11 @@ fn set_remove_on_a_plain_local_mutates_in_place() {
     );
 }
 
-/// The entry compaction moves entries below a live iterator's snapshot, exactly
-/// as the Map `removeKey` arm's own guard recognises (bug-142's non-freeing
-/// twin), so Set `remove` declines there too.
+/// The entry compaction moves entries a live iterator over the same block would
+/// read (bug-142's non-freeing twin), so the loop walks a copy and the Set
+/// `remove` runs in place.
 #[test]
-fn set_remove_declines_under_a_live_for_each() {
+fn set_remove_under_a_live_for_each_runs_in_place_on_a_loop_copy() {
     let plan = ncode(
         "inplace_set_remove_foreach",
         "IMPORT collections\n\
@@ -242,12 +258,13 @@ fn set_remove_declines_under_a_live_for_each() {
         \x20 RETURN walk(4)\n\
          END FUNC\n",
     );
-    assert_eq!(
-        label_count(&plan, "_mfb_fn_walk", "mrk_scan_loop"),
-        0,
-        "a Set `remove` inside a live `FOR EACH` over the same binding must take \
-         the copying path — the entry compaction shifts entries the loop \
-         snapshotted"
+    assert!(
+        has_slot(&plan, "_mfb_fn_walk", "operand_snapshot"),
+        "a `FOR EACH` whose body rewrites its iterable must walk a copy of it"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_walk", "mrk_scan_loop") >= 1,
+        "with the loop on its own copy, the Set `remove` runs in place"
     );
 }
 

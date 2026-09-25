@@ -971,6 +971,14 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
             .expect("run mfb in consumer")
     };
     assert!(run_in(&["pkg", "add", "alice#user@1.0.0"]).status.success());
+    // bug-628: the add also declares `user`'s own dependency, at the version
+    // `user` was built against, as an indirect entry.
+    let manifest_path = app_dir.join("project.json");
+    let before_conflicting_add = std::fs::read_to_string(&manifest_path).unwrap();
+    assert!(
+        before_conflicting_add.contains("\"requiredBy\": [\"alice#user\"]"),
+        "adding `user` must declare `common` as required by it: {before_conflicting_add}"
+    );
 
     // plan-60-C: `add` now resolves BEFORE mutating, so the add that creates the
     // conflicting graph is itself refused — the conflict surfaces here rather
@@ -983,25 +991,29 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
     );
     let add_stderr = String::from_utf8_lossy(&conflicting_add.stderr);
     assert!(add_stderr.contains("diamond conflict"), "{add_stderr}");
-    // ...and it must have written nothing: the refused dependency is absent.
-    let manifest_path = app_dir.join("project.json");
+    // ...and it must have written nothing.
     let after_refusal = std::fs::read_to_string(&manifest_path).unwrap();
-    assert!(
-        !after_refusal.contains("common"),
-        "a refused add must leave project.json untouched: {after_refusal}"
+    assert_eq!(
+        after_refusal, before_conflicting_add,
+        "a refused add must leave project.json untouched"
     );
 
     // The original coverage — that `update` reports the conflict naming both
     // requirers — still has to hold. `add` will no longer produce the
-    // conflicting manifest, so construct it directly: declare `common@2.0.0`
-    // alongside `user`, floating, exactly as the old two-add-then-relax setup
-    // produced.
+    // conflicting manifest, so construct it directly: make the declared `common`
+    // a direct, floating 2.0.0 alongside `user`, exactly as the old
+    // two-add-then-relax setup produced.
     let conflicted = after_refusal
         .replace("\"pin\": true", "\"pin\": false")
         .replace(
-            "\"packages\": [",
-            "\"packages\": [\n    { \"name\": \"common\", \"ident\": \"alice#common\",              \"version\": \"2.0.0\", \"pin\": false, \"source\": \"alice#common\" },",
-        );
+            "\"version\": \"1.0.0\",\n      \"pin\": false,\n      \"source\": \"alice#common\"",
+            "\"version\": \"2.0.0\",\n      \"pin\": false,\n      \"source\": \"alice#common\"",
+        )
+        .replace("\"direct\": false", "\"direct\": true");
+    assert!(
+        conflicted.contains("\"version\": \"2.0.0\""),
+        "the conflicting manifest must declare common 2.0.0: {conflicted}"
+    );
     std::fs::write(&manifest_path, conflicted).unwrap();
 
     let update = run_in(&["pkg", "update"]);

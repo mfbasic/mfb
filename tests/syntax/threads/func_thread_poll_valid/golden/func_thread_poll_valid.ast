@@ -18,7 +18,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 5 },
       { "kind": "binding", "mutable": false, "name": "immediate", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "0" }] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "timed", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "1" }] }, "line": 7 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }

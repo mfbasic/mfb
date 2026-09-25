@@ -127,13 +127,13 @@ r#"FUNC __vector_clamp_length_fixed2(v AS Fixed2, maxLen AS Fixed) AS Fixed2
   IF maxLen < 0.0 THEN
     FAIL error(77050002, "vector::clamp_length with negative max")
   END IF
-  LET len AS Fixed = math::sqrt(v.x * v.x + v.y * v.y)
-  IF len <= maxLen OR len = 0.0 THEN
+  LET len AS Float = math::sqrt(toFloat(v.x) * toFloat(v.x) + toFloat(v.y) * toFloat(v.y))
+  IF len <= toFloat(maxLen) OR len = 0.0 THEN
     RETURN v
   END IF
-  LET ratio AS Fixed = maxLen / len
-  LET cx AS Fixed = v.x * ratio
-  LET cy AS Fixed = v.y * ratio
+  LET ratio AS Float = toFloat(maxLen) / len
+  LET cx AS Fixed = toFixed(toFloat(v.x) * ratio)
+  LET cy AS Fixed = toFixed(toFloat(v.y) * ratio)
   RETURN Fixed2[cx, cy]
 END FUNC"#;
 #[rustfmt::skip]
@@ -142,14 +142,14 @@ r#"FUNC __vector_clamp_length_fixed3(v AS Fixed3, maxLen AS Fixed) AS Fixed3
   IF maxLen < 0.0 THEN
     FAIL error(77050002, "vector::clamp_length with negative max")
   END IF
-  LET len AS Fixed = math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-  IF len <= maxLen OR len = 0.0 THEN
+  LET len AS Float = math::sqrt(toFloat(v.x) * toFloat(v.x) + toFloat(v.y) * toFloat(v.y) + toFloat(v.z) * toFloat(v.z))
+  IF len <= toFloat(maxLen) OR len = 0.0 THEN
     RETURN v
   END IF
-  LET ratio AS Fixed = maxLen / len
-  LET cx AS Fixed = v.x * ratio
-  LET cy AS Fixed = v.y * ratio
-  LET cz AS Fixed = v.z * ratio
+  LET ratio AS Float = toFloat(maxLen) / len
+  LET cx AS Fixed = toFixed(toFloat(v.x) * ratio)
+  LET cy AS Fixed = toFixed(toFloat(v.y) * ratio)
+  LET cz AS Fixed = toFixed(toFloat(v.z) * ratio)
   RETURN Fixed3[cx, cy, cz]
 END FUNC"#;
 #[rustfmt::skip]
@@ -158,15 +158,15 @@ r#"FUNC __vector_clamp_length_fixed4(v AS Fixed4, maxLen AS Fixed) AS Fixed4
   IF maxLen < 0.0 THEN
     FAIL error(77050002, "vector::clamp_length with negative max")
   END IF
-  LET len AS Fixed = math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w)
-  IF len <= maxLen OR len = 0.0 THEN
+  LET len AS Float = math::sqrt(toFloat(v.x) * toFloat(v.x) + toFloat(v.y) * toFloat(v.y) + toFloat(v.z) * toFloat(v.z) + toFloat(v.w) * toFloat(v.w))
+  IF len <= toFloat(maxLen) OR len = 0.0 THEN
     RETURN v
   END IF
-  LET ratio AS Fixed = maxLen / len
-  LET cx AS Fixed = v.x * ratio
-  LET cy AS Fixed = v.y * ratio
-  LET cz AS Fixed = v.z * ratio
-  LET cw AS Fixed = v.w * ratio
+  LET ratio AS Float = toFloat(maxLen) / len
+  LET cx AS Fixed = toFixed(toFloat(v.x) * ratio)
+  LET cy AS Fixed = toFixed(toFloat(v.y) * ratio)
+  LET cz AS Fixed = toFixed(toFloat(v.z) * ratio)
+  LET cw AS Fixed = toFixed(toFloat(v.w) * ratio)
   RETURN Fixed4[cx, cy, cz, cw]
 END FUNC"#;
 #[rustfmt::skip]

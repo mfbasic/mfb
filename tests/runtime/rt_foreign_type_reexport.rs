@@ -57,8 +57,18 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
         if !packages.is_empty() {
             packages.push(',');
         }
+        // bug-628: `name<requirer,…` also records the declared packages that
+        // import `name` in its `requiredBy`.
+        let (dep, required_by) = dep.split_once('<').unwrap_or((dep, ""));
+        let required_by: Vec<String> = required_by
+            .split(',')
+            .filter(|requirer| !requirer.is_empty())
+            .map(|requirer| format!("\"{requirer}\""))
+            .collect();
         packages.push_str(&format!(
-            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\
+             \"direct\":true,\"requiredBy\":[{}]}}",
+            required_by.join(",")
         ));
     }
     let entry_field = if entry {
@@ -129,10 +139,12 @@ const PA_SRC: &str = "EXPORT TYPE A\n  n AS Integer\n  label AS String\nEND TYPE
                       TYPE B\n  secret AS Integer\nEND TYPE\n\
                       EXPORT TYPE C\n  flag AS Boolean\nEND TYPE\n\
                       EXPORT FUNC makeB() AS Integer\n  LET b AS B = B[42]\n  RETURN b.secret\nEND FUNC\n";
+// bug-632/spec §13: a package names another package's type with its import
+// prefix, exactly as a consumer does — `pa390::A`, never bare `A`.
 const PB_SRC: &str =
-    "IMPORT pa390\nEXPORT FUNC takesA(a AS A) AS Integer\n  RETURN a.n * 2\nEND FUNC\n";
+    "IMPORT pa390\nEXPORT FUNC takesA(a AS pa390::A) AS Integer\n  RETURN a.n * 2\nEND FUNC\n";
 const PC_SRC: &str =
-    "IMPORT pa390\nEXPORT FUNC makesA() AS A\n  RETURN A[21, \"made\"]\nEND FUNC\n";
+    "IMPORT pa390\nEXPORT FUNC makesA() AS pa390::A\n  RETURN pa390::A[21, \"made\"]\nEND FUNC\n";
 
 /// The full acceptance model: pB/pC build, app runs, value round-trips to 42.
 #[test]
@@ -168,14 +180,17 @@ fn foreign_type_reexport_round_trips_through_two_packages() {
         "pB must not re-export private B:\n{info}"
     );
 
-    // app declares only pB and pC; pA is a transitive dependency whose `.mfp`
-    // must be present for the merge and the foreign-type resolution.
+    // app imports only pB and pC; pA is their dependency, which the app declares
+    // too (bug-628: packages[] lists the closure) so it is merged.
     let app_src = concat!(
         "IMPORT io AS console\n",
         "IMPORT pb390\n",
         "IMPORT pc390\n\n",
         "FUNC main AS Integer\n",
-        "  LET v AS A = pc390::makesA()\n",
+        // The app imports pb390/pc390 only, and imports are not transitive, so it
+        // cannot NAME pa390's `A` (spec §13). The binding infers it, which is the
+        // foreign type crossing two boundaries — what this fixture is about.
+        "  LET v = pc390::makesA()\n",
         "  LET r AS Integer = pb390::takesA(v)\n",
         "  console::print(toString(r))\n",
         "  RETURN 0\n",
@@ -185,13 +200,13 @@ fn foreign_type_reexport_round_trips_through_two_packages() {
         &root,
         "app390",
         "executable",
-        &["pb390", "pc390"],
+        &["pb390", "pc390", "pa390<pb390,pc390"],
         true,
         app_src,
     );
     install(&root, "pb390", "app390", "pb390");
     install(&root, "pc390", "app390", "pc390");
-    install(&root, "pa390", "app390", "pa390"); // transitive
+    install(&root, "pa390", "app390", "pa390"); // declared: pB and pC import it
 
     let build = build_ok(&root, "app390");
     let exe = build
@@ -222,7 +237,14 @@ fn consumer_cannot_name_a_dependencys_private_type() {
 
     // `B` is private in pA and re-exported by no one, so naming it must fail.
     let app_src = "IMPORT pb390\nFUNC main AS Integer\n  LET x AS B = B[1]\n  RETURN 0\nEND FUNC\n";
-    write_project(&root, "app390", "executable", &["pb390"], true, app_src);
+    write_project(
+        &root,
+        "app390",
+        "executable",
+        &["pb390", "pa390<pb390"],
+        true,
+        app_src,
+    );
     install(&root, "pb390", "app390", "pb390");
     install(&root, "pa390", "app390", "pa390");
     let out = build_expect_failure(&root, "app390");
@@ -298,12 +320,19 @@ fn abi_incompatible_dependency_versions_are_rejected() {
         &root,
         "app390",
         "executable",
-        &["pb390", "pc390"],
+        &["pb390", "pc390", "pa390<pb390,pc390"],
         true,
         app_src,
     );
     install(&root, "pb390", "app390", "pb390");
     install(&root, "pc390", "app390", "pc390");
+    // Whichever pA the app declares (bug-628), one intermediary was built
+    // against the other shape.
+    fs::copy(
+        root.join("pa2/pa390.mfp"),
+        root.join("app390/packages/pa390.mfp"),
+    )
+    .unwrap();
     let out = build_expect_failure(&root, "app390");
     assert!(
         out.contains("ABI")

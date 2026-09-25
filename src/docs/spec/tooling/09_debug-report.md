@@ -81,7 +81,7 @@ Sections print in the order of the compiler's feature registry,
 | | `perf.mismatch`, `perf.overflow` | printed only when non-zero: a span end with no open start, and samples dropped because the timing region filled |
 | `arena` | `arena.count` | the number of arenas registered during the run |
 | | `arena.registry_overflow` | arenas that could not register because all 1024 slots were taken; their events are not counted |
-| | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), or `graphics` (a canvas program's graphics thread), numbered in registration order |
+| | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), `thread_block` (a thread's control-block arena, registered just before its `worker`), or `graphics` (a canvas program's graphics thread), numbered in registration order |
 | | `arena.<n>.maps`, `.mapped_bytes`, `.unmaps`, `.unmapped_bytes` | blocks the arena mapped from the OS and returned to it, and their bytes |
 | | `arena.<n>.alloc_calls`, `.alloc_bytes` | allocation calls and the bytes requested, after size and alignment rounding |
 | | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | which path served each allocation: a small-size bin, a split of the current carve chunk, an exact-size large bin, a free-list walk, or a newly mapped block; the five always add up to `alloc_calls` |
@@ -94,6 +94,9 @@ Sections print in the order of the compiler's feature registry,
 | | `arena.<n>.series.count` | the number of memory-over-time samples that follow, at most 256 |
 | | `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes`, `.peak_rss_bytes` | one sample per line group, oldest first: nanoseconds since the first arena registered (monotonic clock), the arena's mapped and live bytes just after a grow, and the process's peak RSS read at that moment the same way as `process.peak_rss_bytes` |
 | `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |
+| `thread` (a program that starts threads) | `thread.table_capacity` | slots in the thread table's array: 0 before the first `thread::start`, then 64, doubling each time it fills |
+| | `thread.table_high` | slots ever handed out — the most control blocks alive at once |
+| | `thread.table_live` | control blocks not yet freed when the report ran |
 
 The `arena` section is emitted for every target. Every arena registers in a
 shared table when it is created, and each allocator helper adds to its own
@@ -121,6 +124,12 @@ So the series stays within 256 samples, the first is the arena's first sampled g
 and the last is always its most recent grow. The samples are spaced roughly evenly in
 grow count, not in time.
 [[src/codegen/debug/arena.rs:lower_sample]]
+
+A `thread_block` arena is destroyed when its control block is freed, so a finished
+thread's block arena shows `unmaps` equal to `maps` and `unmapped_bytes` equal to
+`mapped_bytes`; its `live_bytes` counts the values freed with the arena rather than
+one by one (the seed and the result). The `thread` section reads the thread table
+unlocked at exit, like the arena table. [[src/codegen/debug/thread.rs:ThreadFeature]]
 
 The `perf` section maps its own timing region at program entry (never the arena)
 and prints each line with a single `write`; it is emitted only for a `macos-aarch64`

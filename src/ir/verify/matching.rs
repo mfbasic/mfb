@@ -45,6 +45,10 @@ impl TypeEnv {
         if ty.is_empty() {
             return;
         }
+        // bug-632: anything a user reads spells a type the way source writes it
+        // (`shapes::Item`), not by its internal identity (`shapes.Item`) —
+        // bug-605's rule. The table keys above stay in the name domain.
+        let ty_display = base.display();
         // The complete member/variant set, and whether it is a union (for the
         // diagnostic wording). Any other *known* type is an open type: only an
         // unguarded CASE ELSE can make its MATCH exhaustive.
@@ -58,7 +62,7 @@ impl TypeEnv {
             }) {
                 self.emit(
                     "TYPE_MATCH_NOT_EXHAUSTIVE",
-                    format!("MATCH on open type {ty} requires an unguarded CASE ELSE."),
+                    format!("MATCH on open type {ty_display} requires an unguarded CASE ELSE."),
                 );
             }
             return;
@@ -94,22 +98,29 @@ impl TypeEnv {
                 .collect();
             extra.sort();
             ordered.extend(extra);
-            ordered.join(", ")
+            // Each missing VARIANT is a type name of its own, so each takes the
+            // source spelling; the enum arm below qualifies the type and appends
+            // a member, which is not a package qualifier.
+            ordered
+                .iter()
+                .map(|variant| variant.replace('.', "::"))
+                .collect::<Vec<_>>()
+                .join(", ")
         } else {
             let mut members: Vec<String> = all
                 .difference(&covered)
-                .map(|m| format!("{ty}.{m}"))
+                .map(|m| format!("{ty_display}.{m}"))
                 .collect();
             members.sort();
             members.join(", ")
         };
         let detail = if is_union {
             format!(
-                "MATCH on UNION `{ty}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
+                "MATCH on UNION `{ty_display}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
             )
         } else {
             format!(
-                "MATCH on enum `{ty}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
+                "MATCH on enum `{ty_display}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
             )
         };
         self.emit("TYPE_MATCH_NOT_EXHAUSTIVE", detail);
@@ -182,10 +193,16 @@ impl TypeEnv {
                 match &union_variants {
                     Some(variants) => {
                         if !variants.contains(type_name.as_str()) {
+                            // bug-632: source spellings in the message; the
+                            // membership test above stays in the name domain.
+                            let (case_display, union_display) = (
+                                type_name.replace('.', "::"),
+                                scrutinee_name.replace('.', "::"),
+                            );
                             self.emit(
                                 "TYPE_MATCH_PATTERN_MISMATCH",
                                 format!(
-                                    "CASE `{type_name}` is not a member of UNION `{scrutinee_name}`."
+                                    "CASE `{case_display}` is not a member of UNION `{union_display}`."
                                 ),
                             );
                         }

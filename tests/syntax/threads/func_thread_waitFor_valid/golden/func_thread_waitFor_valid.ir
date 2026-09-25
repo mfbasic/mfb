@@ -11,7 +11,7 @@
   ],
   "functions": [
   {
-    "name": "doubleWaitCloses",
+    "name": "doubleWaitRepeats",
     "line": 4,
     "visibility": "public",
     "kind": "func",
@@ -22,7 +22,7 @@
     "body": [
     { "op": "bind", "line": 5, "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 6, "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "10" } },
+    { "op": "return", "line": 7, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "second" }, "right": { "kind": "local", "name": "first" } } },
     {
       "op": "trap",
       "line": 8,
@@ -33,7 +33,7 @@
         "line": 9,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77030004" } },
         "then": [
-        { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+        { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ],
         "else": [
         { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "11" } }
@@ -65,7 +65,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 24, "value": { "kind": "call", "type": "Integer", "target": "doubleWaitCloses", "args": [{ "kind": "local", "name": "closeThread" }] } }
+    { "op": "return", "line": 24, "value": { "kind": "call", "type": "Integer", "target": "doubleWaitRepeats", "args": [{ "kind": "local", "name": "closeThread" }] } }
     ]
   }
   ]

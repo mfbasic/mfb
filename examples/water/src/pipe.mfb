@@ -1,0 +1,80 @@
+' pipe - where the water comes from.
+'
+' The pipe hangs from the top of the window and slides along it. While it is on
+' it lets FLOW_RATE drops a second out of the pool, from its mouth, with a little
+' scatter in where and how fast each one leaves so the stream breaks up as it
+' falls instead of hanging as one perfect line of beads.
+
+IMPORT canvas
+IMPORT color
+IMPORT math
+
+TYPE Pipe
+  x AS Float           ' the middle of the pipe, in window pixels
+  on AS Boolean
+  owed AS Float        ' the part of a drop the flow has built up but not let out
+END TYPE
+
+' Drops a second while the pipe is on. The whole pool is out in a few seconds,
+' which is about as long as a drop takes to fall past a heap of objects.
+LET FLOW_RATE AS Float = 520.0
+
+' The pipe's shape, in pixels.
+LET PIPE_HALF_WIDTH AS Float = 14.0
+LET PIPE_LENGTH AS Float = 27.0
+LET MOUTH_HALF_WIDTH AS Float = 21.0
+LET MOUTH_HEIGHT AS Float = 6.0
+
+' The speed a drop leaves the pipe at, downward, and the most it strays sideways.
+LET OUTFLOW_SPEED AS Float = 140.0
+LET OUTFLOW_SCATTER AS Float = 24.0
+
+FUNC mouthBottom AS Float
+  RETURN PIPE_LENGTH + MOUTH_HEIGHT
+END FUNC
+
+' The pipe held to the play area, so its mouth never hangs over the edge.
+FUNC pipeWithin(p AS Pipe, width AS Float) AS Pipe
+  RETURN WITH p { x := math::clamp(p.x, MOUTH_HALF_WIDTH + 4.0, math::max(width - MOUTH_HALF_WIDTH - 4.0, MOUTH_HALF_WIDTH + 4.0)) }
+END FUNC
+
+' Whether a point is on the pipe. The mouth is its widest part, so the whole
+' pipe answers to a band that wide, with a few pixels to spare below.
+FUNC onPipe(p AS Pipe, at AS canvas::Point) AS Boolean
+  RETURN math::abs(at.x - p.x) <= MOUTH_HALF_WIDTH AND at.y >= 0.0 AND at.y <= mouthBottom() + 4.0
+END FUNC
+
+' Let out the drops dt seconds of flow is owed, as far as the pool has any left.
+' What cannot be let out for want of drops is not carried over: the pipe simply
+' runs dry until drops come back, rather than bursting out a backlog later.
+FUNC pour(p AS Pipe, dt AS Float) AS Pipe
+  IF NOT p.on THEN RETURN WITH p { owed := 0.0 }
+  MUT owed AS Float = p.owed + FLOW_RATE * dt
+  DO WHILE owed >= 1.0
+    owed = owed - 1.0
+    LET x AS Float = p.x + (unitRandom() - 0.5) * (PIPE_HALF_WIDTH * 1.2)
+    LET y AS Float = mouthBottom() + unitRandom() * 3.0
+    LET vx AS Float = (unitRandom() - 0.5) * OUTFLOW_SCATTER
+    LET vy AS Float = OUTFLOW_SPEED * (0.85 + unitRandom() * 0.3)
+    IF NOT release(x, y, vx, vy) THEN RETURN WITH p { owed := 0.0 }
+  LOOP
+  RETURN WITH p { owed := owed }
+END FUNC
+
+' The pipe, and the valve on its side: green while the water runs, red while it
+' is off, with the pipe itself dimmed.
+FUNC pipeItems(p AS Pipe) AS List OF canvas::DrawItem
+  MUT metal AS color::Color = color::rgb(150, 164, 180)
+  MUT valve AS color::Color = color::rgb(90, 200, 120)
+  IF NOT p.on THEN
+    metal = color::rgb(92, 98, 108)
+    valve = color::rgb(210, 80, 80)
+  END IF
+  LET edge AS color::Color = color::rgba(0, 0, 0, 90)
+
+  LET body AS canvas::DrawItem = canvas::Rectangle[x := p.x - PIPE_HALF_WIDTH, y := -2.0, w := PIPE_HALF_WIDTH * 2.0, h := PIPE_LENGTH + 2.0, paint := canvas::fillStroke(metal, edge, 1.0)]
+  LET mouth AS canvas::DrawItem = canvas::RoundedRect[x := p.x - MOUTH_HALF_WIDTH, y := PIPE_LENGTH, w := MOUTH_HALF_WIDTH * 2.0, h := MOUTH_HEIGHT, cornerRadius := 3.0, paint := canvas::fillStroke(metal, edge, 1.0)]
+  LET opening AS canvas::DrawItem = canvas::Rectangle[x := p.x - PIPE_HALF_WIDTH + 3.0, y := mouthBottom() - 3.0, w := PIPE_HALF_WIDTH * 2.0 - 6.0, h := 3.0, paint := canvas::fill(color::rgb(20, 24, 30))]
+  LET handle AS canvas::DrawItem = canvas::Circle[x := p.x, y := PIPE_LENGTH * 0.45, radius := 6.0, paint := canvas::fillStroke(valve, edge, 1.0)]
+  RETURN [body, mouth, opening, handle]
+END FUNC

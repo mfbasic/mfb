@@ -1,0 +1,115 @@
+{
+  "project": "func_os_appResourcePath_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 5 },
+    { "module": "io", "line": 6 },
+    { "module": "strings", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "resolve",
+      "line": 9,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 9 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "music/x.ogg" }] }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 17,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "right": { "kind": "string", "value": ":\\" } }] }] }, "line": 18 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/" }] }] }] }, "line": 20 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/music/x.ogg" }] }] }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "..foo/bar" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "q" }, { "kind": "string", "value": "/..foo/bar" }] }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 27 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 28,
+        "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "a/../b" }] },
+        "handler": [
+        { "kind": "assignment", "name": "a", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 29 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 30 }
+        ]
+      }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 32 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 33 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 34,
+        "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "../secret" }] },
+        "handler": [
+        { "kind": "assignment", "name": "b", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 35 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 36 }
+        ]
+      }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 38 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 39 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 40,
+        "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "music/.." }] },
+        "handler": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 41 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 42 }
+        ]
+      }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 45 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 46,
+        "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "./x" }] },
+        "handler": [
+        { "kind": "assignment", "name": "d", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 47 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 48 }
+        ]
+      }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "d" }] }] }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "string", "value": "/" }] }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "" }] } }] }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "x" }] }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "string", "value": "/x" } } }] }] }, "line": 55 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 57 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 59 },
+      { "kind": "binding", "mutable": true, "name": "t", "type": "String", "value": { "kind": "string", "value": "a/b" }, "line": 60 },
+      { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "t" }, "right": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "a/b" }] } }] }] }, "line": 62 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 63 }
+      ]
+    }
+    ]
+  }
+  ]
+}

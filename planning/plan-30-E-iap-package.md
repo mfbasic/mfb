@@ -1,6 +1,8 @@
 # plan-30-E: `iap::` package over StoreKit 2
 
-Last updated: 2026-07-07
+Last updated: 2026-09-20 (validity review: design still holds; anchors refreshed —
+packages are now builtin packages under `src/codegen/builtins/<pkg>/`, not
+`bindings/**` source packages, and plan-29's `Money` type has landed)
 Effort: medium (1h–2h)
 
 This sub-plan adds the **`iap::`** package: MFBASIC In-App-Purchase support backed by
@@ -19,7 +21,7 @@ It complements:
 
 - `mfb spec package` (`src/docs/spec/**` — where the new `iap::` surface is documented)
 - `mfb spec diagnostics` (new `iap::` runtime error codes)
-- source-package precedents `datetime::`/`csv::` (`bindings/**`, generated source companions)
+- builtin-package precedents `datetime::`/`csv::`/`money::` (`src/codegen/builtins/<pkg>/`)
 
 ## 1. Goal
 
@@ -50,23 +52,24 @@ It complements:
 
 - No IAP anywhere. The stack beneath this plan: 30-D (Swift async bridge), 30-C
   (worker/main threading + the inbound/outbound resource channel at offsets 104/112,
-  `src/target/shared/code/runtime_helpers.rs:26`).
+  `src/codegen/runtime/thread/runtime_helpers.rs:32`).
 - StoreKit symbols the oracle enumerated (SDK 26.2): `Product.products(for:)…Tu`,
   `Product.purchase(options:)…Tu`, `Transaction.updates` (an `AsyncSequence`) +
   `Transaction.finish()…Tu`, `VerificationResult`/`PurchaseResult` enums, with their
   `…Ma`/`…Mn` metadata symbols.
 - Framework linking: `StoreKit` must be added to the dylib install-name table
-  (`src/os/macos/object.rs:616` + mirror `src/os/macos/link/mod.rs:294`) — the same
-  whitelist the app survey flagged.
-- Package precedent: source packages with a native runtime seam — `datetime::`
-  (source package + libc runtime-helper intrinsics, arity-aware
-  `implementation_name`), `csv::`. `iap::`'s "native intrinsics" call the 30-D driver
-  rather than libc.
+  (`src/os/macos/object.rs:550` + linker-side match `src/os/macos/link/mod.rs:295`)
+  — the same whitelist the app survey flagged.
+- Package precedent: builtin packages under `src/codegen/builtins/<pkg>/` —
+  `datetime::`, `csv::`, `money::` (plan-29, landed since this plan was written).
+  `iap::` follows the same structure; its intrinsics call the 30-D driver rather
+  than libc.
 
 ## 3. Design Overview
 
-- **Package surface** as a source package (like `datetime::`) declaring the `iap::`
-  functions and the `Product`/`Transaction`/`PurchaseOutcome` types.
+- **Package surface** as a builtin package (like `datetime::`,
+  `src/codegen/builtins/iap/`) declaring the `iap::` functions and the
+  `Product`/`Transaction`/`PurchaseOutcome` types.
 - **Runtime seam:** each `iap::` function lowers to a native intrinsic that (a) posts
   a request from the worker to the main thread over the outbound queue, (b) the main
   thread runs the corresponding StoreKit call through the 30-D async driver (StoreKit
@@ -123,8 +126,8 @@ No change to existing types, copy/transfer, or golden output on other targets.
 
 ### Phase 1 — StoreKit linking + package skeleton + types
 
-- [ ] Add `StoreKit` to the simulator dylib table (`src/os/macos/object.rs:616`, mirror `src/os/macos/link/mod.rs:294`).
-- [ ] Create the `iap::` source package (surface + `Product`/`Transaction`/`PurchaseOutcome` types), mirroring the `datetime::` package structure.
+- [ ] Add `StoreKit` to the simulator dylib table (`src/os/macos/object.rs:550`, linker-side match `src/os/macos/link/mod.rs:295`).
+- [ ] Create the `iap::` builtin package (surface + `Product`/`Transaction`/`PurchaseOutcome` types) under `src/codegen/builtins/iap/`, mirroring the `datetime::` package structure.
 - [ ] Tests: `tests/func_iap_*_valid/**` + `_invalid/**` for the type surface / arities.
 
 Acceptance: an iOS build links `StoreKit` and the `iap::` package compiles with its
@@ -175,8 +178,8 @@ Commit: —
 
 ## Open Decisions
 
-- **`Product.price` type** — recommend the new **`Money`** type (plan-29) if landed,
-  else `Float` + rely on `displayPrice` (String) for exact display. (§4.2)
+- **`Product.price` type** — plan-29 has landed (`money::` builtin package), so
+  recommend **`Money`**; the `Float` fallback is no longer needed. (§4.2)
 - **`PurchaseOutcome` shape** — recommend a **union/tagged type** vs. a status enum +
   optional transaction fields. (§4.2)
 - **`iap::observe` handler model** — recommend a **callback FUNC** (matches existing

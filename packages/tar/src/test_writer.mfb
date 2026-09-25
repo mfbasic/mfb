@@ -1,0 +1,174 @@
+' ---------------------------------------------------------------------------
+' Tests: the tar writer.
+'
+' A round trip through our own reader pins the shape; Phase 2's probe is what
+' checks the bytes against `bsdtar` and Python `tarfile`. What these cases add
+' is the decisions: when a PAX header is emitted and, just as important, when it
+' is NOT -- a writer that reached for the extension every time would produce
+' archives older tools cannot read.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+PRIVATE FUNC sameBytesTW(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' How many 512-byte header blocks the archive holds, counted by looking for the
+' ustar magic at each block boundary. A PAX header is a block like any other, so
+' this is how "no extra headers were written" is checked.
+PRIVATE FUNC headerCount(raw AS List OF Byte) AS Integer
+  MUT count AS Integer = 0
+  MUT at AS Integer = 0
+  WHILE at + 512 <= len(raw)
+    LET block AS List OF Byte = collections::mid(raw, at, 512)
+    IF NOT isZeroBlock(block) AND hasUstarMagic(block) THEN
+      count = count + 1
+    END IF
+    at = at + 512
+  END WHILE
+  RETURN count
+END FUNC
+
+PRIVATE FUNC sampleArchive() AS List OF Byte
+  MUT b AS Builder = create()
+  b = addText(b, "readme.txt", "a readme\n")
+  b = addDirectory(b, "docs")
+  b = addFile(b, "docs/data.bin", [toByte(1), toByte(2), toByte(3)])
+  b = addSymlink(b, "link", "readme.txt")
+  RETURN finish(b)
+END FUNC
+
+TESTING
+  TGROUP "tar writer round trip"
+    TCASE "a written archive reads back through the memory overload"
+      LET raw AS List OF Byte = sampleArchive()
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 4)
+      expectString(readText(archive, find(archive, "readme.txt")), "a readme\n")
+      expectEqual(find(archive, "docs/").isDirectory, TRUE)
+      expectInteger(len(read(archive, find(archive, "docs/data.bin"))), 3)
+      expectString(find(archive, "link").linkTarget, "readme.txt")
+    END TCASE
+
+    TCASE "a written archive reads back through the file overload"
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, sampleArchive())
+      fs::flush(f)
+      LET archive AS Archive = open(f)
+      expectInteger(len(entries(archive)), 4)
+      expectString(readText(archive, find(archive, "readme.txt")), "a readme\n")
+      fs::close(f)
+    END TCASE
+
+    TCASE "the writer is deterministic"
+      expectEqual(sameBytesTW(sampleArchive(), sampleArchive()), TRUE)
+    END TCASE
+
+    TCASE "an empty archive is two zero blocks"
+      LET raw AS List OF Byte = finish(create())
+      expectInteger(len(raw), 1024)
+      expectInteger(len(entries(open(raw))), 0)
+    END TCASE
+
+    TCASE "entry data is padded to a block boundary"
+      ' Three bytes of data still occupy a whole 512-byte block.
+      MUT b AS Builder = create()
+      b = addFile(b, "tiny.bin", [toByte(9)])
+      LET raw AS List OF Byte = finish(b)
+      expectInteger(len(raw), 512 + 512 + 1024)
+    END TCASE
+
+    TCASE "mode and modification time round-trip"
+      MUT b AS Builder = create()
+      b = addText(b, "x.txt", "x", 384, 1789821000)
+      LET archive AS Archive = open(finish(b))
+      LET entry AS Entry = find(archive, "x.txt")
+      expectInteger(entry.mode, 384)
+      expectInteger(entry.modifiedSeconds, 1789821000)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar writer PAX decisions"
+    TCASE "a 300-byte name forces a PAX header"
+      LET long AS String = "p/" & strings::repeat("n", 298)
+      MUT b AS Builder = create()
+      b = addText(b, long, "long name\n")
+      LET raw AS List OF Byte = finish(b)
+      ' Two headers: the PAX extended header and the entry itself.
+      expectInteger(headerCount(raw), 2)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 1)
+      expectString(collections::get(entries(archive), 0).name, long)
+      expectString(readText(archive, find(archive, long)), "long name\n")
+    END TCASE
+
+    TCASE "plain short names produce no PAX header"
+      ' The header count equals the entry count: nothing extra was written.
+      MUT b AS Builder = create()
+      b = addText(b, "one.txt", "1")
+      b = addText(b, "two.txt", "2")
+      b = addDirectory(b, "three")
+      LET raw AS List OF Byte = finish(b)
+      expectInteger(headerCount(raw), 3)
+      expectInteger(len(entries(open(raw))), 3)
+    END TCASE
+
+    TCASE "a long name that fits the prefix split needs no PAX header"
+      ' 120 bytes, but splittable at a slash into a 60-byte prefix and a
+      ' 59-byte name, both of which fit their fields.
+      LET name AS String = strings::repeat("a", 60) & "/" & strings::repeat("b", 59)
+      expectInteger(strings::byteLen(name), 120)
+      MUT b AS Builder = create()
+      b = addText(b, name, "split\n")
+      LET raw AS List OF Byte = finish(b)
+      expectInteger(headerCount(raw), 1)
+      expectString(readText(open(raw), find(open(raw), name)), "split\n")
+    END TCASE
+
+    TCASE "a non-ASCII name forces a PAX header and round-trips"
+      MUT b AS Builder = create()
+      b = addText(b, "café/naïve.txt", "unicode\n")
+      LET raw AS List OF Byte = finish(b)
+      expectInteger(headerCount(raw), 2)
+      expectString(readText(open(raw), find(open(raw), "café/naïve.txt")), "unicode\n")
+    END TCASE
+
+    TCASE "a long symlink target forces a PAX header and round-trips"
+      LET target AS String = strings::repeat("t", 140)
+      MUT b AS Builder = create()
+      b = addSymlink(b, "link", target)
+      LET raw AS List OF Byte = finish(b)
+      expectInteger(headerCount(raw), 2)
+      expectString(find(open(raw), "link").linkTarget, target)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar writer refusals"
+    TCASE "an unsafe name is refused before it can be written"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, "", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "/etc/passwd", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "../escape.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "a\\b.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addDirectory(b, "../escape"), errorCode::ErrInvalidPath)
+      expectTrap(addSymlink(b, "../escape", "x"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "a symlink with an empty target is refused"
+      MUT b AS Builder = create()
+      expectTrap(addSymlink(b, "link", ""), errorCode::ErrInvalidPath)
+    END TCASE
+  END TGROUP
+END TESTING

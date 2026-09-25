@@ -13,7 +13,7 @@
 //! - `os.hostName` — `gethostname`.
 //! - `os.userName` — `getpwuid`/`getuid`.
 //! - `os.executablePath` — the platform's own executable-path primitive.
-//! - `os.resourcePath` — **build-mode dependent** (plan-55-B): resolves against
+//! - `os.appResourcePath` — **build-mode dependent** (plan-55-B): resolves against
 //!   the app bundle/AppDir layout or the build output directory, not a libc call.
 //! - `os.args` — reads the `os::args` globals captured at entry (plan-31-B).
 //!
@@ -28,7 +28,6 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::memory::arena::HelperScratch;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -65,6 +64,17 @@ pub(crate) const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.userName",
     "os.setEnv",
     "os.unsetEnv",
+    // plan-157-B: the app-directory lookups read `HOME`/`XDG_*` and `getpwuid`.
+    "os.appDataPath",
+    "os.appCachePath",
+    // ...and their internal non-allocating `*Base` twins the in-place arm calls.
+    "os.appDataPathBase",
+    "os.appCachePathBase",
+    // plan-157-C: the user folders read `HOME` (and `XDG_CONFIG_HOME`) too.
+    "os.userHomePath",
+    "os.userDocumentsPath",
+    "os.userHomePathBase",
+    "os.userDocumentsPathBase",
 ];
 
 /// The `(instructions, relocations, stack_size)` an `os` OS-seam body emits before
@@ -114,68 +124,64 @@ pub(crate) fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
 }
 
-#[allow(clippy::too_many_arguments)]
-/// Marshal a MFBASIC `String*` held in `src` into a fresh NUL-terminated arena
-/// C-string, leaving its pointer in `out`. Both `src` and `out` are vregs so the
-/// allocator preserves them across the `arena_alloc` call. Branches to
-/// `alloc_fail` on OOM. `uniq` disambiguates the copy-loop labels.
+/// Point `out` at the argument `String`'s own bytes — `src + 8` — for a host C
+/// call that wants a `const char *`.
 ///
-/// bug-574: the block is the CALLER's to release — it is the helper's own
-/// scratch, handed to a host `getenv`/`setenv` and never returned to MFBASIC, so
-/// nothing on the caller side of the runtime call can see it. The returned
-/// [`HelperScratch`] is what `emit_helper_scratch_release` frees at the helper's
-/// `done`; the null-init that makes that free safe on the `alloc_fail` path is
-/// emitted HERE, ahead of the allocation, so it cannot be forgotten at a call
-/// site.
-pub(crate) fn marshal_cstring(
-    symbol: &str,
-    src: &str,
-    alloc_fail: &str,
+/// An MFBASIC `String` block is `[u64 byte length][bytes][NUL]`
+/// (`mfb spec` `03_heap-values.md`, "Standalone String"), so the bytes at `+8`
+/// are already a valid NUL-terminated C string and need no marshalling. The
+/// block is the CALLER's argument, borrowed for the duration of the host call,
+/// so it outlives it: there is nothing to allocate, nothing to free and no OOM
+/// path (plan-146-F, finding F4).
+///
+/// This replaces the `len + 1` arena copy bug-574 had to release at `done`. A
+/// `String` with an interior NUL still reaches the host truncated at that NUL,
+/// exactly as before — the copy loop copied the NUL too.
+pub(crate) fn borrow_cstring(src: &str, out: &str) -> CodeInstruction {
+    abi::add_immediate(out, src, 8)
+}
+
+/// bug-696: release the Windows marshalled result in the vreg `owned` — what
+/// `emit_env_get`, `emit_os_wide_string` or `emit_environ_pointer` returned, or 0
+/// for nothing — at a body's exit, after the result registers are set. The release
+/// is a call, so the four result registers ride across it in vregs, as
+/// [`super::gen_env::emit_env_unlock_return`] does for the unlock. Every path to
+/// the exit must have defined `owned`. `uniq` names the skip label.
+pub(crate) fn emit_release_marshalled_result(
+    ctx: &mut EmitCtx,
+    owned: &str,
     uniq: &str,
-    scratch: &HelperScratch,
     vregs: &mut Vregs,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) {
-    let out = &scratch.pointer;
-    let alloc_ok = format!("{uniq}_alloc_ok");
-    let copy_loop = format!("{uniq}_copy_loop");
-    let copy_done = format!("{uniq}_copy_done");
-    let len = vregs.next();
-    let size = &scratch.size;
-    let src_cursor = vregs.next();
-    let dst = vregs.next();
-    let index = vregs.next();
-    let byte = vregs.next();
-    instructions.extend([
-        abi::load_u64(&len, src, 0),
-        abi::add_immediate(size, &len, 1),
-        abi::move_register(abi::return_register(), size),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+) -> Result<(), String> {
+    let skip = format!("{uniq}_release_skip");
+    let saved = [
+        RESULT_TAG_REGISTER,
+        RESULT_VALUE_REGISTER,
+        RESULT_ERROR_MESSAGE_REGISTER,
+        RESULT_ERROR_SOURCE_REGISTER,
+    ]
+    .map(|register| (register, vregs.next()));
+    for (register, vreg) in &saved {
+        ctx.instructions
+            .push(abi::move_register(vreg, register.clone()));
+    }
+    ctx.instructions.extend([
+        abi::compare_immediate(owned, "0"),
+        abi::branch_eq(&skip),
+        abi::move_register(abi::c_arg(0), owned),
     ]);
-    alloc_reloc(symbol, relocations);
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(alloc_fail),
-        abi::label(&alloc_ok),
-        abi::move_register(out, abi::mfb_return(1)),
-        abi::load_u64(&len, src, 0),
-        abi::add_immediate(&src_cursor, src, 8),
-        abi::move_register(&dst, out),
-        abi::move_immediate(&index, "Integer", "0"),
-        abi::label(&copy_loop),
-        abi::compare_registers(&index, &len),
-        abi::branch_eq(&copy_done),
-        abi::load_u8(&byte, &src_cursor, 0),
-        abi::store_u8(&byte, &dst, 0),
-        abi::add_immediate(&src_cursor, &src_cursor, 1),
-        abi::add_immediate(&dst, &dst, 1),
-        abi::add_immediate(&index, &index, 1),
-        abi::branch(&copy_loop),
-        abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, &dst, 0),
-    ]);
+    ctx.platform.emit_release_marshalled(
+        ctx.symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.push(abi::label(&skip));
+    for (register, vreg) in &saved {
+        ctx.instructions
+            .push(abi::move_register(register.clone(), vreg));
+    }
+    Ok(())
 }
 
 /// Build an owned arena `String` from the NUL-terminated C-string in `cstr`,

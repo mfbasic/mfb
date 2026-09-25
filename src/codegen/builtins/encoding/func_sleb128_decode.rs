@@ -30,9 +30,10 @@ mirrors the arithmetic (sign-extending) shift used by `encoding::sleb128Encode`.
 
 `data` must contain at least one byte, and the sequence must be terminated
 within it: an empty list, or bytes that run out before a byte with a clear high
-bit is seen, raise `ErrInvalidFormat`. Keep sequences within 64 bits: a sequence
-longer than ten bytes raises `ErrInvalidFormat`, but a tenth byte carrying bits
-beyond the 64th is not currently rejected, and those bits are lost."#;
+bit is seen, raise `ErrInvalidFormat`. The value must fit an `Integer`. A sequence longer
+than ten bytes raises `ErrInvalidFormat`, and so does a tenth byte other than
+`0x00` or `0x7F`: that byte holds only bit 63 and its sign extension, so any other
+value names a number outside the `Integer` range."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
@@ -49,10 +50,10 @@ r#"FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
     IF i >= n THEN
       FAIL error(77050003, "truncated leb128")
     END IF
-    IF shift > 63 THEN
+    byteValue = toInt(collections::get(data, i))
+    IF shift = 63 AND byteValue <> 0 AND byteValue <> 127 THEN
       FAIL error(77050003, "leb128 overflow")
     END IF
-    byteValue = toInt(collections::get(data, i))
     result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
     shift = shift + 7
     i = i + 1

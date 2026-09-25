@@ -3,8 +3,8 @@
 //! finalizes it (crypto/io's clean-room shape).
 
 use super::gen_shared::{
-    emit_libc_clock_nanos, void_int_result, CLOCK_MONOTONIC_DARWIN, CLOCK_MONOTONIC_LINUX,
-    LOCALS_SIZE, NANOS_PER_SEC, WIN_FILETIME_OFFSET, WIN_QPC_FREQ_OFFSET,
+    emit_clock_overflow_tail, emit_libc_clock_nanos, void_int_result, CLOCK_MONOTONIC_DARWIN,
+    CLOCK_MONOTONIC_LINUX, LOCALS_SIZE, NANOS_PER_SEC, WIN_FILETIME_OFFSET, WIN_QPC_FREQ_OFFSET,
 };
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
@@ -17,7 +17,8 @@ use crate::target::shared::abi;
 /// in nanoseconds. On libc it rides the shared [`emit_libc_clock_nanos`] with the
 /// platform's `CLOCK_MONOTONIC` id (Linux 1 / Darwin 6); on Windows it converts a
 /// `QueryPerformanceCounter` tick count with an overflow-safe tick→nanosecond fold
-/// (plan-66-A). Always succeeds.
+/// (plan-66-A). A reading whose nanosecond count does not fit an `Integer` raises
+/// `ErrOverflow` (bug-640).
 pub(crate) fn lower_monotonic_nanos(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
@@ -29,6 +30,7 @@ pub(crate) fn lower_monotonic_nanos(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
+    let overflow = format!("{symbol}_overflow");
 
     if platform.family() == PlatformFamily::Windows {
         // QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&freq).
@@ -57,23 +59,38 @@ pub(crate) fn lower_monotonic_nanos(
             &mut relocations,
         )?;
         // nanos = (counter/freq)*1e9 + ((counter%freq)*1e9)/freq. Splitting the
-        // multiply across the quotient and remainder keeps every intermediate
-        // inside u64: `counter*1e9` alone overflows within ~21 s at 10 MHz.
+        // multiply across the quotient and remainder keeps the fraction inside
+        // u64: `counter*1e9` alone overflows within ~21 s at 10 MHz.
+        //
+        // The whole-second part can still leave the `Integer` range (bug-640): the
+        // unsigned `q*1e9` is checked through its unsigned high word (must be 0)
+        // and its low word's sign (must be clear). The fraction is below 1e9, so
+        // the final add of two non-negative values overflows exactly when the sum
+        // reads negative.
         let counter = vregs.next();
         let freq = vregs.next();
         let q = vregs.next();
         let rem = vregs.next();
         let scale = vregs.next();
+        let high = vregs.next();
         instructions.extend([
             abi::load_u64(&counter, abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
             abi::load_u64(&freq, abi::stack_pointer(), WIN_QPC_FREQ_OFFSET),    // freq
             abi::unsigned_divide_registers(&q, &counter, &freq),                // q
             abi::multiply_subtract_registers(&rem, &q, &freq, &counter), // rem = counter - q*freq
             abi::move_immediate(&scale, "Integer", NANOS_PER_SEC),
+            abi::unsigned_multiply_high_registers(&high, &q, &scale), // high word of q*1e9
+            abi::compare_immediate(&high, "0"),
+            abi::branch_ne(&overflow),
             abi::multiply_registers(&q, &q, &scale), // q*1e9
+            abi::compare_immediate(&q, "0"),
+            abi::branch_lt(&overflow),
             abi::multiply_registers(&rem, &rem, &scale), // rem*1e9
             abi::unsigned_divide_registers(&rem, &rem, &freq), // (rem*1e9)/freq
-            abi::add_registers(RESULT_VALUE_REGISTER, &q, &rem),
+            abi::add_registers(&q, &q, &rem),
+            abi::compare_immediate(&q, "0"),
+            abi::branch_lt(&overflow),
+            abi::move_register(RESULT_VALUE_REGISTER, &q),
         ]);
     } else {
         let clock_id = match platform.family() {
@@ -87,6 +104,7 @@ pub(crate) fn lower_monotonic_nanos(
         emit_libc_clock_nanos(
             clock_id,
             &symbol,
+            &overflow,
             platform,
             platform_imports,
             &mut instructions,
@@ -101,6 +119,7 @@ pub(crate) fn lower_monotonic_nanos(
         RESULT_OK_TAG,
     ));
     instructions.push(abi::return_());
+    emit_clock_overflow_tail(&symbol, &overflow, &mut instructions, &mut relocations);
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = LOCALS_SIZE;
@@ -132,10 +151,13 @@ Prefer `datetime::monotonic` in ordinary code; reach
 for `monotonicNanos` only when you want the bare integer count without
 constructing a `datetime::Duration`.
 
+The count is an `Integer`, so it spans about 292 years either side of the
+clock's origin. A reading whose nanosecond count does not fit an `Integer` raises
+`ErrOverflow` rather than returning a wrapped count.
+
 `monotonicNanos` is **not pure**: two calls may return different values, and the
 values depend on host clock state. It takes no arguments, reads clock state only,
-and has no side effects. The reading always succeeds and never raises an
-error."#;
+and has no side effects."#;
 const EX: &str = r#"Measure the elapsed time around a block of work in nanoseconds:
 
 ```
@@ -171,7 +193,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![],
             return_type: super::ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrOverflow"],
             body: super::Body::abi_function(lower_monotonic_nanos),
         }],
     });

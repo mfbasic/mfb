@@ -1,6 +1,7 @@
 # plan-30-B: iOS `.app` bundle + simulator install
 
-Last updated: 2026-07-07
+Last updated: 2026-09-20 (validity review: design still holds; anchors refreshed —
+app mode is now per-OS via `NativeBuildMode`, and the plist template gained version keys)
 Effort: small (<1h)
 
 This sub-plan makes `mfb build` emit an installable **iOS `.app` bundle** for the
@@ -38,14 +39,19 @@ It complements:
 
 ## 2. Current State
 
-- macOS bundle writer: `write_app_bundle` (`src/os/macos/link/mod.rs` ~36–60) creates
+- macOS bundle writer: `write_app_bundle` (`src/os/macos/link/mod.rs:71`) creates
   `<name>.app/Contents/MacOS/`, writes the executable (chmod `0o755`) and
   `Contents/Info.plist`.
-- macOS `Info.plist` template (`src/os/macos/link/mod.rs` ~150–168): `CFBundleName`,
+- macOS `Info.plist` template (`src/os/macos/link/mod.rs` ~208–230): `CFBundleName`,
   `CFBundleExecutable`, `CFBundleIdentifier = dev.mfbasic.<project>`,
-  `CFBundlePackageType = APPL`, `NSPrincipalClass`.
-- Bundle selection is driven by `NativeBuildMode::MacApp` (`src/target.rs:31`,
-  `is_app()` at :52); the CLI `-app` flag sets it (`src/cli/build.rs:110`).
+  `CFBundlePackageType = APPL`, `NSPrincipalClass`, and (added since this plan was
+  written) `CFBundleShortVersionString`/`CFBundleVersion` — the iOS plist should
+  carry the version keys too (`simctl` wants `CFBundleVersion`).
+- App mode is now per-OS: `NativeBuildMode` is `Console | MacApp | LinuxApp |
+  WindowsApp` (`src/target.rs:38`, `is_app()` at :60, plan-66-J); the CLI
+  `-app`/`--app` flag sets it (`src/cli/build/options.rs:111`). The iOS target
+  either adds an `IosApp` variant or derives the toolkit from the target OS —
+  decide in 30-C; for this sub-plan the bundle writer keys off target + `is_app()`.
 
 ## 3. Design Overview
 
@@ -72,6 +78,7 @@ Minimum for `simctl install`/`launch`:
 - `CFBundleName`, `CFBundleExecutable` = project name
 - `CFBundleIdentifier` = `dev.mfbasic.<project>`
 - `CFBundlePackageType` = `APPL`
+- `CFBundleShortVersionString` / `CFBundleVersion` (mirror the macOS template's values)
 - `CFBundleSupportedPlatforms` = `[iPhoneSimulator]`
 - `DTPlatformName` = `iphonesimulator`
 - `LSRequiresIPhoneOS` = `true`

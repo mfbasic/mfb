@@ -232,6 +232,7 @@ fn source_type_payload_encodes_union_and_enum() {
         includes: vec![],
         variants: vec![IrVariant {
             name: "A".to_string(),
+            type_: crate::types::ParameterType::parse("A"),
             fields: vec![IrField {
                 visibility: None,
                 name: "v".to_string(),

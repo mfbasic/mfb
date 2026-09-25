@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "pathdirname_constant_owned",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "a" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "const", "type": "String", "value": "/" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "const", "type": "String", "value": "/abc" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "c" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "line": 15, "mutable": true, "name": "d", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "assign", "line": 16, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "/x" } } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "d" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "e", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "const", "type": "String", "value": "a/b/c" }] } },
+    { "op": "assign", "line": 19, "name": "e", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "assign", "line": 20, "name": "e", "value": { "kind": "call", "type": "String", "target": "fs.pathDirName", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "e" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -856,8 +856,14 @@ fn encode_variant(out: &mut Vec<u8>, v: &IrVariant) {
 }
 
 fn decode_variant(r: &mut IrReader) -> Result<IrVariant, String> {
+    let name = r.string()?;
     Ok(IrVariant {
-        name: r.string()?,
+        // bug-657: rebuilt from the encoded name rather than added to the wire, so the
+        // format is unchanged. This file is boundary #2 — "IR wire/JSON decode reads
+        // types as text" — and `lower_variant` derives `name` from this same type, so
+        // the round trip is exact.
+        type_: ParameterType::parse(&name),
+        name,
         fields: decode_vec(r, decode_field)?,
         loc: get_loc(r)?,
     })

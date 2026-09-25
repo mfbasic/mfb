@@ -15,7 +15,9 @@
     {
       "name": "yaml",
       "version": "=0.1.0",
-      "source": "file:packages/yaml.mfp"
+      "source": "file:packages/yaml.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

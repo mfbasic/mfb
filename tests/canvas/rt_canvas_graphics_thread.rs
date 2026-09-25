@@ -25,6 +25,16 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
 
 /// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
+    let gpu: &[(&str, &str)] = if metal {
+        &[("MFB_CANVAS_GPU", "1")]
+    } else {
+        &[]
+    };
+    run_env(name, source, sync, gpu)
+}
+
+/// As `run`, plus arbitrary extra environment variables.
+fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
@@ -37,9 +47,7 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
     }
-    if metal {
-        command.env("MFB_CANVAS_GPU", "1");
-    }
+    command.envs(env.iter().copied());
     let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -146,6 +154,50 @@ fn a_static_scene_renders_once_and_does_not_spin() {
         "a scene that never changes must not be redrawn while the program idles: \
          {frames:?}",
     );
+}
+
+/// plan-155-C: the same guarantee under a `present` + `waitFrame` loop. `waitFrame`
+/// waits and never repaints (`.ai/canvas-threading.md` §9), so fifty paced iterations
+/// over an unchanged scene still cost exactly one frame.
+#[test]
+fn a_static_scene_under_a_wait_frame_loop_renders_once() {
+    let source = program(&format!(
+        "{ONE_BOX}  MUT i AS Integer = 0\n  \
+         WHILE i < 50\n    canvas::present([box])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+         io::print(\"waited\")\n"
+    ));
+    let (stdout, frames) = run_env(
+        "canvas_gfx_static_wait",
+        &source,
+        false,
+        &[("MFB_CANVAS_DISPLAY_HZ", "100")],
+    );
+    assert!(stdout.contains("waited"));
+    assert_eq!(
+        frames.len(),
+        1,
+        "waitFrame must not redraw an unchanged scene: {frames:?}",
+    );
+}
+
+/// plan-155-A: `MFB_CANVAS_DISPLAY_HZ` pins the display rate the runtime reports.
+///
+/// A headless run has no monitor to ask, so without the override the published rate
+/// is `0` and nothing downstream (plan-155-B's `displayHz`, C's `waitFrame` floor) could
+/// be tested with a known rate. The stats line is the only window onto it.
+#[test]
+fn display_hz_override_reaches_the_stats_line() {
+    let (_, frames) = run_env(
+        "canvas_gfx_display_hz",
+        &program(&format!("{ONE_BOX}  canvas::present([box])\n")),
+        true,
+        &[("MFB_CANVAS_DISPLAY_HZ", "144")],
+    );
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    let hz: f64 = stat_field(&frames[0], "displayHz=")
+        .parse()
+        .unwrap_or_else(|e| panic!("displayHz= is not a number ({e}): {frames:?}"));
+    assert_eq!(hz, 144.0, "{frames:?}");
 }
 
 /// An identical re-present publishes nothing, so it draws nothing.
@@ -443,5 +495,133 @@ fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
         "three presents of an unchanged group must draw once: the resolved-groups \
          signature has to compare EQUAL when nothing changed, or every group program \
          redraws every present forever. {frames:?}",
+    );
+}
+
+// --- bug-484: a Picture's image and the graphics thread (race rows R1, R2, R11) -------
+
+const FRAME_W: usize = 900;
+const FRAME_H: usize = 640;
+
+/// Build a picture program, run it headless with `env`, and return the last dumped frame.
+fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
+    let source = format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT os\n\nSUB main()\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+         LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n\
+         {body}END SUB\n"
+    );
+    let project = common::temp_project(name, &source);
+    let frame_path = project.join("frame.rgba");
+    let binary = common::build_app_debug(&project, name);
+    let mut command = Command::new(&binary);
+    command
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame_path);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let run = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "the program did not exit cleanly — a read of a destroyed image's pixels is what \
+         these rows exist to catch, and it presents as a signal here. {}\n{}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let frame = std::fs::read(&frame_path).expect("a frame must have been written");
+    assert_eq!(
+        frame.len(),
+        FRAME_W * FRAME_H * 4,
+        "the frame was torn or truncated"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+    frame
+}
+
+fn rgba_at(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
+    let i = (y * FRAME_W + x) * 4;
+    (frame[i], frame[i + 1], frame[i + 2], frame[i + 3])
+}
+
+/// R1: `destroyImage` while a frame that draws the image is in flight — the frame
+/// completes normally and still shows the picture.
+///
+/// `MFB_CANVAS_FRAME_HOLD_MS` parks the graphics thread after the geometry is built, so
+/// the destroy lands while the frame is demonstrably still working from the image; the
+/// worker's 120 ms sleep keeps it from winning the race to the frame's start (see
+/// `removing_a_group_mid_frame_lets_the_frame_finish` in `rt_canvas_rasteriser.rs`).
+/// The frame samples a pixel block the close did not free — closing an `Image` sets a
+/// flag and nothing else (`.ai/canvas-threading.md` section 7, "close never frees").
+#[test]
+fn destroying_an_image_mid_frame_lets_the_frame_finish() {
+    let frame = picture_frame(
+        "canvas_picture_r1",
+        "  canvas::present([tile, mark])\n  os::sleep(120)\n  canvas::destroyImage(img)\n  os::sleep(1200)\n",
+        &[("MFB_CANVAS_FRAME_HOLD_MS", "600")],
+    );
+    assert_eq!(
+        rgba_at(&frame, 116, 116),
+        (0, 255, 0, 255),
+        "the frame already drawing when destroyImage arrived must finish drawing the picture"
+    );
+    assert_eq!(
+        rgba_at(&frame, 700, 500),
+        (255, 0, 0, 255),
+        "the rest of the frame was lost"
+    );
+}
+
+/// R2: the frame AFTER the destroy skips the picture, and the rest of it draws.
+#[test]
+fn the_frame_after_a_destroy_skips_the_picture() {
+    let frame = picture_frame(
+        "canvas_picture_r2",
+        "  canvas::present([tile, mark])\n  os::sleep(120)\n  canvas::destroyImage(img)\n  os::sleep(1200)\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+         canvas::present([tile, moved])\n  os::sleep(1200)\n",
+        &[("MFB_CANVAS_FRAME_HOLD_MS", "600")],
+    );
+    assert_eq!(
+        rgba_at(&frame, 116, 116),
+        (0, 0, 0, 255),
+        "a destroyed image draws nothing in a new frame"
+    );
+    assert_eq!(
+        rgba_at(&frame, 600, 500),
+        (255, 0, 0, 255),
+        "the frame around it rendered"
+    );
+}
+
+/// R11: `setBytes` then `destroyImage` then a frame — the closed image draws nothing and
+/// nothing reads past the close.
+#[test]
+fn set_bytes_then_destroy_then_a_frame_draws_nothing() {
+    let frame = picture_frame(
+        "canvas_picture_r11",
+        "  canvas::present([tile, mark])\n  \
+         canvas::setBytes(img, [toByte(0), toByte(0), toByte(255), toByte(255)])\n  \
+         canvas::destroyImage(img)\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+         canvas::present([tile, moved])\n",
+        &[("MFB_CANVAS_SYNC", "1")],
+    );
+    assert_eq!(
+        rgba_at(&frame, 116, 116),
+        (0, 0, 0, 255),
+        "the destroyed image drew"
+    );
+    assert_eq!(
+        rgba_at(&frame, 600, 500),
+        (255, 0, 0, 255),
+        "the frame around it rendered"
     );
 }

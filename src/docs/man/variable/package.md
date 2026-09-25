@@ -25,8 +25,8 @@ There are only two ideas, and the second one has exactly one exception:
 1. **A variable holds a value, and every value is independent.** Assigning or
    passing gives a copy. Changing one name can never change another.
 2. **A RES handle is the exception.** A handle is not copied — a second name is
-   an *alias* for the same open thing. A `Thread` handle behaves the same way:
-   two names for one thread are two names for the same running thread (see
+   an *alias* for the same open thing. A `Thread` is a RES handle too: two
+   names for one thread are two names for the same running thread (see
    `mfb man thread`).
 
 Everything else follows from those two.
@@ -374,7 +374,11 @@ at 7
 
 `f.state = value` replaces the whole payload; `f.state.field = value` updates
 one field of it. The payload starts at its default value, travels with the
-handle, and goes away when the handle does.
+handle, and goes away when the handle does. Updating a field writes it where it
+lies, without rebuilding the payload, when the field is a scalar, a collection
+changed by a builtin such as `collections::append`, or a fixed-size record such as
+`vector::Float3`; a field whose size depends on its value, such as a `String`, is
+rebuilt.
 
 ## What goes away, and when
 

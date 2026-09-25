@@ -1,0 +1,80 @@
+' forecast - fetching the next five days on a worker thread.
+'
+' The analysis the program opens on is hour 0 of a GFS run. The same run holds a
+' forecast every three hours after it, and this file fetches hours 3 to 120 of
+' it - forty more files of about half a megabyte each - so the map can play
+' them. That takes a while, and the map is already up and animating, so it is
+' done on a thread of its own: the worker downloads and decodes one hour at a
+' time and sends each one back as it is ready, and the frame loop picks them up
+' between frames.
+'
+' The worker is an ISOLATED FUNC, so it runs with its own fresh copy of this
+' project's top-level state and shares nothing with the frame loop. It needs
+' nothing from it either - the run to fetch is its argument, and everything
+' else it calls (the cache, the URL, the GRIB decoder) is plain functions.
+'
+' An hour that is not published yet is waited for, not given up on. The
+' analysis of a run shows up on NOMADS before its forecast hours do, so a
+' program started in the few minutes between the two finds the later hours
+' missing; and a network that drops out part of the way through comes back.
+' Either way the worker says what it is waiting for, sleeps, and asks again.
+' A file that arrives but will not decode is a different matter - asking again
+' would get the same file - and fails the worker.
+
+IMPORT os
+IMPORT thread
+
+' Hours between the forecast files, and how far ahead the program plays.
+LET FORECAST_STEP_HOURS AS Integer = 3
+
+LET FORECAST_HOURS AS Integer = 120
+
+' How long the worker waits before asking again for an hour it could not get.
+LET RETRY_MILLIS AS Integer = 30000
+
+' One forecast hour, decoded.
+TYPE ForecastFrame
+  hour AS Integer
+  winds AS Winds
+END TYPE
+
+' An hour the worker could not get, and is going to ask for again.
+TYPE ForecastWait
+  hour AS Integer
+  reason AS String
+END TYPE
+
+UNION ForecastNews
+  ForecastFrame
+  ForecastWait
+END UNION
+
+' How many files make up the forecast after the analysis.
+FUNC forecastSteps AS Integer
+  RETURN FORECAST_HOURS / FORECAST_STEP_HOURS
+END FUNC
+
+' Fetch hours 3 to 120 of run c, in order, and send each one back as it is
+' decoded. Returns how many hours it sent. Cancelling it stops it at the next
+' hour, or at once if it is sleeping between retries.
+ISOLATED FUNC fetchForecast(worker AS ThreadWorker OF ForecastNews TO Integer, c AS Cycle) AS Integer
+  pruneCache(c)
+
+  FOR n = 1 TO forecastSteps()
+    IF thread::isCancelled(worker) THEN RETURN n - 1
+    LET hour AS Integer = n * FORECAST_STEP_HOURS
+
+    MUT tried AS Attempt = attemptCycle(c, hour)
+    DO WHILE len(tried.data) = 0
+      LET wait AS ForecastNews = ForecastWait[hour := hour, reason := tried.problem]
+      thread::send(worker, wait)
+      os::sleep(RETRY_MILLIS)
+      tried = attemptCycle(c, hour)
+    LOOP
+
+    LET frame AS ForecastNews = ForecastFrame[hour := hour, winds := windsFrom(tried.data, c)]
+    thread::send(worker, frame)
+  NEXT
+
+  RETURN forecastSteps()
+END FUNC

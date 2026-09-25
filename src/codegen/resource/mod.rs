@@ -96,7 +96,17 @@ pub(crate) fn is_builtin_backed_resource(type_: &ParameterType) -> bool {
 }
 
 /// The built-in close op for `type_name`, if it is a built-in resource.
+///
+/// plan-156-C: a parent `Thread` view is a resource whose close op is the hidden
+/// `thread.drop`; a `ThreadWorker` view has none (the runtime owns it). A thread type
+/// has no single nominal, so it is matched structurally rather than through the
+/// registry — which is also why [`is_builtin_resource_type`] still answers `false`
+/// for it: the codegen paths that ask that question (layouts, copies, transfers) keep
+/// their own thread arms.
 pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&'static str> {
+    if let ParameterType::ThreadHandle { worker, .. } = type_.without_state() {
+        return (!worker).then_some(crate::codegen::builtins::thread::DROP);
+    }
     match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => Some(r.close_function),
         _ => None,
@@ -136,7 +146,14 @@ pub(crate) fn builtin_consuming_parameter_index(target: &str) -> Option<usize> {
 }
 
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
+///
+/// plan-156-D: a parent `Thread` view is sendable — its record moves to the
+/// receiver, and the control block it names belongs to no thread. A `ThreadWorker`
+/// is not a resource the program holds at all.
 pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
+    if let ParameterType::ThreadHandle { worker, .. } = type_.without_state() {
+        return !worker;
+    }
     match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => r.sendable,
         _ => false,

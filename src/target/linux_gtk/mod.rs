@@ -23,7 +23,10 @@
 
 mod app_io;
 mod bootstrap;
+mod mouse;
 mod term_draw;
+mod window;
+pub(crate) use window::{app_window_imports, emit_window_sync_seam, window_data_objects};
 
 pub(crate) use app_io::*;
 pub(crate) use bootstrap::*;
@@ -98,6 +101,12 @@ const CANVAS_RESIZE_SYMBOL: &str = "_mfb_gtkapp_canvas_resize";
 /// emitter expects a vreg allocator. A rename breaks the link step loudly ("internal
 /// relocation target ... is not defined") instead of silently dropping the repaint.
 const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
+/// plan-155-A: `_mfb_gtkapp_display_rate(GdkSurface *)` — publish the refresh rate of
+/// the monitor the surface is on, and hook the surface's `enter-monitor` once.
+const DISPLAY_RATE_SYMBOL: &str = "_mfb_gtkapp_display_rate";
+/// plan-155-A: the `GdkSurface::enter-monitor` handler — republish for the monitor.
+const ENTER_MONITOR_SYMBOL: &str = "_mfb_gtkapp_enter_monitor";
+const STR_ENTER_MONITOR: (&str, &str) = ("_mfb_gtkapp_str_enter_monitor", "enter-monitor");
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
@@ -219,7 +228,12 @@ const ST_CANVAS_SURFACE: usize = ST_CANVAS_AREA + 8;
 /// the GTK main loop. A separate width slot would have to be published separately,
 /// and a frame could then be drawn with the previous frame's dimensions.
 const ST_CANVAS_PIXELS: usize = ST_CANVAS_SURFACE + 8;
-const STATE_SIZE: usize = ST_CANVAS_PIXELS + 8;
+/// plan-155-A: the `GdkSurface*` the `enter-monitor` display-rate handler was last
+/// connected to. The canvas reconcile runs on every canvas entry, and connecting on
+/// each would stack one handler per entry on the same surface; comparing against this
+/// connects once per surface. Only the GTK main loop reads or writes it.
+const ST_DISPLAY_HOOKED: usize = ST_CANVAS_PIXELS + 8;
+const STATE_SIZE: usize = ST_DISPLAY_HOOKED + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -590,11 +604,11 @@ pub(crate) fn emit_app_program_entry(
     let mut functions = vec![
         emit_libc_start_trampoline()?,
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
-        emit_finish_helper()?,
+        emit_finish_helper(spec.debug_hooks)?,
         emit_append_helper()?,
         emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
@@ -608,6 +622,20 @@ pub(crate) fn emit_app_program_entry(
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
+    // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
+    // which is itself emitted only then, so emitting them unconditionally would
+    // leave every other GTK app naming an undefined symbol.
+    if spec.uses_mouse {
+        for kind in [
+            mouse::GtkMouseKind::Press,
+            mouse::GtkMouseKind::Release,
+            mouse::GtkMouseKind::Motion,
+            mouse::GtkMouseKind::Scroll,
+        ] {
+            functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
+        }
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -620,8 +648,16 @@ pub(crate) fn emit_app_program_entry(
     // program that can change mode (static default `None`) — a `Console`-default
     // program never reconciles and keeps its exact function set.
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_idle_helper(
+            spec.uses_canvas,
+            spec.uses_window,
+        )?);
+    }
+    // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
+    // name the process-global window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.extend(window::emit_window_functions()?);
     }
     // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
     // drawing area's paint callback. Gated on the program *drawing* rather than on
@@ -631,6 +667,9 @@ pub(crate) fn emit_app_program_entry(
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
         functions.push(emit_canvas_resize_helper()?);
+        // plan-155-A: the display-rate publish and its `enter-monitor` handler.
+        functions.push(emit_display_rate_helper()?);
+        functions.push(emit_enter_monitor_helper()?);
     }
     Ok(functions)
 }
@@ -665,11 +704,11 @@ pub(crate) fn emit_app_program_entry_x86(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap(spec.uses_canvas)?,
-        emit_activate_handler(spec.initial_mode)?,
+        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
-        emit_finish_helper()?,
+        emit_finish_helper(spec.debug_hooks)?,
         emit_append_helper()?,
         emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
@@ -682,6 +721,20 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
+    // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
+    // which is itself emitted only then, so emitting them unconditionally would
+    // leave every other GTK app naming an undefined symbol.
+    if spec.uses_mouse {
+        for kind in [
+            mouse::GtkMouseKind::Press,
+            mouse::GtkMouseKind::Release,
+            mouse::GtkMouseKind::Motion,
+            mouse::GtkMouseKind::Scroll,
+        ] {
+            functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
+        }
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -692,8 +745,16 @@ pub(crate) fn emit_app_program_entry_x86(
     }
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_idle_helper(
+            spec.uses_canvas,
+            spec.uses_window,
+        )?);
+    }
+    // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
+    // name the process-global window data, emitted only for such a program.
+    if spec.uses_window {
+        functions.extend(window::emit_window_functions()?);
     }
     // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
     // drawing area's paint callback. Gated on the program *drawing* rather than on
@@ -703,6 +764,9 @@ pub(crate) fn emit_app_program_entry_x86(
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
         functions.push(emit_canvas_resize_helper()?);
+        // plan-155-A: the display-rate publish and its `enter-monitor` handler.
+        functions.push(emit_display_rate_helper()?);
+        functions.push(emit_enter_monitor_helper()?);
     }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -917,9 +981,27 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 /// window input to the reused fd-0 console readers.
 pub(crate) fn app_mode_imports(
     libc_names: AppLibcNames,
+    uses_mouse: bool,
 ) -> Vec<crate::target::shared::plan::PlatformImport> {
     use crate::target::shared::plan::PlatformImport;
     let AppLibcNames { libc, libpthread } = libc_names;
+    // plan-94-D: the three mouse controllers and what their handlers call.
+    // Separate from the fixed list and conditional, because an unused import is
+    // still recorded in the native plan — declaring these alongside the rest
+    // would diff every GTK app golden that never touches the mouse (plan-94-C
+    // Corrections C3).
+    let gtk_mouse: &[(&str, &str)] = if uses_mouse {
+        &[
+            (GTK, "gtk_gesture_click_new"),
+            (GTK, "gtk_event_controller_motion_new"),
+            (GTK, "gtk_event_controller_scroll_new"),
+            (GTK, "gtk_gesture_single_get_current_button"),
+            (GTK, "gtk_event_controller_get_current_event_state"),
+            (GTK, "gtk_widget_translate_coordinates"),
+        ]
+    } else {
+        &[]
+    };
     let gtk: &[(&str, &str)] = &[
         // Application + window lifecycle.
         (GIO, "g_application_run"),
@@ -971,6 +1053,11 @@ pub(crate) fn app_mode_imports(
         // symbols plan-98-F imports, and naming either here would fail to bind on
         // the other display server.
         (GTK, "gtk_native_get_surface"),
+        // plan-155-A: the refresh rate of the monitor the canvas window is on
+        // (millihertz, `0` = unknown), and the display that answers for the surface.
+        (GTK, "gdk_surface_get_display"),
+        (GTK, "gdk_display_get_monitor_at_surface"),
+        (GTK, "gdk_monitor_get_refresh_rate"),
         // plan-98-C Phase 3: the CPU-buffer blit. Cairo rather than a `GdkTexture`
         // because the surface plan-98-A built is a `GtkDrawingArea`, whose draw
         // callback hands out a `cairo_t` — displaying a texture through it would
@@ -1055,6 +1142,7 @@ pub(crate) fn app_mode_imports(
         (libc, "tcsetattr"),
     ];
     gtk.iter()
+        .chain(gtk_mouse.iter())
         .map(|(library, symbol)| PlatformImport {
             library: (*library).to_string(),
             symbol: (*symbol).to_string(),
@@ -1064,7 +1152,12 @@ pub(crate) fn app_mode_imports(
 }
 
 /// Read-only C-string data symbols + the writable runtime-state global.
-pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
+///
+/// `uses_mouse` adds the four signal names the plan-94-D controllers connect
+/// under. Gated rather than always emitted, because a data object nothing
+/// references still lands in the binary — the rule plan-94-C Corrections C3
+/// arrived at the hard way.
+pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec<CodeDataObject> {
     let app_id = gtk_app_id(project_name);
     let mut objects: Vec<CodeDataObject> = [
         (SYM_APP_ID, app_id.as_str()),
@@ -1075,6 +1168,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
         STR_RESIZE,
+        // plan-155-A: the surface signal the display rate is republished on.
+        STR_ENTER_MONITOR,
         STR_RESIZE_W_ENV,
         STR_RESIZE_H_ENV,
         STR_EXIT_PREFIX,
@@ -1107,6 +1202,29 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),
     });
+    // plan-94-D: the mouse controllers' signal names.
+    if uses_mouse {
+        for (symbol, text) in [
+            mouse::STR_PRESSED,
+            mouse::STR_RELEASED,
+            mouse::STR_MOTION,
+            mouse::STR_SCROLL,
+        ] {
+            objects.push(CodeDataObject {
+                symbol: symbol.to_string(),
+                kind: "raw".to_string(),
+                layout: "C string (NUL-terminated)".to_string(),
+                align: 1,
+                size: text.len() + 1,
+                value: text
+                    .bytes()
+                    .chain(std::iter::once(0))
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            });
+        }
+    }
+
     objects
 }
 
@@ -1212,7 +1330,7 @@ mod identity_tests {
 
     #[test]
     fn app_mode_data_objects_carry_the_derived_id_and_title() {
-        let objects = app_mode_data_objects("my-app");
+        let objects = app_mode_data_objects("my-app", false);
         let id = objects
             .iter()
             .find(|object| object.symbol == SYM_APP_ID)
@@ -1252,7 +1370,7 @@ mod import_tests {
     /// produced, so threading the names moves no byte.
     #[test]
     fn app_mode_imports_glibc_is_unchanged() {
-        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.library)
             .collect();
@@ -1283,7 +1401,7 @@ mod import_tests {
                 "libc.musl-aarch64.so.1",
             ),
         ] {
-            let imports = app_mode_imports(names);
+            let imports = app_mode_imports(names, false);
             let libs: Vec<&str> = imports.iter().map(|i| i.library.as_str()).collect();
             for glibc_only in [
                 "libc.so.6",
@@ -1320,11 +1438,11 @@ mod import_tests {
     /// The import *set* is flavor-independent — only attribution changes.
     #[test]
     fn app_mode_imports_symbol_set_is_flavor_independent() {
-        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
-        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES)
+        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
@@ -1336,7 +1454,7 @@ mod import_tests {
     /// the import plan against reintroducing the dead symbol or dropping `close`.
     #[test]
     fn app_mode_imports_drop_getenv_add_close() {
-        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES)
+        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -1370,7 +1488,7 @@ mod import_tests {
     /// at build time.
     #[test]
     fn every_emitted_external_call_is_a_declared_import() {
-        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES)
+        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES, false)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -1496,7 +1614,7 @@ mod canvas_reconcile_tests {
     /// program entered canvas mode.
     #[test]
     fn reconcile_dispatches_canvas_before_the_console_test() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let immediates = compare_immediates(&func);
         let canvas = immediates
             .iter()
@@ -1519,7 +1637,7 @@ mod canvas_reconcile_tests {
     /// the one widget instead of leaking a new one per cycle.
     #[test]
     fn canvas_area_is_created_and_ref_sunk() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_drawing_area_new"),
             1,
@@ -1538,7 +1656,7 @@ mod canvas_reconcile_tests {
     /// callback at first present would leave the first exposes blank.
     #[test]
     fn canvas_area_gets_its_draw_func_when_created() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1642,7 +1760,7 @@ mod canvas_reconcile_tests {
     /// plan-98-F would have nothing to build a VkSurfaceKHR from.
     #[test]
     fn native_surface_is_read_after_present() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1668,7 +1786,7 @@ mod canvas_reconcile_tests {
     /// surface, so `ST_WINDOW` is null when it enters canvas mode.
     #[test]
     fn window_build_is_shared_by_the_console_and_canvas_arms() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, RECONCILE_BUILD_SYMBOL),
             2,
@@ -1693,7 +1811,7 @@ mod canvas_reconcile_tests {
     /// function.) A missing teardown drops this to 2.
     #[test]
     fn both_non_canvas_arms_tear_the_canvas_area_down() {
-        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_window_set_child"),
             3,
@@ -1705,10 +1823,15 @@ mod canvas_reconcile_tests {
     /// the build.
     #[test]
     fn canvas_symbols_are_declared_imports() {
-        let declared: Vec<String> = app_mode_imports(AppLibcNames {
-            libc: "libc.so.6",
-            libpthread: "libpthread.so.0",
-        })
+        let declared: Vec<String> = app_mode_imports(
+            AppLibcNames {
+                libc: "libc.so.6",
+                libpthread: "libpthread.so.0",
+            },
+            // This case asks what a NON-mouse GTK app declares; the mouse set is
+            // covered by the app-mouse-surface fixture's per-target goldens.
+            false,
+        )
         .into_iter()
         .map(|import| import.symbol)
         .collect();
@@ -1734,7 +1857,7 @@ mod canvas_reconcile_tests {
     /// `io::` reads found nothing to read even after switching to `Console`.
     #[test]
     fn the_reconcile_built_window_gets_the_key_controller() {
-        let build = bootstrap::emit_reconcile_build_helper().expect("reconcile build");
+        let build = bootstrap::emit_reconcile_build_helper(false).expect("reconcile build");
         assert_eq!(
             externals(&build, "gtk_event_controller_key_new"),
             1,
@@ -1768,7 +1891,8 @@ mod canvas_reconcile_tests {
     /// read waiting on the old file description forever.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = bootstrap::emit_activate_handler(PresentationMode::None).expect("activate");
+        let none = bootstrap::emit_activate_handler(PresentationMode::None, false, false)
+            .expect("activate");
         assert_eq!(
             externals(&none, "pipe"),
             1,
@@ -1781,8 +1905,65 @@ mod canvas_reconcile_tests {
         );
         // The Console-default path keeps exactly one — the extraction must not have
         // duplicated it into the branch it came from.
-        let console =
-            bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
+        let console = bootstrap::emit_activate_handler(PresentationMode::Console, false, false)
+            .expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
+    }
+    /// plan-155-A: the canvas reconcile publishes the display rate right after it reads
+    /// the window's surface — and only for a program that draws, since the helper names
+    /// the canvas graphics state.
+    #[test]
+    fn the_canvas_reconcile_publishes_the_display_rate_after_reading_the_surface() {
+        let canvas = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile");
+        let order: Vec<&str> = canvas
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|n| *n == "gtk_native_get_surface" || *n == DISPLAY_RATE_SYMBOL)
+            .collect();
+        assert_eq!(order, vec!["gtk_native_get_surface", DISPLAY_RATE_SYMBOL]);
+        let plain = bootstrap::emit_reconcile_idle_helper(false, false).expect("reconcile");
+        assert_eq!(externals(&plain, DISPLAY_RATE_SYMBOL), 0);
+    }
+
+    /// The helper connects `enter-monitor` (once per surface, through
+    /// `ST_DISPLAY_HOOKED`) and asks GDK for the monitor at the surface; the handler
+    /// reads the monitor it is handed. Every GDK call it makes is declared.
+    #[test]
+    fn the_display_rate_follows_the_surface_across_monitors() {
+        let helper = bootstrap::emit_display_rate_helper().expect("helper");
+        assert_eq!(
+            externals(&helper, STR_ENTER_MONITOR.0),
+            2,
+            "one adrp/add pair"
+        );
+        assert_eq!(
+            externals(&helper, ENTER_MONITOR_SYMBOL),
+            2,
+            "the handler address"
+        );
+        assert_eq!(externals(&helper, "g_signal_connect_data"), 1);
+        assert_eq!(externals(&helper, "gdk_display_get_monitor_at_surface"), 1);
+        assert_eq!(externals(&helper, "gdk_monitor_get_refresh_rate"), 1);
+        let handler = bootstrap::emit_enter_monitor_helper().expect("handler");
+        assert_eq!(externals(&handler, "gdk_monitor_get_refresh_rate"), 1);
+        let names = AppLibcNames {
+            libc: "libc.so.6",
+            libpthread: "libpthread.so.0",
+        };
+        let declared: Vec<String> = app_mode_imports(names, false)
+            .into_iter()
+            .map(|i| i.symbol)
+            .collect();
+        for symbol in [
+            "gdk_surface_get_display",
+            "gdk_display_get_monitor_at_surface",
+            "gdk_monitor_get_refresh_rate",
+        ] {
+            assert!(
+                declared.iter().any(|d| d == symbol),
+                "{symbol} must be declared"
+            );
+        }
     }
 }

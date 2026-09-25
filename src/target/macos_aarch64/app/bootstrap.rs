@@ -78,6 +78,8 @@ fn emit_input_pipe_wiring(asm: &mut Asm, label: &str) {
 pub(super) fn emit_main_bootstrap(
     initial_mode: PresentationMode,
     uses_canvas: bool,
+    uses_mouse: bool,
+    uses_window: bool,
 ) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
@@ -340,6 +342,13 @@ pub(super) fn emit_main_bootstrap(
         asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbPresent:), imp, "v@:@") — the
+        // main-thread present that publishes the drawn grid to the front buffer.
+        asm.load_selector(SEL_MFB_PRESENT.0);
+        asm.local_address("x2", TERM_PRESENT_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
         // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
         // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
         // cell buffer, so it runs on the main thread; it reads the draw parameters the
@@ -397,6 +406,16 @@ pub(super) fn emit_main_bootstrap(
         asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // plan-94-C: the eleven cell-coordinate mouse IMPs. Added before the class
+        // pair is registered, because `class_addMethod` on a registered class is
+        // not the supported way to add a method.
+        if uses_mouse {
+            mouse_view::emit_install_mouse_imps(
+                &mut asm,
+                abi::LOCAL[6],
+                mouse_view::MouseSurface::Cells,
+            );
+        }
         // objc_registerClassPair(cls)
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -413,7 +432,12 @@ pub(super) fn emit_main_bootstrap(
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // TermView instance
-                                                                    // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
+                                                                    // plan-94-C: without a tracking area the `mouseMoved:` IMP is installed and
+                                                                    // never called — drags would report and plain motion would not, silently.
+        if uses_mouse {
+            mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[7]);
+        }
+        // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
         asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
         asm.push(abi::move_immediate(
             "x2",
@@ -436,7 +460,7 @@ pub(super) fn emit_main_bootstrap(
         // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
         // Extracted so the windowless `None` path can install it too (plan-62-C). A
         // Console-default program never reconciles, so it installs no `mfbReconcile:`.
-        emit_gui_delegate(&mut asm, false, uses_canvas);
+        emit_gui_delegate(&mut asm, false, uses_canvas, uses_window);
 
         // Input-line buffer: an NSMutableString accumulating typed characters until
         // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
@@ -570,7 +594,7 @@ pub(super) fn emit_main_bootstrap(
         emit_input_pipe_wiring(&mut asm, "input_pipe_wired_none");
         // A None-default program references setMode, so it reconciles: install
         // `mfbReconcile:` (its IMP is emitted for this program).
-        emit_gui_delegate(&mut asm, true, uses_canvas);
+        emit_gui_delegate(&mut asm, true, uses_canvas, uses_window);
     }
     asm.push(abi::label("after_show"));
 
@@ -653,7 +677,7 @@ pub(super) fn emit_main_bootstrap(
 /// `None` program has no window, so the terminate handler never fires — but the
 /// launch handler is exactly what spawns its worker under `[NSApp run]`).
 /// Requires `REG_APP` to hold the shared `NSApplication`; clobbers `abi::LOCAL[4]`.
-fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
+fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool, uses_window: bool) {
     // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
     asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
     asm.local_address("x1", STR_DELEGATE_CLASS.0);
@@ -699,6 +723,20 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
         asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // bug-686 Phase 4: `mfbMetalLayer:`, the main-thread half of the direct
+        // present — configures, sizes and shows the window's `CAMetalLayer`. Same gate
+        // as `mfbBlit:` for the same reason: its IMP exists only for a drawing program.
+        asm.load_selector(metal::SEL_MFB_METAL_LAYER.0);
+        asm.local_address("x2", metal::METAL_LAYER_APPLY_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+    }
+    // The `app` window members: `mfbSyncWindow:` (the worker's title/fullscreen
+    // marshal target) and the two fullscreen-notification IMPs. Gated like
+    // `mfbBlit:` — the IMPs exist only for a program that uses a window member.
+    if uses_window {
+        window::emit_install_window_methods(asm, abi::LOCAL[4]);
     }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
@@ -716,6 +754,10 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
                                                                 // ask `NSApp` for it (main-thread-only).
     asm.local_address(abi::c_arg(2), DELEGATE_GLOBAL_SYM);
     asm.push(abi::store_u64(abi::LOCAL[4], abi::c_arg(2), 0));
+    // Follow the user's own fullscreen changes into the fullscreen word.
+    if uses_window {
+        window::emit_observe_call(asm, abi::LOCAL[4]);
+    }
     asm.load_selector(SEL_SET_DELEGATE.0);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
     asm.push(abi::move_register(abi::c_arg(0), REG_APP));
@@ -1020,6 +1062,44 @@ pub(super) fn emit_canvas_set_frame_size_helper() -> CodeFunction {
     ));
     asm.call_external("_objc_msgSendSuper", LIB_OBJC);
 
+    // bug-686 Phase 4: the Metal sublayer follows the view — `[metal setFrame:{0, 0,
+    // w, h}]`, in a transaction with actions disabled so it does not animate to the new
+    // size behind a live drag. Its DRAWABLE size is the graphics thread's business and
+    // follows at the next frame (`emit_metal_layer_apply`); until then the compositor
+    // scales the old drawable into the new frame, as the software path's `CALayer`
+    // stretches its old contents. No layer yet — the view's own `initWithFrame:` runs
+    // this before the build creates one — is simply nothing to move.
+    let no_metal_layer = format!("{CANVAS_SET_FRAME_SIZE_SYMBOL}_no_metal_layer");
+    asm.local_address(
+        abi::LOCAL[3],
+        crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+    );
+    asm.push(abi::load_u64(
+        abi::LOCAL[3],
+        abi::LOCAL[3],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[3], "0"));
+    asm.push(abi::branch_eq(&no_metal_layer));
+    metal::emit_transaction_begin(&mut asm);
+    asm.load_selector(metal::SEL_SET_LAYER_FRAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    metal::emit_transaction_commit(&mut asm);
+    asm.push(abi::label(&no_metal_layer));
+
     // width/height as whole pixels, into callee-saved registers the publish reads.
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
     asm.push(abi::float_move_d_from_x(
@@ -1127,6 +1207,43 @@ pub(super) fn emit_canvas_blit_apply_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // bug-686 Phase 4: a CPU frame — software, or a GPU frame read back (headless has no
+    // delegate and never gets here; a `--debug` dump, damage mode, or a frame whose
+    // drawable was unavailable does) — must not sit under a Metal sublayer still
+    // showing the last presented drawable. Hide it, in the same main-thread turn that
+    // set the contents, so the compositor never shows one without the other. Only when
+    // it is shown: a window that stays in software pays one load a frame.
+    asm.local_address(
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+    );
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::load_u64(
+        abi::LOCAL[1],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    metal::emit_transaction_begin(&mut asm);
+    asm.load_selector(metal::SEL_SET_HIDDEN.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    metal::emit_transaction_commit(&mut asm);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+
     asm.push(abi::label(&done));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
@@ -1189,7 +1306,16 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window
-                                                                // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+                                                                // [window setTitle:@"MFBASIC App"] — the same title the Console-start bootstrap
+                                                                // gives its window. Without it a window first shown by `setMode` had an empty
+                                                                // title bar, and `app::getTitle` (which reports the default) disagreed with it.
+    build_nsstring_from_cstring(&mut asm, abi::LOCAL[2], STR_TITLE.0);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
+    asm.load_selector(SEL_SET_TITLE.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.external_data(abi::LOCAL[2], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
@@ -1261,7 +1387,7 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
 /// while in canvas mode — a canvas surface has no transcript to append to. That is
 /// the write half of the mode's I/O contract; the read half (window key events) is
 /// Phase 4.
-pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
+pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_CANVAS_SYMBOL);
     let frame = 48;
     let have_window = format!("{RECONCILE_CANVAS_SYMBOL}_have_window");
@@ -1342,6 +1468,19 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
         asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // plan-155-A: `mfbScreenChanged:`, the display-rate observer's method. Same
+        // gate: its IMP publishes into the canvas graphics state.
+        display::emit_install_screen_changed_method(&mut asm, abi::LOCAL[2]);
+    }
+    // plan-94-C: the eleven pixel-coordinate mouse IMPs, before registration for
+    // the same reason `TermView`'s are. Only a canvas program has them: they read
+    // the canvas graphics state, which exists only then (`emit_mouse_imps`).
+    if uses_mouse && uses_canvas {
+        mouse_view::emit_install_mouse_imps(
+            &mut asm,
+            abi::LOCAL[2],
+            mouse_view::MouseSurface::Pixels,
+        );
     }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
@@ -1360,6 +1499,11 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // view
+                                                                // plan-94-C: the canvas view needs the same tracking area the term view does,
+                                                                // and for the same reason — `mouseMoved:` is delivered only on request.
+    if uses_mouse {
+        mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[2]);
+    }
 
     // [view setWantsLayer:YES] — the whole point of the canvas surface. Without it
     // `[view layer]` is nil and plan-98-E has nothing to attach a CAMetalLayer to.
@@ -1403,6 +1547,75 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // bug-686 Phase 4: the `CAMetalLayer` a GPU frame is presented into, as a HIDDEN
+    // sublayer of the backing layer. A sublayer rather than the backing layer itself,
+    // so the software path is untouched: it keeps setting the backing layer's
+    // `contents`, and the Metal layer is shown only while GPU frames are actually being
+    // presented into it (`emit_metal_layer_apply`) and hidden again the moment a
+    // software or readback frame lands (`emit_canvas_blit_apply_helper`).
+    //
+    // Created here, once, with the view it belongs to — never headless, where no view
+    // is built, so a headless run's `…_MTL_LAYER` stays zero and every GPU frame there
+    // takes the readback path. Owned by this `alloc` reference for the life of the
+    // process, exactly like the view (re-entering canvas mode reuses both).
+    //
+    // Its frame is the view's bounds, kept there by the view's `setFrameSize:`
+    // (`emit_canvas_set_frame_size_helper`); the build's own frame is the view's
+    // initial one. The colour in `LOCAL[4]` is not needed again, so it takes the layer.
+    if uses_canvas {
+        let no_metal_layer = format!("{RECONCILE_CANVAS_SYMBOL}_no_metal_layer");
+        asm.external_data(
+            abi::LOCAL[4],
+            metal::CLASS_CA_METAL_LAYER,
+            metal::LIB_QUARTZCORE,
+        );
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0)));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0)));
+        asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
+        asm.push(abi::branch_eq(&no_metal_layer));
+        // [metal setHidden:YES] — before it joins the tree, so it is never visible
+        // holding nothing over the software frame.
+        asm.load_selector(metal::SEL_SET_HIDDEN.0);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [metal setFrame:NSMakeRect(0, 0, 900, 640)] — the view's own initial frame.
+        asm.load_selector(metal::SEL_SET_LAYER_FRAME.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [backing addSublayer:metal]
+        asm.load_selector(metal::SEL_ADD_SUBLAYER.0);
+        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // Publish it for the graphics thread. Last, after it is fully set up: the
+        // graphics thread takes a non-zero `…_MTL_LAYER` as "a window layer exists".
+        asm.local_address(
+            abi::SCRATCH[0],
+            crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL,
+        );
+        asm.push(abi::store_u64(
+            abi::LOCAL[4],
+            abi::SCRATCH[0],
+            crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
+        ));
+        asm.push(abi::label(&no_metal_layer));
+        // plan-155-A: republish the display rate whenever the window changes screen.
+        // Registered once, with the view that carries the method. The layer and the
+        // colour registers are free by now, and both are callee-saved.
+        display::emit_observe_screen_changes(&mut asm, abi::LOCAL[2], abi::LOCAL[3], abi::LOCAL[4]);
+    }
+
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
@@ -1425,6 +1638,13 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // plan-155-A: publish the display rate for the window the surface is now in. On
+    // every canvas entry rather than only at build: it costs three sends, and a window
+    // that moved screens while out of canvas mode still reports correctly.
+    if uses_canvas {
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+        asm.call_internal(display::DISPLAY_RATE_SYMBOL);
+    }
 
     // Clear ASSOC_KEY: io writes degrade to the fd sink in canvas mode.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -1659,7 +1879,7 @@ fn emit_canvas_teardown(asm: &mut Asm, app: &str, window: &str, scratch: &str, l
 /// Only `None`-start programs ever reach here (a program referencing `setMode` is
 /// always `None`-start; a `Console`-start program never references it), so this never
 /// touches a startup-built Console window.
-pub(super) fn emit_reconcile_helper() -> CodeFunction {
+pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_SYMBOL);
     let frame = 64;
     let none_path = format!("{RECONCILE_SYMBOL}_none");
@@ -1733,6 +1953,10 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(&mut asm);
+    }
     asm.push(abi::branch(&done));
     // --- Canvas (plan-98-A Phase 3) ---
     asm.push(abi::label(&canvas_path));
@@ -1744,6 +1968,10 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        window::emit_sync_call(&mut asm);
+    }
     asm.push(abi::branch(&done));
     // --- None ---
     asm.push(abi::label(&none_path));
@@ -1954,12 +2182,14 @@ pub(super) fn emit_append_helper() -> CodeFunction {
 /// worker program's exit here instead of `_exit`.
 ///
 /// Headless (no transcript view attached): `_exit(code)` — preserves the
-/// console-like behavior the runtime tests rely on. GUI: append
+/// console-like behavior the runtime tests rely on. A release build (`debug` is
+/// false) does the same with a window up: the program is over, so the app is too.
+/// A `--debug` GUI build instead keeps the window open for inspection: append
 /// `Program exited with code <N>` to the transcript and `pthread_exit` the worker
 /// so the process keeps running with the window open; the app quits when the
 /// window is closed (the synthesized delegate's
 /// applicationShouldTerminateAfterLastWindowClosed: returns YES).
-pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
+pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     let mut asm = Asm::new(FINISH_SYMBOL);
     // Frame: lr@0, x19(code)@8, x20(scratch/nsstring)@16, x21(textview)@24,
     // x22(digit count)@32, decimal digit buffer@40 (<=3 digits for 0..255).
@@ -1985,6 +2215,12 @@ pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 40));
     }
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
+
+    // Only a `--debug` build lingers on the last output and the exit code; a
+    // release app closes the moment its program finishes, like any other app.
+    if !debug {
+        asm.push(abi::branch("headless_exit"));
+    }
 
     // view = objc_getAssociatedObject([NSApplication sharedApplication], &KEY)
     asm.external_data(abi::LOCAL[2], CLASS_NS_APPLICATION, LIB_APPKIT);

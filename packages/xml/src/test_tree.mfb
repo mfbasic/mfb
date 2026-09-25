@@ -1,0 +1,84 @@
+' ---------------------------------------------------------------------------
+' Tests: the tree model — constructors reach the accessors, and each accessor's
+' failure is the documented one.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+
+' <a id="1" class="x">hello<b>deep</b>tail</a>, with a comment and a PI around it.
+PRIVATE FUNC sampleDocument() AS Document
+  LET inner AS Node = element("b", [], [text("deep")])
+  LET attrs AS List OF Attribute = [Attribute["id", "1"], Attribute["class", "x"]]
+  LET rootElement AS Node = element("a", attrs, [text("hello"), inner, text("tail")])
+  RETURN document([comment("note"), pi("target", "data"), rootElement])
+END FUNC
+
+TESTING
+  TGROUP "constructors and accessors"
+    TCASE "a constructed element reaches the accessors unchanged"
+      LET e AS Element = root(sampleDocument())
+      expectString(e.name, "a")
+      expectInteger(len(e.attributes), 2)
+      expectInteger(len(e.children), 3)
+      expectString(attr(e, "id"), "1")
+      expectString(attr(e, "class"), "x")
+    END TCASE
+
+    TCASE "attributes keep document order rather than being sorted by name"
+      LET e AS Element = root(sampleDocument())
+      expectString(collections::get(e.attributes, 0).name, "id")
+      expectString(collections::get(e.attributes, 1).name, "class")
+    END TCASE
+
+    TCASE "root skips the prolog comment and processing instruction"
+      LET doc AS Document = sampleDocument()
+      expectInteger(len(doc.children), 3)
+      expectString(root(doc).name, "a")
+    END TCASE
+
+    TCASE "root fails ErrNotFound when the document holds no element"
+      expectTrap(root(document([comment("only a comment")])), 77050004)
+      expectTrap(root(document([])), 77050004)
+    END TCASE
+
+    TCASE "attr fails ErrNotFound for an absent attribute"
+      LET e AS Element = root(sampleDocument())
+      expectTrap(attr(e, "missing"), 77050004)
+    END TCASE
+
+    TCASE "attr matches the raw prefix:local text, since prefixes are not resolved"
+      LET e AS Element = Element["svg:svg", [Attribute["xlink:href", "u"]], []]
+      expectString(attr(e, "xlink:href"), "u")
+      expectTrap(attr(e, "href"), 77050004)
+    END TCASE
+
+    TCASE "attrOr returns the fallback instead of failing"
+      LET e AS Element = root(sampleDocument())
+      expectString(attrOr(e, "id", "none"), "1")
+      expectString(attrOr(e, "missing", "none"), "none")
+    END TCASE
+  END TGROUP
+
+  TGROUP "textOf"
+    TCASE "textOf concatenates nested text in document order"
+      LET doc AS Document = sampleDocument()
+      LET rootNode AS Node = collections::get(doc.children, 2)
+      expectString(textOf(rootNode), "hellodeeptail")
+    END TCASE
+
+    TCASE "textOf of a text node is its own text"
+      expectString(textOf(text("just text")), "just text")
+    END TCASE
+
+    TCASE "a comment and a processing instruction contribute no text"
+      expectString(textOf(comment("note")), "")
+      expectString(textOf(pi("target", "data")), "")
+      LET mixed AS Node = element("a", [], [comment("c"), text("kept"), pi("t", "d")])
+      expectString(textOf(mixed), "kept")
+    END TCASE
+
+    TCASE "textOf of an empty element is the empty string"
+      expectString(textOf(element("a", [], [])), "")
+    END TCASE
+  END TGROUP
+END TESTING

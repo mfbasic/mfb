@@ -204,13 +204,41 @@ pub(crate) fn emit_append_to_file_buffer(
     emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
 
+/// Refuse a closed `File` (x0 = File*) by branching to `closed`: the same
+/// `CLOSED != 0` guard every other handle operation opens with (bug-694 C3). The
+/// flag word also carries the moved bit, so a moved handle is refused here too.
+fn emit_closed_guard(instructions: &mut Vec<CodeInstruction>, flag: &str, closed: &str) {
+    instructions.extend([
+        abi::load_u64(flag, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(flag, "0"),
+        abi::branch_ne(closed),
+    ]);
+}
+
+/// The `closed` tail [`emit_closed_guard`] branches to: raise `ErrResourceClosed`
+/// and fall through to `done`.
+fn emit_closed_tail(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    closed: &str,
+) {
+    instructions.push(abi::label(closed));
+    raise_error_into(symbol, "ErrResourceClosed", instructions, relocations);
+}
+
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
 pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let yes = format!("{symbol}_yes");
+    let closed = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
+    let flag = vregs.next();
     let enabled = vregs.next();
-    let instructions = vec![
+    let mut instructions = Vec::new();
+    let mut relocations = Vec::new();
+    emit_closed_guard(&mut instructions, &flag, &closed);
+    instructions.extend([
         abi::load_u64(&enabled, abi::return_register(), FILE_OFFSET_BUF_ENABLED),
         abi::compare_immediate(&enabled, "0"),
         abi::branch_ne(&yes),
@@ -220,51 +248,79 @@ pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> Result<FsBodyParts, S
         abi::label(&yes),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
-    ];
-    Ok((instructions, Vec::new(), 0))
+        abi::branch(&done),
+    ]);
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    Ok((instructions, relocations, 0))
 }
 
 /// `fs::setBuffered(file, enabled)` (plan-14-B §4.5): turn per-handle buffering on
 /// or off. Disabling drains any pending bytes first, then clears the flag.
 pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let enable = format!("{symbol}_enable");
+    let ok = format!("{symbol}_ok");
+    let drain_error = format!("{symbol}_drain_error");
+    let closed = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
+    let flag = vregs.next();
     let parked_file = vregs.next();
     let one = vregs.next();
     // x0 = File*, x1 = enabled (Boolean).
-    let mut instructions = vec![
+    let mut instructions = Vec::new();
+    emit_closed_guard(&mut instructions, &flag, &closed);
+    instructions.extend([
         abi::compare_immediate(abi::mfb_return(1), "0"),
         abi::branch_ne(&enable),
-        // Disable: drain first (best-effort — setBuffered returns Nothing), then
-        // clear the flag. File* is already in x0 for the drain; park it for the store.
+        // Disable: drain first, then clear the flag. File* is already in x0 for
+        // the drain; park it for the store.
         abi::move_register(&parked_file, abi::return_register()),
         abi::branch_link(FILE_DRAIN_SYMBOL),
-    ];
-    let relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
+    ]);
+    let mut relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
+        // bug-694 C7: a failed drain leaves the bytes in the buffer, and every
+        // later drain is a no-op once the flag is clear — so clearing it here
+        // would lose them. Keep the handle buffered and report the failure, as
+        // `fs::flush` does.
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&drain_error),
         abi::store_u64(abi::ZERO, &parked_file, FILE_OFFSET_BUF_ENABLED),
-        abi::branch(&done),
+        abi::branch(&ok),
         abi::label(&enable),
         abi::move_immediate(&one, "Integer", "1"),
         abi::store_u64(&one, abi::return_register(), FILE_OFFSET_BUF_ENABLED),
-        abi::label(&done),
+        abi::label(&ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::return_(),
+        abi::branch(&done),
+        abi::label(&drain_error),
     ]);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::branch(&done));
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
+    instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, 0))
 }
 
-/// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises the
-/// write-path ErrOutput on a failing final write; a no-op when the handle is
+/// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises
+/// `ErrWriteFailed` on a failing final write; a no-op when the handle is
 /// unbuffered.
 pub(crate) fn lower_fs_flush_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let flush_error = format!("{symbol}_flush_error");
+    let closed = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let flag = vregs.next();
     // x0 = File*.
-    let mut instructions = vec![abi::branch_link(FILE_DRAIN_SYMBOL)];
+    let mut instructions = Vec::new();
+    emit_closed_guard(&mut instructions, &flag, &closed);
+    instructions.push(abi::branch_link(FILE_DRAIN_SYMBOL));
     let mut relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -279,6 +335,8 @@ pub(crate) fn lower_fs_flush_helper(symbol: &str) -> Result<FsBodyParts, String>
         &mut instructions,
         &mut relocations,
     );
+    instructions.push(abi::branch(&done));
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, 0))
 }

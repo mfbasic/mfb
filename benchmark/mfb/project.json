@@ -8,7 +8,9 @@
     {
       "name": "bench_workers",
       "version": "=0.1.0",
-      "source": "file:packages/bench_workers.mfp"
+      "source": "file:packages/bench_workers.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

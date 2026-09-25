@@ -1,0 +1,242 @@
+' ---------------------------------------------------------------------------
+' Tests: the XPath evaluator.
+'
+' Most cases assert through `valueOf`, because an XPath result's string-value is
+' exactly what the specification defines and it compares without materializing
+' anything. Node COUNTS and node identity go through `select`.
+'
+' The cases that matter most are the ones where a plausible implementation gets
+' a defensible-but-wrong answer: per-step versus per-result predicates, the
+' existential rule for comparing a node-set, and §4.2 number formatting.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' A catalogue with two books, a prefixed name, a comment, a PI and an empty
+' element -- enough for every node test and axis in the subset.
+PRIVATE FUNC catalog() AS Document
+  RETURN parse("<?xml version=\"1.0\"?><catalog xmlns:dc=\"urn:dc\"><book id=\"b1\" lang=\"en\"><dc:title>Dune</dc:title><author>Herbert</author><price>9.99</price></book><book id=\"b2\"><dc:title>Neuromancer</dc:title><author>Gibson</author><price>12.50</price></book><!--note--><?pi data?><empty/></catalog>")
+END FUNC
+
+' Two shelves, so `//book[1]` (the first book of EACH shelf) and `(//book)[1]`
+' (the first book overall) have different answers.
+PRIVATE FUNC shelves() AS Document
+  RETURN parse("<library><shelf><book>a</book><book>b</book></shelf><shelf><book>c</book></shelf></library>")
+END FUNC
+
+PRIVATE FUNC countOf(doc AS Document, expression AS String) AS Integer
+  RETURN len(select(doc, expression))
+END FUNC
+
+PRIVATE FUNC textsOf(doc AS Document, expression AS String) AS String
+  MUT parts AS List OF String = []
+  FOR EACH found IN select(doc, expression)
+    parts = collections::append(parts, textOf(found))
+  NEXT
+  RETURN strings::join(parts, ",")
+END FUNC
+
+TESTING
+  TGROUP "location paths"
+    TCASE "absolute and relative paths select the same nodes"
+      expectInteger(countOf(catalog(), "/catalog/book"), 2)
+      expectInteger(countOf(catalog(), "//book"), 2)
+      expectString(valueOf(catalog(), "/catalog/book[1]/author"), "Herbert")
+    END TCASE
+
+    TCASE "descendant-or-self reaches every depth"
+      expectInteger(countOf(catalog(), "//author"), 2)
+      expectInteger(countOf(catalog(), "/catalog//author"), 2)
+      expectInteger(countOf(catalog(), "//*"), 10)
+    END TCASE
+
+    TCASE "the parent axis climbs"
+      expectString(textsOf(catalog(), "//dc:title/../author"), "Herbert,Gibson")
+      expectInteger(countOf(catalog(), "//book/.."), 1)
+    END TCASE
+
+    TCASE "self selects the context"
+      expectInteger(countOf(catalog(), "//book/."), 2)
+      expectInteger(countOf(catalog(), ".//book"), 2)
+    END TCASE
+
+    TCASE "node-type tests"
+      expectInteger(countOf(catalog(), "//text()"), 6)
+      expectInteger(countOf(catalog(), "//comment()"), 1)
+      expectInteger(countOf(catalog(), "//processing-instruction()"), 1)
+      expectInteger(countOf(catalog(), "//node()"), 18)
+    END TCASE
+
+    TCASE "a prefixed name matches the literal prefix:local text"
+      expectInteger(countOf(catalog(), "//dc:title"), 2)
+      expectString(valueOf(catalog(), "//dc:title"), "Dune")
+      ' The prefix is not resolved, so the local name alone matches nothing.
+      expectInteger(countOf(catalog(), "//title"), 0)
+    END TCASE
+
+    TCASE "the union operator merges in document order, without duplicates"
+      expectInteger(countOf(catalog(), "//author | //price"), 4)
+      expectInteger(countOf(catalog(), "//book | //book"), 2)
+      expectString(textsOf(catalog(), "//author | //price"), "Herbert,9.99,Gibson,12.50")
+    END TCASE
+  END TGROUP
+
+  TGROUP "predicates"
+    TCASE "a positional predicate applies PER STEP"
+      ' //book[1] is the first book of each shelf: two nodes, not one.
+      expectInteger(countOf(shelves(), "//book[1]"), 2)
+      expectString(textsOf(shelves(), "//book[1]"), "a,c")
+    END TCASE
+
+    TCASE "a filter expression applies to the whole result"
+      expectInteger(countOf(shelves(), "(//book)[1]"), 1)
+      expectString(textsOf(shelves(), "(//book)[1]"), "a")
+      expectString(textsOf(shelves(), "(//book)[3]"), "c")
+    END TCASE
+
+    TCASE "last() and position()"
+      expectString(textsOf(shelves(), "(//book)[last()]"), "c")
+      expectInteger(countOf(shelves(), "//book[position() < 2]"), 2)
+      expectInteger(countOf(shelves(), "(//book)[position() < 3]"), 2)
+    END TCASE
+
+    TCASE "an attribute predicate"
+      expectInteger(countOf(catalog(), "//book[@id]"), 2)
+      expectInteger(countOf(catalog(), "//book[@lang]"), 1)
+      expectString(valueOf(catalog(), "//book[@id='b2']/author"), "Gibson")
+    END TCASE
+
+    TCASE "a child predicate tests existence, then value"
+      expectInteger(countOf(catalog(), "//book[author]"), 2)
+      expectInteger(countOf(catalog(), "//book[missing]"), 0)
+      expectString(valueOf(catalog(), "//book[author='Gibson']/@id"), "b2")
+    END TCASE
+
+    TCASE "predicates chain"
+      expectInteger(countOf(shelves(), "//book[1][1]"), 2)
+      expectInteger(countOf(shelves(), "(//book)[1][1]"), 1)
+      expectInteger(countOf(shelves(), "(//book)[1][2]"), 0)
+    END TCASE
+  END TGROUP
+
+  TGROUP "attributes"
+    TCASE "@name and @* select attributes"
+      expectInteger(len(selectAttributes(catalog(), "//book/@id")), 2)
+      expectInteger(len(selectAttributes(catalog(), "//book/@*")), 3)
+      expectInteger(len(selectAttributes(catalog(), "//book[1]/@*")), 2)
+    END TCASE
+
+    TCASE "an attribute's string-value"
+      expectString(valueOf(catalog(), "//book/@id"), "b1")
+      expectString(valueOf(catalog(), "//book[2]/@id"), "b2")
+      expectString(valueOf(catalog(), "count(//@id)"), "2")
+    END TCASE
+
+    TCASE "the xmlns declaration is an ordinary attribute here"
+      expectInteger(len(selectAttributes(catalog(), "/catalog/@*")), 1)
+      expectString(valueOf(catalog(), "/catalog/@xmlns:dc"), "urn:dc")
+    END TCASE
+  END TGROUP
+
+  TGROUP "comparisons"
+    TCASE "comparing a node-set is EXISTENTIAL, not universal"
+      ' True because ONE book has id b2 -- not because all of them do.
+      expectString(valueOf(catalog(), "//book/@id = 'b2'"), "true")
+      expectString(valueOf(catalog(), "//book/@id = 'nope'"), "false")
+      ' != is existential too: true because some id differs from b1.
+      expectString(valueOf(catalog(), "//book/@id != 'b1'"), "true")
+    END TCASE
+
+    TCASE "numeric comparison converts strings"
+      expectString(valueOf(catalog(), "//price > 10"), "true")
+      expectString(valueOf(catalog(), "//price > 100"), "false")
+      expectString(valueOf(catalog(), "//book[1]/price < 10"), "true")
+    END TCASE
+
+    TCASE "boolean operators short-circuit to a boolean"
+      expectString(valueOf(catalog(), "//book and //author"), "true")
+      expectString(valueOf(catalog(), "//book and //missing"), "false")
+      expectString(valueOf(catalog(), "//missing or //author"), "true")
+      expectString(valueOf(catalog(), "not(//missing)"), "true")
+    END TCASE
+  END TGROUP
+
+  TGROUP "numbers, as XPath writes them"
+    TCASE "an integral number has no fractional part"
+      expectString(valueOf(catalog(), "string(2.0)"), "2")
+      expectString(valueOf(catalog(), "1 + 1"), "2")
+      expectString(valueOf(catalog(), "count(//book)"), "2")
+    END TCASE
+
+    TCASE "division by zero is Infinity or NaN, never an error"
+      expectString(valueOf(catalog(), "string(1 div 0)"), "Infinity")
+      expectString(valueOf(catalog(), "string(-1 div 0)"), "-Infinity")
+      expectString(valueOf(catalog(), "string(0 div 0)"), "NaN")
+    END TCASE
+
+    TCASE "arithmetic"
+      expectString(valueOf(catalog(), "7 div 2"), "3.5")
+      expectString(valueOf(catalog(), "7 mod 2"), "1")
+      expectString(valueOf(catalog(), "2 * 3"), "6")
+      expectString(valueOf(catalog(), "10 - 4"), "6")
+      expectString(valueOf(catalog(), "-3 + 1"), "-2")
+    END TCASE
+
+    TCASE "sum() over a node-set, and a non-numeric string is NaN"
+      expectString(valueOf(catalog(), "sum(//price)"), "22.49")
+      expectString(valueOf(catalog(), "string(number('x'))"), "NaN")
+      expectString(valueOf(catalog(), "number('2.5')"), "2.5")
+    END TCASE
+  END TGROUP
+
+  TGROUP "functions"
+    TCASE "string functions"
+      expectString(valueOf(catalog(), "string(//author)"), "Herbert")
+      expectString(valueOf(catalog(), "concat('a','b','c')"), "abc")
+      expectString(valueOf(catalog(), "string-length('abc')"), "3")
+      expectString(valueOf(catalog(), "contains(//author,'erb')"), "true")
+      expectString(valueOf(catalog(), "starts-with(//author,'H')"), "true")
+      expectString(valueOf(catalog(), "starts-with(//author,'G')"), "false")
+    END TCASE
+
+    TCASE "normalize-space collapses every kind of whitespace"
+      expectString(valueOf(catalog(), "normalize-space('  a   b  ')"), "a b")
+      expectString(valueOf(catalog(), "normalize-space('a\tb\nc')"), "a b c")
+      expectString(valueOf(catalog(), "normalize-space('   ')"), "")
+    END TCASE
+
+    TCASE "name() and local-name() keep and strip the prefix"
+      expectString(valueOf(catalog(), "name(//dc:title)"), "dc:title")
+      expectString(valueOf(catalog(), "local-name(//dc:title)"), "title")
+      expectString(valueOf(catalog(), "name(//book)"), "book")
+    END TCASE
+
+    TCASE "boolean(), true() and false()"
+      expectString(valueOf(catalog(), "true()"), "true")
+      expectString(valueOf(catalog(), "false()"), "false")
+      expectString(valueOf(catalog(), "boolean(//book)"), "true")
+      expectString(valueOf(catalog(), "boolean(//missing)"), "false")
+      expectString(valueOf(catalog(), "boolean('')"), "false")
+    END TCASE
+  END TGROUP
+
+  TGROUP "refusals"
+    TCASE "a node-set mixing attributes with other nodes is unsupported"
+      expectTrap(evaluate(catalog(), "//book | //@id"), 77050007)
+    END TCASE
+
+    TCASE "select needs nodes, selectAttributes needs attributes"
+      expectTrap(select(catalog(), "string(//book)"), 77050002)
+      expectTrap(select(catalog(), "count(//book)"), 77050002)
+      expectTrap(select(catalog(), "//book/@id"), 77050002)
+      expectTrap(selectAttributes(catalog(), "//book"), 77050002)
+    END TCASE
+
+    TCASE "the parser's refusals reach the caller unchanged"
+      expectTrap(select(catalog(), "child::book"), 77050007)
+      expectTrap(select(catalog(), "$x"), 77050007)
+      expectTrap(select(catalog(), "a["), 77050003)
+    END TCASE
+  END TGROUP
+END TESTING

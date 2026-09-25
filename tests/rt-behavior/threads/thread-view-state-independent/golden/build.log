@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-view-state-independent
+Wrote AST to tests/rt-behavior/threads/thread-view-state-independent/thread_view_state_independent.ast
+Wrote IR to tests/rt-behavior/threads/thread-view-state-independent/thread_view_state_independent.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-view-state-independent
+Wrote executable to tests/rt-behavior/threads/thread-view-state-independent/build/thread_view_state_independent.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-view-state-independent/build/thread_view_state_independent.out
+parent starts at 0
+parent 7
+worker 10
+parent still 7
+[exit 0]

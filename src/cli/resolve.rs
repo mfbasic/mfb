@@ -67,41 +67,47 @@ struct Node {
     selected: Option<String>,
 }
 
-/// `mfb pkg update`: re-resolve the registry dependencies and write `mfb.lock`,
-/// printing a diff against the previous lock.
+/// `mfb pkg update`: close the dependency set (bug-628), re-resolve the registry
+/// dependencies and write `mfb.lock`, printing a diff against the previous lock.
 pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
-    let (manifest, _contents) = read_manifest(project_dir)?;
+    let (_manifest, contents) = read_manifest(project_dir)?;
 
+    // bug-628: `apply_manifest_change` declares every dependency the declared
+    // packages import, drops indirect entries nothing requires, and rewrites
+    // `direct`/`requiredBy` — for every project, registry dependencies or not.
+    //
     // plan-60-E (input from plan-60-C Corrections #3): a project with no
     // registry dependencies has nothing to resolve. `resolve()` would error
     // with "declares no registry dependencies to resolve", which is the wrong
     // answer for a project that legitimately has only `file://` packages — or
-    // none at all. Apply plan-60-B §4.3's policy instead: nothing to lock, so
-    // drop a stale lock and succeed.
-    //
-    // This became reachable when plan-60-C fixed `resolve()` to exclude
-    // `file://` dependencies by `source`; before that such a project resolved
-    // (and corrupted itself).
-    if registry_dependency_count(&manifest) == 0 {
-        let lock = lock_path(project_dir);
-        if lock.exists() {
-            fs::remove_file(&lock)
-                .map_err(|err| format!("failed to remove '{}': {err}", lock.display()))?;
-        }
-        println!("No registry dependencies to resolve; mfb.lock is not needed.");
-        return Ok(());
-    }
+    // none at all. `apply_manifest_change`'s zero-registry path applies
+    // plan-60-B §4.3's policy instead: nothing to lock, so a stale lock goes.
+    apply_manifest_change(project_dir, &contents)?;
 
-    let previous = read_lock(project_dir)?;
-    let lock = resolve(&manifest)?;
-    print_lock_diff(previous.as_ref(), &lock);
-    write_lock(project_dir, &lock)?;
-    println!(
-        "Wrote {} resolved package(s) to mfb.lock",
-        lock.packages.len()
-    );
-    // Apply the freshly written lock so the working tree matches it.
-    install(project_dir)
+    let (manifest, _contents) = read_manifest(project_dir)?;
+    if registry_dependency_count(&manifest) == 0 {
+        println!("No registry dependencies to resolve; mfb.lock is not needed.");
+    } else if let Some(lock) = read_lock(project_dir)? {
+        println!(
+            "Wrote {} resolved package(s) to mfb.lock",
+            lock.packages.len()
+        );
+    }
+    Ok(())
+}
+
+/// How many times [`apply_manifest_change`] re-closes the dependency set after
+/// an install. Installing a registry package makes its import table readable,
+/// which can name dependencies of its own; each round declares one more layer.
+const MAX_CLOSURE_ROUNDS: usize = 32;
+
+/// What closing the dependency set changed beyond the caller's own edit.
+#[derive(Debug, Default)]
+pub(crate) struct ClosureChanges {
+    /// `(name, the declared package that needs it)` for each entry declared.
+    pub(crate) added: Vec<(String, String)>,
+    /// The indirect entries dropped because nothing requires them any more.
+    pub(crate) removed: Vec<String>,
 }
 
 /// Apply a proposed `project.json` **resolve-first** (plan-60-B §4.2): resolve
@@ -125,7 +131,20 @@ pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
 /// incomplete, which `mfb pkg install` recovers. That is strictly better than
 /// the alternative it replaces: a partially-populated `packages/` paired with a
 /// manifest that never mentioned the new dependency.
-pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> Result<(), String> {
+///
+/// bug-628: the proposed text is first **closed** — every dependency a declared
+/// package imports is declared (`direct: false`), indirect entries nothing
+/// requires are dropped, and `direct`/`requiredBy` are rewritten on every entry
+/// (`manifest::closure::reconcile`). A registry package's import table is only
+/// readable once it is installed, so after each install the set is closed again
+/// and, if that declared anything more, resolved and installed again. Only the
+/// first round keeps the resolve-first guarantee; a later round that fails leaves
+/// a consistent, installed manifest that is merely missing that layer, which the
+/// build reports and `mfb pkg update` retries.
+pub(crate) fn apply_manifest_change(
+    project_dir: &Path,
+    new_contents: &str,
+) -> Result<ClosureChanges, String> {
     let project_path = project_dir.join("project.json");
 
     // 1. Parse and validate the *proposed* text. Nothing is written if it is
@@ -133,6 +152,123 @@ pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> R
     //    project.
     let manifest = parse_project_json(new_contents, &project_path)?;
     validate_packages_array(&manifest)?;
+
+    let mut changes = ClosureChanges::default();
+    let mut contents = close_dependency_set(project_dir, new_contents, &mut changes)?;
+    for _ in 0..MAX_CLOSURE_ROUNDS {
+        apply_closed_manifest(project_dir, &contents)?;
+        let closed = close_dependency_set(project_dir, &contents, &mut changes)?;
+        if closed == contents {
+            for (name, requirer) in &changes.added {
+                println!("Declared package {name} (required by {requirer})");
+            }
+            for name in &changes.removed {
+                // An orphan that was also installed goes with its entry.
+                super::pkg::remove_installed_package_files(project_dir, name);
+                println!("Removed package {name} (no declared package requires it)");
+            }
+            return Ok(changes);
+        }
+        contents = closed;
+    }
+    Err(format!(
+        "the dependency closure of '{}' did not converge after {MAX_CLOSURE_ROUNDS} installs",
+        project_path.display()
+    ))
+}
+
+/// Close `contents` (bug-628): reconcile against the import tables readable now,
+/// copy each located compiled dependency into `packages/`, and declare each
+/// needed registry package from its `/index`, until nothing more can be learned
+/// without an install. A needed package that is neither local nor a registry
+/// ident cannot be located and is an error naming it.
+fn close_dependency_set(
+    project_dir: &Path,
+    contents: &str,
+    changes: &mut ClosureChanges,
+) -> Result<String, String> {
+    let project_path = project_dir.join("project.json");
+    let mut contents = contents.to_string();
+    for _ in 0..MAX_CLOSURE_ROUNDS {
+        let result = crate::manifest::closure::reconcile(project_dir, &contents)?;
+        contents = result.contents;
+        changes.added.extend(result.added);
+        changes.removed.extend(result.removed);
+        for (name, file) in &result.installs {
+            super::pkg::install_local_package(project_dir, name, file)?;
+        }
+        if result.unresolved.is_empty() {
+            if result.installs.is_empty() {
+                return Ok(contents);
+            }
+            // The copies make their import tables readable: reconcile again.
+            continue;
+        }
+        let (registry, local): (Vec<_>, Vec<_>) = result
+            .unresolved
+            .into_iter()
+            .partition(|(_, need)| need.ident.contains('#'));
+        if !local.is_empty() {
+            let lines: Vec<String> = local
+                .iter()
+                .map(|(requirer, need)| {
+                    format!(
+                        "package `{requirer}` requires `{}`, which cannot be located from \
+                         `{requirer}`; add it with `mfb pkg add`",
+                        need.name
+                    )
+                })
+                .collect();
+            return Err(lines.join("\n"));
+        }
+        for (requirer, need) in registry {
+            let manifest = parse_project_json(&contents, &project_path)?;
+            let dependency = registry_dependency_for(&need)?;
+            contents = crate::manifest::package::project_json_with_package(
+                &contents,
+                &manifest,
+                &dependency,
+            )?;
+            changes.added.push((need.name.clone(), requirer));
+        }
+    }
+    Err(format!(
+        "the dependency closure of '{}' did not converge after {MAX_CLOSURE_ROUNDS} passes",
+        project_path.display()
+    ))
+}
+
+/// The `packages[]` entry for a registry package another declared package
+/// imports: its requirer's version and pin, and the registry-vouched identKey
+/// (trust-on-first-use, as `mfb pkg add` pins it).
+// coverage:off — fetches `/index`; covered by the tests/ package-add integration
+// harness.
+fn registry_dependency_for(
+    need: &crate::manifest::closure::Requirement,
+) -> Result<crate::manifest::package::ProjectPackageDependency, String> {
+    let (owner, package) = need
+        .ident
+        .split_once('#')
+        .ok_or_else(|| format!("`{}` is not a registry ident", need.ident))?;
+    let repo_url = client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let index = client::fetch_index(&repo_url, &paths, owner, package)?;
+    Ok(crate::manifest::package::ProjectPackageDependency {
+        name: need.name.clone(),
+        ident: need.ident.clone(),
+        version: need.version.trim_start_matches('=').to_string(),
+        pin: need.pin,
+        source: need.ident.clone(),
+        ident_key: index.ident_key.clone(),
+        direct: Some(false),
+        required_by: Some(Vec::new()),
+    })
+}
+
+/// Commit an already-closed manifest (plan-60-B §4.2).
+fn apply_closed_manifest(project_dir: &Path, new_contents: &str) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+    let manifest = parse_project_json(new_contents, &project_path)?;
 
     // 2. No registry dependencies → the §4.3 path. `resolve()` cannot run on an
     //    empty dependency set and a synthesized empty lock cannot be installed

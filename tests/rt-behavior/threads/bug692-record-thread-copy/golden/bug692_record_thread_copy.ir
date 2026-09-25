@@ -1,0 +1,54 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug692_record_thread_copy",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "H",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "t", "type": "RES Thread OF Integer TO Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "work",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "worker", "line": 10, "type": "ThreadWorker OF Integer TO Integer", "default": null },
+    { "name": "n", "line": 10, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 11, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "$res_tmp0", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "work", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "h", "type": "H", "value": { "kind": "constructor", "type": "H", "args": [{ "kind": "local", "name": "$res_tmp0" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "copy", "type": "H", "value": { "kind": "local", "name": "h" } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "memberAccess", "type": "Thread OF Integer TO Integer", "target": { "kind": "local", "name": "h" }, "member": "t" }] }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "memberAccess", "type": "Thread OF Integer TO Integer", "target": { "kind": "local", "name": "copy" }, "member": "t" }] }] }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -332,10 +332,12 @@ macOS app runtime:
   helper above describes. (This bullet previously claimed the opposite — that
   there was no main-thread marshal — describing the scaffold as it stood before
   bug-204, and contradicting this topic's own body twenty lines earlier.)
-- **`finish` hard-exits.** `_mfb_gtkapp_finish` takes the exit code in `x0`; with
-  no transcript attached it `_exit(code)`s, and the GUI path parks the worker in
-  `pause()` (it must not `_exit` in GUI mode or the window dies). There is no
-  "keep window open" path.
+- **`finish` exits unless the build is `--debug`.** `_mfb_gtkapp_finish` takes
+  the exit code in `x0`. A release build, and any build with no transcript
+  attached, `_exit(code)`s, so the app closes when its program does. Only a
+  `--debug` build (`AppEntrySpec.debug_hooks`) takes the GUI path: it appends
+  `Program exited with code N` and parks the worker in `pause()`, which keeps the
+  window open until the user closes it.
   [[src/target/linux_gtk/bootstrap.rs:emit_finish_helper]]
 - **`io::printError` styling.** stderr runs *are* prefixed with `"[stderr] "`
   (`STR_STDERR_PREFIX`) in the transcript chunk; no distinct `GtkTextTag` styling

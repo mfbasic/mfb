@@ -56,7 +56,7 @@ FUNC expectSendNegativeInvalid(t AS Thread OF String TO Integer) AS Integer
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
+  RES t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
   LET a AS Integer = expectReceiveZeroTimeout(t)
   LET b AS Integer = expectReceiveNegativeInvalid(t)
   LET c AS Integer = expectSendNegativeInvalid(t)

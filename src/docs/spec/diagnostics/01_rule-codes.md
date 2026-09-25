@@ -482,6 +482,8 @@ Scheme*).
 | `2-203-0136` | `CRYPTO_SHA1_INSECURE` | warn | SHA-1 is not collision-resistant; use it only for legacy interoperability |
 | `2-203-0137` | `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` | error | inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand |
 | `2-203-0138` | `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` | error | a resource cannot cross the thread data plane |
+| `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
+| `2-203-0140` | `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` | error | a ThreadWorker cannot cross to another thread |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |
@@ -592,6 +594,8 @@ bytes gets its own code, emitted by the build gate after the
 | `6-605-0010` | `PACKAGE_VENDOR_BLOB_MISSING` | error | registry has no blob for a vendored native library the package's section-10 table names |
 | `6-605-0011` | `PACKAGE_VENDOR_BLOB_HASH_MISMATCH` | error | downloaded vendor blob does not match the sha256 recorded in the signed section-10 table |
 | `6-605-0012` | `PACKAGE_PIN_MISMATCH` | error | installed package version differs from the pinned version |
+| `6-605-0013` | `PACKAGE_DEPENDENCIES_INCONSISTENT` | error | project.json packages do not match the dependency closure the packages import |
+| `6-605-0014` | `PACKAGE_VERSION_CONFLICT` | error | a declared package does not provide what another declared package was built against |
 
 ### `0-000` — Fallback (synthetic)
 

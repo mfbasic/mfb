@@ -28,6 +28,11 @@ pub(crate) enum RawSuccessBlock {
     /// Someone else frees it, or it is not this arena's to free at all. Emit
     /// nothing.
     OwnedElsewhere,
+    /// bug-648: a resource (or resource union) ELEMENT another owner still holds
+    /// and closes — `tcp`/`udp`/`tls::poll` over a list, `collections::get`/`getOr`.
+    /// Carry the pointer into the `Result`: a copy would run the thread hand-over
+    /// lowering, which tombstones the live element `moved|closed`. Free nothing.
+    BorrowedResource,
 }
 
 /// How much to copy for a resource live slot that points into the sender's arena
@@ -114,7 +119,8 @@ pub(crate) enum TrappedErrorSource {
     /// a runtime helper trapped here, which has no MFB-level origin of its own.
     CurrentLocation,
     /// An inline-trapped `thread::waitFor`: the message and origin live in the
-    /// WORKER arena and are deep-copied into this one before they are inlined.
+    /// thread's block arena (plan-156-A) and are deep-copied into this one before
+    /// they are inlined.
     WorkerArena,
 }
 
@@ -200,7 +206,7 @@ impl CodeBuilder<'_> {
         success_type: &ParameterType,
         text: String,
         // When true (an inline-trapped `thread::waitFor`), the error's message and
-        // origin live in the worker arena and arrive in x2/x3; they are deep-copied
+        // origin live in the thread's block arena and arrive in x2/x3; they are deep-copied
         // into the caller arena. Otherwise the error originates at this inline
         // expression and its `ErrorLoc` is built from the current source location.
         worker_error_source: bool,
@@ -246,7 +252,36 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, RESULT_OK_TAG));
         self.emit(abi::branch_ne(&wrap_error_label));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), value_slot));
-        let copied_success = self.copy_value_to_current_arena(success_type, &scratch9)?;
+        // bug-643: the producer's resource record is already in THIS arena and
+        // nothing else names it, so carry the pointer — exactly what the
+        // non-sendable resource and `ThreadHandle` arms of
+        // `copy_value_to_current_arena` already do, and for the same reason.
+        //
+        // Sending it through the copy instead allocated a second 96-byte record,
+        // copied the canonical header into it, and tombstoned the source
+        // `moved|closed` (`copy_resource_to_current_arena`, the thread hand-over
+        // path). In the same arena that source has no other owner and the moved bit
+        // makes `emit_resource_block_reclaim` skip it, so every inline-`TRAP` bind
+        // of a SENDABLE resource — `RES c = udp::bind(…) TRAP` and the resource
+        // UNION spelling of the same bind, whose `$trap_val` temp is the concrete
+        // variant — orphaned one record per bind. `RawSuccessBlock::OwnedByThisFrame`
+        // is the audited answer to "is this record this frame's?"; a worker's record
+        // (`thread.*`) keeps the deep copy. A borrowed element is carried as well
+        // (bug-648): the copy's source flag tombstoned the element its list still
+        // held, and the `TRAP` binding does not own the carried pointer
+        // (`trap_ownership`).
+        let carry_resource_pointer = match raw_success {
+            RawSuccessBlock::OwnedByThisFrame => self.is_sendable_resource_nominal(success_type),
+            RawSuccessBlock::BorrowedResource => true,
+            RawSuccessBlock::OwnedElsewhere => false,
+        };
+        let copied_success = if carry_resource_pointer {
+            let carried = self.allocate_register();
+            self.emit(abi::move_register(&carried, &scratch9));
+            carried
+        } else {
+            self.copy_value_to_current_arena(success_type, &scratch9)?
+        };
         self.emit(abi::store_u64(
             &copied_success,
             abi::stack_pointer(),
@@ -279,7 +314,7 @@ impl CodeBuilder<'_> {
             // audited its producer says `OwnedByThisFrame`; every other site — an
             // operator temp already registered for the statement-scope free, a
             // `.mfb` callee's block bug-561 already owns, a `thread::waitFor` result
-            // that lives in the WORKER's arena — says `OwnedElsewhere` and nothing
+            // that lives in the thread's block arena — says `OwnedElsewhere` and nothing
             // is emitted at all.
             if raw_success == RawSuccessBlock::OwnedByThisFrame {
                 // The runtime guard: `copy_value_to_current_arena` is a deep copy
@@ -501,7 +536,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(scratch9.clone(), abi::stack_pointer(), raw));
                 message_borrowed_slot = raw;
                 // A propagated worker error: deep-copy its message and origin out of
-                // the (still-alive) worker arena into the caller arena. If the helper
+                // the thread's block arena (alive until this side lets go of the
+                // handle) into the caller arena. If the helper
                 // raised its own error (source == 0), stamp this inline expression.
                 self.emit(abi::load_u64(
                     scratch9.clone(),
@@ -692,6 +728,18 @@ impl CodeBuilder<'_> {
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         match type_ {
+            // bug-656: `self.is_enum_type(__t)` is in this arm because an enum IS a
+            // scalar — its value is the member ordinal, in the slot, with no block
+            // anywhere. It is a `Named` nominal, though, so it used to fall past this
+            // arm into the memcpy-copyable one below: `flatness_of_model_type` answers
+            // "flat" for a name it does not recognise as a record/union/resource, which
+            // sent an enum to `copy_flat_block`, which asked
+            // `emit_inlined_block_size_from_ptr_slot` for the block size of a value that
+            // has no block. That is the reported internal error, "native inlined field
+            // size not available for type 'Colour'", on a program the frontend accepts —
+            // the verifier's own classifier says enums are sendable in as many words
+            // ("enums yes", `thread_unsendable_cause`), and `mfb spec language threads`
+            // makes every primitive owned value sendable.
             __t if matches!(
                 __t,
                 ParameterType::Nothing
@@ -701,7 +749,8 @@ impl CodeBuilder<'_> {
                     | ParameterType::Float
                     | ParameterType::Fixed
                     | ParameterType::Money
-            ) || __t.is_named("Scalar") =>
+            ) || __t.is_named("Scalar")
+                || self.is_enum_type(__t) =>
             {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
@@ -752,18 +801,11 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            // bug-479: a thread handle is carried by POINTER, exactly like the
-            // non-sendable resource arm below and for the same reasons. It is a
-            // 120-byte block holding pointers to its two message queues and two
-            // resource queues, so a deep copy would duplicate the block while the
-            // queues stayed behind — every send into the copy would be lost.
-            //
-            // Carrying the pointer is sound here because the only materialization
-            // that reaches this arm is a SAME-ARENA one: an inline `TRAP` wrapping
-            // `thread::start`'s result in `Result OF Thread OF …`. A thread handle
-            // can never cross a thread boundary — `ir::verify`'s `is_copyable`
-            // answers `false` for `ThreadHandle`, and the frontend rejects sending
-            // one — so there is no cross-arena caller to strand a pointer for.
+            // bug-479: a `ThreadWorker` view is carried by POINTER. A parent `Thread`
+            // view is a sendable resource (plan-156-D) and took the deep record copy
+            // above — the control block it names is shared, not copied. The worker's
+            // view never crosses a thread (`TYPE_THREAD_WORKER_NOT_TRANSFERABLE`), so
+            // the only materialization that could reach this arm is a same-arena one.
             other if matches!(other, ParameterType::ThreadHandle { .. }) => {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));

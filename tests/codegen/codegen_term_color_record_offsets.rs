@@ -204,3 +204,72 @@ fn get_foreground_alpha_is_the_immediate_255() {
         );
     }
 }
+
+/// The `--app` backends take `setForeground`/`setBackground`'s colour the same way
+/// the console does: one `color::Color` RECORD POINTER, with the channels read at
+/// 0/8/16.
+///
+/// plan-122-F migrated the console emitter and left the three app emitters
+/// (macOS, Linux GTK, Windows) still treating the first three argument registers
+/// as the `r`/`g`/`b` bytes of the retired signature. They then packed the record's
+/// address and two stale registers into the colour. That is invisible until the
+/// program sets a colour it can see — a black `setBackground` painted every cell
+/// lavender on macOS.
+///
+/// Asserted as loads at offsets 8 and 16 off a non-stack base: only a field read
+/// through the record pointer produces them (the arena-state fields these bodies
+/// also touch sit at offsets in the thousands).
+#[test]
+fn app_set_color_reads_the_color_record_fields() {
+    const STACK_BASES: [&str; 4] = ["sp", "rsp", "rbp", "x29"];
+    for target in [
+        "macos-aarch64",
+        "linux-aarch64",
+        "linux-x86_64",
+        "windows-x86_64",
+    ] {
+        for member in ["setForeground", "setBackground"] {
+            let source = format!(
+                "IMPORT term\nIMPORT color\n\nFUNC main AS Integer\n  term::on()\n  \
+                 term::{member}(color::rgb(1, 2, 3))\n  term::off()\n  RETURN 0\nEND FUNC\n"
+            );
+            let name = format!("term_app_{member}");
+            let project = common::temp_project(&name, &source);
+            let output = Command::new(common::mfb_exe())
+                .args(["build", "-ncode", "--app", "-target", target])
+                .arg(&project)
+                .output()
+                .expect("run mfb build -ncode --app");
+            assert!(
+                output.status.success(),
+                "mfb build -ncode --app -target {target} failed:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            let text = std::fs::read_to_string(project.join(format!("{name}.ncode")))
+                .expect("read ncode dump");
+            let _ = std::fs::remove_dir_all(&project);
+            let plan: Value = serde_json::from_str(&text).expect("parse ncode json");
+            let loads: Vec<i64> = plan["functions"]
+                .as_array()
+                .expect("functions array")
+                .iter()
+                .filter(|f| f["symbol"].as_str().is_some_and(|s| s.contains(member)))
+                .flat_map(|f| f["instructions"].as_array().expect("instructions").iter())
+                .filter(|i| {
+                    i["op"] == "ldr_u64"
+                        && !i["base"].as_str().is_some_and(|b| STACK_BASES.contains(&b))
+                })
+                .filter_map(|i| i["offset"].as_str()?.parse::<i64>().ok())
+                .collect();
+            for want in [8i64, 16] {
+                assert!(
+                    loads.contains(&want),
+                    "{target} --app: term::{member} must read the color::Color field at \
+                     offset {want} through its record-pointer argument; loads found: \
+                     {loads:?}"
+                );
+            }
+        }
+    }
+}

@@ -1,0 +1,183 @@
+' ---------------------------------------------------------------------------
+' zip oracle probe.
+'
+' Reads a job file -- one archive path per line -- and writes one JSON line per
+' archive describing what `packages/zip` makes of it. `diff.py` runs Python over
+' the same paths and compares.
+'
+' Every archive is opened TWICE: once from a `List OF Byte` and once from an
+' `fs::File`. The two descriptions must be identical, and `sourcesAgree` reports
+' whether they were. That field is the one thing `diff.py` treats as a hard
+' failure it can never declare away -- "the same archive, read two ways, gives
+' the same answer" is the feature, so a disagreement there is not a divergence
+' from Python, it is this package contradicting itself.
+'
+' Contents are summarised by CRC-32 rather than compared byte for byte, because
+' the comparison has to survive a round trip through JSON and Python computes
+' the same function (`binascii.crc32`).
+' ---------------------------------------------------------------------------
+
+IMPORT zip
+IMPORT collections
+IMPORT compress
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT strings
+
+' A description of one archive, as JSON, or an error.
+FUNC describeMemory(path AS String) AS String
+  LET raw AS List OF Byte = fs::readBytes(path)
+  RETURN describe(zip::open(raw))
+END FUNC
+
+FUNC describeFile(path AS String) AS String
+  RES f AS fs::File = fs::openFile(path)
+  LET out AS String = describe(zip::open(f))
+  fs::close(f)
+  RETURN out
+END FUNC
+
+FUNC describe(archive AS zip::Archive) AS String
+  MUT rows AS List OF String = []
+  FOR EACH entry IN zip::entries(archive)
+    MUT digest AS String = "null"
+    MUT readError AS String = "null"
+    IF NOT entry.isDirectory THEN
+      LET crc AS Integer = contentCrc(archive, entry)
+      IF crc < 0 THEN
+        readError = "\"read:" & toString(0 - crc) & "\""
+      ELSE
+        digest = toString(crc)
+      END IF
+    ELSE
+      digest = "0"
+    END IF
+    rows = collections::append(rows, "{\"name\":" & quoted(entry.name) _
+      & ",\"isDirectory\":" & boolText(entry.isDirectory) _
+      & ",\"method\":" & toString(entry.method) _
+      & ",\"size\":" & toString(entry.size) _
+      & ",\"crc\":" & toString(entry.crc) _
+      & ",\"contentCrc\":" & digest _
+      & ",\"readError\":" & readError & "}")
+  NEXT
+  RETURN "{\"comment\":" & quoted(zip::comment(archive)) _
+    & ",\"entries\":[" & strings::join(rows, ",") & "]}"
+END FUNC
+
+' The CRC-32 of an entry's contents, or the negated error code when reading it
+' fails. A per-entry failure is data for the comparison, not a reason to abandon
+' the archive: Python may fail on the same entry, and that is agreement.
+FUNC contentCrc(archive AS zip::Archive, entry AS zip::Entry) AS Integer
+  LET crc AS Integer = compress::crc32(zip::read(archive, entry)) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  RETURN crc
+END FUNC
+
+FUNC boolText(value AS Boolean) AS String
+  IF value THEN
+    RETURN "true"
+  END IF
+  RETURN "false"
+END FUNC
+
+' A JSON string literal. Only the escapes JSON requires, plus control bytes.
+FUNC quoted(text AS String) AS String
+  MUT out AS String = "\""
+  FOR EACH scalar IN strings::toScalars(text)
+    LET code AS Integer = toInt(scalar)
+    IF code = 34 THEN
+      out = out & "\\\""
+    ELSE
+      IF code = 92 THEN
+        out = out & "\\\\"
+      ELSE
+        IF code = 10 THEN
+          out = out & "\\n"
+        ELSE
+          IF code = 13 THEN
+            out = out & "\\r"
+          ELSE
+            IF code = 9 THEN
+              out = out & "\\t"
+            ELSE
+              ' Anything outside printable ASCII is escaped, not emitted raw.
+              ' A fuzzed archive's name field is arbitrary bytes, and this has
+              ' to produce valid JSON for every one of them -- emitting raw C1
+              ' control characters produced lines Python's json refused to
+              ' parse. Astral characters stay raw: they only arise from names
+              ' that were valid UTF-8 to begin with, and JSON accepts them.
+              IF code < 32 OR (code >= 127 AND code <= 65535) THEN
+                out = out & "\\u" & padHex(code)
+              ELSE
+                out = out & strings::fromScalars([scalar])
+              END IF
+            END IF
+          END IF
+        END IF
+      END IF
+    END IF
+  NEXT
+  RETURN out & "\""
+END FUNC
+
+FUNC padHex(code AS Integer) AS String
+  LET digits AS String = "0123456789abcdef"
+  MUT out AS String = ""
+  MUT rest AS Integer = code
+  FOR i = 1 TO 4
+    out = strings::mid(digits, rest MOD 16, 1) & out
+    rest = rest / 16
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) < 1 THEN
+    io::print("usage: zipprobe <job-file>")
+    RETURN 2
+  END IF
+  LET job AS String = collections::get(args, 0)
+  FOR EACH path IN strings::split(strings::trim(fs::readText(job)), "\n")
+    IF len(strings::trim(path)) > 0 THEN
+      emit(strings::trim(path))
+    END IF
+  NEXT
+  RETURN 0
+END FUNC
+
+SUB emit(path AS String)
+  MUT fromMemory AS String = ""
+  MUT memoryError AS Integer = 0
+  fromMemory = describeMemory(path) TRAP(e)
+    memoryError = e.code
+    RECOVER ""
+  END TRAP
+
+  MUT fromFile AS String = ""
+  MUT fileError AS Integer = 0
+  fromFile = describeFile(path) TRAP(e)
+    fileError = e.code
+    RECOVER ""
+  END TRAP
+
+  ' Identical descriptions, or identical failures: either counts as agreeing.
+  LET agree AS Boolean = fromMemory = fromFile AND memoryError = fileError
+  MUT line AS String = "{\"path\":" & quoted(path) _
+    & ",\"sourcesAgree\":" & boolText(agree)
+  IF memoryError <> 0 THEN
+    line = line & ",\"error\":" & toString(memoryError)
+    IF fileError <> memoryError THEN
+      line = line & ",\"fileError\":" & toString(fileError)
+    END IF
+  ELSE
+    IF fileError <> 0 THEN
+      line = line & ",\"error\":0,\"fileError\":" & toString(fileError)
+    ELSE
+      line = line & ",\"archive\":" & fromMemory
+    END IF
+  END IF
+  io::print(line & "}")
+END SUB

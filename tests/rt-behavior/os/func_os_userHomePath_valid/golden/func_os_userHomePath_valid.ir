@@ -1,0 +1,139 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_userHomePath_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "code",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 11, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "local", "name": "p" }] } },
+    {
+      "op": "if",
+      "line": 13,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 13, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 14, "name": "c", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 15, "value": { "kind": "const", "type": "String", "value": "" } }
+      ]
+    },
+    { "op": "return", "line": 17, "value": { "kind": "local", "name": "c" } }
+    ]
+  },
+  {
+    "name": "expected",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "home", "line": 20, "type": "String", "default": null },
+    { "name": "winBase", "line": 20, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 21,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "return", "line": 22, "value": { "kind": "local", "name": "winBase" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 24, "value": { "kind": "local", "name": "home" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 27,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 28, "mutable": false, "name": "winBase", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/tmp/mfb156h" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "base", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "base" }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "const", "type": "String", "value": "/tmp/mfb156h" }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/tmp/mfb156h/" }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "local", "name": "base" } }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "const", "type": "String", "value": "/" }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    {
+      "op": "if",
+      "line": 38,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "a" }] }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "winBase" }, "right": { "kind": "const", "type": "String", "value": "/a" } } }] }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "a" }] }, "right": { "kind": "const", "type": "String", "value": "/a" } }] }] } }
+      ]
+    },
+    { "op": "bind", "line": 43, "mutable": true, "name": "r", "type": "String", "value": { "kind": "const", "type": "String", "value": "a" } },
+    { "op": "assign", "line": 44, "name": "r", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "r" }, "right": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "a" }] } }] }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/tmp/mfb156h" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "a/b" }] }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "base" }, "right": { "kind": "const", "type": "String", "value": "/a/b" } } }] }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWith", "args": [{ "kind": "local", "name": "base" }, { "kind": "const", "type": "String", "value": "/" }] }] }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "a/../b" }] }] }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "./x" }] }] }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": ".rc" }] }] }] } },
+    {
+      "op": "if",
+      "line": 55,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "..\\x" }] }, "right": { "kind": "const", "type": "Integer", "value": "77030002" } }] }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "..\\x" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } }
+      ]
+    },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "os.unsetEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "account", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "local", "name": "account" } }] }] } },
+    {
+      "op": "if",
+      "line": 65,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "account" }, "right": { "kind": "local", "name": "winBase" } }] }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "account" }, { "kind": "const", "type": "String", "value": "/" }] }] }] } }
+      ]
+    },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/tmp/mfb156h" }] } },
+    { "op": "bind", "line": 72, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "k" } },
+    { "op": "assign", "line": 73, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "s" }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "base" }, "right": { "kind": "const", "type": "String", "value": "/k" } } }] }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "const", "type": "String", "value": "/tmp/other156" }] } },
+    { "op": "bind", "line": 76, "mutable": true, "name": "t", "type": "String", "value": { "kind": "const", "type": "String", "value": "k" } },
+    { "op": "assign", "line": 77, "name": "t", "value": { "kind": "call", "type": "String", "target": "os.userHomePath", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "t" }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "const", "type": "String", "value": "/tmp/other156" }, { "kind": "local", "name": "winBase" }] }, "right": { "kind": "const", "type": "String", "value": "/k" } } }] }] } },
+    { "op": "return", "line": 79, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

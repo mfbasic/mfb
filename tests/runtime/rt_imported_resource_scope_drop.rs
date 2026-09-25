@@ -61,7 +61,7 @@ fn temp_project(name: &str, source: &str) -> PathBuf {
             "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
              \"kind\":\"executable\",\
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
-             \"packages\":[{{\"name\":\"sqlite3\",\"version\":\"=0.1.0\"}}],\
+             \"packages\":[{{\"name\":\"sqlite3\",\"version\":\"=0.1.0\",\"direct\":true,\"requiredBy\":[]}}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n"
         ),
     )
@@ -160,7 +160,7 @@ fn imported_resource_closes_on_scope_exit() {
         "b377_drop",
         "IMPORT sqlite3\n\n\
          FUNC dropIt() AS Nothing\n\
-        \x20 RES db AS Db = sqlite3::create(\":memory:\")\n\
+        \x20 RES db AS sqlite3::Db = sqlite3::create(\":memory:\")\n\
          END FUNC\n\n\
          FUNC main() AS Integer\n\
         \x20 dropIt()\n\
@@ -200,7 +200,7 @@ fn explicitly_closed_imported_resource_still_drops_and_is_guarded() {
         "b377_explicit",
         "IMPORT sqlite3\n\n\
          FUNC dropIt() AS Nothing\n\
-        \x20 RES db AS Db = sqlite3::create(\":memory:\")\n\
+        \x20 RES db AS sqlite3::Db = sqlite3::create(\":memory:\")\n\
         \x20 sqlite3::close(db)\n\
          END FUNC\n\n\
          FUNC main() AS Integer\n\
@@ -280,7 +280,7 @@ fn imported_resource_double_close_is_rejected() {
         "b377_double",
         "IMPORT sqlite3\n\n\
          FUNC main() AS Integer\n\
-        \x20 RES db AS Db = sqlite3::create(\":memory:\")\n\
+        \x20 RES db AS sqlite3::Db = sqlite3::create(\":memory:\")\n\
         \x20 sqlite3::close(db)\n\
         \x20 sqlite3::close(db)\n\
         \x20 RETURN 0\n\

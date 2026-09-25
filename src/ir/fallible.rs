@@ -16,12 +16,22 @@
 //!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `typeName`, `toString`,
 //!   the total `bits::*` ops, and the pure-query / default-returning /
 //!   growth-only collection and string members). That census is keyed on the
-//!   callee name **and** the call site's argument types: `toString` is
-//!   overloaded across every type and exactly one overload can fail —
-//!   `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding` (bug-486).
-//!   Every question asked here therefore carries argument types; a site that
-//!   cannot supply them falls back to the name-keyed answer, which for
-//!   `toString` is the *under*-approximating side.
+//!   callee name **and** the call site's argument types, in both directions:
+//!
+//!   - `toString` is overloaded across every type and exactly one overload can
+//!     fail — `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
+//!     (bug-486). The name is infallible; that one overload is subtracted.
+//!   - `toInt` is the mirror (bug-679). The name is fallible — a bad parse, an
+//!     overflow — and exactly one overload is total: over an enum it is the
+//!     ordinal the value already holds, a register move that declares no error
+//!     (plan-140-B). That one overload is granted.
+//!
+//!   Every question asked here therefore carries argument types, and the `toInt`
+//!   half additionally carries a `TypeKinds` oracle, since an enum is not its own
+//!   `ParameterType`. A site that cannot supply either falls back to the
+//!   name-keyed answer: for `toString` that is the *under*-approximating side and
+//!   must be fixed; for `toInt` it is the over-approximating one and is merely
+//!   imprecise.
 //! * A function declared in this project whose body cannot let an error escape,
 //!   decided by the fixpoint in [`analyze`].
 //!
@@ -36,6 +46,13 @@
 //! hand-curated per-package census is tuned to avoid over-reporting to a human.
 //! The two are deliberately separate: a report that over-reports is noisy, while
 //! a desugar that under-reports miscompiles.
+//!
+//! Separate also means a rule about one overload has to be taught to BOTH, in
+//! each one's own terms. bug-679 is the worked example: fixing the census here
+//! silenced the dead-handler warning's half of it and left `mfb audit` reporting
+//! the same `toInt(<enum>)` chain as fallible, because that census reads its own
+//! hand-curated name list over the AST and had never been given the call's
+//! arguments at all. A change to one is a prompt to check the other.
 
 use super::lower::{expression_type, LowerContext};
 use crate::codegen::builtins;
@@ -77,8 +94,19 @@ impl Fallibility {
     /// raises `ErrEncoding`. A site that cannot type its arguments passes an empty
     /// slice and gets the name-keyed verdict — the answer this had before, so such
     /// a site *under*-approximates and must be fixed rather than relied on.
-    pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
-        if builtins::inline_builtin_is_infallible(target, arg_types) {
+    ///
+    /// `kinds` is the declared-kind oracle (plan-140-A), needed because one
+    /// overload's verdict turns on the argument being an `ENUM` rather than on its
+    /// `ParameterType`, which spells every declared type the same: `toInt(<enum>)`
+    /// is the ordinal the value already holds and cannot fail, while every other
+    /// `toInt` can (bug-679). `NoTypeKinds` answers the over-approximating side.
+    pub(super) fn call_is_fallible(
+        &self,
+        target: &str,
+        arg_types: &[ParameterType],
+        kinds: &dyn builtins::TypeKinds,
+    ) -> bool {
+        if builtins::inline_builtin_is_infallible(target, arg_types, kinds) {
             return false;
         }
         if self.declared.contains(target) {
@@ -189,7 +217,9 @@ impl EscapeScope<'_, '_> {
     /// every other callee the verdict is name-decided, so the typing is skipped.
     fn call_is_fallible(&self, callee: &str, arguments: &[HirCallArg]) -> bool {
         if !builtins::inline_builtin_fallibility_depends_on_args(callee) {
-            return self.verdicts.call_is_fallible(callee, &[]);
+            return self
+                .verdicts
+                .call_is_fallible(callee, &[], self.context.type_index());
         }
         let arg_types: Vec<ParameterType> = arguments
             .iter()
@@ -199,7 +229,8 @@ impl EscapeScope<'_, '_> {
                 }
             })
             .collect();
-        self.verdicts.call_is_fallible(callee, &arg_types)
+        self.verdicts
+            .call_is_fallible(callee, &arg_types, self.context.type_index())
     }
 
     /// Record a binding this walk just introduced, so a later `toString(name)`

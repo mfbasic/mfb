@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-variant-undeclared-invalid
+   7 | 
+   8 | UNION Opt OF T
+   9 |   Missing OF T
+     | ^
+tests/syntax/monomorph/union-template-variant-undeclared-invalid/src/main.mfb:9 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Missing OF T` is not a built-in or top-level project type.
+[exit 1]

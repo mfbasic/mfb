@@ -16,8 +16,9 @@ fields (year, month, day, and so on).
 `now` is `datetime::nowNanos` split into the `seconds` and `nanos` fields of an
 `datetime::Instant`. The split never fails, and `nanos` always falls in `0 .. 999_999_999`.
 
-`now` is bounded by that nanosecond count, which is valid through roughly the
-year 2262. This is a limit on `now`,
+`now` is bounded by that nanosecond count, which fits an `Integer` from
+`1677-09-21T00:12:43.145224192Z` through `2262-04-11T23:47:16.854775807Z`. A host
+clock reading outside that range raises `ErrOverflow`. This is a limit on `now`,
 not on `datetime::Instant`, whose `seconds` field spans the full `Integer` range.
 
 `now` is one of the few `datetime` functions that is **not pure**: two calls may
@@ -66,7 +67,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![],
             return_type: super::ParameterType::named("Instant"),
-            errors: vec![],
+            errors: vec!["ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_now"),
         }],
     });

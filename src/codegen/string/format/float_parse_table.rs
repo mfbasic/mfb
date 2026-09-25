@@ -6,7 +6,8 @@
 //! with exact big-integer arithmetic and emitted as one rodata blob — the same
 //! shape as the Unicode runtime tables (`raw_data_object`), and for the same
 //! reason: the helper indexes it by a *runtime* decimal exponent, so the values
-//! cannot be baked into instructions the way `money`'s CORDIC table is.
+//! cannot be baked into instructions the way `money`'s Q32.32 trig constants
+//! are (`src/codegen/builtins/money/gen_fixed_math.rs`).
 //!
 //! Entries are 16 bytes, little-endian `lo` then `hi`, indexed by `q - Q_MIN`.
 //!

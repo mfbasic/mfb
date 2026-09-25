@@ -1,0 +1,45 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "toInt_enum_package",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 2,
+    "visibility": "public",
+    "name": "Layer",
+    "members": [
+    { "name": "Ground" },
+    { "name": "Liquid" },
+    { "name": "Surface" },
+    { "name": "Gas" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Layer", "target": { "kind": "local", "name": "Layer" }, "member": "Ground" }] }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Layer", "target": { "kind": "local", "name": "Layer" }, "member": "Gas" }] }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Clubs" }] }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Spades" }] }] }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "s", "type": "enum_pkg_tiny.Suit", "value": { "kind": "call", "type": "enum_pkg_tiny.Suit", "target": "enum_pkg_tiny.favorite", "args": [] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "enum_pkg_tiny.rank", "args": [{ "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Diamonds" }] }] }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

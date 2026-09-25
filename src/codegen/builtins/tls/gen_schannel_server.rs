@@ -1150,6 +1150,20 @@ pub(crate) fn lower_tls_close_listener(
     // closesocket(fd)
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    // bug-623: return the WORK block (credential, certificate, key container) to
+    // the arena; the releases above were its last use, `tls::accept` checks the
+    // closed flag before reading it, and an accepted socket keeps no pointer into
+    // it. A transferred listener's WORK is the receiver's own arena copy
+    // (`SlotTransfer::ArenaBlock`). The slot is zeroed after the free.
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), WORK),
+        abi::move_immediate(abi::c_arg(1), "Integer", &LISTENER_BLOCK_SIZE.to_string()),
+    ]);
+    crate::codegen::engine::builder::emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, TLS_SCHANNEL_OFFSET_BLOCK),
+    ]);
     // Mark the record closed.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), REC),

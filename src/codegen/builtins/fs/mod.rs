@@ -12,7 +12,7 @@
 //! on `platform.family()` internally) and finalizes. The five `path*` string members are
 //! `Body::abi_inline` (the self-lowering successor to the former `common` slot),
 //! lowering at the call site through the relocated `impl CodeBuilder` path emitters.
-//! Unlike `os.resourcePath`, `fs` needs no build context.
+//! Unlike `os.appResourcePath`, `fs` needs no build context.
 //!
 //! The opaque `File` handle is the one owned resource (`add_resource`); its close
 //! op is the public `fs.close`. Runtime specs and the resource close op are
@@ -64,10 +64,12 @@ mod func_path_normalize;
 mod func_read_all;
 mod func_read_all_bytes;
 mod func_read_bytes;
+mod func_read_bytes_at;
 mod func_read_line;
 mod func_read_text;
 mod func_set_buffered;
 mod func_set_current_directory;
+mod func_size;
 mod func_temp_directory;
 mod func_write_all;
 mod func_write_all_bytes;
@@ -211,6 +213,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_flush::register(&mut pkg);
     func_close::register(&mut pkg);
     func_eof::register(&mut pkg);
+    func_size::register(&mut pkg);
+    func_read_bytes_at::register(&mut pkg);
     func_canonical_path::register(&mut pkg);
     func_is_within::register(&mut pkg);
     func_path_join::register(&mut pkg);

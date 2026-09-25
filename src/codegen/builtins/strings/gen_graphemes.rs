@@ -273,3 +273,180 @@ pub(crate) fn lower_strings_graphemes(
         text: "strings.graphemes".to_string(),
     })
 }
+
+/// plan-146-C: the window half of `strings::graphemeAt` — the `(ptr, len)` of the
+/// `index`-th grapheme cluster inside `value`'s own bytes, raising
+/// `ErrIndexOutOfRange` for a negative index or one past the last cluster.
+///
+/// The copying lowering gets the span out of the `List OF String` that
+/// [`lower_strings_graphemes`] builds, which allocates; an in-place arm must
+/// allocate nothing, so this walks the clusters directly with the same break
+/// emitters the segmentation uses (`emit_grapheme_break_branch`,
+/// `emit_grapheme_state_update`) and stops at the wanted one. The walk's state
+/// lives in frame slots: the property emitters clobber registers.
+pub(crate) fn grapheme_at_window(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    index: &ValueResult,
+) -> Result<(VirtualRegister, VirtualRegister), String> {
+    builder.require_string("strings.graphemeAt value", value)?;
+    if index.type_ != ParameterType::Integer {
+        return Err(format!(
+            "strings.graphemeAt index must be Integer, got {}",
+            index.type_
+        ));
+    }
+    let value_slot = builder.spill_to_slot("strings_grapheme_at_w_value", &value.location);
+    let index_slot = builder.spill_to_slot("strings_grapheme_at_w_index", &index.location);
+    let state_bc_slot = builder.allocate_stack_object("strings_grapheme_at_w_bc", 8);
+    let state_icb_slot = builder.allocate_stack_object("strings_grapheme_at_w_icb", 8);
+    let start_slot = builder.allocate_stack_object("strings_grapheme_at_w_start", 8);
+    let cluster_slot = builder.allocate_stack_object("strings_grapheme_at_w_cluster", 8);
+    let cursor_slot = builder.allocate_stack_object("strings_grapheme_at_w_cursor", 8);
+    let ptr_slot = builder.allocate_stack_object("strings_grapheme_at_w_ptr", 8);
+    let len_slot = builder.allocate_stack_object("strings_grapheme_at_w_len", 8);
+
+    let v = builder.temporary_vreg();
+    let len = builder.temporary_vreg();
+    let bytes = builder.temporary_vreg();
+    let cursor = builder.temporary_vreg();
+    let width = builder.temporary_vreg();
+    let scalar = builder.temporary_vreg();
+    let props = builder.temporary_vreg();
+    let bc = builder.temporary_vreg();
+    let icb = builder.temporary_vreg();
+    let prev_bc = builder.temporary_vreg();
+    let prev_icb = builder.temporary_vreg();
+    let start = builder.temporary_vreg();
+    let cluster = builder.temporary_vreg();
+    let want = builder.temporary_vreg();
+    let scan = builder.temporary_vreg();
+
+    let invalid = builder.label("strings_grapheme_at_w_invalid");
+    let walk = builder.label("strings_grapheme_at_w_walk");
+    let brk = builder.label("strings_grapheme_at_w_break");
+    let no_brk = builder.label("strings_grapheme_at_w_no_break");
+    let after = builder.label("strings_grapheme_at_w_after");
+    let last = builder.label("strings_grapheme_at_w_last");
+    let found = builder.label("strings_grapheme_at_w_found");
+
+    // A negative index, or no cluster at all, is out of range.
+    builder.emit(abi::load_u64(&v, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(&len, &v, 0));
+    builder.emit(abi::load_u64(&want, abi::stack_pointer(), index_slot));
+    builder.emit(abi::compare_immediate(&want, "0"));
+    builder.emit(abi::branch_lt(&invalid));
+    builder.emit(abi::compare_immediate(&len, "0"));
+    builder.emit(abi::branch_eq(&invalid));
+
+    // The first scalar opens the first cluster; its properties are the state.
+    builder.emit(abi::add_immediate(&bytes, &v, 8));
+    builder.emit_utf8_decode_next(&bytes, &scalar, &width);
+    builder.emit_unicode_property_lookup(&scalar, &props);
+    builder.emit_unicode_property_boundclass(&props, &prev_bc);
+    builder.emit_unicode_property_indic_conjunct_break(&props, &prev_icb);
+    builder.emit(abi::store_u64(
+        &prev_bc,
+        abi::stack_pointer(),
+        state_bc_slot,
+    ));
+    builder.emit(abi::store_u64(
+        &prev_icb,
+        abi::stack_pointer(),
+        state_icb_slot,
+    ));
+    builder.emit(abi::move_immediate(&start, "Integer", "0"));
+    builder.emit(abi::store_u64(&start, abi::stack_pointer(), start_slot));
+    builder.emit(abi::move_immediate(&cluster, "Integer", "0"));
+    builder.emit(abi::store_u64(&cluster, abi::stack_pointer(), cluster_slot));
+    builder.emit(abi::store_u64(&width, abi::stack_pointer(), cursor_slot));
+
+    builder.emit(abi::label(&walk));
+    builder.emit(abi::load_u64(&v, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(&len, &v, 0));
+    builder.emit(abi::add_immediate(&bytes, &v, 8));
+    builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+    builder.emit(abi::compare_registers(&cursor, &len));
+    builder.emit(abi::branch_ge(&last));
+    builder.emit(abi::add_registers(&scan, &bytes, &cursor));
+    builder.emit_utf8_decode_next(&scan, &scalar, &width);
+    builder.emit_unicode_property_lookup(&scalar, &props);
+    builder.emit_unicode_property_boundclass(&props, &bc);
+    builder.emit_unicode_property_indic_conjunct_break(&props, &icb);
+    builder.emit(abi::load_u64(&prev_bc, abi::stack_pointer(), state_bc_slot));
+    builder.emit(abi::load_u64(
+        &prev_icb,
+        abi::stack_pointer(),
+        state_icb_slot,
+    ));
+    builder.emit_grapheme_break_branch(&prev_bc, &prev_icb, &bc, &icb, &brk, &no_brk);
+
+    // A break before this scalar ends the cluster that started at `start`.
+    builder.emit(abi::label(&brk));
+    builder.emit_grapheme_state_update(&prev_bc, &prev_icb, &bc, &icb);
+    builder.emit(abi::store_u64(
+        &prev_bc,
+        abi::stack_pointer(),
+        state_bc_slot,
+    ));
+    builder.emit(abi::store_u64(
+        &prev_icb,
+        abi::stack_pointer(),
+        state_icb_slot,
+    ));
+    builder.emit(abi::load_u64(&cluster, abi::stack_pointer(), cluster_slot));
+    builder.emit(abi::load_u64(&want, abi::stack_pointer(), index_slot));
+    builder.emit(abi::compare_registers(&cluster, &want));
+    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::add_immediate(&cluster, &cluster, 1));
+    builder.emit(abi::store_u64(&cluster, abi::stack_pointer(), cluster_slot));
+    builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+    builder.emit(abi::store_u64(&cursor, abi::stack_pointer(), start_slot));
+    builder.emit(abi::branch(&after));
+
+    builder.emit(abi::label(&no_brk));
+    builder.emit_grapheme_state_update(&prev_bc, &prev_icb, &bc, &icb);
+    builder.emit(abi::store_u64(
+        &prev_bc,
+        abi::stack_pointer(),
+        state_bc_slot,
+    ));
+    builder.emit(abi::store_u64(
+        &prev_icb,
+        abi::stack_pointer(),
+        state_icb_slot,
+    ));
+    builder.emit(abi::branch(&after));
+
+    builder.emit(abi::label(&after));
+    builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+    builder.emit(abi::add_registers(&cursor, &cursor, &width));
+    builder.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
+    builder.emit(abi::branch(&walk));
+
+    // The last cluster runs to the end of the string.
+    builder.emit(abi::label(&last));
+    builder.emit(abi::load_u64(&cluster, abi::stack_pointer(), cluster_slot));
+    builder.emit(abi::load_u64(&want, abi::stack_pointer(), index_slot));
+    builder.emit(abi::compare_registers(&cluster, &want));
+    builder.emit(abi::branch_ne(&invalid));
+    // `cursor` is the string's length here: the walk steps scalar by scalar.
+    builder.emit(abi::branch(&found));
+
+    builder.emit(abi::label(&invalid));
+    builder.raise_error("strings.graphemeAt", "ErrIndexOutOfRange")?;
+
+    // `[start, cursor)` of the wanted cluster (at `last`, `cursor` is the length).
+    builder.emit(abi::label(&found));
+    builder.emit(abi::load_u64(&v, abi::stack_pointer(), value_slot));
+    builder.emit(abi::add_immediate(&bytes, &v, 8));
+    builder.emit(abi::load_u64(&start, abi::stack_pointer(), start_slot));
+    builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+    builder.emit(abi::add_registers(&bytes, &bytes, &start));
+    builder.emit(abi::subtract_registers(&cursor, &cursor, &start));
+    builder.emit(abi::store_u64(&bytes, abi::stack_pointer(), ptr_slot));
+    builder.emit(abi::store_u64(&cursor, abi::stack_pointer(), len_slot));
+    builder.emit(abi::load_u64(&bytes, abi::stack_pointer(), ptr_slot));
+    builder.emit(abi::load_u64(&cursor, abi::stack_pointer(), len_slot));
+    Ok((bytes, cursor))
+}

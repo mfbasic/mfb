@@ -52,7 +52,7 @@ END FUNC
 IMPORT text_workers
 IMPORT thread
 
-LET t = thread::start(text_workers::wordCount, "")
+RES t = thread::start(text_workers::wordCount, "")
 thread::send(t, "the quick brown fox")
 thread::send(t, "jumps over the lazy dog")
 thread::send(t, "done")

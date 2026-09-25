@@ -1,9 +1,15 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::inplace_dest::{InPlaceDest, WriteBack};
+use crate::codegen::collection::assign::self_update::{
+    field_owner_is, field_place_is, is_global_self_update_call, is_self_update_call,
+    FieldContainer, FieldLevel, FieldSite, SelfUpdateSite,
+};
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::value::store_reach::{global_root, local_root, StoreLeaf};
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -59,6 +65,30 @@ pub(crate) enum TransferTemps {
     /// heap that is about to be torn down whole, and the escaping value is the
     /// exit code — a scalar with no block.
     ProcessTerminates,
+}
+
+/// plan-145-F: how `try_inplace_scalar_fields` writes one updated field.
+enum FieldStoreKind {
+    /// A scalar, stored in its slot.
+    Scalar,
+    /// A pointer field (plan-145-C): the new owned pointee is stored, the old one
+    /// dropped.
+    Pointer(ParameterType),
+    /// A fixed-size inlined record: its bytes are copied over the sub-block.
+    Overwrite(ParameterType),
+}
+
+/// plan-145-F: a fixed-size inlined field's new value, spilled before any store.
+enum FieldOverwrite {
+    /// A register-native vector's lanes, one slot each, in field order.
+    Lanes(Vec<usize>),
+    /// A block and its byte size; `owned` when this store frees it after the copy
+    /// (a fresh value, or a snapshot of a borrowed one).
+    Block {
+        slot: usize,
+        size_slot: usize,
+        owned: bool,
+    },
 }
 
 impl CodeBuilder<'_> {
@@ -121,54 +151,58 @@ impl CodeBuilder<'_> {
         result
     }
 
-    /// bug-424 Layer 1: recognize `s.state.field = <value>` where every updated
-    /// field is a fixed-width scalar stored inline in its record slot, and store
-    /// each new value in place at its field offset in the *existing* STATE block
-    /// — no whole-record rebuild, so no re-copy of any other (possibly large,
-    /// inlined `List`/`String`) field. `src/ast/stmt.rs` desugars the single-field
-    /// form to a single-field `WITH` update over `s.state`, so this matches a
-    /// `WithUpdate` whose target is exactly this resource's `state`.
+    /// bug-424 Layer 1, generalized by plan-145-C: store the updated fields of a
+    /// `WITH` over a record local (`owner` `Record`) or over a `RES … STATE`
+    /// handle's payload (`State`) in place, when every updated field is stored in
+    /// its own slot — no whole-record rebuild, so no re-copy of any other
+    /// (possibly large, inlined) field.
     ///
-    /// Only plain scalars are eligible: an inlined field (`String`, a flat
-    /// collection, a nested record — the slot holds a block-relative offset into
-    /// the trailing data region) or a pointer composite cannot be overwritten at a
-    /// fixed slot without relaying the block out, so those fall through to the
-    /// whole-record replace (`NirOp::StateAssign`) and Layer 2. The store goes
-    /// through the resource record's shared STATE pointer, so it stays visible to
-    /// the owner and every alias (§15). Returns `true` when handled in place.
-    fn try_inplace_state_scalar_assign(
+    /// Two field kinds qualify:
+    ///
+    /// * a **scalar** (`!record_field_is_inlined && !record_field_is_pointer`): the
+    ///   new value is stored over the old at `8 * index`;
+    /// * a **pointer** field (`record_field_is_pointer`, not inlined — a
+    ///   `json::Json`, or a record holding one): the new value is built owned
+    ///   first (it may read the old one), then the old pointee is dropped exactly
+    ///   as the record's scope exit would drop it, and the new pointer stored.
+    ///
+    /// * (plan-145-F) an inlined record field of compile-time fixed size
+    ///   (`record_field_is_inlined_fixed`: `vector::*`, `color::Color`, the
+    ///   `datetime` types, a user record of scalars): the new value's bytes are
+    ///   copied over the field's sub-block, which is exactly the size of any value
+    ///   of the type, so nothing moves. A register-native vector's lanes are stored
+    ///   straight into the sub-block's slots; any other value is taken owned (the
+    ///   statement's temp, or a copy of a borrowed source — it may be a view into
+    ///   this very owner), copied, and freed.
+    ///
+    /// Any other inlined field (a collection, a `String`, a record whose size
+    /// depends on its value) declines to the field seam or the rebuild.
+    ///
+    /// Every new value is computed first, in source order (matching `WITH`, so a
+    /// field that reads another field's old value sees it), spilled, and only then
+    /// stored — so a failing value leaves the owner unchanged. `STATE`: the store
+    /// goes through the resource record's shared STATE pointer, visible to the
+    /// owner and every alias (§15), and `G25` applies. A record: `G1` declines a
+    /// by-ref capture (plan-145-H). Returns `true` when handled in place.
+    fn try_inplace_scalar_fields(
         &mut self,
-        resource: &str,
+        owner: FieldContainer<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
-        else {
+        // `G13` — the update must rebuild THIS owner's current value, not install
+        // some other record. plan-145-F: through a nested path, each level's.
+        let Some((path, type_, updates)) = self.peel_field_path(owner, value, true) else {
             return Ok(false);
         };
-        // The update must rebuild THIS resource's current state (`resource.state`),
-        // not install some other record as the new state.
-        let NirValue::MemberAccess {
-            target: inner,
-            member,
-        } = target.as_ref()
-        else {
+        let path: Vec<(usize, bool)> = path
+            .iter()
+            .map(|level| (level.field_index, level.pointer))
+            .collect();
+        let Some(fields) = self.type_model.record_fields.get(&type_).cloned() else {
             return Ok(false);
         };
-        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
-        {
-            return Ok(false);
-        }
-        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
-            return Ok(false);
-        };
-        // Every updated field must be a plain inline scalar. A `String`/collection/
-        // nested field is inlined (a block-relative offset) or a pointer composite;
-        // overwriting it at a fixed slot would corrupt the block or leak the old
-        // allocation, so bail to the whole-record replace.
+        // Every updated field must live in its own slot — a scalar, or (plan-145-C)
+        // a pointer field — or be (plan-145-F) a fixed-size inlined record.
         let mut indices = Vec::with_capacity(updates.len());
         for update in updates {
             let Some((index, (_, field_type))) = fields
@@ -178,96 +212,796 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(field_type) || self.record_field_is_pointer(field_type)
-            {
-                return Ok(false);
-            }
-            indices.push(index);
+            let kind = if self.record_field_is_inlined(field_type) {
+                if !self.record_field_is_inlined_fixed(field_type) {
+                    return Ok(false);
+                }
+                FieldStoreKind::Overwrite(field_type.clone())
+            } else if self.record_field_is_pointer(field_type) {
+                FieldStoreKind::Pointer(field_type.clone())
+            } else {
+                FieldStoreKind::Scalar
+            };
+            indices.push((index, kind));
         }
         if indices.is_empty() {
             return Ok(false);
         }
-        // `G25` (bug-487) — an operand that can reach a `STATE` assignment writes
-        // this same block while the arm holds it. This arm re-loads the STATE
-        // pointer *after* the operands, so it cannot dangle the way the growing
-        // collection arms did, but the divergence is the same one: a nested write
-        // to a field this statement does not update survives here, while the
-        // whole-state `WITH` this statement is shorthand for (§15) builds its
-        // record from a read taken before the operands ran and so discards it.
-        // Falling through to that replace is what makes the two agree.
-        if updates.iter().any(|update| {
-            self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(&update.value))
-        }) {
-            return Ok(false);
+        match owner {
+            // `G1` — a by-ref capture's slot holds the parent's slot address;
+            // plan-145-H: `emit_field_owner_block` reads the block through it.
+            FieldContainer::Record { local } => {
+                if self.locals.get(local).is_none() {
+                    return Ok(false);
+                }
+            }
+            // `G25` (bug-487) — an operand that can reach a `STATE` assignment writes
+            // this same block while the arm holds it. This arm re-loads the STATE
+            // pointer *after* the operands, so it cannot dangle the way the growing
+            // collection arms did, but the divergence is the same one: a nested write
+            // to a field this statement does not update survives here, while the
+            // whole-state `WITH` this statement is shorthand for (§15) builds its
+            // record from a read taken before the operands ran and so discards it.
+            // Falling through to that replace is what makes the two agree.
+            FieldContainer::State { .. } => {
+                if updates.iter().any(|update| {
+                    self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(
+                        &update.value,
+                    ))
+                }) {
+                    return Ok(false);
+                }
+            }
+            // plan-145-G: `G-global-operand` over every update value. A value that
+            // writes the global would have its write discarded by the `WITH` (built
+            // from the global's old value); stored in place it would survive.
+            FieldContainer::Global { name } => {
+                let leaf = StoreLeaf::Global(name);
+                if updates.iter().any(|update| {
+                    self.values_reach_store(std::slice::from_ref(&update.value), leaf)
+                }) {
+                    return Ok(false);
+                }
+            }
         }
         // Eligible. Compute every new value first (source order, matching WITH so a
         // field that reads another field's old value sees it), spilling each to a
-        // slot; then store them into the existing STATE block.
+        // slot; then store them into the existing block.
         let mut stores = Vec::with_capacity(updates.len());
-        for (update, index) in updates.iter().zip(indices) {
-            let value = self.lower_value(&update.value)?;
+        let mut overwrites = Vec::new();
+        // plan-145-F: a borrowed overwrite source must be snapshotted only when
+        // another store of this `WITH` could change it first.
+        let snapshot = indices
+            .iter()
+            .filter(|(_, kind)| matches!(kind, FieldStoreKind::Overwrite(_)))
+            .count()
+            > 1
+            || indices
+                .iter()
+                .any(|(_, kind)| matches!(kind, FieldStoreKind::Pointer(_)));
+        for (update, (index, kind)) in updates.iter().zip(indices) {
+            let pointer = match kind {
+                FieldStoreKind::Scalar => None,
+                FieldStoreKind::Pointer(field_type) => Some(field_type),
+                FieldStoreKind::Overwrite(field_type) => {
+                    let spilled =
+                        self.spill_field_overwrite(&update.value, &field_type, snapshot)?;
+                    overwrites.push((index, field_type, spilled));
+                    continue;
+                }
+            };
+            let value = if pointer.is_some() {
+                // The record owns the pointee it stores, exactly as `WITH` does.
+                self.lower_value_stored_field(&update.value)?
+            } else {
+                self.lower_value(&update.value)?
+            };
             // Observation boundary: a `Float` field must be finite (plan-17).
             self.observe_float(&update.value, &value)?;
             // Materialize a `d`-native float to its GP bit pattern before the spill
             // (plan-01), matching how `lower_with_update` gathers field values.
             let value = self.materialize_value(value)?;
-            let slot = self.allocate_stack_object("state_field_inplace", 8);
+            let slot = self.allocate_stack_object(
+                match owner {
+                    FieldContainer::State { .. } => "state_field_inplace",
+                    FieldContainer::Record { .. } => "record_field_inplace",
+                    FieldContainer::Global { .. } => "global_field_inplace",
+                },
+                8,
+            );
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            stores.push((index, slot));
+            stores.push((index, slot, pointer));
         }
-        // Load the shared STATE record pointer from the resource record. A scalar
-        // store never moves the block, so one load serves every field store.
-        let local = self
-            .locals
-            .get(resource)
-            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
-        let stack_offset = local.stack_offset;
-        let resource_type = local.type_.clone();
-        let block = self.allocate_register();
-        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
-        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
-        let state_ptr = self.allocate_register();
-        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
-        for (index, slot) in stores {
+        // Drop the pointees the stores displace. Each drop calls the arena, which
+        // clobbers the caller-saved registers, so the block pointer is loaded only
+        // after every one of them.
+        for (index, _, pointer) in &stores {
+            let Some(field_type) = pointer else {
+                continue;
+            };
+            let block = self.emit_field_record_block(owner, &path)?;
+            let old = self.allocate_register();
+            self.emit(abi::load_u64(&old, &block, 8 * index));
+            let old_slot = self.allocate_stack_object("record_field_replaced", 8);
+            self.emit(abi::store_u64(&old, abi::stack_pointer(), old_slot));
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: field_type.clone(),
+                stack_offset: old_slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+        }
+        // One load of the block pointer serves every store: nothing below moves it.
+        let block = self.emit_field_record_block(owner, &path)?;
+        for (index, slot, _) in stores {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
-            self.emit(abi::store_u64(&value, &state_ptr, 8 * index));
+            self.emit(abi::store_u64(&value, &block, 8 * index));
+        }
+        // plan-145-F: the fixed-size overwrites. The copy loop calls nothing, so
+        // the block pointer loaded above is still live; each owned source is freed
+        // only after every copy (a later one may not read it, but the frees call
+        // the arena, which clobbers the block register).
+        for (index, _, spilled) in &overwrites {
+            let sub = self.allocate_register();
+            self.emit(abi::load_u64(&sub, &block, 8 * index));
+            self.emit(abi::add_registers(&sub, &block, &sub));
+            match spilled {
+                FieldOverwrite::Lanes(lanes) => {
+                    for (lane, slot) in lanes.iter().enumerate() {
+                        let value = self.allocate_register();
+                        self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
+                        self.emit(abi::store_u64(&value, &sub, 8 * lane));
+                    }
+                }
+                FieldOverwrite::Block {
+                    slot, size_slot, ..
+                } => {
+                    let src = self.allocate_register();
+                    let len = self.allocate_register();
+                    let scratch = self.allocate_register();
+                    self.emit(abi::load_u64(&src, abi::stack_pointer(), *slot));
+                    self.emit(abi::load_u64(&len, abi::stack_pointer(), *size_slot));
+                    self.emit_block_copy_advance(&sub, &src, &len, &scratch, "field_overwrite");
+                }
+            }
+        }
+        for (_, field_type, spilled) in overwrites {
+            if let FieldOverwrite::Block {
+                slot, owned: true, ..
+            } = spilled
+            {
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: field_type,
+                    stack_offset: slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
+            }
+        }
+        if let FieldContainer::Record { local } = owner {
+            if let Some(local) = self.locals.get_mut(local) {
+                local.constant = None;
+            }
         }
         Ok(true)
     }
 
-    /// True when `value` reads exactly `<resource>.state.<field>` — the
-    /// self-append source/alias check for bug-430.
-    pub(crate) fn value_is_state_field(
-        &self,
+    /// plan-145-F: evaluate a fixed-size inlined field's new value and spill it —
+    /// a register-native vector as its lanes, anything else as an OWNED block and
+    /// its byte size (read before any store, while the source is intact). A
+    /// borrowed source (a local, a field — possibly of this very owner, as in a
+    /// swap `WITH r { v := r.w, w := r.v }`) is copied first when `snapshot` —
+    /// when another store of the same `WITH` could change it before its copy runs
+    /// (a second overwrite, or a pointer field whose old pointee is dropped). With
+    /// no such store the borrowed bytes are copied where they lie, and nothing
+    /// is allocated or freed for them.
+    fn spill_field_overwrite(
+        &mut self,
         value: &NirValue,
-        resource: &str,
-        field: &str,
-    ) -> bool {
-        let NirValue::MemberAccess { target, member } = value else {
+        field_type: &ParameterType,
+        snapshot: bool,
+    ) -> Result<FieldOverwrite, String> {
+        let lowered = self.lower_value(value)?;
+        if let Some(lanes) = self.vector_native_lanes(&lowered) {
+            let mut slots = Vec::with_capacity(lanes.len());
+            for lane in lanes {
+                let lane = self.materialize_float(lane)?;
+                let slot = self.allocate_stack_object("record_field_overwrite_lane", 8);
+                self.emit(abi::store_u64(&lane.location, abi::stack_pointer(), slot));
+                slots.push(slot);
+            }
+            return Ok(FieldOverwrite::Lanes(slots));
+        }
+        let (source, owned) = if !self.value_needs_owning_copy(value) {
+            // A fresh block: the statement registered it as a temp; this store
+            // frees it itself, after the copy.
+            self.claim_pending_temp(&lowered);
+            (lowered.location.render(), true)
+        } else if snapshot {
+            (
+                self.copy_flat_block(field_type, &lowered.location)?
+                    .render(),
+                true,
+            )
+        } else {
+            (lowered.location.render(), false)
+        };
+        let slot = self.allocate_stack_object("record_field_overwrite", 8);
+        self.emit(abi::store_u64(source.as_str(), abi::stack_pointer(), slot));
+        let size_slot = self.allocate_stack_object("record_field_overwrite_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot(field_type, slot, size_slot)?;
+        Ok(FieldOverwrite::Block {
+            slot,
+            size_slot,
+            owned,
+        })
+    }
+
+    /// plan-145-F: an inlined record whose byte size is fixed at compile time —
+    /// every field a scalar, or itself such a record (the census's
+    /// `FieldKindClass::InlinedFixed`). Any value of the type fills exactly its
+    /// sub-block, so a new one can be copied over the old where it lies.
+    pub(crate) fn record_field_is_inlined_fixed(&self, type_: &ParameterType) -> bool {
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
             return false;
         };
-        if member != field {
-            return false;
+        fields.iter().all(|(_, field)| {
+            if self.record_field_is_inlined(field) {
+                !typed_is_collection_type(field) && self.record_field_is_inlined_fixed(field)
+            } else {
+                !self.record_field_is_pointer(field)
+            }
+        })
+    }
+
+    /// plan-145-F: the block of the record a field store writes — the owner's
+    /// block, then down `path`: an inlined level adds its stored offset, a pointer
+    /// level (`true`) loads the record pointer its slot holds. An empty path is
+    /// `emit_field_owner_block`, unchanged.
+    fn emit_field_record_block(
+        &mut self,
+        owner: FieldContainer<'_>,
+        path: &[(usize, bool)],
+    ) -> Result<String, String> {
+        let block = self.emit_field_owner_block(owner)?;
+        let mut base = block;
+        for (index, pointer) in path {
+            let inner = self.allocate_register();
+            if *pointer {
+                self.emit(abi::load_u64(&inner, base.as_str(), 8 * index));
+            } else {
+                let offset = self.allocate_register();
+                self.emit(abi::load_u64(&offset, base.as_str(), 8 * index));
+                self.emit(abi::add_registers(&inner, base.as_str(), &offset));
+            }
+            base = inner.render();
         }
-        let NirValue::MemberAccess {
-            target: inner,
-            member: inner_member,
-        } = target.as_ref()
+        Ok(base)
+    }
+
+    /// The owner's block pointer, loaded into a register: a record local's slot,
+    /// or the `RES` handle's STATE pointer out of its resource record.
+    fn emit_field_owner_block(&mut self, owner: FieldContainer<'_>) -> Result<String, String> {
+        match owner {
+            FieldContainer::Record { local } => {
+                let local = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("native code field store unknown local '{local}'"))?;
+                let (slot, by_ref) = (local.stack_offset, local.by_ref);
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+                // plan-145-H: a by-ref capture's slot holds the parent slot's
+                // address; the record pointer is one load further.
+                if by_ref {
+                    let parent_block = self.allocate_register();
+                    self.emit(abi::load_u64(&parent_block, &block, 0));
+                    return Ok(parent_block.render());
+                }
+                Ok(block.render())
+            }
+            FieldContainer::State { resource } => {
+                let local = self.locals.get(resource).ok_or_else(|| {
+                    format!("native code state assignment unknown local '{resource}'")
+                })?;
+                let stack_offset = local.stack_offset;
+                let resource_type = local.type_.clone();
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+                let record = self.emit_resource_record_ptr(&block, &resource_type)?;
+                let state_ptr = self.allocate_register();
+                self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+                Ok(state_ptr.render())
+            }
+            // plan-145-G: the global's slot.
+            FieldContainer::Global { name } => {
+                let address = self.load_global_address(name)?;
+                let block = self.allocate_register();
+                self.emit(abi::load_u64(&block, address.as_str(), 0));
+                Ok(block.render())
+            }
+        }
+    }
+
+    /// plan-145-C: a mixed `WITH` — one update of a collection field that a seam arm
+    /// serves, the rest scalar fields (`r = WITH r { xs := append(r.xs, k), n := k
+    /// }`) — mutated in place: the arm mutates its field, then the scalars are
+    /// stored in their slots. `G14` (one update) is relaxed exactly this far.
+    ///
+    /// `WITH` evaluates its updates in source order, every one reading the OLD
+    /// record, and a failure leaves the record unchanged. The scalar values are
+    /// therefore computed BEFORE the arm mutates anything — at its first emission
+    /// (`open_inplace_dest`, via `field_pre_emit`) — which keeps both rules:
+    ///
+    /// * a scalar written BEFORE the arm's update in source order runs before the
+    ///   arm's operands anyway;
+    /// * one written AFTER it runs earlier than source order, which is only
+    ///   unobservable when it has no effect (`nir_value_is_effect_free`) and when it
+    ///   and the arm cannot both fail with different errors: it cannot fail
+    ///   (`nir_value_cannot_fail`), or the arm's operands and the arm itself cannot.
+    ///   Anything else declines to the rebuild.
+    ///
+    /// A pointer field is not admitted here (its new value would be built before an
+    /// arm that can still fail, and leak on that path); the slot-only `WITH` is
+    /// `try_inplace_scalar_fields`'s. `STATE`: `G25` applies to every update.
+    fn try_inplace_mixed_with(
+        &mut self,
+        container: FieldContainer<'_>,
+        value: &NirValue,
+        block_slot: Option<usize>,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        if updates.len() < 2 || !Self::with_target_is_owner(container, target) {
+            return Ok(false);
+        }
+        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+            return Ok(false);
+        };
+        let mut arm = None;
+        let mut scalars = Vec::with_capacity(updates.len() - 1);
+        for (position, update) in updates.iter().enumerate() {
+            let Some(index) = fields.iter().position(|(name, _)| *name == update.field) else {
+                return Ok(false);
+            };
+            let field_type = &fields[index].1;
+            if self.record_field_is_inlined(field_type) {
+                if !typed_is_collection_type(field_type) || arm.is_some() {
+                    return Ok(false);
+                }
+                arm = Some((position, index, field_type.clone()));
+            } else if self.record_field_is_pointer(field_type) {
+                return Ok(false);
+            } else {
+                scalars.push((position, index, &update.value));
+            }
+        }
+        let Some((arm_position, arm_index, arm_type)) = arm else {
+            return Ok(false);
+        };
+        if scalars.is_empty() {
+            return Ok(false);
+        }
+        let arm_value = &updates[arm_position].value;
+        let arm_clean = match arm_value {
+            NirValue::Call { target, args, .. } => {
+                !Self::field_arm_may_raise(target, &arm_type)
+                    && args.iter().skip(1).all(|arg| {
+                        self.nir_value_is_effect_free(arg) && self.nir_value_cannot_fail(arg)
+                    })
+            }
+            _ => false,
+        };
+        for (position, _, value) in &scalars {
+            if *position > arm_position
+                && (!self.nir_value_is_effect_free(value)
+                    || !(arm_clean || self.nir_value_cannot_fail(value)))
+            {
+                return Ok(false);
+            }
+        }
+        // `G25` over every scalar's value and over the arm's OPERANDS — the arm's
+        // call itself is the builtin the arm replaces (a `.mfb`-bodied builtin such
+        // as `sortBy` would otherwise read as user code), exactly the operands the
+        // single-field seam asks about (`resolve_self_update`).
+        // plan-145-G: `G-global-operand` — nothing the statement runs may store
+        // to the global whose block the arm and the stores write.
+        if let FieldContainer::Global { name } = container {
+            let leaf = StoreLeaf::Global(name);
+            if updates
+                .iter()
+                .any(|update| self.values_reach_store(std::slice::from_ref(&update.value), leaf))
+            {
+                return Ok(false);
+            }
+        }
+        if let FieldContainer::State { .. } = container {
+            let arm_operands: &[NirValue] = match arm_value {
+                NirValue::Call { args, .. } => args,
+                other => std::slice::from_ref(other),
+            };
+            if self.inplace_state_operands_reach_a_state_assign(arm_operands)
+                || scalars.iter().any(|(_, _, value)| {
+                    self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(*value))
+                })
+            {
+                return Ok(false);
+            }
+        }
+        let (name, dest) = match container {
+            FieldContainer::Record { local } => {
+                let slot = block_slot.ok_or("native mixed WITH: no record slot")?;
+                (
+                    local,
+                    // plan-145-H: a by-ref owner writes back through its reference.
+                    if by_ref {
+                        InPlaceDest::RefField {
+                            ref_slot: slot,
+                            field_index: arm_index,
+                            path: Vec::new(),
+                        }
+                    } else {
+                        InPlaceDest::Inlined {
+                            block_slot: slot,
+                            field_index: arm_index,
+                            path: Vec::new(),
+                            write_back: WriteBack::None,
+                        }
+                    },
+                )
+            }
+            FieldContainer::State { resource } => (
+                resource,
+                InPlaceDest::StateField {
+                    resource: resource.to_string(),
+                    field_index: arm_index,
+                    path: Vec::new(),
+                },
+            ),
+            FieldContainer::Global { name } => (
+                name,
+                InPlaceDest::GlobalField {
+                    name: name.to_string(),
+                    field_index: arm_index,
+                    path: Vec::new(),
+                },
+            ),
+        };
+        let site = SelfUpdateSite {
+            name,
+            type_: arm_type,
+            dest,
+            by_ref,
+            field: Some(FieldSite {
+                container,
+                path: Vec::new(),
+                field: updates[arm_position].field.as_str(),
+                field_index: arm_index,
+                record_type: type_.clone(),
+            }),
+        };
+        self.field_pre_emit = Some(
+            scalars
+                .iter()
+                .map(|(_, index, value)| (*index, (*value).clone()))
+                .collect(),
+        );
+        let accepted = self.try_inplace_self_update(&site, arm_value)?;
+        self.field_pre_emit = None;
+        let slots = self.field_pre_emitted.take();
+        if !accepted {
+            return Ok(false);
+        }
+        let slots = slots.ok_or("native mixed WITH: the arm ran without evaluating its scalars")?;
+        // The arm may have moved the block (a grow); load it after.
+        let block = self.emit_field_owner_block(container)?;
+        for (index, slot) in slots {
+            let value = self.allocate_register();
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
+            self.emit(abi::store_u64(&value, &block, 8 * index));
+        }
+        Ok(true)
+    }
+
+    /// `G13` for a `WITH`: its target is the owner — the record local itself, the
+    /// handle's `.state`, or (plan-145-G) the global.
+    fn with_target_is_owner(container: FieldContainer<'_>, target: &NirValue) -> bool {
+        field_owner_is(target, container)
+    }
+
+    /// plan-86 E, bug-689: take the function's `get` borrows. An element-bound
+    /// binding is kept only for an element this lowering really aliases — a record
+    /// the `Bind` arm borrows (`is_borrow_get`: freeable-flat, not a `String`) and
+    /// not a promoted vector (whose lanes live in registers, so the element would
+    /// never see its update). A dropped one leaves `names` too: it is reassigned,
+    /// so it must own its block.
+    pub(crate) fn install_borrow_gets(
+        &mut self,
+        borrow_gets: crate::codegen::engine::analysis::borrow_get::BorrowGets,
+    ) {
+        let mut names = borrow_gets.names;
+        let mut updates = ElementUpdates::default();
+        for (name, binding) in borrow_gets.elements {
+            let aliased = self.is_freeable_flat_value(&binding.type_)
+                && binding.type_ != ParameterType::String
+                && self.type_model.record_fields.contains_key(&binding.type_)
+                && !self.promotable_vector_locals.contains(&name);
+            if !aliased {
+                names.remove(&name);
+                continue;
+            }
+            if let Some(update) = binding.update {
+                updates.updates.insert(update, name.clone());
+            }
+            updates.write_backs.extend(binding.write_back);
+            updates.bindings.insert(name, binding);
+        }
+        self.borrow_get_locals = names;
+        self.element_updates = updates;
+    }
+
+    /// bug-689: `p = WITH p { … }` on an element-bound `p` — `p`'s slot holds the
+    /// address of the element inside its list, so the plan-145 field routes store
+    /// into the element where it lies. None of them may grow the element's block
+    /// (`field_is_last_inlined` answers no for it): the block is a span of the
+    /// list's data region, not an allocation of its own.
+    ///
+    /// When no route serves the update, lower what the pair of statements means,
+    /// `xs = set(xs, i, WITH p { … })` — the `WITH` builds an owned record reading
+    /// the element, and `set` replaces the element (in place when its arm can,
+    /// resizing the payload if it must). The write-back that follows is lowered as
+    /// nothing either way, and `p` is dead after it, so its slot is never read
+    /// again once the payload may have moved.
+    fn lower_element_update(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
+        let binding = self
+            .element_updates
+            .bindings
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("native element update: '{name}' is not element-bound"))?;
+        let slot = self
+            .locals
+            .get(name)
+            .map(|local| local.stack_offset)
+            .ok_or_else(|| format!("native element update: unknown local '{name}'"))?;
+        let owner = FieldContainer::Record { local: name };
+        self.element_updates.field_owner = Some(name.to_string());
+        let in_place = (|| -> Result<bool, String> {
+            if self.try_inplace_scalar_fields(owner, value)? {
+                return Ok(true);
+            }
+            let field_site =
+                self.field_self_update_site(owner, value)
+                    .map(|(field, field_type, update)| {
+                        (
+                            SelfUpdateSite {
+                                name,
+                                type_: field_type,
+                                dest: InPlaceDest::Inlined {
+                                    block_slot: slot,
+                                    field_index: field.field_index,
+                                    path: field.path_indices(),
+                                    write_back: WriteBack::None,
+                                },
+                                by_ref: false,
+                                field: Some(field),
+                            },
+                            update,
+                        )
+                    });
+            if let Some((site, update)) = &field_site {
+                if self.try_inplace_self_update(site, update)? {
+                    return Ok(true);
+                }
+            }
+            self.try_inplace_mixed_with(owner, value, Some(slot), false)
+        })();
+        self.element_updates.field_owner = None;
+        if in_place? {
+            return Ok(());
+        }
+        let write_back = binding.write_back_op(value.clone());
+        self.lower_ops(std::slice::from_ref(&write_back))
+    }
+
+    /// bug-689: `xs = set(xs, i, WITH get(xs, i) { … })` — the single-expression
+    /// element update — lowered as the element-bound pair it abbreviates: a hidden
+    /// binding holds the element's address (the `get` borrowed, so a bad `i` raises
+    /// before anything is written), every `get(xs, i).f` in the `WITH` reads it, and
+    /// [`Self::lower_element_update`] updates the element. `Ok(false)` — having
+    /// emitted nothing — when the statement is not that shape, or a use of the
+    /// element other than a field read, a non-lookup read of a local `xs`, or a
+    /// call that can store to a global `xs` rules it out.
+    fn try_single_expression_element_update(
+        &mut self,
+        op: &NirOp,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        use crate::codegen::engine::analysis::borrow_get::{
+            bind_single_expression_element, single_expression_update, ContainerRef, ElementBinding,
+        };
+        let Some((container, index, with)) = single_expression_update(value) else {
+            return Ok(false);
+        };
+        let NirValue::WithUpdate {
+            type_,
+            target: get,
+            updates,
+        } = with
+        else {
+            return Ok(false);
+        };
+        let element_ok = self.is_freeable_flat_value(type_)
+            && *type_ != ParameterType::String
+            && self.type_model.record_fields.contains_key(type_);
+        let container_ok = match &container {
+            ContainerRef::Local(name) => {
+                !self.address_taken_locals.contains(name)
+                    && self.locals.get(name).is_some_and(|local| !local.by_ref)
+            }
+            // Nothing the updates run may store to the global: it would free or
+            // replace the block the element lives in while the update holds it.
+            ContainerRef::Global(name) => !updates.iter().any(|update| {
+                self.values_reach_store(
+                    std::slice::from_ref(&update.value),
+                    StoreLeaf::Global(name),
+                )
+            }),
+        };
+        if !element_ok || !container_ok {
+            return Ok(false);
+        }
+        let hidden = format!("$element{}", self.element_updates.hidden);
+        let Some(rewritten) = bind_single_expression_element(with, &container, index, &hidden)
+        else {
+            return Ok(false);
+        };
+        self.element_updates.hidden += 1;
+        let stack_offset = self.allocate_stack_object(&hidden, 8);
+        self.locals.insert(
+            hidden.clone(),
+            LocalValue {
+                type_: type_.clone(),
+                stack_offset,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        // The borrowed `get`: its own frame skips the owning copy and the
+        // statement-scope free (the alias is the container's, not a fresh block).
+        self.borrow_get_armed = true;
+        let element = self.lower_value(get);
+        self.borrow_get_armed = false;
+        self.borrow_get_result = false;
+        let element = element?;
+        self.store_value_at(&element, abi::stack_pointer(), stack_offset);
+        self.element_updates.bindings.insert(
+            hidden.clone(),
+            ElementBinding {
+                type_: type_.clone(),
+                template: op.clone(),
+                update: None,
+                write_back: None,
+            },
+        );
+        let result = self.lower_element_update(&hidden, &rewritten);
+        self.element_updates.bindings.remove(&hidden);
+        self.locals.remove(&hidden);
+        result.map(|()| true)
+    }
+
+    /// plan-145-C: whether the field arm for `target` can raise beyond its
+    /// operands — an index out of range. Only the operations known not to are
+    /// `false`; anything else answers `true`.
+    fn field_arm_may_raise(target: &str, field_type: &ParameterType) -> bool {
+        match crate::codegen::collection::assign::self_update::self_update_builtin(target) {
+            Some("append" | "add" | "prepend" | "removeKey" | "remove") => false,
+            // `set` raises on a `List` index, never on a `Map` key.
+            Some("set") => typed_list_element_type(field_type).is_some(),
+            _ => true,
+        }
+    }
+
+    /// plan-145-C: `value` has no observable effect: it reads locals, globals and
+    /// fields, computes on them, and calls only built-ins that cannot fail (the
+    /// pure queries of `inline_builtin_is_infallible`). A user function might
+    /// print, so any other call has an effect.
+    pub(crate) fn nir_value_is_effect_free(&self, value: &NirValue) -> bool {
+        match value {
+            NirValue::Const { .. }
+            | NirValue::Local(_)
+            | NirValue::Global { .. }
+            | NirValue::Capture { .. }
+            | NirValue::LocalRef { .. } => true,
+            NirValue::MemberAccess { target, .. } => self.nir_value_is_effect_free(target),
+            NirValue::Binary { left, right, .. } => {
+                self.nir_value_is_effect_free(left) && self.nir_value_is_effect_free(right)
+            }
+            NirValue::Unary { operand, .. } => self.nir_value_is_effect_free(operand),
+            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
+                self.nir_call_is_infallible_builtin(value)
+            }
+            _ => false,
+        }
+    }
+
+    /// plan-145-C: `value` cannot raise: reads, comparisons and logic over values
+    /// that cannot raise, and infallible built-ins. Arithmetic can overflow and a
+    /// negation can too (the minimum `Integer`), so neither qualifies.
+    pub(crate) fn nir_value_cannot_fail(&self, value: &NirValue) -> bool {
+        use crate::operators::{BinaryOp, UnaryOp};
+        match value {
+            NirValue::Const { .. }
+            | NirValue::Local(_)
+            | NirValue::Global { .. }
+            | NirValue::Capture { .. }
+            | NirValue::LocalRef { .. } => true,
+            NirValue::MemberAccess { target, .. } => self.nir_value_cannot_fail(target),
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
+                matches!(
+                    op,
+                    BinaryOp::Equal
+                        | BinaryOp::NotEqual
+                        | BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                        | BinaryOp::And
+                        | BinaryOp::Or
+                ) && self.nir_value_cannot_fail(left)
+                    && self.nir_value_cannot_fail(right)
+            }
+            NirValue::Unary { op, operand, .. } => {
+                *op == UnaryOp::Not && self.nir_value_cannot_fail(operand)
+            }
+            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
+                self.nir_call_is_infallible_builtin(value)
+            }
+            _ => false,
+        }
+    }
+
+    /// A call to a built-in that cannot fail, over arguments that cannot fail and
+    /// whose types are known (the census is keyed on them — `toString` of a `List
+    /// OF Byte` decodes UTF-8 and can fail).
+    fn nir_call_is_infallible_builtin(&self, value: &NirValue) -> bool {
+        let (NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }) =
+            value
         else {
             return false;
         };
-        inner_member == "state" && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
-    }
-
-    /// True when `value` reads exactly `<local>.<field>` — the self-append
-    /// source/alias check for a MUT record field grow (bug-430).
-    pub(crate) fn value_is_record_field(&self, value: &NirValue, local: &str, field: &str) -> bool {
-        matches!(
-            value,
-            NirValue::MemberAccess { target, member }
-                if member == field && matches!(target.as_ref(), NirValue::Local(n) if n == local)
-        )
+        let Some(arg_types) = args
+            .iter()
+            .map(|arg| self.static_item_type(arg))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        // bug-679: `NoTypeKinds` deliberately. This is a codegen optimizer running
+        // on NIR, where no declaration table is in scope to tell an enum from a
+        // record, and the oracle's `false` is the over-approximating side — a
+        // `toInt(<enum>)` here simply stays "can fail" and the value is not
+        // treated as effect-free. Losing an optimization is the safe direction;
+        // the other one would let a failing call be elided.
+        crate::codegen::builtins::inline_builtin_is_infallible(
+            target,
+            &arg_types,
+            &crate::codegen::builtins::NoTypeKinds,
+        ) && args.iter().all(|arg| self.nir_value_cannot_fail(arg))
     }
 
     /// If `field` is a **collection** field of `record_type` that is inlined AND
@@ -317,134 +1051,119 @@ impl CodeBuilder<'_> {
         Some((index, field_type.clone()))
     }
 
-    /// plan-121-D Phase 1: the **operation dispatch** for a collection held in a
-    /// `RES … STATE` block, the STATE analogue of the `try_inplace_record_field_*`
-    /// chain in `Assign` above.
+    /// plan-145-B: the field site of `value` — `r = WITH r { f := op(r.f, …) }`
+    /// for a record local (`container` `Record`) or `h.state = WITH h.state { f :=
+    /// … }` for a `RES … STATE` handle (`State`; `h.state.f = v` desugars to it) —
+    /// and the update's value, which the seam's arms then match as `op(field, …)`.
     ///
-    /// The split this introduces is between the two questions an in-place arm has
-    /// to answer, which used to be tangled in one function:
+    /// The site's own gates (the rest are `resolve_self_update`'s): `G2` the value
+    /// is a `WithUpdate`, `G13` its target is this owner (the local, or the
+    /// handle's `.state`), `G14` exactly one field is updated — a second would be
+    /// dropped when the arm elides the rebuild. Emits nothing.
     ///
-    /// * **Which container is this?** — `resolve_inplace_state_field` (the
-    ///   container matcher): the `WITH` shape, `G13` the target is exactly this
-    ///   resource's `.state`, `G14` the single updated field, `G16` no live
-    ///   `FOR EACH` over it, `G17` last-inlined, `G10` the layout. None of that
-    ///   depends on which operation is running, which is exactly why it is shared.
-    /// * **Which operation is this?** — this function, one arm per builtin.
-    ///
-    /// **All seven mutating operations now reach a collection held in a
-    /// `RES … STATE` block in place.** Phase 1 dispatched `append` alone and
-    /// changed no behaviour; Phase 2 added `removeKey`, `add` and `set`; Phase 3
-    /// added `removeAt`, Set `remove`, `insert` and `prepend`.
-    ///
-    /// Order is irrelevant to correctness — each arm re-matches the operation name
-    /// through `resolve_inplace_state_field`, so at most one can accept a given
-    /// statement — but it is kept in phase order so the ledger reads against the
-    /// code.
-    ///
-    /// Returning `false` is always correct: it falls through to the whole-record
-    /// STATE replace below, which is the slow path, never a wrong one.
-    fn try_inplace_state_collection_assign(
-        &mut self,
-        resource: &str,
-        value: &NirValue,
-    ) -> Result<bool, String> {
-        Ok(self.try_inplace_state_collection_append(resource, value)?
-            || self.try_inplace_state_remove_key_assign(resource, value)?
-            || self.try_inplace_state_set_add_assign(resource, value)?
-            || self.try_inplace_state_set_assign(resource, value)?
-            || self.try_inplace_state_remove_at_assign(resource, value)?
-            || self.try_inplace_state_set_remove_assign(resource, value)?
-            || self.try_inplace_state_insert_assign(resource, value)?
-            || self.try_inplace_state_prepend_assign(resource, value)?)
+    /// plan-145-F: a nested path — `o = WITH o { inner := WITH o.inner { f :=
+    /// op(o.inner.f, …) } }` — peels each level whose update is itself a
+    /// single-update `WITH` over that level's own place (`G13`/`G14` per level)
+    /// into `FieldSite::path`.
+    pub(crate) fn field_self_update_site<'s>(
+        &self,
+        container: FieldContainer<'s>,
+        value: &'s NirValue,
+    ) -> Option<(FieldSite<'s>, ParameterType, &'s NirValue)> {
+        let (path, record_type, updates) = self.peel_field_path(container, value, false)?;
+        if updates.len() != 1 {
+            return None;
+        }
+        let update = &updates[0];
+        let fields = self.type_model.record_fields.get(&record_type)?;
+        let field_index = fields.iter().position(|(name, _)| *name == update.field)?;
+        let field_type = fields[field_index].1.clone();
+        Some((
+            FieldSite {
+                container,
+                path,
+                field: update.field.as_str(),
+                field_index,
+                record_type,
+            },
+            field_type,
+            &update.value,
+        ))
     }
 
-    /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
-    /// where `coll` is a `List` field that is the last inlined field of the STATE
-    /// record, and grow it IN PLACE inside the existing STATE block (amortized
-    /// O(1) append with geometric headroom) instead of rebuilding the whole
-    /// record and re-inlining the accumulated buffer (the O(n²) path). `x` may be
-    /// a single element (`T`) or a whole list (`List OF T`, concatenation). On a
-    /// realloc the new STATE pointer is written back through the resource's shared
-    /// STATE slot, so the owner and every alias observe the grown block (§15).
-    /// Anything else — a non-last-inlined collection, a whole-state replace, or an
-    /// append whose source is not this same field — returns `false` and falls
-    /// through to the whole-record replace.
-    fn try_inplace_state_collection_append(
-        &mut self,
-        resource: &str,
-        value: &NirValue,
-    ) -> Result<bool, String> {
-        // Container (plan-121-A's shared seam): the `RES … STATE` self-update
-        // `res.state.field = append(res.state.field, …)`, which `src/ast/stmt.rs`
-        // desugars to a single-field `WITH` over `res.state`. Discharges G2 the
-        // shape, G13 the target is exactly this resource's `.state`, G14 the
-        // single updated field, G16 the live `FOR EACH` over this state field
-        // (bug-430; the alias analogue of the `for_each_iterable_locals` guard),
-        // G17 last-inlined, G10 the layout, and G3/G4 the call target and arity.
-        let Some(target) = self.resolve_inplace_state_field(resource, value, "append", 2) else {
-            return Ok(false);
+    /// plan-145-F: the record a field `WITH` finally updates, and how it is
+    /// reached. `value` must be a `WITH` over the owner (`G13`); while its only
+    /// update is an inlined record field whose value is again a single-update
+    /// `WITH` over that field's own place, descend. Returns the levels passed
+    /// (outermost first), the innermost `WITH`'s record type, and its updates.
+    /// Emits nothing.
+    ///
+    /// `pointer_levels` also descends a POINTER record field (a record holding a
+    /// `json::Json`, which is not inlined but owns its own block): only the
+    /// store routine may, since it writes that block where it lies; an arm's grow
+    /// would have to repoint the parent's slot, so the field seam passes `false`.
+    pub(crate) fn peel_field_path<'s>(
+        &self,
+        container: FieldContainer<'s>,
+        value: &'s NirValue,
+        pointer_levels: bool,
+    ) -> Option<(Vec<FieldLevel<'s>>, ParameterType, &'s [NirRecordUpdate])> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return None;
         };
-        let field_type = target.field_type.clone();
-        // G9 — `append` mutates a List. (Subsumed by G17; kept for the element
-        // type the lowering needs.)
-        let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
-            return Ok(false);
-        };
-        // G18 — the appended-to source must be exactly this same field
-        // (self-append), the invariant that makes an in-place grow sound.
-        if !self.value_is_state_field(&target.args[0], resource, target.field) {
-            return Ok(false);
+        if !field_owner_is(target, container) {
+            return None;
         }
-        // G11 — single element (item type == element type) vs bulk concatenation
-        // (item type == the whole list type).
-        //
-        // `static_item_type`, not `static_type_name`: the narrow helper's
-        // `NirValue::Call` arm is a hand-written table of a few builtin names and
-        // answers `None` for EVERY user function, so
-        // `f.state.xs = append(f.state.xs, someFunc(x))` fell off this path
-        // entirely — not even reaching the bulk grow — and rebuilt the whole STATE
-        // block per element (O(n²)), while the identical record-field program was
-        // fast. This was the one gate site the widening never reached; see
-        // `planning/plan-121-gate-inventory.md` §"DEFECT FOUND". Reading a
-        // callee's declared `returns` is exactly as static as reading a local's
-        // declared type, and the `field_type` arm below still separates a whole
-        // `List OF T` result from a `T` one, so the widening cannot reclassify a
-        // concatenation as a single element.
-        let bulk = match self.static_item_type(&target.args[1]) {
-            Some(t) if t == element_type => false,
-            Some(t) if t == field_type => true,
-            _ => return Ok(false),
-        };
-        // G12 — exclude the self-alias `append(field, field)`: the grow frees the
-        // old block out from under the RHS copy. Fall back to the value path.
-        if self.value_is_state_field(&target.args[1], resource, target.field) {
-            return Ok(false);
+        let mut path = Vec::new();
+        let mut record_type = type_.clone();
+        let mut updates: &[NirRecordUpdate] = updates;
+        loop {
+            let [update] = updates else {
+                break;
+            };
+            let NirValue::WithUpdate {
+                type_: inner_type,
+                target: inner_target,
+                updates: inner_updates,
+            } = &update.value
+            else {
+                break;
+            };
+            let Some(fields) = self.type_model.record_fields.get(&record_type) else {
+                break;
+            };
+            let Some(field_index) = fields.iter().position(|(name, _)| *name == update.field)
+            else {
+                break;
+            };
+            let field_type = &fields[field_index].1;
+            let inlined =
+                self.record_field_is_inlined(field_type) && !typed_is_collection_type(field_type);
+            let pointer = pointer_levels
+                && !self.record_field_is_inlined(field_type)
+                && self.record_field_is_pointer(field_type)
+                && self.type_model.record_fields.contains_key(field_type);
+            if !(inlined || pointer)
+                || *field_type != *inner_type
+                || !field_place_is(inner_target, container, &path, update.field.as_str())
+            {
+                break;
+            }
+            path.push(FieldLevel {
+                field: update.field.as_str(),
+                field_index,
+                record_type: record_type.clone(),
+                pointer,
+            });
+            record_type = inner_type.clone();
+            updates = inner_updates;
         }
-
-        // Load the shared STATE record pointer into a slot the grow helper
-        // repoints. Emits, so it runs after every gate (`O-order-1`) and BEFORE
-        // the operand is lowered (`O-order-4`: the operand's own lowering must not
-        // observe a stale STATE pointer).
-        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
-
-        // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value_stored(&target.args[1])?;
-        self.observe_float(&target.args[1], &rhs)?;
-        let rhs = self.materialize_value(rhs)?;
-        let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
-        self.emit(abi::store_u64(
-            &rhs.location,
-            abi::stack_pointer(),
-            rhs_slot,
-        ));
-
-        self.lower_inplace_inlined_list_grow(&dest, bulk, &field_type, &element_type, rhs_slot)?;
-
-        // O4 — publish the (possibly new) STATE pointer back through the
-        // resource's shared STATE slot so the owner and every alias observe the
-        // grown block (§15).
-        self.close_inplace_dest(&dest)?;
-        Ok(true)
+        Some((path, record_type, updates))
     }
 
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
@@ -489,7 +1208,10 @@ impl CodeBuilder<'_> {
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
-                        name, type_, value, ..
+                        mutable,
+                        name,
+                        type_,
+                        value,
                     } => {
                         let stack_offset = self.allocate_stack_object(name, 8);
                         // A non-escaping `MUT` by-ref capture: the env slot holds a
@@ -500,6 +1222,16 @@ impl CodeBuilder<'_> {
                         // and frees the value).
                         let by_ref_capture_slot =
                             matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
+                        // A by-value capture of a flat value is read straight out of
+                        // the closure env: the env owns the copy made when the closure
+                        // was created, it outlives this call, and the binding is
+                        // immutable. Copying it here cost one block per call
+                        // (`rt_lambda_capture_not_copied_per_call`). Like a by-ref
+                        // capture, the binding owns nothing.
+                        let borrowed_capture = !*mutable
+                            && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
+                            && self.is_freeable_flat_value(type_);
+                        let aliases_capture = by_ref_capture_slot || borrowed_capture;
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
                         // it, so every read must deref.
@@ -566,7 +1298,7 @@ impl CodeBuilder<'_> {
                         let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
                         // A raw thread-boundary result (`t.result`) is owned by the
-                        // thread runtime / worker arena, not this scope, so it is
+                        // thread runtime / block arena, not this scope, so it is
                         // neither zero-initialized nor freed here. A
                         // `thread::receive`/`waitFor`/… value is the call site's copy
                         // into this arena and is owned like any fresh value (bug-622 A).
@@ -594,7 +1326,7 @@ impl CodeBuilder<'_> {
                         let borrowed_graph_view =
                             self.owns_graph(type_) && self.store_is_borrowed_view();
                         let owns_freeable_value = !aliases_union_variant
-                            && !by_ref_capture_slot
+                            && !aliases_capture
                             && !runtime_managed
                             && !promote_vector
                             && !is_borrow_get
@@ -620,7 +1352,7 @@ impl CodeBuilder<'_> {
                                 Some(NirValue::CallResult { .. }),
                             ) if !owns_freeable_value
                                 && !aliases_union_variant
-                                && !by_ref_capture_slot
+                                && !aliases_capture
                                 && !runtime_managed
                                 && !promote_vector =>
                             {
@@ -652,8 +1384,7 @@ impl CodeBuilder<'_> {
                         let aliases_live_resource = value
                             .as_ref()
                             .is_some_and(Self::value_aliases_live_resource);
-                        let owns_resource_slot = !Self::is_thread_type(&type_)
-                            && !aliases_union_variant
+                        let owns_resource_slot = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
                             && !aliases_live_resource
@@ -672,15 +1403,6 @@ impl CodeBuilder<'_> {
                             && value
                                 .as_ref()
                                 .is_some_and(|v| matches!(v, NirValue::Closure { .. }));
-                        // A `Thread` binding registers a `thread.drop` cleanup below
-                        // (the first branch of the chain, taken unconditionally on the
-                        // type), so its slot carries the identical hazard: a
-                        // `thread::start` that raises on a bad queue limit -- or any
-                        // error routed to the function `TRAP` handler past a bind that
-                        // never ran -- leaves the slot unwritten, and `thread.drop`
-                        // dereferences the handle's outbound-queue pointer (bug-469).
-                        // Mirrors the cleanup-registration condition exactly.
-                        let owns_thread_slot = Self::is_thread_type(&type_);
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
@@ -688,7 +1410,6 @@ impl CodeBuilder<'_> {
                         if owns_freeable_value
                             || result_wrapper.is_some()
                             || owns_resource_slot
-                            || owns_thread_slot
                             || is_non_escaping_closure
                         {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
@@ -702,11 +1423,33 @@ impl CodeBuilder<'_> {
                         // error can jump to the function `TRAP` handler past a bind
                         // that never ran, and the handler's null-guarded close must
                         // see 0 rather than stack garbage (bug-246). `owned_value_slots`
-                        // is consumed only as the entry-zeroing list. A `Thread` slot
-                        // rides the same list for the same reason (bug-469).
-                        if owns_resource_slot || owns_thread_slot {
+                        // is consumed only as the entry-zeroing list. A `Thread` view's
+                        // slot is one of them: a `thread::start` that raises on a bad
+                        // queue limit leaves it unwritten too (bug-469).
+                        if owns_resource_slot {
                             self.owned_value_slots.push(stack_offset);
                         }
+                        // bug-648: an inline-`TRAP` temp has no initializer to classify,
+                        // and some of its stores are lent to it (a borrowed element, an
+                        // aliasing `RECOVER`), so whether it owns what it holds is a run-
+                        // time fact. The flag reads "the value in the slot is owned". It is
+                        // SET here because the closed default this bind materializes is the
+                        // temp's own; the prologue clears it, which is harmless because a
+                        // drop reached before this bind finds a null slot first.
+                        let owner_flag_slot = if owns_resource_slot
+                            && value.is_none()
+                            && self.trap_ownership.lent_temps.contains(name)
+                        {
+                            let flag = self.allocate_stack_object("trap_owner_flag", 8);
+                            let owned = self.temporary_vreg();
+                            self.emit(abi::move_immediate(&owned, "Integer", "1"));
+                            self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
+                            self.owned_value_slots.push(flag);
+                            self.trap_owner_flags.insert(name.clone(), flag);
+                            Some(flag)
+                        } else {
+                            None
+                        };
                         if let Some(value) = value {
                             // A promoted small-vector binding keeps its lanes in
                             // registers with no arena block: lower the (native)
@@ -762,7 +1505,7 @@ impl CodeBuilder<'_> {
                             // `materialize_owned_element` return the aliasing element
                             // pointer instead of copying it. Scoped to this one
                             // initializer.
-                            let result = if aliases_union_variant || by_ref_capture_slot {
+                            let result = if aliases_union_variant || aliases_capture {
                                 self.lower_value(value)?
                             } else if is_borrow_get {
                                 // bug-592: ARM, do not set — `lower_value` turns the
@@ -831,6 +1574,18 @@ impl CodeBuilder<'_> {
                                     &element_type,
                                 )?;
                             }
+                        } else if Self::is_res_marked_resource_collection(&type_)
+                            && self.owned_list_owning_collections.contains(name)
+                        {
+                            // bug-651: a `RES`-marked collection neither floated into nor
+                            // bound from a call — `MUT xs AS List OF RES X = []` — reaches
+                            // neither branch above, so nothing owned its collection BLOCK
+                            // and it leaked 48 B per binding even when no resource was ever
+                            // put in it. There is no owned-list to hang the free on (that
+                            // needs a float), so register the block free on its own; the
+                            // sole-ownership proof is the same `owning_collections` gate the
+                            // floated case uses, extended to the unfloated container.
+                            self.register_res_collection_block_free(name, type_, stack_offset);
                         }
                         // Where this binding's close obligation lives (§15.6).
                         let resource_owner = self
@@ -838,21 +1593,9 @@ impl CodeBuilder<'_> {
                             .get(name)
                             .cloned()
                             .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
-                        if Self::is_thread_type(&type_) {
-                            self.active_cleanups
-                                .push(ActiveCleanup::Thread(ThreadCleanup {
-                                    name: name.clone(),
-                                    symbol: Self::thread_drop_symbol(),
-                                    close: true,
-                                    release: true,
-                                }));
-                            // bug-622: a handle read from another binding is SHARED, not
-                            // moved — both bindings release it — so it takes an owner.
-                            if !Self::thread_value_is_fresh_handle(value.as_ref()) {
-                                self.emit_thread_owner_increment(stack_offset);
-                            }
-                        } else if aliases_union_variant || by_ref_capture_slot {
-                            // Non-owning — no cleanup (the parent binding frees it).
+                        if aliases_union_variant || aliases_capture {
+                            // Non-owning — no cleanup (the parent binding or the
+                            // closure env frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
                             &resource_owner
                         {
@@ -884,6 +1627,9 @@ impl CodeBuilder<'_> {
                             // Gated on the resource-typed cleanups alone so a
                             // plain aliasing bind of a flat value still takes the
                             // `owns_freeable_value` branch below and is freed.
+                            if let Some(NirValue::Local(src)) = value {
+                                self.live_resource_aliases.insert(name.clone(), src.clone());
+                            }
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
@@ -891,16 +1637,64 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(type_),
+                                    frees_record: Self::resource_record_freed_at_drop(type_)
+                                        && self.record_owning_locals.contains(name),
+                                    moved_record_only: false,
+                                    owner_flag_slot,
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
                             // the active variant's registered close op, then frees
                             // the active variant record's uniform STATE (plan-74).
+                            //
+                            // Resource-union alias class: a union wrapping an aliasing
+                            // source (`RES c AS Union = u`, a field, an extract, a
+                            // borrowed element) does not own that record. Its drop
+                            // frees only its own box; the record's owner closes it.
+                            let wrapped = match value {
+                                Some(NirValue::UnionWrap { value: inner, .. }) => {
+                                    Some(inner.as_ref())
+                                }
+                                _ => None,
+                            };
+                            let alias_wrap = wrapped.is_some_and(|inner| {
+                                matches!(inner, NirValue::UnionExtract { .. })
+                                    || Self::value_aliases_live_resource(inner)
+                            });
+                            if let Some(NirValue::Local(src)) = wrapped {
+                                self.live_union_wraps.insert(name.clone(), src.clone());
+                                // A STATE the alias attaches rides the wrapped record, so
+                                // its owner frees it after its close (the union's drop no
+                                // longer does). A root with no live cleanup (a parameter)
+                                // keeps the STATE for the caller's owner.
+                                if let Some(state) = type_.state() {
+                                    let root = self.resource_alias_root(src);
+                                    if let Some(ActiveCleanup::Resource(owner)) = self
+                                        .active_cleanups
+                                        .iter_mut()
+                                        .rev()
+                                        .find(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+                                    {
+                                        if owner.state_type.is_none() {
+                                            owner.state_type = Some(state);
+                                        }
+                                    }
+                                }
+                            }
                             self.active_cleanups.push(ActiveCleanup::ResourceUnion(
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
                                     state_type: type_.state(),
+                                    record_free_tags: if !alias_wrap
+                                        && self.record_owning_locals.contains(name)
+                                    {
+                                        self.resource_union_record_free_tags(type_)
+                                    } else {
+                                        Vec::new()
+                                    },
+                                    closes_variant: !alias_wrap,
+                                    owner_flag_slot,
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -946,11 +1740,8 @@ impl CodeBuilder<'_> {
                             // now (Local captures from `self.locals`); a capture that
                             // is a by-value scalar/float or of unknown type is left
                             // (a safe leak, never a wild free).
-                            if let Some(NirValue::Closure { captures, .. }) = value {
-                                let capture_types = captures
-                                    .iter()
-                                    .map(|capture| self.capture_free_type(capture))
-                                    .collect();
+                            if let Some(NirValue::Closure { name, captures, .. }) = value {
+                                let capture_types = self.closure_env_free_types(name, captures);
                                 self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                     OwnedValueCleanup {
                                         type_: type_.clone(),
@@ -974,19 +1765,104 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
+                        // bug-689: an element-bound write-back — the element already
+                        // holds the value it writes — and the single-expression update.
+                        if self
+                            .element_updates
+                            .write_backs
+                            .contains(&crate::codegen::engine::analysis::last_use::op_key(op))
+                        {
+                            return Ok(());
+                        }
+                        if let Some(value) = value {
+                            if self.try_single_expression_element_update(op, value)? {
+                                return Ok(());
+                            }
+                        }
                         let global = self.global_value(name)?;
                         let value_type = if crate::codegen::engine::types::is_unset_type(type_) {
                             global.type_.clone()
                         } else {
                             type_.clone()
                         };
+                        // plan-145-G (site S5): `gR = WITH gR { … }` is a field site
+                        // whose owner block lives in the global's slot — C's stores,
+                        // F's overwrite and nested paths, then the seam's arms, then
+                        // the mixed `WITH`, exactly as for a local record.
+                        if let Some(value) = value {
+                            let container = FieldContainer::Global { name };
+                            if self.try_inplace_scalar_fields(container, value)? {
+                                return Ok(());
+                            }
+                            if let Some((field, field_type, update)) =
+                                self.field_self_update_site(container, value)
+                            {
+                                let site = SelfUpdateSite {
+                                    name,
+                                    type_: field_type,
+                                    dest: InPlaceDest::GlobalField {
+                                        name: name.clone(),
+                                        field_index: field.field_index,
+                                        path: field.path_indices(),
+                                    },
+                                    by_ref: false,
+                                    field: Some(field),
+                                };
+                                if self.try_inplace_self_update(&site, update)? {
+                                    return Ok(());
+                                }
+                            }
+                            if self.try_inplace_mixed_with(container, value, None, false)? {
+                                return Ok(());
+                            }
+                        }
+                        // plan-142-H (site S2): `g = f(g, …)` mutates the global's own
+                        // block when an arm recognises `f`, exactly as for a local.
+                        if let Some(value) = value {
+                            if is_global_self_update_call(value, name)
+                                || string_self_append_operands_of(value, &|root| {
+                                    matches!(root, NirValue::Global { name: g, .. } if g == name)
+                                })
+                                .is_some()
+                            {
+                                let site = SelfUpdateSite {
+                                    name,
+                                    type_: global.type_.clone(),
+                                    dest: InPlaceDest::Global {
+                                        name: name.clone(),
+                                        block_slot: self
+                                            .allocate_stack_object("su_global_block", 8),
+                                    },
+                                    by_ref: false,
+                                    field: None,
+                                };
+                                if self.try_inplace_self_update(&site, value)? {
+                                    return Ok(());
+                                }
+                            }
+                        }
                         // A global outlives every scope, so it must own its value
                         // independently: deep-copy an aliasing source so freeing a
                         // local never dangles the global (plan-02 Phase 8).
                         let result = if let Some(value) = value {
                             self.lower_value_owned(value)?
                         } else {
-                            self.lower_default_value(&value_type)?
+                            let default = self.lower_default_value(&value_type)?;
+                            // bug-667: the default empty `String` is static rodata;
+                            // copy it into the arena so the global owns a block its
+                            // next store can free, exactly as a local's `Bind` does.
+                            if default.type_ == ParameterType::String {
+                                let copied = self
+                                    .copy_flat_block(&ParameterType::String, &default.location)?;
+                                ValueResult {
+                                    origin: None,
+                                    type_: ParameterType::String,
+                                    location: Operand::from(copied.render()),
+                                    text: default.text,
+                                }
+                            } else {
+                                default
+                            }
                         };
                         // Observation boundary: a `Float` global must be finite
                         // (plan-17).
@@ -1010,6 +1886,10 @@ impl CodeBuilder<'_> {
                         // call). `lower_value_owned` deep-copied any aliasing source,
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
+                        // plan-142-H: a global `String` the concat arm grows keeps its
+                        // capacity in a hidden global; this store frees the block it
+                        // describes and installs a tight one, so it resets it.
+                        let capacity_global = self.global_string_capacity(name);
                         if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type)
                         {
                             let new_slot = self.allocate_stack_object("store_global_new", 8);
@@ -1023,13 +1903,22 @@ impl CodeBuilder<'_> {
                             let old_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&old_ptr, &address, 0));
                             self.emit(abi::store_u64(&old_ptr, abi::stack_pointer(), old_slot));
+                            let capacity_slot = match &capacity_global {
+                                Some(shadow) => {
+                                    let slot = self.allocate_stack_object("store_global_strcap", 8);
+                                    let address = self.load_global_address(shadow)?;
+                                    let spare = self.allocate_register();
+                                    self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                                    self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+                                    Some(slot)
+                                }
+                                None => None,
+                            };
                             self.emit_owned_value_drop(&OwnedValueCleanup {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
                                 closure_captures: None,
-                                // A global has no frame-local capacity shadow: the
-                                // self-append arm only ever fires on a `MUT` local.
-                                capacity_slot: None,
+                                capacity_slot,
                                 loop_alias_slot: None,
                                 result_wrapper: None,
                             })?;
@@ -1043,12 +1932,30 @@ impl CodeBuilder<'_> {
                             };
                             let address = self.load_global_address(name)?;
                             self.store_value_at(&stored, &address, 0);
+                            if let Some(shadow) = &capacity_global {
+                                let address = self.load_global_address(shadow)?;
+                                self.emit(abi::store_u64(abi::ZERO, address.as_str(), 0));
+                            }
                         } else {
                             let address = self.load_global_address(name)?;
                             self.store_value_at(&result, &address, 0);
                         }
                     }
                     NirOp::Assign { name, value } => {
+                        // bug-689: an element-bound binding's update, its write-back
+                        // (the element already holds the value it writes), and the
+                        // single-expression update. None changes the list's length, so
+                        // the facts below stay true.
+                        let key = crate::codegen::engine::analysis::last_use::op_key(op);
+                        if self.element_updates.write_backs.contains(&key) {
+                            return Ok(());
+                        }
+                        if let Some(element) = self.element_updates.updates.get(&key).cloned() {
+                            return self.lower_element_update(&element, value);
+                        }
+                        if self.try_single_expression_element_update(op, value)? {
+                            return Ok(());
+                        }
                         // plan-86 G1: reassigning `name` invalidates any `len_of_local`
                         // or provable-index fact keyed on it, and any fact naming it
                         // as the list `L`.
@@ -1069,115 +1976,95 @@ impl CodeBuilder<'_> {
                             self.observe_promoted_float(value, &d)?;
                             return Ok(());
                         }
-                        let (stack_offset, by_ref) = {
+                        let (stack_offset, by_ref, local_type) = {
                             let local = self.locals.get(name).ok_or_else(|| {
                                 format!("native code assignment unknown local '{name}'")
                             })?;
-                            (local.stack_offset, local.by_ref)
+                            (local.stack_offset, local.by_ref, local.type_.clone())
                         };
-                        // `name = collections::append(name, item)` on a uniquely
-                        // owned `MUT` list mutates the live buffer in place
-                        // (plan-01 §4.2): the helper updates the slot, so skip the
-                        // general reassignment path entirely.
-                        if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_bulk_append_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_add_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_remove_key_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_prepend_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            // plan-121-B: `removeAt` and Set `remove` had no arm in
-                            // any container, so every call allocated a fresh block
-                            // and copied the whole collection. Order within this
-                            // chain is immaterial — the arms match disjoint builtin
-                            // names — so they are appended rather than interleaved.
-                            && !self.try_inplace_remove_at_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_insert_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_set_remove_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_record_field_append(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_remove_key_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_remove_at_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_remove_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_add_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_set_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_insert_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
-                            && !self.try_inplace_record_field_prepend_assign(
-                                name,
-                                value,
-                                stack_offset,
-                                by_ref,
-                            )?
+                        // `name = f(name, …)` on a uniquely owned `MUT` local
+                        // mutates the live block in place when an arm of
+                        // `SELF_UPDATE_ARMS` recognises `f` (plan-142-A, site S1):
+                        // the arm updates the slot, so skip the general
+                        // reassignment path entirely. A by-ref capture (S9,
+                        // plan-142-G) mutates the parent's block through the
+                        // reference.
+                        let dest = if by_ref
+                            && (is_self_update_call(value, name)
+                                // plan-146-G: `s = s & t` is a `Binary`, not a
+                                // call, and it is an arm at S9 now too.
+                                || string_self_append_operands_of(value, &|root| {
+                                    matches!(root, NirValue::Local(local) if local == name)
+                                })
+                                .is_some())
                         {
+                            InPlaceDest::Ref {
+                                ref_slot: stack_offset,
+                                block_slot: self.allocate_stack_object("su_ref_block", 8),
+                            }
+                        } else {
+                            InPlaceDest::Direct { slot: stack_offset }
+                        };
+                        let site = SelfUpdateSite {
+                            name,
+                            type_: local_type,
+                            dest,
+                            by_ref,
+                            field: None,
+                        };
+                        // plan-145-B: `name = WITH name { f := op(name.f, …) }` — a
+                        // self-update of one of the record local's fields — is a
+                        // field site of the same seam.
+                        let field_site = self
+                            .field_self_update_site(FieldContainer::Record { local: name }, value)
+                            .map(|(field, field_type, update)| {
+                                (
+                                    SelfUpdateSite {
+                                        name,
+                                        type_: field_type,
+                                        // plan-145-H: a by-ref capture's slot
+                                        // holds the parent slot's address.
+                                        dest: if by_ref {
+                                            InPlaceDest::RefField {
+                                                ref_slot: stack_offset,
+                                                field_index: field.field_index,
+                                                path: field.path_indices(),
+                                            }
+                                        } else {
+                                            InPlaceDest::Inlined {
+                                                block_slot: stack_offset,
+                                                field_index: field.field_index,
+                                                path: field.path_indices(),
+                                                write_back: WriteBack::None,
+                                            }
+                                        },
+                                        by_ref,
+                                        field: Some(field),
+                                    },
+                                    update,
+                                )
+                            });
+                        // plan-145-C: a `WITH` whose every update is a scalar or a
+                        // pointer field is stored field by field in the record's
+                        // own block (the `STATE` Layer 1 routine, for a local).
+                        let in_place = self.try_inplace_self_update(&site, value)?
+                            || self.try_inplace_scalar_fields(
+                                FieldContainer::Record { local: name },
+                                value,
+                            )?
+                            || match &field_site {
+                                Some((site, update)) => {
+                                    self.try_inplace_self_update(site, update)?
+                                }
+                                None => false,
+                            }
+                            || self.try_inplace_mixed_with(
+                                FieldContainer::Record { local: name },
+                                value,
+                                Some(stack_offset),
+                                by_ref,
+                            )?;
+                        if !in_place {
                             // Reassignment installs a fresh independent block; the old
                             // block remains owned by this binding's scope-drop free
                             // (the slot is overwritten with the new owner). Deep-copy
@@ -1186,22 +2073,8 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            let assign_slot = if Self::is_thread_type(&result.type_) {
-                                let slot = self.allocate_stack_object("thread_assign_value", 8);
-                                self.emit(abi::store_u64(
-                                    &result.location,
-                                    abi::stack_pointer(),
-                                    slot,
-                                ));
-                                // bug-622: a handle read from another binding is shared,
-                                // so it takes an owner — BEFORE the old handle's drop, or
-                                // `t = t` would free the block it is about to store.
-                                if !Self::thread_value_is_fresh_handle(Some(value)) {
-                                    self.emit_thread_owner_increment(slot);
-                                }
-                                self.emit_thread_cleanup_for_name(name)?;
-                                Some(slot)
-                            } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)
+                            let assign_slot = if let Some(symbol) =
+                                self.resource_cleanup_symbol(&result.type_)
                             {
                                 let slot = self.allocate_stack_object("resource_assign_value", 8);
                                 self.emit(abi::store_u64(
@@ -1214,8 +2087,57 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: result.type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
+                                    frees_record: Self::resource_record_freed_at_drop(
+                                        &result.type_,
+                                    ) && self.record_owning_locals.contains(name),
+                                    moved_record_only: false,
+                                    owner_flag_slot: self.trap_owner_flags.get(name).copied(),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
+                                Some(slot)
+                            } else if by_ref && self.is_freeable_flat_value(&result.type_) {
+                                // plan-142-G: a reference local's reassignment frees the
+                                // parent binding's previous block, read through the
+                                // reference, exactly as the owner's own reassignment
+                                // below would; it leaked before. Nothing in the parent
+                                // still walks that block: a `forEach` over it walks a
+                                // snapshot, and so does a `FOR EACH` whose body passes
+                                // the binding by reference (operand_snapshot.rs).
+                                let old_slot = self.allocate_stack_object("reassign_ref_old", 8);
+                                let parent = self.allocate_register();
+                                self.emit(abi::load_u64(
+                                    &parent,
+                                    abi::stack_pointer(),
+                                    stack_offset,
+                                ));
+                                let old = self.allocate_register();
+                                self.emit(abi::load_u64(&old, &parent, 0));
+                                self.emit(abi::store_u64(&old, abi::stack_pointer(), old_slot));
+                                let slot = self.allocate_stack_object("reassign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                // plan-146-G: the owner's block may carry spare
+                                // bytes an arm in this lambda left there, so the
+                                // free is sized by the SHARED shadow — and the
+                                // shadow is reset to 0 below, because the block
+                                // being installed is a fresh tight one.
+                                let shared = self.string_shadow_working_copy(name);
+                                let (shared_slot, shared_holder) = match shared {
+                                    Some((slot, holder)) => (Some(slot), Some(holder)),
+                                    None => (None, None),
+                                };
+                                self.emit_owned_value_drop(&OwnedValueCleanup {
+                                    type_: result.type_.clone(),
+                                    stack_offset: old_slot,
+                                    closure_captures: None,
+                                    capacity_slot: shared_slot,
+                                    loop_alias_slot: None,
+                                    result_wrapper: None,
+                                })?;
+                                self.reset_shared_string_shadow(shared_holder);
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
@@ -1312,6 +2234,22 @@ impl CodeBuilder<'_> {
                                     stack_offset,
                                 );
                             }
+                            // bug-648: record whether this store handed a `Mixed` temp
+                            // an owned value — strictly after the old value's drop
+                            // above, which must read the flag of the value it releases.
+                            if let Some(&flag) = self.trap_owner_flags.get(name) {
+                                if self.trap_ownership.store_is_owned(value) {
+                                    let owned = self.temporary_vreg();
+                                    self.emit(abi::move_immediate(&owned, "Integer", "1"));
+                                    self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
+                                } else {
+                                    self.emit(abi::store_u64(
+                                        abi::ZERO,
+                                        abi::stack_pointer(),
+                                        flag,
+                                    ));
+                                }
+                            }
                             // A reference local never folds to a constant (see Bind).
                             let constant = if by_ref {
                                 None
@@ -1332,16 +2270,41 @@ impl CodeBuilder<'_> {
                         // bug-424 Layer 1: a scalar `s.state.field = v` mutates the
                         // existing STATE block in place; only a whole-record replace
                         // (or a not-yet-in-place inlined field) falls through here.
-                        if self.try_inplace_state_scalar_assign(resource, value)? {
+                        if self
+                            .try_inplace_scalar_fields(FieldContainer::State { resource }, value)?
+                        {
                             return Ok(());
                         }
-                        // bug-430 Layer 2: a collection field that is the last
-                        // inlined field is mutated in place inside the existing
-                        // STATE block instead of rebuilding the record. plan-121-D
-                        // Phase 1 put the operation dispatch behind one call so
-                        // Phase 2's arms are additive; `append` (amortized O(1)
-                        // grow) is currently the only operation dispatched.
-                        if self.try_inplace_state_collection_assign(resource, value)? {
+                        // bug-430 Layer 2, plan-145-B: `s.state.f = op(s.state.f, …)`
+                        // on a collection field is a field site of the self-update
+                        // seam; the arm that recognises `op` mutates the field
+                        // inside the existing STATE block and republishes it.
+                        if let Some((field, field_type, update)) =
+                            self.field_self_update_site(FieldContainer::State { resource }, value)
+                        {
+                            let site = SelfUpdateSite {
+                                name: resource,
+                                type_: field_type,
+                                dest: InPlaceDest::StateField {
+                                    resource: resource.clone(),
+                                    field_index: field.field_index,
+                                    path: field.path_indices(),
+                                },
+                                by_ref: false,
+                                field: Some(field),
+                            };
+                            if self.try_inplace_self_update(&site, update)? {
+                                return Ok(());
+                            }
+                        }
+                        // plan-145-C: a collection field and scalar fields in one
+                        // `WITH` over the payload.
+                        if self.try_inplace_mixed_with(
+                            FieldContainer::State { resource },
+                            value,
+                            None,
+                            false,
+                        )? {
                             return Ok(());
                         }
                         // Replace the resource's `STATE` payload: store the new
@@ -1356,8 +2319,52 @@ impl CodeBuilder<'_> {
                         // STATE lives in the active variant's record at `+8`
                         // (plan-74). Concrete resources address their record directly.
                         let resource_type = local.type_.clone();
+                        // bug-644: this arm REBUILDS the whole STATE record into a
+                        // fresh block and republishes it through the record's
+                        // `RESOURCE_OFFSET_STATE` slot. The block it displaces has no
+                        // other owner — every alias of the handle reads the slot
+                        // (§15), so once the slot names the new block nothing can
+                        // reach the old one — and it used to leak, one STATE record
+                        // per `s.state.field = v` that is not an in-place store
+                        // (32 B an iteration for a `String` field, which never takes
+                        // the inline-scalar fast path above).
+                        //
+                        // Freeing it is gated on two things. The size must be
+                        // derivable exactly as the scope-exit drop derives it
+                        // (`emit_free_resource_state_block` →
+                        // `emit_inlined_block_size_from_ptr_slot`); a STATE type that
+                        // sizer cannot answer for keeps the old, leaking behavior
+                        // instead of turning a program that builds today into a
+                        // codegen error. And no live `FOR EACH` may be walking this
+                        // resource's STATE: such a loop snapshots an alias INTO the
+                        // block, so freeing it mid-iteration is a use-after-free —
+                        // the same reason the in-place grow declines for
+                        // `for_each_iterable_state_fields` (bug-430). Leak it there,
+                        // matching the reassign arm's `for_each` carve-outs.
+                        let replaced_state_type = resource_type.state().filter(|state| {
+                            (*state == ParameterType::String
+                                || self.type_model.record_fields.contains_key(state)
+                                || self.union_is_data(state)
+                                || matches!(state, ParameterType::ResultOf(_))
+                                || typed_is_collection_type(state))
+                                && !self
+                                    .for_each_iterable_state_fields
+                                    .iter()
+                                    .any(|(res, _)| res == resource)
+                                && !self
+                                    .for_each_iterable_record_fields
+                                    .iter()
+                                    .any(|(base, _)| base == resource)
+                                && !self.for_each_iterable_locals.iter().any(|n| n == resource)
+                        });
                         // plan-134-E: the replacement is stored into the resource.
-                        let result = self.lower_value_stored_field(value)?;
+                        // bug-678: the resource keeps the POINTER, so it must own the
+                        // block — an aliasing source (`h.state = r`) is copied, exactly
+                        // as a binding's reassignment copies one. The field store
+                        // (`lower_value_stored_field`) returned `r`'s own block, which
+                        // `r` and the resource then both freed, and which an in-place
+                        // update of `r` changed under the resource.
+                        let result = self.lower_value_owned(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
                         let result = self.vector_value_as_block(result)?;
@@ -1374,9 +2381,56 @@ impl CodeBuilder<'_> {
                         let block = self.allocate_register();
                         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
                         let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
+                        // bug-644: capture the outgoing block BEFORE the publish
+                        // overwrites the slot. It is read here rather than before the
+                        // operands on purpose: an operand that itself reaches a STATE
+                        // assignment (the `G25` shape) has already republished and
+                        // freed by now, so the slot names the block this statement is
+                        // actually displacing and neither block is freed twice.
+                        let replaced_slot = replaced_state_type.as_ref().map(|_| {
+                            let slot = self.allocate_stack_object("state_assign_replaced", 8);
+                            let previous = self.allocate_register();
+                            self.emit(abi::load_u64(&previous, &ptr, RESOURCE_OFFSET_STATE));
+                            self.emit(abi::store_u64(&previous, abi::stack_pointer(), slot));
+                            slot
+                        });
                         let val = self.allocate_register();
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
                         self.emit(abi::store_u64(&val, &ptr, RESOURCE_OFFSET_STATE));
+                        // bug-644: reclaim the displaced block, AFTER the new one is
+                        // published so no window exists where the slot names freed
+                        // memory. Two run-time guards keep this to the one block that
+                        // is definitively gone:
+                        //   * a null STATE pointer is skipped — the first assignment
+                        //     on a record whose `emit_resource_state_init` has not run
+                        //     (or a resource handed in already drained) has nothing to
+                        //     free, and `arena_free(0)` faults.
+                        //     `emit_shallow_block_free` null-guards.
+                        //   * old == published is skipped — an in-place store or an
+                        //     `InlineGrow` realloc republishes THE SAME block, and
+                        //     freeing it is a use-after-free of state the resource
+                        //     still reads through `RESOURCE_OFFSET_STATE`. The two
+                        //     in-place layers above return early, so this arm should
+                        //     never see that, but the identity test costs two
+                        //     instructions and is what makes the free unconditionally
+                        //     safe rather than safe-by-reachability-argument.
+                        if let (Some(state_type), Some(replaced_slot)) =
+                            (replaced_state_type, replaced_slot)
+                        {
+                            let kept = self.label("state_assign_replaced_kept");
+                            let previous = self.allocate_register();
+                            self.emit(abi::load_u64(
+                                &previous,
+                                abi::stack_pointer(),
+                                replaced_slot,
+                            ));
+                            let published = self.allocate_register();
+                            self.emit(abi::load_u64(&published, abi::stack_pointer(), value_slot));
+                            self.emit(abi::compare_registers(&previous, &published));
+                            self.emit(abi::branch_eq(&kept));
+                            self.emit_shallow_block_free(&state_type, replaced_slot)?;
+                            self.emit(abi::label(&kept));
+                        }
                     }
                     NirOp::Eval { value } => {
                         self.lower_value(value)?;
@@ -1759,7 +2813,6 @@ impl CodeBuilder<'_> {
                 .expect("cleanup scope length already checked");
             if !scope_returns {
                 match cleanup {
-                    ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(&cleanup)?,
                     ActiveCleanup::Resource(cleanup) => {
                         self.emit_resource_cleanup_call(&cleanup)?
                     }
@@ -2109,6 +3162,34 @@ impl CodeBuilder<'_> {
         self.string_capacity_slots.get(name).copied()
     }
 
+    /// plan-146-G: a working copy of the OWNER's capacity shadow for the by-ref
+    /// capture `name`, read through the closure environment — the size a free of
+    /// its block must use. `None` when this lambda shares no shadow for it.
+    pub(crate) fn string_shadow_working_copy(&mut self, name: &str) -> Option<(usize, usize)> {
+        let index = self.string_shadow_env.get(name).copied()?;
+        let slot = self.allocate_stack_object("ref_strcap_free", 8);
+        let holder_slot = self.allocate_stack_object("ref_strcap_owner", 8);
+        let holder = self.allocate_register();
+        let spare = self.allocate_register();
+        self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+        self.emit(abi::store_u64(&holder, abi::stack_pointer(), holder_slot));
+        self.emit(abi::load_u64(&spare, &holder, 0));
+        self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
+        Some((slot, holder_slot))
+    }
+
+    /// plan-146-G: store 0 into the OWNER's shadow through the closure
+    /// environment — every store that installs a fresh (tight) block through the
+    /// reference does this, exactly as a plain local's store resets its own.
+    pub(crate) fn reset_shared_string_shadow(&mut self, holder_slot: Option<usize>) {
+        let Some(holder_slot) = holder_slot else {
+            return;
+        };
+        let holder = self.allocate_register();
+        self.emit(abi::load_u64(&holder, abi::stack_pointer(), holder_slot));
+        self.emit(abi::store_u64(abi::ZERO, &holder, 0));
+    }
+
     pub(crate) fn reset_string_capacity_shadow(&mut self, name: &str) {
         let zero = self.temporary_vreg();
         if let Some(&slot) = self.string_capacity_slots.get(name) {
@@ -2122,11 +3203,42 @@ impl CodeBuilder<'_> {
     /// nested blocks. Done before lowering so bind/assign sites can reset the shadow
     /// and the prologue can zero it (plan-02 §4.1).
     pub(crate) fn prescan_string_self_appends(&mut self, ops: &[NirOp]) {
+        // plan-146-G: a `String` this frame lends a lambda by reference needs a
+        // shadow HERE, because the lambda's self-update leaves its spare bytes in
+        // this frame's block; the lambda reads and publishes it through the closure
+        // environment (`string_shadow_captures`).
+        for lambda in self.closures_created_in(ops) {
+            for (local, _) in
+                crate::codegen::collection::assign::string_self_update::string_shadow_captures(
+                    self.functions,
+                    &lambda,
+                )
+            {
+                if !self.string_capacity_slots.contains_key(&local) {
+                    let slot = self.allocate_stack_object(&format!("strcap_{local}"), 8);
+                    self.string_capacity_slots.insert(local, slot);
+                }
+            }
+        }
         for op in ops {
             match op {
                 NirOp::Assign { name, value } => {
-                    if string_self_append_operands(value, name).is_some()
-                        && !self.string_capacity_slots.contains_key(name)
+                    // plan-146-G: a local captured by reference gets one too — and
+                    // shares it with every lambda that self-updates it, through the
+                    // closure environment. Before that it got none, because a
+                    // callback could replace the buffer through the reference
+                    // without seeing this frame's shadow, which would then claim
+                    // spare bytes the new buffer does not have
+                    // (`rt_byref_string_capture_capacity`); the shared word is what
+                    // keeps the two in step.
+                    if crate::codegen::collection::assign::string_self_update::is_string_self_update(
+                        value,
+                        &|root| matches!(root, NirValue::Local(local) if local == name),
+                    ) && !self.string_capacity_slots.contains_key(name)
+                        // plan-146-G observation O2: a by-ref capture that shares
+                        // its owner's shadow needs no slot of its own — the one it
+                        // used to get was never read.
+                        && !self.string_shadow_env.contains_key(name)
                     {
                         let slot = self.allocate_stack_object(&format!("strcap_{name}"), 8);
                         self.string_capacity_slots.insert(name.clone(), slot);
@@ -2155,6 +3267,27 @@ impl CodeBuilder<'_> {
                 _ => {}
             }
         }
+    }
+
+    /// plan-146-G: the lambdas `ops` create a closure for, in source order.
+    pub(crate) fn closures_created_in(&self, ops: &[NirOp]) -> Vec<String> {
+        use crate::target::shared::nir::visit::{walk_value, NirVisitor};
+        struct Finder {
+            names: Vec<String>,
+        }
+        impl NirVisitor for Finder {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { name, captures, .. } = value {
+                    if !captures.is_empty() && !self.names.contains(name) {
+                        self.names.push(name.clone());
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut finder = Finder { names: Vec::new() };
+        finder.visit_ops(ops);
+        finder.names
     }
 
     /// Begin loop-carried promotion of safe float-accumulator locals for a loop
@@ -2261,7 +3394,70 @@ impl CodeBuilder<'_> {
         let cursor = self.temporary_vreg();
         let payload_off = self.temporary_vreg();
         let payload_len = self.temporary_vreg();
-        let iterable_value = self.lower_value(iterable)?;
+        // bug-666: a global iterable lowers to the global's live block, which a
+        // `StoreGlobal` in the body (or in anything it calls) frees mid-loop. When
+        // the body can reach one, walk a copy instead: the operand snapshot makes
+        // it a statement-scope temporary, so the end of this `FOR EACH` statement
+        // frees it on every exit edge. A body that only reads keeps borrowing.
+        let snapshot_mark = self.operand_snapshot_wanted.len();
+        if let Some(global) = global_root(iterable) {
+            if self.ops_reach_store(body, StoreLeaf::Global(global)) {
+                self.operand_snapshot_wanted
+                    .push(iterable as *const NirValue as usize);
+            }
+        }
+        // plan-142-F: likewise a local the body writes. Walking the binding's own
+        // block would forbid every in-place self-update in the body (the loop holds
+        // its pointer and count), so the loop walks a copy made once here — its
+        // entry-time snapshot, freed with the statement — and the binding is free
+        // to be mutated in place. A body that never writes it keeps borrowing.
+        let owns_local_iterable = match iterable {
+            NirValue::Local(local_name) => {
+                self.locals
+                    .get(local_name)
+                    .is_some_and(|local| self.is_freeable_flat_value(&local.type_))
+                    && ops_write_local(body, local_name)
+            }
+            _ => false,
+        };
+        // plan-142-G: `FOR EACH v IN r.items` whose body hands `r` to a callback by
+        // reference — the callback's reassignment of `r` frees `r`'s old block, and
+        // with it the field the loop walks. (A direct `r = …` in the body keeps
+        // the old block alive instead: `for_each_iterable_record_fields`.)
+        let owns_field_iterable = !matches!(iterable, NirValue::Local(_))
+            && local_root(iterable).is_some_and(|root| {
+                let mut captured = std::collections::HashSet::new();
+                collect_address_taken_locals(body, &mut captured);
+                captured.contains(root)
+            });
+        // plan-145-H (sites S7/T7): `FOR EACH v IN r.b` (or `IN h.state.b`) whose
+        // body writes the owner walks a copy made once here, too. The field's own
+        // block is then free for the body's in-place updates (`G15`/`G16` read
+        // only the tracking lists, which this loop no longer joins), and the
+        // rebuild's free guards no longer keep — and so leak — the displaced
+        // block. A body that never writes the owner keeps borrowing.
+        let owns_owner_field_iterable = match iterable {
+            NirValue::MemberAccess { target, .. } => match target.as_ref() {
+                NirValue::Local(base) => {
+                    self.locals.contains_key(base.as_str()) && ops_write_local(body, base)
+                }
+                NirValue::MemberAccess {
+                    target: inner,
+                    member,
+                } if member == "state" => {
+                    matches!(inner.as_ref(), NirValue::Local(res) if ops_write_state(body, res))
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if owns_local_iterable || owns_field_iterable || owns_owner_field_iterable {
+            self.operand_snapshot_wanted
+                .push(iterable as *const NirValue as usize);
+        }
+        let iterable_value = self.lower_value(iterable);
+        self.operand_snapshot_wanted.truncate(snapshot_mark);
+        let iterable_value = iterable_value?;
         if !typed_is_collection_type(&iterable_value.type_) {
             return Err(format!(
                 "native code FOR EACH target '{}' is not a collection",
@@ -2309,18 +3505,22 @@ impl CodeBuilder<'_> {
         // snapshots and re-reads each step; record it so an in-place `set`/`prepend`
         // that overwrites an existing entry (observable to this iterator) is
         // excluded for the binding inside the loop body (plan-02 §4.1, D1).
-        let pushed_iterable = if let NirValue::Local(local_name) = iterable {
-            self.for_each_iterable_locals.push(local_name.clone());
-            true
-        } else {
-            false
+        // A loop walking its own copy (plan-142-F) observes nothing of the binding.
+        let pushed_iterable = match iterable {
+            NirValue::Local(local_name) if !owns_local_iterable => {
+                self.for_each_iterable_locals.push(local_name.clone());
+                true
+            }
+            _ => false,
         };
         // bug-430: `FOR EACH x IN resource.state.field` snapshots an ALIAS into the
         // STATE collection's inlined buffer, so record it — an in-place
         // `resource.state.field = append(...)` in the body must NOT reallocate+free
         // that buffer out from under the live iterator (it falls back to the
         // non-freeing whole-record rebuild instead).
-        let pushed_state_field = if let NirValue::MemberAccess { target, member } = iterable {
+        let pushed_state_field = if owns_owner_field_iterable {
+            false
+        } else if let NirValue::MemberAccess { target, member } = iterable {
             if let NirValue::MemberAccess {
                 target: inner,
                 member: inner_member,
@@ -2346,7 +3546,9 @@ impl CodeBuilder<'_> {
         // bug-430: `FOR EACH x IN local.field` over a MUT record local snapshots an
         // alias into the record's inlined collection buffer — record it so an
         // in-place record-field grow in the body falls back to the rebuild.
-        let pushed_record_field = if let NirValue::MemberAccess { target, member } = iterable {
+        let pushed_record_field = if owns_owner_field_iterable {
+            false
+        } else if let NirValue::MemberAccess { target, member } = iterable {
             if let NirValue::Local(base) = target.as_ref() {
                 self.for_each_iterable_record_fields
                     .push((base.clone(), member.clone()));
@@ -2658,14 +3860,14 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// If `value` is a left-associated string-concat chain `name & a & b …` whose
-/// leftmost leaf is `Local(name)`, return the operands to append in source order
-/// (`[a, b, …]`); otherwise `None`. Used to recognize the in-place self-append
-/// idiom `name = name & …` (plan-02 §4.1). `&` is string concatenation, so a
-/// match guarantees `name` is a `String` local.
-pub(crate) fn string_self_append_operands<'v>(
+/// If `value` is a left-associated string-concat chain whose leftmost leaf
+/// satisfies `is_self` — the local, or a global (plan-142-H) — return the operands
+/// to append in source order (`[a, b, …]`); otherwise `None`. This is the in-place
+/// self-append idiom `name = name & …` (plan-02 §4.1); `&` is string
+/// concatenation, so a match guarantees the binding is a `String`.
+pub(crate) fn string_self_append_operands_of<'v>(
     value: &'v NirValue,
-    name: &str,
+    is_self: &dyn Fn(&NirValue) -> bool,
 ) -> Option<Vec<&'v NirValue>> {
     let NirValue::Binary {
         op, left, right, ..
@@ -2680,7 +3882,7 @@ pub(crate) fn string_self_append_operands<'v>(
     let mut cursor = left.as_ref();
     loop {
         match cursor {
-            NirValue::Local(local) if local == name => {
+            root if is_self(root) => {
                 operands.reverse();
                 return Some(operands);
             }

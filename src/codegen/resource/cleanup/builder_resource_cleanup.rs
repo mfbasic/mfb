@@ -20,6 +20,73 @@ impl CodeBuilder<'_> {
         type_.without_state().is_named("fs.File")
     }
 
+    /// bug-623: the resource kinds whose 96-byte record the owning binding's scope
+    /// drop frees — the `tcp`, `udp` and `tls` handles. Before this, a
+    /// `tcp::connect`/`tcp::close` loop leaked one record per connection forever.
+    ///
+    /// **The drop is the owner of the free, not `close`.** A `close` through a
+    /// `RES` parameter leaves the owner holding the record, and a later operation
+    /// through it — a second close included — must still read the closed flag and
+    /// raise `ErrResourceClosed` (`tests/net/rt_double_close_is_refused.rs`). At the
+    /// owner's drop nothing can name the record any more: every non-owning holder
+    /// (a `RES` parameter, an aliasing bind, a `collections::get`/`tcp::poll`
+    /// borrow, a record `RES` field) lives in the owner's scope or deeper, and a
+    /// floated or returned handle has moved its cleanup elsewhere. For the same
+    /// reason an explicit `close` on the owning binding keeps this cleanup
+    /// registered (`deactivate_moved_resource_arguments`): its drop-time re-close
+    /// is the defined, unreported `ErrResourceClosed` no-op, and the record is
+    /// freed after it.
+    ///
+    /// Every producer of these kinds hands the binding a record in the current
+    /// thread's arena — the open helpers' `emit_make_handle`/TLS record allocs, the
+    /// closed default of `emit_closed_resource_record`, and the thread-transfer
+    /// copy — so the free goes to the arena that allocated it. The slot is zeroed
+    /// after the free so a drop reached again on the same slot (a loop re-entry, a
+    /// `TRAP` handler after a scope exit) skips on the existing null guard.
+    ///
+    /// Other kinds keep the tombstone: their producers include records this
+    /// analysis has not audited (native `LINK` thunks, `audio`, `process`).
+    ///
+    /// bug-647: `fs.File` used to be excluded too, "shares the record with the
+    /// drop's buffer reclaim". That reason was stale — and it cost two whole
+    /// records per bind. [`Self::emit_resource_block_reclaim`] frees in dependency
+    /// order already: the two `File` buffers (reached THROUGH the record's
+    /// `FILE_OFFSET_BUF_PTR` / `FILE_OFFSET_READ_PTR` words), then the STATE block,
+    /// and only then the record itself. Nothing reads the record after it is freed,
+    /// so sharing it with the buffer reclaim is exactly what the ordering handles.
+    /// Including it here frees the producer's record AND, through the
+    /// `frees_record` flag this predicate feeds, the closed default record an
+    /// inline `TRAP`'s `$trap_valN` binding materializes.
+    ///
+    /// bug-623 B: the kind is necessary, not sufficient. A binding frees the record
+    /// only when it also OWNS it (`record_owning_locals`, computed by
+    /// `resource::cleanup::record_ownership`): a union wrapping a live binding, or a
+    /// call that hands back a parameter's record, holds a record another binding frees.
+    ///
+    /// plan-156-C: a parent `Thread` view too. `thread::start` allocates it in the
+    /// caller's arena, and the drop's close (`thread.drop`) is done with it — the
+    /// control block it names lives on its own reference — so a thread started per loop
+    /// iteration does not leak a record per iteration.
+    pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
+        if matches!(
+            type_.without_state(),
+            ParameterType::ThreadHandle { worker: false, .. }
+        ) {
+            return true;
+        }
+        let base = type_.without_state();
+        [
+            "tcp.Socket",
+            "tcp.Listener",
+            "udp.Socket",
+            "tls.Socket",
+            "tls.Listener",
+            "fs.File",
+        ]
+        .iter()
+        .any(|name| base.is_named(name))
+    }
+
     pub(crate) fn resource_cleanup_symbol(&self, type_: &ParameterType) -> Option<String> {
         let Some(close) = crate::codegen::builtins::resource_close_function(&type_) else {
             // bug-374: not one of the language's own resources, so fall back to
@@ -56,6 +123,114 @@ impl CodeBuilder<'_> {
     /// (`Stream STATE PendingState`) names the same union as its bare form, so it
     /// must register the same tag-dispatched close — otherwise a stateful union
     /// binding would register no cleanup at all and leak its handle.
+    /// bug-623 B: the union variant tags whose record a drop may free — the
+    /// `resource_record_freed_at_drop` variants. Empty for a non-union.
+    pub(crate) fn resource_union_record_free_tags(&self, type_: &ParameterType) -> Vec<usize> {
+        let base = type_.without_state();
+        if !self.type_model.union_names.contains(&base) {
+            return Vec::new();
+        }
+        self.type_model
+            .variants_for_union(&base)
+            .filter(|variant| Self::resource_record_freed_at_drop(variant))
+            .filter_map(|variant| self.type_model.union_variant_tags.get(variant).copied())
+            .collect()
+    }
+
+    /// bug-623 B: whether a binding of `type_` can ever have a record freed at drop —
+    /// the domain `record_ownership` resolves.
+    pub(crate) fn record_freeable_type(&self, type_: &ParameterType) -> bool {
+        Self::resource_record_freed_at_drop(type_)
+            || !self.resource_union_record_free_tags(type_).is_empty()
+    }
+
+    /// bug-623 B: whether a returned resource-union value's `{tag, record}` box already
+    /// belongs to this function alone, so `RETURN` may hand it to the caller uncopied.
+    ///
+    /// The copy `lower_returned_value` otherwise makes orphaned the original box: 16 B
+    /// per `RETURN s` of an owned union local (whose cleanup the return deactivates, so
+    /// nothing frees the original) and per `RETURN f()` (a temp nobody frees) — the
+    /// 16 B of `http::read`'s 112 B per call. It stays for a parameter or any other
+    /// alias, where the caller's own argument still owns the box.
+    ///
+    /// Owned here: a union wrap (a box allocated for this value), a direct call to a
+    /// user function returning a resource union (whose box that function either moved
+    /// out or copied, so it is exclusively this frame's), and a local — or a bare-local
+    /// alias chain — rooted at a binding with a live union cleanup (its box moves; the
+    /// `RETURN` deactivation or the identity skip retires that cleanup).
+    pub(crate) fn returned_resource_union_owns_box(&self, value: &NirValue) -> bool {
+        match value {
+            NirValue::UnionWrap { union_type, .. } => {
+                self.resource_union_cleanup(union_type).is_some()
+            }
+            NirValue::Call { target, .. } => {
+                !self.locals.contains_key(target)
+                    && self
+                        .functions
+                        .get(target.as_str())
+                        .is_some_and(|f| self.resource_union_cleanup(&f.returns).is_some())
+            }
+            NirValue::Local(name) => {
+                let mut root = name.as_str();
+                let mut hops = 0;
+                while let Some(src) = self.resource_alias_sources.get(root) {
+                    root = src.as_str();
+                    hops += 1;
+                    if hops > 64 {
+                        return false;
+                    }
+                }
+                let Some(local) = self.locals.get(root) else {
+                    return false;
+                };
+                self.resource_union_cleanup(&local.type_).is_some()
+                    && self.active_cleanups.iter().any(|cleanup| {
+                        matches!(cleanup, ActiveCleanup::ResourceUnion(u) if u.name == root)
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    /// Resource-union alias class: the concrete binding `name` aliases, following the
+    /// bind-time bare-local alias map (`RES v = u` hops) to its root.
+    pub(crate) fn resource_alias_root(&self, name: &str) -> String {
+        let mut current = name;
+        for _ in 0..64 {
+            match self.live_resource_aliases.get(current) {
+                Some(next) => current = next.as_str(),
+                None => break,
+            }
+        }
+        current.to_string()
+    }
+
+    /// Resource-union alias class: when `RETURN value` returns a union that aliases a
+    /// live concrete binding (`RES c AS Union = u` then `RETURN c`, possibly through
+    /// bare-local aliases on either side), that binding's name — its close obligation
+    /// moves to the caller with the returned union, so this frame must not close it.
+    /// `None` for any other return, including a union around a parameter (no live
+    /// close to move).
+    pub(crate) fn returned_union_alias_root(&self, value: &NirValue) -> Option<String> {
+        let NirValue::Local(name) = value else {
+            return None;
+        };
+        let mut current = name.as_str();
+        let mut src = None;
+        for _ in 0..64 {
+            if let Some(wrapped) = self.live_union_wraps.get(current) {
+                src = Some(wrapped.as_str());
+                break;
+            }
+            current = self.live_resource_aliases.get(current)?.as_str();
+        }
+        let root = self.resource_alias_root(src?);
+        self.active_cleanups
+            .iter()
+            .any(|c| matches!(c, ActiveCleanup::Resource(r) if r.name == root))
+            .then_some(root)
+    }
+
     pub(crate) fn resource_union_cleanup(
         &self,
         type_: &ParameterType,
@@ -212,6 +387,113 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-623 D: the sender's side of a successful thread transfer. The handle is
+    /// the receiver's now, so the binding's drop must close nothing. But the 96-byte
+    /// record it still points at is the sender's `moved|closed` tombstone, carved
+    /// by the sender's arena, and nothing else will ever free it. So a cleanup that
+    /// frees its record is kept and switched to `moved_record_only`, and its drop
+    /// frees just that record. Every other cleanup is removed exactly as before.
+    ///
+    /// The drop runs at the binding's scope exit, after the last point the sender
+    /// can read the tombstone's flags.
+    fn retire_moved_resource_cleanup(&mut self, name: &str) {
+        let retired = self
+            .active_cleanups
+            .iter_mut()
+            .rev()
+            .find_map(|cleanup| match cleanup {
+                ActiveCleanup::Resource(resource) if resource.name == name => Some(resource),
+                _ => None,
+            });
+        match retired {
+            Some(resource) if resource.frees_record => resource.moved_record_only = true,
+            _ => self.deactivate_resource_cleanup(name),
+        }
+    }
+
+    /// The drop of a [`retire_moved_resource_cleanup`]d binding: free the sender's
+    /// tombstone record when, and only when, it carries the moved bit, then null the
+    /// slot so a re-reached drop skips. A null slot, a record being `RETURN`ed
+    /// (plan-59-D's identity skip), or a record whose transfer did not complete
+    /// frees nothing.
+    ///
+    /// bug-650: the tombstone's STATE block goes with it. `thread::transfer` does not
+    /// hand the receiver this block — `copy_resource_to_current_arena` deep-copies the
+    /// STATE into the RECEIVER's arena (bug-257, "never an alias into the sender's
+    /// arena"), so once the move completes the sender's own STATE block has no owner at
+    /// all. It was the last 16 B per transfer still leaking after the queued copy and
+    /// its STATE were reclaimed. The same reasoning that licenses freeing the record
+    /// here licenses freeing what it points at, and it is freed BEFORE the record so
+    /// the pointer is still readable.
+    ///
+    /// [`retire_moved_resource_cleanup`]: Self::retire_moved_resource_cleanup
+    fn emit_moved_resource_record_free(&mut self, cleanup: &ResourceCleanup) -> Result<(), String> {
+        let Some(offset) = self
+            .locals
+            .get(&cleanup.name)
+            .map(|local| local.stack_offset)
+        else {
+            return Ok(());
+        };
+        let done = self.label("resource_moved_record_done");
+        let ptr = self.allocate_register();
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
+        self.emit(abi::compare_immediate(&ptr, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
+        if let Some(escaping) = self.escaping_value_slot {
+            let escaping_ptr = self.allocate_register();
+            self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
+            self.emit(abi::compare_registers(&ptr, &escaping_ptr));
+            self.emit(abi::branch_eq(&done));
+        }
+        let flags = self.allocate_register();
+        self.emit(abi::load_u64(&flags, &ptr, FILE_OFFSET_CLOSED));
+        let moved_mask = self.allocate_register();
+        self.emit(abi::move_immediate(
+            &moved_mask,
+            "Integer",
+            &(1u64 << RESOURCE_MOVED_BIT).to_string(),
+        ));
+        self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
+        self.emit(abi::compare_immediate(&moved_mask, "0"));
+        self.emit(abi::branch_eq(&done));
+        // bug-650: the STATE block first, while the record still points at it.
+        if let Some(state_type) = self
+            .locals
+            .get(&cleanup.name)
+            .and_then(|local| local.type_.state())
+        {
+            self.emit_free_resource_state_block(offset, &state_type)?;
+        }
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(&record, abi::stack_pointer(), offset));
+        self.emit(abi::move_register(abi::c_arg(0), &record));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// bug-648: branch to `skip` when a binding's run-time ownership flag is clear —
+    /// the value it holds was lent to it (a borrowed element, an aliasing `RECOVER`),
+    /// so its drop must neither close nor reclaim anything. Emits nothing for a
+    /// binding that owns unconditionally.
+    fn emit_owner_flag_skip(&mut self, owner_flag_slot: Option<usize>, skip: &str) {
+        let Some(flag) = owner_flag_slot else {
+            return;
+        };
+        let owned = self.allocate_register();
+        self.emit(abi::load_u64(&owned, abi::stack_pointer(), flag));
+        self.emit(abi::compare_immediate(&owned, "0"));
+        self.emit(abi::branch_eq(skip));
+    }
+
     /// Tag-dispatched drop of a resource union: read the union tag and call the
     /// active variant's registered close op on its resource pointer (offset 8).
     pub(crate) fn emit_resource_union_cleanup_call(
@@ -235,6 +517,7 @@ impl CodeBuilder<'_> {
         // load at `union_ptr+0` would SIGSEGV on null (bug-246).
         self.emit(abi::compare_immediate(&union_ptr, "0"));
         self.emit(abi::branch_eq(&done));
+        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
 
         // plan-59-D Phase 3: the same identity skip as the plain-resource case.
         // A returned resource union escapes to the caller, so this scope must not
@@ -248,12 +531,38 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&done));
         }
 
-        self.emit_union_tag_dispatch_drop(
-            &union_ptr,
-            &cleanup.variants,
-            cleanup.state_type.as_ref(),
-            &done,
-        )?;
+        // bug-623: every dispatched drop converges on `dropped`, which frees the
+        // union's own `{tag@0, record-ptr@8}` box. The box is this binding's alone:
+        // a resource-union `UnionWrap` and the closed default both allocate a fresh
+        // 16-byte block for the bind, and every other holder of it (an aliasing
+        // bind, a record `RES` field, a floated owned-list node, a `RETURN`) either
+        // registers no cleanup or skips to `done` above. The variant RECORD is not
+        // freed here: `RES c AS Union = u` wraps a record the concrete binding `u`
+        // still owns and frees. The slot is zeroed so a re-reached drop skips on
+        // the null guard. The null and escaping-value skips branch past it.
+        let dropped = self.label("resource_union_drop_box");
+        // Resource-union alias class: an alias union (`closes_variant == false`) does not
+        // own the record, so it neither closes it nor frees its STATE — only its box.
+        if cleanup.closes_variant {
+            self.emit_union_tag_dispatch_drop(
+                &union_ptr,
+                &cleanup.variants,
+                cleanup.state_type.as_ref(),
+                &cleanup.record_free_tags,
+                &dropped,
+            )?;
+        }
+        self.emit(abi::label(&dropped));
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -275,6 +584,7 @@ impl CodeBuilder<'_> {
         union_ptr: &VirtualRegister,
         variants: &[(usize, String)],
         state_type: Option<&ParameterType>,
+        record_free_tags: &[usize],
         done_label: &str,
     ) -> Result<(), String> {
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
@@ -329,6 +639,40 @@ impl CodeBuilder<'_> {
             if let Some(state_type) = state_type {
                 self.emit_free_resource_state_block(payload_slot, state_type)?;
             }
+            if record_free_tags.contains(tag) {
+                // bug-623 B: the union owns this variant's record (`record_free_tags`
+                // is empty otherwise), so after the close and the STATE free the
+                // record itself goes back to the arena — the same last step the
+                // concrete drop takes. A moved record belongs to the receiver.
+                let skip = self.label("resource_union_record_free_skip");
+                let record = self.allocate_register();
+                self.emit(abi::load_u64(&record, abi::stack_pointer(), payload_slot));
+                let flags = self.allocate_register();
+                self.emit(abi::load_u64(&flags, &record, FILE_OFFSET_CLOSED));
+                let moved_mask = self.allocate_register();
+                self.emit(abi::move_immediate(
+                    &moved_mask,
+                    "Integer",
+                    &(1u64 << RESOURCE_MOVED_BIT).to_string(),
+                ));
+                self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
+                self.emit(abi::compare_immediate(&moved_mask, "0"));
+                self.emit(abi::branch_ne(&skip));
+                let record_arg = self.allocate_register();
+                self.emit(abi::load_u64(
+                    &record_arg,
+                    abi::stack_pointer(),
+                    payload_slot,
+                ));
+                self.emit(abi::move_register(abi::c_arg(0), &record_arg));
+                self.emit(abi::move_immediate(
+                    abi::c_arg(1),
+                    "Integer",
+                    RESOURCE_RECORD_SIZE,
+                ));
+                self.emit_arena_free_call();
+                self.emit(abi::label(&skip));
+            }
             self.emit(abi::branch(done_label));
             self.emit(abi::label(&next));
         }
@@ -347,8 +691,12 @@ impl CodeBuilder<'_> {
             else {
                 continue;
             };
+            let mut moved_to_thread = false;
             let consumed = if target == close {
-                index == 0
+                // bug-623: a kind whose record the drop frees keeps its cleanup
+                // across an explicit close — the drop's re-close is a no-op and the
+                // drop is the record's only free (`resource_record_freed_at_drop`).
+                index == 0 && !Self::resource_record_freed_at_drop(&local.type_)
             } else if matches!(
                 target,
                 "thread.start"
@@ -361,8 +709,9 @@ impl CodeBuilder<'_> {
                 // successful transfer. Deactivation runs only on the success
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
-                index == 1
-                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+                moved_to_thread = index == 1
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_);
+                moved_to_thread
             } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {
@@ -372,7 +721,20 @@ impl CodeBuilder<'_> {
                 // `RETURN`) hand off ownership.
                 false
             };
-            if consumed {
+            if consumed && moved_to_thread {
+                // The cleanup to retire is the OWNER's. A non-owning alias (bug-375:
+                // `RES f = …` over a live resource — which is exactly how an inline
+                // `TRAP` bind lands, `f` aliasing the desugar's `$trap_val`) has no
+                // cleanup of its own, so retiring by the alias's name found nothing and
+                // the owner's full drop later skipped the moved record: 96 B leaked per
+                // trapped-bind transfer.
+                let owner = self
+                    .live_resource_aliases
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                self.retire_moved_resource_cleanup(&owner);
+            } else if consumed {
                 self.deactivate_resource_cleanup(name);
             }
         }
@@ -382,6 +744,9 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &ResourceCleanup,
     ) -> Result<(), String> {
+        if cleanup.moved_record_only {
+            return self.emit_moved_resource_record_free(cleanup);
+        }
         let done = self.label("resource_cleanup_done");
         // Every path below that finishes the close converges here, where the
         // blocks the record points at are reclaimed (plan-52-B Phase 2). The
@@ -403,6 +768,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
             self.emit(abi::compare_immediate(&ptr, "0"));
             self.emit(abi::branch_eq(&done));
+            self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
 
             // plan-59-D: the identity skip. This resource's record pointer equals
             // the value escaping the scope, so it is being RETURNed — its close
@@ -458,6 +824,7 @@ impl CodeBuilder<'_> {
                 offset,
                 cleanup.state_type.as_ref(),
                 cleanup.has_io_buffers,
+                cleanup.frees_record,
             )?;
         }
         self.emit(abi::label(&done));
@@ -490,6 +857,7 @@ impl CodeBuilder<'_> {
         resource_slot: usize,
         state_type: Option<&ParameterType>,
         has_io_buffers: bool,
+        free_record: bool,
     ) -> Result<(), String> {
         // A moved record's blocks belong to the receiver now: `thread::transfer`
         // copied the STATE pointer into the receiver's record, so freeing it here
@@ -533,6 +901,26 @@ impl CodeBuilder<'_> {
         }
         if let Some(state_type) = state_type {
             self.emit_free_resource_state_block(resource_slot, state_type)?;
+        }
+        if free_record {
+            // bug-623: last, after the close and the blocks the record points at —
+            // the record itself (`resource_record_freed_at_drop`). A moved record
+            // took the skip above and is not freed here. The slot is zeroed so a
+            // drop re-reached on it reads 0 and skips.
+            let record = self.allocate_register();
+            self.emit(abi::load_u64(&record, abi::stack_pointer(), resource_slot));
+            self.emit(abi::move_register(abi::c_arg(0), &record));
+            self.emit(abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                RESOURCE_RECORD_SIZE,
+            ));
+            self.emit_arena_free_call();
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                abi::stack_pointer(),
+                resource_slot,
+            ));
         }
         self.emit(abi::label(&skip));
         Ok(())
@@ -641,85 +1029,6 @@ impl CodeBuilder<'_> {
         ));
     }
 
-    pub(crate) fn emit_thread_cleanup_call(
-        &mut self,
-        cleanup: &ThreadCleanup,
-    ) -> Result<(), String> {
-        // Skip the drop entirely when the slot is null: a `LET t AS Thread =
-        // thread::start(...)` whose initializer raised (an `inboundLimit` /
-        // `outboundLimit` below 1 raises `ErrInvalidArgument` before any thread
-        // exists), or a bind an error path jumped past on its way to the function
-        // `TRAP` handler, leaves the slot at its zero-init 0. `thread.drop` opens
-        // with an unconditional `load handle + THREAD_OFFSET_OUTBOUND_QUEUE` fed
-        // straight into `pthread_mutex_lock`, so a null read SIGSEGVs *after* the
-        // handler has already run and returned (bug-469). The same guard the
-        // resource path carries for the identical hazard (bug-246); the bind site
-        // zeroes the slot and lists it for prologue zero-init so it reads 0 rather
-        // than stack garbage.
-        if !cleanup.close && !cleanup.release {
-            return Ok(());
-        }
-        let slot = self
-            .locals
-            .get(&cleanup.name)
-            .map(|local| local.stack_offset);
-        let done = match slot {
-            Some(offset) => {
-                let done = self.label("thread_cleanup_done");
-                let handle = self.allocate_register();
-                self.emit(abi::load_u64(&handle, abi::stack_pointer(), offset));
-                self.emit(abi::compare_immediate(&handle, "0"));
-                self.emit(abi::branch_eq(&done));
-                Some(done)
-            }
-            None => None,
-        };
-        // bug-622: the drop's second argument says what this edge does to the handle —
-        // close it, give up this binding's owner count, or both (`THREAD_DROP_CLOSE` /
-        // `THREAD_DROP_RELEASE`).
-        let mode = (if cleanup.close {
-            crate::codegen::runtime::thread::THREAD_DROP_CLOSE
-        } else {
-            0
-        }) | (if cleanup.release {
-            crate::codegen::runtime::thread::THREAD_DROP_RELEASE
-        } else {
-            0
-        });
-        let args = [
-            NirValue::Local(cleanup.name.clone()),
-            NirValue::Const {
-                type_: ParameterType::Integer,
-                value: mode.to_string(),
-            },
-        ];
-        self.emit_raw_call(&cleanup.symbol, &args, "thread_drop_arg")?;
-        // bug-622: a release is this binding's last word on the handle, and the drop that
-        // takes the owner count to 0 frees the control block. Null the slot so the guard
-        // above makes any later drop of the same binding — an exit edge after the one
-        // that already ran — a no-op instead of a second release. A close-only trap-route
-        // drop leaves the slot alone: the handler still reads the handle.
-        if cleanup.release {
-            if let Some(offset) = slot {
-                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
-            }
-        }
-        if let Some(done) = done {
-            self.emit(abi::label(&done));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn emit_thread_cleanup_for_name(&mut self, name: &str) -> Result<(), String> {
-        let cleanup = ThreadCleanup {
-            name: name.to_string(),
-            symbol: Self::thread_drop_symbol(),
-            close: true,
-            release: true,
-        };
-        self.emit_thread_cleanup_call(&cleanup)
-    }
-
     /// The drop descriptor for an owned-list owner's payload type: a single
     /// close-op symbol for a concrete resource, or a tag-dispatch table +
     /// uniform STATE type for a resource union (bug-429).
@@ -748,12 +1057,18 @@ impl CodeBuilder<'_> {
             return Ok(OwnedListDrop::Union {
                 variants,
                 state_type: element.state(),
+                record_free_tags: self.resource_union_record_free_tags(element),
             });
         }
         let symbol = self.resource_cleanup_symbol(element).ok_or_else(|| {
             format!("owned-list element type '{element}' has no registered close op")
         })?;
-        Ok(OwnedListDrop::Concrete(symbol))
+        Ok(OwnedListDrop::Concrete {
+            close: symbol,
+            state_type: element.state(),
+            has_io_buffers: Self::resource_uses_io_buffers(element),
+            frees_record: Self::resource_record_freed_at_drop(element),
+        })
     }
 
     /// The resource payload of a **record** owned-list owner: the type of its

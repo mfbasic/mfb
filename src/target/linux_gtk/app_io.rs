@@ -214,7 +214,7 @@ fn emit_app_term_terminal_size(
     relocations.extend(asm.rel);
 }
 
-/// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack
+/// `term::setForeground`/`setBackground(color /*x0: color::Color record*/)`: pack
 /// `r|g<<8|b<<16` and store it to the arena term-state (so the console-backed
 /// getters return it) and to the app current-color field (with COLOR_SET, so the
 /// grid cells tag with it and explicit black stays distinct).
@@ -231,15 +231,26 @@ fn emit_app_term_set_color(
     // x86-64) and scratch is the neutral SCRATCH pool.
     let mut asm = Asm::new(symbol);
     emit_gtk_term_active_gate(&mut asm, "sc_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[1], abi::c_arg(1), 8)); // g<<8
+                                                        // The single argument is a `color::Color` RECORD POINTER (plan-122-F), channels
+                                                        // at 0/8/16 as the console's `emit_set_color` reads them; alpha is not read, a
+                                                        // cell has none. Staged first so no load overwrites the pointer it reads through.
+    asm.push(abi::move_register(abi::SCRATCH[3], abi::c_arg(0))); // record
+    asm.push(abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[3], 0)); // r
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[3], 8)); // g
+    asm.push(abi::load_u64(abi::SCRATCH[2], abi::SCRATCH[3], 16)); // b
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        8,
+    )); // g<<8
     asm.push(abi::shift_left_immediate(
         abi::SCRATCH[2],
-        abi::c_arg(2),
+        abi::SCRATCH[2],
         16,
     )); // b<<16
     asm.push(abi::or_registers(
         abi::SCRATCH[1],
-        abi::c_arg(0),
+        abi::SCRATCH[4],
         abi::SCRATCH[1],
     )); // r | g<<8
     asm.push(abi::or_registers(

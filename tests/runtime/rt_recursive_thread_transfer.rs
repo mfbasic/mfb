@@ -42,8 +42,18 @@ fn write_project(root: &Path, name: &str, kind: &str, deps: &[&str], entry: bool
         if !packages.is_empty() {
             packages.push(',');
         }
+        // bug-628: `name<requirer,…` also records the declared packages that
+        // import `name` in its `requiredBy`.
+        let (dep, required_by) = dep.split_once('<').unwrap_or((dep, ""));
+        let required_by: Vec<String> = required_by
+            .split(',')
+            .filter(|requirer| !requirer.is_empty())
+            .map(|requirer| format!("\"{requirer}\""))
+            .collect();
         packages.push_str(&format!(
-            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\"}}"
+            "{{\"name\":\"{dep}\",\"version\":\"=0.1.0\",\"source\":\"file:packages/{dep}.mfp\",\
+             \"direct\":true,\"requiredBy\":[{}]}}",
+            required_by.join(",")
         ));
     }
     let entry_field = if entry {
@@ -102,18 +112,20 @@ EXPORT FUNC render(root AS Node) AS String\n  MUT out AS String = \"\"\n  MUT st
 
 // A worker returning a recursive Node (bare) and one returning a record that
 // embeds a Node — the two shapes bug-391 covers.
+// bug-632/spec §13: `dom391`'s `Node` takes its prefix wherever either the
+// worker package or the app names it — including inside a thread-handle type.
 const WORKER_SRC: &str = "IMPORT dom391\n\
-EXPORT ISOLATED FUNC buildNode(w AS ThreadWorker OF String TO Node, seed AS String) AS Node\n  RETURN dom391::element(\"ul\", [dom391::element(\"li\", [dom391::textNode(seed & \"A\")]), dom391::element(\"li\", [dom391::textNode(seed & \"B\")])])\nEND FUNC\n\
-EXPORT TYPE Wrap\n  ok AS Boolean\n  root AS Node\n  label AS String\nEND TYPE\n\
+EXPORT ISOLATED FUNC buildNode(w AS ThreadWorker OF String TO dom391::Node, seed AS String) AS dom391::Node\n  RETURN dom391::element(\"ul\", [dom391::element(\"li\", [dom391::textNode(seed & \"A\")]), dom391::element(\"li\", [dom391::textNode(seed & \"B\")])])\nEND FUNC\n\
+EXPORT TYPE Wrap\n  ok AS Boolean\n  root AS dom391::Node\n  label AS String\nEND TYPE\n\
 EXPORT ISOLATED FUNC buildWrap(w AS ThreadWorker OF String TO Wrap, seed AS String) AS Wrap\n  RETURN Wrap[TRUE, dom391::element(\"p\", [dom391::textNode(seed & \"X\")]), \"L\" & seed]\nEND FUNC\n";
 
 const APP_SRC: &str = "IMPORT io\nIMPORT dom391\nIMPORT worker391\nIMPORT thread\n\
 FUNC main AS Integer\n\
-  LET t1 AS Thread OF String TO Node = thread::start(worker391::buildNode, \"seed\")\n\
-  LET n AS Node = thread::waitFor(t1)\n\
+  RES t1 AS Thread OF String TO dom391::Node = thread::start(worker391::buildNode, \"seed\")\n\
+  LET n AS dom391::Node = thread::waitFor(t1)\n\
   io::print(\"bare=\" & dom391::render(n))\n\
-  LET t2 AS Thread OF String TO Wrap = thread::start(worker391::buildWrap, \"seed\")\n\
-  LET wr AS Wrap = thread::waitFor(t2)\n\
+  RES t2 AS Thread OF String TO worker391::Wrap = thread::start(worker391::buildWrap, \"seed\")\n\
+  LET wr AS worker391::Wrap = thread::waitFor(t2)\n\
   io::print(\"wrap=\" & dom391::render(wr.root) & \"|\" & wr.label & \"|\" & toString(wr.ok))\n\
   RETURN 0\nEND FUNC\n";
 
@@ -139,7 +151,7 @@ fn recursive_node_survives_a_thread_transfer_bare_and_in_a_record() {
         &root,
         "app391",
         "executable",
-        &["dom391", "worker391"],
+        &["dom391<worker391", "worker391"],
         true,
         APP_SRC,
     );

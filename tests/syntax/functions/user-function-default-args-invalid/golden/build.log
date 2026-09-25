@@ -16,5 +16,5 @@ tests/syntax/functions/user-function-default-args-invalid/src/main.mfb:7 error[2
    8 |   LET tooMany = combine(1, 2, "!", 4)
      | ^
 tests/syntax/functions/user-function-default-args-invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `combine` has 3 argument(s), expected 1 to 3.
+               Call to `combine` has 4 argument(s), expected 1 to 3.
 [exit 1]

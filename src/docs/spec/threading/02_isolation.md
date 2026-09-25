@@ -43,21 +43,24 @@ hold a `List OF` the node type) is a graph of separate blocks, and is copied by
 the module's one non-recursive walker, which copies a block at a time and keeps the
 edges still to copy on a work stack in the arena, so a value of any depth copies
 without growing the native stack. [[src/codegen/memory/arena/graph_copy.rs:lower_graph_copy_walker]]
-Either way the sender keeps its own value and the receiver owns and reclaims the
-copy. The boundary copy is the builder's ordinary
-deep copy, made at the send site **in the sender's own arena** — the
-arena-state register is never repointed at another thread's state, because that
-thread may be allocating from it at the same instant and the allocator's free-list
-pop is unsynchronized (bug-498). The queue-write helper stores the copied pointer
-into the queue slot, and the receiver frees it, later, into *its* own arena: a free
-only touches the freeing thread's arena state, and no arena but the main one is
-ever torn down (that one only at process shutdown), so the block stays mapped and
-the hand-over is race-free. [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
+Either way the sender keeps its own value and the receiver owns and reclaims its
+copy. The copy goes through the thread's **block arena**, the arena the thread's
+control block owns and which belongs to neither side: a send deep-copies the
+value into the block arena under the block lock, once the enqueue is certain,
+and a read deep-copies the queued value out of it into the reader's own arena.
+The arena-state register is pointed at the block arena only for the length of
+that copy, under the lock that serializes every allocation in it, and never at
+another thread's arena — that thread may be allocating from its own at the same
+instant, and the allocator's free-list pop is unsynchronized. `thread::start`'s
+seed and the worker's result cross the same way. `./mfb spec threading
+control-block` owns the block arena, and `queue-semantics` the queue side.
+[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/control_block.rs:emit_call_in_block_arena]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
 
-The move-consumes rule for non-copyable sendable values (including sendable
-resource handles) — a successful `thread::start`/`thread::send` consumes the
-source binding, and later use is an after-move error — is owned by
-`./mfb spec language memory-semantics`.
+So `thread::start` and `thread::send` never consume their value: the caller keeps
+it. A resource crosses only on a resource plane, by `thread::transfer`, which
+moves it — the sender's binding is consumed on success and kept on failure. The
+move rule is owned by `./mfb spec language resource-management` and §16
+(`./mfb spec language threads`).
 
 ## See Also
 

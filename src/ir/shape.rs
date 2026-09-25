@@ -254,6 +254,179 @@ pub(crate) fn export_in_executable_diagnostics(
     diagnostics
 }
 
+/// A built-in nominal that is always in scope and declares no fields, so an
+/// importer's package-metadata walk (`validate_package_type`) accepts it without
+/// a type-table row.
+fn is_always_in_scope_nominal(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Named(sym)
+        if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
+}
+
+/// bug-624 B: in a package build, reject an `EXPORT` declaration that names a
+/// type this package declares without `EXPORT` (`EXPORT_NAMES_NON_EXPORTED_TYPE`).
+///
+/// The `.mfp` type table carries only exported types. So such a package used to
+/// build cleanly, and then every importer rejected it in
+/// `validate_package_type` (`PACKAGE_INVALID ... references unknown type`). An
+/// exported binding of that type types as `Unknown` in the importer instead. The
+/// rule reports at the exporting declaration, where the fix belongs.
+///
+/// It walks exactly what the importer reads off the `.mfp`, through every
+/// structural wrapper (`for_each_nominal`):
+///
+/// * an `EXPORT TYPE`'s fields at every field visibility, since the writer
+///   serializes `PRIVATE` fields too;
+/// * an `EXPORT UNION`'s variant fields, with its `includes` expanded as the
+///   writer's `concrete_union_variants` does. The variant record's own name is
+///   not checked. Neither the importer nor native codegen needs the record
+///   exported, because the union row carries each variant's fields inline;
+/// * every `EXPORT FUNC`/`SUB` parameter and return type;
+/// * every `EXPORT LET`/`MUT` binding type.
+///
+/// An exported type reached this way is checked as its own declaration, so the
+/// walk stops at the first type the importer could not resolve. A nominal this
+/// package does not declare is never flagged: an imported (re-exported) type, a
+/// resource, a builtin type (qualified, sigil or always-in-scope), or a
+/// template parameter. The input is the lowered source IR, so it carries the
+/// same `visibility == "export"` flags and concrete (monomorphized) types the
+/// writer encodes.
+pub(crate) fn export_names_non_exported_type_diagnostics(
+    is_package: bool,
+    ir: &crate::ir::IrProject,
+    project_dir: &Path,
+) -> Vec<PendingDiagnostic> {
+    const EXPORT: &str = "export";
+    if !is_package {
+        return Vec::new();
+    }
+    let declared: HashMap<&str, &crate::ir::IrType> =
+        ir.types.iter().map(|ty| (ty.name.as_str(), ty)).collect();
+    let hidden_in = |type_: &ParameterType| -> Vec<String> {
+        let mut hidden: Vec<String> = Vec::new();
+        let mut walked = type_.clone();
+        super::package::for_each_nominal(&mut walked, &mut |name| {
+            let spelled = name.resolve();
+            if is_always_in_scope_nominal(&ParameterType::Named(*name))
+                || super::package::is_builtin_type_name(spelled)
+                || declared
+                    .get(spelled)
+                    .is_none_or(|ty| ty.visibility == EXPORT)
+                || hidden.iter().any(|seen| seen == spelled)
+            {
+                return;
+            }
+            hidden.push(spelled.to_string());
+        });
+        hidden
+    };
+    let mut diagnostics = Vec::new();
+    let mut check =
+        |file: &str, line: u32, declaration: &str, position: &str, type_: &ParameterType| {
+            for hidden in hidden_in(type_) {
+                let hidden = crate::internal_name::display_name(&hidden);
+                diagnostics.push(PendingDiagnostic {
+                    rule: "EXPORT_NAMES_NON_EXPORTED_TYPE".to_string(),
+                    detail: format!(
+                        "{declaration} names `{hidden}` in its {position}, but `{hidden}` is not \
+                     exported, so no importer of this package can resolve it. EXPORT \
+                     `{hidden}`, or keep it out of the exported declaration."
+                    ),
+                    path: if file.is_empty() {
+                        project_dir.join("<generated>")
+                    } else {
+                        project_dir.join(file)
+                    },
+                    line: line as usize,
+                });
+            }
+        };
+
+    for ty in &ir.types {
+        if ty.visibility != EXPORT || super::package::is_builtin_type_name(&ty.name) {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            ty.kind.to_uppercase(),
+            crate::internal_name::display_name(&ty.name)
+        );
+        for field in &ty.fields {
+            let position = format!("field `{}`", field.name);
+            check(&ty.file, ty.loc.line, &declaration, &position, &field.type_);
+        }
+        // A union's variants, its `includes` expanded depth-first before its own
+        // variants, exactly as the writer serializes the union row.
+        let mut unions = vec![ty];
+        let mut expanded: HashSet<&str> = HashSet::new();
+        while let Some(union) = unions.pop() {
+            if !expanded.insert(union.name.as_str()) {
+                continue;
+            }
+            unions.extend(
+                union
+                    .includes
+                    .iter()
+                    .filter_map(|include| declared.get(include.as_str()).copied()),
+            );
+            for variant in &union.variants {
+                for field in &variant.fields {
+                    let position = format!(
+                        "variant `{}` field `{}`",
+                        crate::internal_name::display_name(&variant.name),
+                        field.name
+                    );
+                    check(&ty.file, ty.loc.line, &declaration, &position, &field.type_);
+                }
+            }
+        }
+    }
+    for function in &ir.functions {
+        if function.visibility != EXPORT || super::package::is_builtin_type_name(&function.name) {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            function.kind.to_uppercase(),
+            crate::internal_name::display_name(&function.name)
+        );
+        for param in &function.params {
+            let position = format!("parameter `{}`", param.name);
+            check(
+                &function.file,
+                function.loc.line,
+                &declaration,
+                &position,
+                &param.type_,
+            );
+        }
+        check(
+            &function.file,
+            function.loc.line,
+            &declaration,
+            "return type",
+            &function.returns,
+        );
+    }
+    for binding in &ir.bindings {
+        if binding.visibility != EXPORT {
+            continue;
+        }
+        let declaration = format!(
+            "EXPORT {} `{}`",
+            if binding.mutable { "MUT" } else { "LET" },
+            crate::internal_name::display_name(&binding.name)
+        );
+        check(
+            &binding.file,
+            binding.loc.line,
+            &declaration,
+            "type",
+            &binding.type_,
+        );
+    }
+    diagnostics
+}
+
 /// One declared or imported type as the compatibility rule needs it: its
 /// identity (so two distinct declarations sharing a bare name never unify)
 /// and, for a union, its variant names.
@@ -321,6 +494,7 @@ fn resolve_table_call_with_byte_literals(
     callee: &str,
     arg_types: &[ParameterType],
     arguments: &[&HirExpression],
+    kinds: &dyn builtins::TypeKinds,
 ) -> Option<ParameterType> {
     // plan-111-B: typed throughout. `resolve_call_return_type_typed` (plan-104-C)
     // is the exact twin — it routes the three bespoke per-package resolvers
@@ -328,7 +502,9 @@ fn resolve_table_call_with_byte_literals(
     // registry path with no strings at all. That the twin exists is what let
     // this conversion happen here rather than moving to letter C, which
     // plan-111-B §2 left open pending exactly that check.
-    if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, arg_types, true) {
+    if let Some(return_type) =
+        builtins::resolve_call_return_type_with_kinds(callee, arg_types, true, kinds)
+    {
         return Some(return_type);
     }
     let eligible: Vec<usize> = arg_types
@@ -352,11 +528,31 @@ fn resolve_table_call_with_byte_literals(
                 trial[index] = ParameterType::Byte;
             }
         }
-        if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, &trial, true) {
+        if let Some(return_type) =
+            builtins::resolve_call_return_type_with_kinds(callee, &trial, true, kinds)
+        {
             return Some(return_type);
         }
     }
     None
+}
+
+/// plan-140-A: the built-in resolver's [`builtins::TypeKinds`] oracle over the
+/// walker's declared and imported types. A qualified built-in spelling falls back
+/// to its bare leaf, as the compatibility rule's lookup does.
+struct ShapeKinds<'a>(&'a HashMap<ParameterType, TypeShape>);
+
+impl builtins::TypeKinds for ShapeKinds<'_> {
+    fn is_enum(&self, t: &ParameterType) -> bool {
+        let name = t.name();
+        self.0
+            .get(t)
+            .or_else(|| {
+                let bare = builtins::builtin_qualified_bare_leaf(&name);
+                self.0.get(&ParameterType::named(bare))
+            })
+            .is_some_and(|shape| shape.is_enum)
+    }
 }
 
 /// How a block ends, as the source checker judged it.
@@ -497,9 +693,8 @@ impl<'a> Walker<'a> {
         imported_resource_types: &[String],
     ) -> Self {
         // plan-111-B: a resource type is a nominal, so the set holds types.
-        let resource_types: HashSet<ParameterType> = super::lower_link::native_resources(hir)
-            .iter()
-            .map(|resource| ParameterType::declared(&resource.name))
+        let resource_types: HashSet<ParameterType> = super::lower_link::native_resource_types(hir)
+            .into_iter()
             .chain(
                 imported_resource_types
                     .iter()
@@ -768,6 +963,13 @@ impl<'a> Walker<'a> {
                 else {
                     continue;
                 };
+                // bug-632: this pass's tables key an imported type by its
+                // package-qualified identity (`manifest::package::imported_type_def`),
+                // so the package's own bare `.mfp` spellings are qualified the same
+                // way before they are looked up.
+                let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
+                    .unwrap_or_default();
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
                         for export in &type_exports {
@@ -782,7 +984,10 @@ impl<'a> Walker<'a> {
                             };
                             self.validate_package_type(
                                 &package_file,
-                                &ParameterType::declared(&export.name),
+                                &crate::manifest::package::qualify_package_type(
+                                    &ParameterType::declared(&export.name),
+                                    &owners,
+                                ),
                                 &context,
                                 import.line,
                                 &mut HashSet::new(),
@@ -828,6 +1033,13 @@ impl<'a> Walker<'a> {
                 else {
                     continue;
                 };
+                // bug-632: qualified exactly as the type-export walk above.
+                let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
+                    .unwrap_or_default();
+                let qualify = |type_: &ParameterType| {
+                    crate::manifest::package::qualify_package_type(type_, &owners)
+                };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {
                         for export in &exports {
@@ -845,7 +1057,7 @@ impl<'a> Walker<'a> {
                             for param in &export.params {
                                 self.validate_package_type(
                                     &package_file,
-                                    &param.type_,
+                                    &qualify(&param.type_),
                                     &format!(
                                         "exported function `{}` parameter `{}`",
                                         export.name, param.name
@@ -856,7 +1068,7 @@ impl<'a> Walker<'a> {
                             }
                             self.validate_package_type(
                                 &package_file,
-                                &export.return_type,
+                                &qualify(&export.return_type),
                                 &format!("exported function `{}` return type", export.name),
                                 import.line,
                                 &mut seen,
@@ -929,10 +1141,7 @@ impl<'a> Walker<'a> {
             }
             ParameterType::Named(_) => {
                 let name = type_.clone();
-                // A built-in nominal is always in scope and declares no fields.
-                if matches!(&name, ParameterType::Named(sym)
-                    if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
-                {
+                if is_always_in_scope_nominal(&name) {
                     return;
                 }
                 if self.is_resource_type(type_) || !seen.insert(name.clone()) {
@@ -2341,7 +2550,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(canonical)
@@ -2383,8 +2599,13 @@ impl<'a> Walker<'a> {
                             return;
                         };
                         let trial = vec![collection, predicate_type];
-                        if builtins::resolve_call_return_type_typed(canonical, &trial, true)
-                            .is_none()
+                        if builtins::resolve_call_return_type_with_kinds(
+                            canonical,
+                            &trial,
+                            true,
+                            &ShapeKinds(&self.types),
+                        )
+                        .is_none()
                         {
                             let names: Vec<String> =
                                 trial.iter().map(|t| t.name().into_owned()).collect();
@@ -2398,7 +2619,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }
@@ -2461,7 +2689,14 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
+            if builtins::resolve_call_return_type_with_kinds(
+                canonical,
+                &arg_types,
+                true,
+                &ShapeKinds(&self.types),
+            )
+            .is_none()
+            {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }
@@ -2473,7 +2708,14 @@ impl<'a> Walker<'a> {
         if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
             return;
         }
-        if resolve_table_call_with_byte_literals(canonical, &arg_types, normalized).is_none() {
+        if resolve_table_call_with_byte_literals(
+            canonical,
+            &arg_types,
+            normalized,
+            &ShapeKinds(&self.types),
+        )
+        .is_none()
+        {
             let detail = mismatch(&names, expected_overloads());
             self.emit_call_typed_unknown(detail, line);
         }
@@ -2799,8 +3041,15 @@ impl<'a> Walker<'a> {
                 if expected_name == actual_name {
                     return true;
                 }
-                let expected_bare = expected_name.rsplit('.').next().unwrap_or(&expected_name);
-                let actual_bare = actual_name.rsplit('.').next().unwrap_or(&actual_name);
+                // bug-632: a BUILT-IN qualifier only, as in
+                // `ir::verify::compat::compatible` — a user package's type is
+                // package-qualified end to end, and equating `ov.A` with a local
+                // `A` by the last segment is the confusion that qualification
+                // prevents.
+                let expected_bare =
+                    crate::codegen::builtins::builtin_qualified_bare_leaf(&expected_name);
+                let actual_bare =
+                    crate::codegen::builtins::builtin_qualified_bare_leaf(&actual_name);
                 let expected_info = self
                     .types
                     .get(&expected)
@@ -3214,7 +3463,11 @@ impl<'a> Walker<'a> {
                                 next_positional += 1;
                             }
                             if next_positional >= ordered.len() {
+                                // An excess positional argument has no slot but is
+                                // still one the call supplied: `f(1, 2)` against
+                                // `f(x)` "has 2 argument(s)", not 1 (bug-653).
                                 arity_error = true;
+                                supplied += 1;
                                 continue;
                             }
                             ordered[next_positional] = Some(value);
@@ -4072,7 +4325,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
-                "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
+                "IMPORT thread\nFUNC main AS Integer\n  RES t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
             ),
             &[],
             &[],
@@ -4107,7 +4360,7 @@ mod tests {
                  RETURN seed\n\
                  END FUNC\n\
                  FUNC main AS Integer\n  \
-                 LET t = thread::start(w, 1)\n  \
+                 RES t = thread::start(w, 1)\n  \
                  RETURN 0\n\
                  END FUNC\n",
             ),
@@ -4136,7 +4389,7 @@ mod tests {
                  RETURN seed\n\
                  END FUNC\n\
                  FUNC main AS Integer\n  \
-                 LET t = thread::start(w, 1)\n  \
+                 RES t = thread::start(w, 1)\n  \
                  RETURN 0\n\
                  END FUNC\n",
             ),
@@ -4803,6 +5056,22 @@ mod tests {
                 "Call to `g` has 0 argument(s), expected 1 to 1.",
             ]
         );
+    }
+
+    #[test]
+    fn excess_positional_arguments_are_counted_in_the_arity_detail() {
+        // bug-653: the excess argument has no parameter slot, but the call still
+        // supplied it.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(1, 2)\nEND FUNC\n",
+            ),
+            &[], &[], &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(details, ["Call to `g` has 2 argument(s), expected 1 to 1."]);
     }
     // --- bug-466: field access on a record whose owning package is not imported ---
     //

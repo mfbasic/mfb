@@ -24,6 +24,45 @@
     ]
   },
   {
+    "kind": "type",
+    "visibility": "export",
+    "name": "term.MouseEvent",
+    "fields": [
+    { "visibility": null, "name": "kind", "type": "term.MouseKind" },
+    { "visibility": null, "name": "button", "type": "term.MouseButton" },
+    { "visibility": null, "name": "row", "type": "Integer" },
+    { "visibility": null, "name": "column", "type": "Integer" },
+    { "visibility": null, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "name": "alt", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "term.MouseKind",
+    "members": [
+    { "name": "None" },
+    { "name": "Down" },
+    { "name": "Up" },
+    { "name": "Move" },
+    { "name": "Drag" },
+    { "name": "ScrollUp" },
+    { "name": "ScrollDown" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "term.MouseButton",
+    "members": [
+    { "name": "None" },
+    { "name": "Left" },
+    { "name": "Middle" },
+    { "name": "Right" }
+    ]
+  },
+  {
     "kind": "enum",
     "visibility": "export",
     "name": "term.LineStyle",

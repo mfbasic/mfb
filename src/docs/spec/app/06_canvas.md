@@ -8,8 +8,10 @@ is, what installing one guarantees, and how images live; the per-call API is
 ## Retained, not immediate
 
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
-installs it with `canvas::present`, and the runtime keeps rendering that scene —
-on vsync, on resize, on damage — until the next `present` replaces it.
+installs it with `canvas::present`, and the runtime redraws that scene when a
+present changes it, on resize, and on OS damage — until the next `present`
+replaces it. Time is not a trigger and no backend waits for the display: a frame
+is drawn when one is owed, never on a display-refresh tick.
 [[src/codegen/builtins/canvas/mod.rs:CANVAS]]
 
 This is a deliberate divergence from `term::`, which is ambient mutation plus a
@@ -107,6 +109,71 @@ The software rasteriser fixes them; the GPU backends match them within a
 documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
+**Which renderer draws is chosen once, at the first present.** A program in a
+real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
+meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
+`MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
+`0` forces software, any other value forces the GPU. The software rasteriser is
+the exact-match oracle, and every test that renders runs headless, so the goldens
+keep measuring it. A GPU frame is used only when a pipeline exists and the scene
+is one the backend draws correctly; otherwise that frame falls back to software.
+A machine with no Vulkan loader or driver builds no pipeline and draws in software.
+[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
+
+**What a GPU backend declines is a frame too large for its buffers, never an ordinary
+shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
+each backend's predicate declines a frame that would overflow one of them. Metal and
+Vulkan have the same caps: more than 65,536
+item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
+the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
+picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
+count against the edge cap, one edge each. There is no per-polygon
+edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
+so a pixel tests only the edges that can reach it, and the result is identical to
+testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
+predicates. So are the region bases the shaders read: Metal formats them into its
+shader source when it compiles it, and Vulkan's checked-in SPIR-V declares them as
+specialization constants that the pipeline sets from the same constants.
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
+[[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
+[[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+
+**A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
+segments upload through the polygon edge path and are banded the same way. The band
+reach is measured from the larger of the stroke half-width and the radius slot: a
+polyline is stroke-as-fill, so its half-width is in the radius slot. Its per-point colours
+are its gradient stops, uploaded by the gradient path unchanged. The shader walks the
+segments as the oracle does and looks the colour up at the path parameter instead of an
+axis parameter. The first and last live segments travel in the block's gradient-axis
+words as whole numbers rather than 16.16, because 16.16 holds an index only up to 32,767.
+[[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
+[[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
+
+**In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
+frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
+nothing is read back to the CPU. The frame is read back into a CPU surface and blitted
+instead when something needs its pixels: a headless run (there is no window layer),
+damage mode (`MFB_CANVAS_DAMAGE`, which keeps the previous frame), a `--debug` build
+writing `MFB_CANVAS_DUMP`, or a frame with no drawable available. Software frames
+always take the CPU surface, and the Metal layer is hidden while they show. The
+offscreen target is created with `allowGPUOptimizedContents` off, so it is stored
+linearly and the readback is a copy: a GPU-compressed target is decompressed on the
+CPU inside `getBytes:`, which cost more than a millisecond per 900×640 frame.
+A Vulkan frame has no direct path: it is always read back and blitted through the same
+CPU surface, in a window as well as headless.
+[[src/codegen/builtins/canvas/func_metal_present.rs:lower_metal_present_scene]]
+[[src/target/macos_aarch64/app/metal.rs:MTL_GPU_OPTIMIZED_CONTENTS]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
+
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
 transfer function is the standard one — `c / 12.92` below `0.04045`, else
@@ -164,10 +231,9 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
-**`Line.cap` and `Arc.cap` shape the two ends of a stroke.** They are the only two
-`DrawItem` variants with ends — both are drawn entirely from `Paint.stroke` and have no
-interior — so the field is on those records rather than on `Paint`, and a shape with no
-ends cannot carry one.
+**`Line.cap`, `Arc.cap` and `PolyLine.cap` shape the two ends of a stroke.** They are the
+only three `DrawItem` variants with ends, and none has an interior, so the field is on
+those records rather than on `Paint`, and a shape with no ends cannot carry one.
 
 `CapStyle.Butt` cuts the stroke square at the endpoint. `CapStyle.Round` extends it by a
 half-disc of `Paint.strokeWidth / 2` centred there. Both are defined on the same signed
@@ -188,7 +254,42 @@ construction requires every field, so no item can have a defaulted `cap`, and th
 only a tag number.
 
 `Polygon` has no cap and no **join** style; its corners are whatever the crossing-count
-fill rule produces. A join is a separate concept and no variant exposes one.
+fill rule produces. `PolyLine`'s joins are always round, and no variant exposes a join
+style.
+
+**A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
+strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
+segments' distances. A minimum of round-capped bands is what makes every interior corner
+round, so the round join needs no code of its own. Each segment is measured with
+`Line`'s own arithmetic, so a two-point `PolyLine` draws exactly the pixels of the `Line`
+between the same points with the same cap.
+[[src/codegen/builtins/canvas/helper_draw.rs:POLYLINE_SCAN]]
+
+* **Ends.** The butt planes cut only the **first and last segments with length**, each
+  on its outer end, with the same `max(d − half, −t·|v|, (t−1)·|v|)` a butt `Line` uses.
+  A zero-length segment adds nothing, because its point is already inside its
+  neighbours' round ends. So a repeated end point cannot turn a butt end round.
+  The header records which segments those are, once, by the same `dx·dx + dy·dy > 0`
+  test the walk uses.
+* **Degenerate paths.** Fewer than two points draw nothing. A path whose points all
+  coincide draws what a zero-length `Line` with its cap draws: a dot of `half` for
+  `Round`, nothing for `Butt`.
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHeader]]
+* **Colour.** An empty `colors` strokes the whole path in `Paint.stroke`. Otherwise
+  point `k` has colour `colors[k]`, or `Paint.stroke` past the end of the list. The
+  colours are stored as the record's gradient stops, one per point at offset
+  `k / (n − 1)`, after its segments. A pixel whose nearest segment is `i`, at clamped
+  parameter `t` along it, is drawn in the gradient colour at `(i + t) / (n − 1)`. That
+  mixes the colours of the segment's two points exactly as `Paint.fillGradient` mixes
+  two stops, in linear light with straight alpha. The segment that picks the colour is the
+  one that sets the distance, because a single walk answers both. The parameter is
+  continuous at a corner, so a tie between two segments picks the same colour either
+  way. With colours, the path draws whatever the alpha of `Paint.stroke`; only a
+  non-positive `strokeWidth` stops it.
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineTail]]
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHalf]]
+* **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
+  is negative. So `Paint.fill` and `Paint.fillGradient` never reach a polyline.
 
 **`Paint.transform` maps the item's coordinates onto the surface.** The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
@@ -222,6 +323,38 @@ A `Text` item is not a distance field — it is a run of coverage bitmaps — so
 specified separately: each pixel of the run's transformed bounds samples the glyph
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
 and a rotated label is a rotated label on every backend.
+
+**A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
+antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, `Paint.transform` and a
+group's translation are exactly those of a `Rectangle` with the same `x, y, w, h` —
+the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
+the image is sampled at the shape-space point (the inverse-mapped point under a
+transform, the group-relative one inside a group), **nearest**, as texel
+`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image. It
+is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
+backend picks the same texel; a bilinear filter would change edge bytes between
+renderers unless all three shared identical fixed-point weights.
+
+The texel is then **tinted** by `Paint.fill`, each channel multiplied as
+`(texel * fill) / 255`, alpha included. The white fill every example uses therefore
+draws the image unchanged, and the fill's alpha is the picture's opacity; the zero
+`Paint` draws nothing, as it does for every other variant. `Paint.fillGradient` is
+ignored — the image, not a ramp, fills a picture. An item whose image has been closed
+draws nothing (see *Images are named, not embedded*).
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+
+On the GPU a picture's texels travel in the same per-frame buffer region as glyph
+coverage, one packed word per texel, and each item's block names its slice — so a
+frame's pictures and glyphs together are bounded by that region, and a frame that
+would overflow it is drawn in software instead. There is no texture object and nothing
+to free: the pixels are copied from the image's own storage while the frame is built.
+Both GPU backends copy each distinct image **once per frame**, however many `Picture`
+items name it — a tilemap of thousands of tiles drawn from a few images costs those few
+images — and their predicates count each distinct image once against the region's 8M
+texels.
+[[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
 in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
@@ -291,6 +424,77 @@ across its width; mixing the encoded bytes directly would make it dark for most 
 length, which is the same error as blending encoded bytes and is just as plausible-
 looking.
 
+**Frame statistics are two event logs, read in one critical section.**
+`canvas::getFrameStats` reports two different counts, and they are written by
+different threads:
+
+- **Presents.** Every `present` and `presentLayers` call is logged by the worker,
+  including an identical re-present that publishes nothing.
+- **Drawn frames.** A frame a backend actually drew is logged by the graphics
+  thread when the frame completes. A wake-up whose damage is empty is not logged.
+  Nor is anything logged for a resize or an expose that redraws nothing.
+
+Each log is a running total, plus a ring of the last 64 monotonic timestamps with
+its head. All of it lives in the process-global graphics state, since the worker
+cannot see the graphics thread's globals. It is written and read only under the
+graphics mutex, which the frame-completion path already takes, so the drawn log adds
+no lock. `canvas::frameCounters` copies both logs, the last frame's render time and
+renderer, and the display rate in one critical section. Before the graphics thread
+starts it copies without the lock: at that point nothing has written a word.
+[[src/codegen/runtime/canvas/mod.rs:emit_note_present]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_done]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_counters]]
+
+A rate is over the trailing second, counted from one log's ring:
+
+- **The ring has not saturated.** If fewer than 64 held entries are newer than
+  `now - 1 s`, the rate is exactly that count.
+- **The ring has saturated.** If all 64 are newer, the ring spans less than a
+  second, and the rate is `63 / (newest - oldest)`. A loop that presents thousands
+  of times a second is then measured, not reported as 64.
+
+Either way the rate is 0 one second after the last event. `dt` is the gap between
+the two newest present timestamps, and 0 before the second present. `renderer` is
+the backend that returned the drawn frame: `Software` (0), `Metal` (1, including a
+frame presented straight to the window's layer) or `Vulkan` (2). It reads
+`Software` before the first frame.
+[[src/codegen/builtins/canvas/func_get_frame_stats.rs:body]]
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_LOOP]]
+
+Both wrappers call `__canvas_ensureGraphics` and then log the present
+**unconditionally**, ahead of their publish test. So the first present of any scene
+starts the graphics thread, even one identical to the empty initial scene.
+[[src/codegen/builtins/canvas/func_present.rs:BODY]]
+
+**`present` never waits; `waitFrame` is the pacing call.** `canvas::waitFrame` returns
+once both of these hold:
+
+1. **Nothing is owed.** The render loop has picked up every redraw asked for so far —
+   the redraw flag is clear.
+2. **The floor has passed.** At least one display interval (`1 / displayHz`, or 1/60 s
+   when the rate is unknown) has elapsed since `waitFrame` last returned.
+
+It also returns at once when the graphics thread is stopping. The floor holds on every
+backend, because none of them waits for the display: without it, an unchanged scene
+(nothing is ever owed) or a cheap one would spin.
+
+It waits for the redraw to be *picked up*, not *drawn*. Waiting until the frame has
+finished would serialize the threads: the worker would idle while the frame renders,
+and the renderer would idle while the worker builds the next scene. Pickup leaves one
+frame in flight.
+
+`waitFrame` waits on a condition variable of its own, broadcast when a redraw is taken
+and on stop. The render loop's condition is woken by `pthread_cond_signal`, which wakes
+one waiter, so sharing it could hand a render-loop wake-up to the worker.
+
+The floor's deadline is kept in the clock the condition variable's timed wait uses,
+`CLOCK_REALTIME`. It is never later than `now + interval`, so a wall-clock step costs
+at most one interval. The next interval is measured from the deadline when the return
+is less than one interval late, so wake-up latency does not accumulate; otherwise it is
+measured from the return, so a loop that fell behind gets no burst of catch-up returns.
+[[src/codegen/runtime/canvas/mod.rs:emit_await_pickup]]
+[[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]
+
 ## Named groups
 
 `canvas::setGroup(name, items)` installs a list of items under a name;
@@ -353,11 +557,13 @@ draws nothing; the frame around it renders normally and nothing is raised. That 
 what makes the two lifetimes independent without the scene having an opinion about
 either.
 
-Destroying an image a presented scene still draws is therefore safe. The runtime
-defers freeing the backing object until the GPU has finished with the last frame
-that used it, and that deferral is entirely runtime-side and invisible from
-MFBASIC: there is no reference count, no generation table, and nothing for a
-program to synchronise.
+Destroying an image a presented scene still draws is therefore safe. Closing an
+image sets its closed flag and frees nothing, and there is no GPU-side copy to
+release: every backend reads a frame's texels from the image's own storage while
+that frame is built, so a frame already in flight finishes with the pixels it
+started with and the next one sees the image closed. That is entirely runtime-side
+and invisible from MFBASIC: there is no reference count, no generation table, and
+nothing for a program to synchronise.
 
 ### A named group is the exception
 
@@ -408,6 +614,14 @@ the same places, and only the content of one of their images is different.
 This is why a video frame, a plot, or a progress bar can update without rebuilding
 the scene at all.
 
+**`setBytes` asks for that frame itself** when something live names the image — the
+installed scene, its layers, or any installed group — and, like `present`, waits for it
+when `MFB_CANVAS_SYNC` is set. Nothing else would: re-presenting the unchanged scene is
+refused by the frame skip. An image nothing draws is refilled without a frame. The
+image's storage is replaced rather than overwritten, so a frame already drawing keeps
+the pixels it started with.
+[[src/codegen/builtins/canvas/func_set_bytes.rs:BODY]]
+
 The runtime keeps its own copy of every image's pixels as the source of truth the
 backend is uploaded from, so `canvas::getBytes` answers without a GPU readback —
 a memory copy rather than a pipeline stall — and a lost device is recovered by
@@ -415,6 +629,86 @@ re-uploading rather than by asking the program to redraw.
 
 An RGBA8 image is exactly `width * height * 4` bytes; any other length is
 `ErrBadPixelCount`. An image cannot be resized, only re-filled.
+
+## A loaded font is always one standalone face
+
+`canvas::loadFont` accepts a TrueType Collection (`ttcf`, a `.ttc` file) as well as
+a plain sfnt. A collection is a header, a face count, and one table-directory offset
+per face; each face's table offsets count from the start of the *file*. The loader
+does not teach the renderer about collections. It copies the chosen face out into a
+standalone sfnt — the face's own header, one record per table with its offset
+rebased, the tables padded to four bytes — and stamps the resource around that.
+[[src/codegen/builtins/canvas/func_load_font.rs:COLLECTION]]
+
+So everything past the load reads the table directory at byte `0`
+(`__canvas_fontTable`), and neither the `Font` record, the graphics thread's font
+table, nor any glyph helper knows collections exist. A plain `.ttf` is its own single
+face at directory `0` and is handed on byte-for-byte, so its pixels are unchanged. The
+TrueType-outline and `unitsPerEm` checks run on the extracted face, so a collection of
+CFF faces is refused exactly as an `OTTO` file is.
+
+`loadFont(path)` takes face 0. `loadFont(path, face)` walks every face for one whose
+`name` table nameID 6 (PostScript name) equals `face`, then again for nameID 4 (full
+name); no match is `ErrNotFound`, since the file itself is a good font.
+[[src/codegen/builtins/canvas/func_load_font.rs:LOAD_FONT_NAMED]] Names are read
+preferring the Windows Unicode record in US English, then any Windows Unicode record,
+then Mac Roman; a malformed string reads as `""` rather than failing, so one bad
+record cannot stop a search that another face would satisfy.
+[[src/codegen/builtins/canvas/helper_font_name.rs:FACE_NAME]]
+
+A collection claiming more than 4096 faces is treated as holding none, and a face
+whose directory or tables run past the end of the file is dropped or refused with
+`ErrBadFontFile` — the bug-509 rule that a hostile header costs a comparison, not a
+loop or an out-of-bounds read.
+
+## System fonts are an OS query, then an ordinary load
+
+`canvas::listSystemFonts` and `canvas::loadSystemFont` rest on one native member,
+the internal `canvas::systemFontTable`, which asks the operating system for its
+installed faces and answers a single `String`: per face, the full name, the
+PostScript name and the file path, each ended by U+001F, the record ended by U+001E.
+Everything after that is MFBASIC: the table is split on its UTF-8 bytes (neither
+separator can occur inside a multi-byte sequence), names are sorted and de-duplicated,
+and `loadSystemFont` hands the chosen path and PostScript name to
+`canvas::loadFont(path, face)` — the same load a program can make itself.
+[[src/codegen/builtins/canvas/func_system_fonts.rs:lower_system_font_table]]
+[[src/codegen/builtins/canvas/func_system_fonts.rs:SYSTEM_FONT_FIELDS]]
+
+The table is read once per thread, on first use, and kept: the OS query measured
+0.58 s per call on macOS against 0.08 s for the load itself. A font installed while a
+program runs is seen by the next run.
+
+Each backend lists only faces the loader can draw — TrueType (`glyf`) outlines, not
+a variable font — and only faces with a full name and a file:
+
+- **macOS** — CoreText. `CTFontManagerCopyAvailableFontURLs` answers one URL per
+  face (a collection's URL repeats) and no face index, which is why every backend
+  reports the PostScript name and the loader finds the face by its `name` table.
+  Filters: `CTFontCopyTable(glyf)`, no `CTFontCopyVariation` (CoreText lists a variable
+  font's named instances under PostScript names no face carries), and no full name
+  starting with `.` — macOS's private UI faces, visible to an app process.
+  [[src/codegen/builtins/canvas/gen_system_fonts_macos.rs:emit_system_font_table]]
+- **Linux** — fontconfig, reached through `dlopen("libfontconfig.so.1")`, never a
+  `DT_NEEDED`: without it the table is empty and the program still runs.
+  `FcFontList(NULL, …)` uses the current configuration. Filters: `fontformat` is
+  `TrueType`, `variable` is not true, `index >> 16` is 0 (not a named instance).
+  [[src/codegen/builtins/canvas/gen_system_fonts_linux.rs:emit_system_font_table]]
+- **Windows** — DirectWrite's system font collection through COM; only
+  `DWriteCreateFactory` is imported. Filters: no simulations (DirectWrite synthesises
+  bold/oblique faces no file carries), `TryGetFontTable(glyf)`, no
+  `IDWriteFontFace5::HasVariations`, a local file. Names are taken in `en-us` when
+  present, else the first string.
+  [[src/codegen/builtins/canvas/gen_system_fonts_windows.rs:emit_system_font_table]]
+
+Text drawn in a system font is not reproducible across machines. Text goldens load a
+fixture font with `canvas::loadFont`, never a system font.
+
+A package companion — canvas's included — may call only `collections`' native
+members: the `collections` source is injected from the *program's* imports, so a
+companion calling a source generic such as `collections::sort` links only when the
+program also imports `collections`. canvas sorts the font names with its own
+`__canvas_sortedUnique`, and a registry test fails any companion that breaks the rule.
+[[src/codegen/builtins/canvas/func_system_fonts.rs:SORTED_UNIQUE]]
 
 ## Mode gating
 

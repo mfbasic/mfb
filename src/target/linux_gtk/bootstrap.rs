@@ -273,6 +273,8 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
 
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
+    uses_mouse: bool,
+    uses_window: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
@@ -383,6 +385,14 @@ pub(super) fn emit_activate_handler(
         asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
         asm.call_external("gtk_widget_add_controller");
 
+        // plan-94-D: the three mouse controllers, on the WINDOW for the same
+        // reason the key controller is — the window outlives the child swap
+        // between the transcript, the term area and the canvas area, so one set
+        // serves all three with nothing to re-attach on a mode change.
+        if uses_mouse {
+            mouse::emit_attach_controllers(&mut asm);
+        }
+
         // connect window "close-request" -> on_window_closed
         asm.load_state(abi::c_arg(0), ST_WINDOW);
         asm.local_address(abi::c_arg(1), STR_CLOSE_REQUEST.0);
@@ -391,6 +401,11 @@ pub(super) fn emit_activate_handler(
         asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
         asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
         asm.call_external("g_signal_connect_data");
+
+        // The `app` window members: follow the user's fullscreen changes.
+        if uses_window {
+            super::window::emit_track_fullscreen(&mut asm);
+        }
 
         // gtk_window_present(window). Nothing is focused on purpose: keys are
         // captured by the window-level key controller connected above, so the design
@@ -472,7 +487,7 @@ pub(crate) fn emit_reconcile_seam(
 ///
 /// The scrolled window is `g_object_ref_sink`ed so it survives `gtk_window_set_child`
 /// swapping it out for the canvas area and back.
-pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_build_helper(uses_window: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
     let frame = 16; // lr@0, x19 (the key controller, across g_signal_connect_data)@8
     asm.push(abi::label("entry"));
@@ -549,6 +564,11 @@ pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
+    // The `app` window members: follow the user's fullscreen changes.
+    if uses_window {
+        super::window::emit_track_fullscreen(&mut asm);
+    }
+
     asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(frame));
@@ -605,7 +625,10 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
 /// Exactly one aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE`
 /// (0) so the idle fires once. The state lives in `STATE_SYMBOL` globals (not the
 /// arena), so this main-thread callback needs no arena register.
-pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_idle_helper(
+    uses_canvas: bool,
+    uses_window: bool,
+) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
     let frame = 16; // lr@0, x19(mode)@8
     let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
@@ -648,6 +671,10 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.push(abi::label(&after_console));
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_window_present");
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        super::window::emit_sync_call(&mut asm);
+    }
     // A window now owns aliveness — drop the windowless hold if one is active.
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -725,6 +752,17 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_native_get_surface");
     asm.store_state(abi::c_return(0), ST_CANVAS_SURFACE);
+    // plan-155-A: publish the display rate for the monitor the surface is on, and
+    // follow it to other monitors. Here, beside the surface read, because this is the
+    // first point the window has a `GdkSurface` — and it runs on every canvas entry.
+    if uses_canvas {
+        asm.load_state(abi::c_arg(0), ST_CANVAS_SURFACE);
+        asm.call_internal(DISPLAY_RATE_SYMBOL);
+    }
+    // A title or fullscreen request made while windowless lands now.
+    if uses_window {
+        super::window::emit_sync_call(&mut asm);
+    }
     // A presented window owns aliveness — drop the windowless hold if one is active.
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -1065,9 +1103,11 @@ pub(super) fn emit_window_closed_handler() -> Result<CodeFunction, String> {
 /// park the worker in `pause()` so the main loop keeps the window open until the
 /// user closes it. With no transcript attached (headless) terminate with the code.
 ///
-/// The language program runs on the worker thread, so we must NOT `_exit` in GUI
-/// mode or the process (window + main loop) dies.
-pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
+/// The language program runs on the worker thread, so `_exit` in GUI mode takes
+/// the window and main loop down with it — which is exactly what a release build
+/// (`debug` false) wants: the program is over, so the app is too. Only a `--debug`
+/// build keeps the window open on the last output and the exit code.
+pub(super) fn emit_finish_helper(debug: bool) -> Result<CodeFunction, String> {
     let prefix_len = STR_EXIT_PREFIX.1.len(); // includes the leading '\n'
     let mut asm = Asm::new(FINISH_SYMBOL);
     // lr@0, x19(exit code)@8, x20(chunk)@16.
@@ -1081,6 +1121,9 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
+    if !debug {
+        asm.push(abi::branch("fin_exit"));
+    }
 
     // Headless (no transcript): terminate the process with the exit code.
     // Both spellings must be the SAME one. `%scratch0` realizes to `x9`, so a load
@@ -1094,6 +1137,7 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.load_state(abi::SCRATCH[0], ST_TEXT_BUFFER);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne("fin_gui"));
+    asm.push(abi::label("fin_exit"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_exit");
     asm.push(abi::branch_self());
@@ -1612,6 +1656,122 @@ pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
     asm.finish(CANVAS_RESIZE_SYMBOL, "Nothing")
 }
 
+/// Mask a C `int` return to its 32 bits: the ABI leaves the upper half of the 64-bit
+/// return register unspecified. A refresh rate is never negative, so zero-extension
+/// is the right widening.
+fn emit_int_return_to_u64(asm: &mut Asm, dst: &str) {
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        "4294967295",
+    ));
+    asm.push(abi::and_registers(dst, abi::c_return(0), abi::SCRATCH[1]));
+}
+
+/// plan-155-A: `void _mfb_gtkapp_display_rate(GdkSurface *surface)` (main loop).
+///
+/// Publishes `gdk_monitor_get_refresh_rate(gdk_display_get_monitor_at_surface(
+/// gdk_surface_get_display(surface), surface))` — already millihertz, `0` when GDK does
+/// not know — and connects the surface's `enter-monitor` the first time it sees that
+/// surface ([`ST_DISPLAY_HOOKED`]). A surface with no monitor yet (Wayland assigns one
+/// when it is mapped) publishes `0`; `enter-monitor` then republishes the real rate.
+pub(super) fn emit_display_rate_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(DISPLAY_RATE_SYMBOL);
+    let hooked = format!("{DISPLAY_RATE_SYMBOL}_hooked");
+    let no_monitor = format!("{DISPLAY_RATE_SYMBOL}_no_monitor");
+    let publish = format!("{DISPLAY_RATE_SYMBOL}_publish");
+    let done = format!("{DISPLAY_RATE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // surface
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // Connect `enter-monitor` once per surface.
+    asm.load_state(abi::LOCAL[1], ST_DISPLAY_HOOKED);
+    asm.push(abi::compare_registers(abi::LOCAL[1], abi::LOCAL[0]));
+    asm.push(abi::branch_eq(&hooked));
+    //   g_signal_connect_data(surface, "enter-monitor", on_enter, NULL, NULL, 0)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address(abi::c_arg(1), STR_ENTER_MONITOR.0);
+    asm.local_address(abi::c_arg(2), ENTER_MONITOR_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
+    asm.store_state(abi::LOCAL[0], ST_DISPLAY_HOOKED);
+    asm.push(abi::label(&hooked));
+
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("gdk_surface_get_display");
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("gdk_display_get_monitor_at_surface");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_monitor));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("gdk_monitor_get_refresh_rate");
+    emit_int_return_to_u64(&mut asm, abi::LOCAL[1]);
+    asm.push(abi::branch(&publish));
+    asm.push(abi::label(&no_monitor));
+    asm.push(abi::move_immediate(abi::LOCAL[1], "Integer", "0"));
+    asm.push(abi::label(&publish));
+    crate::codegen::runtime::canvas::emit_publish_display_rate(
+        DISPLAY_RATE_SYMBOL,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(DISPLAY_RATE_SYMBOL, "Nothing")
+}
+
+/// plan-155-A: `void _mfb_gtkapp_enter_monitor(GdkSurface *surface, GdkMonitor *monitor,
+/// gpointer data)` — the surface moved onto `monitor`; publish its rate. Nothing is
+/// signalled: a rate changes no pixel.
+pub(super) fn emit_enter_monitor_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(ENTER_MONITOR_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_arg(1))); // monitor
+    asm.call_external("gdk_monitor_get_refresh_rate");
+    emit_int_return_to_u64(&mut asm, abi::LOCAL[1]);
+    crate::codegen::runtime::canvas::emit_publish_display_rate(
+        ENTER_MONITOR_SYMBOL,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(ENTER_MONITOR_SYMBOL, "Nothing")
+}
+
 /// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.
 ///
 /// `x0` = the area, `x1` = the `cairo_t`, `x2`/`x3` = the area's width and height,
@@ -1767,7 +1927,7 @@ mod tests {
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
         // The pipe/dup2 wiring this test asserts lives in the Console surface path.
-        let func = emit_activate_handler(PresentationMode::Console).unwrap();
+        let func = emit_activate_handler(PresentationMode::Console, false, false).unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

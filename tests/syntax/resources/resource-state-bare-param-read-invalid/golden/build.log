@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/resources/resource-state-bare-param-read-inval
   16 |   io::print(toString(p.state.pos))
      | ^
 tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte.
+               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
   14 | ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
   15 | SUB show(RES p AS fs::File)
   16 |   io::print(toString(p.state.pos))

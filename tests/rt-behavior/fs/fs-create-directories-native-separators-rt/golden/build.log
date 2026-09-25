@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/fs/fs-create-directories-native-separators-rt
+Wrote AST to tests/rt-behavior/fs/fs-create-directories-native-separators-rt/fs_create_directories_native_separators_rt.ast
+Wrote IR to tests/rt-behavior/fs/fs-create-directories-native-separators-rt/fs_create_directories_native_separators_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/fs/fs-create-directories-native-separators-rt
+Wrote executable to tests/rt-behavior/fs/fs-create-directories-native-separators-rt/build/fs_create_directories_native_separators_rt.out
+[exit 0]
+$ tests/rt-behavior/fs/fs-create-directories-native-separators-rt/build/fs_create_directories_native_separators_rt.out
+TRUE
+FALSE
+TRUE
+FALSE
+[exit 0]

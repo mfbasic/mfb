@@ -314,6 +314,26 @@ conflict — leaves all three byte-identical.[[src/cli/resolve.rs:apply_manifest
 Because `add` writes the lock, `mfb pkg install` runs immediately afterwards
 with no intervening `mfb pkg update`.
 
+`add` writes the new entry with `direct: true, requiredBy: []` — the package is
+one the user named. If the closure already declared that package indirectly
+(some other declared package imports it), the new direct entry replaces the
+indirect one rather than sitting beside it.[[src/cli/pkg.rs:without_indirect_entry]]
+Before resolving, `apply_manifest_change` **closes** the proposed manifest
+(bug-628, `./mfb spec tooling project-manifest`'s dependency-closure rule): it
+declares every package a declared package's import table names but
+`project.json` does not, drops orphaned indirect entries nothing requires any
+longer, and rewrites `direct`/`requiredBy` on every entry — a source-directory
+requirement's `source` is rebased onto the importing project, a compiled
+dependency the requirer already has installed is copied into `packages/`, and a
+registry ident is declared from the registry `/index` under the requirer's
+version and pin; a needed package that is none of these is an error naming it
+and telling the user to `mfb pkg add` it. After each install the closure is checked again — a registry
+package's import table is only readable once installed — bounded by
+`MAX_CLOSURE_ROUNDS`; only the first round keeps the resolve-first guarantee
+above.[[src/cli/resolve.rs:close_dependency_set]] Each declared/dropped entry
+prints `Declared package <name> (required by <requirer>)` or `Removed package
+<name> (no declared package requires it)`.
+
 `info <package>`
 prints the package report (below). `verify` checks each `project.json`
 dependency. `validate <package>` checks an **existing** `.mfp` — "is this
@@ -382,10 +402,16 @@ mfb pkg update <owner>#<pkg>@<version>          set exactly
         [--pin | --no-pin] [--yes]
 ```
 
-The bare form re-resolves every declared dependency and rewrites `mfb.lock`. A
-project that declares **no registry dependencies** — only `file://` packages, or
-none at all — has nothing to resolve; the bare form reports that, removes a
-stale `mfb.lock` if present, and exits `0`.
+The bare form always runs `apply_manifest_change` first (bug-628), which
+closes the dependency set exactly as `pkg add` does — declaring every package
+a declared package's import table names, dropping orphaned indirect entries,
+and rewriting `direct`/`requiredBy` — regardless of whether the project has
+any registry dependencies.[[src/cli/resolve.rs:update]] Only *after* that does
+it re-resolve every declared registry dependency and rewrite `mfb.lock`. A
+project that declares **no registry dependencies** — only `file://` packages,
+or none at all — has nothing to resolve; the bare form still closes the
+closure, then reports `No registry dependencies to resolve; mfb.lock is not
+needed.`, removes a stale `mfb.lock` if present, and exits `0`.
 
 A positional argument is an **ident**, never a path. `mfb pkg update foo` cannot
 mean both, so the `[location]` form does not exist; a target that is not declared
@@ -491,6 +517,11 @@ error: cannot determine what depends on alice#shape — alice#widget is declared
 Proceeding would print a confident list, remove less than it should, and leave
 exactly the dangling-import state the cascade exists to prevent.
 
+`remove` writes its edit through the same `apply_manifest_change` as `add`/
+`update` (bug-628), so beyond dropping the cascaded packages themselves, the
+closure pass also drops any *other* indirect entry the removal leaves with an
+empty `requiredBy`.[[src/cli/resolve.rs:apply_manifest_change]]
+
 ### File cleanup
 
 After resolution succeeds, each removed package's `packages/<name>.mfp` and its
@@ -531,6 +562,20 @@ Package`. Compiled `.mfp` dependencies additionally get their trust state —
 `[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
 the dependency's pinned `identKey`; source-package dependencies get no state
 suffix.[[src/cli/pkg.rs:verify_packages]]
+
+After the per-dependency lines, `verify` additionally reports the whole
+declared dependency closure (bug-628): every way `packages[]` disagrees with
+the declared packages' import tables as a `PACKAGE_DEPENDENCIES_INCONSISTENT`
+diagnostic (an undeclared needed package, a name declared under the wrong
+`ident`, a missing `direct`/`requiredBy`, a stale `requiredBy`, or an orphaned
+`direct: false` entry), and every
+`PACKAGE_VERSION_CONFLICT` (unlike `mfb build`, which reports conflicts only
+once the closure is consistent) between a declared importer's compiled expectations
+and what its declared dependency's `.mfp` actually exports, each with a
+per-symbol detail line (`` `sym`: `requirer` needs ABI <hash>; `dep` <version>
+exports <hash> `` or `` `sym`: `requirer` needs ABI <hash>; `dep` <version>
+does not export it ``). `verify` exits non-zero if either check finds
+anything.[[src/cli/pkg.rs:report_dependency_closure]] [[src/manifest/closure.rs:conflicts]]
 
 With `--proof`, each Verified dependency additionally needs a
 transparency-log inclusion proof for its publish entry, verified against the

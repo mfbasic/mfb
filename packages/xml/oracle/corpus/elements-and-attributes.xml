@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <book id="b1" available="yes">
+    <dc:title>Dune</dc:title>
+    <author>Frank Herbert</author>
+    <price currency="USD">9.99</price>
+  </book>
+  <book id="b2">
+    <dc:title>Neuromancer</dc:title>
+    <author>William Gibson</author>
+  </book>
+</catalog>

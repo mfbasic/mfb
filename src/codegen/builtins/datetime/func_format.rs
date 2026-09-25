@@ -23,7 +23,9 @@ a quoted run the next apostrophe closes it, so `'it''s'` renders `its`.
 The recognized tokens are:
 
 - `yy` — last two digits of the year, zero-padded; any other run of `y`
-  zero-pads the full year to the run length (`yyyy` pads to at least 4 digits)
+  zero-pads the full year to the run length (`yyyy` pads to at least 4 digits).
+  A negative year puts its minus sign before the padded digits, so year -1 is
+  `-0001` for `yyyy`
 - `M` / `MM` — month number, minimal (1-12) / 2-digit
 - `MMM` — month name, short (English); any run of 4 or more `M` gives the full name
 - `d` — day of month, minimal; any run of 2 or more `d` gives the 2-digit form

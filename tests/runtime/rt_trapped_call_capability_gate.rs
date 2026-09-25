@@ -22,7 +22,7 @@
 //! **The rejection half of this test no longer lives here.** `windows-x86_64`
 //! used to advertise a strict subset of the macOS surface, so a real gap existed
 //! to aim at: `process.shell` until plan-119-B implemented it, then
-//! `os.resourcePath`. bug-454 implemented that one too, and it was the LAST —
+//! `os.appResourcePath`. bug-454 implemented that one too, and it was the LAST —
 //! `windows-x86_64` now advertises a superset of `macos-aarch64` and `linux-*`,
 //! so **no** call reachable from MFB source is refused by any shipping backend's
 //! list. The premise assertions here were written to fail loudly rather than

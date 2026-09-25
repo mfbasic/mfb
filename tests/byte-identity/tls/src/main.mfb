@@ -3,6 +3,7 @@ IMPORT io
 IMPORT encoding
 IMPORT net
 IMPORT tls
+IMPORT collections
 
 FUNC main() AS Integer
   ' connect: all three overloads
@@ -20,7 +21,12 @@ FUNC main() AS Integer
   ' host/port form and parameter 3 of the Address form.
   RES sockStrict AS tls::Socket = tls::connect("example.com", 443, 5000, "example.com", FALSE)
   RES sockRelaxed AS tls::Socket = tls::connect("example.com", 443, 5000, "example.com", TRUE)
-  LET peer AS net::Address = net::lookup("example.com", 443)
+  ' `net::lookup` answers every matching address, so take the first — the
+  ' spelling `net::ping`'s own example uses. This read `= net::lookup(...)`
+  ' until bug-632: `compatible` compared the last `.` segment of the RENDERED
+  ' spellings, so `List OF net.Address` and `net.Address` both ended in
+  ' `Address` and the list bound to a single-address slot.
+  LET peer AS net::Address = collections::get(net::lookup("example.com", 443), 0)
   RES sockAddr AS tls::Socket = tls::connect(peer, 5000, "example.com")
   RES sockAddrRelaxed AS tls::Socket = tls::connect(peer, 5000, "example.com", TRUE)
   tls::close(sockStrict)

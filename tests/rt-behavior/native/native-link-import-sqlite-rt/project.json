@@ -16,7 +16,9 @@
     {
       "name": "sqlite3",
       "version": "=0.1.0",
-      "source": "file:packages/sqlite3.mfp"
+      "source": "file:packages/sqlite3.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

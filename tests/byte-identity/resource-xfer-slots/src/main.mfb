@@ -22,7 +22,7 @@ IMPORT thread
 IMPORT xfer_tls_worker
 
 FUNC main AS Integer
-  LET t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
+  RES t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
   RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
   ' The call that emits `copy_resource_to_current_arena` for a resource WITH
   ' declared live slots -- the whole point of the fixture.

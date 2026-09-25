@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/general/toString_user_type_named_like_override_invalid
+  34 |   LET u AS Url = Url["https://example.com"]
+  35 |   LET v AS Float2 = Float2[1.0, 2.0]
+  36 |   LET colorText AS String = toString(c)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:36 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Color), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+  34 |   LET u AS Url = Url["https://example.com"]
+  35 |   LET v AS Float2 = Float2[1.0, 2.0]
+  36 |   LET colorText AS String = toString(c)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:36 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `colorText` does not have a known type.
+  35 |   LET v AS Float2 = Float2[1.0, 2.0]
+  36 |   LET colorText AS String = toString(c)
+  37 |   LET urlText AS String = toString(u)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:37 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Url), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+  35 |   LET v AS Float2 = Float2[1.0, 2.0]
+  36 |   LET colorText AS String = toString(c)
+  37 |   LET urlText AS String = toString(u)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:37 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `urlText` does not have a known type.
+  36 |   LET colorText AS String = toString(c)
+  37 |   LET urlText AS String = toString(u)
+  38 |   LET vectorText AS String = toString(v)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:38 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Float2), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+  36 |   LET colorText AS String = toString(c)
+  37 |   LET urlText AS String = toString(u)
+  38 |   LET vectorText AS String = toString(v)
+     | ^
+tests/syntax/general/toString_user_type_named_like_override_invalid/src/main.mfb:38 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `vectorText` does not have a known type.
+[exit 1]

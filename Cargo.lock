@@ -1857,6 +1857,7 @@ dependencies = [
  "libc",
  "mfb_repository",
  "mfb_wire",
+ "num-bigint",
  "ring",
  "rusqlite",
  "serde_json",

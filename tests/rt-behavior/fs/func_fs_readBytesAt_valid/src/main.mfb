@@ -1,0 +1,99 @@
+' plan-139-E: fs::readBytesAt reads `count` bytes at an absolute `offset` without
+' moving the handle's read position, and returns fewer than `count` bytes only at
+' end of file. The interleaved readLine/readBytesAt/readLine case is the one that
+' matters: it proves a positional read leaves fs::readLine's buffered read-ahead
+' intact, which is what lets letter A's zip/tar Archive alias a caller's File.
+IMPORT fs
+IMPORT io
+IMPORT errorCode
+
+' Closing through a callee is the case the static move rules cannot prove, so the
+' runtime closed-flag is what refuses the later use (spec §15).
+SUB closeHandle(RES f AS fs::File)
+  fs::close(f)
+END SUB
+
+FUNC readAfterClose(path AS String) AS Integer
+  RES f AS fs::File = fs::openFile(path)
+  closeHandle(f)
+  RETURN len(fs::readBytesAt(f, 0, 4))
+END FUNC
+
+FUNC readNegative(RES f AS fs::File) AS Integer
+  RETURN len(fs::readBytesAt(f, 0, -1))
+END FUNC
+
+FUNC readNegativeOffset(RES f AS fs::File) AS Integer
+  RETURN len(fs::readBytesAt(f, -1, 4))
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_readBytesAt_valid.txt"
+  ' 23 bytes. Byte 0 starts "first line\n"; byte 11 starts "second line\n".
+  fs::writeText(path, "first line\nsecond line\n")
+  RES f AS fs::File = fs::openFile(path)
+
+  ' A read at the start, and one from the middle.
+  io::print("at0=" & toString(fs::readBytesAt(f, 0, 5)))
+  io::print("at11=" & toString(fs::readBytesAt(f, 11, 6)))
+
+  ' count running past the end returns only what is there — not an error.
+  LET tail AS List OF Byte = fs::readBytesAt(f, 18, 100)
+  io::print("tailLen=" & toString(len(tail)))
+  io::print("tail=" & toString(tail))
+
+  ' offset exactly at, and past, the end of the file yields an empty list.
+  io::print("atEnd=" & toString(len(fs::readBytesAt(f, 23, 10))))
+  io::print("pastEnd=" & toString(len(fs::readBytesAt(f, 100, 10))))
+
+  ' A zero-byte read is legal and yields an empty list.
+  io::print("zero=" & toString(len(fs::readBytesAt(f, 0, 0))))
+
+  ' Position-neutrality across the buffered read-ahead: the positional reads
+  ' between the two readLine calls must not consume or disturb anything.
+  io::print("line1=" & fs::readLine(f))
+  io::print("between=" & toString(fs::readBytesAt(f, 0, 5)))
+  io::print("line2=" & fs::readLine(f))
+
+  ' A negative count or offset is a caller mistake.
+  MUT negCount AS Integer = 0
+  readNegative(f) TRAP(e)
+    negCount = e.code
+    RECOVER 0
+  END TRAP
+  IF negCount = errorCode::ErrInvalidArgument THEN
+    io::print("negCount=ErrInvalidArgument")
+  ELSE
+    io::print("negCount=" & toString(negCount))
+  END IF
+
+  MUT negOffset AS Integer = 0
+  readNegativeOffset(f) TRAP(e)
+    negOffset = e.code
+    RECOVER 0
+  END TRAP
+  IF negOffset = errorCode::ErrInvalidArgument THEN
+    io::print("negOffset=ErrInvalidArgument")
+  ELSE
+    io::print("negOffset=" & toString(negOffset))
+  END IF
+
+  ' A refused read left the position alone: the third line read still follows.
+  io::print("afterErrors=" & toString(fs::readBytesAt(f, 0, 5)))
+  fs::close(f)
+
+  ' A closed handle raises ErrResourceClosed.
+  MUT closedCode AS Integer = 0
+  readAfterClose(path) TRAP(e)
+    closedCode = e.code
+    RECOVER 0
+  END TRAP
+  IF closedCode = errorCode::ErrResourceClosed THEN
+    io::print("closed=ErrResourceClosed")
+  ELSE
+    io::print("closed=" & toString(closedCode))
+  END IF
+
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

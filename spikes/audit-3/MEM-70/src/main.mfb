@@ -11,7 +11,7 @@ ISOLATED FUNC churn(w AS ThreadWorker OF String TO Integer, seed AS String) AS I
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(churn, "abc")
+  RES t AS Thread OF String TO Integer = thread::start(churn, "abc")
   FOR i = 1 TO 200000
     thread::send(t, "message-" & toString(i) & "-padding-padding-padding")
   NEXT

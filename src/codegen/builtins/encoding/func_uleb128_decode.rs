@@ -24,38 +24,14 @@ ignored.
 `data` must contain at least one byte, and the sequence must be terminated
 within it: an empty list, or bytes that run out before a byte with a clear high
 bit is seen, raise `ErrInvalidFormat`, as does a sequence longer than ten bytes.
-Keep values within `9223372036854775807`: a tenth byte that reaches bit 63 or
-beyond is not currently rejected, so it can decode to a negative number or lose
-its high bits (nine `0xFF` bytes then `0x01` decode to `-1`). Use
+The value must fit an `Integer`, so the result is never negative: a tenth byte
+other than `0x00` names a value above `9223372036854775807` and raises
+`ErrInvalidFormat` (nine `0xFF` bytes then `0x01` is 2^64-1). Use
 `encoding::sleb128Decode` for signed values."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
-  LET n AS Integer = len(data)
-  IF n = 0 THEN
-    FAIL error(77050003, "truncated leb128")
-  END IF
-  MUT result AS Integer = 0
-  MUT shift AS Integer = 0
-  MUT i AS Integer = 0
-  MUT byteValue AS Integer = 0
-  MUT done AS Boolean = FALSE
-  WHILE done = FALSE
-    IF i >= n THEN
-      FAIL error(77050003, "truncated leb128")
-    END IF
-    IF shift > 63 THEN
-      FAIL error(77050003, "leb128 overflow")
-    END IF
-    byteValue = toInt(collections::get(data, i))
-    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
-    shift = shift + 7
-    i = i + 1
-    IF byteValue < 128 THEN
-      done = TRUE
-    END IF
-  END WHILE
-  RETURN result
+  RETURN __encoding_leb128Read(data, 0)
 END FUNC"#;
 const EX: &str = r#"Round-trip a value through `uleb128Encode` and back:
 

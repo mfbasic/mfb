@@ -1,0 +1,38 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+' 200 opaque rings of 200 edges -- 40,000 polygon edges in one frame, the frame-edge
+' capacity bug-686 section B measured -- side by side rather than stacked.
+'
+' `forty_thousand_edges.mfb` is the same edge count as 200 TRANSLUCENT rings stacked a
+' pixel apart, so most of its pixels are 20 to 200 blends deep. A GPU blends into an
+' 8-bit sRGB target and the oracle through a 16-bit linear table, and the two drift a
+' step apart over that many blends: on Mesa's lavapipe every pixel 20 or more layers
+' deep differs by exactly 1, 11.8% of the frame, past `Tolerance::GPU_DEFAULT`'s 2%
+' population budget (bug-688). That measures blending, not edges; this scene measures
+' the edges. The ground is mid-grey for the reason `huge_polygon.mfb`'s is: a rim pixel
+' near black is where fp32 flips a coverage step past tolerance (bug-687).
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]]
+  MUT ring AS Integer = 0
+  WHILE ring < 200
+    LET cx AS Float = 25.0 + toFloat((ring MOD 20) * 44)
+    LET cy AS Float = 30.0 + toFloat((ring / 20) * 62)
+    MUT points AS List OF canvas::Point = []
+    MUT i AS Integer = 0
+    WHILE i < 200
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 200.0
+      LET r AS Float = 20.0 + 3.0 * math::sin(a * 5.0)
+      points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+      i = i + 1
+    END WHILE
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(60 + ring, 255 - ring, 120))]
+    scene = collections::append(scene, poly)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
+END SUB

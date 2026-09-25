@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnUnion" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnUnion" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "sent-union" }, { "kind": "number", "value": "10" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "result", "type": null, "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
       {
@@ -28,7 +28,7 @@
         "line": 9,
         "cases": [
         {
-          "pattern": { "kind": "union", "type": "ReturnOk", "binding": "value" },
+          "pattern": { "kind": "union", "type": "thread_runtime_workers.ReturnOk", "binding": "value" },
           "guard": null,
           "line": 10,
           "body": [
@@ -36,7 +36,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "ReturnMissing", "binding": "value" },
+          "pattern": { "kind": "union", "type": "thread_runtime_workers.ReturnMissing", "binding": "value" },
           "guard": null,
           "line": 12,
           "body": [

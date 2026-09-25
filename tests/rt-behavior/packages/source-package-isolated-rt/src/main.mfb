@@ -8,7 +8,7 @@ IMPORT source_pkg_worker
 ' plain FUNC and the ISOLATED thread entry must resolve.
 FUNC main AS Integer
   io::print(toString(source_pkg_worker::scale(3)))
-  LET t AS Thread OF Nothing TO Integer = thread::start(source_pkg_worker::multiply, 6)
+  RES t AS Thread OF Nothing TO Integer = thread::start(source_pkg_worker::multiply, 6)
   io::print(toString(thread::waitFor(t)))
   RETURN 0
 END FUNC

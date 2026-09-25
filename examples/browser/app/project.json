@@ -16,17 +16,23 @@
     {
       "name": "dom",
       "version": "=0.1.0",
-      "source": "file:packages/dom.mfp"
+      "source": "file:packages/dom.mfp",
+      "direct": true,
+      "requiredBy": ["display", "fetch"]
     },
     {
       "name": "fetch",
       "version": "=0.1.0",
-      "source": "file:packages/fetch.mfp"
+      "source": "file:packages/fetch.mfp",
+      "direct": true,
+      "requiredBy": []
     },
     {
       "name": "display",
       "version": "=0.1.0",
-      "source": "file:packages/display.mfp"
+      "source": "file:packages/display.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

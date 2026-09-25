@@ -69,72 +69,6 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// Materialize a fresh CLOSED thread handle: an arena-allocated
-    /// [`THREAD_BLOCK_SIZE`] block, zeroed, with `THREAD_OFFSET_STATE` set to
-    /// [`THREAD_STATE_CLOSED`] (bug-479 defect D).
-    ///
-    /// This is the value a `LET t AS Thread … = thread::start(…) TRAP` error path
-    /// binds. `thread::start` is fallible (`ErrResourceExhausted`), so the
-    /// documented idiom for handling its documented failure needs a `Thread` value
-    /// on the error path, and there was none — the bind died with an UNLOCATED
-    /// `native code cannot materialize default value for type 'Thread OF …'`.
-    ///
-    /// **The queue pointers stay null, and that is what forces the other half of
-    /// this fix.** A thread op used to load `THREAD_OFFSET_OUTBOUND_QUEUE` and
-    /// `pthread_mutex_lock` it BEFORE reading the state, so a zeroed block faulted
-    /// before it could notice it was closed. `simple_thread_handle_helper` now
-    /// checks `THREAD_STATE_CLOSED` first; see the comment there for why an
-    /// unlocked read is sound.
-    ///
-    /// Nothing here invents a contract. Every op already answers
-    /// `ErrResourceClosed` on a `CLOSED` handle, and `Drop` already treats one as
-    /// a no-op — so a `RECOVER`ed handle behaves exactly like a thread the program
-    /// closed itself, which is the same answer bug-372 gave for a resource.
-    fn emit_closed_thread_handle(&mut self) -> Result<VirtualRegister, String> {
-        use crate::codegen::runtime::thread::runtime_helpers::{
-            THREAD_BLOCK_SIZE, THREAD_OFFSET_STATE, THREAD_STATE_CLOSED,
-        };
-        let block = self.allocate_register();
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &THREAD_BLOCK_SIZE.to_string(),
-        ));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
-        let alloc_ok = self.label("default_thread_alloc_ok");
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::move_register(&block, abi::mfb_return(1)));
-        // Zero the whole block — every queue, os-handle and arena pointer in it is
-        // invalid, and a null queue is exactly what the closed pre-check expects.
-        let mut offset = 0;
-        while offset < THREAD_BLOCK_SIZE {
-            self.emit(abi::store_u64(abi::ZERO, &block, offset));
-            offset += 8;
-        }
-        let closed = self.allocate_register();
-        self.emit(abi::move_immediate(&closed, "Integer", THREAD_STATE_CLOSED));
-        self.emit(abi::store_u64(&closed, &block, THREAD_OFFSET_STATE));
-        // bug-622: owner-counted like a started handle, so the drop that releases its last
-        // binding frees this block (it has no plumbing to free). The inline `TRAP` binds it
-        // as the trap's value on every start and the successful assign drops it at once,
-        // so leaving it uncounted leaked a control block per trapped `thread::start`.
-        let owners = self.allocate_register();
-        self.emit(abi::move_immediate(&owners, "Integer", "1"));
-        self.emit(abi::store_u64(
-            &owners,
-            &block,
-            crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS,
-        ));
-        Ok(block)
-    }
-
     /// Materialize a fresh CLOSED resource record: an arena record zeroed
     /// (invalid internals) with its shared `RESOURCE_OFFSET_CLOSED` (16) flag
     /// set. This is the record a `RES x = <fallible> TRAP` error path binds when
@@ -334,12 +268,17 @@ impl CodeBuilder<'_> {
                     text: format!("closed union {type_}"),
                 })
             }
-            // bug-479: a `Thread` handle, for the error path of an inline `TRAP`
-            // on `thread::start`. Ordered before the resource arms because a
-            // thread handle is not a resource record and must not get one — the
-            // two have different layouts and different close semantics.
+            // bug-479: a `Thread` view, for the error path of an inline `TRAP` on
+            // `thread::start` — a CLOSED resource record, exactly as for any other
+            // resource (plan-156-C), tagged as a thread view. Every op on it answers
+            // `ErrResourceClosed` before reaching for a control block (it names none),
+            // and its drop is the benign re-close. Ordered before the resource arms
+            // because `is_resource_type` does not answer for a thread type.
             ParameterType::ThreadHandle { .. } => {
-                let handle = self.emit_closed_thread_handle()?;
+                let handle = self.emit_closed_resource_record()?;
+                let tag = self.allocate_register();
+                self.emit(abi::move_immediate(&tag, "Integer", RESOURCE_TAG_THREAD));
+                self.emit(abi::store_u64(&tag, &handle, RESOURCE_OFFSET_TAG));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -452,21 +391,35 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
+                let mut inlined_defaults = Vec::new();
                 for (_, field_type) in &fields {
                     let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
+                    // bug-625: an inlined default other than the shared empty String
+                    // constant is a block built here, which the record byte-copies and
+                    // nothing else owns.
+                    if *field_type != ParameterType::String
+                        && self.record_field_is_inlined(field_type)
+                        && self.is_freeable_flat_value(field_type)
+                    {
+                        inlined_defaults.push((slot, field_type.clone()));
+                    }
                 }
                 // Inline `String` defaults (empty String blocks) into the record's
                 // data region; scalar/pointer defaults stay inline (plan-02 §4.2).
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
-                Ok(ValueResult {
+                let mut record = ValueResult {
                     origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
-                })
+                };
+                for (slot, field_type) in inlined_defaults {
+                    record = self.free_intermediate_collection(slot, &field_type, record)?;
+                }
+                Ok(record)
             }
         }
     }
@@ -539,12 +492,116 @@ impl CodeBuilder<'_> {
             .all(|(_, field_type)| self.default_value_materializable(field_type, visited))
     }
 
+    /// bug-689: `get(xs, i).f` — a field read straight off a `get`, through any
+    /// chain of record fields — reads the element where it lies when the field it
+    /// finally yields is a scalar. The scalar is loaded before anything else runs,
+    /// so the alias is dead at the end of the chain; the copy it replaces read the
+    /// same bytes at the same moment.
     pub(crate) fn lower_field_access(
         &mut self,
         target: &NirValue,
         member: &str,
     ) -> Result<ValueResult, String> {
-        let target_value = self.lower_value(target)?;
+        let borrow = self.scalar_field_of_borrowable_get(target, member);
+        self.lower_field_access_of(target, member, borrow)
+    }
+
+    /// Whether `target.member` is a scalar read off `get`/`getOr` of a record
+    /// element the `get` may alias (the `Bind` arm's own `is_borrow_get` type
+    /// rule: freeable-flat, not a `String`).
+    fn scalar_field_of_borrowable_get(&self, target: &NirValue, member: &str) -> bool {
+        let mut base = target;
+        while let NirValue::MemberAccess { target, .. } = base {
+            base = target;
+        }
+        let Some(element) = self.get_element_type(base) else {
+            return false;
+        };
+        if !self.is_freeable_flat_value(&element)
+            || element == ParameterType::String
+            || !self.type_model.record_fields.contains_key(&element)
+        {
+            return false;
+        }
+        self.member_chain_type(target, member)
+            .is_some_and(|field| self.is_inline_scalar(&field))
+    }
+
+    /// The element type a `get`/`getOr` call reads: a `List`'s element, or a
+    /// `Map`'s value. `None` for any other value. (`static_type_name` answers only
+    /// for lists, and deliberately so — it also drives numeric typing.)
+    fn get_element_type(&self, value: &NirValue) -> Option<ParameterType> {
+        let NirValue::Call { target, args, .. } = value else {
+            return None;
+        };
+        if !matches!(
+            crate::codegen::builtins::native_builtin_target(target),
+            Some("get" | "getOr")
+        ) {
+            return None;
+        }
+        let container = self.static_type_name(args.first()?)?;
+        typed_list_element_type(&container)
+            .or_else(|| typed_map_type_parts(&container).map(|(_, value)| value))
+            .cloned()
+    }
+
+    /// The type of `target.member` for a chain of record field reads over a
+    /// `get`, from the record declarations.
+    fn member_chain_type(&self, target: &NirValue, member: &str) -> Option<ParameterType> {
+        let base = match target {
+            NirValue::MemberAccess {
+                target: inner,
+                member: inner_member,
+            } => self.member_chain_type(inner, inner_member)?,
+            _ => self.get_element_type(target)?,
+        };
+        let fields = self.type_model.record_fields.get(&base)?;
+        let (_, field) = fields.iter().find(|(name, _)| name == member)?;
+        Some(typed_strip_res_marker(field).clone())
+    }
+
+    /// A value held in its slot by value: a numeric, `Boolean` or `Byte`, or an
+    /// enum ordinal — reading one copies it out, leaving no alias behind.
+    fn is_inline_scalar(&self, type_: &ParameterType) -> bool {
+        if self.type_model.record_fields.contains_key(type_) {
+            return false;
+        }
+        matches!(
+            type_.name().as_ref(),
+            "Integer" | "Float" | "Fixed" | "Money" | "Boolean" | "Byte"
+        ) || self.type_model.enum_names.contains_key(type_)
+    }
+
+    /// The base of a borrowed field chain: each inner field read of the chain, and
+    /// at the bottom the `get` itself, lowered with its own frame armed so it
+    /// returns the element's address (no owning copy, no statement-scope free).
+    fn lower_borrowed_chain_base(&mut self, target: &NirValue) -> Result<ValueResult, String> {
+        if let NirValue::MemberAccess {
+            target: inner,
+            member,
+        } = target
+        {
+            return self.lower_field_access_of(inner, member, true);
+        }
+        self.borrow_get_armed = true;
+        let result = self.lower_value(target);
+        self.borrow_get_armed = false;
+        self.borrow_get_result = false;
+        result
+    }
+
+    fn lower_field_access_of(
+        &mut self,
+        target: &NirValue,
+        member: &str,
+        borrow: bool,
+    ) -> Result<ValueResult, String> {
+        let target_value = if borrow {
+            self.lower_borrowed_chain_base(target)?
+        } else {
+            self.lower_value(target)?
+        };
         // plan-01-vector: a field read of a register-native vector is a direct lane
         // read — no block load, no materialization.
         if let Some(lane) = self.vector_native_field(&target_value, member) {
@@ -1172,10 +1229,76 @@ impl CodeBuilder<'_> {
     /// element, key or collection type and re-checks the lowered type, and no
     /// call is an aliasing source (`value_is_aliasing_source`), so this admits
     /// nothing a user function's result was not already admitted with.
+    ///
+    /// This query is **not** the one the in-place gates ask — since bug-681 they
+    /// ask [`Self::static_operand_type`], which widens it once more. Keep this
+    /// one's answers exactly as they are: its other consumer is
+    /// `nir_call_is_infallible_builtin` (`engine/control/builder_control.rs`),
+    /// which types a builtin's arguments to decide whether the call can fail, so
+    /// answering here for an expression it used to give up on changes which
+    /// failure paths the optimizer may elide — in programs that contain no
+    /// self-update at all. That is a separate change with its own risk and its
+    /// own measurement; it does not belong in a fix to a collection gate.
     pub(crate) fn static_item_type(&self, value: &NirValue) -> Option<ParameterType> {
         if let Some(type_) = self.static_type_name(value) {
             return Some(type_);
         }
+        self.static_call_type(value, &|builder, arg| builder.static_item_type(arg))
+    }
+
+    /// The static type of a self-update's **operand** — the item appended, the
+    /// element added or removed, the key removed — for the `G11` gates, and for
+    /// nothing else.
+    ///
+    /// bug-681: [`Self::static_item_type`]'s widening applied only at the value's
+    /// own top level. A `Binary`, `Unary`, `MemberAccess` or `ResultValue` around
+    /// the call was matched by `static_type_name`, whose composite arms recurse
+    /// into *itself*, so the call underneath hit the builtin-name table and
+    /// answered `None` — `G11` declined and the statement rebuilt the whole
+    /// collection. One `* 2` was the difference between `append(xs, f(i))` (in
+    /// place, 1 ms at n=16000) and `append(xs, f(i) * 2)` (2798 ms and quadratic;
+    /// a 259,920-element decode was killed by the OOM killer), and it was never
+    /// `append`-specific: `add`, `remove` and `removeKey` all lost the path the
+    /// same way.
+    ///
+    /// So the composite arms are re-run here — via
+    /// [`Self::static_composite_type`], the one implementation `static_type_name`
+    /// also uses — with the recursion pointed back at this query, so every leaf
+    /// gets the same call lookups the top level gets. **Widen this one, not its
+    /// two parents**: `static_type_name` also gates float-arithmetic lowering and
+    /// `is_function_value`, and `static_item_type` also feeds the
+    /// infallible-builtin oracle; this query has exactly six callers, all of them
+    /// `G11` (`grep -n static_operand_type src/codegen/collection/assign/`).
+    ///
+    /// It is a widening of the *query*, never of a gate: every caller still
+    /// compares the answer for equality with the element, key or collection type,
+    /// which is what keeps the single-element and bulk `append` arms apart.
+    pub(crate) fn static_operand_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        if let Some(type_) =
+            self.static_call_type(value, &|builder, arg| builder.static_operand_type(arg))
+        {
+            return Some(type_);
+        }
+        self.static_composite_type(value, &|builder, operand| {
+            builder.static_operand_type(operand)
+        })
+    }
+
+    /// The declared return type of a call — a user (or `LINK`) function's
+    /// `returns`, a package's, else the registry resolver over argument types
+    /// `arg_type` supplies. `None` for any value that is not a call.
+    ///
+    /// Split out of [`Self::static_item_type`] (bug-681) so
+    /// [`Self::static_operand_type`] performs the same lookup with its own,
+    /// wider, argument query rather than a copy of this one.
+    fn static_call_type(
+        &self,
+        value: &NirValue,
+        arg_type: &dyn Fn(&Self, &NirValue) -> Option<ParameterType>,
+    ) -> Option<ParameterType> {
         match value {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
@@ -1192,9 +1315,61 @@ impl CodeBuilder<'_> {
                 }
                 let arg_types = args
                     .iter()
-                    .map(|arg| self.static_item_type(arg))
+                    .map(|arg| arg_type(self, arg))
                     .collect::<Option<Vec<_>>>()?;
                 builtins::resolve_call_return_type_typed(target, &arg_types, false)
+            }
+            _ => None,
+        }
+    }
+
+    /// The static type of a **composite** value — one whose type is derived from
+    /// its operands' — with `operand_type` the query used for those operands.
+    ///
+    /// Split out of [`Self::static_type_name`] (bug-681) so the one set of
+    /// derivation rules serves both queries: `static_type_name` passes itself and
+    /// keeps its exact answers, while [`Self::static_operand_type`] passes
+    /// *itself* and so reaches the user-`FUNC` and registry call lookups from
+    /// inside a `Binary`, `Unary`, `MemberAccess` or `ResultValue`. Answers
+    /// `None` for any value that is not composite — the caller has already
+    /// handled the leaves. A new composite `NirValue` belongs here, so the two
+    /// queries cannot drift apart again.
+    fn static_composite_type(
+        &self,
+        value: &NirValue,
+        operand_type: &dyn Fn(&Self, &NirValue) -> Option<ParameterType>,
+    ) -> Option<ParameterType> {
+        match value {
+            NirValue::ResultValue { value } => match operand_type(self, value)? {
+                // A non-`Result` operand answers with its own type, as the
+                // `strip_prefix(…).or_else(…)` this replaces did.
+                ParameterType::ResultOf(success) => Some(*success),
+                other => Some(other),
+            },
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
+                if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+                {
+                    return Some(ParameterType::Boolean);
+                }
+                if *op == BinaryOp::Concat {
+                    return Some(ParameterType::String);
+                }
+                let left = operand_type(self, left)?;
+                let right = operand_type(self, right)?;
+                Some(promoted_binary_type(*op, &left, &right))
+            }
+            NirValue::Unary { op, operand, .. } => {
+                if *op == UnaryOp::Not {
+                    Some(ParameterType::Boolean)
+                } else {
+                    operand_type(self, operand)
+                }
+            }
+            NirValue::MemberAccess { target, member } => {
+                let target_type = operand_type(self, target)?;
+                self.member_type_of(&target_type, member)
             }
             _ => None,
         }
@@ -1223,12 +1398,6 @@ impl CodeBuilder<'_> {
             NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
             NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
             NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
-            NirValue::ResultValue { value } => match self.static_type_name(value)? {
-                // A non-`Result` operand answers with its own type, as the
-                // `strip_prefix(…).or_else(…)` this replaces did.
-                ParameterType::ResultOf(success) => Some(*success),
-                other => Some(other),
-            },
             NirValue::ResultError { .. } => Some(error_type()),
             // bug-471: the success type, matching the `CallResult` arm below.
             NirValue::Checked { type_, .. } => Some(type_.clone()),
@@ -1265,33 +1434,26 @@ impl CodeBuilder<'_> {
                 "math.pow" | "math.atan2" => {
                     args.first().and_then(|arg| self.static_type_name(arg))
                 }
+                // bug-630: a thread read can take its handle inline
+                // (`thread::waitFor(thread::start(…))`) instead of through a
+                // binding. Without this arm the nested `start` had no static
+                // type, so `thread_runtime_return_type` could not reach the
+                // `ThreadHandle` match that yields the worker's `Out` — and the
+                // parent/worker direction split for `receive`/`accept` failed
+                // outright ("handle has unknown type"). Delegate to the one
+                // `thread.start` arm rather than copying its parent-kind
+                // derivation, so bug-479's `worker: false` correction stays in a
+                // single place.
+                "thread.start" => self.thread_runtime_return_type("thread.start", args),
                 _ => None,
             },
-            NirValue::Binary {
-                op, left, right, ..
-            } => {
-                if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
-                {
-                    return Some(ParameterType::Boolean);
-                }
-                if *op == BinaryOp::Concat {
-                    return Some(ParameterType::String);
-                }
-                let left = self.static_type_name(left)?;
-                let right = self.static_type_name(right)?;
-                Some(promoted_binary_type(*op, &left, &right))
-            }
-            NirValue::Unary { op, operand, .. } => {
-                if *op == UnaryOp::Not {
-                    Some(ParameterType::Boolean)
-                } else {
-                    self.static_type_name(operand)
-                }
-            }
-            NirValue::MemberAccess { target, member } => {
-                let target_type = self.static_type_name(target)?;
-                self.member_type_of(&target_type, member)
-            }
+            // The composite arms (`ResultValue`, `Binary`, `Unary`,
+            // `MemberAccess`) derive their type from their operands'; the
+            // derivation lives in one place (bug-681) and here recurses into this
+            // same query, so every answer is exactly what it was.
+            _ => self.static_composite_type(value, &|builder, operand| {
+                builder.static_type_name(operand)
+            }),
         }
     }
 
@@ -1369,6 +1531,19 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => {
+                // bug-672: a call to a module function has its declared return
+                // type. Builtin resolution alone left `typeName(pick(1))` unfoldable,
+                // a build error on valid source. A callable local of the same name
+                // shadows the function, as at the call itself (bug-569).
+                if let Some(local) = self.locals.get(target.as_str()) {
+                    return match &local.type_ {
+                        ParameterType::Func(_, returns, _) => Some((**returns).clone()),
+                        _ => None,
+                    };
+                }
+                if let Some(function) = self.functions.get(target.as_str()) {
+                    return Some(function.returns.clone());
+                }
                 let arg_types = args
                     .iter()
                     .map(|arg| self.static_type_name_for_fold(arg))
@@ -1517,7 +1692,9 @@ impl CodeBuilder<'_> {
             // Integer` — the two types in that message being different is the
             // whole clue.
             "thread.start" => match self.static_type_name(args.first()?)? {
-                ParameterType::Func(params, _, true) => match params.first()? {
+                // plan-156-E: the worker's view STATE is its own; the parent's handle
+                // is built from the channels alone.
+                ParameterType::Func(params, _, true) => match &params.first()?.without_state() {
                     ParameterType::ThreadHandle { msg, res, out, .. } => {
                         Some(ParameterType::thread_handle(
                             false,
@@ -1544,26 +1721,38 @@ impl CodeBuilder<'_> {
             // plan-111-E: the three thread planes are `ThreadHandle` fields, so
             // each is read off the variant rather than re-split from a spelling
             // by `parent_thread_output` / `thread_message` / `thread_resource`.
-            "thread.waitFor" => match self.static_type_name(args.first()?)? {
+            "thread.waitFor" => match self.thread_handle_arg_type(args)? {
                 ParameterType::ThreadHandle {
                     worker: false, out, ..
                 } => Some((*out).clone()),
                 _ => None,
             },
-            "thread.receive" => match self.static_type_name(args.first()?)? {
+            "thread.receive" => match self.thread_handle_arg_type(args)? {
                 ParameterType::ThreadHandle { msg, .. } => Some((*msg).clone()),
                 _ => None,
             },
             // The resource plane: accept yields the thread's resource type
             // (worker reads the inbound queue, parent reads the outbound queue).
             "thread.acceptResource" | "thread.readResource" => {
-                match self.static_type_name(args.first()?)? {
+                match self.thread_handle_arg_type(args)? {
                     ParameterType::ThreadHandle { res, .. } => Some((*res).clone()),
                     _ => None,
                 }
             }
             _ => None,
         }
+    }
+
+    /// The static type of a thread op's handle argument, `RES` marker and view `STATE`
+    /// stripped: a view read out of a `RES` record field or collection element is typed
+    /// `RES Thread OF …` (plan-156-D), a view may carry its own STATE (plan-156-E), and
+    /// every thread op answers by the `ThreadHandle` inside.
+    fn thread_handle_arg_type(&self, args: &[NirValue]) -> Option<ParameterType> {
+        let type_ = match self.static_type_name(args.first()?)? {
+            ParameterType::Res(inner) => *inner,
+            other => other,
+        };
+        Some(type_.without_state())
     }
 
     pub(crate) fn lower_match_compare(

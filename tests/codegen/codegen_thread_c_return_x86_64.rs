@@ -55,7 +55,7 @@ IMPORT thread\n\
 IMPORT thread_runtime_workers\n\
 \n\
 FUNC main AS Integer\n\
-\x20 LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", 1, 3)\n\
+\x20 RES t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", 1, 3)\n\
 \x20 LET first AS String = thread::receive(t, 1000)\n\
 \x20 io::print(first)\n\
 \x20 os::sleep(1)\n\
@@ -76,7 +76,7 @@ fn thread_project(name: &str) -> PathBuf {
             "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
              \"packages\":[{{\"name\":\"thread_runtime_workers\",\"version\":\"=0.1.0\",\
-             \"source\":\"file:packages/thread_runtime_workers.mfp\"}}],\
+             \"source\":\"file:packages/thread_runtime_workers.mfp\",\"direct\":true,\"requiredBy\":[]}}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n"
         ),
     )
@@ -133,8 +133,10 @@ fn thread_helpers_read_libc_call_results_from_c_return_on_x86_64() {
 
             // Walk forward over the instructions that could consume the status and
             // require any READ to name `rax`. A status consumer is a compare (`lhs`)
-            // or a store of the value (`src`); argument setup for the next call
-            // (`mov_imm`/`add_imm`) only WRITES `dst` and reads nothing.
+            // or a store of the value (`src`). The walk ends at the first instruction
+            // that rewrites `rdi`: from there on `rdi` holds that value, not anything
+            // the call left behind — argument setup for the next call reloads it and
+            // then adjusts it in place (`ldr rdi, …` + `add_imm rdi, rdi, …`).
             for next in insts.iter().skip(idx + 1).take(4) {
                 for field in ["lhs", "src"] {
                     let Some(reg) = next.get(field).and_then(|v| v.as_str()) else {
@@ -151,6 +153,9 @@ fn thread_helpers_read_libc_call_results_from_c_return_on_x86_64() {
                     if reg == "rax" {
                         status_reads += 1;
                     }
+                }
+                if next.get("dst").and_then(|v| v.as_str()) == Some("rdi") {
+                    break;
                 }
             }
         }

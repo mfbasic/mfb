@@ -12,7 +12,7 @@ TYPE Cursor
 END TYPE
 
 FUNC main AS Integer
-  LET t AS Thread OF RES fs::File TO Integer = thread::start(thread_file_workers::receiveFile, "p", 1, 1)
+  RES t AS Thread OF RES fs::File TO Integer = thread::start(thread_file_workers::receiveFile, "p", 1, 1)
   RES f AS fs::File STATE Cursor = fs::openFile("tests/syntax/threads/thread-transfer-state-mismatch/src/main.mfb")
   f.state.pos = 99
   thread::transfer(t, f)

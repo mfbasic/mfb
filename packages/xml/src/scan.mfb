@@ -1,0 +1,185 @@
+' ---------------------------------------------------------------------------
+' xml/scan.mfb — the byte-level input surface: BOM handling, XML 1.0 §2.11
+' line-end normalization, text slicing, and positioned failures.
+'
+' The reader works on the document's UTF-8 BYTES and slices whole runs back out
+' with `sliceText`, so a run of character data costs one allocation rather than one
+' per scalar. Every XML delimiter is ASCII, so a byte compare is exact and can
+' never split a multi-byte scalar; the bytes above 127 only ever occur inside
+' names, text and attribute values, which are validated as scalars by chars.mfb.
+'
+' Line and column are computed only when a failure is raised, by counting
+' scalars from the start of the input. Tracking them on every scalar would cost
+' the whole parse the price of the errors it does not hit.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' XML 1.0 §2.11: the two-character sequence #xD #xA and any #xD not followed by
+' #xA are both normalized to a single #xA "before parsing", so every later rule
+' -- and every position this package reports -- sees only #xA.
+'
+' Getting this wrong is not a formatting difference: a lone #xD left as content
+' would come back from a round trip as #xA and silently change the document's
+' text. The input is scanned for #xD first and returned untouched when there is
+' none, which is the overwhelmingly common case.
+PUBLIC FUNC normalizeLineEnds(bytes AS List OF Byte) AS List OF Byte
+  LET total AS Integer = len(bytes)
+  MUT hasCR AS Boolean = FALSE
+  MUT scan AS Integer = 0
+  DO WHILE scan < total
+    IF byteAt(bytes, scan) = B_CR THEN
+      hasCR = TRUE
+      EXIT DO
+    END IF
+    scan = scan + 1
+  LOOP
+  IF NOT hasCR THEN RETURN bytes
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  DO WHILE i < total
+    LET b AS Integer = byteAt(bytes, i)
+    IF b = B_CR THEN
+      out = collections::append(out, toByte(B_LF))
+      ' CRLF is ONE line end, so step over the LF the CR introduced.
+      IF byteAt(bytes, i + 1) = B_LF THEN
+        i = i + 1
+      END IF
+    ELSE
+      out = collections::append(out, toByte(b))
+    END IF
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' The offset the document proper starts at: past a leading UTF-8 BOM (EF BB BF)
+' when there is one. A BOM is the only thing allowed before the XML declaration.
+PUBLIC FUNC skipBom(bytes AS List OF Byte) AS Integer
+  IF byteAt(bytes, 0) = 239 AND byteAt(bytes, 1) = 187 AND byteAt(bytes, 2) = 191 THEN
+    RETURN 3
+  END IF
+  RETURN 0
+END FUNC
+
+' The text of bytes [from, stop). Callers slice on ASCII delimiters, so this
+' never splits a multi-byte scalar.
+PUBLIC FUNC sliceText(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS String
+  IF stop <= from THEN RETURN ""
+  RETURN toString(collections::mid(bytes, from, stop - from))
+END FUNC
+
+' "line L, column C" for a byte offset: 1-based, counted in SCALARS so a
+' multi-byte character advances the column by one, not by its byte length.
+PUBLIC FUNC positionText(bytes AS List OF Byte, offset AS Integer) AS String
+  MUT line AS Integer = 1
+  MUT column AS Integer = 1
+  MUT i AS Integer = 0
+  DO WHILE i < offset AND i < len(bytes)
+    IF byteAt(bytes, i) = B_LF THEN
+      line = line + 1
+      column = 1
+      i = i + 1
+    ELSE
+      LET sc AS Decoded = decodeAt(bytes, i)
+      column = column + 1
+      ' A sequence that does not decode still reports a size of 1, so this
+      ' always advances and the loop always terminates.
+      i = i + sc.size
+    END IF
+  LOOP
+  RETURN "line " & toString(line) & ", column " & toString(column)
+END FUNC
+
+' The positioned message every failure in this package carries.
+PUBLIC FUNC messageAt(bytes AS List OF Byte, offset AS Integer, what AS String) AS String
+  RETURN "xml: " & positionText(bytes, offset) & ": " & what
+END FUNC
+
+' Raise `what` as `code`, positioned at `offset`.
+PUBLIC FUNC failAt(bytes AS List OF Byte, offset AS Integer, code AS Integer, what AS String) AS Nothing
+  FAIL error(code, messageAt(bytes, offset, what))
+END FUNC
+
+' Decode the scalar at `offset`, refusing anything that is not valid UTF-8 or
+' not an XML §2.2 Char. Every scalar of the document passes through here --
+' including the ones inside comments, PIs, CDATA and attribute values -- because
+' §2.2 constrains the whole document, not just its markup.
+PUBLIC FUNC requireScalar(bytes AS List OF Byte, offset AS Integer) AS Decoded
+  LET sc AS Decoded = decodeAt(bytes, offset)
+  IF sc.code < 0 THEN
+    failAt(bytes, offset, ERR_FORMAT, "the input is not valid UTF-8")
+  END IF
+  IF NOT isChar(sc.code) THEN
+    failAt(bytes, offset, ERR_FORMAT, "U+" & toString(sc.code) & " is not a character XML 1.0 allows")
+  END IF
+  RETURN sc
+END FUNC
+
+' Validate every scalar of [from, stop) as an XML Char. Used for the runs the
+' reader slices wholesale (text, comments, PI data, CDATA), which are otherwise
+' only ever compared byte-wise.
+PUBLIC FUNC requireChars(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Nothing
+  MUT i AS Integer = from
+  DO WHILE i < stop
+    LET sc AS Decoded = requireScalar(bytes, i)
+    i = i + sc.size
+  LOOP
+  RETURN NOTHING
+END FUNC
+
+' The offset just past the XML whitespace starting at `from`.
+PUBLIC FUNC skipSpace(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = from
+  DO WHILE i < stop AND isSpace(byteAt(bytes, i))
+    i = i + 1
+  LOOP
+  RETURN i
+END FUNC
+
+' TRUE when `needle` (ASCII) appears at `from`.
+PUBLIC FUNC matchAt(bytes AS List OF Byte, from AS Integer, needle AS String) AS Boolean
+  LET want AS List OF Byte = strings::toBytes(needle)
+  LET n AS Integer = len(want)
+  IF from < 0 OR from + n > len(bytes) THEN RETURN FALSE
+  MUT i AS Integer = 0
+  DO WHILE i < n
+    IF byteAt(bytes, from + i) <> toInt(collections::get(want, i)) THEN RETURN FALSE
+    i = i + 1
+  LOOP
+  RETURN TRUE
+END FUNC
+
+' The offset of the next occurrence of `needle` (ASCII) at or after `from`, or
+' -1. Used for the delimiters that close a whole run: `-->`, `?>`, `]]>`.
+PUBLIC FUNC findFrom(bytes AS List OF Byte, needle AS String, from AS Integer) AS Integer
+  LET want AS List OF Byte = strings::toBytes(needle)
+  LET n AS Integer = len(want)
+  LET total AS Integer = len(bytes)
+  LET firstByte AS Integer = toInt(collections::get(want, 0))
+  MUT i AS Integer = from
+  DO WHILE i + n <= total
+    IF byteAt(bytes, i) = firstByte THEN
+      IF matchAt(bytes, i, needle) THEN RETURN i
+    END IF
+    i = i + 1
+  LOOP
+  RETURN -1
+END FUNC
+
+' Scan an XML Name starting at `from`, returning the offset just past it, or
+' `from` when there is no Name there. Names are scanned scalar by scalar
+' because XML allows non-ASCII ones.
+PUBLIC FUNC scanName(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  IF from >= stop THEN RETURN from
+  LET first AS Decoded = requireScalar(bytes, from)
+  IF NOT isNameStartChar(first.code) THEN RETURN from
+  MUT i AS Integer = from + first.size
+  DO WHILE i < stop
+    LET sc AS Decoded = requireScalar(bytes, i)
+    IF NOT isNameChar(sc.code) THEN EXIT DO
+    i = i + sc.size
+  LOOP
+  RETURN i
+END FUNC

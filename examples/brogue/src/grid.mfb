@@ -1,0 +1,282 @@
+' grid — the Grid.c helpers the terrain generator uses (oracle/src/brogue/Grid.c).
+'
+' A C `short **grid` becomes a List OF Integer of DCOLS * DROWS cells, stored
+' column-major like the C array: cell (x, y) is element x * DROWS + y. A C
+' helper that mutates the grid it is passed returns the updated grid instead.
+'
+' The C flood fills recurse. Every one here fills an order-independent closure
+' (the set of cells reached does not depend on the order they are visited), so
+' each is written as a loop over an explicit stack of cells: same cells, same
+' values, and one in-place list instead of a copy per recursion level.
+
+IMPORT collections
+IMPORT math
+IMPORT strings
+
+' A map position (C `pos`). INVALID_POS is x = y = -1.
+PUBLIC TYPE Pos
+  x AS Integer
+  y AS Integer
+END TYPE
+
+' The best blob createBlobOnGrid found: its grid (1 inside the blob, 0
+' elsewhere) and its bounding box.
+PUBLIC TYPE Blob
+  grid AS List OF Integer
+  minX AS Integer
+  minY AS Integer
+  width AS Integer
+  height AS Integer
+END TYPE
+
+PUBLIC FUNC invalidPos() AS Pos
+  RETURN Pos[x := -1, y := -1]
+END FUNC
+
+' The list index of grid cell (x, y).
+PUBLIC FUNC gi(x AS Integer, y AS Integer) AS Integer
+  RETURN x * DROWS + y
+END FUNC
+
+PUBLIC FUNC coordinatesAreInMap(x AS Integer, y AS Integer) AS Boolean
+  RETURN x >= 0 AND x < DCOLS AND y >= 0 AND y < DROWS
+END FUNC
+
+' The x or y offset of direction dir (GlobalsBase.c nbDirs / cDirs).
+PUBLIC FUNC nbDx(dir AS Integer) AS Integer
+  RETURN collections::get([0, 0, -1, 1, -1, -1, 1, 1], dir)
+END FUNC
+
+PUBLIC FUNC nbDy(dir AS Integer) AS Integer
+  RETURN collections::get([-1, 1, 0, 0, -1, 1, -1, 1], dir)
+END FUNC
+
+PUBLIC FUNC cDx(dir AS Integer) AS Integer
+  RETURN collections::get([0, 1, 1, 1, 0, -1, -1, -1], dir)
+END FUNC
+
+PUBLIC FUNC cDy(dir AS Integer) AS Integer
+  RETURN collections::get([1, 1, 0, -1, -1, -1, 0, 1], dir)
+END FUNC
+
+' allocGrid + fillGrid: a grid with every cell set to value.
+PUBLIC FUNC filledGrid(value AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = []
+  FOR i = 0 TO DCOLS * DROWS - 1
+    grid = collections::append(grid, value)
+  NEXT
+  RETURN grid
+END FUNC
+
+PUBLIC FUNC gridAt(grid AS List OF Integer, x AS Integer, y AS Integer) AS Integer
+  RETURN collections::get(grid, gi(x, y))
+END FUNC
+
+PUBLIC FUNC findReplaceGrid(source AS List OF Integer, findValueMin AS Integer, findValueMax AS Integer, fillValue AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  FOR k = 0 TO DCOLS * DROWS - 1
+    LET v = collections::get(grid, k)
+    IF v >= findValueMin AND v <= findValueMax THEN grid = collections::set(grid, k, fillValue)
+  NEXT
+  RETURN grid
+END FUNC
+
+PUBLIC FUNC drawRectangleOnGrid(source AS List OF Integer, x AS Integer, y AS Integer, width AS Integer, height AS Integer, value AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  FOR i = x TO x + width - 1
+    FOR j = y TO y + height - 1
+      grid = collections::set(grid, gi(i, j), value)
+    NEXT
+  NEXT
+  RETURN grid
+END FUNC
+
+' The loop bounds are the C ones, max() and all: the scan runs to the far
+' edge of the grid, and only the circle test decides which cells change.
+PUBLIC FUNC drawCircleOnGrid(source AS List OF Integer, x AS Integer, y AS Integer, radius AS Integer, value AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  FOR i = math::max(0, x - radius - 1) TO math::max(DCOLS, x + radius) - 1
+    FOR j = math::max(0, y - radius - 1) TO math::max(DROWS, y + radius) - 1
+      IF (i - x) * (i - x) + (j - y) * (j - y) < radius * radius + radius THEN
+        grid = collections::set(grid, gi(i, j), value)
+      END IF
+    NEXT
+  NEXT
+  RETURN grid
+END FUNC
+
+PUBLIC FUNC validLocationCount(grid AS List OF Integer, validValue AS Integer) AS Integer
+  MUT count AS Integer = 0
+  FOR k = 0 TO DCOLS * DROWS - 1
+    IF collections::get(grid, k) = validValue THEN count = count + 1
+  NEXT
+  RETURN count
+END FUNC
+
+' A uniformly chosen cell holding validValue, or INVALID_POS if there is none.
+PUBLIC FUNC randomLocationInGrid(grid AS List OF Integer, validValue AS Integer) AS Pos
+  LET locationCount = validLocationCount(grid, validValue)
+  IF locationCount <= 0 THEN RETURN invalidPos()
+  MUT index AS Integer = randRange(0, locationCount - 1)
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      IF collections::get(grid, gi(i, j)) = validValue THEN
+        IF index = 0 THEN RETURN Pos[x := i, y := j]
+        index = index - 1
+      END IF
+    NEXT
+  NEXT
+  RETURN invalidPos()
+END FUNC
+
+' "ffffffttt" -> [FALSE, ..., TRUE]: a cellular-automaton rule, one entry per
+' live-neighbour count 0..8.
+FUNC ruleTable(rule AS String) AS List OF Boolean
+  MUT table AS List OF Boolean = []
+  FOR k = 0 TO 8
+    table = collections::append(table, strings::mid(rule, k, 1) = "t")
+  NEXT
+  RETURN table
+END FUNC
+
+FUNC cellularAutomataRound(source AS List OF Integer, birth AS List OF Boolean, survival AS List OF Boolean) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      MUT nbCount AS Integer = 0
+      FOR dir = 0 TO DIRECTION_COUNT - 1
+        LET newX = i + nbDx(dir)
+        LET newY = j + nbDy(dir)
+        IF coordinatesAreInMap(newX, newY) THEN
+          IF collections::get(source, gi(newX, newY)) <> 0 THEN nbCount = nbCount + 1
+        END IF
+      NEXT
+      LET alive = collections::get(source, gi(i, j)) <> 0
+      IF NOT alive AND collections::get(birth, nbCount) THEN
+        grid = collections::set(grid, gi(i, j), 1)
+      ELSEIF alive AND collections::get(survival, nbCount) THEN
+        ' survival
+      ELSE
+        grid = collections::set(grid, gi(i, j), 0)
+      END IF
+    NEXT
+  NEXT
+  RETURN grid
+END FUNC
+
+' Grid.c `fillContiguousRegion`: relabel the region of 1-cells containing
+' (x, y) as fillValue and count it. The C neighbour loop stops at the first
+' off-map neighbour (`break`, not `continue`), so a cell on the top edge never
+' spreads down, left or right from itself; that rule is kept.
+TYPE RegionFill
+  grid AS List OF Integer
+  count AS Integer
+END TYPE
+
+FUNC fillContiguousRegion(source AS List OF Integer, x AS Integer, y AS Integer, fillValue AS Integer) AS RegionFill
+  MUT grid AS List OF Integer = collections::set(source, gi(x, y), fillValue)
+  MUT stack AS List OF Integer = [gi(x, y)]
+  MUT count AS Integer = 1
+  DO WHILE len(stack) > 0
+    LET cell = collections::get(stack, len(stack) - 1)
+    stack = collections::removeAt(stack, len(stack) - 1)
+    LET cx = cell / DROWS
+    LET cy = cell MOD DROWS
+    FOR dir = 0 TO 3
+      LET newX = cx + nbDx(dir)
+      LET newY = cy + nbDy(dir)
+      IF NOT coordinatesAreInMap(newX, newY) THEN EXIT FOR
+      IF collections::get(grid, gi(newX, newY)) = 1 THEN
+        grid = collections::set(grid, gi(newX, newY), fillValue)
+        count = count + 1
+        stack = collections::append(stack, gi(newX, newY))
+      END IF
+    NEXT
+  LOOP
+  RETURN RegionFill[grid := grid, count := count]
+END FUNC
+
+' Grid.c `createBlobOnGrid`: seed noise, run the automaton, and keep the
+' largest blob; retry until it is at least minBlobWidth by minBlobHeight.
+PUBLIC FUNC createBlobOnGrid(roundCount AS Integer, minBlobWidth AS Integer, minBlobHeight AS Integer, maxBlobWidth AS Integer, maxBlobHeight AS Integer, percentSeeded AS Integer, birthParameters AS String, survivalParameters AS String) AS Blob
+  LET birth = ruleTable(birthParameters)
+  LET survival = ruleTable(survivalParameters)
+  MUT grid AS List OF Integer = []
+  MUT topBlobNumber AS Integer = 0
+  MUT topBlobMinX AS Integer = 0
+  MUT topBlobMinY AS Integer = 0
+  MUT blobWidth AS Integer = 0
+  MUT blobHeight AS Integer = 0
+  DO
+    grid = filledGrid(0)
+    FOR i = 0 TO maxBlobWidth - 1
+      FOR j = 0 TO maxBlobHeight - 1
+        IF randPercent(percentSeeded) THEN grid = collections::set(grid, gi(i, j), 1)
+      NEXT
+    NEXT
+    FOR k = 1 TO roundCount
+      grid = cellularAutomataRound(grid, birth, survival)
+    NEXT
+
+    MUT topBlobSize AS Integer = 0
+    topBlobNumber = 0
+    topBlobMinX = maxBlobWidth
+    MUT topBlobMaxX AS Integer = 0
+    topBlobMinY = maxBlobHeight
+    MUT topBlobMaxY AS Integer = 0
+
+    MUT blobNumber AS Integer = 2
+    FOR i = 0 TO DCOLS - 1
+      FOR j = 0 TO DROWS - 1
+        IF collections::get(grid, gi(i, j)) = 1 THEN
+          LET filled = fillContiguousRegion(grid, i, j, blobNumber)
+          grid = filled.grid
+          IF filled.count > topBlobSize THEN
+            topBlobSize = filled.count
+            topBlobNumber = blobNumber
+          END IF
+          blobNumber = blobNumber + 1
+        END IF
+      NEXT
+    NEXT
+
+    FOR i = 0 TO DCOLS - 1
+      MUT found AS Boolean = FALSE
+      FOR j = 0 TO DROWS - 1
+        IF collections::get(grid, gi(i, j)) = topBlobNumber THEN
+          found = TRUE
+          EXIT FOR
+        END IF
+      NEXT
+      IF found THEN
+        IF i < topBlobMinX THEN topBlobMinX = i
+        IF i > topBlobMaxX THEN topBlobMaxX = i
+      END IF
+    NEXT
+    FOR j = 0 TO DROWS - 1
+      MUT found AS Boolean = FALSE
+      FOR i = 0 TO DCOLS - 1
+        IF collections::get(grid, gi(i, j)) = topBlobNumber THEN
+          found = TRUE
+          EXIT FOR
+        END IF
+      NEXT
+      IF found THEN
+        IF j < topBlobMinY THEN topBlobMinY = j
+        IF j > topBlobMaxY THEN topBlobMaxY = j
+      END IF
+    NEXT
+
+    blobWidth = (topBlobMaxX - topBlobMinX) + 1
+    blobHeight = (topBlobMaxY - topBlobMinY) + 1
+  LOOP UNTIL NOT (blobWidth < minBlobWidth OR blobHeight < minBlobHeight OR topBlobNumber = 0)
+
+  FOR k = 0 TO DCOLS * DROWS - 1
+    IF collections::get(grid, k) = topBlobNumber THEN
+      grid = collections::set(grid, k, 1)
+    ELSE
+      grid = collections::set(grid, k, 0)
+    END IF
+  NEXT
+  RETURN Blob[grid := grid, minX := topBlobMinX, minY := topBlobMinY, width := blobWidth, height := blobHeight]
+END FUNC

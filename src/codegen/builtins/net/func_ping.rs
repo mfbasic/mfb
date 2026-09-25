@@ -178,7 +178,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     super::opt("size", SIZE_DESC, ParameterType::Integer),
                 ],
                 return_type: ret(),
-                errors: vec![],
+                errors: vec!["ErrAddressInvalid", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory"],
                 body: super::native_body(lower_ping, &[]),
             },
             Implementation {
@@ -194,7 +194,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     super::opt("size", SIZE_DESC, ParameterType::Integer),
                 ],
                 return_type: ret(),
-                errors: vec![],
+                errors: vec!["ErrAddressInvalid", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory"],
                 body: super::native_body(lower_ping, &["pingAddr"]),
             },
         ],

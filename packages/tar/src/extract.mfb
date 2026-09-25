@@ -1,0 +1,145 @@
+' ---------------------------------------------------------------------------
+' tar/extract.mfb — writing an archive's contents to disk.
+'
+' The same rules as `packages/zip`'s extractor, for the same reason: an archive
+' is untrusted input, and an entry named `../../etc/authorized_keys` is a decades
+' old attack that still works against careless extractors. Every entry is
+' validated before any byte is written, and the containment check is made
+' against the DISK -- `fs::isWithin` resolves `.`, `..` and symlinks for real --
+' rather than against the name alone.
+'
+' Tar adds one problem zip does not have: it can contain symbolic and hard link
+' entries, and `fs` has no way to create either
+' (`grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs | grep -i
+' link` finds nothing). An archive holding one is refused in the pre-pass, with
+' `errorCode::ErrUnsupported`, before anything is written.
+'
+' Skipping links instead would be worse than refusing. The caller would get a
+' directory that looks complete and is not: a program following what should be a
+' symlink finds nothing there, and a build that depends on one fails somewhere
+' far away from the extraction that caused it. Refusing says so at the point the
+' information is available.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+' How much of an entry is held in memory at once when copying its data.
+PRIVATE LET COPY_CHUNK AS Integer = 1048576
+
+FUNC extractArchive(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Integer
+  IF NOT fs::directoryExists(directory) THEN
+    FAIL error(errorCode::ErrNotFound, "tar: no directory named \"" & directory & "\"")
+  END IF
+
+  ' Pre-pass: validate everything before writing anything.
+  MUT total AS Integer = 0
+  FOR EACH entry IN archive.entries
+    IF entry.kind = KindSymlink OR entry.kind = KindHardlink THEN
+      FAIL error(errorCode::ErrUnsupported, "tar: entry \"" & entry.name & "\" is a link, which this package cannot create")
+    END IF
+    IF entry.kind = KindOther THEN
+      FAIL error(errorCode::ErrUnsupported, "tar: entry \"" & entry.name & "\" is not a file or a directory")
+    END IF
+    requireExtractableName(entry.name, directory)
+    total = total + entry.size
+    IF total > maxTotalBytes THEN
+      FAIL error(errorCode::ErrTooLarge, "tar: extracting would write more than the " & toString(maxTotalBytes) & "-byte limit")
+    END IF
+  NEXT
+
+  MUT written AS Integer = 0
+  FOR EACH entry IN archive.entries
+    LET target AS String = fs::pathJoin([directory, entry.name])
+    IF entry.isDirectory THEN
+      fs::createDirectories(target)
+    ELSE
+      LET parent AS String = fs::pathDirName(target)
+      fs::createDirectories(parent)
+      ' Re-check after creating the parent: a symlink already on disk could
+      ' make a name that passed the pre-pass resolve somewhere else now.
+      IF NOT fs::isWithin(directory, deepestExisting(parent)) THEN
+        FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & entry.name & "\"")
+      END IF
+      copyEntry(archive, entry, target)
+      written = written + 1
+    END IF
+  NEXT
+  RETURN written
+END FUNC
+
+' Copy one entry's data in bounded pieces.
+'
+' Tar records no per-entry checksum -- only the header has one, and it covers
+' the header -- so there is nothing to verify here. That is a property of the
+' format, not an omission: a tar reader cannot tell you whether an entry's
+' contents were corrupted, which is worth knowing before trusting one.
+PRIVATE SUB copyEntry(archive AS Archive, entry AS Entry, target AS String)
+  RES out AS fs::File = fs::open(target, "write")
+  MUT copied AS Integer = 0
+  WHILE copied < entry.size
+    MUT chunk AS Integer = COPY_CHUNK
+    IF entry.size - copied < chunk THEN
+      chunk = entry.size - copied
+    END IF
+    LET piece AS List OF Byte = readAt(archive.source, entry.dataOffset + copied, chunk)
+    fs::writeAllBytes(out, piece)
+    copied = copied + chunk
+  END WHILE
+  fs::close(out)
+END SUB
+
+' plan-139-B §4.3 rules 1-4.
+PRIVATE SUB requireExtractableName(name AS String, directory AS String)
+  IF len(name) = 0 THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
+  END IF
+  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  IF looksLikeDrive(name) THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH part IN strings::split(fs::pathNormalize(name), "/")
+    IF part = ".." THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  ' `fs::isWithin` resolves symlinks for real, so it needs a path that EXISTS.
+  ' An extraction target does not exist yet, so the check is made against the
+  ' deepest ancestor that does -- which is exactly where a redirecting symlink
+  ' would have to live.
+  IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+  END IF
+END SUB
+
+PRIVATE FUNC deepestExisting(path AS String) AS String
+  MUT current AS String = path
+  WHILE NOT fs::exists(current)
+    LET parent AS String = fs::pathDirName(current)
+    IF parent = current OR len(parent) = 0 THEN
+      RETURN current
+    END IF
+    current = parent
+  END WHILE
+  RETURN current
+END FUNC
+
+PRIVATE FUNC looksLikeDrive(name AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(name)
+  IF len(scalars) < 2 THEN
+    RETURN FALSE
+  END IF
+  IF toInt(collections::get(scalars, 1)) <> 58 THEN
+    RETURN FALSE
+  END IF
+  RETURN strings::isLetter(collections::get(scalars, 0))
+END FUNC

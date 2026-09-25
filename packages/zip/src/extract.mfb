@@ -1,0 +1,187 @@
+' ---------------------------------------------------------------------------
+' zip/extract.mfb — writing an archive's contents to disk.
+'
+' This is the package's sharpest edge. Every other operation hands bytes back to
+' the caller, who decides what to do with them; this one creates files, and an
+' archive is untrusted input. The attack is decades old and still works against
+' careless extractors: an entry named `../../etc/authorized_keys`, or one whose
+' path runs through a symlink the archive itself just created, writes outside
+' the directory the user named.
+'
+' Two rules answer it.
+'
+' First, EVERY entry is validated before ANY byte is written. A hostile archive
+' therefore leaves the target directory exactly as it found it, rather than
+' half-extracting and then refusing -- which would hand an attacker a partial
+' write and a plausible error message.
+'
+' Second, the check is made against the DISK, not only against the name. A name
+' can look harmless and still resolve outside the directory, because a symlink
+' already on disk redirects it. `fs::isWithin` resolves `.`, `..` and symlinks
+' for real, so it catches what string inspection cannot.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT compress
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+' How much of an entry is held in memory at once when copying a stored entry.
+PRIVATE LET COPY_CHUNK AS Integer = 1048576
+
+' Extract every entry into `directory`, returning the number of files written.
+'
+' Directories are created but not counted.
+FUNC extractArchive(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Integer
+  IF NOT fs::directoryExists(directory) THEN
+    FAIL error(errorCode::ErrNotFound, "zip: no directory named \"" & directory & "\"")
+  END IF
+
+  ' Pre-pass: validate everything, and total the sizes, before writing anything.
+  MUT total AS Integer = 0
+  FOR EACH entry IN archive.entries
+    requireExtractableName(entry.name, directory)
+    total = total + entry.size
+    IF total > maxTotalBytes THEN
+      FAIL error(errorCode::ErrTooLarge, "zip: extracting would write more than the " & toString(maxTotalBytes) & "-byte limit")
+    END IF
+  NEXT
+
+  MUT written AS Integer = 0
+  FOR EACH entry IN archive.entries
+    LET target AS String = fs::pathJoin([directory, entry.name])
+    IF entry.isDirectory THEN
+      fs::createDirectories(target)
+    ELSE
+      LET parent AS String = fs::pathDirName(target)
+      fs::createDirectories(parent)
+      ' Re-check after creating the parent: a symlink already on disk could
+      ' make a name that passed the pre-pass resolve somewhere else now.
+      IF NOT fs::isWithin(directory, deepestExisting(parent)) THEN
+        FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & entry.name & "\"")
+      END IF
+      writeEntry(archive, entry, target)
+      written = written + 1
+    END IF
+  NEXT
+  RETURN written
+END FUNC
+
+' Write one entry's contents to `target`.
+'
+' A stored entry is copied in bounded chunks with a running CRC, so extracting a
+' 2 GiB entry from a file-backed archive holds one chunk rather than the entry.
+' A deflated entry has to be inflated whole -- `compress::` is a whole-buffer
+' codec -- so it goes through `read`, which applies the same CRC check.
+PRIVATE SUB writeEntry(archive AS Archive, entry AS Entry, target AS String)
+  IF entry.method = 0 THEN
+    copyStored(archive, entry, target)
+  ELSE
+    LET data AS List OF Byte = readEntry(archive, entry, entry.size)
+    fs::writeBytes(target, data)
+  END IF
+END SUB
+
+PRIVATE SUB copyStored(archive AS Archive, entry AS Entry, target AS String)
+  LET dataOffset AS Integer = storedDataOffset(archive, entry)
+  RES out AS fs::File = fs::open(target, "write")
+  MUT copied AS Integer = 0
+  MUT running AS Integer = compress::crc32([])
+  MUT failure AS String = ""
+  WHILE copied < entry.size
+    MUT chunk AS Integer = COPY_CHUNK
+    IF entry.size - copied < chunk THEN
+      chunk = entry.size - copied
+    END IF
+    LET piece AS List OF Byte = readAt(archive.source, dataOffset + copied, chunk)
+    fs::writeAllBytes(out, piece)
+    running = compress::crc32(piece, running)
+    copied = copied + chunk
+  END WHILE
+  fs::close(out)
+
+  IF running <> entry.crc THEN
+    ' Leave nothing behind that failed its own checksum.
+    fs::deleteFile(target)
+    FAIL error(ErrorChecksum, "zip: entry \"" & entry.name & "\" failed its CRC-32 check")
+  END IF
+END SUB
+
+' Where a stored entry's data begins, verified against its local header.
+PRIVATE FUNC storedDataOffset(archive AS Archive, entry AS Entry) AS Integer
+  LET header AS List OF Byte = readAt(archive.source, entry.headerOffset, 30)
+  IF u32le(header, 0) <> 67324752 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has no local header signature")
+  END IF
+  IF u16le(header, 6) MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" is encrypted")
+  END IF
+  LET dataOffset AS Integer = entry.headerOffset + 30 + u16le(header, 26) + u16le(header, 28)
+  IF dataOffset + entry.size > sizeOf(archive.source) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" runs past the end of the archive")
+  END IF
+  RETURN dataOffset
+END FUNC
+
+' plan-139-B §4.3 rules 1-4: the name must be safe on its own terms, and must
+' still land inside `directory` once the disk has had its say.
+PRIVATE SUB requireExtractableName(name AS String, directory AS String)
+  IF len(name) = 0 THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"\"")
+  END IF
+  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  IF looksLikeDrive(name) THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH part IN strings::split(fs::pathNormalize(name), "/")
+    IF part = ".." THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+  ' The rule the string checks cannot enforce: resolve it against the disk.
+  '
+  ' `fs::isWithin` resolves symlinks for real, which means it needs a path that
+  ' EXISTS -- on a path that does not it raises `ErrNotFound`. The target of an
+  ' extraction does not exist yet, by definition, so the check is made against
+  ' the deepest ancestor that does. That is not a weaker check: a symlink can
+  ' only redirect a path if it is already on disk, so the deepest existing
+  ' ancestor is exactly where such a redirect would have to live.
+  IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+END SUB
+
+' The longest prefix of `path` that exists on disk.
+'
+' Terminates: the extraction directory itself exists, and every path passed here
+' is beneath it.
+PRIVATE FUNC deepestExisting(path AS String) AS String
+  MUT current AS String = path
+  WHILE NOT fs::exists(current)
+    LET parent AS String = fs::pathDirName(current)
+    IF parent = current OR len(parent) = 0 THEN
+      RETURN current
+    END IF
+    current = parent
+  END WHILE
+  RETURN current
+END FUNC
+
+PRIVATE FUNC looksLikeDrive(name AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(name)
+  IF len(scalars) < 2 THEN
+    RETURN FALSE
+  END IF
+  IF toInt(collections::get(scalars, 1)) <> 58 THEN
+    RETURN FALSE
+  END IF
+  RETURN strings::isLetter(collections::get(scalars, 0))
+END FUNC

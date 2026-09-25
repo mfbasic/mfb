@@ -1,0 +1,32 @@
+IMPORT io
+IMPORT thread
+
+' Each view of a thread carries its own STATE: the parent declares its view's on
+' the binding, the worker its view's in the entry signature. The two are
+' independent — different types here — and neither side ever sees the other's.
+
+TYPE P
+  n AS Integer
+END TYPE
+
+TYPE W
+  n AS Integer
+  label AS String
+END TYPE
+
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer
+  worker.state.n = n * 2
+  worker.state.label = "doubled"
+  IF worker.state.label <> "doubled" THEN RETURN -1
+  RETURN worker.state.n
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Integer TO Integer STATE P = thread::start(work, 5)
+  io::print("parent starts at " & toString(t.state.n))
+  t.state.n = 7
+  io::print("parent " & toString(t.state.n))
+  io::print("worker " & toString(thread::waitFor(t)))
+  io::print("parent still " & toString(t.state.n))
+  RETURN 0
+END FUNC

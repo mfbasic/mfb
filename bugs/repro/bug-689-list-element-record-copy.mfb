@@ -1,0 +1,195 @@
+' bug-689 repro: `collections::get` of a RECORD element copies the whole element
+' into a fresh arena block on every call - even when the caller only reads one
+' scalar field, and even when the container is an immutable LET. And there is no
+' in-place site for the `get -> WITH -> set` element update, so updating one
+' field of element i moves the whole element out and back.
+'
+' Copy into a scratch project (`mfb init /tmp/p`, replace src/main.mfb), then
+'   mfb build --debug /tmp/p
+'   for v in A B C D E F G; do V=$v /tmp/p/build/p.out 2>&1 | grep arena.0.alloc_calls; done
+'
+' 3200 elements x 2000 frames = 6,400,000 inner iterations per variant.
+' A (parallel lists) and D (WITH on one record local) allocate a constant
+' handful; every variant that calls `get` on a record element allocates once
+' per iteration.
+
+IMPORT io
+IMPORT os
+IMPORT collections
+
+TYPE Dot
+  lon AS Float
+  age AS Integer
+END TYPE
+
+TYPE Particle
+  lon AS Float
+  age AS Integer
+  trail AS List OF Float
+END TYPE
+
+FUNC n AS Integer
+  RETURN 3200
+END FUNC
+
+FUNC tl AS Integer
+  RETURN 12
+END FUNC
+
+FUNC frames AS Integer
+  RETURN 2000
+END FUNC
+
+' A: parallel lists (what wind does)
+SUB runParallel()
+  MUT lon AS List OF Float = []
+  MUT age AS List OF Integer = []
+  MUT trail AS List OF Float = []
+  FOR i = 1 TO n()
+    lon = collections::append(lon, 0.0)
+    age = collections::append(age, 0)
+    FOR k = 1 TO tl()
+      trail = collections::append(trail, 0.0)
+    NEXT
+  NEXT
+  MUT head AS Integer = 0
+  FOR f = 1 TO frames()
+    head = (head + 1) MOD tl()
+    FOR i = 0 TO n() - 1
+      LET x AS Float = collections::get(lon, i) + 0.5
+      lon = collections::set(lon, i, x)
+      age = collections::set(age, i, collections::get(age, i) + 1)
+      trail = collections::set(trail, i * tl() + head, x)
+    NEXT
+  NEXT
+  io::print(toString(collections::get(trail, 5)))
+END SUB
+
+' B: List OF Particle, element field update
+SUB runRecords()
+  MUT ps AS List OF Particle = []
+  FOR i = 1 TO n()
+    MUT t AS List OF Float = []
+    FOR k = 1 TO tl()
+      t = collections::append(t, 0.0)
+    NEXT
+    ps = collections::append(ps, Particle[lon := 0.0, age := 0, trail := t])
+  NEXT
+  MUT head AS Integer = 0
+  FOR f = 1 TO frames()
+    head = (head + 1) MOD tl()
+    FOR i = 0 TO n() - 1
+      MUT p AS Particle = collections::get(ps, i)
+      LET x AS Float = p.lon + 0.5
+      p = WITH p { lon := x, age := p.age + 1, trail := collections::set(p.trail, head, x) }
+      ps = collections::set(ps, i, p)
+    NEXT
+  NEXT
+  io::print(toString(collections::get(collections::get(ps, 0).trail, 5)))
+END SUB
+
+
+' C: get + set back, no WITH
+SUB runGetSet()
+  MUT ps AS List OF Particle = []
+  FOR i = 1 TO n()
+    MUT t AS List OF Float = []
+    FOR k = 1 TO tl()
+      t = collections::append(t, 0.0)
+    NEXT
+    ps = collections::append(ps, Particle[lon := 0.0, age := 0, trail := t])
+  NEXT
+  FOR f = 1 TO frames()
+    FOR i = 0 TO n() - 1
+      LET p AS Particle = collections::get(ps, i)
+      ps = collections::set(ps, i, p)
+    NEXT
+  NEXT
+  io::print(toString(len(ps)))
+END SUB
+
+' D: WITH on one record local only
+SUB runWithOnly()
+  MUT t AS List OF Float = []
+  FOR k = 1 TO tl()
+    t = collections::append(t, 0.0)
+  NEXT
+  MUT p AS Particle = Particle[lon := 0.0, age := 0, trail := t]
+  MUT head AS Integer = 0
+  FOR f = 1 TO frames() * n()
+    head = (head + 1) MOD tl()
+    LET x AS Float = p.lon + 0.5
+    p = WITH p { lon := x, age := p.age + 1, trail := collections::set(p.trail, head, x) }
+  NEXT
+  io::print(toString(p.lon))
+END SUB
+
+' E: read-only get of a field
+SUB runGetOnly()
+  MUT ps AS List OF Particle = []
+  FOR i = 1 TO n()
+    MUT t AS List OF Float = []
+    FOR k = 1 TO tl()
+      t = collections::append(t, 0.0)
+    NEXT
+    ps = collections::append(ps, Particle[lon := 0.0, age := 0, trail := t])
+  NEXT
+  MUT sum AS Float = 0.0
+  FOR f = 1 TO frames()
+    FOR i = 0 TO n() - 1
+      sum = sum + collections::get(ps, i).lon
+    NEXT
+  NEXT
+  io::print(toString(sum))
+END SUB
+
+' F: scalar-only record, field read
+SUB runScalarRec()
+  MUT ds AS List OF Dot = []
+  FOR i = 1 TO n()
+    ds = collections::append(ds, Dot[lon := 1.0, age := 0])
+  NEXT
+  MUT sum AS Float = 0.0
+  FOR f = 1 TO frames()
+    FOR i = 0 TO n() - 1
+      sum = sum + collections::get(ds, i).lon
+    NEXT
+  NEXT
+  io::print(toString(sum))
+END SUB
+
+' G: LET-bound immutable list, field read via LET binding
+SUB runImmutable()
+  MUT b AS List OF Particle = []
+  FOR i = 1 TO n()
+    b = collections::append(b, Particle[lon := 1.0, age := 0, trail := [0.0, 0.0]])
+  NEXT
+  LET ps AS List OF Particle = b
+  MUT sum AS Float = 0.0
+  FOR f = 1 TO frames()
+    FOR i = 0 TO n() - 1
+      LET p AS Particle = collections::get(ps, i)
+      sum = sum + p.lon
+    NEXT
+  NEXT
+  io::print(toString(sum))
+END SUB
+
+SUB main()
+  LET v AS String = os::getEnvOr("V", "A")
+  IF v = "A" THEN
+    runParallel()
+  ELSEIF v = "B" THEN
+    runRecords()
+  ELSEIF v = "C" THEN
+    runGetSet()
+  ELSEIF v = "D" THEN
+    runWithOnly()
+  ELSEIF v = "F" THEN
+    runScalarRec()
+  ELSEIF v = "G" THEN
+    runImmutable()
+  ELSE
+    runGetOnly()
+  END IF
+END SUB

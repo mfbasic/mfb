@@ -1,0 +1,89 @@
+' ---------------------------------------------------------------------------
+' zip/source.mfb — the one seam every parser in this package reads bytes
+' through.
+'
+' An archive is either a `List OF Byte` already in memory or an open
+' `fs::File`. Everything above this file — the end-of-central-directory scan,
+' the central directory parse, the local header parse, the entry read — is
+' written against `readAt` and `sizeOf` and never against either concrete
+' source. That is what makes "the file form and the memory form produce
+' identical results" true by construction rather than by two parsers that
+' happen to agree today.
+'
+' The file branch never reads the whole file. `fs::readBytesAt` reads exactly
+' the requested window and leaves the handle's read position where it found it
+' (`mfb man fs readBytesAt`), so an `Archive` that aliases a caller's `fs::File`
+' neither consumes it nor disturbs a reader sharing it.
+'
+' `readAt` bounds-checks against `sizeOf` before it reads. Callers are expected
+' to have checked already — every offset in a zip comes from the archive's own
+' untrusted bytes, so the parsers check before they trust — and this is the
+' backstop that turns a missed check into a refused archive instead of a read
+' past the end of a file.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+
+' An archive's bytes, already in memory.
+'
+' Internal — use `open`. It is exported only because `Archive` has a field of
+' this type, and an exported record's field type must be nameable by importers.
+EXPORT TYPE MemorySource
+  bytes AS List OF Byte
+END TYPE
+
+' An archive's bytes, in a file the caller has open.
+'
+' The handle belongs to the caller: this package never closes it. Closing it
+' while an `Archive` still refers to it makes later reads fail with
+' `errorCode::ErrResourceClosed`.
+'
+' Internal — use `open`.
+EXPORT TYPE FileSource
+  handle AS RES fs::File
+END TYPE
+
+' Where an archive's bytes come from.
+'
+' Internal — use `open`.
+EXPORT UNION Source
+  MemorySource
+  FileSource
+END UNION
+
+' How many bytes the archive holds.
+FUNC sizeOf(source AS Source) AS Integer
+  MATCH source
+    CASE MemorySource(m)
+      RETURN len(m.bytes)
+    CASE FileSource(f)
+      RETURN fs::size(f.handle)
+  END MATCH
+END FUNC
+
+' The `count` bytes at `offset`.
+'
+' Raises `errorCode::ErrInvalidFormat` when the window is not wholly inside the
+' archive — including the case where a file was truncated underneath an open
+' handle, which shows up as a short read.
+FUNC readAt(source AS Source, offset AS Integer, count AS Integer) AS List OF Byte
+  IF offset < 0 OR count < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: read of " & toString(count) & " bytes at " & toString(offset) & " is out of range")
+  END IF
+  LET total AS Integer = sizeOf(source)
+  IF offset + count > total THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: read of " & toString(count) & " bytes at " & toString(offset) & " runs past the end of a " & toString(total) & "-byte archive")
+  END IF
+  MATCH source
+    CASE MemorySource(m)
+      RETURN collections::mid(m.bytes, offset, count)
+    CASE FileSource(f)
+      LET got AS List OF Byte = fs::readBytesAt(f.handle, offset, count)
+      IF len(got) <> count THEN
+        FAIL error(errorCode::ErrInvalidFormat, "zip: file ended after " & toString(len(got)) & " of " & toString(count) & " bytes at " & toString(offset))
+      END IF
+      RETURN got
+  END MATCH
+END FUNC

@@ -1,0 +1,145 @@
+' Dungeon - a nethack-style dungeon of rooms and halls, drawn isometrically
+' from tiles.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/dungeon
+'   open examples/dungeon/build/dungeon.app        (macOS)
+'
+' Controls:
+'   w a s d   move up-right, up-left, down-left, down-right on the screen
+'   q         rotate the view counterclockwise
+'   e         rotate the view clockwise
+'   esc       quit
+'
+' The program is in four files:
+'   map.mfb        the map format, the four directions, movement, validity
+'   generate.mfb   generateDungeon(seed): rooms, halls, doors and props
+'   render.mfb     the view, the tiles, and the scene drawn from a map
+'   main.mfb       reading keys, and the loop that draws and moves
+
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+' ---------------------------------------------------------------------------
+' Input
+' ---------------------------------------------------------------------------
+
+FUNC getChar AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' One key press. A lone escape byte is the Esc key; an escape followed by more
+' input is a key sequence, which is read off and reported as "" so it does
+' nothing. "EOF" means the window closed.
+FUNC readKey AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c <> "\u{1B}" THEN RETURN c
+  IF NOT ready(30) THEN RETURN "ESC"
+  DO WHILE ready(0)
+    LET rest AS String = getChar()
+    IF rest = "" THEN RETURN "EOF"
+  LOOP
+  RETURN ""
+END FUNC
+
+' What a key press means. Move carries a view direction, not a map one: w is
+' up-right, d down-right, s down-left and a up-left on the screen, whichever
+' way the view is turned, so main turns it through mapDirection. Turn carries
+' quarter turns clockwise, so -1 is counterclockwise. Quit and Ignore carry
+' nothing: they are named cases, not an absent direction.
+TYPE Move
+  dir AS Facing
+END TYPE
+
+TYPE Turn
+  quarters AS Integer
+END TYPE
+
+TYPE Quit
+END TYPE
+
+TYPE Ignore
+END TYPE
+
+UNION Command
+  Move
+  Turn
+  Quit
+  Ignore
+END UNION
+
+' The command a key press stands for. Every key the program reads is one of
+' the four, so adding a key is a compile error at main's MATCH until it is
+' handled there.
+FUNC commandFor(key AS String) AS Command
+  MATCH key
+    CASE "w", "W" : RETURN Move[Facing.North]
+    CASE "d", "D" : RETURN Move[Facing.East]
+    CASE "s", "S" : RETURN Move[Facing.South]
+    CASE "a", "A" : RETURN Move[Facing.West]
+    CASE "q", "Q" : RETURN Turn[-1]
+    CASE "e", "E" : RETURN Turn[1]
+    CASE "ESC", "EOF" : RETURN Quit[]
+    CASE ELSE : RETURN Ignore[]
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Main loop
+' ---------------------------------------------------------------------------
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+
+  LET m AS DungeonMap = generateDungeon(10)
+  LET tiles AS Map OF String TO RES canvas::Image = loadTiles(["stone", "stoneMissingTiles", "stoneWall", "stoneWallArchway", "stoneWallCorner", "barrel", "tableShort"]) TRAP(e)
+    io::printError("dungeon: cannot load the tiles: " & e.message)
+    RETURN 1
+  END TRAP
+
+  MUT px AS Integer = m.startX
+  MUT py AS Integer = m.startY
+  MUT turns AS Integer = 0
+  MUT redraw AS Boolean = TRUE
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    IF canvas::didResize() THEN redraw = TRUE
+    IF redraw THEN
+      canvas::present(sceneFor(m, tiles, viewFor(m, turns, canvas::getSize(), px, py), px, py))
+      redraw = FALSE
+    END IF
+
+    IF ready(16) THEN
+      MATCH commandFor(readKey())
+        CASE Move(mv)
+          LET dir AS Facing = mapDirection(mv.dir, turns)
+          IF canMove(m, px, py, dir) THEN
+            px = px + stepX(dir)
+            py = py + stepY(dir)
+            redraw = TRUE
+          END IF
+        CASE Turn(t)
+          ' turns stays in 0..3 and quarters is +/-1, so the sum is never
+          ' below -1 and one wrap is enough. facingOf needs two, taking any
+          ' Integer.
+          turns = (turns + t.quarters + 4) MOD 4
+          redraw = TRUE
+        CASE Quit : running = FALSE
+        CASE Ignore
+      END MATCH
+    END IF
+  LOOP
+  RETURN 0
+END FUNC

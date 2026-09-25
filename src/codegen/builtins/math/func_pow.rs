@@ -36,11 +36,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ),
         &[Float, Fixed],
         &[Float],
+        // bug-617: all four errors were declared on all three overloads; each form
+        // raises a strict subset. The `Float` path's only raise site is
+        // `emit_float_result_check` (ErrFloatInf / ErrFloatNaN) — it has no
+        // ErrOverflow. The `Fixed` path never leaves Q32.32, so it raises
+        // ErrOverflow and (via `emit_fixed_log`, for a fractional exponent on a
+        // non-positive base) ErrInvalidArgument, and no float-class error. The DESC
+        // prose already stated this split correctly; only the machine-readable list
+        // disagreed.
+        &[],
+        &["ErrInvalidArgument"],
         &[
-            "ErrFloatInf",
-            "ErrFloatNaN",
-            "ErrInvalidArgument",
-            "ErrOverflow",
+            (Float, &["ErrFloatInf", "ErrFloatNaN"]),
+            (Fixed, &["ErrInvalidArgument", "ErrOverflow"]),
         ],
         lower_math_pow,
         pkg,

@@ -1,0 +1,140 @@
+{
+  "project": "func_os_userHomePath_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 7 },
+    { "module": "io", "line": 8 },
+    { "module": "strings", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "code",
+      "line": 11,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 12 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 13,
+        "expression": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "identifier", "value": "p" }] },
+        "handler": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 14 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 15 }
+        ]
+      }, "line": 13 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "expected",
+      "line": 20,
+      "params": [
+      { "name": "home", "type": "String", "default": null, "line": 20 },
+      { "name": "winBase", "type": "String", "default": null, "line": 20 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 21,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "winBase" }, "line": 22 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "home" }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 27,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "winBase", "type": "String", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156h" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": "String", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "call", "callee": "expected", "arguments": [{ "kind": "string", "value": "/tmp/mfb156h" }, { "kind": "identifier", "value": "winBase" }] } }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156h/" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "right": { "kind": "call", "callee": "expected", "arguments": [{ "kind": "string", "value": "/" }, { "kind": "identifier", "value": "winBase" }] } }] }] }, "line": 36 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 38,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "string", "value": "a" }] }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "winBase" }, "right": { "kind": "string", "value": "/a" } } }] }] }, "line": 39 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "string", "value": "a" }] }, "right": { "kind": "string", "value": "/a" } }] }] }, "line": 41 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "r", "type": "String", "value": { "kind": "string", "value": "a" }, "line": 43 },
+      { "kind": "assignment", "name": "r", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "string", "value": "a" }] } }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156h" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "string", "value": "a/b" }] }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "string", "value": "/a/b" } } }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "string", "value": "/" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "a/../b" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "./x" }] }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": ".rc" }] }] }] }, "line": 53 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 55,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "..\\x" }] }, "right": { "kind": "number", "value": "77030002" } }] }] }, "line": 56 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "..\\x" }] }, "right": { "kind": "number", "value": "0" } }] }] }, "line": 58 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "HOME" }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "account", "type": "String", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.userHomePath", "arguments": [] }, "right": { "kind": "identifier", "value": "account" } }] }] }, "line": 64 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 65,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "account" }, "right": { "kind": "identifier", "value": "winBase" } }] }] }, "line": 66 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "account" }, { "kind": "string", "value": "/" }] }] }] }, "line": 68 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156h" }] }, "line": 70 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "k" }, "line": 72 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "string", "value": "/k" } } }] }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/other156" }] }, "line": 75 },
+      { "kind": "binding", "mutable": true, "name": "t", "type": "String", "value": { "kind": "string", "value": "k" }, "line": 76 },
+      { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "t" }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "expected", "arguments": [{ "kind": "string", "value": "/tmp/other156" }, { "kind": "identifier", "value": "winBase" }] }, "right": { "kind": "string", "value": "/k" } } }] }] }, "line": 78 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 79 }
+      ]
+    }
+    ]
+  }
+  ]
+}

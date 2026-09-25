@@ -268,17 +268,7 @@ fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>, vregs: &
         ins.push(abi::outgoing_stack_arg_store(abi::c_arg(n), n - 4));
     }
     let v8 = vregs.next();
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), OBJ_OFF), // this -> arg0
-        abi::load_u64(&v8, abi::stack_pointer(), OBJ_OFF),
-        abi::load_u64(&v8, &v8, 0),        // vtable
-        abi::load_u64(&v8, &v8, slot * 8), // method
-        abi::branch_link_register(&v8),
-        // The COM method's HRESULT returns in the C-return bank (`rax`), not the
-        // aligned bank (`rcx`) holding the stale `this` pointer — read it from
-        // `c_return(0)` (byte-identical on AArch64). See bug-452.
-        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
-    ]);
+    crate::codegen::os::ffi::emit_com_call(ins, OBJ_OFF, slot, &v8, abi::return_register());
 }
 
 /// Load `state->field` into the `OBJ_OFF` spill slot for the next `com_call`.

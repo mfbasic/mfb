@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(
             registry::resolve_call(
                 "audio.openOutput",
-                &strings(&["AudioDevice", "Integer", "Integer", "Integer"]),
+                &strings(&["audio.AudioDevice", "Integer", "Integer", "Integer"]),
                 true
             ),
             Some("audio.AudioOutput".to_string())

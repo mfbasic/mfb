@@ -320,7 +320,10 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_union_includes(&mut self) -> Vec<String> {
         let mut includes = Vec::new();
         loop {
-            if let Some(name) = self.parse_qualified_name("Expected a union name after INCLUDES.") {
+            // An included union may be a template instantiation
+            // (`INCLUDES Opt OF T`), so it is read by the one type grammar, as a
+            // union member is (bug-680).
+            if let Some(name) = self.parse_type_name() {
                 includes.push(name);
             }
             if !self.match_kind(TokenKind::Comma) {
@@ -416,13 +419,15 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {
         let line = self.peek().line;
-        let name = self.parse_qualified_name("Union member type must be a type name.")?;
-        // A union variant NAMES another declared type, so it is normalized like any
-        // other type reference: a qualified spelling maps to the declared id, and
-        // inside a built-in companion a bare sibling (`JsonBool` within `json`)
-        // picks up its package (bug-480 Phase 4b). `parse_qualified_name` does not
-        // normalize on its own -- it also serves function and constant references.
-        let name = self.normalize_qualified_type_name(name);
+        // A union variant NAMES another declared type, possibly a template
+        // instantiation (`Some OF T`, `Box OF Integer`), so it is read by the one
+        // type grammar every other type position uses (bug-680). The head of the
+        // path is normalized there like any other type reference: a qualified
+        // spelling maps to the declared id, and inside a built-in companion a
+        // bare sibling (`JsonBool` within `json`) picks up its package (bug-480
+        // Phase 4b). Whether the named type may be a union member at all is the
+        // verifier's call (`TYPE_UNION_MEMBER_REQUIRES_TYPE`), not the grammar's.
+        let name = self.parse_type_name()?;
         self.consume_statement_end("Expected end of statement after union member type.");
         Some(UnionVariant { name, line })
     }
@@ -463,7 +468,14 @@ impl<'a> FileParser<'a> {
             } else {
                 None
             };
-            let state_type = if resource {
+            // plan-156-E: a thread view is a resource, so its parameter may carry the
+            // view's STATE with or without the `RES` keyword — a resource parameter
+            // needs no `RES` — and the thread types are the ones the parser can tell
+            // apart by their spelling.
+            let thread_view = type_name.as_deref().is_some_and(|name| {
+                name.starts_with("Thread OF ") || name.starts_with("ThreadWorker OF ")
+            });
+            let state_type = if resource || thread_view {
                 self.parse_optional_state()
             } else {
                 None

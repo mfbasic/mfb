@@ -2,6 +2,6 @@ IMPORT thread
 IMPORT thread_import_worker
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(thread_import_worker::callImpPrint, "thread import package print")
+  RES t AS Thread OF String TO Integer = thread::start(thread_import_worker::callImpPrint, "thread import package print")
   RETURN thread::waitFor(t)
 END FUNC

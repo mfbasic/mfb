@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/threads/thread_transfer_self_invalid
+  12 | FUNC main AS Integer
+  13 |   RES t AS Thread OF Nothing RES (Thread OF Integer TO Integer) TO Integer = thread::start(boss, 1)
+  14 |   thread::transfer(t, t)
+     | ^
+tests/syntax/threads/thread_transfer_self_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.transfer` has argument type(s) (Thread OF RES Thread OF Integer TO Integer TO Integer, Thread OF RES Thread OF Integer TO Integer TO Integer), expected Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer.
+[exit 1]

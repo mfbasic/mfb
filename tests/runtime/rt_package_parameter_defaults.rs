@@ -43,11 +43,26 @@ const DEFLIB: Package<'static> = Package {
     manifest_extra: "",
 };
 
-fn package_entries(names: &[&str]) -> String {
+/// The `packages[]` entries for `names`. bug-628: each records `requiredBy` — the
+/// listed packages whose own `depends_on` names it.
+fn package_entries(names: &[&str], packages: &[Package<'_>]) -> String {
     names
         .iter()
         .map(|name| {
-            format!("{{\"name\":\"{name}\",\"version\":\"=0.1.0\",\"source\":\"file:../{name}\"}}")
+            let required_by: Vec<String> = names
+                .iter()
+                .filter(|other| {
+                    packages
+                        .iter()
+                        .any(|p| p.name == **other && p.depends_on.contains(name))
+                })
+                .map(|other| format!("\"{other}\""))
+                .collect();
+            format!(
+                "{{\"name\":\"{name}\",\"version\":\"=0.1.0\",\"source\":\"file:../{name}\",\
+                 \"direct\":true,\"requiredBy\":[{}]}}",
+                required_by.join(",")
+            )
         })
         .collect::<Vec<_>>()
         .join(",")
@@ -74,7 +89,7 @@ fn build_app(
                  \"packages\":[{}]}}\n",
                 package.name,
                 package.manifest_extra,
-                package_entries(package.depends_on)
+                package_entries(package.depends_on, packages)
             ),
         )
         .expect("write package manifest");
@@ -90,7 +105,7 @@ fn build_app(
              \"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\
              \"packages\":[{}],\
              \"entry\":\"main\",\"targets\":[\"native\"]}}\n",
-            package_entries(app_packages)
+            package_entries(app_packages, packages)
         ),
     )
     .expect("write app manifest");

@@ -13,8 +13,10 @@
 # two backends agree".
 #
 # Usage: scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--libc glibc|musl]
+#                                      [--target linux-x86_64|linux-aarch64]
 #
 #   --box <port>   ssh port of the target box (default 2228, Ubuntu x86_64 glibc).
+#   --target <t>   what to build for (default linux-x86_64). Box 2226 is linux-aarch64.
 #   --libc <l>     which AppImage to ship (default glibc). It must match the box:
 #                  musl's loader absorbs the glibc compat sonames, so shipping the
 #                  wrong one does not fail cleanly — box 2227 is musl.
@@ -36,6 +38,7 @@ MFB_EXE="${1:?usage: test-canvas-vulkan.sh <mfb-exe> [--box <port>]}"
 shift || true
 PORT=2228
 LIBC=glibc
+TARGET=linux-x86_64
 # Smaller than the default 900x640 in both axes, so a renderer that ignored the resize
 # and kept its old target would be caught by the frame length rather than only by the
 # pixels.
@@ -53,6 +56,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --box) PORT="$2"; shift 2 ;;
     --libc) LIBC="$2"; shift 2 ;;
+    --target) TARGET="$2"; shift 2 ;;
     --icd) ICD="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -219,7 +223,29 @@ SUB main()
   LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
   LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops]
   LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gPoly }]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri]
+  ' bug-484: pictures. Their texels ride the glyph region one packed RGBA word each, and
+  ' each block names its own slice -- so there are several, placed AFTER the text so their
+  ' slices start past the glyphs' (a base never written, or a cursor the two kinds do not
+  ' share, reads glyph coverage as colour). Nearest scaling of a 2x2, a translucent texel,
+  ' a tint, a transform, a clip and a fractional destination; all in the free corner
+  ' right of the cap arc and below the ellipse.
+  LET quadPx AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
+  LET stripPx AS List OF Byte = [toByte(255), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(128), toByte(0), toByte(255), toByte(255), toByte(255)]
+  RES quadImg AS canvas::Image = canvas::createImage(2, 2, quadPx)
+  RES stripImg AS canvas::Image = canvas::createImage(3, 1, stripPx)
+  LET picPlain AS canvas::DrawItem = canvas::Picture[x := 705.0, y := 510.0, w := 60.0, h := 60.0, image := quadImg, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET picStrip AS canvas::DrawItem = canvas::Picture[x := 775.0, y := 510.0, w := 90.0, h := 30.0, image := stripImg, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
+  LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
+  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 705.0, y := 578.0, w := 36.0, h := 60.0] }]
+  ' bug-484: a text run with a SPACE in it, early in the scene. A space has an empty
+  ' bitmap and draws nothing, but `__canvas_blockInstances` counts it as one instance
+  ' like every glyph -- so an emitter that skipped publishing its block shifted every
+  ' later draw one block along (the next item drawn under its neighbour's pipeline, the
+  ' last reading a block never written). "AAAA" above has no space, which is how that
+  ' stayed invisible here; Metal's picture scene is where it was found.
+  LET spaced AS canvas::DrawItem = canvas::Text[x := 470.0, y := 636.0, text := "A A", font := face, size := 20.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can
@@ -243,8 +269,8 @@ SUB main()
 END SUB
 MFB
 
-echo "--- building for linux-x86_64 ---"
-"$MFB_EXE" build --app --debug --target linux-x86_64 "$proj" >/dev/null
+echo "--- building for $TARGET ---"
+"$MFB_EXE" build --app --debug --target "$TARGET" "$proj" >/dev/null
 
 host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
@@ -337,6 +363,14 @@ esac
 case "$stats" in
   *gpuSelected=TRUE*) pass "MFB_CANVAS_GPU selected the GPU renderer" ;;
   *) fail "MFB_CANVAS_GPU did not select the GPU renderer" ;;
+esac
+# Selected is not taken. `__canvas_vulkanRenderable` declines a scene it cannot draw and
+# the frame falls back to software, and then every comparison below is the oracle against
+# itself and passes. Until bug-484 this scene was never checked for it; the group scene
+# further down always was.
+case "$stats" in
+  *gpuFrames=0*) fail "the main scene produced no GPU frame — the predicate declined it, so every pixel comparison below would be software against itself" ;;
+  *) pass "the main scene reached the GPU (gpuFrames non-zero)" ;;
 esac
 
 compare() {
@@ -492,7 +526,7 @@ fi
 #                                               is a surface rectangle, so the band is
 #                                               visible in the panel at the origin and
 #                                               clipped away in both translated copies
-echo "--- groups: building for linux-x86_64 ---"
+echo "--- groups: building for $TARGET ---"
 projg="$work/groups"
 mkdir -p "$projg/src"
 cp "$proj/fixture.ttf" "$projg/fixture.ttf"
@@ -505,11 +539,13 @@ if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
   exit 1
 fi
 
-"$MFB_EXE" build --app --debug --target linux-x86_64 "$projg" >/dev/null
+"$MFB_EXE" build --app --debug --target "$TARGET" "$projg" >/dev/null
 
 # The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
 # `Frame::load_png` would hand the Rust comparators.
-python3 - "tests/golden/canvas/groups.png" "$work/groups.rgba" <<'PY'
+#   png_to_rgba <png> <out.rgba>
+png_to_rgba() {
+python3 - "$1" "$2" <<'PY'
 import struct, sys, zlib
 
 raw = open(sys.argv[1], "rb").read()
@@ -553,6 +589,8 @@ for _ in range(height):
     prev = line
 open(sys.argv[2], "wb").write(bytes(out))
 PY
+}
+png_to_rgba "tests/golden/canvas/groups.png" "$work/groups.rgba"
 
 remoteg="$remote/groups"
 remote_ssh "$PORT" "$host" "mkdir -p $remoteg"
@@ -615,6 +653,78 @@ case "$verdict" in
     point and need it too. A white band visible in a TRANSLATED panel means the
     opposite mistake: the clip is a surface rectangle and must not move with its
     group." ;;
+esac
+
+# ---------------------------------------------------------------------------------
+# plan-154-C: `canvas::PolyLine` on the GPU, against the checked-in reference.
+#
+# Extracted from `tests/canvas/rt_canvas_golden.rs` for the same reason the group scene is:
+# the `POLYLINES` const that `polylines_match_their_reference_exactly` renders is the one
+# source of `polyline.png`. It carries round and butt zig-zags (the joins, and the butt
+# planes on the first and last live segments), a switch-back, a butt path with repeated
+# end points, per-point colours fading to transparent (the gradient lookup at the path
+# parameter), fewer colours than points, a two-point path, and the degenerate paths.
+echo "--- polylines: building for $TARGET ---"
+projp="$work/polylines"
+mkdir -p "$projp/src"
+sed 's/"name": "vkcanvas"/"name": "vkpolylines"/' "$proj/project.json" > "$projp/project.json"
+sed -n '/^const POLYLINES: &str = r#"/,/^"#;$/p' tests/canvas/rt_canvas_golden.rs \
+  | sed -e '1s/^const POLYLINES: &str = r#"//' -e '$d' > "$projp/src/main.mfb"
+if ! grep -q "canvas::PolyLine" "$projp/src/main.mfb"; then
+  fail "could not extract the POLYLINES scene from tests/canvas/rt_canvas_golden.rs — the const's shape changed"
+  exit 1
+fi
+"$MFB_EXE" build --app --debug --target "$TARGET" "$projp" >/dev/null
+png_to_rgba "tests/golden/canvas/polyline.png" "$work/polyline.rgba"
+
+remotep="$remote/polylines"
+remote_ssh "$PORT" "$host" "mkdir -p $remotep"
+remote_scp "$PORT" "$projp/build/vkpolylines-$LIBC.AppImage" "$host:$remotep/app.AppImage" >/dev/null
+
+echo "--- polylines: running on box $PORT ---"
+remote_ssh "$PORT" "$host" "
+  set -e
+  cd $remotep
+  ./app.AppImage --appimage-extract >/dev/null 2>&1
+  cd squashfs-root
+  bin=./usr/bin/vkpolylines
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remotep/sw.txt \
+    MFB_CANVAS_DUMP=$remotep/sw.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remotep/gpu.txt \
+    MFB_CANVAS_DUMP=$remotep/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
+"
+remote_scp "$PORT" "$host:$remotep/sw.rgba" "$work/psw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remotep/gpu.rgba" "$work/pgpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remotep/gpu.txt" "$work/pgpu.txt" >/dev/null
+
+pstats="$(tail -1 "$work/pgpu.txt")"
+echo "    $pstats"
+
+# A declined PolyLine frame is software against itself, so the frame count comes first.
+case "$pstats" in
+  *gpuFrames=0*) fail "the polyline scene produced no GPU frame — __canvas_vulkanRenderable declined it" ;;
+  *) pass "the polyline scene reached the GPU (gpuFrames non-zero)" ;;
+esac
+
+verdict="$(compare "$work/polyline.rgba" "$work/psw.rgba" 900)"
+case "$verdict" in
+  ok*)
+    if [ "$verdict" = "ok worst=0 differing=0.0000%" ]; then
+      pass "polylines: the software render reproduces tests/golden/canvas/polyline.png exactly"
+    else
+      fail "polylines: the software render is only NEAR the reference ($verdict) — the oracle must match it exactly"
+    fi
+    ;;
+  *) fail "polylines: the software render disagrees with tests/golden/canvas/polyline.png: $verdict" ;;
+esac
+
+verdict="$(compare "$work/polyline.rgba" "$work/pgpu.rgba" 900)"
+case "$verdict" in
+  ok*) pass "polylines: the Vulkan render matches tests/golden/canvas/polyline.png ($verdict)" ;;
+  *)   fail "polylines: the Vulkan render disagrees with the reference: $verdict
+    A butt end that domes is the first/last segment words (gradient.x/.y, whole
+    numbers); a colour step at a corner is the path parameter; a missing path is the
+    edge upload or the band reach (the radius slot)." ;;
 esac
 
 if [ "$rc_failures" -eq 0 ]; then

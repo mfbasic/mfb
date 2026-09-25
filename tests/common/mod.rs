@@ -410,13 +410,20 @@ fn run_bounded_command(
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn executable");
+    // Drain stdout while the child runs. Reading it only after exit deadlocks a
+    // child that writes more than the pipe buffer (~64 KB on macOS/Linux): its
+    // write blocks, it never exits, and the timeout below reports a "hang" that
+    // is the harness's own (found by bug-615's 88 KB corpus).
+    let mut pipe = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut stdout = String::new();
+        pipe.read_to_string(&mut stdout).ok();
+        stdout
+    });
     let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait().expect("try_wait") {
-            let mut stdout = String::new();
-            if let Some(mut pipe) = child.stdout.take() {
-                pipe.read_to_string(&mut stdout).ok();
-            }
+            let stdout = reader.join().expect("stdout reader");
             return (status, stdout);
         }
         if start.elapsed() > timeout {
@@ -580,6 +587,34 @@ pub fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
     child_stdin.write_all(stdin).expect("write stdin");
     drop(child_stdin);
     let output = child.wait_with_output().expect("wait for executable");
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
+/// Run `executable` with extra environment variables and empty stdin.
+///
+/// The env-driven test affordances (`MFB_WINAPP_INPUT`, `MFB_MOUSE_INJECT`) exist
+/// so a path that needs hardware — a keyboard, a mouse — can be exercised on a box
+/// that has neither, and over ssh. Driving them needs the child's environment, not
+/// its stdin, which is what separates this from [`run_with_stdin`].
+pub fn run_with_env(executable: &Path, env: &[(&str, &str)]) -> String {
+    let mut command = Command::new(executable);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        // Piped for the same reason `run_with_stdin` pipes it: an inherited fd 2
+        // is a tty under an interactive `cargo test`.
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run executable");
     assert!(
         output.status.success(),
         "program failed:\nstdout:\n{}\nstderr:\n{}",

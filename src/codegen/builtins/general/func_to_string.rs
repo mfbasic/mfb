@@ -22,6 +22,11 @@ to choose a different number of decimals: `toString(3.14159, toByte(2))` is
 
 `precision` is a `Byte`, so an `Integer` literal needs `toByte` around it.
 
+An **enum** value renders as its member's name, spelled exactly as it is
+written in the `ENUM`, without the type name: `toString(Color.Green)` is
+`"Green"`. When you want the type too, `typeName(c) & "." & toString(c)` gives
+`"Color.Green"`.
+
 `toString` never fails."#;
 
 const EX: &str = r#"Render several types, and note what a `Float` does by default:
@@ -61,6 +66,29 @@ prints:
 
 ```
 found 3 items
+```
+
+Name an enum member:
+
+```
+IMPORT io
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+SUB main()
+  LET c AS Color = Color.Green
+  io::print(toString(c))
+  io::print(typeName(c) & "." & toString(c))
+END SUB
+```
+
+prints:
+
+```
+Green
+Color.Green
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -73,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             req(
                 "value",
                 ParameterType::named("Scalar"),
-                "The value to render. A `Float` gets two decimal places unless `precision` says otherwise.",
+                "The value to render. A `Float` gets two decimal places unless `precision` says otherwise; an enum value gives its member's name.",
             ),
             opt(
                 "precision",

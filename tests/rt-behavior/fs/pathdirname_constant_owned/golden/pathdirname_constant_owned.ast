@@ -1,0 +1,40 @@
+{
+  "project": "pathdirname_constant_owned",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "a" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "/" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "/abc" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 14 },
+      { "kind": "binding", "mutable": true, "name": "d", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "" }] }, "line": 15 },
+      { "kind": "assignment", "name": "d", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "string", "value": "/x" } }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 17 },
+      { "kind": "binding", "mutable": true, "name": "e", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "a/b/c" }] }, "line": 18 },
+      { "kind": "assignment", "name": "e", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "identifier", "value": "e" }] }, "line": 19 },
+      { "kind": "assignment", "name": "e", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "identifier", "value": "e" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

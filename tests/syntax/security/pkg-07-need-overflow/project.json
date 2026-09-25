@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "sec_needlen", "ident": "sec#needlen", "version": "=0.1.0", "source": "file:packages/sec_needlen.mfp" }
+    { "name": "sec_needlen", "ident": "sec#needlen", "version": "=0.1.0", "source": "file:packages/sec_needlen.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

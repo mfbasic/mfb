@@ -8,7 +8,9 @@
     {
       "name": "holder_pkg",
       "version": "=0.1.0",
-      "source": "file:packages/holder_pkg"
+      "source": "file:packages/holder_pkg",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

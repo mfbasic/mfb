@@ -1,0 +1,5 @@
+<doc>
+  <cdata><![CDATA[x < y & z ]]]]><![CDATA[>]]></cdata>
+  <empty><![CDATA[]]></empty>
+  <mixed>before<![CDATA[ middle ]]>after</mixed>
+</doc>

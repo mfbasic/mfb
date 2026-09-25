@@ -18,24 +18,39 @@ the loading spinner keeps spinning while a page loads *and* parses:
 
 `fetch` and `display` both import `dom` (they name its `Node` type in their APIs);
 the app imports all three. All are referenced by **relative local paths**, not a
-package repository:
+package repository. Because `dom` is a dependency of both `fetch` and `display`,
+the app's `project.json` (`examples/browser/app/project.json`) declares it too —
+a native build merges exactly the packages `project.json` declares, so `dom`
+must be part of the app's declared closure even though the app also imports it
+directly:
 
 ```json
 "packages": [
-  { "name": "dom",     "version": "=0.1.0", "source": "file:packages/dom.mfp" },
-  { "name": "fetch",   "version": "=0.1.0", "source": "file:packages/fetch.mfp" },
-  { "name": "display", "version": "=0.1.0", "source": "file:packages/display.mfp" }
+  { "name": "dom", "version": "=0.1.0", "source": "file:packages/dom.mfp",
+    "direct": true, "requiredBy": ["display", "fetch"] },
+  { "name": "fetch", "version": "=0.1.0", "source": "file:packages/fetch.mfp",
+    "direct": true, "requiredBy": [] },
+  { "name": "display", "version": "=0.1.0", "source": "file:packages/display.mfp",
+    "direct": true, "requiredBy": [] }
 ]
 ```
+
+`requiredBy` records which declared packages' import tables name each
+dependency; here all three entries are `direct` (the user declared each one),
+so `dom`'s `requiredBy` is informational rather than the reason it is
+declared. Running `mfb pkg update` in `app/` computes `requiredBy` for you
+once the three `.mfp` files are installed under `app/packages/`.
 
 ## Why a worker thread — and why the DOM crosses it
 
 `http::read` is **blocking**: it freezes the calling thread until the whole
 exchange finishes. To keep the UI free to animate the spinner, the app runs the
 fetch on a separate OS thread with `thread::start(fetch::fetch, url)` and polls
-`thread::isRunning` while redrawing. `thread::start` requires an **exported
-`ISOLATED` function from an imported package**, which is why the fetch lives in
-`fetch`.
+`thread::isRunning` while redrawing. `thread::start` accepts any `ISOLATED FUNC`
+— one the caller's own project declares, or an exported `ISOLATED` function of
+an imported package — so putting the fetch in its own `fetch` package is not a
+requirement of `thread::start`; it is the same reason `dom` and `display` are
+their own packages: it is one self-contained concern, reusable outside this app.
 
 The worker parses the page into a DOM on that thread and returns the **document
 `Node`** — a recursive tree — which `thread::waitFor` **deep-copies** out of the
@@ -118,12 +133,28 @@ drops `<script>`/`<style>`/comments (recording their src/href/inline markers in 
 character references (`encoding::htmlUnescape`), and handles unclosed tags. The
 document is an `ElementNode` tagged `#document` whose first child is the header.
 
-Everything is **iterative** (an explicit stack, never a recursive function over
-`Node`) — a recursive function over an *imported* union does not lower to native
-code across a package boundary, so `dom`/`display` walk trees with a work-stack.
-`dom::parse` also caps its node count: extracting nodes churns short-lived arena
-allocations, whose free list is quadratic (a known open arena issue), so a
-multi-megabyte page is rendered as a truncated preview rather than hanging.
+Everything here is **iterative** (an explicit stack, never a recursive function
+over `Node`), and `dom::parse` caps its node count, so a multi-megabyte page is
+rendered as a truncated preview rather than hanging.
+
+Both of the reasons this section used to give for that are **stale**, measured by
+plan-138-A (`planning/completed/plan-138-A-xml-tree-builder-and-reader.md`):
+
+- A recursive function over an *imported* union **does** lower across a package
+  boundary: a consumer-side recursive `FUNC` over an imported `Node` union
+  returned `10002` for a 10,000-node tree, and `packages/xml` ships consumers
+  that recurse over `xml::Node`.
+- The arena free list is **no longer quadratic**. `mfb spec memory arenas`
+  documents the segregated quick/large bins that replaced the quadratic insert,
+  and a probe allocated and freed 1,000,000 records in 0.35 s.
+
+What is still true, and is the real reason to keep a work-stack here, is that
+rebuilding a shared list of subtrees is quadratic: self-assigning a
+`List OF <recursive union>` through `collections::take`/`drop` deep-copies every
+element it returns (21.96 s versus 0.02 s for `append` at 8,000 nodes — see
+`bugs/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
+A builder that appends to a frame-local list instead handles 100,000 nodes in
+about 0.3 s.
 
 ## CSS
 
@@ -151,8 +182,9 @@ union carry the full type closure of its variants' fields.
 
 Every `ElementNode` carries a resolved **`Style`** and a computed **`Layout`**,
 filled by two passes over the tree that live *inside* `dom` (so they may recurse
-over `dom`'s own `Node` union — the "must be iterative" rule only binds a consumer
-recursing over an *imported* union):
+over `dom`'s own `Node` union directly, the same as any recursive tree-building
+pass — see "The DOM parser", above, for why a tree-*building* pass still favors
+an explicit work stack over recursion):
 
 - **`Style`** (`style.mfb`) is the CSS a single element resolves to — a closed
   record with one typed field per supported property (a `Display` / `FlexDirection`

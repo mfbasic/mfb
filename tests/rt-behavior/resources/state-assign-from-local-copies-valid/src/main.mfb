@@ -1,0 +1,38 @@
+' bug-678: `h.state = r` stores a COPY of `r`. The resource keeps the payload's
+' pointer, so it must own its block: an update of `r` afterwards (in place or
+' rebuilt) must not change `h.state`, and `r` and the resource must not both free
+' one block.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE R
+  a AS Integer
+  b AS Integer
+END TYPE
+
+TYPE L
+  n AS Integer
+  xs AS List OF Integer
+END TYPE
+
+FUNC main() AS Integer
+  MUT r AS R = R[a := 1, b := 2]
+  RES h AS fs::File STATE R = fs::openFile("/dev/null")
+  h.state = r
+  r = WITH r { a := 5 }
+  io::print("scalar: state " & toString(h.state.a) & ", local " & toString(r.a))
+
+  MUT l AS L = L[n := 1, xs := [1, 2, 3]]
+  RES g AS fs::File STATE L = fs::openFile("/dev/null")
+  g.state = l
+  l = WITH l { xs := collections::append(l.xs, 4) }
+  l = WITH l { n := 9 }
+  io::print("list: state " & toString(len(g.state.xs)) & "/" & toString(g.state.n) & ", local " & toString(len(l.xs)) & "/" & toString(l.n))
+
+  ' The other direction: a local taken from the payload is its own copy too.
+  MUT copy AS R = h.state
+  h.state = WITH h.state { b := 7 }
+  io::print("from state: local " & toString(copy.b) & ", state " & toString(h.state.b))
+  RETURN 0
+END FUNC

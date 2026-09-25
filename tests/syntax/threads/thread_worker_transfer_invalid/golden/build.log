@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/threads/thread_worker_transfer_invalid
+   9 | END FUNC
+  10 | 
+  11 | ISOLATED FUNC takesWorkers(worker AS ThreadWorker OF Nothing RES (ThreadWorker OF Integer TO Integer) TO Integer, n AS Integer) AS Integer
+     | ^
+tests/syntax/threads/thread_worker_transfer_invalid/src/main.mfb:11 error[2-203-0140 TYPE_THREAD_WORKER_NOT_TRANSFERABLE]: a ThreadWorker cannot cross to another thread
+               Thread resource type carries `ThreadWorker OF Integer TO Integer`; a ThreadWorker belongs to its own worker for that worker's whole run and never crosses to another thread.
+  14 | 
+  15 | ISOLATED FUNC handsItselfOver(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  16 |   RES other AS Thread OF Nothing RES (ThreadWorker OF Integer TO Integer) TO Integer = thread::start(takesWorkers, n)
+     | ^
+tests/syntax/threads/thread_worker_transfer_invalid/src/main.mfb:16 error[2-203-0140 TYPE_THREAD_WORKER_NOT_TRANSFERABLE]: a ThreadWorker cannot cross to another thread
+               Thread resource type carries `ThreadWorker OF Integer TO Integer`; a ThreadWorker belongs to its own worker for that worker's whole run and never crosses to another thread.
+  15 | ISOLATED FUNC handsItselfOver(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  16 |   RES other AS Thread OF Nothing RES (ThreadWorker OF Integer TO Integer) TO Integer = thread::start(takesWorkers, n)
+  17 |   thread::transfer(other, worker)
+     | ^
+tests/syntax/threads/thread_worker_transfer_invalid/src/main.mfb:17 error[2-203-0140 TYPE_THREAD_WORKER_NOT_TRANSFERABLE]: a ThreadWorker cannot cross to another thread
+               Call to `thread.transfer` resource type carries `ThreadWorker OF Integer TO Integer`; a ThreadWorker belongs to its own worker for that worker's whole run and never crosses to another thread.
+[exit 1]

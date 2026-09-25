@@ -53,107 +53,116 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 19, "mutable": true, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "old" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "assign", "line": 20, "name": "t", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "new" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "done" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
     {
       "op": "if",
-      "line": 23,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "line": 21,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "then": [
-      { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "bind", "line": 22, "mutable": false, "name": "old", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "old" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 24, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "new" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "done" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    {
+      "op": "if",
+      "line": 27,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "then": [
+      { "op": "return", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "autoTrapDrop",
-    "line": 27,
+    "line": 31,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 28, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "trap" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-    { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "trap" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "line": 34, "value": { "kind": "const", "type": "Integer", "value": "2" } },
     {
       "op": "trap",
-      "line": 31,
+      "line": 35,
       "name": "err",
       "body": [
-      { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "return", "line": 36, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }
     ]
   },
   {
     "name": "failTrapDrop",
-    "line": 36,
+    "line": 40,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 37, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "fail" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "fail", "line": 38, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "forced" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "38" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "fail" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "fail", "line": 42, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "forced" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "42" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
     {
       "op": "trap",
-      "line": 39,
+      "line": 43,
       "name": "err",
       "body": [
-      { "op": "return", "line": 40, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "return", "line": 44, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }
     ]
   },
   {
     "name": "makeThread",
-    "line": 44,
+    "line": 48,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Thread OF String TO Integer",
     "body": [
-    { "op": "bind", "line": 45, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "return" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "return", "line": 46, "value": { "kind": "local", "name": "t" } }
+    { "op": "bind", "line": 49, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "return" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "return", "line": 50, "value": { "kind": "local", "name": "t" } }
     ]
   },
   {
     "name": "returnedThreadStillLive",
-    "line": 49,
+    "line": 53,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 50, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "makeThread", "args": [] } },
-    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "ok" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "line": 52, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "makeThread", "args": [] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "ok" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
     {
       "op": "if",
-      "line": 53,
+      "line": 57,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "return", "line": 53, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 54, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 58, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "main",
-    "line": 57,
+    "line": 61,
     "visibility": "public",
     "kind": "func",
     "params": [
@@ -162,50 +171,10 @@
     "body": [
     {
       "op": "if",
-      "line": 58,
+      "line": 62,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "completedScopeDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 58, "value": { "kind": "const", "type": "Integer", "value": "10" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "line": 59,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "runningEarlyReturnDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "line": 59, "value": { "kind": "const", "type": "Integer", "value": "11" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "line": 60,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "reassignmentDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "line": 60, "value": { "kind": "const", "type": "Integer", "value": "12" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "line": 61,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "autoTrapDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "line": 61, "value": { "kind": "const", "type": "Integer", "value": "13" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "line": 62,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "failTrapDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "14" } }
+      { "op": "return", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "10" } }
       ],
       "else": [
       ]
@@ -213,15 +182,55 @@
     {
       "op": "if",
       "line": 63,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "returnedThreadStillLive", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "runningEarlyReturnDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 63, "value": { "kind": "const", "type": "Integer", "value": "15" } }
+      { "op": "return", "line": 63, "value": { "kind": "const", "type": "Integer", "value": "11" } }
       ],
       "else": [
       ]
     },
-    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "thread-drop-cleanup-ok" }] } },
-    { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    {
+      "op": "if",
+      "line": 64,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "reassignmentDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 64, "value": { "kind": "const", "type": "Integer", "value": "12" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 65,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "autoTrapDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "13" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 66,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "failTrapDrop", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 66, "value": { "kind": "const", "type": "Integer", "value": "14" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 67,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "returnedThreadStillLive", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 67, "value": { "kind": "const", "type": "Integer", "value": "15" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "thread-drop-cleanup-ok" }] } },
+    { "op": "return", "line": 69, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

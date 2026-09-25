@@ -1,0 +1,274 @@
+' ---------------------------------------------------------------------------
+' zip/lib.mfb — the package's public surface.
+'
+' Two `open` overloads, one for each place an archive's bytes can be, and one
+' set of accessors that works the same either way. Everything below this file
+' reads through `source.mfb`'s `readAt`, so "the file form and the memory form
+' agree" is a property of the structure rather than something the accessors
+' have to maintain.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+
+' The checksum a stored entry's bytes did not match.
+'
+' Every other failure this package reports uses a shared `errorCode::` value; a
+' CRC mismatch has no shared equivalent, so it gets the package's own code.
+EXPORT LET ErrorChecksum AS Integer = 93150001
+
+' One entry in an archive.
+'
+' `size` and `compressedSize` are what the central directory records, so they
+' are known before any of the entry's data is read. `headerOffset` locates the
+' entry's local header; `read` uses it and callers normally do not.
+EXPORT TYPE Entry
+  name AS String
+  isDirectory AS Boolean
+  method AS Integer
+  size AS Integer
+  compressedSize AS Integer
+  crc AS Integer
+  modifiedSeconds AS Integer
+  mode AS Integer
+  comment AS String
+  headerOffset AS Integer
+  flags AS Integer
+END TYPE
+
+' An open archive: where its bytes are, what it contains, and its comment.
+'
+' An `Archive` over a file refers to the caller's `fs::File` without owning it.
+' The file stays open until the caller closes it, and closing it makes later
+' reads through this archive fail with `errorCode::ErrResourceClosed`.
+EXPORT TYPE Archive
+  source AS Source
+  entries AS List OF Entry
+  comment AS String
+END TYPE
+
+' Open an archive held in memory.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   ' A typed binding is required: an untyped list literal selects neither
+'   ' overload.
+'   LET raw AS List OF Byte = fs::readBytes("photos.zip")
+'   LET archive AS zip::Archive = zip::open(raw)
+'   FOR EACH entry IN zip::entries(archive)
+'     io::print(entry.name)
+'   NEXT
+' END SUB
+' ```
+EXPORT FUNC open(data AS List OF Byte) AS Archive
+  RETURN parseArchive(MemorySource[data])
+END FUNC
+
+' Open an archive from a file the caller has open.
+'
+' The whole file is never read. Opening reads only the central directory, and
+' `read` afterwards holds one entry at a time, so an archive far larger than
+' memory is still readable one entry at a time.
+'
+' The handle belongs to the caller; this package never closes it.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(toString(len(zip::entries(archive))))
+'   ' f closes itself when this scope ends
+' END SUB
+' ```
+EXPORT FUNC open(RES file AS fs::File) AS Archive
+  RETURN parseArchive(FileSource[file])
+END FUNC
+
+' Every entry, in central-directory order.
+EXPORT FUNC entries(archive AS Archive) AS List OF Entry
+  RETURN archive.entries
+END FUNC
+
+' The archive-level comment, or the empty string.
+EXPORT FUNC comment(archive AS Archive) AS String
+  RETURN archive.comment
+END FUNC
+
+' Whether an entry with exactly this name is present.
+EXPORT FUNC has(archive AS Archive, name AS String) AS Boolean
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The entry with exactly this name.
+'
+' Zip permits an archive to hold the same name twice. This returns the FIRST
+' such entry in central-directory order, which is the one `unzip` lists first.
+' Raises `errorCode::ErrNotFound` when the name is absent.
+EXPORT FUNC find(archive AS Archive, name AS String) AS Entry
+  FOR EACH entry IN archive.entries
+    IF entry.name = name THEN
+      RETURN entry
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrNotFound, "zip: no entry named \"" & name & "\"")
+END FUNC
+
+' Read one entry's uncompressed bytes.
+'
+' `maxBytes` bounds how much memory one call can need. It is checked against the
+' size the central directory records BEFORE any data is read, so an oversized
+' entry is refused without cost -- which is what makes it safe to open an
+' untrusted archive and look at its entry list.
+'
+' The bytes are checked against the CRC-32 the archive records for them: a
+' mismatch raises `zip::ErrorChecksum` rather than returning data that does not
+' match its own checksum. A directory entry reads as the empty list.
+'
+' Raises `errorCode::ErrUnsupported` for an encrypted entry or any compression
+' method other than stored (0) and deflate (8).
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
+'   io::print(toString(len(bytes)))
+' END SUB
+' ```
+EXPORT FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
+  RETURN readEntry(archive, entry, maxBytes)
+END FUNC
+
+' Read one entry and decode it as UTF-8 text.
+'
+' Everything `read` does, plus a strict UTF-8 decode: an entry that is not valid
+' UTF-8 raises `errorCode::ErrInvalidFormat` rather than returning replacement
+' characters.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(zip::readText(archive, zip::find(archive, "notes.txt")))
+' END SUB
+' ```
+EXPORT FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
+  RETURN readEntryText(archive, entry, maxBytes)
+END FUNC
+
+' Start building a new archive.
+'
+' Each `add*` returns a new `Builder`; the one passed in is unchanged. `finish`
+' turns the result into the archive's bytes.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   MUT b AS zip::Builder = zip::create()
+'   b = zip::addText(b, "notes.txt", "hello")
+'   fs::writeBytes("out.zip", zip::finish(b))
+' END SUB
+' ```
+EXPORT FUNC create() AS Builder
+  RETURN createBuilder()
+END FUNC
+
+' Add a file entry holding `data`.
+'
+' The entry is deflated when that makes it smaller and stored when it does not,
+' which is what `zip(1)` does — an incompressible entry is never made bigger by
+' compressing it. Pass `store = TRUE` to skip compression entirely.
+'
+' `modifiedSeconds` is seconds since the Unix epoch; 0 means "not recorded" and
+' writes the earliest time the format can express (1980-01-01). Zip timestamps
+' have two-second granularity, so an odd second is rounded down.
+'
+' Raises `errorCode::ErrInvalidPath` for a name that would be unsafe to
+' extract — absolute, containing `..`, containing a backslash or a NUL, or
+' naming a Windows drive. Refusing at write time means this package cannot be
+' used to build the archive its own `extractTo` would refuse.
+EXPORT FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addFileEntry(builder, name, data, store, modifiedSeconds)
+END FUNC
+
+' Add a file entry holding the UTF-8 bytes of `text`.
+EXPORT FUNC addText(builder AS Builder, name AS String, text AS String, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addTextEntry(builder, name, text, store, modifiedSeconds)
+END FUNC
+
+' Add a directory entry. A trailing `/` is added when the name lacks one.
+'
+' Directory entries are optional in a zip — a file named `a/b.txt` implies `a/`
+' — but most tools list them, so adding them makes the archive look the way a
+' user expects.
+EXPORT FUNC addDirectory(builder AS Builder, name AS String, modifiedSeconds AS Integer = 0) AS Builder
+  RETURN addDirectoryEntry(builder, name, modifiedSeconds)
+END FUNC
+
+' Finish the archive and return its bytes.
+'
+' The result is deterministic: the same calls in the same order always produce
+' the same bytes. ZIP64 records are written only when the archive needs them, so
+' a small archive is an ordinary zip any reader accepts.
+'
+' Raises `errorCode::ErrTooLarge` when `comment` is longer than 65535 bytes.
+EXPORT FUNC finish(builder AS Builder, comment AS String = "") AS List OF Byte
+  RETURN finishBuilder(builder, comment)
+END FUNC
+
+' Extract every entry into `directory`, returning the number of files written.
+'
+' Directories in the archive are created but not counted.
+'
+' **Every entry is validated before any byte is written.** An archive with one
+' unsafe entry leaves the directory exactly as it was, rather than extracting
+' part of itself and then failing. A name is refused with
+' `errorCode::ErrInvalidPath` when it is empty, absolute, contains `..` or a
+' backslash or a NUL, names a Windows drive, or — the case string inspection
+' cannot catch — resolves outside `directory` once symlinks already on disk are
+' followed.
+'
+' `maxTotalBytes` caps the total uncompressed size, checked before writing, so a
+' small archive cannot be used to fill a disk.
+'
+' Each entry's CRC-32 is verified as it is written; a mismatch deletes the
+' partial file and raises `zip::ErrorChecksum`. Stored entries are copied in
+' bounded chunks, so extracting a huge entry from a file-backed archive does not
+' hold it in memory.
+'
+' File permissions and modification times are NOT restored: `fs` has no way to
+' set either. Extracted files get the host's defaults.
+'
+' ```
+' IMPORT zip
+' IMPORT fs
+'
+' SUB main()
+'   RES f = fs::openFile("photos.zip")
+'   LET archive AS zip::Archive = zip::open(f)
+'   io::print(toString(zip::extractTo(archive, "out")) & " files")
+' END SUB
+' ```
+EXPORT FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+  RETURN extractArchive(archive, directory, maxTotalBytes)
+END FUNC

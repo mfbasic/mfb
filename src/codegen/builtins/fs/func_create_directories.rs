@@ -34,12 +34,17 @@ missing parent directories, like `mkdir -p`, and returns `Nothing` on success.
 
 `path` is scanned left to right and each `/`-separated prefix is created in turn
 before the final component is created. A leading `/` is skipped so the filesystem
-root is not treated as a component to create. Each prefix, and the final
+root is not treated as a component to create. On Windows `\` separates
+components too, and a leading drive (`C:`) or network share (`\\server\share`)
+is skipped the same way, so `fs::createDirectories("C:\data\logs\2024")` and
+`fs::createDirectories(fs::tempDirectory() & "/app/cache")` both work. Each prefix, and the final
 component, is created in turn; one that already exists is accepted and the walk
 continues. As a result, existing intermediate directories and a final `path` that already exists
 as a directory all succeed quietly rather than being treated as errors, which
 makes `fs::createDirectories` idempotent: re-running it on a path that is already
-present succeeds without changing anything.
+present succeeds without changing anything. A final `path` that exists but is
+not a directory — a regular file — raises `ErrAlreadyExists`, as
+`fs::createDirectory` does.
 
 Unlike `fs::createDirectory`, which creates only the final component and fails
 when a parent is missing, `fs::createDirectories` builds the entire chain of
@@ -53,9 +58,13 @@ characters when the host filesystem accepts those names. Each prefix is created 
 
 When the host refuses to create a prefix or the final component for any reason
 other than "it already exists", the walk stops there and raises the matching
-error below — leaving the directories it had already created. A missing parent
-and a permission refusal get their own errors; every other refusal is reported
-as `ErrOutput`. The same error is raised on every platform."#;
+error below — leaving the directories it had already created. `ErrAccessDenied`
+means permission was refused, and `ErrNotFound` that a directory could not be
+created because its parent is missing — which, since the walk creates every
+parent, happens only when something removes one while the call runs. Every
+other refusal raises `ErrWriteFailed`, including a prefix of `path` that is a
+file (Windows reports that one as `ErrNotFound`). An empty `path`, or one
+containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Create a nested directory together with its missing parents:
 
 ```
@@ -98,7 +107,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrAccessDenied",
+                "ErrInvalidArgument",
+                "ErrNotFound",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_create_directories),
         }],
     });

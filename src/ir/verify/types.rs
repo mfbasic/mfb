@@ -107,9 +107,21 @@ impl TypeEnv {
                     // member that is itself a union or an enum is not a concrete
                     // type. (Records-registered variant names are fine; only a
                     // name that is *also* a declared union/enum is rejected.)
+                    //
+                    // bug-657: nor is a BUILT-IN — `Integer`, `String`, a collection, a
+                    // C ABI type. Those used to pass here and die in codegen instead
+                    // ("native code union wrap member 'Integer' is not a record", no
+                    // file, no line, no rule code). Asked of the member's ELABORATED
+                    // type, which `IrVariant` now carries: every built-in is its own
+                    // `ParameterType` variant, and every declared name — record, enum,
+                    // union, resource (built-in or user-declared), imported type — is
+                    // `Named`. Deciding it from `variant.name` instead would mean
+                    // re-parsing a spelling, which plan-111's ratchet bans here.
                     for variant in &ty.variants {
                         let variant_type = ParameterType::declared(&variant.name);
-                        if self.unions.contains_key(&variant_type)
+                        let builtin = !matches!(variant.type_, ParameterType::Named(_));
+                        if builtin
+                            || self.unions.contains_key(&variant_type)
                             || self.enums.contains_key(&variant_type)
                         {
                             self.current_line.set(variant.loc.line);

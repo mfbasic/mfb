@@ -56,24 +56,20 @@ thread helpers must call the libc/pthread interface. [[src/codegen/runtime/threa
 ## Arena Teardown at Process Exit
 
 A threaded program does not explicitly destroy the main runtime arena during
-process shutdown, on **any** platform. A worker may still be running when the
-main function returns, and unmapping shared runtime memory would race that
-worker: `thread::start` allocates both the worker's thread control block and the
-worker's whole arena-state block out of the *spawning* thread's arena, so a
-running worker's pinned arena register and current-thread register point into the
-main arena's blocks. Those blocks are freed only for a joined worker (`thread::waitFor`,
-or the drop of an already-completed handle — `control-block` § Lifetime); dropping a
-handle whose worker is still running only cancels and broadcasts — a detached worker
-keeps running — so `_mfb_shutdown` is reached with those blocks live, and freeing
-them pulls a worker's own arena state out from under it. Process
-exit lets the OS reclaim the arena instead. The deferral is gated on the program
-embedding any `thread.` runtime call, so a program that starts no worker still
-frees the arena at exit exactly as before.
+process shutdown, on **any** platform. A worker may still be running when the main
+function returns — dropping a handle whose worker is still running only cancels,
+broadcasts and detaches it — and process exit reclaims every arena anyway, so the
+runtime leaves the main arena to the OS rather than unmap memory a running worker
+might still reach. The deferral is gated on the program embedding any `thread.`
+runtime call, so a program that starts no worker still frees the arena at exit
+exactly as before. [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
-This is platform-independent by necessity, not by convention. Windows was the
-one backend that still destroyed the arena at exit with a worker live, and it
-faulted `0xC0000005` inside the trampoline's own `THREAD_OFFSET_ARENA_STATE`
-load on a freed control block (bug-547). [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+The rule was made platform-independent when it was still load-bearing for the
+control block: that block and the worker's arena-state block used to be carved from
+the spawning thread's arena, so a running worker's pinned registers pointed into the
+main arena, and the one backend that still destroyed it at exit (Windows) faulted
+inside the trampoline. Both blocks now come from the process heap
+(`./mfb spec threading control-block`).
 
 ## Standard Input Broadcast
 
@@ -93,7 +89,7 @@ issued while the data lock is held.
 A thread subscribes with `thread::openStdIn` and unsubscribes with
 `thread::closeStdIn` (the no-arg forms act on the calling thread; the one-argument
 forms take a parent `Thread` handle and act on the worker behind it, reaching the
-worker's arena through `THREAD_OFFSET_ARENA_STATE`). Subscription joins at the
+worker's arena through `CONTROL_OFFSET_WORKER_ARENA`). Subscription joins at the
 current stream frontier — a subscriber sees every byte that arrives afterward, never
 a replay of bytes already read. The compiler subscribes the **main** thread at
 program entry whenever the module uses a stdin builtin, so a single-threaded program

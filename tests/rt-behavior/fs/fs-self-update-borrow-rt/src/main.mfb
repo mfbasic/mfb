@@ -1,0 +1,29 @@
+' plan-146-F: `fs::readText` and `fs::canonicalPath` open the path straight out
+' of the caller's `String` block instead of copying it into arena scratch, so the
+' self-update forms `p = fs::canonicalPath(p)` and `p = fs::readText(p)` — where
+' the argument block is the very binding the result overwrites — have to keep
+' working. The chain below feeds each call's result into the next.
+IMPORT fs
+IMPORT io
+
+FUNC main() AS Integer
+  LET dir AS String = fs::tempDirectory()
+  LET leaf AS String = fs::pathJoin([dir, "mfb_p146f_leaf.txt"])
+  LET link AS String = fs::pathJoin([dir, "mfb_p146f_link.txt"])
+  fs::writeText(leaf, "leaf payload")
+  fs::writeText(link, leaf)
+
+  MUT p AS String = link
+  p = fs::canonicalPath(p)
+  p = fs::readText(p)
+  io::print(fs::readText(p))
+
+  ' `canonicalPath` over the path `readText` itself produced.
+  p = fs::canonicalPath(p)
+  io::print(fs::readText(p))
+
+  fs::deleteFile(leaf)
+  fs::deleteFile(link)
+  io::print(toString(fs::exists(leaf)))
+  RETURN 0
+END FUNC

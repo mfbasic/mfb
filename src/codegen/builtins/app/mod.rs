@@ -4,7 +4,9 @@
 //! surface currently *is* — a first-class, explicit choice: `app::getMode` reads
 //! it and `app::setMode` writes it, choosing from the three `Mode` enum members
 //! (`Console` = 0, the default; `None` = 1, windowless; `Canvas` = 2, a 2D
-//! graphics surface). The mode is
+//! graphics surface). The window members `setTitle`/`getTitle`/`setFullscreen`/
+//! `getFullscreen` keep process-global window state and sync the window through
+//! a `CodegenPlatform::emit_app_window_sync` seam; see [`gen_window`]. The mode is
 //! per-execution-context state held in a reserved arena-state slot; the two
 //! members lower to a load / store of that slot, exactly like
 //! `money::getRounding` / `money::setRounding`.
@@ -29,10 +31,17 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPackage};
 
+mod func_get_fullscreen;
 mod func_get_mode;
+mod func_get_title;
+mod func_set_fullscreen;
 mod func_set_mode;
+mod func_set_title;
+pub(crate) mod gen_window;
 
-const MODULE_INTRO: &str = r#"Presentation-mode control for `--app` builds"#;
+pub(crate) use gen_window::{app_window_data_objects, module_uses_app_window};
+
+const MODULE_INTRO: &str = r#"Presentation mode, window title and fullscreen for `--app` builds"#;
 const MODULE_DESC: &str = r#"The `app` package makes an `--app` program's **presentation mode** — what its
 window surface currently *is* — a first-class, explicit choice. A running program
 reads its mode with `app::getMode` and changes it with `app::setMode`. `app` is a
@@ -52,6 +61,12 @@ unless the program references `app::setMode` anywhere, in which case it starts i
 `None`. This lets a program that intends to manage its own surface start windowless
 and bring a window up deliberately, while a program that never touches the mode
 keeps the terminal-in-a-window behavior unchanged.
+
+The package also controls the window itself: `app::setTitle` and `app::getTitle`
+set and read the text in its title bar, and `app::setFullscreen` and
+`app::getFullscreen` put it into or out of fullscreen and report which it is. Both
+are remembered while there is no window, and take effect when `app::setMode` next
+shows one.
 
 `app::getMode` and `app::setMode` raise no errors from the mode machinery itself:
 the argument to `setMode` is an `app::Mode` the type checker has already constrained, and
@@ -98,6 +113,10 @@ pub(crate) fn register(r: &mut Registry) {
 
     func_get_mode::register(&mut pkg);
     func_set_mode::register(&mut pkg);
+    func_set_title::register(&mut pkg);
+    func_get_title::register(&mut pkg);
+    func_set_fullscreen::register(&mut pkg);
+    func_get_fullscreen::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -111,11 +130,15 @@ mod tests {
 
     const GET_MODE: &str = "app.getMode";
     const SET_MODE: &str = "app.setMode";
+    const SET_TITLE: &str = "app.setTitle";
+    const GET_TITLE: &str = "app.getTitle";
+    const SET_FULLSCREEN: &str = "app.setFullscreen";
+    const GET_FULLSCREEN: &str = "app.getFullscreen";
 
     #[test]
     fn app_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("app").expect("app package");
-        assert_eq!(pkg.functions().len(), 2);
+        assert_eq!(pkg.functions().len(), 6);
         // The `Mode` enum is rendered into the injected companion source.
         let source = pkg.get_mfb();
         assert!(source.contains("EXPORT ENUM Mode"));
@@ -189,5 +212,60 @@ mod tests {
             Some(vec!["app.Mode".to_string()])
         );
         assert_eq!(registry::argument_types(GET_MODE), Some(vec![]));
+    }
+
+    /// The window members: `setTitle(String)`, `getTitle() AS String`,
+    /// `setFullscreen(Boolean)`, `getFullscreen() AS Boolean`, all runtime helpers
+    /// owned by `app`.
+    #[test]
+    fn window_members_signatures() {
+        for name in [SET_TITLE, GET_TITLE, SET_FULLSCREEN, GET_FULLSCREEN] {
+            assert_eq!(registry().owning_package(name), Some("app"), "{name}");
+            assert_eq!(registry::native_member_declares_error(name), None, "{name}");
+        }
+        let ret = |name| registry::call_return_type_typed(name).map(|t| t.name().into_owned());
+        assert_eq!(ret(SET_TITLE).as_deref(), Some("Nothing"));
+        assert_eq!(ret(GET_TITLE).as_deref(), Some("String"));
+        assert_eq!(ret(SET_FULLSCREEN).as_deref(), Some("Nothing"));
+        assert_eq!(ret(GET_FULLSCREEN).as_deref(), Some("Boolean"));
+        assert_eq!(
+            registry::argument_types(SET_TITLE),
+            Some(vec!["String".to_string()])
+        );
+        assert_eq!(registry::argument_types(GET_TITLE), Some(vec![]));
+        assert_eq!(
+            registry::argument_types(SET_FULLSCREEN),
+            Some(vec!["Boolean".to_string()])
+        );
+        assert_eq!(registry::argument_types(GET_FULLSCREEN), Some(vec![]));
+    }
+
+    /// The window state is emitted as four data objects, and the default title
+    /// is stored in `String` layout (`[u64 length][bytes][NUL]`) so `getTitle`
+    /// copies it with the same loop as a set title.
+    #[test]
+    fn window_data_objects_layout() {
+        use super::gen_window::*;
+        let objects =
+            app_window_data_objects(crate::codegen::engine::types::PlatformFamily::Linux, "Demo");
+        let names: Vec<&str> = objects.iter().map(|o| o.symbol.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                APP_FULLSCREEN_SYMBOL,
+                APP_TITLE_SYMBOL,
+                APP_TITLE_LOCK_SYMBOL,
+                APP_DEFAULT_TITLE_SYMBOL
+            ]
+        );
+        let title = &objects[3];
+        assert_eq!(title.size, 8 + 4 + 1);
+        assert_eq!(
+            title.value,
+            "0400000000000000".to_string() + "44656d6f" + "00"
+        );
+        // macOS's static mutex carries the `_PTHREAD_MUTEX_SIG_init` signature.
+        let mac = app_window_data_objects(crate::codegen::engine::types::PlatformFamily::MacOS, "");
+        assert!(mac[2].value.starts_with("a7abaa32"));
     }
 }

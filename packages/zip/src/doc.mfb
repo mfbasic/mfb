@@ -1,0 +1,359 @@
+' ---------------------------------------------------------------------------
+' zip/doc.mfb — the package's compiler-validated documentation.
+'
+' These `DOC` blocks are what an importer sees. A compiled `.mfp` ships without
+' source, so an ordinary `'` comment reaches nobody outside this directory: only
+' a DOC block is carried in the package binary, checked against the declaration
+' it names, and rendered by `mfb doc`.
+'
+' Placement is free and the header line is the only link to the target, so they
+' live together here rather than being scattered through the implementation.
+' ---------------------------------------------------------------------------
+
+DOC
+  PACKAGE
+  DESC Read and write ZIP archives, including ZIP64.
+  DESC
+  DESC An archive is opened either from bytes already in memory or from a file
+  DESC you have open, through the same `open` call, and both forms give you the
+  DESC same entries with the same contents.
+  DESC
+  DESC Opening a file-backed archive reads only the list of entries, and reading
+  DESC one entry holds only that entry, so an archive far larger than memory is
+  DESC still readable one entry at a time.
+  INFO Every entry you read is checked against the CRC-32 the archive records
+  INFO for it. An entry whose bytes do not match raises `zip::ErrorChecksum`
+  INFO rather than returning data that fails its own checksum.
+  SEC `extractTo` treats an archive as untrusted input: it validates every entry
+  SEC before writing any byte, so an archive with one unsafe name leaves your
+  SEC directory exactly as it was. Names that are absolute, contain `..`, or
+  SEC resolve outside the target directory through a symlink already on disk are
+  SEC refused.
+END DOC
+
+DOC
+  TYPE Archive
+  DESC An open archive: where its bytes are, what it contains, and its comment.
+  DESC
+  DESC An `Archive` over a file refers to the file you opened without taking it
+  DESC over. The file stays open until you close it, and closing it makes later
+  DESC reads through this archive fail with `errorCode::ErrResourceClosed`.
+  PROP source Where the archive's bytes come from. Internal.
+  PROP entries Every entry, in the order the archive lists them.
+  PROP comment The archive-level comment, or the empty string.
+END DOC
+
+DOC
+  TYPE Entry
+  DESC One entry in an archive.
+  DESC
+  DESC Every field is read from the archive's index, so all of it is available
+  DESC before any of the entry's contents are read.
+  PROP name The entry's name, with `/` separating directories.
+  PROP isDirectory Whether the name ends in `/`, which is how zip marks a directory.
+  PROP method How the data is stored: 0 for stored, 8 for deflated.
+  PROP size The entry's size once uncompressed.
+  PROP compressedSize The number of bytes the entry occupies in the archive.
+  PROP crc The CRC-32 the archive records for the entry's contents.
+  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
+  PROP mode The Unix permission bits, or 0 when the archive was not written on a Unix-like host.
+  PROP comment The entry's own comment, or the empty string.
+  PROP headerOffset Where the entry's local header sits in the archive. Used by `read`.
+END DOC
+
+DOC
+  TYPE Builder
+  DESC An archive under construction.
+  DESC
+  DESC Start one with `create`, add to it, and call `finish` when you are done.
+  DESC Each `add` call gives you back a new builder; the one you passed in is
+  DESC unchanged.
+  PROP pending The entries added so far. Internal.
+END DOC
+
+DOC INTERNAL
+  TYPE MemorySource
+  DESC An archive's bytes, already in memory. Use `open` instead.
+  PROP bytes The archive's bytes.
+END DOC
+
+DOC INTERNAL
+  TYPE FileSource
+  DESC An archive's bytes, in a file you have open. Use `open` instead.
+  PROP handle The file the archive is read from.
+END DOC
+
+DOC INTERNAL
+  UNION Source
+  DESC Where an archive's bytes come from. Use `open` instead.
+END DOC
+
+DOC INTERNAL
+  TYPE Pending
+  DESC One entry a `Builder` is holding until `finish` lays the archive out.
+  PROP name The entry's name.
+  PROP isDirectory Whether this entry is a directory.
+  PROP method How the data will be stored.
+  PROP size The entry's uncompressed size.
+  PROP crc The CRC-32 of the entry's contents.
+  PROP payload The bytes as they will appear in the archive.
+  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
+  PROP mode The Unix permission bits to record.
+END DOC
+
+DOC
+  FUNC open(List OF Byte)
+  GROUP Reading
+  DESC Open an archive held in memory.
+  INFO The argument needs a typed binding: an untyped list literal such as
+  INFO `zip::open([1, 2, 3])` does not say which of the two `open` forms you
+  INFO meant, so it does not compile.
+  ARG data The archive's bytes.
+  RET The opened archive.
+  ERROR 7-705-0004 The bytes are not a well-formed archive.
+  ERROR 7-705-0050 The archive uses a feature this package does not support, such as multiple disks.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      LET raw AS List OF Byte = fs::readBytes("photos.zip")
+      LET archive AS zip::Archive = zip::open(raw)
+      io::print(toString(len(zip::entries(archive))) & " entries")
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC open(fs.File)
+  GROUP Reading
+  DESC Open an archive from a file you have open.
+  DESC
+  DESC The whole file is never read. Opening reads only the list of entries, and
+  DESC `read` afterwards holds one entry at a time, so an archive far larger than
+  DESC memory is still readable one entry at a time.
+  INFO The file stays yours. This package never closes it, and it is left at the
+  INFO same read position it was found at.
+  ARG file The file to read the archive from.
+  RET The opened archive.
+  ERROR 7-705-0004 The bytes are not a well-formed archive.
+  ERROR 7-705-0050 The archive uses a feature this package does not support, such as multiple disks.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("photos.zip")
+      LET archive AS zip::Archive = zip::open(f)
+      FOR EACH entry IN zip::entries(archive)
+        io::print(entry.name)
+      NEXT
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC entries
+  GROUP Reading
+  DESC Every entry in the archive, in the order the archive lists them.
+  ARG archive The archive to list.
+  RET The entries.
+END DOC
+
+DOC
+  FUNC comment
+  GROUP Reading
+  DESC The archive-level comment, or the empty string when there is none.
+  ARG archive The archive to read the comment from.
+  RET The comment.
+END DOC
+
+DOC
+  FUNC has
+  GROUP Reading
+  DESC Whether an entry with exactly this name is present.
+  ARG archive The archive to search.
+  ARG name The name to look for, matched exactly.
+  RET TRUE when the name is present.
+END DOC
+
+DOC
+  FUNC find
+  GROUP Reading
+  DESC The entry with exactly this name.
+  DESC
+  DESC Zip permits an archive to hold the same name twice. This returns the
+  DESC first such entry in the order the archive lists them, which is the one
+  DESC `unzip` lists first.
+  ARG archive The archive to search.
+  ARG name The name to look for, matched exactly.
+  RET The matching entry.
+  ERROR 7-705-0003 No entry has that name.
+END DOC
+
+DOC
+  FUNC read
+  GROUP Reading
+  DESC Read one entry's uncompressed bytes.
+  DESC
+  DESC The bytes are checked against the CRC-32 the archive records for them. A
+  DESC directory entry reads as the empty list.
+  INFO `maxBytes` is checked against the size the archive records before any data
+  INFO is read, so an oversized entry costs nothing to refuse. That is what makes
+  INFO it safe to open an archive you did not create and look through it.
+  ARG archive The archive to read from.
+  ARG entry The entry to read, as returned by `find` or `entries`.
+  ARG maxBytes The largest uncompressed size to accept. Defaults to 64 MiB.
+  RET The entry's bytes.
+  ERROR 7-705-0027 The entry is larger than `maxBytes`.
+  ERROR 7-705-0050 The entry is encrypted, or uses a compression method other than stored or deflate.
+  ERROR 7-705-0004 The entry contradicts the archive's index, or the archive is truncated.
+  ERROR 9315-0001 The entry's bytes do not match its recorded CRC-32.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("photos.zip")
+      LET archive AS zip::Archive = zip::open(f)
+      LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
+      io::print(toString(len(bytes)) & " bytes")
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC readText
+  GROUP Reading
+  DESC Read one entry and decode it as UTF-8 text.
+  DESC
+  DESC Everything `read` does, plus a strict decode: an entry that is not valid
+  DESC UTF-8 is refused rather than returned with replacement characters.
+  ARG archive The archive to read from.
+  ARG entry The entry to read.
+  ARG maxBytes The largest uncompressed size to accept. Defaults to 64 MiB.
+  RET The entry's text.
+  ERROR 7-705-0004 The entry is not valid UTF-8, or contradicts the archive's index.
+  ERROR 7-705-0027 The entry is larger than `maxBytes`.
+  ERROR 9315-0001 The entry's bytes do not match its recorded CRC-32.
+END DOC
+
+DOC
+  FUNC create
+  GROUP Writing
+  DESC Start building a new archive.
+  RET An empty builder.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+
+    SUB main()
+      MUT b AS zip::Builder = zip::create()
+      b = zip::addText(b, "notes.txt", "hello")
+      fs::writeBytes("out.zip", zip::finish(b))
+    END SUB
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC addFile
+  GROUP Writing
+  DESC Add a file entry holding `data`.
+  DESC
+  DESC The entry is deflated when that makes it smaller and stored when it does
+  DESC not, so an incompressible file is never made bigger by compressing it.
+  INFO Refusing an unsafe name here, and not only when extracting, means this
+  INFO package cannot be used to build the archive its own `extractTo` refuses.
+  ARG builder The builder to add to. It is not modified; the new builder is returned.
+  ARG name The entry's name, with `/` separating directories.
+  ARG data The entry's contents.
+  ARG store Pass TRUE to store the data without compressing it. Defaults to FALSE.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. 0 records the earliest time the format can express.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe: empty, absolute, containing `..`, a backslash or a NUL byte, or naming a Windows drive.
+  ERROR 7-705-0027 The name is longer than 65535 bytes.
+END DOC
+
+DOC
+  FUNC addText
+  GROUP Writing
+  DESC Add a file entry holding the UTF-8 bytes of `text`.
+  ARG builder The builder to add to.
+  ARG name The entry's name.
+  ARG text The entry's contents.
+  ARG store Pass TRUE to store the text without compressing it. Defaults to FALSE.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe.
+  ERROR 7-705-0027 The name is longer than 65535 bytes.
+END DOC
+
+DOC
+  FUNC addDirectory
+  GROUP Writing
+  DESC Add a directory entry. A trailing `/` is added when the name lacks one.
+  DESC
+  DESC Directory entries are optional in a zip, since a file named `a/b.txt`
+  DESC implies `a/`, but most tools list them.
+  ARG builder The builder to add to.
+  ARG name The directory's name.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  RET A builder holding the new entry.
+  ERROR 7-705-0013 The name is unsafe.
+END DOC
+
+DOC
+  FUNC finish
+  GROUP Writing
+  DESC Finish the archive and return its bytes.
+  DESC
+  DESC The result is deterministic: the same calls in the same order always
+  DESC produce the same bytes. ZIP64 records are written only when the archive
+  DESC needs them, so an ordinary archive is an ordinary zip that any reader
+  DESC accepts.
+  WARN Adding an entry costs more as the archive grows, because each `add` call
+  WARN takes the whole builder and returns a new one. A few thousand entries is
+  WARN comfortable; tens of thousands takes minutes. Reading an archive with very
+  WARN many entries has no such limit.
+  ARG builder The builder to finish.
+  ARG comment An archive-level comment. Defaults to none.
+  RET The archive's bytes.
+  ERROR 7-705-0027 The comment is longer than 65535 bytes.
+END DOC
+
+DOC
+  FUNC extractTo
+  GROUP Writing
+  DESC Extract every entry into `directory`, returning how many files were written.
+  DESC
+  DESC Directories in the archive are created but not counted.
+  SEC Every entry is validated before any byte is written, so an archive with one
+  SEC unsafe entry leaves the directory exactly as it was rather than extracting
+  SEC part of itself and then failing. A name is refused when it is empty,
+  SEC absolute, contains `..`, a backslash or a NUL byte, names a Windows drive,
+  SEC or resolves outside `directory` once symlinks already on disk are followed.
+  INFO File permissions and modification times are not restored, because `fs` has
+  INFO no way to set either. Extracted files get the host's defaults.
+  ARG archive The archive to extract.
+  ARG directory An existing directory to extract into.
+  ARG maxTotalBytes The largest total uncompressed size to write. Defaults to 1 GiB.
+  RET The number of files written.
+  ERROR 7-705-0003 The directory does not exist.
+  ERROR 7-705-0013 An entry name is unsafe to write.
+  ERROR 7-705-0027 The archive's total uncompressed size is over `maxTotalBytes`.
+  ERROR 9315-0001 An entry's bytes do not match its recorded CRC-32. The partial file is deleted.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+    IMPORT io
+
+    SUB main()
+      RES f = fs::openFile("photos.zip")
+      LET archive AS zip::Archive = zip::open(f)
+      io::print(toString(zip::extractTo(archive, "out")) & " files")
+    END SUB
+  END EXAMPLE
+END DOC

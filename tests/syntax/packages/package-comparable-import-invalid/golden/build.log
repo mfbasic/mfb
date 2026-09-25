@@ -5,11 +5,11 @@ uses package_comparable_types - [Unsigned]
    8 |   LET badMap = Map OF comparable::Box TO Integer { first := 1 }
      | ^
 tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:8 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Map key type requires a comparable type, got `Box`.
+               Map key type requires a comparable type, got `package_comparable_types::Box`.
    7 |   LET items AS List OF comparable::Box = [first, second]
    8 |   LET badMap = Map OF comparable::Box TO Integer { first := 1 }
    9 |   LET badFind AS Integer = collections::find(items, second)
      | ^
 tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:9 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `collections.find` requires a comparable type, got `Box`.
+               Call to `collections.find` requires a comparable type, got `package_comparable_types::Box`.
 [exit 1]

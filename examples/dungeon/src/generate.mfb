@@ -1,0 +1,706 @@
+' generate - building a level. generateDungeon(seed) draws the whole level
+' from math::rand after seeding it, so the same seed always gives the same
+' dungeon: walled rooms - rectangles, Ls, Us and Ts - joined left to right by
+' walled halls, with a few props scattered about.
+'
+' A level is dug in a Dig, which holds what fills each cell and the wall pieces
+' placed so far, and is turned into a DungeonMap at the end. Every wall piece
+' stands inside the room or hall it bounds (see map.mfb), which is what lets
+' regionWalls build a room's walls and a hall's walls the same way.
+
+IMPORT collections
+IMPORT errorCode
+IMPORT math
+
+' ---------------------------------------------------------------------------
+' Generation
+' ---------------------------------------------------------------------------
+
+FUNC dungeonWidth AS Integer
+  RETURN 72
+END FUNC
+
+FUNC dungeonHeight AS Integer
+  RETURN 48
+END FUNC
+
+FUNC maxRooms AS Integer
+  RETURN 9
+END FUNC
+
+' Room sides, in cells: 4 x 4 is the smallest room, 15 x 15 the biggest.
+FUNC minRoomSide AS Integer
+  RETURN 4
+END FUNC
+
+FUNC maxRoomSide AS Integer
+  RETURN 15
+END FUNC
+
+' What fills each cell while the level is dug out.
+ENUM Ground
+  Rock, RoomFloor, Hall
+END ENUM
+
+TYPE Rect
+  x AS Integer
+  y AS Integer
+  w AS Integer
+  h AS Integer
+END TYPE
+
+' A room: the cells of its bounding box less the rectangles cut out of it. No
+' cuts is a plain rectangle; one cut from a corner makes an L, one from the
+' middle of a side a U, and one from each end of a side a T. Every arm, notch
+' and side is at least two cells, so each run of wall has room for a piece of
+' its own between the corners at its ends.
+TYPE Room
+  x AS Integer
+  y AS Integer
+  w AS Integer
+  h AS Integer
+  cuts AS List OF Rect
+END TYPE
+
+FUNC inRect(r AS Rect, x AS Integer, y AS Integer) AS Boolean
+  RETURN x >= r.x AND y >= r.y AND x < r.x + r.w AND y < r.y + r.h
+END FUNC
+
+FUNC inRoom(r AS Room, x AS Integer, y AS Integer) AS Boolean
+  IF NOT inRect(Rect[r.x, r.y, r.w, r.h], x, y) THEN RETURN FALSE
+  FOR EACH c IN r.cuts
+    IF inRect(c, x, y) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' The rectangle `depth` deep along side `side` of box b, running `length`
+' cells from `from` along that side (from its top or left end).
+FUNC sideCut(b AS Rect, side AS Facing, from AS Integer, length AS Integer, depth AS Integer) AS Rect
+  MATCH side
+    CASE Facing.North : RETURN Rect[b.x + from, b.y, length, depth]
+    CASE Facing.South : RETURN Rect[b.x + from, b.y + b.h - depth, length, depth]
+    CASE Facing.West : RETURN Rect[b.x, b.y + from, depth, length]
+    CASE Facing.East : RETURN Rect[b.x + b.w - depth, b.y + from, depth, length]
+  END MATCH
+END FUNC
+
+' A room filling box b: a rectangle, an L, a U or a T, turned any way.
+FUNC shapeRoom(b AS Rect) AS Room
+  LET side AS Facing = facingOf(math::rand(0, 3))
+  ' The box's size along the chosen side, and across it.
+  MUT span AS Integer = b.w
+  MUT deep AS Integer = b.h
+  MATCH side
+    CASE Facing.East, Facing.West
+      span = b.h
+      deep = b.w
+    CASE Facing.North, Facing.South
+  END MATCH
+  LET kind AS Integer = math::rand(0, 3)
+  LET depth AS Integer = math::rand(2, deep - 2)
+  IF kind = 1 THEN
+    ' L: a corner off one end of the side.
+    LET length AS Integer = math::rand(2, span - 2)
+    MUT from AS Integer = 0
+    IF math::rand(0, 1) = 0 THEN from = span - length
+    RETURN Room[b.x, b.y, b.w, b.h, [sideCut(b, side, from, length, depth)]]
+  END IF
+  IF kind = 2 AND span >= 6 THEN
+    ' U: a notch out of the middle, with an arm of two or more each side.
+    LET length AS Integer = math::rand(2, span - 4)
+    RETURN Room[b.x, b.y, b.w, b.h, [sideCut(b, side, math::rand(2, span - length - 2), length, depth)]]
+  END IF
+  IF kind = 3 AND span >= 6 THEN
+    ' T: both ends of the side cut away, leaving a stem two or more wide.
+    LET stem AS Integer = math::rand(2, span - 4)
+    LET left AS Integer = math::rand(2, span - stem - 2)
+    RETURN Room[b.x, b.y, b.w, b.h, [sideCut(b, side, 0, left, depth), sideCut(b, side, left + stem, span - left - stem, depth)]]
+  END IF
+  RETURN Room[b.x, b.y, b.w, b.h, []]
+END FUNC
+
+' An opening in a room's wall: the room cell and the edge of it that opens
+' onto a hall.
+TYPE Door
+  x AS Integer
+  y AS Integer
+  edge AS Facing
+END TYPE
+
+' The level while it is being dug: what fills each cell, the doors so far,
+' and every wall piece by the index of the cell it stands in.
+TYPE Dig
+  width AS Integer
+  height AS Integer
+  ground AS List OF Ground
+  doors AS List OF Door
+  walls AS Map OF Integer TO List OF Piece
+END TYPE
+
+FUNC groundAt(d AS Dig, x AS Integer, y AS Integer) AS Ground
+  IF x < 0 OR y < 0 OR x >= d.width OR y >= d.height THEN RETURN Ground.Rock
+  RETURN collections::get(d.ground, y * d.width + x)
+END FUNC
+
+FUNC iabs(n AS Integer) AS Integer
+  IF n < 0 THEN RETURN -n
+  RETURN n
+END FUNC
+
+' Whether two rooms' boxes come within `gap` cells of each other.
+FUNC roomsTouch(a AS Room, b AS Room, gap AS Integer) AS Boolean
+  RETURN a.x - gap < b.x + b.w AND b.x - gap < a.x + a.w AND a.y - gap < b.y + b.h AND b.y - gap < a.y + a.h
+END FUNC
+
+' Up to maxRooms rooms scattered over the level, at least three cells apart so
+' a hall can run between them, sorted left to right.
+FUNC placeRooms(width AS Integer, height AS Integer) AS List OF Room
+  MUT rooms AS List OF Room = []
+  MUT tries AS Integer = 0
+  DO WHILE len(rooms) < maxRooms() AND tries < 400
+    tries = tries + 1
+    LET w AS Integer = math::rand(minRoomSide(), maxRoomSide())
+    LET h AS Integer = math::rand(minRoomSide(), maxRoomSide())
+    LET candidate AS Room = shapeRoom(Rect[math::rand(2, width - w - 2), math::rand(2, height - h - 2), w, h])
+    MUT clear AS Boolean = TRUE
+    FOR EACH r IN rooms
+      IF roomsTouch(r, candidate, 3) THEN clear = FALSE
+    NEXT
+    IF clear THEN rooms = collections::append(rooms, candidate)
+  LOOP
+
+  MUT sorted AS List OF Room = []
+  MUT rest AS List OF Room = rooms
+  DO WHILE len(rest) > 0
+    MUT best AS Integer = 0
+    FOR i = 1 TO len(rest) - 1
+      IF collections::get(rest, i).x < collections::get(rest, best).x THEN best = i
+    NEXT
+    sorted = collections::append(sorted, collections::get(rest, best))
+    rest = collections::removeAt(rest, best)
+  LOOP
+  RETURN sorted
+END FUNC
+
+' A wall piece standing on the given edge of its cell.
+FUNC wallOn(edge AS Facing) AS Piece
+  RETURN Piece["stoneWall", opposite(edge), FALSE]
+END FUNC
+
+' The corner piece standing on two edges of its cell that meet.
+FUNC cornerOn(a AS Facing, b AS Facing) AS Piece
+  IF counterclockwise(opposite(a)) = opposite(b) THEN RETURN Piece["stoneWallCorner", opposite(a), FALSE]
+  RETURN Piece["stoneWallCorner", opposite(b), FALSE]
+END FUNC
+
+' A wall piece and the index of the cell it stands in.
+TYPE Placed
+  cell AS Integer
+  piece AS Piece
+END TYPE
+
+' How far a wall's slab reaches into its own cell, as a fraction of a cell: 33
+' of a sprite's 128-pixel half width, measured off stoneWall_N.
+FUNC wallThickness AS Float
+  RETURN 0.2578125
+END FUNC
+
+' The corner piece of an inside corner, standing in the cell outside the turn.
+FUNC innerCornerOn(a AS Facing, b AS Facing) AS Piece
+  RETURN WITH cornerOn(a, b) { inner := TRUE }
+END FUNC
+
+' The wall pieces round a region of cells - a room, or a hall - given as its
+' cells (by index) and a set of cells beyond which its edge is left open, a
+' hall's doorways. Every piece stands inside the region, so every wall's slab is
+' on the same side of its line and walls always line up. Walking each wall
+' clockwise, it turns either outward round a corner of the region, where one
+' corner piece stands on both edges, or inward round a notch, where the walls
+' run right up to the turn and an inner corner piece covers the joint.
+FUNC regionWalls(cells AS List OF Integer, open AS Map OF Integer TO Boolean, width AS Integer) AS List OF Placed
+  MUT region AS Map OF Integer TO Boolean = Map OF Integer TO Boolean {}
+  FOR EACH k IN cells
+    region = collections::set(region, k, TRUE)
+  NEXT
+  MUT out AS List OF Placed = []
+  FOR EACH k IN cells
+    FOR EACH e IN compass()
+      LET beyond AS Integer = k + stepY(e) * width + stepX(e)
+      IF NOT collections::getOr(region, beyond, FALSE) AND NOT collections::getOr(open, beyond, FALSE) THEN
+        LET t AS Facing = clockwise(e)
+        LET ahead AS Integer = k + stepY(t) * width + stepX(t)
+        LET behind AS Integer = k - stepY(t) * width - stepX(t)
+        LET aheadIn AS Boolean = collections::getOr(region, ahead, FALSE)
+        ' A corner at either end that turns onto another wall has this edge.
+        LET cornerAhead AS Boolean = NOT aheadIn AND NOT collections::getOr(open, ahead, FALSE)
+        LET cornerBehind AS Boolean = NOT collections::getOr(region, behind, FALSE) AND NOT collections::getOr(open, behind, FALSE)
+        ' Each corner is the end ahead of exactly one edge, so it is placed there.
+        IF cornerAhead THEN out = collections::append(out, Placed[k, cornerOn(e, t)])
+        IF aheadIn AND collections::getOr(region, ahead + stepY(e) * width + stepX(e), FALSE) THEN
+          out = collections::append(out, Placed[beyond, innerCornerOn(opposite(e), t)])
+        END IF
+        IF NOT cornerAhead AND NOT cornerBehind THEN out = collections::append(out, Placed[k, wallOn(e)])
+      END IF
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' The wall pieces round room r.
+FUNC roomWalls(r AS Room, width AS Integer) AS List OF Placed
+  MUT cells AS List OF Integer = []
+  FOR y = r.y TO r.y + r.h - 1
+    FOR x = r.x TO r.x + r.w - 1
+      IF inRoom(r, x, y) THEN cells = collections::append(cells, y * width + x)
+    NEXT
+  NEXT
+  RETURN regionWalls(cells, Map OF Integer TO Boolean {}, width)
+END FUNC
+
+FUNC wallsAt(d AS Dig, x AS Integer, y AS Integer) AS List OF Piece
+  LET none AS List OF Piece = []
+  RETURN collections::getOr(d.walls, y * d.width + x, none)
+END FUNC
+
+' Whether some piece in the list stands on the given edge.
+FUNC covers(pieces AS List OF Piece, edge AS Facing) AS Boolean
+  FOR EACH p IN pieces
+    IF blocksEdge(p, edge) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Where a door can go in room r's wall on the given side: a plain wall piece,
+' with the room's wall carrying on in line either side of it. That keeps doors
+' out of corners and away from notches, and puts the room's wall where a hall's
+' walls can meet it flush.
+FUNC doorPlaces(d AS Dig, r AS Room, edge AS Facing) AS List OF Door
+  LET t AS Facing = clockwise(edge)
+  MUT out AS List OF Door = []
+  FOR y = r.y TO r.y + r.h - 1
+    FOR x = r.x TO r.x + r.w - 1
+      IF inRoom(r, x, y) AND NOT inRoom(r, x + stepX(edge), y + stepY(edge)) THEN
+        MUT plain AS Boolean = FALSE
+        FOR EACH p IN wallsAt(d, x, y)
+          IF p.tile = "stoneWall" AND p.facing = opposite(edge) THEN plain = TRUE
+        NEXT
+        LET nx AS Integer = x + stepX(t)
+        LET ny AS Integer = y + stepY(t)
+        LET px AS Integer = x - stepX(t)
+        LET py AS Integer = y - stepY(t)
+        IF plain AND inRoom(r, nx, ny) AND inRoom(r, px, py) AND covers(wallsAt(d, nx, ny), edge) AND covers(wallsAt(d, px, py), edge) THEN
+          out = collections::append(out, Door[x, y, edge])
+        END IF
+      END IF
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' The door's wall piece becomes an archway.
+FUNC openDoor(d AS Dig, door AS Door) AS Dig
+  MUT pieces AS List OF Piece = []
+  FOR EACH p IN wallsAt(d, door.x, door.y)
+    IF p.tile = "stoneWall" AND p.facing = opposite(door.edge) THEN
+      pieces = collections::append(pieces, Piece["stoneWallArchway", p.facing, FALSE])
+    ELSE
+      pieces = collections::append(pieces, p)
+    END IF
+  NEXT
+  RETURN WITH d { walls := collections::set(d.walls, door.y * d.width + door.x, pieces) }
+END FUNC
+
+' A hall that fits, with its cells from door to door and its wall pieces, or
+' ok = FALSE.
+TYPE HallPlan
+  ok AS Boolean
+  cells AS List OF Integer
+  walls AS List OF Placed
+END TYPE
+
+' A point on the grid.
+TYPE Spot
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC isign(n AS Integer) AS Integer
+  IF n < 0 THEN RETURN -1
+  IF n > 0 THEN RETURN 1
+  RETURN 0
+END FUNC
+
+' How far along direction f a spot is.
+FUNC along(p AS Spot, f AS Facing) AS Integer
+  RETURN p.x * stepX(f) + p.y * stepY(f)
+END FUNC
+
+' The spot `n` along direction f's axis, keeping p's other coordinate.
+FUNC withAlong(p AS Spot, f AS Facing, n AS Integer) AS Spot
+  IF stepX(f) <> 0 THEN RETURN Spot[n * stepX(f), p.y]
+  RETURN Spot[p.x, n * stepY(f)]
+END FUNC
+
+' The direction from a to b, which must lie in a line.
+FUNC directionTo(a AS Spot, b AS Spot) AS Facing
+  IF b.x > a.x THEN RETURN Facing.East
+  IF b.x < a.x THEN RETURN Facing.West
+  IF b.y > a.y THEN RETURN Facing.South
+  RETURN Facing.North
+END FUNC
+
+' A random whole number strictly between lo and hi, or lo when there is none.
+FUNC between(lo AS Integer, hi AS Integer) AS Integer
+  IF hi - lo < 2 THEN RETURN lo
+  RETURN math::rand(lo + 1, hi - 1)
+END FUNC
+
+' The turning points of a hall that leaves s heading h1 and reaches t heading
+' h2: straight or a Z when h2 = h1, a U when h2 is the way back, and an L or a
+' three-bend staircase when h2 turns off h1. [s] alone means no shape fits.
+FUNC hallShape(s AS Spot, t AS Spot, h1 AS Facing, h2 AS Facing) AS List OF Spot
+  IF h2 = h1 THEN
+    LET side AS Facing = clockwise(h1)
+    IF along(s, side) = along(t, side) THEN RETURN [s, t]
+    LET m AS Integer = between(along(s, h1), along(t, h1))
+    RETURN [s, withAlong(s, h1, m), withAlong(t, h1, m), t]
+  END IF
+  IF h2 = opposite(h1) THEN
+    LET m AS Integer = math::max(along(s, h1), along(t, h1)) + math::rand(2, 5)
+    RETURN [s, withAlong(s, h1, m), withAlong(t, h1, m), t]
+  END IF
+  LET corner AS Spot = withAlong(s, h1, along(t, h1))
+  IF math::rand(0, 1) = 0 THEN RETURN [s, corner, t]
+  LET m AS Integer = between(along(s, h1), along(t, h1))
+  LET n AS Integer = between(along(s, h2), along(t, h2))
+  LET first AS Spot = withAlong(s, h1, m)
+  LET second AS Spot = withAlong(first, h2, n)
+  RETURN [s, first, second, withAlong(second, h1, along(t, h1)), t]
+END FUNC
+
+' Plans a hall from door da to door db. Any shape of straight runs will do as
+' long as each run is at least two cells long, not counting the bends, and the
+' hall keeps to rock at least two cells from any room and three from any other
+' hall, apart from the cells just outside its own doors. Its walls are built
+' like a room's (regionWalls): a corner piece round the outside of each bend and
+' a column round the inside, and open where it meets its doors.
+FUNC planHall(d AS Dig, da AS Door, db AS Door) AS HallPlan
+  LET noHall AS HallPlan = HallPlan[FALSE, [], []]
+  LET h1 AS Facing = da.edge
+  LET h2 AS Facing = opposite(db.edge)
+  LET points AS List OF Spot = hallShape(Spot[da.x + stepX(h1), da.y + stepY(h1)], Spot[db.x + stepX(db.edge), db.y + stepY(db.edge)], h1, h2)
+  LET legs AS Integer = len(points) - 1
+  IF legs < 1 THEN RETURN noHall
+
+  ' The direction of each run, which must start h1, end h2, and turn at every
+  ' point in between.
+  MUT dirs AS List OF Facing = []
+  FOR i = 0 TO legs - 1
+    LET a AS Spot = collections::get(points, i)
+    LET b AS Spot = collections::get(points, i + 1)
+    IF a.x <> b.x AND a.y <> b.y THEN RETURN noHall
+    IF a.x = b.x AND a.y = b.y THEN
+      ' Only a straight hall one cell long starts where it ends.
+      IF legs > 1 THEN RETURN noHall
+      dirs = collections::append(dirs, h1)
+    ELSE
+      dirs = collections::append(dirs, directionTo(a, b))
+    END IF
+  NEXT
+  IF collections::get(dirs, 0) <> h1 OR collections::get(dirs, legs - 1) <> h2 THEN RETURN noHall
+  FOR i = 1 TO legs - 1
+    LET a AS Facing = collections::get(dirs, i - 1)
+    LET b AS Facing = collections::get(dirs, i)
+    IF b = a OR b = opposite(a) THEN RETURN noHall
+  NEXT
+
+  ' Each run's own cells: the cells from one point to the next, less the bends
+  ' at either end. Every run needs at least two.
+  MUT cells AS List OF Integer = []
+  MUT onPath AS Map OF Integer TO Boolean = Map OF Integer TO Boolean {}
+  FOR i = 0 TO legs - 1
+    LET a AS Spot = collections::get(points, i)
+    LET b AS Spot = collections::get(points, i + 1)
+    LET dir AS Facing = collections::get(dirs, i)
+    LET length AS Integer = iabs(b.x - a.x) + iabs(b.y - a.y)
+    MUT run AS List OF Integer = []
+    FOR n = 0 TO length
+      LET k AS Integer = (a.y + n * stepY(dir)) * d.width + a.x + n * stepX(dir)
+      IF NOT (n = 0 AND i > 0) THEN
+        cells = collections::append(cells, k)
+        onPath = collections::set(onPath, k, TRUE)
+      END IF
+      IF NOT (n = 0 AND i > 0) AND NOT (n = length AND i < legs - 1) THEN run = collections::append(run, k)
+    NEXT
+    IF len(run) < 2 THEN RETURN noHall
+  NEXT
+
+  FOR n = 0 TO len(cells) - 1
+    LET k AS Integer = collections::get(cells, n)
+    LET x AS Integer = k MOD d.width
+    LET y AS Integer = k / d.width
+    IF x < 1 OR y < 1 OR x > d.width - 2 OR y > d.height - 2 THEN RETURN noHall
+    IF groundAt(d, x, y) <> Ground.Rock THEN RETURN noHall
+    LET atDoor AS Boolean = n = 0 OR n = len(cells) - 1
+    FOR dy = -2 TO 2
+      FOR dx = -2 TO 2
+        IF NOT collections::getOr(onPath, (y + dy) * d.width + x + dx, FALSE) THEN
+          LET g AS Ground = groundAt(d, x + dx, y + dy)
+          LET near AS Boolean = iabs(dx) <= 1 AND iabs(dy) <= 1
+          IF g = Ground.Hall THEN RETURN noHall
+          IF g = Ground.RoomFloor AND near AND NOT atDoor THEN RETURN noHall
+        END IF
+      NEXT
+    NEXT
+    ' The hall must not come back alongside itself.
+    FOR m = n + 3 TO len(cells) - 1
+      LET o AS Integer = collections::get(cells, m)
+      IF iabs(o MOD d.width - x) <= 1 AND iabs(o / d.width - y) <= 1 THEN RETURN noHall
+    NEXT
+  NEXT
+
+  LET doors AS Map OF Integer TO Boolean = Map OF Integer TO Boolean {} |> collections::set(_, da.y * d.width + da.x, TRUE) |> collections::set(_, db.y * d.width + db.x, TRUE)
+  LET walls AS List OF Placed = regionWalls(cells, doors, d.width)
+  RETURN HallPlan[TRUE, cells, walls]
+END FUNC
+
+' Digs a hall between a door in room a and a door in room b, trying doors on
+' different sides and places, and different shapes, until one fits. A pair of
+' rooms nothing fits between is left unjoined.
+FUNC joinRooms(d AS Dig, a AS Room, b AS Room) AS Dig
+  FOR attempt = 1 TO 60
+    LET e1 AS Facing = facingOf(math::rand(0, 3))
+    LET e2 AS Facing = turned(e1, math::rand(0, 3))
+    LET fromA AS List OF Door = doorPlaces(d, a, e1)
+    MUT fromB AS List OF Door = doorPlaces(d, b, e2)
+    IF len(fromA) > 0 AND len(fromB) > 0 THEN
+      LET da AS Door = collections::get(fromA, math::rand(0, len(fromA) - 1))
+      IF e2 = opposite(e1) AND math::rand(0, 1) = 0 THEN
+        ' Now and then line b's door up with a's, for a straight hall.
+        MUT inLine AS List OF Door = []
+        FOR EACH o IN fromB
+          IF (stepX(e1) <> 0 AND o.y = da.y) OR (stepY(e1) <> 0 AND o.x = da.x) THEN inLine = collections::append(inLine, o)
+        NEXT
+        IF len(inLine) > 0 THEN fromB = inLine
+      END IF
+      LET db AS Door = collections::get(fromB, math::rand(0, len(fromB) - 1))
+      LET dug AS Dig = tryHall(d, da, db)
+      IF len(dug.doors) > len(d.doors) THEN RETURN dug
+    END IF
+  NEXT
+  RETURN d
+END FUNC
+
+' Digs the hall planned between two doors, if one fits, opening both doors.
+FUNC tryHall(d AS Dig, da AS Door, db AS Door) AS Dig
+  LET plan AS HallPlan = planHall(d, da, db)
+  IF plan.ok THEN
+    MUT ground AS List OF Ground = d.ground
+    FOR EACH k IN plan.cells
+      ground = collections::set(ground, k, Ground.Hall)
+    NEXT
+    MUT walls AS Map OF Integer TO List OF Piece = d.walls
+    LET none AS List OF Piece = []
+    FOR EACH w IN plan.walls
+      walls = collections::set(walls, w.cell, collections::append(collections::getOr(walls, w.cell, none), w.piece))
+    NEXT
+    RETURN openDoor(openDoor(WITH d { ground := ground, doors := collections::append(d.doors, [da, db]), walls := walls }, da), db)
+  END IF
+  RETURN d
+END FUNC
+
+' Puts room b's group into room a's.
+FUNC mergeGroups(group AS List OF Integer, a AS Integer, b AS Integer) AS List OF Integer
+  LET into AS Integer = collections::get(group, a)
+  LET from AS Integer = collections::get(group, b)
+  MUT out AS List OF Integer = []
+  FOR EACH g IN group
+    IF g = from THEN
+      out = collections::append(out, into)
+    ELSE
+      out = collections::append(out, g)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The other rooms' indexes, nearest to room i first.
+FUNC nearestFirst(rooms AS List OF Room, i AS Integer) AS List OF Integer
+  LET r AS Room = collections::get(rooms, i)
+  MUT rest AS List OF Integer = []
+  FOR j = 0 TO len(rooms) - 1
+    IF j <> i THEN rest = collections::append(rest, j)
+  NEXT
+  MUT out AS List OF Integer = []
+  DO WHILE len(rest) > 0
+    MUT best AS Integer = 0
+    MUT bestDistance AS Integer = -1
+    FOR k = 0 TO len(rest) - 1
+      LET o AS Room = collections::get(rooms, collections::get(rest, k))
+      LET distance AS Integer = iabs(2 * o.x + o.w - 2 * r.x - r.w) + iabs(2 * o.y + o.h - 2 * r.y - r.h)
+      IF bestDistance < 0 OR distance < bestDistance THEN
+        best = k
+        bestDistance = distance
+      END IF
+    NEXT
+    out = collections::append(out, collections::get(rest, best))
+    rest = collections::removeAt(rest, best)
+  LOOP
+  RETURN out
+END FUNC
+
+' A stone floor, now and then with tiles missing - more often in the halls.
+FUNC floorPiece(g AS Ground) AS Piece
+  MUT odds AS Integer = 20
+  MATCH g
+    CASE Ground.Hall : odds = 6
+    CASE Ground.Rock, Ground.RoomFloor : odds = 20
+  END MATCH
+  IF math::rand(1, odds) = 1 THEN RETURN Piece["stoneMissingTiles", facingOf(math::rand(0, 3)), FALSE]
+  RETURN Piece["stone", facingOf(math::rand(0, 3)), FALSE]
+END FUNC
+
+' The whole level for a seed: rooms - rectangles, Ls, Us and Ts - joined left
+' to right by halls, with a few extra halls that skip a room, as nethack does,
+' and some barrels and
+' tables in the rooms. The same seed always gives the same level: a level
+' that comes out invalid, or with a room that cannot be reached, is thrown
+' away and the next one drawn from the same random sequence.
+FUNC generateDungeon(seed AS Integer) AS DungeonMap
+  math::seed(seed)
+  MUT level AS Level = buildLevel()
+  MUT tries AS Integer = 1
+  DO WHILE NOT (level.connected AND mapIsValid(level.map))
+    IF tries >= 50 THEN FAIL error(errorCode::ErrInvalidArgument, "dungeon: no valid level for seed " & toString(seed) & " in " & toString(tries) & " tries")
+    level = buildLevel()
+    tries = tries + 1
+  LOOP
+  RETURN level.map
+END FUNC
+
+' One attempt at a level, and whether every room could be joined to the first.
+TYPE Level
+  map AS DungeonMap
+  connected AS Boolean
+END TYPE
+
+FUNC buildLevel AS Level
+  LET width AS Integer = dungeonWidth()
+  LET height AS Integer = dungeonHeight()
+  LET rooms AS List OF Room = placeRooms(width, height)
+
+  MUT ground AS List OF Ground = []
+  FOR i = 1 TO width * height
+    ground = collections::append(ground, Ground.Rock)
+  NEXT
+  LET none AS List OF Piece = []
+  MUT walls AS Map OF Integer TO List OF Piece = Map OF Integer TO List OF Piece {}
+  FOR EACH r IN rooms
+    FOR y = r.y TO r.y + r.h - 1
+      FOR x = r.x TO r.x + r.w - 1
+        IF inRoom(r, x, y) THEN ground = collections::set(ground, y * width + x, Ground.RoomFloor)
+      NEXT
+    NEXT
+    FOR EACH w IN roomWalls(r, width)
+      walls = collections::set(walls, w.cell, collections::append(collections::getOr(walls, w.cell, none), w.piece))
+    NEXT
+  NEXT
+
+  MUT d AS Dig = Dig[width, height, ground, [], walls]
+  ' group(i) names the rooms room i is connected to so far.
+  MUT group AS List OF Integer = []
+  FOR i = 0 TO len(rooms) - 1
+    group = collections::append(group, i)
+  NEXT
+  FOR i = 0 TO len(rooms) - 2
+    LET before AS Integer = len(d.doors)
+    d = joinRooms(d, collections::get(rooms, i), collections::get(rooms, i + 1))
+    IF len(d.doors) > before THEN group = mergeGroups(group, i, i + 1)
+  NEXT
+  FOR i = 0 TO len(rooms) - 3
+    IF math::rand(0, 1) = 0 THEN
+      LET before AS Integer = len(d.doors)
+      d = joinRooms(d, collections::get(rooms, i), collections::get(rooms, i + 2))
+      IF len(d.doors) > before THEN group = mergeGroups(group, i, i + 2)
+    END IF
+  NEXT
+
+  ' A pair of rooms with no hall between them can leave rooms cut off. Join
+  ' each of them to the nearest room already reachable from the first, until
+  ' nothing more connects.
+  MUT progress AS Boolean = TRUE
+  DO WHILE progress
+    progress = FALSE
+    FOR i = 1 TO len(rooms) - 1
+      IF collections::get(group, i) <> collections::get(group, 0) THEN
+        FOR EACH j IN nearestFirst(rooms, i)
+          IF collections::get(group, i) <> collections::get(group, 0) AND collections::get(group, j) = collections::get(group, 0) THEN
+            LET before AS Integer = len(d.doors)
+            d = joinRooms(d, collections::get(rooms, j), collections::get(rooms, i))
+            IF len(d.doors) > before THEN
+              group = mergeGroups(group, j, i)
+              progress = TRUE
+            END IF
+          END IF
+        NEXT
+      END IF
+    NEXT
+  LOOP
+
+  MUT cells AS List OF Cell = []
+  FOR y = 0 TO height - 1
+    FOR x = 0 TO width - 1
+      LET g AS Ground = groundAt(d, x, y)
+      IF g = Ground.Rock THEN
+        cells = collections::append(cells, Cell[Piece["", Facing.North, FALSE], wallsAt(d, x, y), []])
+      ELSE
+        cells = collections::append(cells, Cell[floorPiece(g), wallsAt(d, x, y), []])
+      END IF
+    NEXT
+  NEXT
+
+  ' The player starts in the cell of the leftmost room nearest the middle of
+  ' its box.
+  LET first AS Room = collections::get(rooms, 0)
+  MUT startX AS Integer = -1
+  MUT startY AS Integer = -1
+  FOR y = first.y TO first.y + first.h - 1
+    FOR x = first.x TO first.x + first.w - 1
+      LET off AS Integer = iabs(2 * (x - first.x) + 1 - first.w) + iabs(2 * (y - first.y) + 1 - first.h)
+      IF inRoom(first, x, y) AND (startX < 0 OR off < iabs(2 * (startX - first.x) + 1 - first.w) + iabs(2 * (startY - first.y) + 1 - first.h)) THEN
+        startX = x
+        startY = y
+      END IF
+    NEXT
+  NEXT
+
+  ' Up to two props per room, only where every cell round them is the room's -
+  ' the cells along the walls, which all the doors open onto, stay clear and
+  ' joined - and never on the start.
+  FOR EACH r IN rooms
+    FOR i = 1 TO math::rand(0, 2)
+      LET x AS Integer = math::rand(r.x, r.x + r.w - 1)
+      LET y AS Integer = math::rand(r.y, r.y + r.h - 1)
+      MUT open AS Boolean = TRUE
+      FOR dy = -1 TO 1
+        FOR dx = -1 TO 1
+          IF NOT inRoom(r, x + dx, y + dy) THEN open = FALSE
+        NEXT
+      NEXT
+      MUT tile AS String = "barrel"
+      IF math::rand(0, 1) = 0 THEN tile = "tableShort"
+      LET prop AS Piece = Piece[tile, facingOf(math::rand(0, 3)), FALSE]
+      LET c AS Cell = collections::get(cells, y * width + x)
+      IF open AND len(c.props) = 0 AND NOT (x = startX AND y = startY) THEN
+        cells = collections::set(cells, y * width + x, WITH c { props := [prop] })
+      END IF
+    NEXT
+  NEXT
+
+  MUT connected AS Boolean = TRUE
+  FOR EACH g IN group
+    IF g <> collections::get(group, 0) THEN connected = FALSE
+  NEXT
+  RETURN Level[DungeonMap[width, height, cells, startX, startY], connected]
+END FUNC

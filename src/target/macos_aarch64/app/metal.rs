@@ -52,30 +52,44 @@ use crate::codegen::error::constants::error_constants::{
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE,
-    GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
-    GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
-    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
-    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
-    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
+    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
+    ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+};
+use crate::codegen::runtime::canvas::{
+    BLEND_MODE_COUNT, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
+    GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
+    GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT, GRAPHICS_OFFSET_MTL_TEX_WIDTH,
+    GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES, METAL_EDGE_BASE_WORDS,
+    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
-    HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
-    HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
-    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS,
-    HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA,
-    HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX,
-    HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
-    ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
-    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
-    MAX_FRAME_GRADIENT_STOPS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_GLYPH_SAMPLES,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
+    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
+    HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1,
+    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R,
+    HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
+    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
+    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
+    HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
+    HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
+    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
+    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS,
+    METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
+    METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS,
+    METAL_PICTURE_RECORDS_OFFSET, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
 };
+use crate::codegen::runtime::canvas::{
+    GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
+    GRAPHICS_OFFSET_MTL_LAYER_READY, GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+};
+use std::sync::LazyLock;
 
 /// The one-time setup helper's symbol.
 pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
@@ -114,22 +128,35 @@ pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
 /// would put the burden of predicting MSL's alignment rules on the emitter, and a
 /// wrong prediction there is not a compile error — it is a scene that draws with its
 /// fields shifted.
-pub(super) const METAL_SHADER_SOURCE: &str = concat!(
-    "#include <metal_stdlib>\n",
-    "using namespace metal;\n",
-    "constant float FIXED = 65536.0;\n",
-    "constant float PI = 3.141592653589793;\n",
-    // Where the frame buffer's edge region starts, in 32-bit words -- i.e. immediately
-    // past `CANVAS_MAX_FRAME_ITEMS` item blocks, so it MOVES whenever `ITEM_BLOCK_SIZE`
-    // does (114688 -> 131072 when plan-116-B widened the block to 128 bytes). Spelled
-    // as a literal because
-    // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
-    // computed value; `the_metal_shader_region_bases_match_the_buffer_layout` is what
-    // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
-    // anywhere -- every polygon would simply read edges from the wrong place in a
-    // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 212992;\n",
-    "constant int METAL_GRADIENT_BASE = 278528;\n",
+///
+/// ## The region bases are generated, not spelled
+///
+/// The frame buffer's regions (`METAL_EDGE_BASE`, `METAL_BAND_BASE`,
+/// `METAL_GRADIENT_BASE`, `METAL_GLYPH_BASE`) start wherever the layout constants in
+/// `runtime/canvas` put them, and every one MOVES when a cap before it or
+/// `ITEM_BLOCK_SIZE` changes. They
+/// were integer literals in a `concat!` until bug-686, kept equal to the Rust layout
+/// only by `the_metal_shader_region_bases_match_the_buffer_layout`; a stale one does
+/// not fail anywhere — every polygon, ramp or glyph reads from the wrong offset of a
+/// buffer that is entirely valid memory. The source is now formatted once, on first
+/// use, with the numbers taken from the constants themselves, so there is no second
+/// spelling to fall out of step. The test still reads the formatted text back.
+pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "#include <metal_stdlib>\n\
+         using namespace metal;\n\
+         constant float FIXED = 65536.0;\n\
+         constant float PI = 3.141592653589793;\n\
+         constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
+         constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
+         constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
+         constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
+         {METAL_SHADER_BODY}"
+    )
+});
+
+/// Everything in the MSL after the region bases — the part with no layout number in it.
+const METAL_SHADER_BODY: &str = concat!(
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -248,10 +275,20 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // to leave it zero because `setFragmentBytes:` copied each item's edges into the
     // command buffer, so every polygon's array started at 0; one buffer now serves the
     // whole frame, so each polygon reads its own slice.
-    "static float edgeDistance(constant int *edges, int base, int count, float2 p) {\n",
+    //
+    // bug-686: `list` is where this pixel's band's edge numbers start in `edges`, and
+    // `count` how many there are -- or `list` is -1 and `count` the polygon's edge count,
+    // which is the loop over every edge this function always was (`polygonBand`). The
+    // loop BODY is untouched, and that is what makes the band index exact: an edge left
+    // out of a band is one whose y-span misses the pixel's row (so it cannot toggle
+    // `inside`) and that is further than the band's reach from it (so it cannot change
+    // the clamped coverage `best` feeds). Order does not matter: `min` and a parity
+    // toggle are both order-independent.
+    "static float edgeDistance(constant int *edges, int base, int count, int list, float2 p) {\n",
     "  float best = 1.0e6;\n",
     "  bool inside = false;\n",
-    "  for (int e = 0; e < count; ++e) {\n",
+    "  for (int j = 0; j < count; ++j) {\n",
+    "    int e = list < 0 ? j : edges[list + j];\n",
     "    int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
     "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
     "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
@@ -268,14 +305,69 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
     // have no double->single convert.
     "static bool hasTransform(constant MfbItem &item) { return item.xform1.z != 0; }\n",
+    // bug-686: the edge list a polygon's shape-space point at height `y` visits, as
+    // (first word in `edges`, length), or (-1, edgeCount) for "every edge" -- any other
+    // kind, or a polygon the emitter gave no band index (`arcCaps.z` = 0). The band
+    // header is `arcCaps` = (top, height in 16.16, band count, table offset), written by
+    // `emit_band_index`; the table is (first, count) per band and the list follows it.
+    // A point above the first band or below the last uses the end band, which the
+    // emitter built to hold every edge that can matter there.
+    "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y) {\n",
+    "  int nb = item.arcCaps.z;\n",
+    "  if ((item.misc.x != 4 && item.misc.x != 10) || nb <= 0) { return int2(-1, item.misc.w); }\n",
+    "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
+    "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
+    "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
+    "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
+    "}\n",
+    // plan-154-B: a PolyLine's distance and path parameter, as (d, t) -- the twin of
+    // `__canvas_polylineScan` in the oracle and of `polylineScan` in
+    // `runtime/canvas/shaders/mfb_canvas.frag`. The minimum over the segments' round
+    // bands is the union that makes every corner round; only the first and last LIVE
+    // segments (`gradient.x`/`.y`, whole numbers) take a butt plane, each on its outer
+    // end. A zero-length segment is skipped unless it is the whole path (first == last),
+    // where it is the round dot. `t` is (segment + clamped t) / segments, continuous at a
+    // corner, and the same walk sets both, so the colour's segment is the distance's.
+    "static float2 polylineScan(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
+    "  int first = item.gradient.x;\n",
+    "  int last = item.gradient.y;\n",
+    "  float halfW = fx(item.misc.y);\n",
+    "  bool butt = item.arc.w == 0;\n",
+    "  float best = 1.0e6;\n",
+    "  float param = 0.0;\n",
+    "  for (int j = 0; j < band.y; ++j) {\n",
+    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
+    "    if (e < first || e > last) { continue; }\n",
+    "    int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
+    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "    float2 v = float2(fx(edges[i + 2]), fx(edges[i + 3])) - a;\n",
+    "    float len2 = dot(v, v);\n",
+    "    if (!(len2 > 0.0) && first != last) { continue; }\n",
+    "    float2 w = p - a;\n",
+    "    float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;\n",
+    "    float c = clamp(t, 0.0, 1.0);\n",
+    "    float d = length(w - v * c) - halfW;\n",
+    "    if (butt) {\n",
+    "      float len = sqrt(len2);\n",
+    "      if (e == first) { d = max(d, -t * len); }\n",
+    "      if (e == last) { d = max(d, (t - 1.0) * len); }\n",
+    "    }\n",
+    "    if (d < best) { best = d; param = (float(e) + c) / float(item.misc.w); }\n",
+    "  }\n",
+    "  return float2(best, param);\n",
+    "}\n",
     "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
     "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
     "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
     "}\n",
-    "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
+    "static float geoDistance(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
     "  float radius = fx(item.misc.y);\n",
     "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
-    "  if (item.misc.x == 0) {\n",
+    // bug-484: a picture (9) is a rectangle to the distance field -- its header carries
+    // the destination's centre, half-extent and a zero radius -- so its coverage, edge,
+    // clip, transform and stroke are the rectangle's by construction, exactly as the
+    // oracle's `distKind` makes them. Only its fill colour differs (`pictureColour`).
+    "  if (item.misc.x == 0 || item.misc.x == 9) {\n",
     "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
     "  }\n",
     "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
@@ -310,7 +402,8 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    band = min(band, length(p - cs) - radius);\n",
     "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
-    "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
+    "  if (item.misc.x == 10) { return polylineScan(item, edges, band, p).x; }\n",
+    "  return edgeDistance(edges, item.arc.z, band.y, band.x, p);\n",
     "}\n",
     // The shape-space distance and the local scale of the mapping, as (d, s).
     //
@@ -321,13 +414,23 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // the same one and Phase 1's measurement is against this value. Central differences
     // rather than fwidth for the reason 06_canvas.md gives -- a hardware derivative
     // differs between platforms; this uses only + - * / and sqrt.
+    //
+    // bug-686: all five evaluations of a transformed polygon use the band of the CENTRE
+    // point `q`. The emitter widened that band's reach by the transform's scale for
+    // exactly this, so it holds every edge any of the four neighbours needs; a band
+    // looked up per neighbour could differ between them, and the difference quotient
+    // of two different edge sets is not the gradient of anything.
     "static float2 shapeDistanceAndScale(constant MfbItem &item, constant int *edges, float2 p) {\n",
-    "  if (!hasTransform(item)) { return float2(geoDistance(item, edges, p), 1.0); }\n",
-    "  float d = geoDistance(item, edges, inverseMap(item, p));\n",
-    "  float gx = geoDistance(item, edges, inverseMap(item, p + float2(0.5, 0.0)))\n",
-    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.5, 0.0)));\n",
-    "  float gy = geoDistance(item, edges, inverseMap(item, p + float2(0.0, 0.5)))\n",
-    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.0, 0.5)));\n",
+    "  if (!hasTransform(item)) {\n",
+    "    return float2(geoDistance(item, edges, polygonBand(item, edges, p.y), p), 1.0);\n",
+    "  }\n",
+    "  float2 q = inverseMap(item, p);\n",
+    "  int2 band = polygonBand(item, edges, q.y);\n",
+    "  float d = geoDistance(item, edges, band, q);\n",
+    "  float gx = geoDistance(item, edges, band, inverseMap(item, p + float2(0.5, 0.0)))\n",
+    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.5, 0.0)));\n",
+    "  float gy = geoDistance(item, edges, band, inverseMap(item, p + float2(0.0, 0.5)))\n",
+    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.0, 0.5)));\n",
     "  float g = sqrt(gx * gx + gy * gy);\n",
     "  return float2(d, g > 0.000001 ? g : 1.0);\n",
     "}\n",
@@ -368,20 +471,11 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  }\n",
     "  return c;\n",
     "}\n",
-    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    // plan-154-B: the stop lookup at a ramp parameter `t`, split from the axis that
+    // computes `t` so a PolyLine can ask it at its path parameter instead.
+    "static int4 gradientAt(float t, constant int *edges, constant MfbItem &item) {\n",
     "  int count = item.ellipse.z;\n",
     "  int base = METAL_GRADIENT_BASE + item.ellipse.w * 5;\n",
-    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
-    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
-    "  float2 axis = gto - gfrom;\n",
-    "  float len2 = dot(axis, axis);\n",
-    "  float t = 0.0;\n",
-    "  if (item.gradientKind == 1) {\n",
-    "    float len = sqrt(len2);\n",
-    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
-    "  } else {\n",
-    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
-    "  }\n",
     "  t = clamp(t, 0.0, 1.0);\n",
     "  int idx = count;\n",
     "  for (int i = 0; i < count; ++i) {\n",
@@ -407,6 +501,44 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "              gradientChannel(edges[lo + 2], edges[hi + 2], num),\n",
     "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
     "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
+    "}\n",
+    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
+    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
+    "  float2 axis = gto - gfrom;\n",
+    "  float len2 = dot(axis, axis);\n",
+    "  float t = 0.0;\n",
+    "  if (item.gradientKind == 1) {\n",
+    "    float len = sqrt(len2);\n",
+    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
+    "  } else {\n",
+    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
+    "  }\n",
+    "  return gradientAt(t, edges, item);\n",
+    "}\n",
+    // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
+    // NEAREST and tinted by the fill, the twin of the `isPicture` arm of
+    // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
+    // and `floor` rather than a cast, so all renderers pick the same texel; the index is
+    // CLAMPED because the antialiased pixels just outside the destination belong to the
+    // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
+    // word each, and the block names its slice as a glyph's does: width in `misc.w`,
+    // height in `arc.x`, base in `arc.z`. A zero width is an image the emitter could not
+    // upload (destroyed, or over the frame's cap): transparent, like the oracle's
+    // `shadowTexel` answer for a missing block.
+    "static int4 pictureColour(constant MfbItem &item, constant int *edges, float2 q) {\n",
+    "  int iw = item.misc.w;\n",
+    "  int ih = item.arc.x;\n",
+    "  if (iw <= 0 || ih <= 0) { return int4(0); }\n",
+    "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
+    "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
+    "  float dw = hw * 2.0, dh = hh * 2.0;\n",
+    "  int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);\n",
+    "  int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);\n",
+    "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
+    "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
+    "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
+    "  return (tex * item.fill) / 255;\n",
     "}\n",
     "static float4 covered(int4 rgba, int coverage) {\n",
     "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
@@ -444,12 +576,12 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // cast because the edge region is reached by a word index and the block region by a
     // struct index, and letting each keep its own element type is what stops a packing
     // mistake -- the class of bug that yields a plausible wrong picture, not a fault.
-    // The glyph bitmap stays a per-glyph `setFragmentBytes:` payload: a text item is
-    // already N separate draws, so its payload never has to survive an instanced run.
+    // Glyph coverage is the fourth region of the same buffer (bug-670): a text item is
+    // ONE instanced draw, so a per-glyph payload bound before it would be overwritten
+    // by the next glyph's; each glyph's block names its own slice instead.
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant uchar *glyph [[buffer(2)]],\n",
     "                            constant int2 &drawOffset [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
     // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
@@ -484,7 +616,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    int ix = int(floor(gp.x)) - item.shape.x;\n",
     "    int iy = int(floor(gp.y)) - item.shape.y;\n",
     "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
-    "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
+    "      ? 0 : edges[METAL_GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];\n",
     "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
     // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
@@ -497,6 +629,18 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float d = dRaw / dScale;\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
+    // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
+    // the path -- the parameter of the nearest point, in shape space, from the same band
+    // the distance used.
+    "  if (item.misc.x == 10 && item.ellipse.z >= 2) {\n",
+    "    float2 q = hasTransform(item) ? inverseMap(item, p) : p;\n",
+    "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y), q).y, edges, item);\n",
+    "  }\n",
+    // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
+    // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
+    "  if (item.misc.x == 9) {\n",
+    "    fillRgba = pictureColour(item, edges, hasTransform(item) ? inverseMap(item, p) : p);\n",
+    "  }\n",
     "  float4 colour = covered(fillRgba,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -513,8 +657,9 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "}\n",
 );
 
-/// The MSL source, as a C string data object.
-pub(super) const STR_METAL_SHADER: (&str, &str) = ("_mfb_macapp_metal_shader", METAL_SHADER_SOURCE);
+/// The MSL source's C string data object symbol. The text is `METAL_SHADER_SOURCE`,
+/// paired with this in `metal_data_objects`.
+pub(super) const STR_METAL_SHADER: &str = "_mfb_macapp_metal_shader";
 /// The two entry-point names, looked up in the compiled library.
 pub(super) const STR_METAL_VERTEX_FN: (&str, &str) = ("_mfb_macapp_metal_vertex_fn", "mfbVertex");
 pub(super) const STR_METAL_FRAGMENT_FN: (&str, &str) =
@@ -574,6 +719,10 @@ pub(super) const SEL_TEXTURE_2D_DESCRIPTOR: (&str, &str) = (
 pub(super) const SEL_SET_USAGE: (&str, &str) = ("_mfb_macapp_sel_setUsage", "setUsage:");
 pub(super) const SEL_SET_STORAGE_MODE: (&str, &str) =
     ("_mfb_macapp_sel_setStorageMode", "setStorageMode:");
+pub(super) const SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS: (&str, &str) = (
+    "_mfb_macapp_sel_setAllowGPUOptimizedContents",
+    "setAllowGPUOptimizedContents:",
+);
 pub(super) const SEL_NEW_TEXTURE_WITH_DESCRIPTOR: (&str, &str) = (
     "_mfb_macapp_sel_newTextureWithDescriptor",
     "newTextureWithDescriptor:",
@@ -677,6 +826,71 @@ pub(crate) const CLASS_MTL_RENDER_PASS_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLRend
 
 pub(crate) const CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR: &str =
     "_OBJC_CLASS_$_MTLRenderPipelineDescriptor";
+
+// --- bug-686 Phase 4: the direct present -------------------------------------------
+//
+// A GPU frame in a real window leaves through a `CAMetalLayer` drawable: the offscreen
+// target is blitted into `[layer nextDrawable].texture` and presented, with no
+// `getBytes:` readback, no BGRA->RGBA swizzle, no CPU surface and no `CGImage`. Every
+// selector below is sent only on that path or on the main-thread layer bookkeeping it
+// needs, and every one is listed in `metal_data_objects` (an unregistered selector is
+// not a compile error — it is a message send to a selector the runtime never named).
+
+/// `QuartzCore.framework` — where `CAMetalLayer` and `CATransaction` live.
+pub(crate) const LIB_QUARTZCORE: &str = "QuartzCore";
+pub(crate) const CLASS_CA_METAL_LAYER: &str = "_OBJC_CLASS_$_CAMetalLayer";
+pub(crate) const CLASS_CA_TRANSACTION: &str = "_OBJC_CLASS_$_CATransaction";
+pub(super) const SEL_NEXT_DRAWABLE: (&str, &str) = ("_mfb_macapp_sel_nextDrawable", "nextDrawable");
+pub(super) const SEL_TEXTURE: (&str, &str) = ("_mfb_macapp_sel_texture", "texture");
+pub(super) const SEL_BLIT_COMMAND_ENCODER: (&str, &str) =
+    ("_mfb_macapp_sel_blitCommandEncoder", "blitCommandEncoder");
+/// `copyFromTexture:toTexture:` (macOS 10.15) — the whole-texture copy. The drawable
+/// is created at the offscreen target's exact size and format, which is the
+/// precondition this form has, and it keeps the send to four register arguments
+/// where the slice/level/origin/size form needs three `MTLOrigin`/`MTLSize` structs
+/// and stack arguments.
+pub(super) const SEL_COPY_TEXTURE: (&str, &str) = (
+    "_mfb_macapp_sel_copyFromTextureToTexture",
+    "copyFromTexture:toTexture:",
+);
+/// `-[CAMetalDrawable present]`, sent once the frame's buffer has completed.
+pub(super) const SEL_PRESENT: (&str, &str) = ("_mfb_macapp_sel_present", "present");
+pub(super) const SEL_SET_DEVICE: (&str, &str) = ("_mfb_macapp_sel_setDevice", "setDevice:");
+pub(super) const SEL_SET_FRAMEBUFFER_ONLY: (&str, &str) =
+    ("_mfb_macapp_sel_setFramebufferOnly", "setFramebufferOnly:");
+pub(super) const SEL_SET_DRAWABLE_SIZE: (&str, &str) =
+    ("_mfb_macapp_sel_setDrawableSize", "setDrawableSize:");
+pub(super) const SEL_SET_HIDDEN: (&str, &str) = ("_mfb_macapp_sel_setHidden", "setHidden:");
+pub(super) const SEL_SET_OPAQUE: (&str, &str) = ("_mfb_macapp_sel_setOpaque", "setOpaque:");
+/// `-[CAMetalLayer setColorspace:]`, set to the window SCREEN's colour space.
+///
+/// The software blit hands the layer a DeviceRGB `CGImage`, which Core Animation shows
+/// with no colour matching: the bytes go to the display as its own primaries. A
+/// `CAMetalLayer` does not do the same by default, nor when given DeviceRGB — both are
+/// matched as sRGB. Measured in a real window on a P3 display, a drawable of (255, 0, 0)
+/// captured as (234, 51, 35) with the layer's space nil, DeviceRGB or sRGB, in either
+/// `BGRA8Unorm` or `BGRA8Unorm_sRGB`, and as (255, 0, 0) — what the `CGImage` of the
+/// same bytes shows — only with the screen's own space (or Display P3, which that
+/// screen is). One picture on both paths means the drawable is declared in the space
+/// the image path already lands in, so a scene that falls back to software mid-run
+/// does not change colour.
+pub(super) const SEL_SET_COLORSPACE: (&str, &str) =
+    ("_mfb_macapp_sel_setColorspace", "setColorspace:");
+/// `-[NSWindow screen]`, `-[NSScreen colorSpace]`, `-[NSColorSpace CGColorSpace]` —
+/// the lookup `SEL_SET_COLORSPACE`'s value comes from.
+pub(super) const SEL_SCREEN: (&str, &str) = ("_mfb_macapp_sel_screen", "screen");
+pub(super) const SEL_COLOR_SPACE: (&str, &str) = ("_mfb_macapp_sel_colorSpace", "colorSpace");
+pub(super) const SEL_CG_COLOR_SPACE: (&str, &str) =
+    ("_mfb_macapp_sel_CGColorSpace", "CGColorSpace");
+pub(super) const SEL_ADD_SUBLAYER: (&str, &str) = ("_mfb_macapp_sel_addSublayer", "addSublayer:");
+/// `-[CALayer setFrame:]`, a `CGRect` by value — four doubles, so `d0`..`d3`.
+pub(super) const SEL_SET_LAYER_FRAME: (&str, &str) = ("_mfb_macapp_sel_setFrame", "setFrame:");
+pub(super) const SEL_BEGIN: (&str, &str) = ("_mfb_macapp_sel_begin", "begin");
+pub(super) const SEL_SET_DISABLE_ACTIONS: (&str, &str) =
+    ("_mfb_macapp_sel_setDisableActions", "setDisableActions:");
+/// The delegate method the graphics thread hops to for every layer property change.
+pub(super) const SEL_MFB_METAL_LAYER: (&str, &str) =
+    ("_mfb_macapp_sel_mfbMetalLayer", "mfbMetalLayer:");
 
 /// `MTLPixelFormatBGRA8Unorm_sRGB`. The GPU applies the sRGB encode on write, which
 /// is the same transform the software path's `__COLOR_SRGB` table applies on the
@@ -786,7 +1000,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // queue
 
     // library = [device newLibraryWithSource:@(MSL) options:nil error:NULL]
-    build_nsstring_from_cstring(&mut asm, abi::LOCAL[3], STR_METAL_SHADER.0);
+    build_nsstring_from_cstring(&mut asm, abi::LOCAL[3], STR_METAL_SHADER);
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // NSString source
     asm.load_selector(SEL_NEW_LIBRARY_WITH_SOURCE.0);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[3]));
@@ -1053,6 +1267,10 @@ pub(super) fn emit_metal_init() -> CodeFunction {
 
 /// The frame renderer's symbol.
 pub(super) const METAL_DRAW_SYMBOL: &str = "_mfb_macapp_metal_draw";
+/// bug-686 Phase 4: the graphics-thread hop that asks the main thread to configure,
+/// size or show the window's `CAMetalLayer`, and the main-thread IMP that does it.
+pub(super) const METAL_LAYER_SYNC_SYMBOL: &str = "_mfb_macapp_metal_layer_sync";
+pub(super) const METAL_LAYER_APPLY_SYMBOL: &str = "_mfb_macapp_metal_layer_apply";
 
 /// `MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget`.
 const MTL_TEXTURE_USAGE: &str = "5";
@@ -1060,6 +1278,13 @@ const MTL_TEXTURE_USAGE: &str = "5";
 /// reads back from. On Apple Silicon there is no separate device memory to copy
 /// across, so a `Managed` texture would add a blit-and-synchronize for nothing.
 const MTL_STORAGE_MODE_SHARED: &str = "0";
+/// `allowGPUOptimizedContents = NO`: the render target is stored linearly, not in the
+/// GPU's lossless-compressed layout. Every headless frame is read back through
+/// `getBytes:`, and a compressed texture is decompressed ON THE CPU inside that call
+/// (`AGX::Texture::processCompressedRegion2D` under `sample`): 1.2 ms of a 10,000-quad
+/// frame at 900x640, growing with how busy the picture is, where a linear copy is a
+/// memcpy (bug-686). The pixels are the same bits either way.
+const MTL_GPU_OPTIMIZED_CONTENTS: &str = "0";
 /// `MTLLoadActionClear` / `MTLStoreActionStore`.
 ///
 /// Clear rather than DontCare because the surface has a defined starting colour:
@@ -1099,7 +1324,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 640;
+const DRAW_FRAME: usize = 720;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1161,6 +1386,35 @@ const OFF_SAVED_STROKE: usize = 552;
 /// The frame's gradient-stop cursor, in STOPS — the third region's twin of
 /// `OFF_EDGE_CURSOR` (plan-116-F).
 const OFF_GRAD_CURSOR: usize = 560;
+/// The frame's glyph-sample cursor — the glyph region's twin of `OFF_EDGE_CURSOR`
+/// (bug-670).
+const OFF_GLYPH_CURSOR: usize = 616;
+/// How many records this frame's picture table holds (bug-686,
+/// `METAL_PICTURE_TABLE_BYTES`), reset with the cursors; and the index slot a picture
+/// lookup missed at, parked across the upload that decides whether to record it.
+const OFF_PIC_COUNT: usize = 624;
+const OFF_PIC_SLOT: usize = 632;
+/// The band region's cursor, in words (bug-686) — reset per frame like the others —
+/// and `emit_band_index`'s working state for one polygon: its first and past-the-last
+/// 16.16 edge in the frame buffer, its lowest edge y (16.16), the band reach `2r`
+/// (16.16), the band height (16.16), the band count, and the table's address.
+///
+/// On the stack because the builder's loops need more values than the nine usable
+/// `SCRATCH` registers hold at once.
+const OFF_BAND_CURSOR: usize = 640;
+const OFF_BAND_EDGES: usize = 648;
+const OFF_BAND_END: usize = 656;
+const OFF_BAND_YMIN: usize = 664;
+const OFF_BAND_REACH: usize = 672;
+const OFF_BAND_HEIGHT: usize = 680;
+const OFF_BAND_COUNT: usize = 688;
+const OFF_BAND_TABLE: usize = 696;
+/// bug-686 Phase 4: the drawable a direct present copies into — autoreleased, so it
+/// lives until the frame's pool pops — and the answer the frame returns in `x0`
+/// (1 = the frame is finished: presented, or read back into the surface; 0 = it was
+/// not drawn and the caller must take another path).
+const OFF_DRAWABLE: usize = 704;
+const OFF_PRESENTED: usize = 712;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1176,7 +1430,9 @@ const OFF_GRAD_CURSOR: usize = 560;
 /// attributes in `METAL_SHADER_SOURCE`.
 ///
 /// The vertex stage has only `items` at 0, so the offset takes 1. The fragment stage
-/// already has items, edges and the glyph bitmap at 0..2, so it takes 3. They differ,
+/// has items and edges at 0 and 1 and takes 3 — index 2 held the per-glyph bitmap until
+/// bug-670 moved glyphs into the frame buffer, and is left unused rather than renumbering
+/// a binding the tests pin. They differ,
 /// and `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it` is what
 /// keeps each equal to its shader — sending to the wrong index binds nothing and the
 /// stage reads whatever was there, which is a wrong picture rather than a fault.
@@ -1203,6 +1459,17 @@ const OFF_DRAW_PAIR: usize = 608;
 /// the backends comparable: the tolerance comparator diffs an RGBA8 buffer, and a
 /// frame that only ever existed in a drawable is not one.
 ///
+/// **Unless the surface pointer is NULL** (bug-686 Phase 4, `canvas::metalPresentScene`).
+/// Then the frame is rendered into the same offscreen target, blitted on the GPU into
+/// the window `CAMetalLayer`'s next drawable and presented — no readback, no swizzle, no
+/// CPU surface, no `CGImage`. A NULL payload is unambiguous: `canvas::metalDrawScene`
+/// passes `block + COLLECTION_HEADER_SIZE`, which is never zero.
+///
+/// Returns 1 in `x0` when the frame is finished — presented, or read back — and 0 when
+/// it was not drawn: no pipeline, no texture, and for a direct present no window layer
+/// (headless) or no drawable. A 0 from a direct present is the caller's cue to render
+/// the frame down the readback path instead; `metalDrawScene` ignores the value.
+///
 /// The whole body runs inside one autorelease pool. The graphics thread has none of
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
 /// `renderCommandEncoderWithDescriptor:` all return autoreleased objects — without a
@@ -1220,6 +1487,15 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     let text_item = format!("{METAL_DRAW_SYMBOL}_text_item");
     let swizzle_head = format!("{METAL_DRAW_SYMBOL}_swizzle_head");
     let swizzle_done = format!("{METAL_DRAW_SYMBOL}_swizzle_done");
+    // bug-686 Phase 4: the direct present's branches.
+    let init = format!("{METAL_DRAW_SYMBOL}_init");
+    let render_pass = format!("{METAL_DRAW_SYMBOL}_render_pass");
+    let sync_layer = format!("{METAL_DRAW_SYMBOL}_sync_layer");
+    let layer_synced = format!("{METAL_DRAW_SYMBOL}_layer_synced");
+    let submit = format!("{METAL_DRAW_SYMBOL}_submit");
+    let direct_failed = format!("{METAL_DRAW_SYMBOL}_direct_failed");
+    let readback = format!("{METAL_DRAW_SYMBOL}_readback");
+    let show_done = format!("{METAL_DRAW_SYMBOL}_show_done");
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(DRAW_FRAME));
@@ -1308,8 +1584,31 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         ));
     }
 
+    // bug-686 Phase 4: a NULL surface asks for a direct present. With no window layer
+    // — headless, where the main thread never built a canvas view — there is nothing
+    // to present to, so answer 0 before touching Metal at all: the caller then takes
+    // the readback path, which is exactly the one every headless test compares.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&init));
+    asm.local_address(abi::SCRATCH[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&restore));
+    asm.push(abi::label(&init));
+
     // The pipeline, built on first use. A failure here leaves the surface exactly as
-    // `canvas::newSurface` made it, which is the cleared frame — not garbage.
+    // `canvas::newSurface` made it, which is the cleared frame — not garbage — and
+    // returns the init's 0, so a direct present that could not build falls back too.
     asm.call_internal(METAL_INIT_SYMBOL);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&restore));
@@ -1320,6 +1619,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::stack_pointer(),
         OFF_POOL,
     ));
+    // Nothing is finished until the submit says so: every early exit below (a
+    // texture that would not allocate, a layer that could not be configured, no
+    // drawable) reports 0.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for slot in [OFF_PRESENTED, OFF_DRAWABLE] {
+        asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
+    }
 
     // --- the offscreen render target, reused until the surface resizes -----------
     asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
@@ -1391,6 +1697,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     for (setter, value) in [
         (SEL_SET_USAGE.0, MTL_TEXTURE_USAGE),
         (SEL_SET_STORAGE_MODE.0, MTL_STORAGE_MODE_SHARED),
+        (
+            SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS.0,
+            MTL_GPU_OPTIMIZED_CONTENTS,
+        ),
     ] {
         asm.load_selector(setter);
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
@@ -1431,7 +1741,86 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 
     asm.push(abi::label(&have_texture));
 
+    // --- bug-686 Phase 4: the drawable, taken BEFORE anything is recorded ----------
+    // Asking first is what makes "no drawable" cost nothing: the frame reports 0 and
+    // the caller renders it down the readback path instead, rather than this frame
+    // being rendered, found undeliverable and rendered again.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&render_pass));
+    // The layer must be configured (device, format, `framebufferOnly = NO`) and its
+    // drawable must be this frame's size, or the whole-texture copy below — which
+    // requires identical dimensions — is invalid. Both are layer PROPERTY changes, so
+    // they are made by the main thread (`emit_metal_layer_apply`), and only when one
+    // of them is actually out of date: a steady-size window hops zero times a frame.
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&sync_layer));
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, OFF_WIDTH),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, OFF_HEIGHT),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), parked));
+        asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+        asm.push(abi::branch_ne(&sync_layer));
+    }
+    asm.push(abi::branch(&layer_synced));
+    asm.push(abi::label(&sync_layer));
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, OFF_WIDTH),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, OFF_HEIGHT),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+    }
+    // Size only — `0` leaves the layer's visibility alone. It is shown after the
+    // first frame is actually presented into it, below, so it never appears holding
+    // nothing (or a stale drawable) over the software frame beneath.
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+    asm.call_internal(METAL_LAYER_SYNC_SYMBOL);
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    // The apply ran on the main thread; if it found no layer it configured nothing.
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    asm.push(abi::label(&layer_synced));
+    // drawable = [layer nextDrawable] — autoreleased, so it lives until the pool pops.
+    // nil (no drawable within the layer's timeout) is a real outcome and is not a
+    // dropped frame: report 0 and the caller reads this frame back instead.
+    asm.load_selector(SEL_NEXT_DRAWABLE.0);
+    asm.local_address(abi::c_arg(0), GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::c_arg(0),
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&release_pool));
+
     // --- the render pass ---------------------------------------------------------
+    asm.push(abi::label(&render_pass));
     asm.external_data(abi::LOCAL[0], CLASS_MTL_RENDER_PASS_DESCRIPTOR, LIB_METAL);
     asm.load_selector(SEL_RENDER_PASS_DESCRIPTOR.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -1577,6 +1966,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         // frame's stops past the region's end on the very first gradient, and the
         // over-cap arm then stores a count of 0 -- which draws the flat fill.
         OFF_GRAD_CURSOR,
+        // bug-670: the glyph region is per frame, like the edge and gradient ones.
+        OFF_GLYPH_CURSOR,
+        // bug-686: so is the picture table. Its index is never cleared -- a record
+        // count of 0 makes every slot read as empty (`METAL_PICTURE_TABLE_BYTES`).
+        OFF_PIC_COUNT,
+        // bug-686: and the band region.
+        OFF_BAND_CURSOR,
         OFF_BOUND_MODE,
     ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
@@ -1720,6 +2116,9 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     emit_item_block(&mut asm);
     emit_edge_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
+    // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
+    // before the split, so both records of a blended stroked picture name its texels.
+    emit_picture_buffer(&mut asm);
     // Published, not drawn. The draw happens at the end of the run this item joins,
     // which is what makes consecutive shapes one instanced draw instead of N — and
     // there is nothing left to bind per item now that the edges ride the frame buffer
@@ -1765,16 +2164,122 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // offset. This replaces the trailing flush and the two removed above.
     emit_draw_list_pass(&mut asm);
 
+    asm.load_selector(SEL_END_ENCODING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // --- bug-686 Phase 4: copy into the drawable and present it ------------------
+    // The frame was rendered into the offscreen target exactly as the readback path
+    // renders it; the only difference is where it goes. A GPU blit into the drawable's
+    // texture keeps "one pipeline, one target" true — nothing about the render depends
+    // on whether it is presented or read back — and needs the drawable's texture to
+    // be a blit destination, which is why the layer is `framebufferOnly = NO`.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&submit));
+    // target = [drawable texture]
+    asm.load_selector(SEL_TEXTURE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&direct_failed));
+    // blit = [commandBuffer blitCommandEncoder] — into `LOCAL[6]`, whose render encoder
+    // has already ended.
+    asm.load_selector(SEL_BLIT_COMMAND_ENCODER.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[6], abi::c_return(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[6], "0"));
+    asm.push(abi::branch_eq(&direct_failed));
+    // [blit copyFromTexture:offscreen toTexture:target]; [blit endEncoding]
+    asm.load_selector(SEL_COPY_TEXTURE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_TEXTURE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(3), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_END_ENCODING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch(&submit));
+
+    // A direct present that could not reach its drawable (no texture, no blit
+    // encoder). The render is already encoded, so the buffer is still committed and
+    // waited for — below, with every other frame — but nothing is presented: clearing
+    // the drawable slot is what makes the submit report 0, so the caller reads the
+    // frame back instead.
+    asm.push(abi::label(&direct_failed));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+
     // --- submit and wait ---------------------------------------------------------
-    for (selector, receiver) in [
-        (SEL_END_ENCODING.0, abi::LOCAL[6]),
-        (SEL_COMMIT.0, abi::LOCAL[7]),
-        (SEL_WAIT_UNTIL_COMPLETED.0, abi::LOCAL[7]),
-    ] {
+    // Waiting is kept on the direct path too: the frame buffer and the offscreen target
+    // are single-buffered, so the next frame may not write either while this one reads.
+    asm.push(abi::label(&submit));
+    for selector in [SEL_COMMIT.0, SEL_WAIT_UNTIL_COMPLETED.0] {
         asm.load_selector(selector);
-        asm.push(abi::move_register(abi::c_arg(0), receiver));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    // The frame is finished: read back, below — or, for a direct present, presented,
+    // unless `direct_failed` cleared the drawable to say the copy never happened.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&readback));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&release_pool));
+    // [drawable present] — AFTER the wait, not `presentDrawable:` on the buffer. The
+    // copy is finished, so this presents at the next refresh; scheduling it on the
+    // buffer instead ties the buffer's COMPLETION to the presentation, and the wait
+    // above then blocks for it. Measured in a 1512x855 window on a 120 Hz display:
+    // `presentDrawable:` spent 97% of the graphics thread in `waitUntilCompleted`
+    // (`sample`) and held the loop to ~82 frames a second.
+    asm.load_selector(SEL_PRESENT.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_DRAWABLE,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+    asm.push(abi::branch(&release_pool));
+    asm.push(abi::label(&readback));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
 
     // [texture getBytes:pixels bytesPerRow:width*4 fromRegion:{0,0,0,w,h,1} mipmapLevel:0]
     asm.load_selector(SEL_GET_BYTES.0);
@@ -1879,6 +2384,42 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OFF_POOL));
     asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
 
+    // bug-686 Phase 4: the first frame presented into a hidden layer shows it. Asked
+    // only while it is hidden, so a window that stays on the GPU hops once, not per
+    // frame; a software or readback frame hides it again (`emit_canvas_blit_apply_helper`).
+    // After the pool pops, because the hop waits on the main thread and nothing here
+    // needs the frame's autoreleased objects any more.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SURFACE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&show_done));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&show_done));
+    asm.local_address(abi::SCRATCH[1], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&show_done));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
+    asm.call_internal(METAL_LAYER_SYNC_SYMBOL);
+    asm.push(abi::label(&show_done));
+    asm.push(abi::load_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        OFF_PRESENTED,
+    ));
+
     asm.push(abi::label(&restore));
     asm.push(abi::load_u64(
         abi::link_register(),
@@ -1899,6 +2440,261 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         name: "macapp.metal.draw".to_string(),
         symbol: METAL_DRAW_SYMBOL.to_string(),
         params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// bug-686 Phase 4 (graphics thread): `int _mfb_macapp_metal_layer_sync(int show)`.
+///
+/// Hops to the main thread — `mfbMetalLayer:` on the app delegate, `waitUntilDone:YES`
+/// — so it configures the window's `CAMetalLayer`, sets its drawable size to the
+/// `…_MTL_DRAWABLE_W`/`_H` the caller published, and, when `show` is non-zero, makes it
+/// visible. Every one of those is a layer property, and layer properties belong to the
+/// main thread (`.ai/canvas-threading.md` §1): the graphics thread only ever asks for
+/// the next drawable and presents it.
+///
+/// Returns 1 once the main thread has run the apply, and 0 when there is no delegate to
+/// hop to — headless, where there is no run loop to drain the perform and waiting would
+/// deadlock. The delegate is read as the plain pointer the bootstrap published, for the
+/// reason `emit_canvas_blit_helper` gives: `NSApp` is main-thread-only.
+///
+/// Waiting is what makes the drawable size safe to rely on: the frame asks for
+/// `nextDrawable` only after this returns, so the drawable is already the new size.
+pub(super) fn emit_metal_layer_sync() -> CodeFunction {
+    let mut asm = Asm::new(METAL_LAYER_SYNC_SYMBOL);
+    let frame = 32;
+    let done = format!("{METAL_LAYER_SYNC_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // show
+
+    asm.local_address(abi::LOCAL[0], DELEGATE_GLOBAL_SYM);
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], 0));
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // Publish the visibility request where the apply reads it, before the hop.
+    asm.local_address(abi::SCRATCH[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::store_u64(
+        abi::LOCAL[1],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    ));
+
+    // [delegate performSelectorOnMainThread:@selector(mfbMetalLayer:)
+    //                            withObject:nil waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_METAL_LAYER.0);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(1))); // mfbMetalLayer: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // withObject: nil
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "1"));
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.metal.layerSync".to_string(),
+        symbol: METAL_LAYER_SYNC_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// bug-686 Phase 4 (main thread): the `mfbMetalLayer:` IMP.
+///
+/// Applies what [`emit_metal_layer_sync`] asked for to the layer the canvas view
+/// build published in `…_MTL_LAYER`:
+///
+/// * once, the configuration a blit destination needs — the renderer's own device,
+///   the render target's pixel format (`BGRA8Unorm_sRGB`, so the copy is a plain
+///   copy), `framebufferOnly = NO` (a framebuffer-only texture cannot be a blit
+///   destination), `opaque = YES` (every pixel is written, so the compositor need
+///   not blend what is under it);
+/// * the colour space — the window screen's, re-read on every apply (`SEL_SET_COLORSPACE`);
+/// * the drawable size — the SURFACE size, which is in points. The readback path hands
+///   the layer a `CGImage` of exactly that many pixels, so a drawable of the same size
+///   shows exactly the same picture; Retina backing scale is not this change's;
+/// * visibility, only ever turned ON here. It is turned off by the software blit's
+///   apply, the other writer of `…_LAYER_SHOWN`, and both run on this thread.
+///
+/// All of it inside a `CATransaction` with actions disabled: `hidden` is animatable,
+/// and an implicit fade over a frame is a frame showing the wrong picture.
+pub(super) fn emit_metal_layer_apply() -> CodeFunction {
+    let mut asm = Asm::new(METAL_LAYER_APPLY_SYMBOL);
+    let frame = 32;
+    let done = format!("{METAL_LAYER_APPLY_SYMBOL}_done");
+    let configured = format!("{METAL_LAYER_APPLY_SYMBOL}_configured");
+    let commit = format!("{METAL_LAYER_APPLY_SYMBOL}_commit");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::LOCAL[1],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    emit_transaction_begin(&mut asm);
+
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&configured));
+    // [layer setDevice:device] — the device the graphics thread's init built. It is
+    // published before any frame can ask for this, because the frame asks only after
+    // `_mfb_macapp_metal_init` has succeeded.
+    asm.load_selector(SEL_SET_DEVICE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_DEVICE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    for (setter, value) in [
+        (SEL_SET_PIXEL_FORMAT.0, MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB),
+        (SEL_SET_FRAMEBUFFER_ONLY.0, "0"),
+        (SEL_SET_OPAQUE.0, "1"),
+    ] {
+        asm.load_selector(setter);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_READY,
+    ));
+    asm.push(abi::label(&configured));
+
+    // [layer setColorspace:[[[window screen] colorSpace] CGColorSpace]] — every apply,
+    // not once, so a hop after the window changed screens picks the new one up. See
+    // `SEL_SET_COLORSPACE` for why it is the SCREEN's space. Any nil on the way (no
+    // window yet, a window off every screen) leaves the layer's space as it was.
+    // Each object is parked in the frame's spare slot at 24 across the next selector
+    // lookup, which is a C call that clobbers every argument register.
+    let no_screen_space = format!("{METAL_LAYER_APPLY_SYMBOL}_no_screen_space");
+    asm.external_data(abi::c_arg(0), CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.push(abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    for selector in [SEL_SCREEN.0, SEL_COLOR_SPACE.0, SEL_CG_COLOR_SPACE.0] {
+        asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+        asm.push(abi::branch_eq(&no_screen_space));
+        asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24));
+        asm.load_selector(selector);
+        asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_screen_space));
+    asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24));
+    asm.load_selector(SEL_SET_COLORSPACE.0);
+    asm.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&no_screen_space));
+
+    // [layer setDrawableSize:CGSizeMake(w, h)] — a two-double HFA, so `d0`/`d1`. Staged
+    // AFTER the selector lookup: `sel_registerName` is a C call and may use the FP
+    // argument registers as scratch.
+    asm.load_selector(SEL_SET_DRAWABLE_SIZE.0);
+    for (slot, fp) in [
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_W, abi::FP_SCRATCH[0]),
+        (GRAPHICS_OFFSET_MTL_DRAWABLE_H, abi::FP_SCRATCH[1]),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], slot));
+        asm.push(abi::signed_convert_to_float_d(fp, abi::SCRATCH[0]));
+    }
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Show, if asked and not already shown.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOW,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&commit));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(&commit));
+    asm.load_selector(SEL_SET_HIDDEN.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+    ));
+
+    asm.push(abi::label(&commit));
+    emit_transaction_commit(&mut asm);
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.metal.layerApply".to_string(),
+        symbol: METAL_LAYER_APPLY_SYMBOL.to_string(),
+        params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
             stack_size: 0,
@@ -1908,6 +2704,30 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// `[CATransaction begin]; [CATransaction setDisableActions:YES]` — the bracket every
+/// main-thread change to the Metal sublayer is made in (bug-686 Phase 4).
+///
+/// A standalone sublayer, unlike a view's own backing layer, animates its property
+/// changes implicitly: without this, showing it would fade it in over a quarter of a
+/// second and a resize would slide it to its new frame. Touches only the argument
+/// registers, so a caller's callee-saved values survive it.
+pub(super) fn emit_transaction_begin(asm: &mut Asm) {
+    asm.load_selector(SEL_BEGIN.0);
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_SET_DISABLE_ACTIONS.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
+/// `[CATransaction commit]`, closing [`emit_transaction_begin`].
+pub(super) fn emit_transaction_commit(asm: &mut Asm) {
+    asm.load_selector(SEL_COMMIT.0);
+    asm.external_data(abi::c_arg(0), CLASS_CA_TRANSACTION, LIB_QUARTZCORE);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 
 /// Fill the parameter block at `sp + OFF_ITEM` from the geometry header whose
@@ -1922,12 +2742,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 /// header already stores. Nothing here rounds a colour, so a fill is exact.
 /// One quad per glyph, for a `__CANVAS_GEO_TEXT` item.
 ///
-/// The Metal twin of `emit_glyph_draws` in `runtime/canvas/vulkan.rs`, and simpler for
-/// one reason: `setFragmentBytes:` copies into the command buffer at record time, so a
-/// glyph's bitmap can be handed over **in place** — a pointer into the coverage cache —
-/// where Vulkan has to copy it into a frame-wide buffer and pass an offset. The price is
-/// the payload's 4 KiB cap, which is `METAL_MAX_GLYPH_SAMPLES` and is why
-/// `__canvas_metalRenderable` declines a scene with a glyph bigger than about 64x64.
+/// The Metal twin of `emit_glyph_publish` in `runtime/canvas/vulkan.rs`, and now the
+/// same design (bug-670): each glyph's bitmap is copied into the frame buffer's glyph
+/// region at `OFF_GLYPH_CURSOR`, one sample a word, and the cursor goes into the
+/// glyph's block at `ITEM_ARC_EDGE_BASE`, where the shader finds it as `arc.z`. It used
+/// to bind the bitmap with a per-glyph `setFragmentBytes:`, which was right while each
+/// glyph was its own draw; once plan-116-H made the run ONE instanced draw, every glyph
+/// read whichever bitmap was bound last.
 ///
 /// The item block is built once for the run — fill, stroke and surface are the same for
 /// every glyph in it — and then edited per glyph.
@@ -1935,6 +2756,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_glyph_head");
     let done = format!("{METAL_DRAW_SYMBOL}_glyph_done");
     let next = format!("{METAL_DRAW_SYMBOL}_glyph_next");
+    let blank = format!("{METAL_DRAW_SYMBOL}_glyph_blank");
+    let publish = format!("{METAL_DRAW_SYMBOL}_glyph_publish");
 
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
@@ -2049,9 +2872,10 @@ fn emit_glyph_publish(asm: &mut Asm) {
         asm.push(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
     }
     // A cache entry of -1 is a glyph the eviction pass dropped after this run was
-    // built: it draws nothing rather than indexing the metadata out of range.
+    // built: it draws nothing rather than indexing the metadata out of range. It still
+    // publishes its (blank) block -- see `blank` below.
     asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
-    asm.push(abi::branch_lt(&next));
+    asm.push(abi::branch_lt(&blank));
 
     // meta = glyphMeta + entry * GLYPH_META_SLOTS, in 8-byte Integers.
     asm.push(abi::move_immediate(
@@ -2140,36 +2964,105 @@ fn emit_glyph_publish(asm: &mut Asm) {
         OFF_GLYPH_SRC,
     ));
 
-    // An empty bitmap — a space, or a glyph with no contours — draws nothing, and
-    // `setFragmentBytes:length:` will not take a zero length anyway.
+    // An empty bitmap — a space, or a glyph with no contours — has nothing to copy and
+    // draws nothing, but still publishes its (blank) block — see `blank` below.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
         OFF_GLYPH_W,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[5], "0"));
-    asm.push(abi::branch_le(&next));
+    asm.push(abi::branch_le(&blank));
     asm.push(abi::load_u64(
         abi::SCRATCH[6],
         abi::stack_pointer(),
         OFF_GLYPH_H,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
-    asm.push(abi::branch_le(&next));
-    // Bigger than the payload is a scene `__canvas_metalRenderable` should already have
-    // declined. Skipping rather than truncating: a clipped glyph is a different glyph.
+    asm.push(abi::branch_le(&blank));
+    // samples = w * h, and the frame's remaining room for them. The predicate has
+    // already declined a frame that does not fit, so this bound is the emitter refusing
+    // to write past its buffer if the two ever disagree — not a policy of its own.
+    // Skipping rather than truncating: a clipped glyph is a different glyph.
     asm.push(abi::multiply_registers(
         abi::SCRATCH[6],
         abi::SCRATCH[5],
         abi::SCRATCH[6],
     ));
-    asm.push(abi::move_immediate(
+    asm.push(abi::load_u64(
         abi::SCRATCH[7],
-        "Integer",
-        &METAL_MAX_GLYPH_SAMPLES.to_string(),
+        abi::stack_pointer(),
+        OFF_GLYPH_CURSOR,
     ));
-    asm.push(abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[7]));
-    asm.push(abi::branch_gt(&next));
+    // Only SCRATCH[0..8] here: on AArch64 indices 10 and up realise to x20..x28, the
+    // callee-saved registers this function keeps its loop state in, and 9 is x18,
+    // which Apple reserves. SCRATCH[0..5] are free at this point — everything after
+    // the copy reloads what it needs from the stack.
+    asm.push(abi::add_registers(
+        abi::SCRATCH[8],
+        abi::SCRATCH[7],
+        abi::SCRATCH[6],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &METAL_MAX_FRAME_GLYPH_SAMPLES.to_string(),
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[8], abi::SCRATCH[0]));
+    asm.push(abi::branch_gt(&blank));
+
+    // --- copy the bitmap into the frame buffer's glyph region --------------------------
+    // dst = contents + (GLYPH_BASE + cursor) * 4, src = the cached bitmap; one byte of
+    // coverage widens to one 32-bit word, which is what `edges` indexes.
+    {
+        let copy_head = format!("{METAL_DRAW_SYMBOL}_glyph_copy_head");
+        let copy_done = format!("{METAL_DRAW_SYMBOL}_glyph_copy_done");
+        let (src, dst, i, byte, at) = (
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+            abi::SCRATCH[2],
+            abi::SCRATCH[3],
+            abi::SCRATCH[4],
+        );
+        asm.push(abi::load_u64(src, abi::stack_pointer(), OFF_GLYPH_SRC));
+        asm.push(abi::load_u64(dst, abi::stack_pointer(), OFF_CONTENTS));
+        asm.push(abi::move_immediate(
+            at,
+            "Integer",
+            &METAL_GLYPH_BASE_WORDS.to_string(),
+        ));
+        asm.push(abi::add_registers(at, at, abi::SCRATCH[7]));
+        asm.push(abi::shift_left_immediate(at, at, 2));
+        asm.push(abi::add_registers(dst, dst, at));
+        asm.push(abi::move_immediate(i, "Integer", "0"));
+        asm.push(abi::label(&copy_head));
+        asm.push(abi::compare_registers(i, abi::SCRATCH[6]));
+        asm.push(abi::branch_ge(&copy_done));
+        asm.push(abi::add_registers(at, src, i));
+        asm.push(abi::load_u8(byte, at, 0));
+        asm.push(abi::shift_left_immediate(at, i, 2));
+        asm.push(abi::add_registers(at, dst, at));
+        asm.push(abi::store_u32(byte, at, 0));
+        asm.push(abi::add_immediate(i, i, 1));
+        asm.push(abi::branch(&copy_head));
+        asm.push(abi::label(&copy_done));
+        // The block names its slice; then the cursor moves past it.
+        asm.push(abi::store_u32(
+            abi::SCRATCH[7],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+        ));
+        asm.push(abi::add_registers(
+            abi::SCRATCH[7],
+            abi::SCRATCH[7],
+            abi::SCRATCH[6],
+        ));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[7],
+            abi::stack_pointer(),
+            OFF_GLYPH_CURSOR,
+        ));
+    }
 
     // --- the glyph's own item block ------------------------------------------------
     // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
@@ -2259,6 +3152,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
     // This glyph's block goes into the frame buffer like any other quad's, and the draw
     // names it through `baseInstance:`. The index is parked *before* the publish,
     // because publishing advances the cursor past it.
+    asm.push(abi::label(&publish));
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -2271,35 +3165,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
     ));
     emit_item_publish(asm, &next);
 
-    // The edge binding needs no per-glyph send any more: the frame buffer is bound at
-    // fragment index 1 once for the whole frame, and the glyph arm returns before
-    // `geoDistance` would read it anyway. The bitmap below is the ONLY per-draw payload
-    // left on this path — it stays, because a text item is already N separate draws
-    // (`GEO_KIND_TEXT`), so it never has to survive an instanced run.
-    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
-    asm.push(abi::load_u64(
-        abi::c_arg(2),
-        abi::stack_pointer(),
-        OFF_GLYPH_SRC,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[5],
-        abi::stack_pointer(),
-        OFF_GLYPH_W,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[6],
-        abi::stack_pointer(),
-        OFF_GLYPH_H,
-    ));
-    asm.push(abi::multiply_registers(
-        abi::c_arg(3),
-        abi::SCRATCH[5],
-        abi::SCRATCH[6],
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "2"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // No per-glyph payload: the bitmap is already in the frame buffer's glyph region,
+    // named by this block's `arc.z` (bug-670).
 
     // plan-116-H: no draw here any more. A glyph run is still N quads, one block each,
     // but the draw that issues them is now the draw list's — a `Text` item is its own
@@ -2319,6 +3186,32 @@ fn emit_glyph_publish(asm: &mut Asm) {
         OFF_GLYPH_INDEX,
     ));
     asm.push(abi::branch(&head));
+
+    // A glyph that draws nothing — a space, an evicted cache entry, a bitmap past the
+    // frame's glyph region — still publishes ONE block, with width and height 0 so the
+    // shader's bounds test answers zero coverage for every fragment (bug-484).
+    //
+    // Skipping the publish instead desynchronised the item buffer from the draw list:
+    // `__canvas_blockInstances` counts a text run as its full glyph count, so every
+    // draw entry after a run containing a space named blocks one position too far on —
+    // the next items drew under their neighbours' pipelines and group offsets, and the
+    // last entry read a block that was never written. The quad is left as it is (the
+    // previous glyph's box, or the run's hull under a transform): a transparent source
+    // leaves the destination unchanged under all four blend pipelines, and zeroing the
+    // quad would strand the hull a following transformed glyph relies on.
+    asm.push(abi::label(&blank));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    asm.push(abi::branch(&publish));
     asm.push(abi::label(&done));
 }
 
@@ -2574,7 +3467,7 @@ fn emit_item_block(asm: &mut Asm) {
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, a glyph run is one per
 /// glyph. That is the same number `__canvas_metalRenderable` sums against
-/// `CANVAS_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
+/// `METAL_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
 ///
 /// Branches to `full` without writing or advancing when the frame is at capacity —
 /// unreachable, because the predicate already declined such a scene to software, and
@@ -2589,7 +3482,7 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
     asm.push(abi::load_u64(cursor, abi::stack_pointer(), OFF_ITEM_CURSOR));
     asm.push(abi::compare_immediate(
         cursor,
-        &CANVAS_MAX_FRAME_ITEMS.to_string(),
+        &METAL_MAX_FRAME_ITEMS.to_string(),
     ));
     asm.push(abi::branch_ge(full));
 
@@ -3005,7 +3898,7 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[5], count));
     asm.push(abi::compare_immediate(
         abi::SCRATCH[6],
-        &MAX_FRAME_GRADIENT_STOPS.to_string(),
+        &METAL_MAX_FRAME_GRADIENT_STOPS.to_string(),
     ));
     asm.push(abi::branch_le(&convert));
 
@@ -3130,11 +4023,352 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::label(&done));
 }
 
+/// Copy a picture's texels into the frame buffer's **glyph region**, and name the slice
+/// in its item block the way a glyph's does (bug-484): width in `misc.w`, height in
+/// `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), base in `arc.z` (`ITEM_ARC_EDGE_BASE`). Every
+/// other kind falls straight through.
+///
+/// The pixel block is the image's `List OF Byte`, whose address the header carries
+/// split across two slots (`HEADER_PICTURE_SHADOW_HI/LO`) because a whole 48-bit
+/// address does not survive the header hash. It is RGBA8, row-major, top row first,
+/// so each texel's four bytes are already the little-endian word
+/// `r | g << 8 | b << 16 | a << 24` the shader unpacks — the copy is verbatim, one word
+/// a texel. No block is ever freed, so reading it during the frame is safe.
+///
+/// A picture is ONE quad and does not end the instanced run; it only shares the glyph
+/// region's cursor. Since bug-686 each distinct pixel block is copied once per frame:
+/// `emit_picture_lookup` finds a block already uploaded this frame and reuses its
+/// texels, and `emit_picture_record` records each new upload. Runs **after**
+/// `emit_edge_buffer`, which zeroes `arc.z` for every non-polygon, and after
+/// `emit_item_block`, which writes `arc.x` as a 16.16 angle.
+///
+/// When the image cannot be uploaded — a destroyed image (zero size or no block), a
+/// block shorter than `iw * ih * 4`, or a frame whose samples would pass
+/// `METAL_MAX_FRAME_GLYPH_SAMPLES` (unreachable: the predicate counts picture texels
+/// against that cap and declines such a frame) — `misc.w` is left 0, which the shader
+/// reads as a transparent fill. The stroke still draws, as the oracle's does over a
+/// transparent `shadowTexel`. Never a write past the region.
+///
+/// No `objc_msgSend` here, and only `SCRATCH[0..8]`: indices 10 and up are the loop
+/// state's callee-saved registers and 9 is Apple's reserved x18.
+fn emit_picture_buffer(asm: &mut Asm) {
+    let done = format!("{METAL_DRAW_SYMBOL}_picture_done");
+    let copy_head = format!("{METAL_DRAW_SYMBOL}_picture_copy_head");
+    let header = abi::SCRATCH[0];
+    let kind = abi::SCRATCH[1];
+    let width = abi::SCRATCH[2];
+    let height = abi::SCRATCH[3];
+    let samples = abi::SCRATCH[4];
+    let block = abi::SCRATCH[5];
+    let temp = abi::SCRATCH[6];
+    let cursor = abi::SCRATCH[7];
+    let end = abi::SCRATCH[8];
+
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(kind, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(kind, GEO_KIND_PICTURE));
+    asm.push(abi::branch_ne(&done));
+
+    for (register, slot) in [(width, HEADER_AUX0), (height, HEADER_AUX1)] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
+    }
+    // The not-uploaded defaults: width 0 (transparent), the real height, base 0.
+    asm.push(abi::move_immediate(temp, "Integer", "0"));
+    asm.push(abi::store_u32(
+        temp,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::store_u32(
+        temp,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        height,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    asm.push(abi::compare_immediate(width, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::compare_immediate(height, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::multiply_registers(samples, width, height));
+
+    // block = (hi << PICTURE_SHADOW_SPLIT_BITS) | lo
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_HI * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(block, abi::FP_SCRATCH[1]));
+    const _: () = assert!(
+        PICTURE_SHADOW_SPLIT_BITS < 64,
+        "the split is a 64-bit shift amount"
+    );
+    asm.push(abi::shift_left_immediate(
+        block,
+        block,
+        PICTURE_SHADOW_SPLIT_BITS as u8,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_LO * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(temp, abi::FP_SCRATCH[1]));
+    asm.push(abi::or_registers(block, block, temp));
+    asm.push(abi::compare_immediate(block, "0"));
+    asm.push(abi::branch_eq(&done));
+    // The block must hold every texel the width and height promise — the bound
+    // `canvas::shadowTexel` applies per read, applied once.
+    asm.push(abi::load_u64(temp, block, COLLECTION_OFFSET_COUNT));
+    asm.push(abi::shift_left_immediate(end, samples, 2));
+    asm.push(abi::compare_registers(end, temp));
+    asm.push(abi::branch_gt(&done));
+
+    // bug-686: has this frame already uploaded this block? Then point the item at those
+    // texels and copy nothing. `height` is dead from here (stored above) and serves as
+    // the record pointer; `header`, `kind`, `temp`, `cursor` and `end` are free until the
+    // fit check. No `compare_immediate` against a wide constant in this stretch: its
+    // encoding borrows x16/x17, which are `cursor` and `end`.
+    emit_picture_lookup(asm, &done);
+
+    // Would this picture's texels fit the frame's glyph region?
+    asm.push(abi::load_u64(
+        cursor,
+        abi::stack_pointer(),
+        OFF_GLYPH_CURSOR,
+    ));
+    asm.push(abi::add_registers(end, cursor, samples));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_MAX_FRAME_GLYPH_SAMPLES.to_string(),
+    ));
+    asm.push(abi::compare_registers(end, temp));
+    asm.push(abi::branch_gt(&done));
+
+    // The block names its slice; then the cursor moves past it.
+    asm.push(abi::store_u64(end, abi::stack_pointer(), OFF_GLYPH_CURSOR));
+    asm.push(abi::store_u32(
+        cursor,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    // bug-686: record (block, base) so later items naming this block reuse the texels.
+    emit_picture_record(asm);
+
+    // dst = contents + (GLYPH_BASE + cursor) * 4, src = block + COLLECTION_HEADER_SIZE.
+    // `header` and `kind` are dead from here and serve as the copy's registers.
+    let (dst, word) = (header, kind);
+    asm.push(abi::move_immediate(
+        dst,
+        "Integer",
+        &METAL_GLYPH_BASE_WORDS.to_string(),
+    ));
+    asm.push(abi::add_registers(dst, dst, cursor));
+    asm.push(abi::shift_left_immediate(dst, dst, 2));
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(dst, temp, dst));
+    asm.push(abi::add_immediate(block, block, COLLECTION_HEADER_SIZE));
+    asm.push(abi::label(&copy_head));
+    asm.push(abi::compare_immediate(samples, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::load_u32(word, block, 0));
+    asm.push(abi::store_u32(word, dst, 0));
+    asm.push(abi::add_immediate(block, block, 4));
+    asm.push(abi::add_immediate(dst, dst, 4));
+    asm.push(abi::subtract_immediate(samples, samples, 1));
+    asm.push(abi::branch(&copy_head));
+    asm.push(abi::label(&done));
+}
+
+/// The picture table's multiplicative hash constant (xorshift*'s), odd so the multiply
+/// is a bijection on the address bits it keeps.
+const PICTURE_HASH_MULTIPLIER: &str = "2685821657736338717";
+
+/// Look the picture's pixel block up in this frame's picture table (bug-686). On a hit,
+/// name the uploaded texels in the item block (base in `arc.z`, width in `misc.w`) and
+/// branch to `done`; on a miss, park the empty index slot the probe ended at in
+/// `OFF_PIC_SLOT` and fall through to the upload.
+///
+/// Live on entry: `block` (`SCRATCH[5]`), `width` (`SCRATCH[2]`), `samples`
+/// (`SCRATCH[4]`). Uses `SCRATCH[0,1,3,6,7,8]`, all dead at the call site.
+///
+/// A slot is live only when its record number is below this frame's count and that
+/// record names the slot back — the sparse-set test `METAL_PICTURE_TABLE_BYTES`
+/// describes — so the index never needs clearing.
+fn emit_picture_lookup(asm: &mut Asm, done: &str) {
+    let probe = format!("{METAL_DRAW_SYMBOL}_picture_probe");
+    let live = format!("{METAL_DRAW_SYMBOL}_picture_live");
+    let miss = format!("{METAL_DRAW_SYMBOL}_picture_miss");
+    let hit = format!("{METAL_DRAW_SYMBOL}_picture_hit");
+    let (index, record_no, record, records, slot, count) = (
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+        abi::SCRATCH[6],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    );
+    let (width, block) = (abi::SCRATCH[2], abi::SCRATCH[5]);
+    const INDEX_BITS: u32 = METAL_PICTURE_INDEX_SLOTS.trailing_zeros();
+
+    // records = contents + RECORDS_OFFSET; index = contents + INDEX_OFFSET.
+    asm.push(abi::load_u64(records, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::move_immediate(
+        index,
+        "Integer",
+        &METAL_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(index, records, index));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        &METAL_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(records, records, record_no));
+    // slot = ((block >> 4) * K) >> (64 - INDEX_BITS). Blocks are 16-byte aligned arena
+    // allocations, so the low four bits carry nothing.
+    asm.push(abi::shift_right_immediate(slot, block, 4));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        PICTURE_HASH_MULTIPLIER,
+    ));
+    asm.push(abi::multiply_registers(slot, slot, record_no));
+    asm.push(abi::shift_right_immediate(
+        slot,
+        slot,
+        (64 - INDEX_BITS) as u8,
+    ));
+    asm.push(abi::load_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+
+    asm.push(abi::label(&probe));
+    asm.push(abi::shift_left_immediate(record_no, slot, 2));
+    asm.push(abi::add_registers(record_no, index, record_no));
+    asm.push(abi::load_u32(record_no, record_no, 0));
+    // Unsigned: a slot holding garbage from before this buffer's first frame is a large
+    // number, and it must read as "not below the count" rather than as negative.
+    asm.push(abi::compare_registers(record_no, count));
+    asm.push(abi::branch_lo(&live));
+    asm.push(abi::branch(&miss));
+    asm.push(abi::label(&live));
+    const _: () = assert!(
+        PICTURE_RECORD_BYTES == 16,
+        "records are addressed by a shift of 4"
+    );
+    asm.push(abi::shift_left_immediate(record, record_no, 4));
+    asm.push(abi::add_registers(record, records, record));
+    asm.push(abi::load_u32(record_no, record, 12));
+    asm.push(abi::compare_registers(record_no, slot));
+    asm.push(abi::branch_ne(&miss));
+    asm.push(abi::load_u64(record_no, record, 0));
+    asm.push(abi::compare_registers(record_no, block));
+    asm.push(abi::branch_eq(&hit));
+    // Another block's live slot: the next one, wrapping.
+    asm.push(abi::add_immediate(slot, slot, 1));
+    asm.push(abi::move_immediate(
+        record_no,
+        "Integer",
+        &(METAL_PICTURE_INDEX_SLOTS - 1).to_string(),
+    ));
+    asm.push(abi::and_registers(slot, slot, record_no));
+    asm.push(abi::branch(&probe));
+
+    asm.push(abi::label(&hit));
+    asm.push(abi::load_u32(record_no, record, 8));
+    asm.push(abi::store_u32(
+        record_no,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::branch(done));
+
+    asm.push(abi::label(&miss));
+    asm.push(abi::store_u64(slot, abi::stack_pointer(), OFF_PIC_SLOT));
+}
+
+/// Record the picture just given its slice of the glyph region — `block` in
+/// `SCRATCH[5]`, its base in `cursor` (`SCRATCH[7]`) — at the index slot
+/// `emit_picture_lookup` parked (bug-686).
+///
+/// Uses `SCRATCH[0,1,6]` only: `cursor` and `block` are read after this by the copy.
+/// The count check is unreachable — one record per picture item, and the predicate
+/// already caps items at `METAL_PICTURE_RECORDS` — and is kept because the alternative
+/// is a write past the table; an unrecorded picture is still uploaded, only not shared.
+fn emit_picture_record(asm: &mut Asm) {
+    let full = format!("{METAL_DRAW_SYMBOL}_picture_table_full");
+    let (count, at, temp) = (abi::SCRATCH[0], abi::SCRATCH[1], abi::SCRATCH[6]);
+    let (block, cursor) = (abi::SCRATCH[5], abi::SCRATCH[7]);
+
+    asm.push(abi::load_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_RECORDS.to_string(),
+    ));
+    asm.push(abi::compare_registers(count, temp));
+    asm.push(abi::branch_ge(&full));
+
+    // records[count] = (block, cursor, slot)
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::shift_left_immediate(at, count, 4));
+    asm.push(abi::add_registers(at, temp, at));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::store_u64(block, at, 0));
+    asm.push(abi::store_u32(cursor, at, 8));
+    asm.push(abi::load_u64(temp, abi::stack_pointer(), OFF_PIC_SLOT));
+    asm.push(abi::store_u32(temp, at, 12));
+    // index[slot] = count -- written AFTER the record, so the slot is never live while
+    // the record it names is stale.
+    asm.push(abi::shift_left_immediate(temp, temp, 2));
+    asm.push(abi::load_u64(at, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::move_immediate(
+        temp,
+        "Integer",
+        &METAL_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(at, at, temp));
+    asm.push(abi::store_u32(count, at, 0));
+    asm.push(abi::add_immediate(count, count, 1));
+    asm.push(abi::store_u64(count, abi::stack_pointer(), OFF_PIC_COUNT));
+    asm.push(abi::label(&full));
+}
+
 fn emit_edge_buffer(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_edge_head");
     let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
     let empty = format!("{METAL_DRAW_SYMBOL}_edge_empty");
     let convert = format!("{METAL_DRAW_SYMBOL}_edge_convert");
+    let band = format!("{METAL_DRAW_SYMBOL}_edge_band");
     let header = abi::SCRATCH[0];
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
@@ -3156,20 +4390,44 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::SCRATCH[5],
         abi::FP_SCRATCH[1],
     ));
+    let has_edges = format!("{METAL_DRAW_SYMBOL}_edge_has");
     asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYGON));
+    asm.push(abi::branch_eq(&has_edges));
+    // plan-154-B: a PolyLine's segments are edges in the polygon layout, one per
+    // segment and without a wrap edge, so they take the same upload and band index.
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYLINE));
     asm.push(abi::branch_ne(&empty));
+    // Its first and last live segments, as whole numbers over the 16.16 axis
+    // `emit_item_block` wrote into `gradient` (`HEADER_POLYLINE_FIRST`). Here rather than
+    // in `emit_item_block` because that runs for glyphs too and this does not; a
+    // polyline is never a glyph.
+    for (index, slot) in [(0usize, HEADER_POLYLINE_FIRST), (1, HEADER_POLYLINE_LAST)] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[5],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_GRADIENT + index * 4,
+        ));
+    }
+    asm.push(abi::label(&has_edges));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
         HEADER_AUX0 * 8,
     ));
     asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
-    asm.push(abi::compare_immediate(count, &MAX_EDGES.to_string()));
-    asm.push(abi::branch_gt(&empty));
-    // Would this polygon's edges fit the frame's region? Unreachable — the same
-    // `__canvas_metalRenderable` that declines an over-long polygon now also declines a
-    // frame whose polygons sum past `METAL_MAX_FRAME_EDGES`, so the whole scene went to
-    // software. Kept because the alternative to declining is a write past the buffer.
+    // bug-686: no per-polygon cap. There was one (256 edges) that wrote NO edges for a
+    // longer polygon, so it drew nothing; nothing in the transport needs it since
+    // plan-116-A moved the edges into this region.
+    //
+    // Would this polygon's edges fit the frame's region? Unreachable —
+    // `__canvas_metalRenderable` declines a frame whose polygons sum past
+    // `METAL_MAX_FRAME_EDGES`, so the whole scene went to software. Kept because the
+    // alternative to declining is a write past the buffer.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
@@ -3182,8 +4440,8 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::branch_le(&convert));
 
-    // Not a polygon, over the per-item cap, or past the frame's region: draw no edges
-    // and leave the base at zero. Clamping would render a *different polygon*.
+    // Not a polygon, or past the frame's region: draw no edges and leave the base at
+    // zero. Clamping would render a *different polygon*.
     asm.push(abi::label(&empty));
     asm.push(abi::move_immediate(count, "Integer", "0"));
     asm.push(abi::store_u32(
@@ -3247,7 +4505,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
 
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
-    asm.push(abi::branch_ge(&done));
+    asm.push(abi::branch_ge(&band));
     // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
@@ -3274,13 +4532,513 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
     asm.push(abi::branch(&head));
+
+    // bug-686: the polygon's edges are in the region; index them by band.
+    asm.push(abi::label(&band));
+    emit_band_index(asm);
     asm.push(abi::label(&done));
+}
+
+/// Build this polygon's band index in the frame buffer's band region and write its
+/// header into the item block's `arcCaps` (bug-686; layout at `METAL_BAND_BASE_WORDS`).
+///
+/// Runs after `emit_edge_buffer` has converted the polygon's edges, and works on those
+/// 16.16 words — exactly what the shader reads — rather than on the header's doubles,
+/// so the band arithmetic is integer and a rounding difference between the two cannot
+/// put an edge in the wrong band.
+///
+/// ## Why the result is bit-identical to the full loop
+///
+/// An edge is put in every band its `[ylo − r, yhi + r]` meets, so a band holds (a)
+/// every edge whose y-span contains any row of the band — the only edges the even-odd
+/// crossing test counts, so `inside` is exact — and (b) every edge within `r` of any
+/// point of the band — so `best` is exact whenever the true distance is at most `r`,
+/// and otherwise both loops' `best` exceed `r`, where coverage has clamped:
+///
+/// * **Untransformed**, `d` is the surface distance. A fill clamps to 0 or 255 once
+///   `|d| ≥ 0.5`, and a stroke to 0 once `|d| − half ≥ 0.5`, so `r = half + 0.5`, with
+///   `half = max(strokeHalf, 0)` (a non-stroking paint reports −1).
+/// * **Transformed**, the shader evaluates five shape-space points — the centre `q` and
+///   `q ± M·(0.5, 0)`, `q ± M·(0, 0.5)`, M the inverse matrix — all against `q`'s band
+///   (`shapeDistanceAndScale`). With `F = ‖M‖_F`, each neighbour is within `F/2` of `q`,
+///   and the scale `g` the shader divides by is at most `F` (the distance is 1-Lipschitz)
+///   or the fallback 1.0. So: if `q` is within `r − F` of the nearest edge, every
+///   neighbour's nearest edge is within `r` of `q` and all five values are exact; if not,
+///   both loops' `|dRaw| > r − F`, and `r = half + 0.5 + 1.5·F` makes that past the
+///   clamp for any `g ≤ F` and for `g = 1`. Crossings are exact at the neighbours too,
+///   since `r ≥ F/2`, which also keeps the band's own distance function continuous across
+///   the neighbourhood, so its difference quotients stay at most `F` as well. The builder
+///   uses `2·F`, the margin rounded up.
+///
+/// Plus a **1-unit guard** in shape space, for the float error of the shader's band
+/// lookup against these integer bands. `band.swift` (bug-686 section G) measured 0
+/// differing pixels for fills, strokes, spikes and a self-intersecting star with it.
+///
+/// ## Sizing
+///
+/// Bands are 2 px tall untransformed, `√2·F` (about two surface pixels) transformed, and
+/// taller when the span needs more than `min(edges, BAND_MAX)` bands. If the list
+/// would pass `BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
+/// most rows, like a star of long spikes — the height doubles until it fits; at one band
+/// the list is every edge once. So one polygon never needs more than
+/// `BAND_WORDS_PER_EDGE` words per edge, which the region is sized for; the
+/// region-full branch is unreachable and kept because the alternative is a write past
+/// the buffer. It, a polygon under `BAND_MIN_EDGES`, and a transform whose
+/// matrix is not finite write band count 0: the shader loops over every edge. Never a
+/// decline, never a truncation.
+///
+/// No calls; `SCRATCH[0..8]` only (9 is Apple's x18, 10+ the loop state's callee-saved
+/// registers). `compare_immediate` is used only against values that fit 12 bits: a
+/// wider one borrows x16/x17, which are `SCRATCH[7]`/`SCRATCH[8]`.
+fn emit_band_index(asm: &mut Asm) {
+    let none = format!("{METAL_DRAW_SYMBOL}_band_none");
+    let done = format!("{METAL_DRAW_SYMBOL}_band_done");
+    let s = abi::SCRATCH;
+    let f = abi::FP_SCRATCH;
+    let label = |name: &str| format!("{METAL_DRAW_SYMBOL}_band_{name}");
+    let block = |field: usize| OFF_ITEM + ITEM_OFFSET_ARC_CAPS + field;
+
+    // --- which polygons: E >= BAND_MIN_EDGES --------------------------------
+    asm.push(abi::load_u32(
+        s[2],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(
+        s[3],
+        "Integer",
+        &BAND_MIN_EDGES.to_string(),
+    ));
+    asm.push(abi::compare_registers(s[2], s[3]));
+    asm.push(abi::branch_lt(&none));
+
+    // --- the edges: P = contents + EDGE_BASE*4 + base*16, END = P + E*16 ------------
+    asm.push(abi::load_u32(
+        s[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::shift_left_immediate(s[0], s[0], 4));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(s[0], s[0], s[1]));
+    asm.push(abi::move_immediate(
+        s[1],
+        "Integer",
+        &(METAL_EDGE_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(s[0], s[0], s[1]));
+    asm.push(abi::store_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::shift_left_immediate(s[1], s[2], 4));
+    asm.push(abi::add_registers(s[1], s[0], s[1]));
+    asm.push(abi::store_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+
+    // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
+    asm.push(abi::load_u32(s[2], s[0], 4));
+    asm.push(abi::sign_extend_word(s[2], s[2]));
+    asm.push(abi::move_register(s[3], s[2]));
+    asm.push(abi::label(&label("measure_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("measure_done")));
+    for (n, offset) in [(0, 4usize), (1, 12)] {
+        let not_lower = label(&format!("measure_not_lower_{n}"));
+        let not_higher = label(&format!("measure_not_higher_{n}"));
+        asm.push(abi::load_u32(s[4], s[0], offset));
+        asm.push(abi::sign_extend_word(s[4], s[4]));
+        asm.push(abi::compare_registers(s[4], s[2]));
+        asm.push(abi::branch_ge(&not_lower));
+        asm.push(abi::move_register(s[2], s[4]));
+        asm.push(abi::label(&not_lower));
+        asm.push(abi::compare_registers(s[4], s[3]));
+        asm.push(abi::branch_le(&not_higher));
+        asm.push(abi::move_register(s[3], s[4]));
+        asm.push(abi::label(&not_higher));
+    }
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("measure_head")));
+    asm.push(abi::label(&label("measure_done")));
+    asm.push(abi::store_u64(s[2], abi::stack_pointer(), OFF_BAND_YMIN));
+    // s3 = the edges' own y extent; s2 stays ymin through the reach computation.
+    asm.push(abi::subtract_registers(s[3], s[3], s[2]));
+
+    // --- the reach r (f1) and the minimum band height (f4), in shape units --------
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-154-B: a PolyLine is stroke-as-fill, so its half-width is the RADIUS slot and
+    // slot 7 is -1. A polygon never writes the radius slot (it stays the blank header's
+    // 0), so taking the larger of the two leaves every polygon's reach as it was.
+    asm.push(abi::load_double(f[2], s[0], HEADER_RADIUS * 8));
+    asm.push(abi::float_max_d(f[1], f[1], f[2]));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
+    // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.
+    asm.push(abi::float_max_d(f[1], f[1], f[2]));
+    asm.push(abi::move_immediate(s[4], "Integer", "3"));
+    asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
+    asm.push(abi::move_immediate(s[4], "Integer", "2"));
+    asm.push(abi::signed_convert_to_float_d(f[3], s[4]));
+    asm.push(abi::float_divide_d(f[2], f[2], f[3]));
+    // r = half + 0.5 (the clamp) + 1 (the guard)
+    asm.push(abi::float_add_d(f[1], f[1], f[2]));
+    asm.push(abi::float_move_d_from_d(f[4], f[3]));
+    let untransformed = label("untransformed");
+    asm.push(abi::load_double(f[5], s[0], HEADER_HAS_TRANSFORM * 8));
+    asm.push(abi::float_convert_to_signed_x(s[4], f[5]));
+    asm.push(abi::compare_immediate(s[4], "0"));
+    asm.push(abi::branch_eq(&untransformed));
+    // F = ||M||_F from the four matrix terms, which the header carries as float32 BIT
+    // PATTERNS (`__canvas_float32Bits`). This assembler has no single->double convert,
+    // so the bits are rebuilt as a double by hand: exponent rebiased by 1023 - 127 =
+    // 896, mantissa shifted up 52 - 23 = 29. The sign is dropped (the term is squared);
+    // a zero or subnormal term counts as 0, under 1.2e-38 short of its true size, which
+    // the 1-unit guard dwarfs; an infinite or NaN one gives the polygon no bands.
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(f[6], s[4]));
+    for slot in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+    ] {
+        let zero_term = label(&format!("zero_term_{slot}"));
+        asm.push(abi::load_double(f[7], s[0], slot * 8));
+        asm.push(abi::float_convert_to_signed_x(s[4], f[7]));
+        asm.push(abi::shift_right_immediate(s[5], s[4], 23));
+        asm.push(abi::move_immediate(s[6], "Integer", "255"));
+        asm.push(abi::and_registers(s[5], s[5], s[6]));
+        asm.push(abi::compare_registers(s[5], s[6]));
+        asm.push(abi::branch_eq(&none));
+        asm.push(abi::compare_immediate(s[5], "0"));
+        asm.push(abi::branch_eq(&zero_term));
+        asm.push(abi::add_immediate(s[5], s[5], 896));
+        asm.push(abi::shift_left_immediate(s[5], s[5], 52));
+        asm.push(abi::move_immediate(s[6], "Integer", "8388607"));
+        asm.push(abi::and_registers(s[7], s[4], s[6]));
+        asm.push(abi::shift_left_immediate(s[7], s[7], 29));
+        asm.push(abi::or_registers(s[5], s[5], s[7]));
+        asm.push(abi::float_move_d_from_x(f[7], s[5]));
+        asm.push(abi::float_multiply_d(f[7], f[7], f[7]));
+        asm.push(abi::float_add_d(f[6], f[6], f[7]));
+        asm.push(abi::label(&zero_term));
+    }
+    asm.push(abi::float_sqrt_d(f[6], f[6]));
+    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
+    asm.push(abi::float_add_d(f[7], f[6], f[6]));
+    asm.push(abi::float_add_d(f[1], f[1], f[7]));
+    asm.push(abi::float_sqrt_d(f[7], f[3]));
+    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
+    asm.push(abi::label(&untransformed));
+
+    // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
+    asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
+    asm.push(abi::float_multiply_d(f[1], f[1], f[7]));
+    asm.push(abi::float_ceil_to_signed_x(s[4], f[1]));
+    asm.push(abi::float_multiply_d(f[4], f[4], f[7]));
+    asm.push(abi::float_ceil_to_signed_x(s[5], f[4]));
+    // A reach or height past 2^30 (16,384 units) is a degenerate transform; `fcvtps`
+    // saturates an infinity to i64::MAX, which this catches too.
+    asm.push(abi::move_immediate(
+        s[6],
+        "Integer",
+        &(1u64 << 30).to_string(),
+    ));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_gt(&none));
+    asm.push(abi::compare_registers(s[5], s[6]));
+    asm.push(abi::branch_gt(&none));
+    let height_positive = label("height_positive");
+    asm.push(abi::compare_immediate(s[5], "1"));
+    asm.push(abi::branch_ge(&height_positive));
+    asm.push(abi::move_immediate(s[5], "Integer", "1"));
+    asm.push(abi::label(&height_positive));
+
+    // --- span = extent + 2r (s3); top = ymin - r must be an int32, and so must the
+    // bottom, because the shader reads `top` as a 16.16 `int` ----------------------
+    asm.push(abi::shift_left_immediate(s[4], s[4], 1));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::add_registers(s[3], s[3], s[4]));
+    asm.push(abi::shift_right_immediate(s[6], s[4], 1));
+    asm.push(abi::subtract_registers(s[7], s[2], s[6]));
+    // The encoder parses an immediate as u64, so i32::MIN goes in as its 64-bit two's
+    // complement.
+    asm.push(abi::move_immediate(
+        s[8],
+        "Integer",
+        &(i64::from(i32::MIN) as u64).to_string(),
+    ));
+    asm.push(abi::compare_registers(s[7], s[8]));
+    asm.push(abi::branch_lt(&none));
+    asm.push(abi::add_registers(s[8], s[7], s[3]));
+    asm.push(abi::move_immediate(s[6], "Integer", &i32::MAX.to_string()));
+    asm.push(abi::compare_registers(s[8], s[6]));
+    asm.push(abi::branch_gt(&none));
+
+    // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------
+    // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
+    let bands_capped = label("bands_capped");
+    asm.push(abi::load_u32(
+        s[6],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
+    asm.push(abi::compare_registers(s[6], s[7]));
+    asm.push(abi::branch_le(&bands_capped));
+    asm.push(abi::move_register(s[6], s[7]));
+    asm.push(abi::label(&bands_capped));
+    const _: () = assert!(BAND_MIN_EDGES >= 2 && BAND_MAX >= 2);
+    asm.push(abi::subtract_immediate(s[6], s[6], 1));
+    asm.push(abi::add_registers(s[7], s[3], s[6]));
+    asm.push(abi::subtract_immediate(s[7], s[7], 1));
+    asm.push(abi::unsigned_divide_registers(s[7], s[7], s[6]));
+    let height_chosen = label("height_chosen");
+    asm.push(abi::compare_registers(s[7], s[5]));
+    asm.push(abi::branch_ge(&height_chosen));
+    asm.push(abi::move_register(s[7], s[5]));
+    asm.push(abi::label(&height_chosen));
+    asm.push(abi::store_u64(s[7], abi::stack_pointer(), OFF_BAND_HEIGHT));
+
+    // --- size the list; double the height until it is within its budget -----------
+    // s3 (span) is live through this loop.
+    asm.push(abi::label(&label("fit_head")));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::unsigned_divide_registers(s[6], s[3], s[4]));
+    asm.push(abi::add_immediate(s[6], s[6], 1));
+    asm.push(abi::store_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[2], "Integer", "0"));
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::label(&label("size_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("size_done")));
+    emit_band_range(asm, "size");
+    asm.push(abi::subtract_registers(s[5], s[5], s[4]));
+    asm.push(abi::add_immediate(s[5], s[5], 1));
+    asm.push(abi::add_registers(s[2], s[2], s[5]));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("size_head")));
+    asm.push(abi::label(&label("size_done")));
+    asm.push(abi::load_u32(
+        s[4],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::move_immediate(
+        s[5],
+        "Integer",
+        &BAND_LIST_PER_EDGE.to_string(),
+    ));
+    asm.push(abi::multiply_registers(s[4], s[4], s[5]));
+    asm.push(abi::compare_registers(s[2], s[4]));
+    asm.push(abi::branch_le(&label("fits")));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::shift_left_immediate(s[4], s[4], 1));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::branch(&label("fit_head")));
+    asm.push(abi::label(&label("fits")));
+
+    // --- claim 2*bands + list words of the region ---------------------------------
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::shift_left_immediate(s[4], s[6], 1));
+    asm.push(abi::add_registers(s[4], s[4], s[2]));
+    asm.push(abi::load_u64(s[5], abi::stack_pointer(), OFF_BAND_CURSOR));
+    asm.push(abi::add_registers(s[4], s[4], s[5]));
+    asm.push(abi::move_immediate(
+        s[7],
+        "Integer",
+        &METAL_MAX_FRAME_BAND_WORDS.to_string(),
+    ));
+    asm.push(abi::compare_registers(s[4], s[7]));
+    asm.push(abi::branch_gt(&none));
+    asm.push(abi::store_u64(s[4], abi::stack_pointer(), OFF_BAND_CURSOR));
+
+    // --- the header: top, height, count, table offset -----------------------------
+    asm.push(abi::store_u32(
+        s[5],
+        abi::stack_pointer(),
+        block(ITEM_BAND_START),
+    ));
+    asm.push(abi::store_u32(
+        s[6],
+        abi::stack_pointer(),
+        block(ITEM_BAND_COUNT),
+    ));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::store_u32(
+        s[4],
+        abi::stack_pointer(),
+        block(ITEM_BAND_HEIGHT),
+    ));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::shift_right_immediate(s[4], s[4], 1));
+    asm.push(abi::load_u64(s[7], abi::stack_pointer(), OFF_BAND_YMIN));
+    asm.push(abi::subtract_registers(s[7], s[7], s[4]));
+    asm.push(abi::store_u32(
+        s[7],
+        abi::stack_pointer(),
+        block(ITEM_BAND_TOP),
+    ));
+
+    // --- the table's address: contents + BAND_BASE*4 + start*4 ---------------------
+    asm.push(abi::shift_left_immediate(s[5], s[5], 2));
+    asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(s[5], s[5], s[4]));
+    asm.push(abi::move_immediate(
+        s[4],
+        "Integer",
+        &(METAL_BAND_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(s[5], s[5], s[4]));
+    asm.push(abi::store_u64(s[5], abi::stack_pointer(), OFF_BAND_TABLE));
+
+    // --- counts to zero: table[2k + 1] = 0 (s5 table, s6 bands) --------------------
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::move_immediate(s[7], "Integer", "0"));
+    asm.push(abi::label(&label("zero_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&label("zero_done")));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[5]));
+    asm.push(abi::store_u32(s[7], s[8], 4));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("zero_head")));
+    asm.push(abi::label(&label("zero_done")));
+
+    // --- count each band's edges -----------------------------------------------------
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::load_u64(s[2], abi::stack_pointer(), OFF_BAND_TABLE));
+    asm.push(abi::label(&label("count_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("count_done")));
+    emit_band_range(asm, "count");
+    asm.push(abi::label(&label("count_band")));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_gt(&label("count_next")));
+    asm.push(abi::shift_left_immediate(s[6], s[4], 3));
+    asm.push(abi::add_registers(s[6], s[6], s[2]));
+    asm.push(abi::load_u32(s[7], s[6], 4));
+    asm.push(abi::add_immediate(s[7], s[7], 1));
+    asm.push(abi::store_u32(s[7], s[6], 4));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("count_band")));
+    asm.push(abi::label(&label("count_next")));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::branch(&label("count_head")));
+    asm.push(abi::label(&label("count_done")));
+
+    // --- each band's first list entry: table[2k] = sum of the counts before it -----
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::move_immediate(s[7], "Integer", "0"));
+    asm.push(abi::label(&label("start_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&label("start_done")));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::store_u32(s[7], s[8], 0));
+    asm.push(abi::load_u32(s[5], s[8], 4));
+    asm.push(abi::add_registers(s[7], s[7], s[5]));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("start_head")));
+    asm.push(abi::label(&label("start_done")));
+
+    // --- the list: each edge's number into each of its bands, using table[2k] as the
+    // band's fill cursor (s8 = the list, s3 = the edge number) ------------------------
+    asm.push(abi::shift_left_immediate(s[8], s[6], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_BAND_EDGES));
+    asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
+    asm.push(abi::move_immediate(s[3], "Integer", "0"));
+    asm.push(abi::label(&label("fill_head")));
+    asm.push(abi::compare_registers(s[0], s[1]));
+    asm.push(abi::branch_ge(&label("fill_done")));
+    emit_band_range(asm, "fill");
+    asm.push(abi::label(&label("fill_band")));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_gt(&label("fill_next")));
+    asm.push(abi::shift_left_immediate(s[6], s[4], 3));
+    asm.push(abi::add_registers(s[6], s[6], s[2]));
+    asm.push(abi::load_u32(s[7], s[6], 0));
+    asm.push(abi::add_immediate(s[7], s[7], 1));
+    asm.push(abi::store_u32(s[7], s[6], 0));
+    asm.push(abi::subtract_immediate(s[7], s[7], 1));
+    asm.push(abi::shift_left_immediate(s[7], s[7], 2));
+    asm.push(abi::add_registers(s[7], s[7], s[8]));
+    asm.push(abi::store_u32(s[3], s[7], 0));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("fill_band")));
+    asm.push(abi::label(&label("fill_next")));
+    asm.push(abi::add_immediate(s[0], s[0], 16));
+    asm.push(abi::add_immediate(s[3], s[3], 1));
+    asm.push(abi::branch(&label("fill_head")));
+    asm.push(abi::label(&label("fill_done")));
+
+    // --- the fill cursors ran to each band's end; take the counts back off ---------
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_COUNT));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::label(&label("rewind_head")));
+    asm.push(abi::compare_registers(s[4], s[6]));
+    asm.push(abi::branch_ge(&done));
+    asm.push(abi::shift_left_immediate(s[8], s[4], 3));
+    asm.push(abi::add_registers(s[8], s[8], s[2]));
+    asm.push(abi::load_u32(s[5], s[8], 0));
+    asm.push(abi::load_u32(s[7], s[8], 4));
+    asm.push(abi::subtract_registers(s[5], s[5], s[7]));
+    asm.push(abi::store_u32(s[5], s[8], 0));
+    asm.push(abi::add_immediate(s[4], s[4], 1));
+    asm.push(abi::branch(&label("rewind_head")));
+
+    // --- no bands: the shader loops over every edge -------------------------------
+    asm.push(abi::label(&none));
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    for field in [
+        ITEM_BAND_TOP,
+        ITEM_BAND_HEIGHT,
+        ITEM_BAND_COUNT,
+        ITEM_BAND_START,
+    ] {
+        asm.push(abi::store_u32(s[4], abi::stack_pointer(), block(field)));
+    }
+    asm.push(abi::label(&done));
+}
+
+/// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
+/// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
+/// `SCRATCH[6]` as a temporary.
+///
+/// With `top = ymin − r`: first = ⌊(ylo − r − top) / h⌋ = ⌊(ylo − ymin) / h⌋ and last =
+/// ⌊(yhi + r − top) / h⌋ = ⌊(yhi − ymin + 2r) / h⌋. Both numerators are non-negative
+/// (every y is at least ymin), so the unsigned divide is exact, and the last is at most
+/// ⌊span / h⌋ = bands − 1.
+fn emit_band_range(asm: &mut Asm, site: &str) {
+    let s = abi::SCRATCH;
+    let ordered = format!("{METAL_DRAW_SYMBOL}_band_{site}_ordered");
+    asm.push(abi::load_u32(s[4], s[0], 4));
+    asm.push(abi::sign_extend_word(s[4], s[4]));
+    asm.push(abi::load_u32(s[5], s[0], 12));
+    asm.push(abi::sign_extend_word(s[5], s[5]));
+    asm.push(abi::compare_registers(s[4], s[5]));
+    asm.push(abi::branch_le(&ordered));
+    asm.push(abi::move_register(s[6], s[4]));
+    asm.push(abi::move_register(s[4], s[5]));
+    asm.push(abi::move_register(s[5], s[6]));
+    asm.push(abi::label(&ordered));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_YMIN));
+    asm.push(abi::subtract_registers(s[4], s[4], s[6]));
+    asm.push(abi::subtract_registers(s[5], s[5], s[6]));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_REACH));
+    asm.push(abi::add_registers(s[5], s[5], s[6]));
+    asm.push(abi::load_u64(s[6], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    asm.push(abi::unsigned_divide_registers(s[4], s[4], s[6]));
+    asm.push(abi::unsigned_divide_registers(s[5], s[5], s[6]));
 }
 
 /// The C strings this module's sends need, for the reconcile data-object list.
 pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
+    let shader: &'static str = METAL_SHADER_SOURCE.as_str();
     vec![
-        STR_METAL_SHADER,
+        (STR_METAL_SHADER, shader),
         STR_METAL_VERTEX_FN,
         STR_METAL_FRAGMENT_FN,
         SEL_NEW_COMMAND_QUEUE,
@@ -3300,6 +5058,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_TEXTURE_2D_DESCRIPTOR,
         SEL_SET_USAGE,
         SEL_SET_STORAGE_MODE,
+        SEL_SET_ALLOW_GPU_OPTIMIZED_CONTENTS,
         SEL_NEW_TEXTURE_WITH_DESCRIPTOR,
         SEL_RENDER_PASS_DESCRIPTOR,
         SEL_SET_TEXTURE,
@@ -3320,12 +5079,33 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_CONTENTS,
         SEL_SET_VERTEX_BUFFER,
         SEL_SET_FRAGMENT_BUFFER,
+        // bug-686 Phase 4: the direct present and its main-thread layer bookkeeping.
+        SEL_NEXT_DRAWABLE,
+        SEL_TEXTURE,
+        SEL_BLIT_COMMAND_ENCODER,
+        SEL_COPY_TEXTURE,
+        SEL_PRESENT,
+        SEL_SET_DEVICE,
+        SEL_SET_FRAMEBUFFER_ONLY,
+        SEL_SET_DRAWABLE_SIZE,
+        SEL_SET_HIDDEN,
+        SEL_SET_OPAQUE,
+        SEL_SET_COLORSPACE,
+        SEL_SCREEN,
+        SEL_COLOR_SPACE,
+        SEL_CG_COLOR_SPACE,
+        SEL_ADD_SUBLAYER,
+        SEL_SET_LAYER_FRAME,
+        SEL_BEGIN,
+        SEL_SET_DISABLE_ACTIONS,
+        SEL_MFB_METAL_LAYER,
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
     /// Every `objc_msgSend` in the pipeline setup sets its receiver *after* the
     /// selector lookup that precedes it.
@@ -3545,6 +5325,19 @@ mod tests {
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 8, "drawPair"),
+            (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
+            (OFF_PIC_COUNT, 8, "picCount"),
+            (OFF_PIC_SLOT, 8, "picSlot"),
+            (OFF_BAND_CURSOR, 8, "bandCursor"),
+            (OFF_BAND_EDGES, 8, "bandEdges"),
+            (OFF_BAND_END, 8, "bandEnd"),
+            (OFF_BAND_YMIN, 8, "bandYmin"),
+            (OFF_BAND_REACH, 8, "bandReach"),
+            (OFF_BAND_HEIGHT, 8, "bandHeight"),
+            (OFF_BAND_COUNT, 8, "bandCount"),
+            (OFF_BAND_TABLE, 8, "bandTable"),
+            (OFF_DRAWABLE, 8, "drawable"),
+            (OFF_PRESENTED, 8, "presented"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 
@@ -3572,8 +5365,9 @@ mod tests {
     /// The draw offset is bound where the shader declares it, in both stages.
     ///
     /// The emitter sends `setVertexBytes:...atIndex:` and `setFragmentBytes:...atIndex:`
-    /// with two *different* indices, because the fragment stage already has items,
-    /// edges and the glyph bitmap at 0..2 while the vertex stage has only items at 0.
+    /// with two *different* indices, because the fragment stage has items and edges at
+    /// 0 and 1 (index 2, the old per-glyph bitmap, is unused since bug-670) while the
+    /// vertex stage has only items at 0.
     /// The shader is a string the Rust compiler never parses, so nothing else checks
     /// that the two agree — and a mismatch does not fault: the stage reads whatever was
     /// bound at that index, which is a wrong picture reported as success.
@@ -3643,9 +5437,11 @@ mod tests {
 
     /// The MSL's `METAL_EDGE_BASE` is `METAL_EDGE_BASE_WORDS`.
     ///
-    /// The shader cannot see a Rust constant — `METAL_SHADER_SOURCE` is a `concat!` of
-    /// string literals, so the number is spelled twice — and this is the only thing
-    /// standing between the two. A disagreement would not fail anywhere: every polygon
+    /// Since bug-686 the bases are formatted into `METAL_SHADER_SOURCE` from the layout
+    /// constants, so they cannot be spelled twice; this reads the formatted text back,
+    /// which is what still catches a base generated from the WRONG constant, and it
+    /// checks the region chain the constants form. A disagreement would not fail
+    /// anywhere: every polygon
     /// would simply read its edges from the wrong place in a buffer that is entirely
     /// valid memory, and the frame would come back with plausible-looking wrong shapes.
     /// That is the exact failure mode `the_shaders_glyph_base_matches_the_buffer_layout`
@@ -3672,15 +5468,61 @@ mod tests {
         // A running chain rather than a sum, so a fourth region means extending it
         // rather than rewriting an equation — plan-116-F added the third and found this
         // asserting the two-region total.
+        //
+        // bug-686 put the band index between the edges and the gradient stops.
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};"
+            )),
+            "the MSL declares a band-region base that is not METAL_BAND_BASE_WORDS \
+             ({METAL_BAND_BASE_WORDS}); every banded polygon would read another region \
+             as its edge lists"
+        );
+        assert_eq!(
+            METAL_BAND_BASE_WORDS * 4,
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the band region must start where the edge region ends"
+        );
         assert_eq!(
             METAL_GRADIENT_BASE_WORDS * 4,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the gradient region must start where the edge region ends"
+            METAL_BAND_BASE_WORDS * 4 + METAL_MAX_FRAME_BAND_WORDS * 4,
+            "the gradient region must start where the band region ends"
+        );
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};"
+            )),
+            "the MSL declares a glyph-region base that is not METAL_GLYPH_BASE_WORDS \
+             ({METAL_GLYPH_BASE_WORDS}); every glyph would read its coverage from the \
+             wrong offset of a buffer that is entirely valid memory"
+        );
+        // bug-670 added the fourth region; the chain grows by one link.
+        assert_eq!(
+            METAL_GLYPH_BASE_WORDS * 4,
+            METAL_GRADIENT_BASE_WORDS * 4
+                + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
+            "the glyph region must start where the gradient region ends"
+        );
+        // bug-686 added the fifth, the picture table, which the shader never reads.
+        assert_eq!(
+            METAL_PICTURE_RECORDS_OFFSET,
+            METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4,
+            "the picture table must start where the glyph region ends"
+        );
+        assert_eq!(
+            METAL_PICTURE_INDEX_OFFSET,
+            METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES,
+            "the picture index must start where the picture records end"
         );
         assert_eq!(
             METAL_BUFFER_BYTES,
-            METAL_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
-            "the buffer must be exactly its three regions, with nothing past the last"
+            METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
+            "the buffer must be exactly its five regions, with nothing past the last"
+        );
+        assert_eq!(
+            METAL_PICTURE_TABLE_BYTES,
+            METAL_BUFFER_BYTES - METAL_PICTURE_RECORDS_OFFSET,
+            "the picture table is the last region"
         );
     }
 

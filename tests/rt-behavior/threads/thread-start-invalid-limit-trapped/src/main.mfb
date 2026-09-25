@@ -9,7 +9,7 @@ IMPORT thread_workers
 ' teardown -- after the handler had already run and returned normally.
 
 FUNC trappedInboundLimit AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
+  RES t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
   RETURN 1
   TRAP(err)
     IF err.code <> 77050002 THEN RETURN 2
@@ -18,7 +18,7 @@ FUNC trappedInboundLimit AS Integer
 END FUNC
 
 FUNC trappedOutboundLimit AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 0)
+  RES t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 0)
   RETURN 1
   TRAP(err)
     IF err.code <> 77050002 THEN RETURN 2
@@ -34,7 +34,7 @@ END FUNC
 ' executed at all -- the prologue entry-zero half of the same hazard.
 FUNC raiseBeforeThreadBind AS Integer
   LET before AS Integer = failBeforeBind()
-  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
+  RES t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
   RETURN 1
   TRAP(err)
     RETURN 0
@@ -43,8 +43,8 @@ END FUNC
 
 ' A live thread bound before the failing one must still be dropped normally.
 FUNC liveThreadSurvivesTrappedStart AS Integer
-  LET live AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
-  LET bad AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
+  RES live AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
+  RES bad AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
   RETURN 1
   TRAP(err)
     IF err.code <> 77050002 THEN RETURN 2

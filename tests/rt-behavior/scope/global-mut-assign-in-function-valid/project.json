@@ -1,0 +1,10 @@
+{
+  "name": "global_mut_assign_in_function_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "A top-level MUT is module state: a FUNC or SUB may reassign it, and every later read sees the new value.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

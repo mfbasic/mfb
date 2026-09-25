@@ -24,8 +24,8 @@ ISOLATED FUNC bump(t AS ThreadWorker OF Nothing TO Integer, add AS Integer) AS I
 END FUNC
 
 FUNC main AS Integer
-  LET a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
-  LET b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
+  RES a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
+  RES b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
   LET ra AS Integer = thread::waitFor(a)
   LET rb AS Integer = thread::waitFor(b)
   io::print("a=" & toString(ra) & " b=" & toString(rb) & " parent=" & toString(COUNTER))

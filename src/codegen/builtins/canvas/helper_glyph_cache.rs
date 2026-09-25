@@ -134,9 +134,10 @@ r#"FUNC __canvas_glyphEntry(b AS List OF Byte, fontId AS Integer, gid AS Integer
   ' cache -- and re-running a full compaction on every subsequent insert would then be
   ' quadratic in the cache size for a scene we are required to keep whole. So a pass
   ' that frees little defers the next one until the cache has grown by another half
-  ' budget. Memory stays bounded because the pins are: the geometry cache is capped at
-  ' `__CANVAS_GEO_CAPACITY` items, and a glyph unpins as soon as the item referencing
-  ' it is evicted from there.
+  ' budget. Memory stays bounded because the pins are: the geometry cache holds only
+  ' what the last frame drew plus what it is building (`canvas::geoBeginFrame` drops
+  ' the rest at each frame boundary), and a glyph unpins as soon as the item
+  ' referencing it is dropped from there.
   IF len(__CANVAS_GLYPH_COV) > __canvas_glyphBudget() AND len(__CANVAS_GLYPH_COV) >= __CANVAS_GLYPH_NEXTEVICT THEN
     __canvas_glyphEvict()
     __CANVAS_GLYPH_NEXTEVICT = len(__CANVAS_GLYPH_COV) + __canvas_glyphBudget() / 2
@@ -320,31 +321,34 @@ r#"SUB __canvas_glyphEvict()
     pinned = collections::append(pinned, FALSE)
     p = p + 1
   END WHILE
-  ' The offsets to walk: the geometry cache's own, plus any the frame in progress is
-  ' holding that the cache has already evicted. That second set is not an edge case -- a
-  ' scene larger than `__CANVAS_GEO_CAPACITY` produces it on every frame, and the glyphs
-  ' it names are about to be drawn.
+  ' The offsets to walk: the geometry slots the frame in progress uses, and no others
+  ' (bug-686). The cache now keeps a slot until the frame boundary after it was last
+  ' used (`canvas::geoBeginFrame`), so it can hold the PREVIOUS scene's text as well as
+  ' this one's -- and pinning that would pin everything and free nothing. A frame stamps
+  ' every hit in its probe pass, before any miss can rasterise a glyph, so "stamped this
+  ' frame" is exactly the set this frame will draw.
+  '
+  ' A TEXT slot the frame is not using is FORGOTTEN instead of pinned (`canvas::geoForget`:
+  ' out of the hash index for good, dropped at the next frame boundary that compacts):
+  ' its glyph indices are about to be renumbered under it, so it must never be hit
+  ' again. If the scene names it later it misses and is rebuilt. Each offset appears
+  ' once in `live`, which matters: the remap below must rewrite each run exactly once,
+  ' and twice would apply the map to its own output and name some other glyph.
   MUT live AS List OF Integer = []
-  FOR EACH offset IN __CANVAS_GEO_OFFSETS
-    live = collections::append(live, offset)
-  NEXT
-  LET cached AS Integer = len(live)
-  FOR EACH offset IN __CANVAS_GEO_LIVE
-    MUT seen AS Boolean = FALSE
-    MUT c AS Integer = 0
-    WHILE c < cached
-      IF collections::getOr(live, c, 0 - 1) = offset THEN
-        seen = TRUE
+  LET cached AS Integer = len(__CANVAS_GEO_SLOTS) / 4
+  MUT cs AS Integer = 0
+  WHILE cs < cached
+    LET cachedOffset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, cs * 4 + 1, 0)
+    LET lastUsed AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, cs * 4 + 3, 0)
+    IF lastUsed = __CANVAS_GEO_FRAME THEN
+      live = collections::append(live, cachedOffset)
+    ELSE
+      IF lastUsed >= 0 AND toInt(collections::getOr(__CANVAS_GEO_DATA, cachedOffset, 0.0)) = __CANVAS_GEO_TEXT THEN
+        canvas::geoForget(cs)
       END IF
-      c = c + 1
-    END WHILE
-    IF NOT seen THEN
-      ' Deduped, because the remap below rewrites each run exactly once. Twice would
-      ' apply the map to its own output and produce an index that names some other
-      ' glyph -- a wrong picture rather than a missing one.
-      live = collections::append(live, offset)
     END IF
-  NEXT
+    cs = cs + 1
+  END WHILE
 
   MUT slot AS Integer = 0
   LET slots AS Integer = len(live)

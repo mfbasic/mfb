@@ -1,0 +1,178 @@
+' ---------------------------------------------------------------------------
+' Tests: the source layer.
+'
+' This is the file the whole package's "a file-backed archive and a
+' memory-backed archive agree" property rests on, so it is tested directly
+' rather than only through the parsers above it: the same bytes are read from
+' both source kinds at the start, the middle and the end, and the two must be
+' equal everywhere.
+'
+' The file branch is exercised through a real `fs::File` (a temp file written
+' and then read back through the same read/write handle), not a stub, because
+' the properties that matter — a positional read that does not move the
+' handle's position, a short read at the end, a closed handle — are properties
+' of `fs::readBytesAt` and would be assumed away by a stub.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+
+' 256 bytes, every value 0..255 once, so any off-by-one in an offset shows up as
+' a wrong VALUE rather than as a wrong length.
+PRIVATE FUNC sampleBytes() AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 0 TO 255
+    out = collections::append(out, toByte(i))
+  NEXT
+  RETURN out
+END FUNC
+
+' The same bytes, in a temp file, as a `Source`.
+PRIVATE FUNC fileSourceOf(RES handle AS fs::File, bytes AS List OF Byte) AS Source
+  fs::writeAllBytes(handle, bytes)
+  fs::flush(handle)
+  RETURN FileSource[handle]
+END FUNC
+
+PRIVATE FUNC memorySourceOf(bytes AS List OF Byte) AS Source
+  RETURN MemorySource[bytes]
+END FUNC
+
+' Lists are not comparable with `=`, so byte equality is spelled out. Comparing
+' the lengths first means a length mismatch reports as itself rather than as a
+' out-of-range read inside the loop.
+PRIVATE FUNC sameBytes(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Reading through a handle that a callee closed — the case the compiler's move
+' rules cannot prove, so the runtime closed-flag is what refuses it
+' (`mfb spec language resource-management` §15).
+PRIVATE SUB closeHandle(RES f AS fs::File)
+  fs::close(f)
+END SUB
+
+PRIVATE FUNC readAfterClose() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  fs::writeAllBytes(f, sampleBytes())
+  fs::flush(f)
+  LET source AS Source = FileSource[f]
+  closeHandle(f)
+  RETURN len(readAt(source, 0, 4))
+END FUNC
+
+TESTING
+  TGROUP "source"
+    TCASE "both sources report the same size"
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      expectInteger(sizeOf(memorySourceOf(sampleBytes())), 256)
+      expectInteger(sizeOf(file), 256)
+      fs::close(f)
+    END TCASE
+
+    TCASE "both sources return identical bytes at the start, middle and end"
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      LET memory AS Source = memorySourceOf(sampleBytes())
+      ' start, middle, end, the whole thing, and a single byte at the last index
+      FOR EACH window IN [[0, 4], [100, 16], [252, 4], [0, 256], [255, 1]]
+        LET offset AS Integer = collections::get(window, 0)
+        LET count AS Integer = collections::get(window, 1)
+        LET fromFile AS List OF Byte = readAt(file, offset, count)
+        LET fromMemory AS List OF Byte = readAt(memory, offset, count)
+        expectInteger(len(fromFile), count)
+        expectEqual(sameBytes(fromFile, fromMemory), TRUE)
+        ' and the bytes are the ones actually at that offset
+        expectInteger(toInt(collections::get(fromFile, 0)), offset)
+      NEXT
+      fs::close(f)
+    END TCASE
+
+    TCASE "a zero-byte read is legal and empty from both sources"
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      expectInteger(len(readAt(file, 0, 0)), 0)
+      expectInteger(len(readAt(memorySourceOf(sampleBytes()), 256, 0)), 0)
+      fs::close(f)
+    END TCASE
+
+    TCASE "a window running past the end is refused by both sources"
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      LET memory AS Source = memorySourceOf(sampleBytes())
+      expectTrap(readAt(file, 253, 4), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(memory, 253, 4), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(file, 256, 1), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(memory, 256, 1), errorCode::ErrInvalidFormat)
+      fs::close(f)
+    END TCASE
+
+    TCASE "a negative offset or count is refused by both sources"
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      LET memory AS Source = memorySourceOf(sampleBytes())
+      expectTrap(readAt(file, -1, 4), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(memory, -1, 4), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(file, 0, -1), errorCode::ErrInvalidFormat)
+      expectTrap(readAt(memory, 0, -1), errorCode::ErrInvalidFormat)
+      fs::close(f)
+    END TCASE
+
+    TCASE "reading a file source does not move the handle's read position"
+      ' The property letter A's Archive depends on: it aliases the caller's
+      ' handle, so a parse must leave the caller's position alone.
+      RES f AS fs::File = fs::createTempFile()
+      LET file AS Source = fileSourceOf(f, sampleBytes())
+      LET before AS Integer = len(readAt(file, 0, 8))
+      expectInteger(before, 8)
+      ' Two reads at the same offset must agree; they would not if the first
+      ' had advanced the handle.
+      expectEqual(sameBytes(readAt(file, 10, 4), readAt(file, 10, 4)), TRUE)
+      fs::close(f)
+    END TCASE
+
+    TCASE "reading after the handle is closed raises ErrResourceClosed"
+      expectTrap(readAfterClose(), errorCode::ErrResourceClosed)
+    END TCASE
+  END TGROUP
+
+  TGROUP "bytes"
+    TCASE "little-endian readers take the low byte first"
+      LET b AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4), toByte(5), toByte(6), toByte(7), toByte(8)]
+      expectInteger(u16le(b, 0), 513)
+      expectInteger(u32le(b, 0), 67305985)
+      expectInteger(u64le(b, 0), 578437695752307201)
+    END TCASE
+
+    TCASE "the widest representable 64-bit value round-trips"
+      ' 0x7FFFFFFFFFFFFFFF — the largest value a signed Integer holds.
+      LET b AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(127)]
+      expectInteger(u64le(b, 0), 9223372036854775807)
+    END TCASE
+
+    TCASE "a 64-bit field too large for an Integer is refused, not wrapped"
+      ' 0xFFFFFFFFFFFFFFFF. Returning this as a negative number would make it
+      ' pass a `<= size` bounds check, so it is refused here instead.
+      LET b AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
+      expectTrap(u64le(b, 0), errorCode::ErrTooLarge)
+    END TCASE
+
+    TCASE "a field running past the block is refused"
+      LET b AS List OF Byte = [toByte(1), toByte(2)]
+      expectTrap(u16le(b, 1), errorCode::ErrInvalidFormat)
+      expectTrap(u32le(b, 0), errorCode::ErrInvalidFormat)
+      expectTrap(u64le(b, 0), errorCode::ErrInvalidFormat)
+      expectTrap(u16le(b, -1), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING

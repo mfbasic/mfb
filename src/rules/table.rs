@@ -762,6 +762,26 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a resource cannot cross the thread data plane",
     },
+    // bug-624 B: the `.mfp` type table carries only exported types, so an EXPORT
+    // declaration naming a non-exported type of the same package built a
+    // package every importer then rejected (PACKAGE_INVALID). Reported at the
+    // package build, at the exporting declaration.
+    Rule {
+        code: "2-203-0139",
+        name: "EXPORT_NAMES_NON_EXPORTED_TYPE",
+        severity: Severity::Error,
+        message: "an exported declaration names a type the package does not export",
+    },
+    // plan-156-D: a parent `Thread` crosses on a resource plane like any sendable
+    // resource; a `ThreadWorker` belongs to its worker for the worker's whole run, so
+    // any thread-boundary type that carries one is refused here rather than by the
+    // generic 2-203-0063.
+    Rule {
+        code: "2-203-0140",
+        name: "TYPE_THREAD_WORKER_NOT_TRANSFERABLE",
+        severity: Severity::Error,
+        message: "a ThreadWorker cannot cross to another thread",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for
@@ -1325,6 +1345,18 @@ pub(super) const RULES: &[Rule] = &[
         name: "PACKAGE_PIN_MISMATCH",
         severity: Severity::Error,
         message: "installed package version differs from the pinned version",
+    },
+    Rule {
+        code: "6-605-0013",
+        name: "PACKAGE_DEPENDENCIES_INCONSISTENT",
+        severity: Severity::Error,
+        message: "project.json packages do not match the dependency closure the packages import",
+    },
+    Rule {
+        code: "6-605-0014",
+        name: "PACKAGE_VERSION_CONFLICT",
+        severity: Severity::Error,
+        message: "a declared package does not provide what another declared package was built against",
     },
     Rule {
         code: "6-605-0011",

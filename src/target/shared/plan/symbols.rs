@@ -5,10 +5,50 @@ use std::collections::HashMap;
 use super::nir::constfold::native_constant_value;
 use crate::types::ParameterType;
 
+/// Whether the module uses `enableMouse`/`pollMouse` from either package.
+///
+/// Keyed on the member-symbol suffix rather than a package prefix for the reason
+/// `uses_mouse` is everywhere else (plan-94-A Corrections C2): `_mfb_rt_term_` is
+/// already true of any `term::` program, so a prefix test would make a program
+/// that only draws a box pay for the mouse handlers.
+pub(super) fn module_uses_mouse(module: &NirModule) -> bool {
+    runtime_symbols(module)
+        .iter()
+        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
+}
+
 pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     let mut symbols = Vec::new();
     for function in &module.functions {
         collect_runtime_symbols_from_ops(&function.body, &mut symbols);
+    }
+    // plan-146-D: `s = os::appResourcePath(s)` lowers in place, and the arm asks the
+    // host for the executable path once per call through `os.executablePath` —
+    // a runtime call no NIR op names, so it would otherwise not be emitted.
+    if crate::codegen::collection::assign::self_update::module_self_updates_with(
+        module,
+        "appResourcePath",
+    ) {
+        if let Some(spec) = runtime::spec_for_call("os.executablePath") {
+            push_unique(
+                &mut symbols,
+                runtime::symbol_for_call(spec.helper, spec.call),
+            );
+        }
+    }
+    // plan-157-B: `s = os::appDataPath(s)` (and its host-path siblings) lowers in
+    // place, and the arm reads the base through the member's internal
+    // `<member>Base` helper — a runtime call no NIR op names.
+    for member in crate::codegen::collection::assign::string_self_update::HOST_PATH_ARM_MEMBERS {
+        let bare = member.trim_start_matches("os.");
+        if crate::codegen::collection::assign::self_update::module_self_updates_with(module, bare) {
+            if let Some(spec) = runtime::spec_for_call(&format!("{member}Base")) {
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
+            }
+        }
     }
     if module_has_thread_owner(module) {
         push_unique(
@@ -296,26 +336,22 @@ pub(super) fn platform_imports(
         // runtime/AppKit/Foundation on macOS (plan-04-macos-app.md §6.5) or
         // GTK4/GObject/GLib/GIO on Linux (plan-05-linux-app.md §6.4). The platform
         // chooses; shared lowering just pulls in whatever it declares.
-        for import in platform.app_mode_imports() {
+        for import in platform.app_mode_imports(module_uses_mouse(module)) {
             push_platform_import(&mut imports, import);
+        }
+        if crate::codegen::builtins::app::module_uses_app_window(module) {
+            for import in platform.app_window_imports() {
+                push_platform_import(&mut imports, import);
+            }
         }
     }
     imports
 }
 
 /// The frontend `os::` calls whose lowering takes the process-global env/pwd lock
-/// (bug-64): the readers `getEnv`/`getEnvOr`/`hasEnv`/`environ`/`userName` and the
-/// writers `setEnv`/`unsetEnv`. Kept in sync with the code-layer gate
-/// `os::module_uses_env_lock`.
-const OS_ENV_LOCK_CALLS: &[&str] = &[
-    "os.getEnv",
-    "os.getEnvOr",
-    "os.hasEnv",
-    "os.environ",
-    "os.userName",
-    "os.setEnv",
-    "os.unsetEnv",
-];
+/// (bug-64). The code layer's list, reused so the two cannot drift (plan-157-B
+/// replaced a hand-synced copy here).
+use crate::codegen::builtins::os::OS_ENV_LOCK_CALLS;
 
 /// The runtime helper symbols for the env/pwd helpers `module` actually emits, so
 /// the pthread mutex imports can be attributed to each real caller (the object-plan
@@ -336,14 +372,14 @@ pub(super) fn is_thread_type(type_: &ParameterType) -> bool {
     crate::codegen::engine::types::is_parent_thread_type(type_)
 }
 
+/// Whether some binding in `module` may drop a parent `Thread` view — the bindings
+/// that plan `thread.drop`. A `Thread` parameter is not one: passing a view lends it,
+/// so the callee drops nothing (plan-156-C).
 pub(super) fn module_has_thread_owner(module: &NirModule) -> bool {
-    module.functions.iter().any(|function| {
-        function
-            .params
-            .iter()
-            .any(|param| is_thread_type(&param.type_))
-            || ops_have_thread_owner(&function.body)
-    })
+    module
+        .functions
+        .iter()
+        .any(|function| ops_have_thread_owner(&function.body))
 }
 
 pub(super) fn ops_have_thread_owner(ops: &[NirOp]) -> bool {

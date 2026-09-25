@@ -43,6 +43,10 @@ struct Monomorphizer<'a> {
     /// type of the same bare name wins — the same rule IR lowering's `TypeIndex`
     /// applies to the identical `.mfp` layouts (`aa3a77745`).
     imported_records: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
+    /// The ENUM types exported by imported packages, keyed like
+    /// `imported_records` (plan-140-A): the dispatch oracle's answer for an enum
+    /// that has no declaration in `concrete_types`.
+    imported_enums: HashSet<crate::types::ParameterType>,
     concrete_functions: HashMap<String, HirFunction>,
     function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,
@@ -78,6 +82,9 @@ struct Monomorphizer<'a> {
     /// be attributed to the file the offending function actually lives in rather
     /// than always the first project file (bug-107).
     function_files: HashMap<String, String>,
+    /// The paths of the internal (built-in package) files, so an instantiation of
+    /// a template declared in one is marked `HirFunction::internal_origin`.
+    internal_files: HashSet<String>,
     /// The file whose function body is currently being lowered, if known;
     /// diagnostics are attributed here. Saved/restored across nested
     /// instantiation so the attribution follows the frame being lowered.

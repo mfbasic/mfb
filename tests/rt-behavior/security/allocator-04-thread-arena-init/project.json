@@ -4,7 +4,7 @@
   "mfb": "1.0",
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "packages": [{ "name": "allocator_churn_worker", "version": "=0.1.0", "source": "file:packages/allocator_churn_worker.mfp" }],
+  "packages": [{ "name": "allocator_churn_worker", "version": "=0.1.0", "source": "file:packages/allocator_churn_worker.mfp", "direct": true, "requiredBy": [] }],
   "entry": "main",
   "targets": ["native"]
 }

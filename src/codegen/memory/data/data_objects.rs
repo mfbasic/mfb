@@ -121,11 +121,18 @@ fn err_msg(name: &str) -> String {
         .to_string()
 }
 
-pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
+pub(crate) fn string_symbols(
+    module: &NirModule,
+    type_model: &TypeModel,
+) -> HashMap<String, String> {
     let mut values = Vec::new();
     // The module's record / union-variant field types, so every walk below can
-    // type a `MemberAccess` (bug-363, bug-366).
-    let fields = module_field_types(module);
+    // type a `MemberAccess` (bug-363, bug-366), and the builder's own enum table
+    // (plan-140-B), so a walk tells an enum from any other declared type exactly
+    // as the lowering will.
+    let fields = module_field_types(module)
+        .with_enums_of(type_model)
+        .with_function_returns(module);
     if module_uses_type_name(module) {
         collect_type_name_values(module, &mut values);
     }
@@ -265,6 +272,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",
+            "canvas.setBytesRaw",
         ],
     ) {
         for value in [
@@ -357,16 +365,30 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "os.executablePath",
             "os.version",
             "os.uptime",
-            // plan-55-B: `os.resourcePath` raises ErrUnsupported when the exe path
+            // plan-55-B: `os.appResourcePath` raises ErrUnsupported when the exe path
             // cannot be acquired (the same failure `executablePath` handles).
-            "os.resourcePath",
+            "os.appResourcePath",
+            // plan-157-B: no home / no passwd entry / the known-folder query failed.
+            "os.appDataPath",
+            "os.appCachePath",
+            "os.userHomePath",
+            "os.userDocumentsPath",
         ],
     ) {
         push_string_value(&mut values, err_msg("ErrUnsupported"));
     }
-    // plan-55-B: `os.resourcePath` additionally raises ErrInvalidPath when the
+    // plan-55-B: `os.appResourcePath` additionally raises ErrInvalidPath when the
     // `relative` argument contains a `.`/`..` path component.
-    if module_uses_call(module, "os.resourcePath") {
+    if module_uses_any_call(
+        module,
+        &[
+            "os.appResourcePath",
+            "os.appDataPath",
+            "os.appCachePath",
+            "os.userHomePath",
+            "os.userDocumentsPath",
+        ],
+    ) {
         push_string_value(&mut values, err_msg("ErrInvalidPath"));
     }
     if module_uses_any_call(
@@ -630,6 +652,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         || module_uses_migrated(module, "removeAt")
         || module_uses_migrated(module, "set")
         || module_uses_call(module, "strings.graphemeAt")
+        || crate::codegen::collection::assign::self_update::module_self_updates_with_replace(module)
     {
         push_string_value(&mut values, err_msg("ErrIndexOutOfRange"));
     }
@@ -1243,6 +1266,21 @@ fn collect_string_values_from_value(
 ) {
     if let Some(value) = static_string_value_with_constants(value, constants, types, fields) {
         push_string_value(values, value);
+    }
+    // plan-140-C: `toString(<enum>)` loads one of the enum's member names, so
+    // each must exist as string data. Registered only for an enum a program
+    // actually passes to `toString`.
+    if let NirValue::Call { target, args, .. }
+    | NirValue::CallResult { target, args, .. }
+    | NirValue::RuntimeCall { target, args, .. } = value
+    {
+        if target == "toString" && args.len() == 1 {
+            if let Some(members) = to_string_enum_members(&args[0], types, fields) {
+                for member in members {
+                    push_string_value(values, member.clone());
+                }
+            }
+        }
     }
     if let NirValue::Call { target, args, .. }
     | NirValue::CallResult { target, args, .. }

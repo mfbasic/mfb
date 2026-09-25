@@ -158,6 +158,159 @@ observed. [[src/codegen/term/core/term.rs:emit_did_resize]]
 `mov x9, #value; str x9, [x19, term_state_offset+field]`, with the pinned register
 substituted per architecture. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
 
+## Mouse state: one arena region, one process-global word
+
+plan-94-A adds the opt-in mouse surface — `term::enableMouse`/`term::pollMouse`
+and their `canvas::` mirrors — whose state is split across two places for two
+different reasons.
+
+**The per-arena mouse region** holds the decoded-event ring, its head/tail cursors
+and the stdin decoder's partial-sequence buffer. It is a **third**
+conditionally-reserved region in the arena-state chain, appended *past* the
+`app::` presentation-mode word, and reserved only when the program references
+`enableMouse`/`pollMouse`:
+
+```
+globals | term state (uses_term) | presentation mode (uses_app) | mouse state (uses_mouse)
+```
+
+Appending is load-bearing rather than tidy: every program that does not use mouse
+keeps `term_state_offset` and `presentation_mode_offset` at exactly the byte
+offsets it had before, so no existing emitter is renumbered. Growing the
+`term::` state region instead would have shifted the presentation-mode word for
+every program using both packages, and would have left a canvas-only program —
+which reserves no `term::` state at all — with nowhere to put its ring. The region
+is per-arena (per-thread) because the ring is **worker-local**: only the stdin
+decoder running on the owning thread writes it, which is what lets
+overwrite-on-full need no atomics.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_RING_PTR_OFFSET]]
+
+**The process-global mouse-mode word** `_mfb_rt_mouse_mode` is the one piece of
+mouse state that is *not* per-arena, and it is the exception for a concrete
+reason: an app backend's mouse handler runs on the **UI thread**, which has no
+arena state at all, so it cannot read the region above. It needs two answers
+before it acts — should I emit, and in which unit — and one word carries both:
+`0` = off, `1` = cells (`term::` asked), `2` = pixels (`canvas::` asked). Written
+by `enableMouse` on the worker, read by every UI-thread handler on every backend.
+A full word rather than a byte so a plain 8-byte load/store works everywhere with
+no sub-word addressing; no atomics, because there is one writer and the readers
+tolerate a one-event-stale answer.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_MODE_SYMBOL]]
+
+## The mouse decoder and the read path
+
+plan-94-B decodes mouse input in **console mode**. `term::enableMouse(TRUE)`
+writes `\x1b[?1000h\x1b[?1002h\x1b[?1006h`, allocates the ring and sets the mode
+word to *cells*; `enableMouse(FALSE)` and `term::off` write the matching reset,
+clear the word and free the ring. All three modes are set because they answer
+three different questions: 1000 turns reporting on, 1002 adds motion while a
+button is held (without it a drag reports only its press and release), and
+**1006 is required** — the default encoding biases each coordinate by 32 into one
+byte and so cannot express a column past 223, let alone a pixel.
+[[src/codegen/term/core/term.rs:emit_enable_mouse]]
+
+The decoder sits at `emit_stdin_byte_read`, the single function every `io::` read
+helper takes its bytes through, and *above* the app-vs-console split — so one
+implementation serves the console broadcast log and the window input pipe alike,
+which is what lets the app backends inject bytes rather than carry their own
+event queues. It is emitted only for a program that uses the mouse members, so a
+program that does not keeps its exact prior instruction stream.
+[[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
+
+**Bytes that are not a recognised report reach the program unchanged**, in order
+— including a bare `ESC` and sequences like `ESC [ Z`. Deciding that an escape is
+*not* a mouse report takes several bytes, and by then the decoder holds bytes the
+program is owed but can only return one at a time, so the buffer doubles as a
+replay queue with its own cursor. The drain resets the queue the moment it
+hands over the last owed byte, so a zero cursor always means "nothing owed".
+[[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_DRAIN_POS_OFFSET]]
+[[src/codegen/io/mouse/decode.rs:emit_drain_pending]]
+
+**A held prefix is settled by silence or by end of input** (bug-669). Only the
+*next* byte can show that an `ESC` is not a report, and the Esc key sends no next
+byte. So while a prefix is held with nothing owed, the read path waits at most
+`ESCAPE_DELAY_MS` (25 ms) for more input. The wait checks the broadcast log first
+in console mode, then `poll(fd 0)`, and retries on `EINTR`. If nothing arrives,
+the prefix is released: its bytes become owed and are handed back in order. A
+read that reaches EOF with a prefix held releases it the same way, and the EOF is
+returned by the next read. Terminals write a report in one burst, so its tail is
+never 25 ms behind its `ESC`. This is the same trade curses makes with
+`ESCDELAY`, and the only place a mouse program's read waits longer than it
+asked. On macOS and Linux every mouse member therefore imports `poll`; Windows
+`io::` reads already import the wait's primitives.
+[[src/codegen/io/mouse/decode.rs:ESCAPE_DELAY_MS]]
+[[src/codegen/builtins/io/gen_read_family.rs:emit_pump_escape_wait]]
+
+Decoded events go into a 64-slot per-thread ring, each stamped with a monotonic
+reading. It **overwrites oldest-first when full**, and `pollMouse` **skips
+anything older than 100 ms**. Both rules say the same thing from opposite ends: a
+program that stalls gets what the user is doing now, not a replay of what they
+did while it was busy.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_EVENT_TTL_NANOS]]
+
+### Broadcast (per-subscriber) semantics
+
+Console stdin is a broadcast log: every subscribed thread sees the same bytes
+(`thread::openStdIn`; main subscribes at entry). Mouse decoding rides that per
+thread, so **each subscribed, mouse-enabled thread decodes the same reports
+independently and gets its own copy of the events** — polling on one thread does
+not consume them from another.
+
+The ring lives in the thread's own arena, which is what makes this true by
+construction rather than by policy, and it has a corollary worth stating plainly:
+a thread that never called `thread::openStdIn` reads no stdin bytes, so it
+decodes nothing and its `pollMouse` reports `MouseKind.None` forever. The
+existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
+
+### Two read-path interactions
+
+- **`io::pollInput` stays honest.** Its TRUE promises that the next read will not
+  block, and with mouse on "bytes are ready" no longer implies "a character is
+  ready" — the pending bytes may be a report the decoder swallows whole. So when
+  readiness says ready, `pollInput` runs the bytes through the same decoder, puts
+  back the first byte that turns out to be the program's, and re-asks
+  (non-blocking) if what it found was mouse. It still consumes nothing. Three
+  bug-669 rules keep this honest around escapes:
+  - Bytes the decoder already owes are checked first, before any wait, because
+    neither the log nor the OS can see them. The check peeks the cursor and
+    never drains it.
+  - A put-back after a flush rewinds the cursor rather than rewriting the queue,
+    so the flushed tail survives.
+  - A byte that left a prefix buffered is followed by a re-check that waits the
+    escape delay rather than 0. If that re-check finds nothing, the held prefix
+    is released and `pollInput` answers TRUE.
+  [[src/codegen/builtins/io/func_poll_input.rs:lower_poll_input]]
+  [[src/codegen/builtins/io/func_poll_input.rs:emit_mouse_ready_verify]]
+  [[src/codegen/io/mouse/decode.rs:emit_branch_if_owed]]
+  [[src/codegen/io/mouse/decode.rs:emit_pushback_byte]]
+- **`io::input`/`io::readLine` suspend tracking.** They restore the saved cooked
+  line discipline for their read, which re-enables echo; a report arriving in that
+  window would be echoed onto the screen as visible garbage. Tracking is therefore
+  withdrawn before the restore and re-established after the raw termios returns.
+  Mouse events are lost for the duration, which is correct: a program asking for a
+  typed line is not tracking the mouse.
+  [[src/codegen/term/core/term.rs:emit_mouse_tracking_window]]
+
+### App mode
+
+In an `--app` build `term::enableMouse` writes **no** terminal escapes — stdout is
+the window's transcript, where they would be displayed rather than interpreted —
+but still sets the mode word, which is what each backend's UI-thread handler
+reads. Both `term::` mouse members carry the `Console` presentation-mode gate, so
+`term::pollMouse` in `Mode.Canvas` raises the trappable `ErrWrongMode` rather than
+reporting cell coordinates for a surface that has no cells; `canvas::pollMouse` is
+`Canvas`-gated for the mirror-image reason. The per-backend handlers that feed the
+decoder are plan-94-C (macOS), D (GTK) and E (Windows).
+[[src/codegen/builtins/term/gen_shared.rs:lower_term_helper]]
+
+### Testing without a mouse
+
+`MFB_MOUSE_INJECT` carries raw SGR bytes that `enableMouse(TRUE)` feeds through
+the decoder. It is a test affordance, in the same spirit as `MFB_WINAPP_INPUT`:
+it exercises the real parser rather than bypassing it, which is what makes the
+decoder and the ring provable on a machine with no mouse and over ssh.
+[[src/codegen/error/constants/error_constants.rs:MOUSE_INJECT_ENV]]
+
 ## Retained double-buffered surface + mandatory present
 
 While TUI mode is on, `term::` is a **retained, double-buffered** surface with one
@@ -287,6 +440,7 @@ runtime-synthesized classes). Twelve methods are added, then
 | `acceptsFirstResponder` | `c@:` | `_mfb_macapp_term_acceptsFR` |
 | `keyDown:` | `v@:@` | `_mfb_macapp_term_keyDown` |
 | `mfbClear:` | `v@:@` | `_mfb_macapp_term_clear` |
+| `mfbPresent:` | `v@:@` | `_mfb_macapp_term_present` |
 | `setFrameSize:` | `v@:{CGSize=dd}` | `_mfb_macapp_term_setFrameSize` |
 
 `isFlipped` returns YES so row 0 is at the top and cell `(row, col)` maps to
@@ -307,7 +461,7 @@ view are likewise stashed under `_mfb_macapp_window_key`,
 
 A `calloc`'d buffer attached to the view via `objc_setAssociatedObject(view,
 &TVSTATE_KEY, state, OBJC_ASSOCIATION_ASSIGN)` — a plain C buffer the runtime
-never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+never messages. Forty-three 8-byte fields = 344 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 | Field | Offset | Type | Meaning |
 |-------|--------|------|---------|
@@ -338,6 +492,10 @@ never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/t
 | `TV_TEXT_X`/`Y` | 280/288 | i64 | `drawText` start cell, `X` = column, `Y` = row (text is the object arg) |
 | `TV_POOL` | 296 | `u8*` | TermCell-parallel EGC pool base (heap) |
 | `TV_DID_RESIZE` | 304 | i64 | cached "was resized" flag; set by `setFrameSize:` on a genuine change, read-and-cleared by `term::didResize` |
+| `TV_FRONT_CELLS` | 312 | `TermCell*` | the last presented grid — the only one `drawRect:` paints (0 until the first present) |
+| `TV_FRONT_POOL` | 320 | `u8*` | EGC pool of the last presented grid |
+| `TV_FRONT_ROWS` | 328 | i64 | rows of the front grid |
+| `TV_FRONT_COLS` | 336 | i64 | columns of the front grid |
 
 The `TV_CUR_*` attribute fields (64..96) are the app-mode mirror of the
 term-state global: the GUI setters write **both** the global (for readers) and
@@ -402,15 +560,43 @@ the `TV_DID_RESIZE` flag on `TVSTATE`, which `term::didResize` read-and-clears.
 same thread as `drawRect:` and the marshaled grid writes — so the realloc cannot
 tear a concurrent draw. [[src/target/macos_aarch64/app/term_view.rs:emit_term_set_frame_size_helper]]
 
+### `mfbPresent:` — publishing a frame
+
+The surface is double-buffered in app mode as on the console. Every drawing call
+edits `TV_CELLS`/`TV_POOL` (the back grid) through its own marshaled main-thread
+call, and AppKit may run a display pass between any two of them. So `drawRect:`
+never reads that grid. `term::sync` and `io::flush` marshal `mfbPresent:`
+(`waitUntilDone:YES`), which runs on the main thread:
+
+1. It copies the back grid into `TV_FRONT_CELLS`, and the pool into
+   `TV_FRONT_POOL` when both exist.
+2. It reallocates the front pair first if the grid's dimensions changed since the
+   last present, and records them in `TV_FRONT_ROWS`/`TV_FRONT_COLS`.
+3. It sends `[self setNeedsDisplay:YES]`.
+
+`term::on` presents its cleared grid, so a second TUI session never shows the
+last frame of the first. `setFrameSize:` resizes only the back grid; the front
+keeps its own dimensions, and `drawRect:` paints the old frame until the next
+present. Before the front buffer, `drawRect:` painted the live grid, so a
+display pass that landed between a frame's `term::clear` and its redraw could
+show it blank or half-drawn.
+[[src/target/macos_aarch64/app/term_view.rs:emit_term_present_helper]]
+
 ### `drawRect:` — the renderer
 
 `void drawRect:(NSRect dirty)` (self x0, _cmd x1, rect d0..d3). Spills the dirty
 rect immediately (the FP arg regs are clobbered by the first call). [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_draw_rect]]
 
 1. Fill the dirty rect black: `[[NSColor blackColor] set]; NSRectFill(rect)`.
-2. If no state or no `cells`, stop (clean black surface).
-3. `font = [NSFont userFixedPitchFontOfSize:N]`; build `attrs =
-   [NSMutableDictionary dictionary]` with `NSFontAttributeName = font`.
+2. If no state or no front grid (`TV_FRONT_CELLS`, nothing presented yet), stop
+   (clean black surface). Everything below reads the front grid, its dimensions
+   and its pool, never the back grid.
+3. `font = [NSFont fontWithName:@"Menlo-Regular" size:N]`, falling back to
+   `userFixedPitchFontOfSize:N` only when Menlo is missing — the same font
+   `_mfb_macapp_term_init` sized the cells with. (Drawing in the user fixed-pitch
+   font, Monaco, left box-drawing rules dashed: its box and block glyphs are
+   shorter than a Menlo row.) Build `attrs = [NSMutableDictionary dictionary]`
+   with `NSFontAttributeName = font`.
 4. Pre-resolve every selector and attribute key once
    (`colorWithCalibratedRed:green:blue:alpha:`, `set`, `setObject:forKey:`,
    `removeObjectForKey:`, `drawAtPoint:withAttributes:`,
@@ -418,10 +604,20 @@ rect immediately (the FP arg regs are clobbered by the first call). [[src/target
    bold `NSNumber(-3.0)`, underline `NSNumber(1)`), spilling them to the stack —
    so the per-cell loop never calls `sel_registerName` (which would clobber the
    d0..d3 colour-component args).
-5. For each cell `(row, col)`:
-   - background: if `cell.bg != 0`, `[bgColor set]; NSRectFill(col*cellW,
-     row*cellH, cellW, cellH)`.
-   - glyph: skip if glyph is 0 or 32 (space). Set the fg colour attribute from
+5. Two passes over every cell `(row, col)`, as a terminal paints: all the fills
+   first, then all the glyphs. In a single per-cell sweep, the next row's
+   background painted over any glyph that overhangs its cell (a `q` in a
+   coloured panel lost its descender). A cell rectangle is filled with its edges
+   rounded to whole points, each from its own index (`round(col*cellW)` to
+   `round((col+1)*cellW)`), so neighbours share an exact edge. With raw
+   fractional edges, a run of fills showed a seam at every column.
+   [[src/target/macos_aarch64/app/term_view.rs:emit_fill_current_cell]]
+   - pass 0, background: if `cell.bg != 0`, `[bgColor set]` and fill the cell.
+   - pass 0, full block: a `U+2588` glyph is filled as the cell rectangle in
+     `cell.fg`, not drawn from the font. The font's glyph sits lower than the
+     cell and is a hair narrower, so `term::fillRect` panels were striped.
+   - pass 1, glyph: skip if glyph is 0 or 32 (space), a wide trail, or a full
+     block. Set the fg colour attribute from
      `cell.fg`; set/remove the faux-bold stroke-width attribute
      (`NSStrokeWidthAttributeName = -3.0`, negative = fill-stroke bold) per
      `cell.bold`; set/remove `NSUnderlineStyleAttributeName = 1` per

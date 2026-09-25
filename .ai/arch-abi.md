@@ -448,7 +448,7 @@ Debugging technique that cracked it: **taking `close` out of the picture** — a
 
 ### Windows codegen verification
 
-`windows-x86_64` codegen **does** have some `.ncodesum` byte-identity goldens and `scripts/artifact-gate.sh` **does** check them — the gate discovers targets from golden *filenames*, so any fixture that ships a `<pkg>.windows-x86_64[.app].ncodesum` golden is cross-compiled and sha256-checked on the macOS host. Confirmed present: `tests/byte-identity/math` (console) and `tests/syntax/app/macos-app-mode-{io,plumbing,term}` (app-mode). So a Windows codegen change to a *covered* fixture IS caught by the gate (it reports `DIFF …windows-x86_64[.app].ncode (sha256)`). Regenerate by building `-ncode -target windows-x86_64 [--app]` and `shasum -a 256 > golden`. `byte-identity/{datetime,http,tls,term,crypto,net,strings,general,io,encoding,regex,audio,os}` also ship windows `.ncodesum` goldens. (`os` joined that list only in bug-454: `os_codegen_cover_rt` calls `os::resourcePath`, which windows-x86_64 refused to lower at all, so the fixture had no windows sum to compare and the whole `os` Windows surface was uncovered. If a fixture is missing ONE target's sum, ask why before assuming it was an oversight — and once the reason is gone, add it.) (The Windows CNG EC verify fix shifted `byte-identity/crypto`'s windows sum — the other four crypto targets stayed byte-identical, and a base-vs-fix `-ncode` diff confirmed the delta was confined to the six p256/p384/p521 Sign/Verify symbols.)
+`windows-x86_64` codegen **does** have some `.ncodesum` byte-identity goldens and `scripts/artifact-gate.sh` **does** check them — the gate discovers targets from golden *filenames*, so any fixture that ships a `<pkg>.windows-x86_64[.app].ncodesum` golden is cross-compiled and sha256-checked on the macOS host. Confirmed present: `tests/byte-identity/math` (console) and `tests/syntax/app/macos-app-mode-{io,plumbing,term}` (app-mode). So a Windows codegen change to a *covered* fixture IS caught by the gate (it reports `DIFF …windows-x86_64[.app].ncode (sha256)`). Regenerate by building `-ncode -target windows-x86_64 [--app]` and `shasum -a 256 > golden`. `byte-identity/{datetime,http,tls,term,crypto,net,strings,general,io,encoding,regex,audio,os}` also ship windows `.ncodesum` goldens. (`os` joined that list only in bug-454: `os_codegen_cover_rt` calls `os::appResourcePath`, which windows-x86_64 refused to lower at all, so the fixture had no windows sum to compare and the whole `os` Windows surface was uncovered. If a fixture is missing ONE target's sum, ask why before assuming it was an oversight — and once the reason is gone, add it.) (The Windows CNG EC verify fix shifted `byte-identity/crypto`'s windows sum — the other four crypto targets stayed byte-identical, and a base-vs-fix `-ncode` diff confirmed the delta was confined to the six p256/p384/p521 Sign/Verify symbols.)
 
 STALE-GOLDEN TRAP: a change to Windows codegen for a covered fixture that regenerates the OTHER targets' goldens but skips the windows sum leaves the gate RED on `main` for the next person. If you touch Windows codegen, regenerate the windows sum too; if you find one stale, it's a real gate-red to fix (regen blesses the shipped fixed bytes — verify determinism by building twice). Coverage is still partial, so for a Windows path with no golden, verify the two ways below.
 
@@ -489,7 +489,7 @@ would be read `N` bytes away from where it was stored. Nothing catches that: the
 depend on the corrupted value still passes its runtime test.
 
 The x86-64 allocatable integer pool is FOUR registers (`r10 r11 r12 r14`), so
-any body with real pressure spills — `os::resourcePath` has seven spill slots.
+any body with real pressure spills — `os::appResourcePath` has seven spill slots.
 What makes it safe there is that the hook's window contains **no
 allocator-visible vreg operand at all** (its body names physical ABI registers
 and its own frame slots), so the allocator has nothing to place inside it. That
@@ -499,7 +499,7 @@ body that holds a value across it.
 Verify it on the emitted plan, not by reading the allocator: build `-ncode
 -target windows-x86_64`, find the hook's `sub_sp N` … `add_sp N`, and assert
 every `base: "rsp"` access strictly inside has `offset < N`. That is
-`tests/codegen_win64_resource_path.rs::nothing_addresses_outside_the_windows_acquisition_frame`.
+`tests/codegen_win64_app_resource_path.rs::nothing_addresses_outside_the_windows_acquisition_frame`.
 Watch out when counting `sub_sp` depth: the Win64 **prologue** for a frame over
 one page is itself `sub_sp 4096` / stack probe / `sub_sp <rest>` torn down by a
 single `add_sp`, so naive depth counting reads the whole body as nested — anchor
@@ -512,24 +512,63 @@ Two different rules, and mixing them up is a runtime-only failure:
 * **Bytes the OS produced** carry the native separator. `GetModuleFileNameW`
   returns `C:\dir\app.exe` and `GetFullPathNameW` normalizes to `\`, so any
   scan over them must compare against **92** on Windows. `fs::isWithin`'s
-  `within_sep` (`fs/gen_canonical.rs`) and `os::resourcePath`'s backward scan
-  (`os/func_resource_path.rs`) both do. bug-454's reported symptom was exactly
+  `within_sep` (`fs/gen_canonical.rs`) and `os::appResourcePath`'s backward scan
+  (`os/func_app_resource_path.rs`) both do. bug-454's reported symptom was exactly
   this: a `/`-only backward scan over `C:\...\app.exe` finds no separator, runs
   the cursor to 0 and raises `ErrUnsupported` — proven by flipping the byte back
   to 47 and running the `.exe` on box 2230 (`Error: 7-705-0007`).
 * **Portable MFB path strings** are `/`-delimited on every target, including
   Windows: `fs::pathJoin`/`pathNormalize` use `SEP = 47` unconditionally
   (`fs/gen_path_builder.rs`), and Win32 accepts `/` in every path it parses. So
-  `os::resourcePath` joins base and relative with `/` on Windows too, producing
+  `os::appResourcePath` joins base and relative with `/` on Windows too, producing
   `C:\proj\build/song.ogg` — which opens, and which keeps
   `strings::endsWith(p, "/song.ogg")` true on every target.
 
 The one place Windows needs a *third* answer is **validating** a caller-supplied
 relative path: `\` is a directory separator to every Win32 API, so `..\secret`
-traverses out of a base exactly as `../secret` does. `os::resourcePath` therefore
+traverses out of a base exactly as `../secret` does. `os::appResourcePath` therefore
 treats BOTH 47 and 92 as component boundaries on Windows when refusing a `.`/`..`
 component. That rejects strictly more traversal and nothing valid — a Windows
 filename cannot contain `\`.
+
+**Only on Windows — the in-place arm must use the same set.** The in-place
+`s = os::appResourcePath(s)` validator once treated `\` as a boundary on every
+target, so on POSIX it raised `ErrInvalidPath` for `a\..\b` while the copying
+call returned a path (plan-157-B Correction B-1). An arm must agree with its
+copying helper byte for byte; "stricter is safe" is wrong when the two can be
+told apart.
+
+### `emit_errno` on Windows is raw `GetLastError` — never compare it to a POSIX errno
+
+`CodegenPlatform::emit_errno` returns the `GetLastError` DWORD on
+`windows-x86_64`, not an errno. A shared body that tests `17` (`EEXIST`), `2`, or
+`13` is silently wrong there: `ERROR_ALREADY_EXISTS` is **183**,
+`ERROR_PATH_NOT_FOUND` **3**, `ERROR_ACCESS_DENIED` **5**. `fs::createDirectories`
+compared against 17 and split only on `/`, so every nested create on Windows
+failed with `ErrWriteFailed` until plan-157-C (Correction C-4). The existing
+fixtures never ran on 2230, so nothing noticed. Branch per family, as
+`emit_fs_path_errno_error_mapping` (`fs/gen_shared.rs`) does, and run the fixture
+on box 2230.
+
+### Known-folder queries: GUID in the arg area, free on every path, check the conversion
+
+`SHGetKnownFolderPath` (plan-157, `known_folder_guid` / `emit_known_folder_query`
+/ `emit_known_folder_into_query` in `win_x86_64/code.rs`) rides the same
+`subtract_stack(0x60)` window as `emit_os_wide_string`. Four rules:
+
+* Put the 16-byte `GUID` in the stack-argument area `[0x20..0x30)`. It is free
+  until `WideCharToMultiByte` later stages its 5th–8th arguments there. The other
+  window slots (`0x40..0x60`) are all in use.
+* Pre-zero the out-param slot and `CoTaskMemFree` it on **both** exits. Microsoft
+  requires the free whether the call succeeded or not, and `CoTaskMemFree(NULL)`
+  is a no-op.
+* Compare the HRESULT through a `store_u32`/`load_u32` round trip: a 32-bit
+  return does not guarantee rax's upper half.
+* Check `WideCharToMultiByte`'s result. `emit_wide_slot_to_utf8` ignores it,
+  which is safe only while the source is ≤ 2048 UTF-16 units (≤ 6144 UTF-8
+  bytes < the 8 KiB buffer). A known folder has no such bound. The
+  non-allocating variant measures first (`NULL`, 0) and converts into the
+  caller's buffer only when the size, NUL included, fits.
 
 ### The compiler's own main-thread stack is 1 MiB on Windows, 8 MiB elsewhere
 

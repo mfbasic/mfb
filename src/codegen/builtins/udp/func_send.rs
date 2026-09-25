@@ -102,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrAddressNotFound", "ErrInvalidArgument", "ErrMessageTooLarge", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout"],
                 body: super::native_body(lower_send, &[]),
             },
             Implementation {
@@ -117,7 +117,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrAddressNotFound", "ErrMessageTooLarge", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout"],
                 body: super::native_body(lower_send, &["sendText"]),
             },
         ],

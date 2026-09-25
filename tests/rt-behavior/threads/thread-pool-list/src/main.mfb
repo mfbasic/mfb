@@ -1,0 +1,27 @@
+IMPORT collections
+IMPORT io
+IMPORT thread
+
+' A worker pool: eight threads held in a list, each waited for through the list.
+' A Thread is a resource, so the list holds RES elements, and the threads stay
+' open until main's scope ends.
+
+ISOLATED FUNC square(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n * n
+END FUNC
+
+FUNC main AS Integer
+  MUT pool AS List OF RES Thread OF Integer TO Integer = []
+  MUT i AS Integer = 1
+  WHILE i <= 8
+    RES t AS Thread OF Integer TO Integer = thread::start(square, i)
+    pool = collections::append(pool, t)
+    i = i + 1
+  END WHILE
+  MUT total AS Integer = 0
+  FOR EACH t IN pool
+    total = total + thread::waitFor(t)
+  NEXT
+  io::print("workers " & toString(len(pool)) & " total " & toString(total))
+  RETURN 0
+END FUNC

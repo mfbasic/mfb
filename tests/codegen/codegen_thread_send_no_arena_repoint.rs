@@ -33,7 +33,7 @@ ISOLATED FUNC churn(w AS ThreadWorker OF String TO Integer, seed AS String) AS I
 END FUNC\n\
 \n\
 FUNC main AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(churn, \"abc\")\n\
+  RES t AS Thread OF String TO Integer = thread::start(churn, \"abc\")\n\
   FOR i = 1 TO 3\n\
     thread::send(t, \"message-\" & toString(i))\n\
     io::print(thread::receive(t))\n\

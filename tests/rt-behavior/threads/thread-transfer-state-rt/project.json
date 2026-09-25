@@ -5,7 +5,7 @@
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "packages": [
-    { "name": "state_xfer_workers", "version": "=0.1.0", "source": "file:packages/state_xfer_workers.mfp" }
+    { "name": "state_xfer_workers", "version": "=0.1.0", "source": "file:packages/state_xfer_workers.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

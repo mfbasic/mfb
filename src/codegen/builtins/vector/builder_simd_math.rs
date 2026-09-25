@@ -41,7 +41,8 @@ pub(crate) enum SimdUnaryKernel {
     AbsInteger,
     /// `Float[]→Float[]` absolute value (clear the sign bit); never errors.
     AbsFloat,
-    /// `Float[]→Float[]` square root; `ErrInvalidArgument` on a negative lane.
+    /// `Float[]→Float[]` square root; `ErrFloatDomain` on a negative lane (bug-617:
+    /// this said `ErrInvalidArgument`, which is what the FIXED kernel raises).
     SqrtFloat,
     /// `Float[]→Integer[]` floor/ceil/round (round = ties away). `ErrOverflow`
     /// when a rounded lane falls outside the signed 64-bit range.
@@ -120,12 +121,38 @@ impl CodeBuilder<'_> {
     /// freshly-allocated result-list base register. `label_prefix` names the
     /// per-site `*_alloc_ok` label so the `.ncode`/`.mir` goldens keep their exact
     /// label strings (e.g. `simd`, `simd_bin`, `pow_arr`).
+    ///
+    /// **plan-142-C:** when the in-place `math` arm has set `simd_result_into`, the
+    /// result goes to the function's self-update scratch instead (grown to
+    /// `count * 8` bytes), and that block's base is returned: the kernel writes its
+    /// lanes there, and the arm copies them into the self-updated list only after
+    /// the kernel's error check has passed, so a failing lane leaves the list
+    /// untouched. The flag is taken here, so exactly one driver consumes it.
     pub(crate) fn emit_alloc_result_list(
         &mut self,
         count: impl Into<Operand>,
         type_code: &str,
         label_prefix: &str,
     ) -> Result<VirtualRegister, String> {
+        if self.simd_result_into.take().is_some() {
+            let need_slot = self.allocate_stack_object("simd_into_need", 8);
+            let need = self.temporary_vreg();
+            self.emit(abi::move_register(&need, count));
+            self.emit(abi::shift_left_immediate(&need, &need, 3));
+            self.emit(abi::store_u64(&need, abi::stack_pointer(), need_slot));
+            self.emit_reserve_self_update_scratch(need_slot)?;
+            let scratch_slot = self
+                .self_update_scratch
+                .ok_or("native in-place math result has no self-update scratch")?;
+            self.reset_temporary_registers();
+            let result_base = self.allocate_register();
+            self.emit(abi::load_u64(
+                &result_base,
+                abi::stack_pointer(),
+                scratch_slot,
+            ));
+            return Ok(result_base);
+        }
         // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
         self.emit(abi::move_register(abi::c_arg(0), count));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", type_code));
@@ -822,7 +849,8 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     /// Lower `math::clamp(values AS T[], low AS T, high AS T)` — clamp each lane to
     /// `[low, high]` via `max(min(x, high), low)`. `low`/`high` are broadcast into
-    /// both `.2d` lanes. Never errors.
+    /// both `.2d` lanes. Raises `ErrInvalidArgument` when `low > high` (bug-617:
+    /// this said "Never errors", ~33 lines above the raise that does).
     pub(crate) fn lower_simd_clamp(
         &mut self,
         kernel: SimdClampKernel,

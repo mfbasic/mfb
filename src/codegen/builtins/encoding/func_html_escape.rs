@@ -23,9 +23,9 @@ replaces each of the five metacharacters with its named character reference:
 - `"` (double quote) becomes `&quot;`
 - `'` (apostrophe) becomes `&apos;`
 
-The ampersand is substituted **first**, before the other four, so that the `&`
-introduced by each replacement entity is not escaped a second time; the result
-is therefore a single, correct level of escaping.
+Each character of `text` is considered once, so the `&` that begins each
+reference this function writes is never escaped a second time; the result is a
+single, correct level of escaping.
 
 
 Every other character — including whitespace, digits, letters, and non-ASCII
@@ -38,13 +38,39 @@ The inverse operation is `encoding::htmlUnescape`, which parses named and
 numeric character references back into text."#;
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __encoding_htmlEscape(text AS String) AS String
-  MUT out AS String = text
-  out = strings::replace(out, "&", "&amp;")
-  out = strings::replace(out, "<", "&lt;")
-  out = strings::replace(out, ">", "&gt;")
-  out = strings::replace(out, "\"", "&quot;")
-  out = strings::replace(out, "'", "&apos;")
+r#"' plan-146-F: a single left-to-right grapheme scan. It replaces five
+' `strings::replace` passes over `MUT out AS String = text` — a binding that
+' COPIED the argument, which is what the `Exempt` row for `encoding::htmlEscape`
+' may not do. One pass also makes the "ampersand first" ordering structural
+' rather than an invariant of the pass order: each grapheme is emitted once, so
+' no reference this function writes can be escaped a second time.
+'
+' The scan reads `text` a grapheme at a time with `strings::mid`, NOT through
+' `strings::graphemes`: that list holds one heap `String` per grapheme and is
+' live while `text` still is, which costs ~42 bytes per character of `text` and
+' fails the `exempt` peak-live-bytes bound outright (plan-146-F Correction F4).
+FUNC __encoding_htmlEscape(text AS String) AS String
+  LET n AS Integer = len(text)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  MUT ch AS String = ""
+  WHILE i < n
+    ch = strings::mid(text, i, 1)
+    IF ch = "&" THEN
+      out = out & "&amp;"
+    ELSEIF ch = "<" THEN
+      out = out & "&lt;"
+    ELSEIF ch = ">" THEN
+      out = out & "&gt;"
+    ELSEIF ch = "\"" THEN
+      out = out & "&quot;"
+    ELSEIF ch = "'" THEN
+      out = out & "&apos;"
+    ELSE
+      out = out & ch
+    END IF
+    i = i + 1
+  END WHILE
   RETURN out
 END FUNC"#;
 const EX: &str = r#"Escape a fragment before placing it in element content:

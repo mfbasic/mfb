@@ -95,7 +95,16 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
         crate::ir::verify_package(&package_ir)?;
         let (ref_fns, ref_globals) = crate::ir::package_qualified_reference_names(&package_ir);
         let references = crate::ir::package_referenced_names(&mut package_ir);
-        crate::ir::prefix_package_symbols(&mut package_ir, &id);
+        // bug-632: which package DECLARES each type name the `.mfp` spells bare,
+        // read from the package file itself — the decoded IR carries no
+        // `native_resources`, and a re-exported foreign type belongs to its owner.
+        let owners = binary_repr::BinaryReprPackageDecode::read(package)
+            .map(|decode| {
+                let name = decode.name().unwrap_or_else(|_| package_ir.name.clone());
+                crate::manifest::package::package_type_owners(&decode, &name)
+            })
+            .unwrap_or_default();
+        crate::ir::prefix_package_symbols(&mut package_ir, &id, &owners);
         initializations.push(crate::ir::PackageInitialization {
             bindings: package_ir.bindings.iter().map(|b| b.name.clone()).collect(),
             exports: ref_fns.union(&ref_globals).cloned().collect(),
@@ -111,6 +120,8 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     }
     // bug-613: a package's globals initialize before any importer's.
     crate::ir::order_bindings_dependencies_first(&mut merged.bindings, &initializations);
+    // bug-673: and a builtin package's own globals before anything that calls it.
+    crate::ir::order_builtin_bindings_first(&mut merged.bindings);
     define_natively_called_helpers(&mut merged);
     // Semantically verify the fully merged IR before it is lowered to native
     // code (plan-19-ir-semantic-verification.md). `verify_package` re-states the

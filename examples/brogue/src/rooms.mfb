@@ -1,0 +1,471 @@
+' rooms — carving rooms and corridors into granite (the carveDungeon and
+' addLoops halves of oracle/src/brogue/Architect.c).
+'
+' The working grid holds 0 for granite, 1 for floor and 2 for a door site, as
+' in the C code; digDungeon turns it into map terrain afterwards.
+
+IMPORT collections
+IMPORT math
+
+' A room built "in hyperspace" (on its own grid) and its four candidate door
+' sites, indexed by direction; a missing site is INVALID_POS.
+TYPE RoomDesign
+  grid AS List OF Integer
+  doorSites AS List OF Pos
+END TYPE
+
+' Architect.c `insertRoomAt`: copy the room region containing room cell
+' (xRoom, yRoom) into dungeonMap, offset by (roomToDungeonX, roomToDungeonY).
+' The start cell is marked whether or not it is a room cell, as in C.
+FUNC insertRoomAt(source AS List OF Integer, roomMap AS List OF Integer, roomToDungeonX AS Integer, roomToDungeonY AS Integer, xRoom AS Integer, yRoom AS Integer) AS List OF Integer
+  MUT dungeonMap AS List OF Integer = collections::set(source, gi(xRoom + roomToDungeonX, yRoom + roomToDungeonY), 1)
+  MUT stack AS List OF Integer = [gi(xRoom, yRoom)]
+  DO WHILE len(stack) > 0
+    LET cell = collections::get(stack, len(stack) - 1)
+    stack = collections::removeAt(stack, len(stack) - 1)
+    LET cx = cell / DROWS
+    LET cy = cell MOD DROWS
+    FOR dir = 0 TO 3
+      LET newX = cx + nbDx(dir)
+      LET newY = cy + nbDy(dir)
+      IF coordinatesAreInMap(newX, newY) THEN
+        IF gridAt(roomMap, newX, newY) <> 0 AND coordinatesAreInMap(newX + roomToDungeonX, newY + roomToDungeonY) THEN
+          IF gridAt(dungeonMap, newX + roomToDungeonX, newY + roomToDungeonY) = 0 THEN
+            dungeonMap = collections::set(dungeonMap, gi(newX + roomToDungeonX, newY + roomToDungeonY), 1)
+            stack = collections::append(stack, gi(newX, newY))
+          END IF
+        END IF
+      END IF
+    NEXT
+  LOOP
+  RETURN dungeonMap
+END FUNC
+
+FUNC designCavern(minWidth AS Integer, maxWidth AS Integer, minHeight AS Integer, maxHeight AS Integer) AS List OF Integer
+  LET blob = createBlobOnGrid(5, minWidth, minHeight, maxWidth, maxHeight, 55, "ffffffttt", "ffffttttt")
+  LET destX = (DCOLS - blob.width) / 2
+  LET destY = (DROWS - blob.height) / 2
+  ' The C search loops both increment once more after finding the first blob
+  ' cell before their conditions stop them, so the insertion point is one
+  ' column right of and one row below that cell. Kept, since it is the point
+  ' insertRoomAt marks unconditionally.
+  MUT fillX AS Integer = DCOLS
+  MUT fillY AS Integer = DROWS
+  MUT found AS Boolean = FALSE
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      IF gridAt(blob.grid, i, j) <> 0 THEN
+        fillX = i + 1
+        fillY = j + 1
+        found = TRUE
+        EXIT FOR
+      END IF
+    NEXT
+    IF found THEN EXIT FOR
+  NEXT
+  RETURN insertRoomAt(filledGrid(0), blob.grid, destX - blob.minX, destY - blob.minY, fillX, fillY)
+END FUNC
+
+' The big upside-down T room at the entrance to depth 1.
+FUNC designEntranceRoom() AS List OF Integer
+  LET roomWidth = 8
+  LET roomHeight = 10
+  LET roomWidth2 = 20
+  LET roomHeight2 = 5
+  LET roomX = DCOLS / 2 - roomWidth / 2 - 1
+  LET roomY = DROWS - roomHeight - 2
+  LET roomX2 = DCOLS / 2 - roomWidth2 / 2 - 1
+  LET roomY2 = DROWS - roomHeight2 - 2
+  LET grid = drawRectangleOnGrid(filledGrid(0), roomX, roomY, roomWidth, roomHeight, 1)
+  RETURN drawRectangleOnGrid(grid, roomX2, roomY2, roomWidth2, roomHeight2, 1)
+END FUNC
+
+FUNC designCrossRoom() AS List OF Integer
+  LET roomWidth = randRange(3, 12)
+  LET roomX = randRange(math::max(0, DCOLS / 2 - (roomWidth - 1)), math::min(DCOLS, DCOLS / 2))
+  LET roomWidth2 = randRange(4, 20)
+  LET jitterA = randRange(0, 2)
+  LET jitterB = randRange(0, 2)
+  LET roomX2 = (roomX + (roomWidth / 2) + jitterA + jitterB - 3) - (roomWidth2 / 2)
+
+  LET roomHeight = randRange(3, 7)
+  LET roomY = DROWS / 2 - roomHeight
+
+  LET roomHeight2 = randRange(2, 5)
+  LET liftA = randRange(0, 2)
+  LET liftB = randRange(0, 1)
+  LET roomY2 = DROWS / 2 - roomHeight2 - (liftA + liftB)
+
+  LET grid = drawRectangleOnGrid(filledGrid(0), roomX - 5, roomY + 5, roomWidth, roomHeight, 1)
+  RETURN drawRectangleOnGrid(grid, roomX2 - 5, roomY2 + 5, roomWidth2, roomHeight2, 1)
+END FUNC
+
+FUNC designSymmetricalCrossRoom() AS List OF Integer
+  LET majorWidth = randRange(4, 8)
+  LET majorHeight = randRange(4, 5)
+  MUT minorWidth AS Integer = randRange(3, 4)
+  IF majorHeight MOD 2 = 0 THEN minorWidth = minorWidth - 1
+  MUT minorHeight AS Integer = 3
+  IF majorWidth MOD 2 = 0 THEN minorHeight = minorHeight - 1
+  LET grid = drawRectangleOnGrid(filledGrid(0), (DCOLS - majorWidth) / 2, (DROWS - minorHeight) / 2, majorWidth, minorHeight, 1)
+  RETURN drawRectangleOnGrid(grid, (DCOLS - minorWidth) / 2, (DROWS - majorHeight) / 2, minorWidth, majorHeight, 1)
+END FUNC
+
+FUNC designSmallRoom() AS List OF Integer
+  LET width = randRange(3, 6)
+  LET height = randRange(2, 4)
+  RETURN drawRectangleOnGrid(filledGrid(0), (DCOLS - width) / 2, (DROWS - height) / 2, width, height, 1)
+END FUNC
+
+FUNC designCircularRoom() AS List OF Integer
+  MUT radius AS Integer = 0
+  IF randPercent(5) THEN
+    radius = randRange(4, 10)
+  ELSE
+    radius = randRange(2, 4)
+  END IF
+  MUT grid AS List OF Integer = drawCircleOnGrid(filledGrid(0), DCOLS / 2, DROWS / 2, radius, 1)
+  IF radius > 6 THEN
+    IF randPercent(50) THEN grid = drawCircleOnGrid(grid, DCOLS / 2, DROWS / 2, randRange(3, radius - 3), 0)
+  END IF
+  RETURN grid
+END FUNC
+
+FUNC designChunkyRoom() AS List OF Integer
+  LET chunkCount = randRange(2, 8)
+  MUT grid AS List OF Integer = drawCircleOnGrid(filledGrid(0), DCOLS / 2, DROWS / 2, 2, 1)
+  MUT minX AS Integer = DCOLS / 2 - 3
+  MUT maxX AS Integer = DCOLS / 2 + 3
+  MUT minY AS Integer = DROWS / 2 - 3
+  MUT maxY AS Integer = DROWS / 2 + 3
+  MUT i AS Integer = 0
+  DO WHILE i < chunkCount
+    LET x = randRange(minX, maxX)
+    LET y = randRange(minY, maxY)
+    IF gridAt(grid, x, y) <> 0 THEN
+      grid = drawCircleOnGrid(grid, x, y, 2, 1)
+      i = i + 1
+      minX = math::max(1, math::min(x - 3, minX))
+      maxX = math::min(DCOLS - 2, math::max(x + 3, maxX))
+      minY = math::max(1, math::min(y - 3, minY))
+      maxY = math::min(DROWS - 2, math::max(y + 3, maxY))
+    END IF
+  LOOP
+  RETURN grid
+END FUNC
+
+' Architect.c `directionOfDoorSite`: if (x, y) is a wall cell of the room on
+' grid that a door could face outward from, the direction it would face;
+' otherwise NO_DIRECTION.
+FUNC directionOfDoorSite(grid AS List OF Integer, x AS Integer, y AS Integer) AS Integer
+  IF gridAt(grid, x, y) <> 0 THEN RETURN NO_DIRECTION
+  MUT solutionDir AS Integer = NO_DIRECTION
+  FOR dir = 0 TO 3
+    LET newX = x + nbDx(dir)
+    LET newY = y + nbDy(dir)
+    LET oppX = x - nbDx(dir)
+    LET oppY = y - nbDy(dir)
+    IF coordinatesAreInMap(oppX, oppY) AND coordinatesAreInMap(newX, newY) THEN
+      IF gridAt(grid, oppX, oppY) = 1 THEN
+        IF solutionDir <> NO_DIRECTION THEN RETURN NO_DIRECTION
+        solutionDir = dir
+      END IF
+    END IF
+  NEXT
+  RETURN solutionDir
+END FUNC
+
+' Architect.c `oppositeDirection`, for the four cardinal directions and
+' NO_DIRECTION (the only ones the generator passes).
+FUNC oppositeDirection(dir AS Integer) AS Integer
+  IF dir = UP THEN RETURN DOWN
+  IF dir = DOWN THEN RETURN UP
+  IF dir = LEFT THEN RETURN RIGHT
+  IF dir = RIGHT THEN RETURN LEFT
+  IF dir = UPRIGHT THEN RETURN DOWNLEFT
+  IF dir = DOWNLEFT THEN RETURN UPRIGHT
+  IF dir = UPLEFT THEN RETURN DOWNRIGHT
+  IF dir = DOWNRIGHT THEN RETURN UPLEFT
+  IF dir = NO_DIRECTION THEN RETURN NO_DIRECTION
+  RETURN -1
+END FUNC
+
+' Architect.c `chooseRandomDoorSites`: one random door site per direction.
+' Door candidates are marked dir + 2 on a working copy as they are found, and
+' the outward ray test reads that copy, so earlier marks can block later
+' candidates, as in C.
+FUNC chooseRandomDoorSites(roomMap AS List OF Integer) AS List OF Pos
+  MUT grid AS List OF Integer = roomMap
+  FOR i = 0 TO DCOLS - 1
+    FOR j = 0 TO DROWS - 1
+      IF gridAt(grid, i, j) = 0 THEN
+        LET dir = directionOfDoorSite(roomMap, i, j)
+        IF dir <> NO_DIRECTION THEN
+          MUT newX AS Integer = i + nbDx(dir)
+          MUT newY AS Integer = j + nbDy(dir)
+          MUT doorSiteFailed AS Boolean = FALSE
+          MUT k AS Integer = 0
+          DO WHILE k < 10 AND coordinatesAreInMap(newX, newY) AND NOT doorSiteFailed
+            IF gridAt(grid, newX, newY) <> 0 THEN doorSiteFailed = TRUE
+            newX = newX + nbDx(dir)
+            newY = newY + nbDy(dir)
+            k = k + 1
+          LOOP
+          IF NOT doorSiteFailed THEN grid = collections::set(grid, gi(i, j), dir + 2)
+        END IF
+      END IF
+    NEXT
+  NEXT
+  MUT doorSites AS List OF Pos = []
+  FOR dir = 0 TO 3
+    doorSites = collections::append(doorSites, randomLocationInGrid(grid, dir + 2))
+  NEXT
+  RETURN doorSites
+END FUNC
+
+' Architect.c `attachHallwayTo`: bolt a corridor onto one door site and move
+' the door sites to radiate from its far end.
+FUNC attachHallwayTo(design AS RoomDesign) AS RoomDesign
+  MUT grid AS List OF Integer = design.grid
+  MUT doorSites AS List OF Pos = design.doorSites
+  LET dirs = shuffleList(sequentialList(4))
+  MUT dir AS Integer = -1
+  FOR i = 0 TO 3
+    LET candidate = collections::get(dirs, i)
+    LET site = collections::get(doorSites, candidate)
+    IF site.x <> -1 AND site.y <> -1 THEN
+      IF coordinatesAreInMap(site.x + nbDx(candidate) * HORIZONTAL_CORRIDOR_MAX_LENGTH, site.y + nbDy(candidate) * VERTICAL_CORRIDOR_MAX_LENGTH) THEN
+        dir = candidate
+        EXIT FOR
+      END IF
+    END IF
+  NEXT
+  IF dir = -1 THEN RETURN design
+
+  MUT length AS Integer = 0
+  IF dir = UP OR dir = DOWN THEN
+    length = randRange(VERTICAL_CORRIDOR_MIN_LENGTH, VERTICAL_CORRIDOR_MAX_LENGTH)
+  ELSE
+    length = randRange(HORIZONTAL_CORRIDOR_MIN_LENGTH, HORIZONTAL_CORRIDOR_MAX_LENGTH)
+  END IF
+
+  LET start = collections::get(doorSites, dir)
+  MUT x AS Integer = start.x
+  MUT y AS Integer = start.y
+  FOR i = 1 TO length
+    IF coordinatesAreInMap(x, y) THEN grid = collections::set(grid, gi(x, y), 1)
+    x = x + nbDx(dir)
+    y = y + nbDy(dir)
+  NEXT
+  x = math::clamp(x - nbDx(dir), 0, DCOLS - 1)
+  y = math::clamp(y - nbDy(dir), 0, DROWS - 1)
+  LET allowObliqueHallwayExit = randPercent(15)
+  FOR dir2 = 0 TO 3
+    LET newX = x + nbDx(dir2)
+    LET newY = y + nbDy(dir2)
+    MUT invalid AS Boolean = (dir2 <> dir AND NOT allowObliqueHallwayExit) OR NOT coordinatesAreInMap(newX, newY)
+    IF NOT invalid THEN invalid = gridAt(grid, newX, newY) <> 0
+    IF invalid THEN
+      doorSites = collections::set(doorSites, dir2, invalidPos())
+    ELSE
+      doorSites = collections::set(doorSites, dir2, Pos[x := newX, y := newY])
+    END IF
+  NEXT
+  RETURN RoomDesign[grid := grid, doorSites := doorSites]
+END FUNC
+
+' Architect.c `designRandomRoom`: a room of a type drawn from
+' roomTypeFrequencies (cross, symmetrical cross, small, circular, chunky,
+' cave, cavern, entrance), with door sites if wantDoorSites and a hallway if
+' attachHallway.
+FUNC designRandomRoom(attachHallway AS Boolean, wantDoorSites AS Boolean, roomTypeFrequencies AS List OF Integer) AS RoomDesign
+  MUT sum AS Integer = 0
+  FOR i = 0 TO ROOM_TYPE_COUNT - 1
+    sum = sum + collections::get(roomTypeFrequencies, i)
+  NEXT
+  MUT randIndex AS Integer = randRange(0, sum - 1)
+  MUT roomType AS Integer = ROOM_TYPE_COUNT
+  FOR i = 0 TO ROOM_TYPE_COUNT - 1
+    IF randIndex < collections::get(roomTypeFrequencies, i) THEN
+      roomType = i
+      EXIT FOR
+    END IF
+    randIndex = randIndex - collections::get(roomTypeFrequencies, i)
+  NEXT
+
+  MUT grid AS List OF Integer = filledGrid(0)
+  IF roomType = 0 THEN
+    grid = designCrossRoom()
+  ELSEIF roomType = 1 THEN
+    grid = designSymmetricalCrossRoom()
+  ELSEIF roomType = 2 THEN
+    grid = designSmallRoom()
+  ELSEIF roomType = 3 THEN
+    grid = designCircularRoom()
+  ELSEIF roomType = 4 THEN
+    grid = designChunkyRoom()
+  ELSEIF roomType = 5 THEN
+    LET caveShape = randRange(0, 2)
+    IF caveShape = 0 THEN
+      grid = designCavern(3, 12, 4, 8)
+    ELSEIF caveShape = 1 THEN
+      grid = designCavern(3, 12, 15, DROWS - 2)
+    ELSE
+      grid = designCavern(20, DROWS - 2, 4, 8)
+    END IF
+  ELSEIF roomType = 6 THEN
+    grid = designCavern(CAVE_MIN_WIDTH, DCOLS - 2, CAVE_MIN_HEIGHT, DROWS - 2)
+  ELSEIF roomType = 7 THEN
+    grid = designEntranceRoom()
+  END IF
+
+  MUT design AS RoomDesign = RoomDesign[grid := grid, doorSites := []]
+  IF wantDoorSites THEN
+    design = RoomDesign[grid := grid, doorSites := chooseRandomDoorSites(grid)]
+    IF attachHallway THEN
+      ' C draws a starting direction and steps it past missing door sites, then
+      ' never uses it; the draw still advances the RNG.
+      MUT dir AS Integer = randRange(0, 3)
+      MUT i AS Integer = 0
+      DO WHILE collections::get(design.doorSites, dir).x = -1 AND i < 3
+        dir = (dir + 1) MOD 4
+        i = i + 1
+      LOOP
+      design = attachHallwayTo(design)
+    END IF
+  END IF
+  RETURN design
+END FUNC
+
+' Architect.c `roomFitsAt`: whether every room cell, offset into the dungeon,
+' lands on the map with only granite in its 3x3 neighbourhood. roomCells
+' lists the room's cells once so each placement test does not rescan the
+' whole room grid; the answer is the same.
+FUNC roomFitsAt(dungeonMap AS List OF Integer, roomCells AS List OF Integer, roomToDungeonX AS Integer, roomToDungeonY AS Integer) AS Boolean
+  FOR EACH cell IN roomCells
+    LET xDungeon = cell / DROWS + roomToDungeonX
+    LET yDungeon = cell MOD DROWS + roomToDungeonY
+    FOR i = xDungeon - 1 TO xDungeon + 1
+      FOR j = yDungeon - 1 TO yDungeon + 1
+        IF NOT coordinatesAreInMap(i, j) THEN RETURN FALSE
+        IF gridAt(dungeonMap, i, j) > 0 THEN RETURN FALSE
+      NEXT
+    NEXT
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Architect.c `attachRooms`: build rooms in hyperspace and slide each across
+' the dungeon, in one shuffled order, until it meets a wall it fits against.
+FUNC attachRooms(source AS List OF Integer, theDP AS DungeonProfile, attempts AS Integer, maxRoomCount AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  LET sCoord = shuffleList(sequentialList(DCOLS * DROWS))
+  MUT roomsBuilt AS Integer = 0
+  MUT roomsAttempted AS Integer = 0
+  DO WHILE roomsBuilt < maxRoomCount AND roomsAttempted < attempts
+    LET wantHallway = roomsAttempted <= attempts - 5 AND randPercent(theDP.corridorChance)
+    LET design = designRandomRoom(wantHallway, TRUE, theDP.roomFrequencies)
+    MUT roomCells AS List OF Integer = []
+    FOR k = 0 TO DCOLS * DROWS - 1
+      IF collections::get(design.grid, k) <> 0 THEN roomCells = collections::append(roomCells, k)
+    NEXT
+
+    FOR i = 0 TO DCOLS * DROWS - 1
+      LET x = collections::get(sCoord, i) / DROWS
+      LET y = collections::get(sCoord, i) MOD DROWS
+      LET dir = directionOfDoorSite(grid, x, y)
+      IF dir <> NO_DIRECTION THEN
+        LET site = collections::get(design.doorSites, oppositeDirection(dir))
+        IF site.x <> -1 THEN
+          IF roomFitsAt(grid, roomCells, x - site.x, y - site.y) THEN
+            grid = insertRoomAt(grid, design.grid, x - site.x, y - site.y, site.x, site.y)
+            grid = collections::set(grid, gi(x, y), 2)
+            roomsBuilt = roomsBuilt + 1
+            EXIT FOR
+          END IF
+        END IF
+      END IF
+    NEXT
+    roomsAttempted = roomsAttempted + 1
+  LOOP
+  RETURN grid
+END FUNC
+
+FUNC descentPercent() AS Integer
+  RETURN math::clamp(100 * (depthLevel() - 1) / (amuletLevel - 1), 0, 100)
+END FUNC
+
+FUNC addToFrequency(freqs AS List OF Integer, index AS Integer, amount AS Integer) AS List OF Integer
+  RETURN collections::set(freqs, index, collections::get(freqs, index) + amount)
+END FUNC
+
+' Architect.c `adjustDungeonProfileForDepth`: more cross and circular rooms
+' and corridors near the surface, more caves deeper down.
+FUNC adjustDungeonProfileForDepth(theProfile AS DungeonProfile) AS DungeonProfile
+  LET descent = descentPercent()
+  MUT freqs AS List OF Integer = theProfile.roomFrequencies
+  freqs = addToFrequency(freqs, 0, 20 * (100 - descent) / 100)
+  freqs = addToFrequency(freqs, 1, 10 * (100 - descent) / 100)
+  freqs = addToFrequency(freqs, 3, 7 * (100 - descent) / 100)
+  freqs = addToFrequency(freqs, 5, 10 * descent / 100)
+  RETURN DungeonProfile[roomFrequencies := freqs, corridorChance := theProfile.corridorChance + 80 * (100 - descent) / 100]
+END FUNC
+
+' Architect.c `adjustDungeonFirstRoomProfileForDepth`: depth 1 always opens
+' with the entrance room; deeper levels favour a level-filling cavern.
+FUNC adjustDungeonFirstRoomProfileForDepth(theProfile AS DungeonProfile) AS DungeonProfile
+  IF depthLevel() = 1 THEN
+    RETURN DungeonProfile[roomFrequencies := [0, 0, 0, 0, 0, 0, 0, 1], corridorChance := theProfile.corridorChance]
+  END IF
+  RETURN WITH theProfile { roomFrequencies := addToFrequency(theProfile.roomFrequencies, 6, 50 * descentPercent() / 100) }
+END FUNC
+
+' Architect.c `carveDungeon`: a first room, then up to 35 attached rooms.
+PUBLIC FUNC carveDungeon() AS List OF Integer
+  LET theDP = adjustDungeonProfileForDepth(collections::get(dungeonProfileCatalog, DP_BASIC))
+  LET theFirstRoomDP = adjustDungeonFirstRoomProfileForDepth(collections::get(dungeonProfileCatalog, DP_BASIC_FIRST_ROOM))
+  LET first = designRandomRoom(FALSE, FALSE, theFirstRoomDP.roomFrequencies)
+  RETURN attachRooms(first.grid, theDP, 35, 35)
+END FUNC
+
+' Architect.c `addLoops`: knock doorways through walls whose two sides are
+' more than minimumPathingDistance apart by the existing paths.
+PUBLIC FUNC addLoops(source AS List OF Integer, minimumPathingDistance AS Integer) AS List OF Integer
+  MUT grid AS List OF Integer = source
+  LET sCoord = shuffleList(sequentialList(DCOLS * DROWS))
+  MUT costMap AS List OF Integer = findReplaceGrid(grid, 0, 0, PDS_OBSTRUCTION)
+  costMap = findReplaceGrid(costMap, 1, 30000, 1)
+
+  FOR i = 0 TO DCOLS * DROWS - 1
+    LET x = collections::get(sCoord, i) / DROWS
+    LET y = collections::get(sCoord, i) MOD DROWS
+    IF gridAt(grid, x, y) = 0 THEN
+      FOR d = 0 TO 1
+        ' dirCoords: d = 0 tries a horizontal door, d = 1 a vertical one.
+        MUT dx AS Integer = 1
+        MUT dy AS Integer = 0
+        IF d = 1 THEN
+          dx = 0
+          dy = 1
+        END IF
+        LET newX = x + dx
+        LET oppX = x - dx
+        LET newY = y + dy
+        LET oppY = y - dy
+        IF coordinatesAreInMap(newX, newY) AND coordinatesAreInMap(oppX, oppY) THEN
+          IF gridAt(grid, newX, newY) = 1 AND gridAt(grid, oppX, oppY) = 1 THEN
+            MUT pathMap AS List OF Integer = filledGrid(30000)
+            pathMap = collections::set(pathMap, gi(newX, newY), 0)
+            pathMap = dijkstraScan(pathMap, costMap, FALSE)
+            IF gridAt(pathMap, oppX, oppY) > minimumPathingDistance THEN
+              grid = collections::set(grid, gi(x, y), 2)
+              costMap = collections::set(costMap, gi(x, y), 1)
+              EXIT FOR
+            END IF
+          END IF
+        END IF
+      NEXT
+    END IF
+  NEXT
+  RETURN grid
+END FUNC

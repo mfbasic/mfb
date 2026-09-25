@@ -2,4 +2,5 @@
 
 pub(crate) mod builder_values;
 pub(crate) mod operand_snapshot;
+pub(crate) mod store_reach;
 pub(crate) use builder_values::*;

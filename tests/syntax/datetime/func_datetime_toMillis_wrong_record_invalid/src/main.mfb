@@ -1,0 +1,12 @@
+IMPORT datetime
+
+FUNC main AS Integer
+  ' datetime::toMillis has one overload: (at AS datetime::Instant) AS Integer.
+  ' A DateTime is a different record, not an Instant.
+  LET a AS Integer = datetime::toMillis(datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::utc()))
+  ' A Date is a different record.
+  LET b AS Integer = datetime::toMillis(datetime::date(2026, 3, 7))
+  ' A Duration has an Instant's fields, but is still a different record.
+  LET c AS Integer = datetime::toMillis(datetime::duration(90))
+  RETURN a + b + c
+END FUNC

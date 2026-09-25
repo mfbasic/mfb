@@ -15,22 +15,22 @@ FUNC main AS Integer
 
   ' A capturing lambda — the memory-safety case: its environment lives in
   ' this thread's arena, and the worker would read it across the boundary.
-  LET a AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> captured + 1)
+  RES a AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> captured + 1)
 
   ' A non-capturing lambda — no environment to dangle, but a function value
   ' is still not sendable, so it is rejected for the same reason.
-  LET b AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> 7)
+  RES b AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> 7)
 
   ' A bare function value.
-  LET c AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, helper)
+  RES c AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, helper)
 
-  ' A thread handle: meaningful only on the thread that owns it.
-  LET d AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesHandle, a)
+  ' A thread handle: a resource, which crosses only on the RES plane.
+  RES d AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesHandle, a)
 
   ' The control case. An Integer IS sendable, so this line must NOT be
   ' rejected — the rule narrowed to non-sendable types, it did not swallow
   ' every `thread::start`.
-  LET ok AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesInteger, 5)
+  RES ok AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesInteger, 5)
 
   RETURN thread::waitFor(ok)
 END FUNC

@@ -1,0 +1,21 @@
+IMPORT app
+
+' The app window members are fixed-arity with no overloads (the app:: shape).
+SUB main()
+  ' setTitle takes exactly one String (wrong arity: none).
+  app::setTitle()
+  ' setTitle's argument must be a String, not an Integer (wrong type).
+  app::setTitle(42)
+  ' getTitle takes no arguments (wrong arity: one).
+  LET t AS String = app::getTitle("x")
+  ' getTitle returns a String, not an Integer.
+  LET n AS Integer = app::getTitle()
+  ' setFullscreen takes exactly one Boolean (wrong arity: two).
+  app::setFullscreen(TRUE, FALSE)
+  ' setFullscreen's argument must be a Boolean, not a String (wrong type).
+  app::setFullscreen("yes")
+  ' getFullscreen takes no arguments (wrong arity: one).
+  LET f AS Boolean = app::getFullscreen(TRUE)
+  ' getFullscreen returns a Boolean, not a String.
+  LET s AS String = app::getFullscreen()
+END SUB

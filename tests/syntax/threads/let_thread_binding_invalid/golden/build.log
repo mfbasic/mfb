@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/threads/let_thread_binding_invalid
+   9 | 
+  10 | FUNC main AS Integer
+  11 |   LET typed AS Thread OF Integer TO Integer = thread::start(five, 5)
+     | ^
+tests/syntax/threads/let_thread_binding_invalid/src/main.mfb:11 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               binding `typed` holds resource `Thread OF Integer TO Integer`; bind it with `RES`, not `LET`/`MUT`.
+  10 | FUNC main AS Integer
+  11 |   LET typed AS Thread OF Integer TO Integer = thread::start(five, 5)
+  12 |   LET inferred = thread::start(five, 5)
+     | ^
+tests/syntax/threads/let_thread_binding_invalid/src/main.mfb:12 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               binding `inferred` holds resource `Thread OF Integer TO Integer`; bind it with `RES`, not `LET`/`MUT`.
+  11 |   LET typed AS Thread OF Integer TO Integer = thread::start(five, 5)
+  12 |   LET inferred = thread::start(five, 5)
+  13 |   MUT changing AS Thread OF Integer TO Integer = thread::start(five, 5)
+     | ^
+tests/syntax/threads/let_thread_binding_invalid/src/main.mfb:13 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               binding `changing` holds resource `Thread OF Integer TO Integer`; bind it with `RES`, not `LET`/`MUT`.
+[exit 1]

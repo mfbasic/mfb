@@ -14,7 +14,9 @@
     {
       "name": "package_record_comparable",
       "version": "=0.1.0",
-      "source": "file:packages/package_record_comparable.mfp"
+      "source": "file:packages/package_record_comparable.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

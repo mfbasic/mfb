@@ -225,3 +225,47 @@ fn macos_the_image_resource_contract_holds_at_runtime() {
     );
     let _ = fs::remove_dir_all(&project);
 }
+
+/// The `Picture` the contract program presents actually draws its image (bug-484).
+///
+/// The test above checks exit markers only, and for as long as no renderer drew a
+/// `Picture` that is exactly how the blank stayed invisible: the program presented an
+/// image, exited 0, printed `IMAGE_OK`, and put nothing on the surface. So this renders
+/// the same program in a `--debug` build and reads the frame.
+///
+/// The image at present time is the `setBytes` result — texel 0 `(90, 91, 92, 93)`,
+/// texel 1 `(94, 95, 96, 97)` — scaled across x 0..4, y 0..2. Both are translucent, so
+/// the exact bytes are the sRGB-linear blend over black; what is asserted is what no
+/// blank frame and no single-colour smear can satisfy: both halves are lit, they
+/// differ, and nothing outside the destination is.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_the_presented_picture_draws_its_pixels() {
+    let (project, ok, log) = build("canvas_image_px", &["--debug"]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/canvas_image_px.app/Contents/MacOS/canvas_image_px");
+    let frame_path = project.join("frame.rgba");
+    let output = Command::new(&exe)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_DUMP", &frame_path)
+        .output()
+        .expect("run headless app bundle");
+    assert_eq!(output.status.code(), Some(0), "the contract program failed");
+    let frame = fs::read(&frame_path).expect("the presented frame was dumped");
+    let at = |x: usize, y: usize| {
+        let i = (y * 900 + x) * 4;
+        (frame[i], frame[i + 1], frame[i + 2], frame[i + 3])
+    };
+    let left = at(1, 1);
+    let right = at(2, 0);
+    assert_ne!(left, (0, 0, 0, 255), "texel 0 drew nothing");
+    assert_ne!(right, (0, 0, 0, 255), "texel 1 drew nothing");
+    assert!(
+        left.0 < right.0 && left.2 < right.2,
+        "the two texels must land on their own halves: left {left:?}, right {right:?}"
+    );
+    assert_eq!(at(4, 0), (0, 0, 0, 255), "right of the destination");
+    assert_eq!(at(0, 2), (0, 0, 0, 255), "below the destination");
+    let _ = fs::remove_dir_all(&project);
+}

@@ -9,9 +9,10 @@
 //! **The fixtures are written by the program under test, not committed.** A twelve-byte
 //! sfnt header is all `loadFont` reads, so the test can build one for each case it
 //! wants and does not need a real font in the repository. That also makes the *negative*
-//! cases exact: `OTTO`, `ttcf` and `wOFF` are each a real thing a program might hand us
-//! and each must be refused by the same rule, which is hard to arrange with borrowed
-//! system fonts and trivial here.
+//! cases exact: `OTTO` and `wOFF` are each a real thing a program might hand us and each
+//! must be refused by the same rule, which is hard to arrange with borrowed system fonts
+//! and trivial here. A `ttcf` collection is read (plan-148-A) — it loads its first face —
+//! so a twelve-byte `ttcf` header, which holds no face at all, is refused for *that*.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -21,7 +22,15 @@ use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
 fn run(name: &str, source: &str) -> Vec<String> {
+    run_files(name, source, &[])
+}
+
+/// As `run`, with `files` written into the project directory before the program runs.
+fn run_files(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<String> {
     let project = common::temp_project(name, source);
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
     let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
@@ -106,7 +115,9 @@ END SUB
 /// `ErrBadFontFile`, from `errorCode`. Spelled here so a renumbering of the table
 /// fails this test rather than silently changing what a program sees.
 const ERR_BAD_FONT_FILE: &str = "77050022";
-/// `ErrNotFound` — the *other* answer `loadFont` can give, and the reason
+/// `ErrNotFound` (`7-705-0004`) — a face name the file does not carry (plan-148-A).
+const ERR_FACE_NOT_FOUND: &str = "77050004";
+/// `ErrPathNotFound` — the *other* answer `loadFont` can give, and the reason
 /// `ErrBadFontFile` exists as a separate code at all.
 const ERR_NOT_FOUND: &str = "77030001";
 
@@ -129,7 +140,8 @@ fn load_font_accepts_truetype_outlines_and_refuses_every_other_container() {
 
     // Each rejected container is a real file a program might hand us, and each is
     // refused for its own reason: `OTTO` is CFF outlines (a different curve type),
-    // `ttcf` holds several fonts so "the font" is ambiguous, and `wOFF` is compressed.
+    // `wOFF` is compressed, and this `ttcf` is a collection header that names no face
+    // (a collection that does is read — see `a_collection_loads_its_first_face`).
     for label in ["otto", "ttcf", "woff"] {
         assert_eq!(
             find(label),
@@ -578,8 +590,21 @@ fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
 /// asking from `main` would be asking the worker, whose copies of those globals are
 /// its own and always empty (`.ai/canvas-threading.md` §1).
 fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, String) {
+    render_env_files(name, source, extra, &[])
+}
+
+/// As `render_env`, with `files` written beside `fixture.ttf`.
+fn render_env_files(
+    name: &str,
+    source: &str,
+    extra: &[(&str, &str)],
+    files: &[(&str, Vec<u8>)],
+) -> (Vec<u8>, String) {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
     let frame = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, name);
     let stats = project.join("stats.txt");
@@ -1531,4 +1556,295 @@ fn a_display_sized_glyph_is_well_inside_the_raster_cap() {
         800 * 600,
         "the visible part of the square is solid"
     );
+}
+
+/// A TrueType Collection holding `faces`, each a standalone sfnt such as
+/// `truetype_fixture` builds (plan-148-A).
+///
+/// A collection is a `ttcf` header, a face count and one offset per face, then the faces
+/// themselves. Each face keeps its own table directory, but the offsets in that directory
+/// count from the start of the *collection* — so every copied face has its records
+/// rebased by where it landed. That rebasing is exactly what the loader has to undo, and
+/// getting it wrong here would make the test agree with a loader that is wrong the same
+/// way; the round-trip test's oracle is the plain file, which shares none of this code.
+fn collection(faces: &[Vec<u8>]) -> Vec<u8> {
+    let header_len = 12 + 4 * faces.len();
+    let mut bases = Vec::new();
+    let mut at = header_len.div_ceil(4) * 4;
+    for face in faces {
+        bases.push(at);
+        at += face.len().div_ceil(4) * 4;
+    }
+    let mut out = Vec::new();
+    out.extend(b"ttcf");
+    out.extend(0x0001_0000u32.to_be_bytes()); // TTC version 1.0
+    out.extend((faces.len() as u32).to_be_bytes());
+    for base in &bases {
+        out.extend((*base as u32).to_be_bytes());
+    }
+    for (face, base) in faces.iter().zip(&bases) {
+        out.resize(*base, 0);
+        let mut copy = face.clone();
+        let tables = u16::from_be_bytes([copy[4], copy[5]]) as usize;
+        for i in 0..tables {
+            let rec = 12 + i * 16 + 8;
+            let offset = u32::from_be_bytes(copy[rec..rec + 4].try_into().unwrap());
+            copy[rec..rec + 4].copy_from_slice(&(offset + *base as u32).to_be_bytes());
+        }
+        out.extend(copy);
+    }
+    out
+}
+
+const DRAW_A: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("FONTFILE")
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#;
+
+/// A collection's first face draws exactly what the same font drawn from its own file
+/// draws (plan-148-A Phase 1). Exact, because extraction is a byte copy: any difference
+/// at all means a table was rebased to the wrong place.
+#[test]
+fn a_collection_loads_its_first_face() {
+    let ttc = collection(&[
+        minimal_truetype(),
+        truetype_fixture(1000, 2, [0, 0, 500, 500]),
+    ]);
+    let (want, _) = render_env(
+        "canvas_ttc_oracle",
+        &DRAW_A.replace("FONTFILE", "fixture.ttf"),
+        &[],
+    );
+    let (got, _) = render_env_files(
+        "canvas_ttc_face0",
+        &DRAW_A.replace("FONTFILE", "fixture.ttc"),
+        &[],
+        &[("fixture.ttc", ttc)],
+    );
+    let height = (want.len() / 4 / WIDTH) as u32;
+    let want = Frame::from_rgba(WIDTH as u32, height, want);
+    let got = Frame::from_rgba(WIDTH as u32, height, got);
+    assert!(
+        want.pixels.chunks(4).any(|p| p[0] != 0),
+        "the oracle frame drew no text, so the comparison would be vacuous",
+    );
+    if let Err(diff) = compare_exact(&got, &want) {
+        panic!("face 0 of a collection draws differently from the same font's own file: {diff:?}");
+    }
+}
+
+/// A collection whose face, or one of whose tables, lies past the end of the file is
+/// refused with `ErrBadFontFile` rather than read past the end (plan-148-A Phase 1).
+#[test]
+fn a_collection_that_runs_past_its_end_is_refused() {
+    // One face, offset far beyond the file.
+    let mut past = Vec::new();
+    past.extend(b"ttcf");
+    past.extend(0x0001_0000u32.to_be_bytes());
+    past.extend(1u32.to_be_bytes());
+    past.extend(100_000u32.to_be_bytes());
+    // A real face whose `glyf` record claims far more bytes than the file holds.
+    let mut table = collection(&[minimal_truetype()]);
+    let base = u32::from_be_bytes(table[12..16].try_into().unwrap()) as usize;
+    let glyf_len = base + 12 + 16 + 12; // second record (`glyf`), its length field
+    table[glyf_len..glyf_len + 4].copy_from_slice(&1_000_000u32.to_be_bytes());
+    let lines = run_files(
+        "canvas_ttc_past_end",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB attempt(label AS String, path AS String)
+  RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
+    io::print(label & ": refused " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print(label & ": accepted")
+END SUB
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  attempt("face", "past.ttc")
+  attempt("table", "table.ttc")
+END SUB
+"#,
+        &[("past.ttc", past), ("table.ttc", table)],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            format!("face: refused {ERR_BAD_FONT_FILE}"),
+            format!("table: refused {ERR_BAD_FONT_FILE}"),
+        ],
+    );
+}
+
+/// `font` with one more table, `tag`, added to its directory (plan-148-A).
+///
+/// Rebuilds the file rather than patching it: every existing table moves 16 bytes to
+/// make room for the new record, and the directory stays in sorted tag order as a real
+/// font's does.
+fn with_table(font: &[u8], tag: &[u8; 4], data: Vec<u8>) -> Vec<u8> {
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..count)
+        .map(|i| {
+            let rec = 12 + i * 16;
+            let at = u32::from_be_bytes(font[rec + 8..rec + 12].try_into().unwrap()) as usize;
+            let len = u32::from_be_bytes(font[rec + 12..rec + 16].try_into().unwrap()) as usize;
+            (
+                font[rec..rec + 4].try_into().unwrap(),
+                font[at..at + len].to_vec(),
+            )
+        })
+        .collect();
+    tables.push((*tag, data));
+    tables.sort_by_key(|table| table.0);
+    let mut out = font[..4].to_vec();
+    out.extend((tables.len() as u16).to_be_bytes());
+    out.extend([0u8; 6]);
+    let mut offset = 12 + 16 * tables.len();
+    for (tag, data) in &tables {
+        out.extend(tag);
+        out.extend(0u32.to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((data.len() as u32).to_be_bytes());
+        offset += data.len().div_ceil(4) * 4;
+    }
+    for (_, data) in &tables {
+        out.extend(data);
+        out.resize(out.len().div_ceil(4) * 4, 0);
+    }
+    out
+}
+
+/// A `name` table (format 0) holding `records`: `(platform, encoding, language, nameID,
+/// the string's bytes as stored)`.
+fn name_table(records: &[(u16, u16, u16, u16, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(0u16.to_be_bytes()); // format 0
+    out.extend((records.len() as u16).to_be_bytes());
+    out.extend(((6 + 12 * records.len()) as u16).to_be_bytes()); // stringOffset
+    let mut strings: Vec<u8> = Vec::new();
+    for (platform, encoding, language, id, bytes) in records {
+        for v in [*platform, *encoding, *language, *id, bytes.len() as u16] {
+            out.extend(v.to_be_bytes());
+        }
+        out.extend((strings.len() as u16).to_be_bytes());
+        strings.extend(bytes);
+    }
+    out.extend(strings);
+    out
+}
+
+fn utf16be(text: &str) -> Vec<u8> {
+    text.encode_utf16().flat_map(u16::to_be_bytes).collect()
+}
+
+/// The minimal fixture carrying Windows-Unicode full and PostScript names, with glyph
+/// 1's (`A`'s) advance set to `advance` so two faces can be told apart by measuring.
+fn named_face(full: &str, post_script: &str, advance: u16) -> Vec<u8> {
+    let mut font = minimal_truetype();
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let hmtx = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|rec| &font[*rec..*rec + 4] == b"hmtx")
+        .map(|rec| u32::from_be_bytes(font[rec + 8..rec + 12].try_into().unwrap()) as usize)
+        .expect("the fixture has hmtx");
+    font[hmtx + 4..hmtx + 6].copy_from_slice(&advance.to_be_bytes());
+    with_table(
+        &font,
+        b"name",
+        name_table(&[
+            (3, 1, 0x0409, 4, utf16be(full)),
+            (3, 1, 0x0409, 6, utf16be(post_script)),
+        ]),
+    )
+}
+
+/// `canvas::loadFont(path, face)` picks a collection's face by PostScript name or by full
+/// name, and refuses a name no face carries with `ErrNotFound` (plan-148-A Phase 2). The faces differ only in `A`'s advance — 250 and 400 font units, 25 and
+/// 40 px at size 100 — so the measured width says which one loaded.
+#[test]
+fn load_font_chooses_a_collection_face_by_name() {
+    let ttc = collection(&[
+        named_face("Face A Full", "FaceA", 250),
+        named_face("Face B Full", "FaceB", 400),
+    ]);
+    // A Mac Roman-only face: 0x8E is `é` in Mac OS Roman.
+    let roman = with_table(
+        &minimal_truetype(),
+        b"name",
+        name_table(&[(1, 0, 0, 4, b"Caf\x8e".to_vec())]),
+    );
+    let lines = run_files(
+        "canvas_font_face_by_name",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB attempt(label AS String, path AS String, face AS String)
+  RES f AS canvas::Font = canvas::loadFont(path, face) TRAP(e)
+    io::print(label & ": refused " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print(label & ": " & toString(canvas::measureText(f, 100.0, "A").width))
+END SUB
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  attempt("ps-b", "faces.ttc", "FaceB")
+  attempt("ps-a", "faces.ttc", "FaceA")
+  attempt("full-b", "faces.ttc", "Face B Full")
+  attempt("absent", "faces.ttc", "Nope")
+  attempt("roman", "roman.ttf", "Café")
+END SUB
+"#,
+        &[("faces.ttc", ttc), ("roman.ttf", roman)],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "ps-b: 40.00".to_string(),
+            "ps-a: 25.00".to_string(),
+            "full-b: 40.00".to_string(),
+            format!("absent: refused {ERR_FACE_NOT_FOUND}"),
+            "roman: 25.00".to_string(),
+        ],
+    );
+}
+
+/// A real system collection loads by PostScript name: `Helvetica.ttc` ships with every
+/// macOS, and its bold face is not face 0 — so this is the host-font proof that the
+/// face walk and the extraction work on a production file, not only the fixture.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_system_collection_face_loads_by_post_script_name() {
+    let lines = run(
+        "canvas_font_helvetica_bold",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES regular AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc")
+  RES bold AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc", "Helvetica-Bold")
+  LET r AS Float = canvas::measureText(regular, 100.0, "Hamburgefonts").width
+  LET b AS Float = canvas::measureText(bold, 100.0, "Hamburgefonts").width
+  IF r > 0.0 AND b > r THEN
+    io::print("bold is wider")
+  ELSE
+    io::print("regular " & toString(r) & " bold " & toString(b))
+  END IF
+END SUB
+"#,
+    );
+    assert_eq!(lines, vec!["bold is wider".to_string()]);
 }

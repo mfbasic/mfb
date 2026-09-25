@@ -33,7 +33,7 @@ ever held back, so `fs::flush` is a no-op. It is also a no-op when a buffered
 handle has no pending bytes.
 
 A partial write is not a failure — the rest is written. If the write genuinely
-fails, `flush` raises `ErrOutput` and **leaves the pending bytes in the buffer**,
+fails, `flush` raises `ErrWriteFailed` and **leaves the pending bytes in the buffer**,
 so a later `fs::flush` can retry them rather than losing them.
 
 Use `fs::flush` at a checkpoint where buffered data must reach the file before the
@@ -44,7 +44,9 @@ mid-stream; the final bytes are never lost to a clean close.
 
 Buffering and flushing are per handle: `fs::flush(file)` drains only `file`'s
 buffer and affects no other open `File`. Each `File` carries its own buffer and
-its own enabled flag."#;
+its own enabled flag.
+
+Flushing a `File` that has been closed raises `ErrResourceClosed`."#;
 const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writing:
 
 ```
@@ -79,7 +81,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWriteFailed", "ErrResourceClosed"],
             body: Body::abi_function(lower_fs_flush),
         }],
     });

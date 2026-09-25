@@ -98,12 +98,13 @@ origin and propagates; on the OK tag it reads the result value from `%retMFB1`. 
 A helper that **cannot fail** therefore does not return its value bare in
 `%retMFB0` in the way an ordinary infallible callable does (see
 `./mfb spec memory native-calling-convention`); instead it sets the OK tag in
-`%retMFB0` and places its value in `%retMFB1`. `datetime.nowNanos` and
-`datetime.monotonicNanos` are the canonical infallible-but-result-form helpers:
-each returns an `Integer` with the OK tag set. [[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]] `datetime.localOffset` uses the same
-result form but *can* fail: it raises `ErrInvalidArgument` (setting the ERR tag)
-when `localtime_r` cannot break the instant down into calendar fields, so it must
-never be read as a bare `%retMFB0` result either. A helper whose `returns` is `Nothing`
+`%retMFB0` and places its value in `%retMFB1`. The `datetime` OS-seam helpers
+show the form on both sides: `datetime.nowNanos` and `datetime.monotonicNanos`
+return an `Integer` with the OK tag set and raise `ErrOverflow` only when a clock
+reading's nanosecond count does not fit an `Integer`, and `datetime.localOffset`
+raises `ErrInvalidArgument` when `localtime_r` cannot break the instant down into
+calendar fields. None of them may be read as a bare `%retMFB0` result
+(`./mfb spec stdlib datetime`). [[src/codegen/builtins/datetime/func_now_nanos.rs:lower_now_nanos]] [[src/codegen/builtins/datetime/func_monotonic_nanos.rs:lower_monotonic_nanos]] [[src/codegen/builtins/datetime/func_local_offset.rs:lower_local_offset]] A helper whose `returns` is `Nothing`
 yields no value register; only the tag (and, on error, the message/source) is
 meaningful.
 

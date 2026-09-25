@@ -83,16 +83,27 @@ impl NativePlanPlatform for Platform {
         self.common().peak_rss_imports(required_by)
     }
 
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        let common = self.common();
+        crate::target::linux_gtk::app_window_imports(crate::target::linux_gtk::AppLibcNames {
+            libc: common.libc(),
+            libpthread: common.libpthread(),
+        })
+    }
+
+    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
         // Shared with the sibling Linux backend
         // (src/target/linux_gtk/mod.rs::app_mode_imports). The C-library
         // sonames are this Platform's, so a musl app build declares musl
         // libraries (plan-56-A §4.1).
         let common = self.common();
-        crate::target::linux_gtk::app_mode_imports(crate::target::linux_gtk::AppLibcNames {
-            libc: common.libc(),
-            libpthread: common.libpthread(),
-        })
+        crate::target::linux_gtk::app_mode_imports(
+            crate::target::linux_gtk::AppLibcNames {
+                libc: common.libc(),
+                libpthread: common.libpthread(),
+            },
+            uses_mouse,
+        )
     }
 }
 

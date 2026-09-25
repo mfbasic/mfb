@@ -56,6 +56,18 @@ and can never be a parameter type, this segment can never collide with a
 parameter-distinguished mangled name.
 [[src/monomorph/helpers.rs:overload_concrete_name]]
 
+**An `EXPORT` counts only its `EXPORT` siblings.** Both "shared by ≥2" and
+"differing only by return type" are measured, for an `EXPORT` function, over the
+`EXPORT` members of its name; a `PUBLIC`/`PRIVATE` member counts the whole set. An
+export's concrete symbol is its name in the `.mfp` export table and ABI index, and
+importers see only exports, so a hidden sibling must not rename it: `EXPORT f(String)`
+beside `PUBLIC f(Integer, Integer)` is emitted as `f` (the PUBLIC one as
+`f$Integer$Integer`), and adding or removing that helper leaves the package's exports
+byte-for-byte unchanged. A non-exported member is mangled whenever any sibling exists,
+so its symbol cannot equal an export's. Intra-package calls are unaffected: they
+resolve through `overload_names`, which maps each declaration to the symbol it was
+given (bug-653). [[src/monomorph/lower.rs:Monomorphizer::new]]
+
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
@@ -195,6 +207,17 @@ The context is extended as statements are lowered: `LET` records the bound type,
 OF`/`Map OF` to the element/entry type, match-`Union` patterns and lambda params
 bind their declared types, and the `RETURN` slot is typed by `enclosing_return`.
 
+A match-`Union` pattern that names a `TYPE` template (`CASE Some(s)`) carries no
+arguments of its own, so `union_pattern_type` takes them from the scrutinee: it
+types the lowered scrutinee with `expression_type`, walks that concrete union's
+members and, recursively, its `INCLUDES`, in `concrete_types`, and keeps the
+members whose `type_instantiations` entry names that template. Exactly one match
+becomes the pattern's type and the binding's; none, or more than one, is
+reported as `TYPE_MATCH_PATTERN_MISMATCH` in template spellings. Any other
+pattern goes through `concrete_type` like every other type position.
+[[src/monomorph/lower.rs:union_pattern_type]]
+[[src/monomorph/lower.rs:collect_union_instantiations]]
+
 ## Overload resolution
 
 A call is lowered in `lower_expression`'s `Call` arm, which tries, in order:
@@ -234,7 +257,12 @@ overridable general built-in (even a sole declaration). The built-in is
 authoritative for the types it already supports: an override is selected **only
 when** `general::resolve_call` rejects the argument types (the gap-fill rule). A
 non-matching call keeps the bare built-in name for codegen dispatch.
-[[src/monomorph/lower.rs:resolve_general_builtin_override]] A user FUNC whose name is an
+[[src/monomorph/lower.rs:resolve_general_builtin_override]] The check is
+kind-aware: it passes the resolver a `TypeKinds` oracle that answers from each
+declaration's kind (a source `ENUM`, or an imported package's), so a built-in
+that supports enums stays authoritative for them while a record override keeps
+its gap-fill dispatch.
+[[src/codegen/builtins/mod.rs:resolve_call_return_type_with_kinds]] A user FUNC whose name is an
 overridable built-in is *always* force-mangled at registration so its codegen
 symbol never equals the built-in's dispatch name.
 

@@ -1,0 +1,239 @@
+' timeline - the play/stop button and the tracker under the map.
+'
+' The tracker is a line across the bottom of the window standing for the five
+' days of the forecast, from the run's analysis at the left end to 120 hours
+' later at the right. It is drawn in three brightnesses: bright up to the moment
+' being shown, dimmer over the hours that have been fetched and are ready to
+' play, and dimmest over the hours still being downloaded - so while the
+' forecast is arriving the line fills up the way a video's buffer does. Ticks
+' mark every six hours; midnights are longer and carry the name of the day that
+' starts there, and "Now" sits wherever the present falls on the line. Times are
+' the local ones, because that is how anybody reads a forecast.
+'
+' Everything here is laid out from the window size and the caption size, afresh
+' each frame, and the same layout answers the hit tests - so a click is tested
+' against exactly the button and track that were last drawn.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT math
+
+' Where the forecast playback is.
+TYPE Playback
+  startSeconds AS Integer    ' the run's analysis time: hour 0 of the line
+  totalHours AS Float        ' the length of the line
+  loadedHours AS Float       ' how far the fetched hours reach
+  hours AS Float             ' the moment being shown
+  playing AS Boolean
+  status AS String           ' what the fetch is doing, or "" once it is done
+END TYPE
+
+' A midnight on the line, and the day it starts.
+TYPE DayMark
+  hours AS Float
+  label AS String
+END TYPE
+
+' Where the button and the track are this frame.
+TYPE Track
+  text AS Float          ' the caption size everything is scaled from
+  buttonX AS Float
+  buttonY AS Float
+  radius AS Float
+  left AS Float          ' the ends of the line
+  right AS Float
+  y AS Float
+END TYPE
+
+' How many forecast hours a second of playback covers - the five days take thirty
+' seconds.
+LET PLAY_HOURS_PER_SECOND AS Float = 4.0
+
+' Minor ticks, in hours.
+LET TICK_HOURS AS Integer = 6
+
+LET TRACK_THICKNESS AS Float = 4.0
+
+LET THUMB_RADIUS AS Float = 6.5
+
+' ---------------------------------------------------------------------------
+' Time
+' ---------------------------------------------------------------------------
+
+' The local civil time `hours` along the line.
+FUNC localAt(p AS Playback, hours AS Float) AS datetime::DateTime
+  RETURN datetime::inZone(datetime::instant(p.startSeconds + math::floor(hours * 3600.0)), datetime::local())
+END FUNC
+
+' The hours along the line where the present falls. It may be off either end.
+FUNC nowHours(p AS Playback) AS Float
+  RETURN toFloat(datetime::now().seconds - p.startSeconds) / 3600.0
+END FUNC
+
+' Every local midnight strictly inside the line. Each is built as a civil time
+' in the local zone and resolved from there, rather than by adding 24 hours to
+' the one before, so a daylight-saving change inside the five days still puts
+' every midnight in the right place.
+FUNC dayMarks(p AS Playback) AS List OF DayMark
+  LET zone AS datetime::Zone = datetime::local()
+  LET first AS datetime::DateTime = localAt(p, 0.0)
+  MUT marks AS List OF DayMark = []
+
+  FOR day = 1 TO math::floor(p.totalHours / 24.0) + 1
+    LET date AS datetime::Date = datetime::addDays(first, day).date
+    LET midnight AS datetime::DateTime = datetime::civil(date, datetime::time(0, 0, 0), zone)
+    LET at AS Float = toFloat(datetime::resolve(midnight).seconds - p.startSeconds) / 3600.0
+    IF at > 0.0 AND at < p.totalHours THEN marks = collections::append(marks, DayMark[hours := at, label := datetime::format(midnight, "EEE")])
+  NEXT
+
+  RETURN marks
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Layout and hit tests
+' ---------------------------------------------------------------------------
+
+' The button and track for a window, sitting just above the line of key hints.
+FUNC trackFor(width AS Float, height AS Float, text AS Float) AS Track
+  LET margin AS Float = text * 1.2
+  LET radius AS Float = text * 1.05
+  LET y AS Float = height - margin - text * 3.2
+  LET buttonX AS Float = margin + radius
+  RETURN Track[text := text, buttonX := buttonX, buttonY := y, radius := radius, left := buttonX + radius + text * 1.2, right := width - margin - text * 0.6, y := y]
+END FUNC
+
+FUNC xAt(t AS Track, p AS Playback, hours AS Float) AS Float
+  RETURN t.left + (t.right - t.left) * math::clamp(hours / p.totalHours, 0.0, 1.0)
+END FUNC
+
+' The hours along the line under x, held to the part that has been fetched.
+FUNC hoursAt(t AS Track, p AS Playback, x AS Float) AS Float
+  LET span AS Float = math::max(t.right - t.left, 1.0)
+  RETURN math::clamp((x - t.left) / span * p.totalHours, 0.0, p.loadedHours)
+END FUNC
+
+FUNC onButton(t AS Track, at AS canvas::Point) AS Boolean
+  LET dx AS Float = at.x - t.buttonX
+  LET dy AS Float = at.y - t.buttonY
+  LET reach AS Float = t.radius * 1.25
+  RETURN dx * dx + dy * dy <= reach * reach
+END FUNC
+
+' The track is thin, so it answers to a band a caption high around it, and a
+' little way past each end so that the very first and last hours can be hit.
+FUNC onTrack(t AS Track, at AS canvas::Point) AS Boolean
+  IF at.x < t.left - t.text OR at.x > t.right + t.text THEN RETURN FALSE
+  RETURN math::abs(at.y - t.y) <= t.text
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+FUNC white(alpha AS Integer) AS color::Color
+  RETURN color::rgba(255, 255, 255, alpha)
+END FUNC
+
+FUNC bar(t AS Track, fromX AS Float, toX AS Float, tint AS color::Color) AS canvas::DrawItem
+  RETURN canvas::RoundedRect[x := fromX, y := t.y - TRACK_THICKNESS / 2.0, w := math::max(toX - fromX, 0.0), h := TRACK_THICKNESS, cornerRadius := TRACK_THICKNESS / 2.0, paint := canvas::fill(tint)]
+END FUNC
+
+FUNC tick(x AS Float, y AS Float, reach AS Float, tint AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Line[x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.2)]
+END FUNC
+
+' Text centred on x, with its baseline at y.
+FUNC centredText(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
+  LET width AS Float = canvas::measureText(face, size, text).width
+  RETURN canvas::Text[x := x - width / 2.0, y := y, text := text, font := face, size := size, paint := canvas::fill(tint)]
+END FUNC
+
+' The button: a triangle to play, a square to stop, dimmed while the forecast is
+' still arriving and there is nothing to play yet.
+FUNC buttonItems(t AS Track, p AS Playback) AS List OF canvas::DrawItem
+  LET ready AS Boolean = p.loadedHours >= p.totalHours
+  LET cx AS Float = t.buttonX
+  LET cy AS Float = t.buttonY
+  LET r AS Float = t.radius
+  MUT iconAlpha AS Integer = 235
+  IF NOT ready THEN iconAlpha = 80
+
+  MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(white(30), white(90), 1.2)]]
+  IF p.playing THEN
+    LET side AS Float = r * 0.62
+    LET stop AS canvas::DrawItem = canvas::RoundedRect[x := cx - side / 2.0, y := cy - side / 2.0, w := side, h := side, cornerRadius := side * 0.12, paint := canvas::fill(white(iconAlpha))]
+    items = collections::append(items, stop)
+  ELSE
+    ' Nudged right of centre, where a triangle's own centre of mass sits.
+    LET points AS List OF canvas::Point = [canvas::Point[x := cx - r * 0.28, y := cy - r * 0.42], canvas::Point[x := cx - r * 0.28, y := cy + r * 0.42], canvas::Point[x := cx + r * 0.44, y := cy]]
+    LET play AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(white(iconAlpha))]
+    items = collections::append(items, play)
+  END IF
+  RETURN items
+END FUNC
+
+' The button, the line, its ticks and labels, the thumb, and the time it points
+' at.
+FUNC timelineItems(t AS Track, p AS Playback, days AS List OF DayMark, face AS canvas::Font) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = buttonItems(t, p)
+
+  LET labelSize AS Float = t.text * 0.85
+  LET labelY AS Float = t.y + t.text * 1.75
+  LET headX AS Float = xAt(t, p, p.hours)
+
+  ' The line, dimmest first so each brighter part lies over the one before.
+  items = collections::append(items, bar(t, t.left, t.right, white(40)))
+  items = collections::append(items, bar(t, t.left, xAt(t, p, p.loadedHours), white(85)))
+  items = collections::append(items, bar(t, t.left, headX, white(230)))
+
+  ' Six-hourly ticks, only on the part still ahead of the thumb - on the bright
+  ' part behind it they would not show.
+  FOR hour = TICK_HOURS TO math::floor(p.totalHours) - 1 STEP TICK_HOURS
+    IF toFloat(hour) > p.hours THEN items = collections::append(items, tick(xAt(t, p, toFloat(hour)), t.y, 1.5, color::rgba(20, 40, 60, 140)))
+  NEXT
+
+  ' "Now", and a label for each midnight that does not run into it.
+  LET nowAt AS Float = nowHours(p)
+  LET nowVisible AS Boolean = nowAt >= 0.0 AND nowAt <= p.totalHours
+  LET nowX AS Float = xAt(t, p, nowAt)
+  LET nowHalf AS Float = canvas::measureText(face, labelSize, "Now").width / 2.0
+  IF nowVisible THEN
+    items = collections::append(items, tick(nowX, t.y, 6.0, white(220)))
+    items = collections::append(items, centredText(face, nowX, labelY, labelSize, CAPTION_COLOR, "Now"))
+  END IF
+
+  FOR EACH mark IN days
+    LET x AS Float = xAt(t, p, mark.hours)
+    items = collections::append(items, tick(x, t.y, 5.0, white(150)))
+    LET half AS Float = canvas::measureText(face, labelSize, mark.label).width / 2.0
+    IF nowVisible AND math::abs(x - nowX) < nowHalf + half + t.text * 0.6 THEN CONTINUE FOR
+    items = collections::append(items, centredText(face, x, labelY, labelSize, HINT_COLOR, mark.label))
+  NEXT
+
+  ' The thumb, with a soft ring so it stands off the bright part of the line.
+  LET ring AS canvas::DrawItem = canvas::Circle[x := headX, y := t.y, radius := THUMB_RADIUS + 3.0, paint := canvas::fill(white(45))]
+  LET thumb AS canvas::DrawItem = canvas::Circle[x := headX, y := t.y, radius := THUMB_RADIUS, paint := canvas::fill(white(250))]
+  items = collections::append(items, ring)
+  items = collections::append(items, thumb)
+
+  ' Above the line: the time under the thumb, and while the forecast is still
+  ' arriving, what the fetch is doing, at the right-hand end. The status wins
+  ' when the two would overlap.
+  LET aboveY AS Float = t.y - t.text * 1.0
+  MUT statusLeft AS Float = t.right + t.text
+  IF p.status <> "" THEN
+    LET statusWidth AS Float = canvas::measureText(face, labelSize, p.status).width
+    statusLeft = t.right - statusWidth
+    LET status AS canvas::DrawItem = canvas::Text[x := statusLeft, y := aboveY, text := p.status, font := face, size := labelSize, paint := canvas::fill(HINT_COLOR)]
+    items = collections::append(items, status)
+  END IF
+
+  LET readout AS String = datetime::format(localAt(p, p.hours), "EEE h a")
+  LET readoutHalf AS Float = canvas::measureText(face, labelSize, readout).width / 2.0
+  LET readoutX AS Float = math::clamp(headX, t.left + readoutHalf, t.right - readoutHalf)
+  IF readoutX + readoutHalf < statusLeft - t.text THEN items = collections::append(items, centredText(face, readoutX, aboveY, labelSize, CAPTION_COLOR, readout))
+
+  RETURN items
+END FUNC

@@ -49,8 +49,12 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnvOr", "arguments": [{ "kind": "string", "value": "MFB_MISSING" }, { "kind": "string", "value": "fallback" }] }] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.hasEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }] }] }] }, "line": 23 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "string", "value": "data/asset.txt" }] }] }, "line": 25 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "data/asset.txt" }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "string", "value": "d" }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.appCachePath", "arguments": [{ "kind": "string", "value": "c" }] }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.userHomePath", "arguments": [{ "kind": "string", "value": "h" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.userDocumentsPath", "arguments": [{ "kind": "string", "value": "d" }] }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
       ]
     }
     ]

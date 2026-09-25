@@ -6,12 +6,13 @@
 //! scope-drop of the owner) sets the closed flag, and using a closed one is the
 //! universal `ErrResourceClosed`. There is no refcount and no generation table.
 //!
-//! `handle@8` is the backend's id for the image, and it is the *only* thing a scene
-//! ever carries (through an `ImageRef`). That is what makes an installed scene
-//! independent of every resource's lifetime: it holds an integer, so destroying an
-//! image a scene still names cannot dangle anything. The backend defers freeing the
-//! real object until the GPU has drained the last frame that drew it — a rule that
-//! lives entirely runtime-side (plan-98-D) and is invisible from MFBASIC.
+//! `handle@8` is the backend's id for the image — the record's own address. A scene's
+//! `Picture` holds the resource itself (plan-116-I), and the renderer reads it through
+//! `canvas::imageHandle`/`imageShadow`, which answer `0` once it is closed. Nothing
+//! frees an `Image`'s record or its pixel block — not a close, not the scope-drop — so
+//! a frame that already read the block keeps valid pixels whatever the worker does,
+//! and there is no GPU-side object to release (bug-484: every backend copies a frame's
+//! texels from the block while the frame is built).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
@@ -31,22 +32,24 @@ pub(crate) const IMAGE_HEIGHT: usize = 40;
 /// Pointer to the CPU-side pixel shadow: a `List OF Byte` block of exactly
 /// `width * height * 4` RGBA8 bytes, owned by the arena.
 ///
-/// The shadow is not a cache of the backend's copy — it is the source of truth the
-/// backend is uploaded *from*. That is what lets `canvas::getBytes` answer without a
-/// GPU readback, and what lets a lost device be recovered by re-uploading rather
-/// than by asking the program to redraw.
+/// The shadow is not a cache of the backend's copy — it is the only copy, and every
+/// renderer draws *from* it. That is what lets `canvas::getBytes` answer without a
+/// GPU readback.
+///
+/// `canvas::setBytes` swaps a fresh block in rather than writing this one, and no
+/// block is ever freed, so the address doubles as the content's generation: a
+/// picture's geometry header carries it, and a changed address is what makes the
+/// cache, the damage diff and the GPU copy see new pixels (bug-484).
+///
+/// Two further words used to be reserved here, a dirty flag and a last-drawn frame
+/// stamp, for a texture upload-and-deferred-free protocol. bug-484 drew pictures with
+/// no texture object — the texels are copied into each frame's buffer — so neither had
+/// a reader and both were removed rather than kept written for nobody.
 pub(crate) const IMAGE_PIXELS: usize = 48;
-/// Non-zero when the shadow has changed since the backend last saw it, so the
-/// upload can be coalesced to at most one per frame rather than one per `setBytes`.
-pub(crate) const IMAGE_DIRTY: usize = 56;
-/// The frame counter value when the backend last drew this image (plan-98-D stamps
-/// it). Reserved here because the free gate is `closed AND lastUsedFrame <
-/// lastCompletedFrame` — a monotonic compare, not a reference count.
-pub(crate) const IMAGE_LAST_USED_FRAME: usize = 64;
 
 // The tail must fit the canonical 96-byte envelope, and must not overlap the header.
 const _: () = assert!(IMAGE_WIDTH == RESOURCE_OFFSET_STATE + 8);
-const _: () = assert!(IMAGE_LAST_USED_FRAME + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(IMAGE_PIXELS + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 /// Bytes per pixel. RGBA8 is the one pixel format the canvas surface takes, so a
 /// pixel count is always a byte count divided by exactly this.

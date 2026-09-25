@@ -39,6 +39,24 @@ parameter or `FOR EACH` element is only a pointer) without re-deriving ownership
 resource_owners = <escape analysis of the function> -> owners
 ```
 
+## Unbound temporaries are named first
+
+The analysis sees only named `RES` bindings, so before it runs IR lowering names
+every resource that is produced straight into an element position: each call in a
+list or map-literal value, a record-constructor argument, a `WITH` update, or an
+element argument of a `collections::` insertion builtin, whose type is a resource
+(a built-in one — a parent `Thread` included — a project `RESOURCE`, or a
+`RES`-returning function's result), becomes a synthesized
+`RES $res_tmpN AS T = <call>` placed immediately before its statement, and the
+element becomes `$res_tmpN`. From there it floats exactly like a source binding
+in that position. [[src/ir/resource_hoist.rs:hoist_resource_temporaries]]
+
+The rewrite never reorders evaluation: a statement's element positions are
+visited in evaluation order, and hoisting stops at the first earlier expression
+that may have an effect and was not itself hoisted. A call it cannot type, or
+whose type is not known to be a resource, is left in place. Without the rewrite
+such a temporary had no close obligation anywhere.
+
 There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
 logic. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]

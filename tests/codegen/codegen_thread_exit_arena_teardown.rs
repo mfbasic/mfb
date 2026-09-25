@@ -35,7 +35,7 @@ ISOLATED FUNC worker(t AS ThreadWorker OF RES Integer TO Integer, n AS Integer) 
 END FUNC\n\
 \n\
 FUNC main AS Integer\n\
-  LET a AS Thread OF RES Integer TO Integer = thread::start(worker, 0)\n\
+  RES a AS Thread OF RES Integer TO Integer = thread::start(worker, 0)\n\
   io::print(\"started\")\n\
   RETURN 0\n\
 END FUNC\n";
@@ -52,7 +52,7 @@ ISOLATED FUNC worker(t AS ThreadWorker OF RES Integer TO Integer, n AS Integer) 
 END FUNC\n\
 \n\
 FUNC main AS Integer\n\
-  LET a AS Thread OF RES Integer TO Integer = thread::start(worker, 0)\n\
+  RES a AS Thread OF RES Integer TO Integer = thread::start(worker, 0)\n\
   io::print(toString(thread::waitFor(a)))\n\
   RETURN 0\n\
 END FUNC\n";

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/general/toString_enum_package
+Wrote package to tests/rt-behavior/general/toString_enum_package/build/packages/enum_pkg_tiny.mfp
+uses enum_pkg_tiny - [Unsigned]
+Wrote AST to tests/rt-behavior/general/toString_enum_package/toString_enum_package.ast
+Wrote IR to tests/rt-behavior/general/toString_enum_package/toString_enum_package.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/toString_enum_package
+Wrote package to tests/rt-behavior/general/toString_enum_package/build/packages/enum_pkg_tiny.mfp
+uses enum_pkg_tiny - [Unsigned]
+Wrote executable to tests/rt-behavior/general/toString_enum_package/build/toString_enum_package.out
+[exit 0]
+$ tests/rt-behavior/general/toString_enum_package/build/toString_enum_package.out
+Ground
+Gas
+Clubs
+Spades
+Hearts
+Hearts
+suit Diamonds
+[exit 0]

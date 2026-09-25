@@ -1,0 +1,112 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "float_arith_on_global_and_state_field_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "gR", "line": 22, "visibility": "public", "mutable": true, "type": "Rec", "value": { "kind": "constructor", "type": "Rec", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }, { "kind": "const", "type": "Float", "value": "1.5" }] } },
+  { "name": "g", "line": 23, "visibility": "public", "mutable": true, "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.25" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "public",
+    "name": "Rec",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "a", "type": "Float" },
+    { "visibility": null, "line": 13, "name": "b", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 16,
+    "visibility": "public",
+    "name": "P",
+    "fields": [
+    { "visibility": null, "line": 17, "name": "a", "type": "Float" },
+    { "visibility": null, "line": 18, "name": "b", "type": "Float" },
+    { "visibility": null, "line": 19, "name": "n", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "bumpGlobals",
+    "line": 25,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 26, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 26,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "assignGlobal", "line": 27, "name": "gR", "value": { "kind": "with", "type": "Rec", "target": { "kind": "global", "name": "gR" }, "updates": [{ "field": "b", "value": { "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "global", "name": "gR" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.5" } } }] } },
+      { "op": "assignGlobal", "line": 28, "name": "g", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "global", "name": "g" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "bumpState",
+    "line": 32,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "h", "line": 32, "type": "fs.File STATE P", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 33, "resource": "h", "value": { "kind": "with", "type": "P", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "a", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "a" }, "right": { "kind": "const", "type": "Float", "value": "0.25" } } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "bumpGlobals", "args": [] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "global", "name": "gR" }, "member": "a" }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "global", "name": "gR" }, "member": "b" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "g" }] } }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "h", "type": "fs.File STATE P", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/project.json" }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 40,
+      "name": "$for_iter3",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end4" },
+      "step": { "kind": "local", "name": "$for_step5" },
+      "body": [
+      { "op": "bind", "line": 40, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+      { "op": "stateAssign", "line": 41, "resource": "h", "value": { "kind": "with", "type": "P", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "b", "value": { "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.5" } } }] } }
+      ]
+    },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "bumpState", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "a" }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "b" }] } }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

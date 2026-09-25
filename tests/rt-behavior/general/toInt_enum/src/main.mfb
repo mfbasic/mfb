@@ -1,0 +1,52 @@
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' plan-140-B: `toInt` of an enum value is the member's 0-based position in its
+' `ENUM` declaration. It never fails.
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+TYPE Swatch
+  label AS String
+  hue AS Color
+END TYPE
+
+FUNC main AS Integer
+  ' Every member of a user enum, in declaration order.
+  io::print(toString(toInt(Color.Red)))
+  io::print(toString(toInt(Color.Green)))
+  io::print(toString(toInt(Color.Blue)))
+
+  ' An inferred binding takes `Integer`.
+  LET c AS Color = Color.Blue
+  LET n = toInt(c)
+  io::print(toString(n + 10))
+
+  ' A value read back from a list, and from a record field.
+  LET allColors AS List OF Color = [Color.Red, Color.Green, Color.Blue]
+  io::print(toString(toInt(collections::get(allColors, 1))))
+  LET s AS Swatch = Swatch["sky", Color.Blue]
+  io::print(toString(toInt(s.hue)))
+
+  ' Inside an inline TRAP: the conversion never fails, so the handler never runs.
+  LET t AS Integer = toInt(Color.Green) TRAP(e)
+    io::print("trapped " & toString(e.code))
+    RETURN 1
+  END TRAP
+  io::print(toString(t))
+
+  ' Integer -> enum is a list lookup; the round trip returns every member.
+  MUT i AS Integer = 0
+  WHILE i < len(allColors)
+    LET back AS Color = collections::get(allColors, i)
+    io::print(toString(toInt(back) = i))
+    i = i + 1
+  END WHILE
+
+  ' A built-in package's enum.
+  io::print(toString(toInt(datetime::Weekday.Monday)))
+  io::print(toString(toInt(datetime::Weekday.Sunday)))
+  RETURN 0
+END FUNC

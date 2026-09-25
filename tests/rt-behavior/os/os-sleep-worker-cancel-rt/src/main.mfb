@@ -12,7 +12,7 @@ IMPORT thread
 IMPORT os_sleep_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepUntilCancel, "seed")
+  RES t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepUntilCancel, "seed")
   os::sleep(50)
   thread::cancel(t)
   LET r AS Integer = thread::waitFor(t)

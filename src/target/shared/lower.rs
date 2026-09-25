@@ -85,7 +85,10 @@ pub fn lower_project(
     // wrap here covers all five targets. Occupied by the Level-1 local-rewrite
     // rows — constant folding, algebraic simplification, strength reduction
     // (`optimizer::opt1`).
-    Ok(crate::trace::timed("opt1 (NIR)", || {
+    let mut module = crate::trace::timed("opt1 (NIR)", || {
         crate::optimizer::opt1::optimize_nir(module, crate::optimizer::active_opt_level())
-    }))
+    });
+    // plan-142-H: storage the codegen names but no NIR op does, so after opt1.
+    crate::codegen::collection::assign::self_update::add_global_string_capacities(&mut module);
+    Ok(module)
 }

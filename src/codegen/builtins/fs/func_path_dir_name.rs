@@ -28,7 +28,9 @@ found is at position `0` — the only separator is a leading `/` — or `path` i
 The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
 names are preserved unchanged and any embedded bytes are treated literally. When
 the result is `"."` or `"/"` a shared string constant is returned; otherwise a
-new `String` holding the directory part is built. The function reads no external state and has no side effects."#;
+new `String` holding the directory part is built. The function reads no external state and has no side effects.
+
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A directory and a file name yield the directory:
 
 ```
@@ -91,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_fs_path_dir_name_nl),
         }],
     });

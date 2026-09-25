@@ -548,10 +548,15 @@ canvas_resize_case() {
   local metal="$2"
   local bundle_path app_pid shot verdict
   bundle_path=$(bundle "$proj" canvasresize)
+  # The renderer is chosen by MFB_CANVAS_GPU, and a real window defaults to the GPU
+  # (`__canvas_wantGpu`), so the software run has to say `0` — launched with neither
+  # (as this case once was, with the unread `MFB_CANVAS_METAL`) both runs were Metal.
+  # The Metal run presents straight to the window's CAMetalLayer (bug-686 Phase 4), so
+  # it is also what proves the drawable follows the resize.
   if [ -n "$metal" ]; then
-    MFB_CANVAS_METAL=1 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+    MFB_CANVAS_GPU=1 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
   else
-    "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+    MFB_CANVAS_GPU=0 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
   fi
   app_pid=$!
   sleep 3
@@ -619,6 +624,308 @@ else
   canvas_resize_case metal 1
 fi
 
+# Case 3h (bug-686 Phase 4, GUI): a GPU frame is presented straight to the window's
+# CAMetalLayer, and a frame that falls back to software still shows.
+#
+# Every headless test takes the readback path (no window layer exists there), so this
+# is the only place the direct present runs at all. Two scenes, one window:
+#
+#   1. red | blue bars, which Metal draws. The capture must show them AND the stats line
+#      must say `directFrames=1`: both GPU paths draw the same picture, so the pixels
+#      alone cannot tell a direct present from a readback + CGImage blit.
+#   2. a full-window green rectangle plus a 262,145-edge polygon, past Metal's frame
+#      edge region, so the frame is declined and drawn in software. The capture must be
+#      GREEN: the software frame lands in the backing layer's contents, UNDER the Metal
+#      sublayer, so if that layer were not hidden the window would still show scene 1.
+#
+# The bars are colour-checked against the same (255, 0, 0) / (0, 0, 255) Case 3f
+# expects of the CGImage path — the direct present must not change a colour either
+# (the layer is put in the screen's colour space for exactly that).
+#
+# A `--debug` build, for `MFB_CANVAS_STATS`; `MFB_CANVAS_SYNC` so each `present`
+# returns only once its frame is on screen, which is what the markers wait for.
+proj="$work/canvasdirect"
+mkdir -p "$proj/src"
+scaffold_project "$proj" canvasdirect
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT math
+IMPORT os
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  ' Built first, so the second present is not waiting on the loop.
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < 262145
+    LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
+    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
+    i = i + 1
+  END WHILE
+  LET size AS canvas::Size = canvas::getSize()
+  LET w AS Float = toFloat(size.width)
+  LET h AS Float = toFloat(size.height)
+  LET left AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET right AS canvas::DrawItem = canvas::Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(0, 0, 255))]
+  canvas::present([left, right])
+  io::print("GPU_PRESENTED")
+  io::flush()
+  os::sleep(4000)
+  LET green AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := w, h := h, paint := canvas::fill(color::rgb(0, 255, 0))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 0, 0))]
+  canvas::present([green, ring])
+  io::print("SOFTWARE_PRESENTED")
+  io::flush()
+  LET ready AS Boolean = io::pollInput()
+END SUB
+MFB
+
+# Capture the on-screen window owned by process $1 into $2 (by CoreGraphics window
+# id, `screencapture -l`, as snap-macos.py does — but found by pid, because this case
+# launches the executable itself to give it an environment, which `open` would not).
+capture_pid_window() {
+  "$ROOT/.venv-macos/bin/python3" - "$1" "$2" <<'PY'
+import subprocess
+import sys
+
+import Quartz
+
+pid, out = int(sys.argv[1]), sys.argv[2]
+for win in Quartz.CGWindowListCopyWindowInfo(
+    Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+    Quartz.kCGNullWindowID,
+):
+    bounds = win.get("kCGWindowBounds", {})
+    if (
+        win.get("kCGWindowOwnerPID") == pid
+        and win.get("kCGWindowLayer", 0) == 0
+        and bounds.get("Width", 0) > 1
+    ):
+        sys.exit(subprocess.call(["screencapture", "-x", "-o", f"-l{win['kCGWindowNumber']}", out]))
+sys.exit(3)
+PY
+}
+
+# Wait up to $3 seconds for marker $2 in file $1.
+wait_for_marker() {
+  local waited=0
+  while ! grep -q "$2" "$1" 2>/dev/null; do
+    [ "$waited" -ge "$(( $3 * 10 ))" ] && return 1
+    sleep 0.1
+    waited=$(( waited + 1 ))
+  done
+}
+
+# Sample the capture well inside each half and below the title bar; print "ok" when
+# the left and right samples are near the expected colours.
+check_halves() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+
+from PIL import Image
+
+image = Image.open(sys.argv[1]).convert("RGB")
+want_left = tuple(int(c) for c in sys.argv[2].split(","))
+want_right = tuple(int(c) for c in sys.argv[3].split(","))
+w, h = image.size
+left = image.getpixel((w // 4, h * 3 // 4))
+right = image.getpixel((w * 3 // 4, h * 3 // 4))
+
+
+def near(got, want, slack=24):
+    return all(abs(a - b) <= slack for a, b in zip(got, want))
+
+
+print("ok" if near(left, want_left) and near(right, want_right) else f"left={left} right={right}")
+PY
+}
+
+if ! gui_enabled; then
+  echo "skip: canvas direct-present GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app --debug "$proj" >/dev/null 2>&1; then
+  fail "build -app --debug canvasdirect"
+else
+  # First run of snap-macos.py provisions the venv with Quartz; with no arguments it
+  # does only that (and prints its usage).
+  [ -x "$ROOT/.venv-macos/bin/python3" ] || python3 "$ROOT/scripts/snap-macos.py" >/dev/null 2>&1
+  direct_out="$work/canvasdirect.out"
+  direct_stats="$work/canvasdirect.stats"
+  rm -f "$direct_stats"
+  MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS="$direct_stats" \
+    "$(bundle "$proj" canvasdirect)/Contents/MacOS/canvasdirect" >"$direct_out" 2>&1 &
+  direct_pid=$!
+  if ! wait_for_marker "$direct_out" GPU_PRESENTED 30; then
+    fail "canvas direct present: the GPU scene never presented ($(cat "$direct_out"))"
+  else
+    sleep 1
+    if ! capture_pid_window "$direct_pid" "$work/canvasdirect-gpu.png"; then
+      fail "canvas direct present: window capture (grant Screen Recording permission)"
+    else
+      verdict=$(check_halves "$work/canvasdirect-gpu.png" 255,0,0 0,0,255)
+      first=$(head -1 "$direct_stats" 2>/dev/null)
+      case "$first" in
+        *"gpuFrames=1 directFrames=1 "*) presented=yes ;;
+        *) presented=no ;;
+      esac
+      if [ "$verdict" = "ok" ] && [ "$presented" = "yes" ]; then
+        pass "a GPU frame is presented straight to the CAMetalLayer (red|blue, directFrames=1)"
+      else
+        fail "canvas direct present: capture $verdict, stats '$first'"
+      fi
+    fi
+    if ! wait_for_marker "$direct_out" SOFTWARE_PRESENTED 60; then
+      fail "canvas direct present: the declined scene never presented"
+    else
+      sleep 1
+      if ! capture_pid_window "$direct_pid" "$work/canvasdirect-sw.png"; then
+        fail "canvas software fallback: window capture (grant Screen Recording permission)"
+      else
+        verdict=$(check_halves "$work/canvasdirect-sw.png" 0,255,0 0,255,0)
+        last=$(tail -1 "$direct_stats" 2>/dev/null)
+        case "$last" in
+          *"gpuFrames=1 directFrames=1 "*"frames=2 "*) declined=yes ;;
+          *) declined=no ;;
+        esac
+        if [ "$verdict" = "ok" ] && [ "$declined" = "yes" ]; then
+          pass "a declined frame falls back to software and shows over the hidden Metal layer (green)"
+        else
+          fail "canvas software fallback: capture $verdict, stats '$last'"
+        fi
+      fi
+    fi
+  fi
+  kill "$direct_pid" 2>/dev/null
+  wait "$direct_pid" 2>/dev/null
+fi
+
+# Case 3i: the app window members' state (setTitle/getTitle/setFullscreen/
+# getFullscreen), headless. There is no window, so this proves the process-global
+# state and the sync seam's headless no-op: the default title is the one the
+# bootstrap gives the window, a set title reads back exactly (empty included),
+# retitling in a loop keeps the last one (the replaced heap copies are freed —
+# this would still pass if they leaked, but crash if a freed one were read), the
+# fullscreen word round-trips, and both survive a setMode. Exit code = the first
+# failed check.
+proj="$work/appwindow"
+mkdir -p "$proj/src"
+scaffold_project "$proj" appwindow
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+FUNC main() AS Integer
+  IF app::getTitle() <> "MFBASIC App" THEN
+    RETURN 1
+  END IF
+  IF app::getFullscreen() THEN
+    RETURN 2
+  END IF
+  app::setTitle("Hello")
+  IF app::getTitle() <> "Hello" THEN
+    RETURN 3
+  END IF
+  app::setTitle("")
+  IF app::getTitle() <> "" THEN
+    RETURN 4
+  END IF
+  FOR i = 1 TO 2000
+    app::setTitle("frame " & toString(i))
+  NEXT
+  IF app::getTitle() <> "frame 2000" THEN
+    RETURN 5
+  END IF
+  app::setFullscreen(TRUE)
+  IF NOT app::getFullscreen() THEN
+    RETURN 6
+  END IF
+  app::setMode(app::Mode.None)
+  IF app::getTitle() <> "frame 2000" OR NOT app::getFullscreen() THEN
+    RETURN 7
+  END IF
+  app::setFullscreen(FALSE)
+  IF app::getFullscreen() THEN
+    RETURN 8
+  END IF
+  RETURN 0
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appwindow"
+else
+  result=$(run_headless "$(bundle "$proj" appwindow)/Contents/MacOS/appwindow")
+  if [ "$result" = "code=0" ]; then
+    pass "app:: window title/fullscreen state round-trips headlessly ($result)"
+  else
+    fail "expected app window state round-trip (code=0), got '$result'"
+  fi
+fi
+
+# Case 3j (GUI): the window follows the window members, read back through the
+# Accessibility API (the same System Events permission Case 6 needs). A None-start
+# program sets a title and fullscreen while windowless, then enters Canvas: the
+# window must appear with that title and in fullscreen. The script then takes the
+# window OUT of fullscreen itself, as the user's green button would, and the
+# program must observe FALSE (the DidExitFullScreen observer). Finally the program
+# retitles and goes fullscreen again from the worker.
+#
+# macOS gives a fullscreen window a second, untitled Accessibility window (its
+# title bar), so the checks read every window's title and AXFullScreen rather than
+# `window 1`.
+proj="$work/appwindowgui"
+mkdir -p "$proj/src"
+scaffold_project "$proj" appwindowgui
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+IMPORT os
+SUB main()
+  app::setTitle("MFB Window One")
+  app::setFullscreen(TRUE)
+  app::setMode(app::Mode.Canvas)
+  os::sleep(8000)
+  io::print("AFTER_EXIT " & toString(app::getFullscreen()))
+  io::flush()
+  app::setTitle("MFB Window Two")
+  app::setFullscreen(TRUE)
+  os::sleep(7000)
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: app window title/fullscreen GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appwindowgui"
+else
+  exe="$(bundle "$proj" appwindowgui)/Contents/MacOS/appwindowgui"
+  "$exe" > "$work/appwindowgui.out" 2>&1 &
+  wpid=$!
+  ax() {
+    osascript -e 'tell application "System Events" to tell process "appwindowgui" to get {title, value of attribute "AXFullScreen"} of every window' 2>&1
+  }
+  sleep 3
+  first=$(ax)
+  osascript -e 'tell application "System Events" to tell process "appwindowgui" to set value of attribute "AXFullScreen" of (first window whose title is "MFB Window One") to false' >/dev/null 2>&1
+  # The program retitles at ~8s and ends at ~15s; read the window at ~11s, after
+  # the fullscreen animation has finished and well before the program exits.
+  sleep 7.5
+  second=$(ax)
+  wait "$wpid" 2>/dev/null
+  printed=$(grep AFTER_EXIT "$work/appwindowgui.out")
+  case "$first" in
+    *"MFB Window One"*true*) pass "window shows the windowless-set title in fullscreen ($first)" ;;
+    *) fail "expected 'MFB Window One' fullscreen, got '$first'" ;;
+  esac
+  if [ "$printed" = "AFTER_EXIT FALSE" ]; then
+    pass "getFullscreen follows the user leaving fullscreen ($printed)"
+  else
+    fail "expected AFTER_EXIT FALSE, got '$printed'"
+  fi
+  case "$second" in
+    *"MFB Window Two"*true*) pass "worker retitle + setFullscreen reach the window ($second)" ;;
+    *) fail "expected 'MFB Window Two' fullscreen, got '$second'" ;;
+  esac
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than
@@ -632,12 +939,12 @@ SUB main()
   io::print("finished")
 END SUB
 MFB
-if ! gui_enabled; then
-  echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
-elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  fail "build -app keepopen"
-else
-  result=$(perl -e '
+# Only a `--debug` build keeps the window open (6ed5cc234; `mfb spec app
+# macos-runtime`, "Program-finish path"): a release build closes when its program does,
+# with the program's exit code. So the keep-open path is built with --debug, and the
+# release build is held to the other half of the rule -- it must exit, code 0.
+keepopen_probe() {
+  perl -e '
     use POSIX ":sys_wait_h";
     my $pid = fork();
     if ($pid == 0) {
@@ -648,11 +955,28 @@ else
     my $r = waitpid($pid, WNOHANG);
     if ($r == 0) { print "alive"; kill "KILL", $pid; waitpid($pid, 0); }
     else { printf "exited=%d", ($? >> 8); }
-  ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen")
+  ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen"
+}
+if ! gui_enabled; then
+  echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app --debug "$proj" >/dev/null 2>&1; then
+  fail "build -app --debug keepopen"
+else
+  result=$(keepopen_probe)
   if [ "$result" = "alive" ]; then
-    pass "window stayed open after the program finished"
+    pass "a --debug build kept the window open after the program finished"
   else
-    fail "app did not keep the window open ($result)"
+    fail "a --debug app did not keep the window open ($result)"
+  fi
+  if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+    fail "build -app keepopen"
+  else
+    result=$(keepopen_probe)
+    if [ "$result" = "exited=0" ]; then
+      pass "a release build closed with its program (exit 0)"
+    else
+      fail "a release app did not exit with its program's code ($result)"
+    fi
   fi
 fi
 

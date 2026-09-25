@@ -26,14 +26,14 @@ it never fails on its own; every error surfaces from the underlying LEB128 read.
 
 `data` must contain at least one byte, and the sequence must be terminated within
 it: an empty list, or bytes that run out before a byte with a clear high bit is
-seen, raise `ErrInvalidFormat`, as does a sequence longer than ten bytes. A tenth
-byte carrying bits beyond the 64th is not currently rejected, and those bits are
-lost (nine `0x80` bytes then `0x02` decode to `0`). Any bytes after the terminator
-are ignored."#;
+seen, raise `ErrInvalidFormat`, as does a sequence longer than ten bytes. The
+unsigned value must fit in 64 bits, so a tenth byte above `0x01` raises
+`ErrInvalidFormat` too (nine `0x80` bytes then `0x02` would need bit 64). Any
+bytes after the terminator are ignored."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_varintDecode(data AS List OF Byte) AS Integer
-  LET zigzag AS Integer = __encoding_uleb128Decode(data)
+  LET zigzag AS Integer = __encoding_leb128Read(data, 1)
   RETURN bits::bxor(bits::sr(zigzag, 1), 0 - bits::band(zigzag, 1))
 END FUNC"#;
 const EX: &str = r#"Round-trip a signed value through `varintEncode` and back:

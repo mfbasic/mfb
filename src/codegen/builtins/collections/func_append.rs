@@ -22,13 +22,15 @@ the appended content is placed after all of them, in its own order.
 
 `append` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. Assigning straight back to the same `MUT`
-local variable — `list = collections::append(list, x)` — is the cheap shape: it
-grows the list instead of copying it, so appending in a loop costs about the same
-per element however long the list gets. (A `LET` binding cannot be assigned to at
-all: that is `TYPE_ASSIGN_REQUIRES_MUT`.) Appending to something reached another way
-(a parameter, a module-level `MUT`, or the list a `FOR EACH` is walking) copies
-the whole list on every call. The result is the same either way.
+it does with that return value. Assigning straight back to the same variable —
+`list = collections::append(list, x)` — is the cheap shape wherever that
+variable lives (a local, a module-level `MUT`, a `MUT` a `forEach` lambda
+captures, or a list that a `FOR EACH` over it is walking, which walks a copy
+taken once when the loop starts): it grows the list instead of copying it, so
+appending in a loop costs about the same per element however long the list gets.
+(A `LET` binding cannot be assigned to at all: that is
+`TYPE_ASSIGN_REQUIRES_MUT`.) Assigning the result anywhere else — `ys = collections::append(xs, x)` — builds a
+new list. The result is the same either way.
 
 `append` has no index to range-check and no lookup to miss, so it raises no
 error of its own. Building the result needs memory, so it can raise

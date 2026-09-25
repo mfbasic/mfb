@@ -291,4 +291,104 @@ mod tests {
             "send must accept a String payload"
         );
     }
+
+    /// bug-608: every member's declared errors, per overload, are exactly the errors its
+    /// lowering can raise. The Errors table on `mfb man udp <member>` is rendered from
+    /// these lists, so an empty list on a raising member is a page claiming the call never
+    /// fails. Raise sites: `gen_io.rs` (`lower_net_bind_udp_helper`,
+    /// `lower_net_receive_from_helper`, `lower_net_send_to_helper` — `ErrInvalidArgument`
+    /// only on the byte form, bug-497), `os/socket/poll.rs` (`lower_net_poll_helper`,
+    /// `lower_net_poll_list_helper`, `lower_net_set_timeout_helper`) and
+    /// `os/socket/shared.rs:lower_net_address_helper`. Spelled in the order `tcp`'s
+    /// descriptors use for the same helpers.
+    #[test]
+    fn members_declare_the_errors_they_raise() {
+        let cases: &[(&str, &[&[&str]])] = &[
+            (
+                "udp.bind",
+                &[&["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory"]],
+            ),
+            (
+                "udp.receive",
+                &[&[
+                    "ErrAddressInvalid",
+                    "ErrInvalidArgument",
+                    "ErrMessageTooLarge",
+                    "ErrNetworkFailed",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrTimeout",
+                ]],
+            ),
+            (
+                "udp.send",
+                &[
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrMessageTooLarge",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrMessageTooLarge",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ],
+            ),
+            (
+                "udp.poll",
+                &[
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ],
+            ),
+            (
+                "udp.close",
+                &[&["ErrResourceClosed", "ErrResourceMoved", "ErrCloseFailed"]],
+            ),
+            (
+                "udp.localAddress",
+                &[&["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"]],
+            ),
+            (
+                "udp.setReadTimeout",
+                &[&["ErrInvalidArgument", "ErrResourceClosed"]],
+            ),
+            (
+                "udp.setWriteTimeout",
+                &[&["ErrInvalidArgument", "ErrResourceClosed"]],
+            ),
+        ];
+        assert_eq!(
+            cases.len(),
+            registry()
+                .resolve_package("udp")
+                .expect("udp")
+                .functions()
+                .len(),
+            "every public member is listed"
+        );
+        for (member, expected) in cases {
+            let function = registry().resolve_func(member).expect(member).function;
+            let declared: Vec<Vec<&str>> = function
+                .implementations
+                .iter()
+                .map(|implementation| implementation.errors.clone())
+                .collect();
+            let expected: Vec<Vec<&str>> = expected.iter().map(|errors| errors.to_vec()).collect();
+            assert_eq!(declared, expected, "{member} declared errors per overload");
+        }
+    }
 }

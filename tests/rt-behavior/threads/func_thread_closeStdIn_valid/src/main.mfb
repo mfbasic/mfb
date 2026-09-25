@@ -7,8 +7,8 @@ IMPORT stdin_workers
 ' auto-unsubscribe of a subscribed worker that exits without reading. No stdin is
 ' read, so the result is deterministic regardless of what stdin holds.
 FUNC main AS Integer
-  LET w1 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 21, 1, 1)
-  LET w2 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 100, 1, 1)
+  RES w1 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 21, 1, 1)
+  RES w2 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 100, 1, 1)
   thread::openStdIn(w1)
   thread::openStdIn(w2)
   thread::closeStdIn(w1)

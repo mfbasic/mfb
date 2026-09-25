@@ -1,0 +1,8 @@
+' os::userHomePath takes at most one String (`relative`, default "").
+IMPORT os
+
+FUNC main() AS Integer
+  LET wrongType AS String = os::userHomePath(1)
+  LET wrongArity AS String = os::userHomePath("a", "b")
+  RETURN 0
+END FUNC

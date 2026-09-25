@@ -47,8 +47,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "pubWorker" }, { "kind": "number", "value": "10" }] }, "line": 23 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "#c2515768f1aa7dc6$privWorker" }, { "kind": "number", "value": "20" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "pubWorker" }, { "kind": "number", "value": "10" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "#c2515768f1aa7dc6$privWorker" }, { "kind": "number", "value": "20" }] }, "line": 24 },
       { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 25 }
       ]
     }

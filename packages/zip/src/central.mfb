@@ -1,0 +1,392 @@
+' ---------------------------------------------------------------------------
+' zip/central.mfb — finding and parsing the central directory.
+'
+' This is where the package's correctness risk is concentrated, because every
+' number here comes out of the archive's own bytes and several of them are then
+' used as offsets to read more of it. The rule the whole file follows: an offset
+' or length read from the archive is bounds-checked against `sizeOf(source)`
+' BEFORE it is handed to `readAt`. `readAt` re-checks as a backstop, but a
+' parser that leans on the backstop is one that reports "read out of range"
+' where it should report "this archive's central directory claims to start past
+' its own end".
+'
+' Finding the end-of-central-directory record is the one genuinely awkward step
+' in the format: the record ends with a variable-length comment, so its position
+' is not recorded anywhere and has to be found by scanning backwards. A
+' signature match alone is not enough -- the comment, or an entry's compressed
+' data, can contain the four signature bytes -- so a candidate is accepted only
+' when its declared comment length lands exactly at the end of the archive.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+
+' The most bytes an end-of-central-directory record can occupy: the 22-byte
+' record plus the largest comment its 16-bit length field can describe.
+PRIVATE LET MAX_EOCD_SPAN AS Integer = 65557
+PRIVATE LET EOCD_FIXED AS Integer = 22
+PRIVATE LET ZIP64_LOCATOR_SIZE AS Integer = 20
+PRIVATE LET ZIP64_EOCD_SIZE AS Integer = 56
+PRIVATE LET CENTRAL_FIXED AS Integer = 46
+
+' A cap on the central directory alone, independent of the archive's size. No
+' real archive's metadata approaches 256 MiB, and without a cap a corrupt size
+' field turns `open` into an unbounded allocation.
+PRIVATE LET MAX_CENTRAL_BYTES AS Integer = 268435456
+
+' Where the central directory is, and how many entries it holds.
+PRIVATE TYPE Directory
+  offset AS Integer
+  size AS Integer
+  count AS Integer
+  comment AS String
+END TYPE
+
+' Parse `source` into an `Archive`.
+FUNC parseArchive(source AS Source) AS Archive
+  LET total AS Integer = sizeOf(source)
+  IF total < EOCD_FIXED THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(total) & " bytes is too short to be an archive")
+  END IF
+  LET directory AS Directory = locateDirectory(source, total)
+  RETURN Archive[source, parseEntries(source, directory, total), directory.comment]
+END FUNC
+
+' Find the end-of-central-directory record and, if present, the ZIP64 records
+' that supersede its fields.
+PRIVATE FUNC locateDirectory(source AS Source, total AS Integer) AS Directory
+  LET span AS Integer = minOf(total, MAX_EOCD_SPAN)
+  LET tailStart AS Integer = total - span
+  LET tail AS List OF Byte = readAt(source, tailStart, span)
+
+  LET eocd AS Integer = findEocd(tail, span)
+  IF eocd < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: no end-of-central-directory record")
+  END IF
+
+  IF u16le(tail, eocd + 4) <> 0 OR u16le(tail, eocd + 6) <> 0 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: multi-disk archives are not supported")
+  END IF
+
+  MUT count AS Integer = u16le(tail, eocd + 10)
+  MUT size AS Integer = u32le(tail, eocd + 12)
+  MUT offset AS Integer = u32le(tail, eocd + 16)
+  LET commentLength AS Integer = u16le(tail, eocd + 20)
+  LET comment AS String = decodeComment(collections::mid(tail, eocd + EOCD_FIXED, commentLength))
+
+  ' A ZIP64 locator sits immediately before the EOCD when the archive needs
+  ' 64-bit fields. Its absence is normal, not an error.
+  LET locator AS Integer = eocd - ZIP64_LOCATOR_SIZE
+  IF locator >= 0 AND u32le(tail, locator) = 117853008 THEN
+    IF u32le(tail, locator + 4) <> 0 THEN
+      FAIL error(errorCode::ErrUnsupported, "zip: multi-disk archives are not supported")
+    END IF
+    LET recordAt AS Integer = u64le(tail, locator + 8)
+    IF recordAt < 0 OR recordAt + ZIP64_EOCD_SIZE > total THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: ZIP64 end-of-central-directory record at " & toString(recordAt) & " is outside a " & toString(total) & "-byte archive")
+    END IF
+    LET record AS List OF Byte = readAt(source, recordAt, ZIP64_EOCD_SIZE)
+    IF u32le(record, 0) <> 101075792 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: ZIP64 locator does not point at a ZIP64 end-of-central-directory record")
+    END IF
+    IF u32le(record, 16) <> 0 OR u32le(record, 20) <> 0 THEN
+      FAIL error(errorCode::ErrUnsupported, "zip: multi-disk archives are not supported")
+    END IF
+    count = u64le(record, 32)
+    size = u64le(record, 40)
+    offset = u64le(record, 48)
+  END IF
+
+  IF count < 0 OR size < 0 OR offset < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: central directory has a negative count, size or offset")
+  END IF
+  IF size > MAX_CENTRAL_BYTES THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: central directory of " & toString(size) & " bytes exceeds the " & toString(MAX_CENTRAL_BYTES) & "-byte limit")
+  END IF
+  IF offset + size > total THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: central directory at " & toString(offset) & " + " & toString(size) & " bytes runs past a " & toString(total) & "-byte archive")
+  END IF
+  RETURN Directory[offset, size, count, comment]
+END FUNC
+
+' The index in `tail` of the end-of-central-directory record, or -1.
+'
+' Scanned backwards so the LAST plausible record wins, and a candidate counts
+' only when its comment length lands exactly at the end of the archive -- which
+' is what distinguishes the real record from the same four bytes appearing
+' inside a comment or inside compressed data.
+PRIVATE FUNC findEocd(tail AS List OF Byte, span AS Integer) AS Integer
+  MUT at AS Integer = span - EOCD_FIXED
+  WHILE at >= 0
+    IF u32le(tail, at) = 101010256 THEN
+      LET commentLength AS Integer = u16le(tail, at + 20)
+      IF at + EOCD_FIXED + commentLength = span THEN
+        RETURN at
+      END IF
+    END IF
+    at = at - 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' The archive comment. A comment is bytes, not text: the format does not say
+' how it is encoded, so an unreadable one becomes the empty string rather than
+' failing an otherwise-valid archive.
+PRIVATE FUNC decodeComment(bytes AS List OF Byte) AS String
+  IF len(bytes) = 0 THEN
+    RETURN ""
+  END IF
+  LET decoded AS String = encoding::utf8Decode(bytes) TRAP(e)
+    RECOVER cp437Decode(bytes)
+  END TRAP
+  RETURN decoded
+END FUNC
+
+' Walk the central directory and build one `Entry` per header.
+PRIVATE FUNC parseEntries(source AS Source, directory AS Directory, total AS Integer) AS List OF Entry
+  IF directory.count = 0 THEN
+    RETURN []
+  END IF
+  LET cd AS List OF Byte = readAt(source, directory.offset, directory.size)
+  MUT entries AS List OF Entry = []
+  MUT at AS Integer = 0
+  MUT seen AS Integer = 0
+  WHILE seen < directory.count
+    IF at + CENTRAL_FIXED > len(cd) THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: central directory ends after " & toString(seen) & " of " & toString(directory.count) & " entries")
+    END IF
+    IF u32le(cd, at) <> 33639248 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry " & toString(seen) & " has no central directory signature")
+    END IF
+    LET nameLength AS Integer = u16le(cd, at + 28)
+    LET extraLength AS Integer = u16le(cd, at + 30)
+    LET commentLength AS Integer = u16le(cd, at + 32)
+    LET headerEnd AS Integer = at + CENTRAL_FIXED + nameLength + extraLength + commentLength
+    IF headerEnd > len(cd) THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry " & toString(seen) & " runs past the central directory")
+    END IF
+    entries = collections::append(entries, parseOne(cd, at, nameLength, extraLength, commentLength, total))
+    at = headerEnd
+    seen = seen + 1
+  END WHILE
+  ' The declared directory size must be exactly what the declared number of
+  ' entries occupies. When it is not, the archive contradicts itself: the bytes
+  ' left over are either a header this reader would skip or a header that is
+  ' not there at all, and another reader walking the directory by SIZE rather
+  ' than by COUNT would see a different set of entries. There is no safe way to
+  ' pick a winner, so the archive is refused.
+  IF at <> len(cd) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: central directory declares " & toString(len(cd)) & " bytes but its " & toString(directory.count) & " entries occupy " & toString(at))
+  END IF
+  requireNoOverlap(entries)
+  RETURN entries
+END FUNC
+
+' Refuse an archive whose entries' data regions overlap.
+'
+' Two entries sharing bytes is a zip bomb's favourite shape: one compressed blob
+' referenced by thousands of central-directory records expands to an enormous
+' total from a tiny file. It is also a confusion vector, since which entry
+' "owns" a byte depends on which record a reader happens to follow.
+'
+' The check uses only what the central directory already provides, because
+' `open` must not read a local header per entry -- that is the whole reason a
+' file-backed archive is cheap to open. An entry's data therefore lies
+' somewhere in `[headerOffset, headerOffset + 30 + compressedSize)` at minimum;
+' the real region is larger by the name and extra-field lengths this does not
+' know. Using the minimum means every overlap reported here is a real one.
+PRIVATE SUB requireNoOverlap(entries AS List OF Entry)
+  IF len(entries) < 2 THEN
+    EXIT SUB
+  END IF
+  ' Sort the (offset, end) intervals by packing each into one Integer: an
+  ' archive is far smaller than 2^31, so the offset can carry the high half.
+  MUT packed AS List OF Integer = []
+  FOR EACH entry IN entries
+    packed = collections::append(packed, entry.headerOffset * 2147483648 + minimumSpan(entry))
+  NEXT
+  LET ordered AS List OF Integer = collections::sort(packed)
+  MUT previousEnd AS Integer = -1
+  FOR EACH item IN ordered
+    LET start AS Integer = item / 2147483648
+    LET span AS Integer = item MOD 2147483648
+    IF start < previousEnd THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: two entries' data regions overlap at " & toString(start))
+    END IF
+    previousEnd = start + span
+  NEXT
+END SUB
+
+' The fewest bytes an entry can occupy: its 30-byte local header and its
+' compressed data, with the name and extra fields unaccounted for.
+PRIVATE FUNC minimumSpan(entry AS Entry) AS Integer
+  RETURN 30 + entry.compressedSize
+END FUNC
+
+PRIVATE FUNC parseOne(cd AS List OF Byte, at AS Integer, nameLength AS Integer, extraLength AS Integer, commentLength AS Integer, total AS Integer) AS Entry
+  LET madeBy AS Integer = u16le(cd, at + 4)
+  LET flags AS Integer = u16le(cd, at + 8)
+  LET method AS Integer = u16le(cd, at + 10)
+  LET dosTime AS Integer = u16le(cd, at + 12)
+  LET dosDate AS Integer = u16le(cd, at + 14)
+  LET crc AS Integer = u32le(cd, at + 16)
+  MUT compressedSize AS Integer = u32le(cd, at + 20)
+  MUT size AS Integer = u32le(cd, at + 24)
+  LET externalAttributes AS Integer = u32le(cd, at + 38)
+  MUT headerOffset AS Integer = u32le(cd, at + 42)
+
+  LET nameAt AS Integer = at + CENTRAL_FIXED
+  LET nameBytes AS List OF Byte = collections::mid(cd, nameAt, nameLength)
+  LET extra AS List OF Byte = collections::mid(cd, nameAt + nameLength, extraLength)
+  LET commentBytes AS List OF Byte = collections::mid(cd, nameAt + nameLength + extraLength, commentLength)
+
+  ' ZIP64 replaces exactly those fields that were written as all-ones, in a
+  ' fixed order, so which values the extra field carries depends on which of
+  ' the 32-bit fields overflowed.
+  LET zip64 AS List OF Byte = findExtra(extra, 1)
+  IF len(zip64) > 0 THEN
+    MUT cursor AS Integer = 0
+    IF size = 4294967295 THEN
+      size = u64le(zip64, cursor)
+      cursor = cursor + 8
+    END IF
+    IF compressedSize = 4294967295 THEN
+      compressedSize = u64le(zip64, cursor)
+      cursor = cursor + 8
+    END IF
+    IF headerOffset = 4294967295 THEN
+      headerOffset = u64le(zip64, cursor)
+      cursor = cursor + 8
+    END IF
+  END IF
+
+  IF size < 0 OR compressedSize < 0 OR headerOffset < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry has a negative size or offset")
+  END IF
+  IF headerOffset >= total THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry's local header at " & toString(headerOffset) & " is outside a " & toString(total) & "-byte archive")
+  END IF
+
+  LET name AS String = decodeName(nameBytes, flags)
+  LET isDirectory AS Boolean = endsWithSlash(nameBytes)
+  ' The mode is only meaningful when a Unix-like host wrote the archive; on
+  ' every other host the external attributes are DOS attribute bits.
+  MUT mode AS Integer = 0
+  IF (madeBy / 256) = 3 THEN
+    mode = externalAttributes / 65536
+  END IF
+
+  RETURN Entry[ _
+    name, isDirectory, method, size, compressedSize, crc, _
+    modifiedSecondsOf(dosTime, dosDate, extra), mode, _
+    decodeComment(commentBytes), headerOffset, flags _
+  ]
+END FUNC
+
+' The name, decoded the way the archive says it is encoded.
+'
+' General-purpose flag bit 11 declares UTF-8 (APPNOTE §4.4.4). Without it the
+' name is CP437, which is why this package carries that table.
+FUNC decodeName(nameBytes AS List OF Byte, flags AS Integer) AS String
+  IF len(nameBytes) = 0 THEN
+    RETURN ""
+  END IF
+  ' A zip name is a counted field, not a NUL-terminated string, so a NUL inside
+  ' one is not a terminator -- it is a byte no filesystem will accept. Readers
+  ' disagree about what to do with it: Python truncates there, inventing a
+  ' shorter name, while keeping it produces a name nothing can create. Both
+  ' answers let two tools disagree about what the entry is called, so the entry
+  ' is refused instead.
+  FOR EACH b IN nameBytes
+    IF toInt(b) = 0 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry name contains a NUL byte")
+    END IF
+  NEXT
+  IF (flags / 2048) MOD 2 = 1 THEN
+    LET decoded AS String = encoding::utf8Decode(nameBytes) TRAP(e)
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry name is declared UTF-8 but is not valid UTF-8")
+    END TRAP
+    RETURN decoded
+  END IF
+  RETURN cp437Decode(nameBytes)
+END FUNC
+
+PRIVATE FUNC endsWithSlash(nameBytes AS List OF Byte) AS Boolean
+  IF len(nameBytes) = 0 THEN
+    RETURN FALSE
+  END IF
+  RETURN toInt(collections::get(nameBytes, len(nameBytes) - 1)) = 47
+END FUNC
+
+' The modification time as seconds since the Unix epoch.
+'
+' The base format stores DOS date and time: 2-second granularity, no time zone,
+' no year before 1980. The extended-timestamp extra field (0x5455) carries a
+' real 32-bit Unix time when the writer recorded one, so it wins where present.
+PRIVATE FUNC modifiedSecondsOf(dosTime AS Integer, dosDate AS Integer, extra AS List OF Byte) AS Integer
+  LET extended AS List OF Byte = findExtra(extra, 21589)
+  IF len(extended) >= 5 THEN
+    ' Byte 0 is a flag set; bit 0 means a modification time follows.
+    IF toInt(collections::get(extended, 0)) MOD 2 = 1 THEN
+      RETURN u32le(extended, 1)
+    END IF
+  END IF
+  LET second AS Integer = (dosTime MOD 32) * 2
+  LET minute AS Integer = (dosTime / 32) MOD 64
+  LET hour AS Integer = dosTime / 2048
+  LET day AS Integer = dosDate MOD 32
+  LET month AS Integer = (dosDate / 32) MOD 16
+  LET year AS Integer = (dosDate / 512) + 1980
+  IF month < 1 OR month > 12 OR day < 1 OR day > 31 THEN
+    RETURN 0
+  END IF
+  RETURN daysFromCivil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
+END FUNC
+
+' Days since 1970-01-01 for a proleptic Gregorian date.
+'
+' Howard Hinnant's `days_from_civil`, which is exact for every date this format
+' can express and needs no calendar library. Zip dates start at 1980, so the
+' negative-year branch of the original is not reachable and is not written.
+PRIVATE FUNC daysFromCivil(year AS Integer, month AS Integer, day AS Integer) AS Integer
+  MUT y AS Integer = year
+  IF month <= 2 THEN
+    y = y - 1
+  END IF
+  LET era AS Integer = y / 400
+  LET yoe AS Integer = y - era * 400
+  MUT mp AS Integer = month - 3
+  IF month <= 2 THEN
+    mp = month + 9
+  END IF
+  LET doy AS Integer = (153 * mp + 2) / 5 + day - 1
+  LET doe AS Integer = yoe * 365 + (yoe / 4) - (yoe / 100) + doy
+  RETURN era * 146097 + doe - 719468
+END FUNC
+
+' The data of the extra field with header id `wanted`, or an empty list.
+PRIVATE FUNC findExtra(extra AS List OF Byte, wanted AS Integer) AS List OF Byte
+  MUT at AS Integer = 0
+  WHILE at + 4 <= len(extra)
+    LET headerId AS Integer = u16le(extra, at)
+    LET dataSize AS Integer = u16le(extra, at + 2)
+    IF at + 4 + dataSize > len(extra) THEN
+      ' A malformed extra field is not a malformed archive: readers are
+      ' expected to skip what they cannot parse (APPNOTE §4.5.1).
+      RETURN []
+    END IF
+    IF headerId = wanted THEN
+      RETURN collections::mid(extra, at + 4, dataSize)
+    END IF
+    at = at + 4 + dataSize
+  END WHILE
+  RETURN []
+END FUNC
+
+PRIVATE FUNC minOf(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN
+    RETURN a
+  END IF
+  RETURN b
+END FUNC

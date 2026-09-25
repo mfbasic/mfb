@@ -15,9 +15,9 @@ use crate::codegen::registry::AbiCtx;
 use crate::codegen::runtime::thread::{
     lower_thread_start_helper, lower_thread_stdin_subscription_helper, simple_thread_handle_helper,
     thread_is_cancelled_helper, thread_queue_read_helper, thread_queue_write_helper,
-    ThreadBodyParts, ThreadReadMode, ThreadSimpleOp, THREAD_OFFSET_INBOUND_QUEUE,
-    THREAD_OFFSET_OUTBOUND_QUEUE, THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
-    THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
+    ThreadBodyParts, ThreadReadMode, ThreadSimpleOp, CONTROL_OFFSET_INBOUND_QUEUE,
+    CONTROL_OFFSET_OUTBOUND_QUEUE, CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE,
+    CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE,
 };
 use crate::types::ParameterType;
 
@@ -56,17 +56,6 @@ pub(crate) fn lower_start(
     Ok(finish(builder, parts, ctx.call))
 }
 
-/// bug-622: the sizes `thread.drop` frees a finished thread's plumbing with — the worker
-/// arena state block `thread::start` sized from the same `AbiCtx::arena_global_slots`.
-fn thread_release(ctx: &AbiCtx) -> crate::codegen::runtime::thread::ThreadRelease {
-    crate::codegen::runtime::thread::ThreadRelease {
-        worker_arena_size: crate::codegen::runtime::thread::worker_arena_state_size(
-            ctx.arena_global_slots,
-        ),
-        debug_arena_registry: ctx.debug_arena_registry,
-    }
-}
-
 /// `thread::isRunning`.
 pub(crate) fn lower_is_running(
     builder: &mut CodeBuilder,
@@ -77,7 +66,6 @@ pub(crate) fn lower_is_running(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::IsRunning,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -94,7 +82,6 @@ pub(crate) fn lower_wait_for(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::WaitFor,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -114,13 +101,7 @@ pub(crate) fn lower_cancel(
     } else {
         ThreadSimpleOp::Cancel
     };
-    let parts = simple_thread_handle_helper(
-        &symbol,
-        op,
-        thread_release(ctx),
-        ctx.platform_imports,
-        ctx.platform,
-    )?;
+    let parts = simple_thread_handle_helper(&symbol, op, ctx.platform_imports, ctx.platform)?;
     Ok(finish(builder, parts, ctx.call))
 }
 
@@ -134,7 +115,6 @@ pub(crate) fn lower_poll(
     let parts = simple_thread_handle_helper(
         &symbol,
         ThreadSimpleOp::Poll,
-        thread_release(ctx),
         ctx.platform_imports,
         ctx.platform,
     )?;
@@ -160,9 +140,9 @@ pub(crate) fn lower_send(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let (queue_offset, parent_send) = if ctx.call == "thread.emit" {
-        (THREAD_OFFSET_OUTBOUND_QUEUE, false)
+        (CONTROL_OFFSET_OUTBOUND_QUEUE, false)
     } else {
-        (THREAD_OFFSET_INBOUND_QUEUE, true)
+        (CONTROL_OFFSET_INBOUND_QUEUE, true)
     };
     let parts = thread_queue_write_helper(
         &symbol,
@@ -183,9 +163,9 @@ pub(crate) fn lower_receive(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let (queue_offset, mode) = if ctx.call == "thread.read" {
-        (THREAD_OFFSET_OUTBOUND_QUEUE, ThreadReadMode::Parent)
+        (CONTROL_OFFSET_OUTBOUND_QUEUE, ThreadReadMode::Parent)
     } else {
-        (THREAD_OFFSET_INBOUND_QUEUE, ThreadReadMode::WorkerSelf)
+        (CONTROL_OFFSET_INBOUND_QUEUE, ThreadReadMode::WorkerSelf)
     };
     let parts = thread_queue_read_helper(
         &symbol,
@@ -207,9 +187,9 @@ pub(crate) fn lower_transfer(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let (queue_offset, parent_send) = if ctx.call == "thread.emitResource" {
-        (THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE, false)
+        (CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE, false)
     } else {
-        (THREAD_OFFSET_RESOURCE_INBOUND_QUEUE, true)
+        (CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE, true)
     };
     let parts = thread_queue_write_helper(
         &symbol,
@@ -232,12 +212,12 @@ pub(crate) fn lower_accept(
     let symbol = builder.current_symbol.clone();
     let (queue_offset, mode) = if ctx.call == "thread.readResource" {
         (
-            THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
+            CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE,
             ThreadReadMode::Parent,
         )
     } else {
         (
-            THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
+            CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE,
             ThreadReadMode::WorkerSelf,
         )
     };

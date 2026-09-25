@@ -1,0 +1,31 @@
+IMPORT io
+
+' A top-level MUT is module state (spec language/bindings-and-scope,
+' "Module-level state"). Any FUNC or SUB in the file may reassign it, and the
+' new value is what every later read, in any function, observes.
+
+MUT test = 1
+
+SUB bump()
+  test = test + 10
+END SUB
+
+FUNC setTo(v AS Integer) AS Integer
+  test = v
+  RETURN test
+END FUNC
+
+FUNC readTest() AS Integer
+  RETURN test
+END FUNC
+
+SUB main()
+  io::print("start " & toString(test))
+  test = 2
+  io::print("main assign " & toString(test))
+  bump()
+  io::print("after SUB " & toString(test))
+  LET r = setTo(5)
+  io::print("FUNC returned " & toString(r) & ", global " & toString(test))
+  io::print("read from another FUNC " & toString(readTest()))
+END SUB

@@ -79,42 +79,31 @@ impl<'a> FileParser<'a> {
 
     /// The same normalization, in a position that is known to name a TYPE: a
     /// type annotation, a union variant, a `CASE` pattern, or a constructor
-    /// head. It additionally de-qualifies an imported USER package's type.
+    /// head. It additionally canonicalizes an imported USER package's type.
     ///
-    /// An imported user type's declared identity is the BARE leaf. The package
-    /// compiled that type as a local name, `merge_packages` carries the name
-    /// through unchanged, and `resolver::packages::install_package_type_names`
-    /// installs it bare on purpose ("bare imported type names are the
-    /// established convention, not a leniency"). Leaving `pkg.Leaf` standing
-    /// made the qualified spelling name a type nothing else knows: the
-    /// annotation parsed and the import resolved, and then the field table
-    /// missed — `n.field` typed `Unknown` (`TYPE_UNKNOWN_VALUE`), or, where an
-    /// `Unknown` argument was accepted, the field-access lowering failed with
-    /// `native code field access target 'pkg.Leaf' is not a record or variant`.
-    /// Only a fully INFERRED binding worked, because inference copies the
-    /// callee's own bare spelling — so an exported record was readable exactly
-    /// when nobody wrote its name.
+    /// bug-632: an imported user type's identity is PACKAGE-QUALIFIED —
+    /// `<package>.<Name>`, spelled with the package name, never the import
+    /// binding — exactly as a built-in package's value type is (bug-480
+    /// Phase 4b: `net.PingStatus`). `binding::A` therefore becomes `<package>.A`.
+    /// This used to de-qualify to the bare leaf (`8f0ebfeb8`), which made the
+    /// consumer's `ov::A` indistinguishable from its own `A` and from another
+    /// package's `A` everywhere downstream. The imported package's declarations,
+    /// signatures and IR are qualified to the same spelling where the `.mfp` is
+    /// read, so both sides name one type.
     ///
-    /// Built-in packages are the other way round: their value types ARE
-    /// package-qualified (bug-480 Phase 4b), so `normalize_qualified_builtin_type`
-    /// answers for them first and this never reaches them. A name under a
-    /// built-in binding that the registry did not resolve is not one of that
-    /// package's types at all, and stays qualified so name resolution reports
-    /// the spelling the author wrote.
+    /// Built-in packages are answered first by `normalize_qualified_builtin_type`
+    /// and never reach the user-package arm. A name under a built-in binding that
+    /// the registry did not resolve is not one of that package's types at all,
+    /// and stays as written so name resolution reports it.
     ///
     /// This is the type-position form deliberately: the plain qualified
-    /// identifier `pkg::name` is far more often a FUNCTION or a constant, and
-    /// de-qualifying that would rename the call target.
+    /// identifier `pkg::name` is far more often a FUNCTION or a constant, which
+    /// keeps its binding spelling for call resolution.
     ///
     /// The rewrite is gated on the package ACTUALLY EXPORTING the leaf
-    /// ([`package_exports_type`](Self::package_exports_type)). De-qualifying
-    /// unconditionally also swallowed `pkg::NoSuchType`, which then reached name
-    /// resolution as a bare `NoSuchType` and was reported as an unknown
-    /// top-level project type — naming neither the package nor the fact that it
-    /// was reached through an import, which is precisely the attribution bug-480
-    /// added (`tests/syntax/packages/package-unknown-member-invalid`). A name
-    /// the package does not export stays qualified, so
-    /// `resolve_package_qualified_name` reports it against the package.
+    /// ([`package_exports_type`](Self::package_exports_type)). A name the package
+    /// does not export stays as written, so `resolve_package_qualified_name`
+    /// reports it against the package (`tests/syntax/packages/package-unknown-member-invalid`).
     pub(super) fn normalize_qualified_type_name(&self, qualified: String) -> String {
         let normalized = self.normalize_qualified_builtin_type(qualified);
         let Some((binding, leaf)) = normalized.split_once('.') else {
@@ -129,7 +118,7 @@ impl<'a> FileParser<'a> {
             && !crate::codegen::builtins::is_builtin_import(package)
             && self.package_exports_type(package, leaf)
         {
-            return leaf.to_string();
+            return format!("{package}.{leaf}");
         }
         normalized
     }

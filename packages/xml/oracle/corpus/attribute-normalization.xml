@@ -1,0 +1,4 @@
+<doc>
+  <attrs tab="a	b" newline="a
+b" spaces="  a  b  " ref="a&#10;b" tabref="a&#9;b"/>
+</doc>

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-param-state-invalid
+  11 | END TYPE
+  12 | 
+  13 | SUB g(RES h AS fs::File STATE P)
+     | ^
+tests/syntax/resources/resource-param-state-invalid/src/main.mfb:13 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               Parameter `h` STATE type `P` must be a copyable, defaultable data type.
+[exit 1]

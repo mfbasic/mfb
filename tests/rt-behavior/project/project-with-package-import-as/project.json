@@ -8,7 +8,9 @@
     {
       "name": "package_import_as",
       "version": "=0.1.0",
-      "source": "file:packages/package_import_as.mfp"
+      "source": "file:packages/package_import_as.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

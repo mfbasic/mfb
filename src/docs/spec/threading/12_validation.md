@@ -46,9 +46,9 @@ Required coverage includes:
 - Compiler-generated `Thread`-handle drop on every exit path: scope exit, early
   return, reassignment, auto-trap, fail-trap, and returned-still-live
   (`thread-drop-cleanup`).
-- `thread::waitFor` retrieve-once semantics, including the
-  `ErrResourceClosed` error on a second retrieval (`func_thread_result_valid`,
-  `func_thread_waitFor_valid`).
+- `thread::waitFor` repeatable semantics: a second retrieval answers the same
+  result (`func_thread_result_valid`, `thread-waitfor-repeatable`), including
+  through a function the handle was lent to (`thread-borrow-on-pass`).
 - Per-builtin signature and diagnostic coverage via the `func_thread_*_valid` /
   `func_thread_*_invalid` test pairs (start, send, receive, emit, poll, read,
   waitFor, cancel, isRunning, isCancelled, transfer).

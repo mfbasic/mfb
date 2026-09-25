@@ -285,157 +285,6 @@ pub(crate) fn collect_value_used_locals(ops: &[NirOp], out: &mut HashSet<String>
     Collector { out }.visit_ops(ops);
 }
 
-/// plan-86 E: names of every binding `e = collections::get(L, i)` (or `getOr`)
-/// whose result is consumed READ-ONLY — `e` is used only (and at least once) as a
-/// `MATCH` scrutinee (`NirOp::Match { value: Local(e) }`), never stored/returned/
-/// mutated/address-taken — AND whose CONTAINER `L` is a plain Local that is
-/// immutable through the scope (bound at most once, never `Assign`ed/`StateAssign`ed,
-/// not address-taken). For such a binding, `get` may return an aliasing borrow into
-/// `L`'s inline element instead of a fresh `copy_flat_block` (the ~4M-copy/rep cost,
-/// `dispatch union`), and the binding registers no scope-drop free.
-///
-/// SOUNDNESS: a read-only borrow that outlives its container, or is freed, is a
-/// dangling read / double-free into the container's data region. So `L` must be
-/// immutable (a reassign frees `L`'s old block while `e` still points into it) and
-/// `e` must be read-only and never freed. The freeable-flat-non-String element gate
-/// is applied at codegen (a String `get` returns an OWNED fresh block, which keeps
-/// its copy + free); the copy-skip and the free-skip are gated on this same set.
-/// Conservative in the safe direction — any doubt drops the name (uses the
-/// exhaustive `NirVisitor` seam so a new escape route is a compile error).
-pub(crate) fn collect_borrow_get_locals(
-    ops: &[NirOp],
-    address_taken: &HashSet<String>,
-) -> HashSet<String> {
-    use nir::visit::{walk_op, walk_value, NirVisitor};
-    use std::collections::HashMap;
-    struct Collector {
-        get_container: HashMap<String, String>, // e  -> L   (get-bindings)
-        copy_src: HashMap<String, String>,      // m  -> src (Bind { value: Local(src) })
-        bind_counts: HashMap<String, usize>,
-        assigned: HashSet<String>,
-        total_reads: HashMap<String, usize>,
-        scrutinee_reads: HashMap<String, usize>,
-        // Reads of a local as the value of a `UnionExtract` — the MATCH's own
-        // read-only variant bindings (`n = UnionExtract($matchN)`), part of
-        // consuming the scrutinee, not an escape.
-        union_extract_reads: HashMap<String, usize>,
-    }
-    impl NirVisitor for Collector {
-        fn visit_op(&mut self, op: &NirOp) {
-            match op {
-                NirOp::Bind { name, value, .. } => {
-                    *self.bind_counts.entry(name.clone()).or_insert(0) += 1;
-                    match value {
-                        Some(NirValue::Call { target, args, .. })
-                            if matches!(
-                                crate::codegen::builtins::native_builtin_target(target),
-                                Some("get") | Some("getOr")
-                            ) =>
-                        {
-                            if let Some(NirValue::Local(container)) = args.first() {
-                                self.get_container.insert(name.clone(), container.clone());
-                            }
-                        }
-                        Some(NirValue::Local(src)) => {
-                            self.copy_src.insert(name.clone(), src.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                NirOp::Assign { name, .. } => {
-                    self.assigned.insert(name.clone());
-                }
-                NirOp::StateAssign { resource, .. } => {
-                    self.assigned.insert(resource.clone());
-                }
-                NirOp::Match {
-                    value: NirValue::Local(scrut),
-                    ..
-                } => {
-                    *self.scrutinee_reads.entry(scrut.clone()).or_insert(0) += 1;
-                }
-                _ => {}
-            }
-            walk_op(self, op);
-        }
-        fn visit_value(&mut self, value: &NirValue) {
-            match value {
-                NirValue::Local(name) => {
-                    *self.total_reads.entry(name.clone()).or_insert(0) += 1;
-                }
-                NirValue::UnionExtract { value: inner, .. } => {
-                    if let NirValue::Local(name) = inner.as_ref() {
-                        *self.union_extract_reads.entry(name.clone()).or_insert(0) += 1;
-                    }
-                }
-                _ => {}
-            }
-            walk_value(self, value);
-        }
-    }
-    let mut c = Collector {
-        get_container: HashMap::new(),
-        copy_src: HashMap::new(),
-        bind_counts: HashMap::new(),
-        assigned: HashSet::new(),
-        total_reads: HashMap::new(),
-        scrutinee_reads: HashMap::new(),
-        union_extract_reads: HashMap::new(),
-    };
-    c.visit_ops(ops);
-    let Collector {
-        get_container,
-        copy_src,
-        bind_counts,
-        assigned,
-        total_reads,
-        scrutinee_reads,
-        union_extract_reads,
-    } = c;
-    let reads = |n: &str| total_reads.get(n).copied().unwrap_or(0);
-    let scrut = |n: &str| scrutinee_reads.get(n).copied().unwrap_or(0);
-    let extract = |n: &str| union_extract_reads.get(n).copied().unwrap_or(0);
-    // `m` is a MATCH-scrutinee temp: used only by the MATCH — as its scrutinee (≥1)
-    // and as the value of the case `UnionExtract`s (its read-only variant bindings),
-    // nothing else. The IR desugars `MATCH e` into `$matchN = e; MATCH $matchN`, so
-    // the scrutinee is this temp, not `e`.
-    let is_match_temp =
-        |m: &str| scrut(m) >= 1 && reads(m) == scrut(m) + extract(m) && !address_taken.contains(m);
-    // Count the match-temp copy-binds `m = Local(src)` per source `src`.
-    let mut match_temp_binds_of: HashMap<&str, usize> = HashMap::new();
-    for (m, src) in &copy_src {
-        if is_match_temp(m) {
-            *match_temp_binds_of.entry(src.as_str()).or_insert(0) += 1;
-        }
-    }
-    // Container `L` is immutable through the scope (bound ≤1, never reassigned, not
-    // address-taken) — a reassign frees `L`'s old block while a borrow points into it.
-    let l_immutable = |l: &str| {
-        bind_counts.get(l).copied().unwrap_or(0) <= 1
-            && !assigned.contains(l)
-            && !address_taken.contains(l)
-    };
-    let mut result: HashSet<String> = HashSet::new();
-    // A get-binding `e = get(L, i)` is a read-only borrow when EVERY read of `e` is
-    // borrow-transparent — a direct MATCH scrutinee, or the value of a match-temp
-    // copy-bind `$matchN = e` — and `L` is immutable and `e` not address-taken.
-    for (e, l) in &get_container {
-        let transparent = scrut(e) + match_temp_binds_of.get(e.as_str()).copied().unwrap_or(0);
-        if reads(e) >= 1 && reads(e) == transparent && !address_taken.contains(e) && l_immutable(l)
-        {
-            result.insert(e.clone());
-        }
-    }
-    // A match-temp `$matchN = Local(e)` that copies a get-borrow `e` also borrows
-    // (aliases `e`), so the container element flows into `MATCH` with zero copies.
-    for (m, src) in &copy_src {
-        if is_match_temp(m) && result.contains(src) {
-            result.insert(m.clone());
-        }
-    }
-    result
-}
-
 /// Collect every local *read* (`Local`) in `value`, via the shared NIR value
 /// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
@@ -650,6 +499,65 @@ fn collect_assigned_locals(ops: &[NirOp], out: &mut HashSet<String>) {
         }
     }
     Collector { out }.visit_ops(ops);
+}
+
+/// plan-142-F: whether `ops` can write the local `name` — an `Assign` to it, or a
+/// by-reference capture of it (`LocalRef`, a `MUT` captured by a lambda) through
+/// which a callback may assign it. Anywhere in `ops`, nested blocks included.
+pub(crate) fn ops_write_local(ops: &[NirOp], name: &str) -> bool {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Finder<'a> {
+        name: &'a str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::Assign { name, .. } if name == self.name) {
+                self.found = true;
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            if matches!(value, NirValue::LocalRef { name, .. } if name == self.name) {
+                self.found = true;
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder { name, found: false };
+    finder.visit_ops(ops);
+    finder.found
+}
+
+/// plan-145-H: whether `ops` write the `STATE` of the handle `resource` — a
+/// `StateAssign` on it (`h.state = …`, `h.state.f = …`), or a by-reference capture
+/// of the handle, anywhere in them.
+pub(crate) fn ops_write_state(ops: &[NirOp], resource: &str) -> bool {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Finder<'a> {
+        resource: &'a str,
+        found: bool,
+    }
+    impl NirVisitor for Finder<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::StateAssign { resource, .. } if resource == self.resource) {
+                self.found = true;
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            if matches!(value, NirValue::LocalRef { name, .. } if name == self.resource) {
+                self.found = true;
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder {
+        resource,
+        found: false,
+    };
+    finder.visit_ops(ops);
+    finder.found
 }
 
 /// Mark every local read in a *materializing* position — anything other than a
@@ -897,6 +805,45 @@ pub(crate) fn scan_loop_locals(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// plan-147-D: which parameters a lowering OWNS, and the symbol it emits under.
+///
+/// A function lowers once as its base symbol with every parameter lent (the caller
+/// keeps the block, `None` here), and then once more per distinct owned-parameter
+/// mask that an approved call site asks for. A variant is a second lowering of the
+/// **same `NirFunction`**, so every span, `Error.source` stamp and line-table entry
+/// is identical to the base's — which is what keeps plan-147-A §2.3 row S11 true.
+///
+/// Inside a variant an owned parameter is an ordinary owned local: it gets an
+/// `ActiveCleanup::OwnedValue`, so it is freed on every exit unless moved out, and
+/// letter B's S11 can update it in place and hand the block on.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnedVariant {
+    /// Bit `i` set = parameter `i` is owned by this lowering.
+    pub(crate) mask: u64,
+    /// The symbol this lowering emits under.
+    pub(crate) symbol: String,
+}
+
+impl OwnedVariant {
+    /// The symbol a variant of `base` with `mask` emits under.
+    ///
+    /// `$` is the only separator monomorphization uses (`mangle_name`), and a
+    /// mangled segment is `[A-Za-z0-9_$]*` (`sanitize_type_name` maps everything
+    /// else to `$`). A lowercase segment IS reachable — a package prefix is
+    /// lowercase, so `own1f` is not structurally impossible as a type segment — so
+    /// this name is NOT assumed unique. `variant_symbol_is_fresh` asserts it against
+    /// the module's real symbol set instead, which fails loudly rather than
+    /// silently aliasing two functions.
+    pub(crate) fn symbol_for(base: &str, mask: u64) -> String {
+        format!("{base}$own{mask:x}")
+    }
+
+    /// Whether parameter `index` is owned by this lowering.
+    pub(crate) fn owns(&self, index: usize) -> bool {
+        index < 64 && self.mask & (1u64 << index) != 0
+    }
+}
+
 pub(crate) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
@@ -911,6 +858,9 @@ pub(crate) fn lower_function(
     // plan-118-D: the record types with their own `construct.T` function.
     synthesized_constructors: &HashSet<ParameterType>,
     type_model: TypeModel,
+    module_name: &str,
+    // plan-147-D: `None` is the base lowering (every parameter lent).
+    variant: Option<&OwnedVariant>,
 ) -> Result<CodeFunction, String> {
     let params = function
         .params
@@ -938,8 +888,13 @@ pub(crate) fn lower_function(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let base_symbol = nir::function_symbol(&function.name);
+    let emitted_symbol = match variant {
+        Some(variant) => variant.symbol.clone(),
+        None => base_symbol.clone(),
+    };
     let mut builder = CodeBuilder {
-        current_symbol: nir::function_symbol(&function.name),
+        current_symbol: emitted_symbol.clone(),
         function_symbols,
         functions,
         package_return_types,
@@ -963,9 +918,17 @@ pub(crate) fn lower_function(
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
+        element_updates: ElementUpdates::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        trap_ownership: Default::default(),
+        trap_owner_flags: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1005,6 +968,11 @@ pub(crate) fn lower_function(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
+        self_update_scratch_env: None,
+        field_pre_emit: None,
+        field_pre_emitted: None,
+        simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
@@ -1019,9 +987,15 @@ pub(crate) fn lower_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
+        string_app_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_app_resource_base_env: None,
+        module_name: module_name.to_string(),
     };
-    let mut thread_param_slots = Vec::new();
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
         builder.locals.insert(
@@ -1053,25 +1027,23 @@ pub(crate) fn lower_function(
             builder.emit(abi::store_u64(&scratch, abi::stack_pointer(), stack_offset));
             builder.reset_temporary_registers();
         }
-        // The TYPED NIR param, not the rendered `CodeParam` string beside it.
-        if CodeBuilder::is_thread_type(&function.params[index].type_) {
+        // plan-147-D: an owned parameter is an ordinary owned local. Registering the
+        // cleanup here — after the spill, so the slot genuinely holds the block —
+        // frees it on every exit (normal, error, trap route) unless it is moved out,
+        // and takes it out of `excluded_roots`'s "never bound" set so letter B's S11
+        // and `plan_returned_move` treat it as owned.
+        if variant.is_some_and(|variant| variant.owns(index)) {
             builder
                 .active_cleanups
-                .push(ActiveCleanup::Thread(ThreadCleanup {
-                    name: param.name.clone(),
-                    symbol: CodeBuilder::thread_drop_symbol(),
-                    close: true,
-                    release: true,
+                .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                    type_: function.params[index].type_.clone(),
+                    stack_offset,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
                 }));
-            thread_param_slots.push(stack_offset);
         }
-    }
-    // bug-622: a thread parameter is one more binding of the caller's handle — the caller
-    // keeps releasing its own (a moved argument stays readable) — so it takes an owner.
-    // Emitted after every parameter is spilled: the increment's scratch registers must not
-    // overwrite a parameter still waiting in its argument register.
-    for slot in thread_param_slots {
-        builder.emit_thread_owner_increment(slot);
     }
     if let Some(name) = function.body.iter().find_map(|op| match op {
         NirOp::Trap { name, .. } => Some(name.clone()),
@@ -1095,11 +1067,19 @@ pub(crate) fn lower_function(
             stack_offset,
         });
     }
+    // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2),
+    // and never given a string capacity shadow (below).
+    collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
+    // plan-146-G: which by-ref captures share their owner's capacity shadow —
+    // before the self-append prescan, which skips those (they need no slot here).
+    builder.prescan_string_shadow_env(&function.name);
+    builder.prescan_string_app_resource_base_env(&function.name);
     builder.prescan_string_self_appends(&function.body);
-    // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
-    collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
+    // plan-142-B: the scratch block the in-place shrink arms keep marks in.
+    builder.prescan_self_update_scratch(&function.name, &function.body);
+    builder.prescan_string_app_resource_base(&function.body);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.
@@ -1109,17 +1089,65 @@ pub(crate) fn lower_function(
             &builder.type_model,
         ),
     );
-    // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
-    builder.borrow_get_locals =
-        collect_borrow_get_locals(&function.body, &builder.address_taken_locals);
+    // plan-147-D: which call arguments this function may hand to the callee instead
+    // of lending (plan-147-C). Computed once here, like `move_sites` above, so the
+    // answer cannot depend on the order the builder reaches the ops in.
+    let owned_param_names: std::collections::HashSet<String> = function
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| variant.is_some_and(|variant| variant.owns(*index)))
+        .map(|(_, param)| param.name.clone())
+        .collect();
+    builder.handover = Some(
+        crate::codegen::engine::analysis::handover::collect_handover_args(
+            function,
+            &builder.type_model,
+            functions,
+            &owned_param_names,
+        ),
+    );
     // Small-vector locals that can live in registers for their whole lifetime with
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
         promotable_vector_locals(&function.body, &builder.address_taken_locals);
+    // plan-86 E, bug-689: `get` bindings that hold an alias into their container
+    // (needs address_taken above, and — for the element-bound ones — the promoted
+    // vectors, which never hold a block to alias).
+    let borrow_gets = {
+        let global_written = |ops: &[NirOp], global: &str| {
+            builder.ops_reach_store(
+                ops,
+                crate::codegen::engine::value::store_reach::StoreLeaf::Global(global),
+            )
+        };
+        crate::codegen::engine::analysis::borrow_get::collect_borrow_gets(
+            &function.body,
+            &builder.address_taken_locals,
+            &global_written,
+        )
+    };
+    builder.install_borrow_gets(borrow_gets);
     // plan-116-J: what each local holds, for the consuming-parameter deactivation. A
     // whole-function pre-pass rather than an incremental map built during lowering, so
     // it does not depend on the order the builder happens to reach the ops in.
     builder.resource_containment = crate::codegen::resource_containment(&function.body);
+    // bug-623 B: which resource bindings own their record, and the alias chains a
+    // returned union follows to its owner. A whole-function pre-pass, like the above.
+    let ownership = {
+        let record_type = |type_: &ParameterType| builder.record_freeable_type(type_);
+        crate::codegen::resource::cleanup::record_ownership::record_ownership(
+            function,
+            functions,
+            &record_type,
+        )
+    };
+    builder.record_owning_locals = ownership.owning_locals;
+    builder.resource_alias_sources = ownership.alias_sources;
+    builder.owned_list_owning_collections = ownership.owning_collections;
+    // bug-648: which inline-`TRAP` temps are handed borrowed values.
+    builder.trap_ownership =
+        crate::codegen::resource::cleanup::trap_ownership::collect_trap_ownership(&function.body);
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
@@ -1142,6 +1170,19 @@ pub(crate) fn lower_function(
         // per-function costs, and separating it from allocation is what says
         // whether a slow function is slow to *lower* or slow to *color*.
         let _span = crate::trace::span("emit ops");
+        // plan-156-E: a parameter that declares a thread view's STATE default-builds it
+        // when the view has none yet — the worker entry's own view arrives without one
+        // (the runtime builds the view, not its STATE); a view that already carries
+        // STATE is left alone. The same lazy init a `RES … STATE` binding runs.
+        for param in &function.params {
+            if let ParameterType::Stateful { base, state } = &param.type_ {
+                if matches!(**base, ParameterType::ThreadHandle { .. }) {
+                    if let Some(slot) = builder.locals.get(&param.name).map(|l| l.stack_offset) {
+                        builder.emit_resource_state_init(slot, state, &param.type_)?;
+                    }
+                }
+            }
+        }
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
             builder.emit_return_exit(None, None)?;
@@ -1252,8 +1293,11 @@ pub(crate) fn lower_function(
     );
 
     Ok(CodeFunction {
-        name: function.name.clone(),
-        symbol: nir::function_symbol(&function.name),
+        name: match variant {
+            Some(variant) => format!("{}$own{:x}", function.name, variant.mask),
+            None => function.name.clone(),
+        },
+        symbol: emitted_symbol,
         params,
         returns: function.returns.name().into_owned(),
         frame,
@@ -1391,6 +1435,7 @@ pub(crate) fn lower_abi_function_helper(
     string_symbols: &HashMap<String, String>,
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
+    mouse_state_offset: Option<usize>,
     arena_global_slots: usize,
     uses_rng: bool,
     debug_arena_registry: bool,
@@ -1440,9 +1485,17 @@ pub(crate) fn lower_abi_function_helper(
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
+        element_updates: ElementUpdates::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        trap_ownership: Default::default(),
+        trap_owner_flags: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1475,6 +1528,11 @@ pub(crate) fn lower_abi_function_helper(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
+        self_update_scratch_env: None,
+        field_pre_emit: None,
+        field_pre_emitted: None,
+        simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
@@ -1489,7 +1547,14 @@ pub(crate) fn lower_abi_function_helper(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
+        string_app_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_app_resource_base_env: None,
+        module_name: String::new(),
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1513,6 +1578,7 @@ pub(crate) fn lower_abi_function_helper(
         module_name,
         term_state_offset,
         presentation_mode_offset,
+        mouse_state_offset,
         call,
         arena_global_slots,
         uses_rng,
@@ -1601,9 +1667,17 @@ pub(crate) fn lower_thread_copy_function(
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
+        element_updates: ElementUpdates::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         current_returns_param_borrow: false,
+        record_owning_locals: HashSet::new(),
+        resource_alias_sources: HashMap::new(),
+        owned_list_owning_collections: HashSet::new(),
+        trap_ownership: Default::default(),
+        trap_owner_flags: HashMap::new(),
+        live_resource_aliases: HashMap::new(),
+        live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
@@ -1636,6 +1710,11 @@ pub(crate) fn lower_thread_copy_function(
         for_each_iterable_state_fields: Vec::new(),
         for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        self_update_scratch: None,
+        self_update_scratch_env: None,
+        field_pre_emit: None,
+        field_pre_emitted: None,
+        simd_result_into: None,
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
@@ -1650,7 +1729,14 @@ pub(crate) fn lower_thread_copy_function(
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
         move_sites: None,
+        handover: None,
+        current_call_key: None,
+        args_updated_in_place: Vec::new(),
         current_op_key: None,
+        string_app_resource_base: None,
+        string_shadow_env: std::collections::HashMap::new(),
+        string_app_resource_base_env: None,
+        module_name: String::new(),
     };
 
     // Hand the source to the walker with this type's kind, and return its copy.

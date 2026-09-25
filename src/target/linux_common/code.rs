@@ -552,11 +552,17 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         })
     }
 
-    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+    fn app_mode_data_objects(
+        &self,
+        project_name: &str,
+        debug_hooks: bool,
+        // plan-94-D/E add their mouse data here when these backends land.
+        _uses_mouse: bool,
+    ) -> Vec<CodeDataObject> {
         self.arch.app().require_gtk();
         // The GTK bootstrap has no reporting hook of its own.
         let _ = debug_hooks;
-        gtk::app_mode_data_objects(project_name)
+        gtk::app_mode_data_objects(project_name, _uses_mouse)
     }
 
     fn emit_app_mode_reconcile(
@@ -572,6 +578,29 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         self.arch.app().require_gtk();
         gtk::emit_reconcile_seam(symbol, presentation_mode_offset, instructions, relocations);
         Some(Ok(()))
+    }
+
+    fn emit_app_window_sync(
+        &self,
+        symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // The `app` window members: schedule the window sync on the GTK main loop
+        // (g_idle_add; skipped headless, where no loop runs).
+        self.arch.app().require_gtk();
+        Some(gtk::emit_window_sync_seam(
+            symbol,
+            instructions,
+            relocations,
+            |ins, rel| self.emit_external_call("g_idle_add", symbol, platform_imports, ins, rel),
+        ))
+    }
+
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        self.arch.app().require_gtk();
+        gtk::window_data_objects()
     }
 
     fn emit_canvas_blit(
@@ -1655,6 +1684,8 @@ mod tests {
                 uses_term: false,
                 initial_mode: crate::codegen::engine::types::PresentationMode::Console,
                 uses_canvas: false,
+                uses_mouse: false,
+                uses_window: false,
                 debug_hooks: false,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
@@ -1663,7 +1694,7 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn data_objects() {
-            let _ = riscv64().app_mode_data_objects("demo", false);
+            let _ = riscv64().app_mode_data_objects("demo", false, false);
         }
 
         #[test]

@@ -8,7 +8,9 @@
     {
       "name": "package_fs_create_temp_file",
       "version": "=0.1.0",
-      "source": "file:packages/package_fs_create_temp_file.mfp"
+      "source": "file:packages/package_fs_create_temp_file.mfp",
+      "direct": true,
+      "requiredBy": []
     }
   ],
   "entry": "main",

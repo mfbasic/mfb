@@ -3767,7 +3767,7 @@ SUB main()\n\
     RECOVER \"x\"\n\
   END TRAP\n\
   io::print(env)\n\
-  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  RES t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
   LET out AS String = thread::waitFor(t) TRAP(e)\n\
     RECOVER \"thread-failed\"\n\
   END TRAP\n\
@@ -4882,7 +4882,7 @@ SUB main()\n\
   io::print(\"host=\" & toString(len(os::hostName()) > 0))\n\
   io::print(\"tmp=\" & toString(len(fs::tempDirectory()) > 0))\n\
   io::print(\"cwd=\" & toString(len(fs::currentDirectory()) > 0))\n\
-  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  RES t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
   LET out AS String = thread::waitFor(t) TRAP(e)\n\
     RECOVER \"thread-failed\"\n\
   END TRAP\n\
@@ -6644,6 +6644,62 @@ fn a_return_from_a_while_with_a_condition_temp_frees_every_block() {
     );
 }
 
+// ------------------------------------------------- bug-695: unbound resource temporaries
+
+/// bug-695: a resource produced straight into a container — never bound `RES` — is
+/// owned like a named binding in that position (spec 15.6) and closed once. Before the
+/// fix none of these was ever closed: each iteration leaked the record (and the open
+/// descriptor, or the running worker). Growth 0 between 50 and 100 iterations means
+/// every one of them was dropped, since the record is freed only after its close.
+#[cfg(unix)]
+#[test]
+fn a_resource_temporary_in_a_container_is_closed() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let file_shapes = [
+        (
+            "b695_list_append",
+            "    MUT pool AS List OF RES fs::File = []\n    pool = collections::append(pool, fs::openFile(\"{P}\"))\n    total = total + len(pool)\n",
+        ),
+        (
+            "b695_list_literal",
+            "    LET pool AS List OF RES fs::File = [fs::openFile(\"{P}\"), fs::openFile(\"{P}\")]\n    total = total + len(pool) - 1\n",
+        ),
+        (
+            "b695_record_literal",
+            "    LET h AS H = H[f := fs::openFile(\"{P}\")]\n    total = total + 1\n",
+        ),
+    ];
+    for (name, body) in file_shapes {
+        let body = body.replace("{P}", path);
+        let source = format!(
+            "IMPORT collections\nIMPORT fs\nIMPORT io\nTYPE H\n  f AS RES fs::File\nEND TYPE\n\
+SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+        );
+        let grew = thread_loop_growth(name, &source, "total=50", "total=100");
+        assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
+    }
+    let thread_shapes = [
+        (
+            "b695_thread_pool",
+            "    MUT pool AS List OF RES Thread OF Integer TO Integer = []\n    pool = collections::append(pool, thread::start(work, 1))\n    total = total + len(pool)\n",
+        ),
+        (
+            "b695_thread_record",
+            "    LET h AS T = T[t := thread::start(work, 1)]\n    total = total + thread::waitFor(h.t)\n",
+        ),
+    ];
+    for (name, body) in thread_shapes {
+        let source = format!(
+            "IMPORT collections\nIMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
+TYPE T\n  t AS RES Thread OF Integer TO Integer\nEND TYPE\n\
+SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+        );
+        let grew = thread_loop_growth(name, &source, "total=50", "total=100");
+        assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
+    }
+}
+
 // ------------------------------------------------- bug-622: thread start + waitFor
 
 /// bug-622: a `thread::start` + `thread::waitFor` loop, measured on the `--debug` report's
@@ -6686,7 +6742,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6699,7 +6755,7 @@ ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS In
 SUB main()\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     WHILE thread::isRunning(t)\n      os::sleep(1)\n    END WHILE\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6712,7 +6768,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     LET r AS String = thread::waitFor(t)\n\
     total = total + len(r)\n\
     i = i + 1\n\
@@ -6726,7 +6782,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     total = total + len(thread::waitFor(t))\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6739,7 +6795,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     LET r AS String = thread::waitFor(t) TRAP(e)\n      RECOVER \"\"\n    END TRAP\n\
     total = total + len(r)\n\
     i = i + 1\n\
@@ -6760,7 +6816,7 @@ SUB main()\n\
   MUT count AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO TwNode = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO TwNode = thread::start(work, \"abc\")\n\
     LET r AS TwNode = thread::waitFor(t)\n\
     MATCH r\n      CASE TwEl(e)\n        count = count + len(e.kids)\n      CASE ELSE\n    END MATCH\n\
     i = i + 1\n\
@@ -6782,7 +6838,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO TwResult = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO TwResult = thread::start(work, \"abc\")\n\
     LET r AS TwResult = thread::waitFor(t)\n\
     total = total + len(r.title)\n\
     i = i + 1\n\
@@ -6801,7 +6857,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     LET m AS String = thread::receive(t)\n\
     total = total + len(m) + thread::waitFor(t)\n\
     i = i + 1\n\
@@ -6816,16 +6872,16 @@ const B622_TRAPPED_QUERY: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 SUB main()\n\
   MUT total AS Integer = 0\n\
-  MUT closed AS Integer = 0\n\
+  MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
-    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
-    IF isClosed THEN closed = closed + 1\n\
+    LET running AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER TRUE\n    END TRAP\n\
+    IF NOT running THEN done = done + 1\n\
     i = i + 1\n\
   END WHILE\n\
-  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+  io::print(\"total=\" & toString(total) & \" done=\" & toString(done))\n\
 END SUB\n";
 
 /// bug-622 Part B: once a thread has been waited for and its handle dropped, the parent arena
@@ -6846,8 +6902,8 @@ fn a_waited_for_thread_leaves_nothing_in_the_parent_arena() {
     );
 }
 
-/// A handle moved into a function that waits for it: the callee's parameter is the only owner,
-/// so the plumbing is freed once, by the callee's drop — the caller's must not run as well.
+/// A handle lent to a function that waits for it (plan-156-C: passing a thread lends it): the
+/// callee's parameter drops nothing, so the plumbing is freed once, by the caller's drop.
 const B622_MOVED_TO_CALLEE: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
@@ -6855,31 +6911,33 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + finish(t)\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
-/// A `MUT Thread` reassigned every pass: each reassignment drops the waited-for old handle.
+/// A `RES Thread` bound afresh every pass, plus one outside the loop: each pass's handle
+/// is dropped at the end of its pass. (plan-156-F: a `RES` binding is not reassigned, so
+/// this is what the former `MUT` reassignment is spelled as now.)
 const B622_REASSIGNED: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
-  MUT t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  RES first AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  total = total + thread::waitFor(first)\n\
   WHILE i < {N}\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
-    t = thread::start(work, \"abc\")\n\
     i = i + 1\n\
   END WHILE\n\
-  total = total + thread::waitFor(t)\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
 /// bug-622 Part B positive pins: the free happens exactly once whichever binding holds the
-/// handle last — a callee parameter it was moved into, or a `MUT` binding reassigned over it.
+/// handle last — a caller that lent it to a callee, or a binding per pass of a loop.
 /// A second drop of a freed block would show as a skipped double free or a wrong value.
 #[cfg(unix)]
 #[test]
@@ -6902,41 +6960,42 @@ fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
     );
 }
 
-/// One handle under two names: `t2` retrieves the result, then `t` is read again and must
-/// answer `ErrResourceClosed` from a live control block.
+/// One handle under two names: `RES t2 = t` moves it to `t2` (plan-156-F: a `RES` binding
+/// from another is a move), which retrieves the result and asks again for the same result
+/// (`waitFor` is repeatable, plan-156-C). Freed once, by `t2`'s drop.
 const B622_ALIAS: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 SUB main()\n\
   MUT total AS Integer = 0\n\
-  MUT closed AS Integer = 0\n\
+  MUT repeated AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
-    LET t2 AS Thread OF String TO Integer = t\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t2 AS Thread OF String TO Integer = t\n\
     total = total + thread::waitFor(t2)\n\
-    LET again AS Integer = thread::waitFor(t) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
-    IF again = 77030004 THEN closed = closed + 1\n\
+    LET again AS Integer = thread::waitFor(t2) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
+    IF again = 3 THEN repeated = repeated + 1\n\
     i = i + 1\n\
   END WHILE\n\
-  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+  io::print(\"total=\" & toString(total) & \" repeated=\" & toString(repeated))\n\
 END SUB\n";
 
-/// A handle passed to a function that waits for it, then read again by the caller.
+/// A handle lent to a function that waits for it, then read again by the caller: the caller
+/// still holds an open handle, and the thread is done.
 const B622_MOVED_REUSE: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
 SUB main()\n\
   MUT total AS Integer = 0\n\
-  MUT closed AS Integer = 0\n\
+  MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + finish(t)\n\
-    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
-    IF isClosed THEN closed = closed + 1\n\
+    IF NOT thread::isRunning(t) THEN done = done + 1\n\
     i = i + 1\n\
   END WHILE\n\
-  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+  io::print(\"total=\" & toString(total) & \" done=\" & toString(done))\n\
 END SUB\n";
 
 /// An inline `TRAP` on `thread::start`: the handle is bound once as the trap's value and
@@ -6944,7 +7003,7 @@ END SUB\n";
 const B622_INLINE_TRAP_START: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC once() AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
+  RES t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
   RETURN thread::waitFor(t)\n\
 END FUNC\n\
 SUB main()\n\
@@ -6957,18 +7016,17 @@ SUB main()\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
-/// A completed worker's handle, closed by the trap route of a `FAIL`, then read by the
-/// function's `TRAP` handler (`ErrResourceClosed` → -1).
+/// A completed worker's handle, dropped by the trap route of a `FAIL`. The handler cannot
+/// name it (`TYPE_USE_AFTER_MOVE`: a resource the route closed), so it answers -1 itself.
 const B622_TRAP_ROUTED: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC routed() AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
   WHILE thread::isRunning(t)\n    os::sleep(1)\n  END WHILE\n\
   FAIL error(77050002, \"forced\")\n\
   RETURN 0\n\
   TRAP(err)\n\
-    LET v AS Integer = thread::waitFor(t) TRAP(e2)\n      RECOVER -1\n    END TRAP\n\
-    RETURN v\n\
+    RETURN -1\n\
   END TRAP\n\
 END FUNC\n\
 SUB main()\n\
@@ -6981,11 +7039,10 @@ SUB main()\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
-/// bug-622: a handle more than one binding can read — an alias, a moved-from caller, the
-/// value binding of an inline `TRAP`, a function `TRAP` handler after the route closed it —
-/// stays readable (`ErrResourceClosed` from a live block, no crash, no skipped double free)
-/// and is still freed exactly once, when its last binding releases it. Freeing at the first
-/// drop crashed all four shapes (exit 139).
+/// bug-622: a handle more than one binding can reach — an alias, a caller that lent it, the
+/// value binding of an inline `TRAP`, a function whose `TRAP` route dropped it — stays
+/// readable while it is open (no crash, no skipped double free) and is freed exactly once.
+/// Freeing at the first drop crashed all four shapes (exit 139).
 #[cfg(unix)]
 #[test]
 fn a_shared_thread_handle_stays_readable_and_is_freed_once() {
@@ -6993,14 +7050,14 @@ fn a_shared_thread_handle_stays_readable_and_is_freed_once() {
         (
             "b622_alias",
             B622_ALIAS,
-            "total=150 closed=50",
-            "total=300 closed=100",
+            "total=150 repeated=50",
+            "total=300 repeated=100",
         ),
         (
             "b622_moved_reuse",
             B622_MOVED_REUSE,
-            "total=150 closed=50",
-            "total=300 closed=100",
+            "total=150 done=50",
+            "total=300 done=100",
         ),
         (
             "b622_inline_trap_start",
@@ -7076,8 +7133,8 @@ fn a_thread_result_copy_is_freed_by_its_owner() {
         (
             "b622_trapped_query",
             B622_TRAPPED_QUERY,
-            "total=150 closed=50",
-            "total=300 closed=100",
+            "total=150 done=50",
+            "total=300 done=100",
         ),
         ("b622_receive", B622_RECEIVE, "total=350", "total=700"),
     ] {

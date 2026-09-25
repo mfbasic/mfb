@@ -2,8 +2,9 @@
 //!
 //! `canvas` is the 2D drawing surface of `Mode.Canvas` (plan-98-A). Its model is a
 //! **retained scene**, not an immediate-mode command stream: a program builds a
-//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime keeps
-//! rendering that scene on vsync / resize / damage until the next `present`. This is
+//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime redraws
+//! that scene when it changes, on resize and on OS damage — never on a timer, and
+//! without waiting for the display — until the next `present`. This is
 //! a deliberate divergence from `term::`, which is ambient mutation plus a
 //! present-diff — a retained scene is what lets the runtime cache per-item geometry
 //! on a content hash and make a re-`present` of unchanged content free.
@@ -36,24 +37,33 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_blit_surface;
+mod func_carried_hashes;
 mod func_create_image;
 mod func_destroy_font;
 mod func_destroy_image;
 mod func_did_resize;
+mod func_enable_mouse;
 mod func_fill;
 mod func_fill_stroke;
+mod func_frame_nanos;
+mod func_geo_build;
+mod func_geo_cache;
 mod func_get_bytes;
+mod func_get_frame_stats;
 mod func_get_size;
 mod func_graphics;
 mod func_group_stats;
 mod func_handle_bridge;
 mod func_installed_items;
 mod func_installed_layers;
+mod func_item_hash;
 pub(crate) mod func_load_font;
 mod func_load_image;
 mod func_measure_text;
 mod func_metal_draw;
+mod func_metal_present;
 mod func_new_surface;
+mod func_poll_mouse;
 mod func_present;
 mod func_present_layers;
 mod func_publish_scene;
@@ -62,16 +72,23 @@ mod func_scene_hashes;
 mod func_set_bytes;
 mod func_set_group;
 mod func_stroke;
+mod func_system_fonts;
+mod func_wait_frame;
 mod gen_font;
 mod gen_font_table;
 mod gen_group;
 mod gen_image;
 mod gen_present;
+mod gen_system_fonts_linux;
+mod gen_system_fonts_macos;
+mod gen_system_fonts_shared;
+mod gen_system_fonts_windows;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_damage;
 mod helper_draw;
 mod helper_font;
+mod helper_font_name;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
@@ -82,6 +99,15 @@ mod helper_render;
 mod helper_shapes;
 mod helper_surface;
 mod scene_base;
+
+/// plan-94-A: the `MouseEvent` value record `canvas::pollMouse` returns.
+///
+/// `term` owns an independent record of the same name — deliberately, because
+/// `term::` is `Mode.Console`-gated and `canvas::` is `Mode.Canvas`-gated, so a
+/// canvas program must never have to `IMPORT term` to ask where the mouse is. The
+/// two differ in their coordinate prop: `term`'s is `row`/`column` cells, this one's
+/// is a `position AS Point` in surface pixels.
+pub(crate) const MOUSE_EVENT_TYPE: &str = "MouseEvent";
 
 /// The `Image` resource's bare type name, and the package-qualified id members
 /// spell in their signatures.
@@ -112,12 +138,34 @@ nothing, in any build. So a program still computes its palette before it ever
 presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
-installs it with `canvas::present`; the runtime keeps rendering that scene on
-vsync, resize and damage until the next `present`. `present` is therefore not a
+installs it with `canvas::present`; the runtime draws that scene, and draws it again
+only when the window is resized or uncovered, until the next `present`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
-and re-presenting an unchanged scene is a no-op. Animated content does call it
-every frame, which is why the runtime caches each item's geometry on a content
-hash: re-presenting an item that did not change is free.
+and re-presenting an unchanged scene publishes nothing, renders nothing and holds
+no memory. (It does still copy the scene once to compare it, so it is not free —
+it is bounded.) Animated content does call it every frame, which is why the
+runtime caches each item's geometry on a content hash: re-presenting an item that
+did not change is free.
+
+An item whose content *did* change costs one geometry build, and nothing beyond
+it. The cache holds a bounded number of entries and reuses the space an
+evicted entry took, so a program presenting items with new coordinates every
+frame reaches a steady memory size — set by how much is on screen, not by how
+long it has been running — and can animate indefinitely at that size.
+
+`present` **returns at once**; it never waits for the frame to be drawn. An animation
+loop that should run at the display's pace ends each iteration with
+`canvas::waitFrame`, and reads the time step to advance by from
+`canvas::getFrameStats().dt`:
+
+```
+DO WHILE running
+  LET s AS canvas::FrameStats = canvas::getFrameStats()
+  step(math::min(s.dt, MAX_STEP))
+  canvas::present(scene())
+  canvas::waitFrame()
+LOOP
+```
 
 `present` **copies the whole scene** — item fields, polygon point lists, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
@@ -201,6 +249,7 @@ pub(crate) fn register(r: &mut Registry) {
         "os",
         "fs",
         "encoding",
+        "bits",
     ]);
 
     // ---- Value types the items are built from -----------------------------
@@ -224,6 +273,140 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "y",
                 ty: ParameterType::Float,
                 description: "The vertical coordinate in pixels, increasing downward.",
+            },
+        ],
+    });
+
+    // plan-94-A: the mouse surface, in canvas pixels. `term::` carries an
+    // independent set of the same three types, and deliberately so: `term::` traps
+    // outside `Mode.Console` and `canvas::` outside `Mode.Canvas`, so a canvas
+    // program must never be made to `IMPORT term` to ask where the mouse is. Two
+    // small type sets cost a little duplication and keep `IMPORT` at zero bytes —
+    // the shape `term::didResize` / `canvas::didResize` already have.
+    //
+    // `position` is a `Point` rather than two bare `Float`s so an event hands
+    // straight to a hit test, and so every canvas coordinate is the same type.
+    // Being a record makes it an INLINED prop (its slot holds a block-relative
+    // offset, and the `Point` sub-block follows the fixed slots) — see
+    // `func_poll_mouse.rs`, which has to build that layout by hand.
+    pkg.add_record(RegistryRecord {
+        name: MOUSE_EVENT_TYPE,
+        export: true,
+        description: "One thing the mouse did, as reported by `canvas::pollMouse`. \
+                      Test `kind` against `canvas::MouseKind.None` first: that is \
+                      what an idle poll reports, and the rest of the record is \
+                      meaningless when it does.",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::named("MouseKind"),
+                description: "What happened — a press, a release, motion, a drag, or \
+                              a wheel turn. `None` when nothing is pending.",
+            },
+            RecordProp {
+                name: "button",
+                ty: ParameterType::named("MouseButton"),
+                description: "Which button the event is about. `None` for motion and \
+                              wheel events, which belong to no button.",
+            },
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named("Point"),
+                description: "Where the mouse was, in surface pixels — the same \
+                              top-left-origin coordinates every `canvas::DrawItem` \
+                              uses, so it hands straight to a hit test.",
+            },
+            RecordProp {
+                name: "shift",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Shift was held as the event happened.",
+            },
+            RecordProp {
+                name: "ctrl",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Control was held as the event happened.",
+            },
+            RecordProp {
+                name: "alt",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Alt (Option) was held as the event happened.",
+            },
+        ],
+    });
+
+    // `None` MUST stay declared first in both enums: ordinal 0 is what makes the
+    // all-zero record read as "nothing pending, no button", which is the sentinel
+    // an idle `canvas::pollMouse` returns.
+    pkg.add_enum(RegistryEnum {
+        name: "MouseKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "Nothing is pending. What an idle `canvas::pollMouse` \
+                              reports, and what every call reports before \
+                              `canvas::enableMouse(TRUE)`. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Down",
+                description: "A button was pressed. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Up",
+                description: "A button was released. `button` says which.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Move",
+                description: "The mouse moved with no button held. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Drag",
+                description: "The mouse moved with a button held. `button` says \
+                              which one is down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollUp",
+                description: "The wheel turned away from the user. `button` is \
+                              `None`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ScrollDown",
+                description: "The wheel turned toward the user. `button` is `None`.",
+                advisory: None,
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "MouseButton",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description: "No button — what motion and wheel events report. The \
+                              zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Left",
+                description: "The primary button.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Middle",
+                description: "The middle button, usually the wheel pressed down.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Right",
+                description: "The secondary button.",
+                advisory: None,
             },
         ],
     });
@@ -362,6 +545,89 @@ pub(crate) fn register(r: &mut Registry) {
                               it fills — an ellipse's radial gradient does not become \
                               elliptical.",
                 advisory: None,
+            },
+        ],
+    });
+
+    // plan-155-B: what drew a frame, and the timing record `canvas::getFrameStats`
+    // returns. The variant order is the ordinal `canvas::frameDone` records, so it is
+    // frozen: Software first, because it is also what a canvas reports before its first
+    // frame.
+    pkg.add_enum(RegistryEnum {
+        name: "Renderer",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Software",
+                description: "Drawn on the CPU. The default for a program with no window, and what a canvas reports before its first frame.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Metal",
+                description: "Drawn on the GPU through Metal (macOS).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Vulkan",
+                description: "Drawn on the GPU through Vulkan (Linux and Windows).",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "FrameStats",
+        export: true,
+        description: "The canvas's timing at one moment, as `canvas::getFrameStats` \
+                      returns it. Every field is from the same instant, so two of them \
+                      can be compared.",
+        props: vec![
+            RecordProp {
+                name: "dt",
+                ty: ParameterType::Float,
+                description: "Seconds between the last two `canvas::present` calls — the \
+                              step to advance an animation by. `0.0` until the second \
+                              present.",
+            },
+            RecordProp {
+                name: "pps",
+                ty: ParameterType::Float,
+                description: "Presents in the last second, identical ones included. Falls \
+                              to `0.0` a second after presenting stops.",
+            },
+            RecordProp {
+                name: "fps",
+                ty: ParameterType::Float,
+                description: "Frames drawn in the last second. A present of an unchanged \
+                              scene draws no frame, so a static scene reports `0.0`.",
+            },
+            RecordProp {
+                name: "displayHz",
+                ty: ParameterType::Float,
+                description: "The refresh rate of the monitor the window is on, in hertz. \
+                              `0.0` when it is not known.",
+            },
+            RecordProp {
+                name: "frameSeconds",
+                ty: ParameterType::Float,
+                description: "How long the last drawn frame took to draw, in seconds. \
+                              `0.0` before the first frame.",
+            },
+            RecordProp {
+                name: "presents",
+                ty: ParameterType::Integer,
+                description: "Every `canvas::present` and `canvas::presentLayers` call \
+                              since the program started.",
+            },
+            RecordProp {
+                name: "frames",
+                ty: ParameterType::Integer,
+                description: "Every frame drawn since the program started.",
+            },
+            RecordProp {
+                name: "renderer",
+                ty: ParameterType::named("Renderer"),
+                description: "What drew the last frame. `Software` before the first.",
             },
         ],
     });
@@ -608,7 +874,7 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // ---- The nine `DrawItem` variants (a CLOSED set) ----------------------
+    // ---- The `DrawItem` variants (a CLOSED set) ---------------------------
 
     pkg.add_record(RegistryRecord {
         name: "Rectangle",
@@ -801,9 +1067,15 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Picture",
         export: true,
-        description: "An image drawn into a rectangle, scaled to fit it. Named \
-                      `canvas::Picture` rather than `Image` because `Image` is the resource \
-                      type this variant *names* — the two would collide.",
+        description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
+                      the nearest image pixel, with no smoothing, so a small image drawn \
+                      large shows crisp blocks. The paint's fill colour tints the image — \
+                      each channel is multiplied by the fill's — so a white fill draws it \
+                      unchanged and the fill's alpha is how opaque it is; a fill gradient \
+                      is ignored. Stroke, clip, blend and transform work as they do on a \
+                      `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
+                      because `Image` is the resource type this variant *names* — the two \
+                      would collide.",
         props: {
             let mut props = rect_props("The destination rectangle");
             props.insert(
@@ -873,6 +1145,12 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Group",
                 description: "A reference to a named group of items, translated.",
             },
+            // plan-154-A, appended last for the same reason as `Ellipse`: the order fixes
+            // each variant's tag.
+            UnionVariant {
+                name: "PolyLine",
+                description: "An open path, stroked, with a colour per point.",
+            },
         ],
     });
 
@@ -939,6 +1217,56 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "angle",
                 ty: ParameterType::Float,
                 description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+            },
+            paint_prop(),
+        ],
+    });
+
+    // plan-154-A. Declared after `Ellipse` and appended LAST to `DrawItem` below, for
+    // the tag-order reason given there.
+    pkg.add_record(RegistryRecord {
+        name: "PolyLine",
+        export: true,
+        description: "An open path through a list of points, stroked as one item. \
+                      Every corner where two segments meet is rounded, and `cap` \
+                      shapes the two ends. Give `colors` a colour per point and the \
+                      stroke blends from each point's colour to the next along the \
+                      segment between them, so a trail that fades out is one item \
+                      whose colours' alpha falls to zero, not one `canvas::Line` per \
+                      segment. Colours mix in linear light, as a `canvas::Gradient`'s \
+                      do. A path has no interior, so it is drawn from \
+                      `paint.strokeWidth` and ignores `paint.fill` and \
+                      `paint.fillGradient`. Fewer than two points draws nothing.",
+        props: vec![
+            RecordProp {
+                name: "points",
+                ty: ParameterType::list_of(ParameterType::named("Point")),
+                description: "The points in order. The path does not close — use \
+                              `canvas::Polygon` for a closed shape. A point repeated \
+                              in place adds nothing; if every point is the same one, \
+                              the path draws what a zero-length `canvas::Line` with \
+                              the same `cap` draws.",
+            },
+            RecordProp {
+                name: "colors",
+                ty: ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::color::COLOR_TYPE_ID,
+                )),
+                description: "The stroke colour at each point, in the same order as \
+                              `points` — `color::Color` values, so the program needs \
+                              `IMPORT color` to name them. An empty list draws the \
+                              whole path in `paint.stroke`. A point past the end of \
+                              this list takes `paint.stroke`, and colours past the \
+                              last point are ignored. With any colours given, the path \
+                              draws even when `paint.stroke` is transparent.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Round` extends the \
+                              stroke past the first and last point by a half-disc; \
+                              `Butt` cuts it square there. The corners between \
+                              segments are always round.",
             },
             paint_prop(),
         ],
@@ -1030,7 +1358,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);
     func_metal_draw::register(&mut pkg);
+    func_metal_present::register(&mut pkg);
     func_graphics::register(&mut pkg);
+    func_get_frame_stats::register(&mut pkg);
+    func_wait_frame::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);
     func_scene_hashes::register(&mut pkg);
@@ -1041,10 +1372,18 @@ pub(crate) fn register(r: &mut Registry) {
     func_handle_bridge::register(&mut pkg);
     gen_font_table::register(&mut pkg);
     func_load_font::register(&mut pkg);
+    func_system_fonts::register(&mut pkg);
     func_measure_text::register(&mut pkg);
     func_destroy_font::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
+    func_frame_nanos::register(&mut pkg);
+    func_carried_hashes::register(&mut pkg);
+    func_geo_build::register(&mut pkg);
+    func_geo_cache::register(&mut pkg);
+    func_item_hash::register(&mut pkg);
+    func_enable_mouse::register(&mut pkg);
+    func_poll_mouse::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
@@ -1054,6 +1393,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_shapes::register(&mut pkg);
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
+    helper_font_name::register(&mut pkg);
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
@@ -1162,6 +1502,7 @@ mod tests {
                 "RoundedRect",
                 "Ellipse",
                 "Group",
+                "PolyLine",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );

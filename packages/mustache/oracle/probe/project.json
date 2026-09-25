@@ -8,7 +8,7 @@
     { "root": "src", "role": "main", "include": ["**/*.mfb"] }
   ],
   "packages": [
-    { "name": "mustache", "version": "=0.1.0", "source": "file:packages/mustache.mfp" }
+    { "name": "mustache", "version": "=0.1.0", "source": "file:packages/mustache.mfp", "direct": true, "requiredBy": [] }
   ],
   "entry": "main",
   "targets": ["native"]

@@ -130,49 +130,64 @@ END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED2: &str =
 r#"FUNC __vector_slerp_fixed2(a AS Fixed2, b AS Fixed2, t AS Float) AS Fixed2
-  LET omega AS Fixed = __vector_angle_fixed2(a, b)
-  LET s AS Fixed = math::sin(omega)
-  IF math::abs(s) < toFixed(0.000001) THEN
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y))
+  IF la = 0.0 OR lb = 0.0 THEN
+    FAIL error(77050002, "vector::angle with a zero-length vector")
+  END IF
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y)) / (la * lb)
+  LET omega AS Float = math::acos(math::clamp(cosv, -1.0, 1.0))
+  LET s AS Float = math::sin(omega)
+  IF math::abs(s) < 0.000001 THEN
     RETURN __vector_lerp_unclamped_fixed2(a, b, t)
   END IF
-  LET tf AS Fixed = toFixed(t)
-  LET w0 AS Fixed = math::sin((toFixed(1.0) - tf) * omega) / s
-  LET w1 AS Fixed = math::sin(tf * omega) / s
-  LET cx AS Fixed = w0 * a.x + w1 * b.x
-  LET cy AS Fixed = w0 * a.y + w1 * b.y
+  LET w0 AS Float = math::sin((1.0 - t) * omega) / s
+  LET w1 AS Float = math::sin(t * omega) / s
+  LET cx AS Fixed = toFixed(w0 * toFloat(a.x) + w1 * toFloat(b.x))
+  LET cy AS Fixed = toFixed(w0 * toFloat(a.y) + w1 * toFloat(b.y))
   RETURN Fixed2[cx, cy]
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED3: &str =
 r#"FUNC __vector_slerp_fixed3(a AS Fixed3, b AS Fixed3, t AS Float) AS Fixed3
-  LET omega AS Fixed = __vector_angle_fixed3(a, b)
-  LET s AS Fixed = math::sin(omega)
-  IF math::abs(s) < toFixed(0.000001) THEN
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y) + toFloat(a.z) * toFloat(a.z))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z))
+  IF la = 0.0 OR lb = 0.0 THEN
+    FAIL error(77050002, "vector::angle with a zero-length vector")
+  END IF
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z)) / (la * lb)
+  LET omega AS Float = math::acos(math::clamp(cosv, -1.0, 1.0))
+  LET s AS Float = math::sin(omega)
+  IF math::abs(s) < 0.000001 THEN
     RETURN __vector_lerp_unclamped_fixed3(a, b, t)
   END IF
-  LET tf AS Fixed = toFixed(t)
-  LET w0 AS Fixed = math::sin((toFixed(1.0) - tf) * omega) / s
-  LET w1 AS Fixed = math::sin(tf * omega) / s
-  LET cx AS Fixed = w0 * a.x + w1 * b.x
-  LET cy AS Fixed = w0 * a.y + w1 * b.y
-  LET cz AS Fixed = w0 * a.z + w1 * b.z
+  LET w0 AS Float = math::sin((1.0 - t) * omega) / s
+  LET w1 AS Float = math::sin(t * omega) / s
+  LET cx AS Fixed = toFixed(w0 * toFloat(a.x) + w1 * toFloat(b.x))
+  LET cy AS Fixed = toFixed(w0 * toFloat(a.y) + w1 * toFloat(b.y))
+  LET cz AS Fixed = toFixed(w0 * toFloat(a.z) + w1 * toFloat(b.z))
   RETURN Fixed3[cx, cy, cz]
 END FUNC"#;
 #[rustfmt::skip]
 const BODY_FIXED4: &str =
 r#"FUNC __vector_slerp_fixed4(a AS Fixed4, b AS Fixed4, t AS Float) AS Fixed4
-  LET omega AS Fixed = __vector_angle_fixed4(a, b)
-  LET s AS Fixed = math::sin(omega)
-  IF math::abs(s) < toFixed(0.000001) THEN
+  LET la AS Float = math::sqrt(toFloat(a.x) * toFloat(a.x) + toFloat(a.y) * toFloat(a.y) + toFloat(a.z) * toFloat(a.z) + toFloat(a.w) * toFloat(a.w))
+  LET lb AS Float = math::sqrt(toFloat(b.x) * toFloat(b.x) + toFloat(b.y) * toFloat(b.y) + toFloat(b.z) * toFloat(b.z) + toFloat(b.w) * toFloat(b.w))
+  IF la = 0.0 OR lb = 0.0 THEN
+    FAIL error(77050002, "vector::angle with a zero-length vector")
+  END IF
+  LET cosv AS Float = (toFloat(a.x) * toFloat(b.x) + toFloat(a.y) * toFloat(b.y) + toFloat(a.z) * toFloat(b.z) + toFloat(a.w) * toFloat(b.w)) / (la * lb)
+  LET omega AS Float = math::acos(math::clamp(cosv, -1.0, 1.0))
+  LET s AS Float = math::sin(omega)
+  IF math::abs(s) < 0.000001 THEN
     RETURN __vector_lerp_unclamped_fixed4(a, b, t)
   END IF
-  LET tf AS Fixed = toFixed(t)
-  LET w0 AS Fixed = math::sin((toFixed(1.0) - tf) * omega) / s
-  LET w1 AS Fixed = math::sin(tf * omega) / s
-  LET cx AS Fixed = w0 * a.x + w1 * b.x
-  LET cy AS Fixed = w0 * a.y + w1 * b.y
-  LET cz AS Fixed = w0 * a.z + w1 * b.z
-  LET cw AS Fixed = w0 * a.w + w1 * b.w
+  LET w0 AS Float = math::sin((1.0 - t) * omega) / s
+  LET w1 AS Float = math::sin(t * omega) / s
+  LET cx AS Fixed = toFixed(w0 * toFloat(a.x) + w1 * toFloat(b.x))
+  LET cy AS Fixed = toFixed(w0 * toFloat(a.y) + w1 * toFloat(b.y))
+  LET cz AS Fixed = toFixed(w0 * toFloat(a.z) + w1 * toFloat(b.z))
+  LET cw AS Fixed = toFixed(w0 * toFloat(a.w) + w1 * toFloat(b.w))
   RETURN Fixed4[cx, cy, cz, cw]
 END FUNC"#;
 #[rustfmt::skip]

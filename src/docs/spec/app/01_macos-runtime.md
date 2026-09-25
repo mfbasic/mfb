@@ -46,7 +46,9 @@ The unconditional bootstrap prefix builds the application and window:
   `contentRect = NSMakeRect(100, 100, 900, 640)` passed as an HFA of four doubles
   in `d0..d3`, `styleMask = 15` (`WINDOW_STYLE_MASK` = Titled|Closable|Miniaturizable|Resizable),
   `backing = 2` (`BACKING_BUFFERED`, NSBackingStoreBuffered), `defer = NO`.
-- `[window setTitle:[NSString stringWithUTF8String:"MFBASIC App"]]` (`STR_TITLE`).
+- `[window setTitle:[NSString stringWithUTF8String:"MFBASIC App"]]` (`STR_TITLE`); the
+  window a `None`-start program's reconcile builds gets the same title, so a window
+  is never shown with an empty title bar (`./mfb spec app window`).
 - `headless = getenv("MFB_MACAPP_HEADLESS")` (`STR_HEADLESS_ENV`); the result gates
   all GUI construction below.
 
@@ -75,10 +77,11 @@ The GUI path constructs, in order:
    The text view is stashed on NSApp under `ASSOC_KEY`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 2. **TermView surface.** The window and scroll view are stashed under
    `WINDOW_ASSOC_KEY`/`SCROLLVIEW_ASSOC_KEY`. A **`TermView : NSView`** class is
-   synthesized with seven methods: `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
+   synthesized with methods including: `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
    (`"c@:"`), `mfbWriteString:` (`"v@:@"`), `acceptsFirstResponder` (`"c@:"`),
    `keyDown:` (`"v@:@"`), `mfbClear:` (`"v@:@"`, the main-thread grid clear —
-   bug-165), and `setFrameSize:` (`"v@:{CGSize=dd}"`, the live-resize hook that
+   bug-165), `mfbPresent:` (`"v@:@"`, the present that publishes the drawn grid to
+   the front buffer `drawRect:` paints — see term-backend), and `setFrameSize:` (`"v@:{CGSize=dd}"`, the live-resize hook that
    recomputes rows/cols and reallocates the grid — plan-35-D). A `TermView` instance is allocated at
    `NSMakeRect(0,0,900,640)` (`TERM_VIEW_WIDTH`/`TERM_VIEW_HEIGHT`),
    auto-sized to fill, initialized by the internal `_mfb_macapp_term_init`, and
@@ -146,7 +149,14 @@ The autorelease pool is mandatory: the worker creates autoreleased Cocoa objects
 exits — but were it to exit, the thread-exit autorelease-pool cleanup would crash
 draining improperly-pooled objects. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]
 
-## Program-finish path (window stays open)
+## Program-finish path
+
+**Only a `--debug` build keeps the window open** after the program finishes.
+`emit_finish_helper` takes the build's `debug` flag (`AppEntrySpec.debug_hooks`,
+set from `--debug`). A release build restores the terminal if needed, then goes
+straight to the `_exit(code)` arm, so the app closes when its program does, with
+the program's exit code. The GUI keep-open path below is emitted only for
+`--debug`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 
 macOS `emit_program_exit` diverges from the console `_exit`: when the emitting
 function is `_mfb_macapp_program` (the worker's program entry), the program's exit

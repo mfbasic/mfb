@@ -149,6 +149,40 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-677: release a callback's RESULT, held in `slot`, once its bytes have
+    /// been copied into the collection being built. The `FunctionRef` ABI owns the
+    /// result (bug-569); a `String` is freed as before, and every other flat block
+    /// value — a record, a data union, a collection, a flat `Result` — through the
+    /// ordinary owned-value drop, since the collection copied its payload and the
+    /// returned block has no remaining reader. A scalar result is inline and a
+    /// non-flat one (a graph, a resource) is not copied by the append, so neither is
+    /// freed here. Nulls `slot` for a block (the owned-value drop's free-and-null).
+    pub(crate) fn free_callback_result(
+        &mut self,
+        slot: usize,
+        result_type: &ParameterType,
+    ) -> Result<(), String> {
+        if *result_type == ParameterType::String {
+            return self.free_collection_loop_item(slot, result_type);
+        }
+        if !self.is_freeable_flat_value(result_type) {
+            return Ok(());
+        }
+        self.emit_owned_value_drop(&OwnedValueCleanup {
+            type_: result_type.clone(),
+            stack_offset: slot,
+            closure_captures: None,
+            capacity_slot: None,
+            loop_alias_slot: None,
+            result_wrapper: None,
+        })
+    }
+
+    /// Whether [`Self::free_callback_result`] frees a `result_type` value.
+    pub(crate) fn callback_result_is_block(&self, result_type: &ParameterType) -> bool {
+        *result_type == ParameterType::String || self.is_freeable_flat_value(result_type)
+    }
+
     /// Step a List/Map walk one element on and branch back to `loop_label`.
     ///
     /// `element_type` is unused today for the same reason as

@@ -123,11 +123,13 @@ pub(crate) const GRAPHICS_OFFSET_WIDTH: usize = 224;
 pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
 /// Non-zero when the Metal renderer is selected (plan-98-E).
 ///
-/// **Opt-in, not the default.** The software path is the *oracle* the GPU backends
-/// are measured against (plan-98-A invariant 7), and its goldens are exact-match; a
-/// GPU frame only matches within a tolerance. Making Metal the default would turn
-/// every exact-match golden into a tolerance test and destroy the reference they are
-/// compared to. `MFB_CANVAS_GPU=1` selects it; plan-98-E's own tests set it.
+/// **The default for a real window, never for a headless run.** The software path is
+/// the *oracle* the GPU backends are measured against (plan-98-A invariant 7), and its
+/// goldens are exact-match; a GPU frame only matches within a tolerance. Every test
+/// that renders runs headless, and a headless run keeps software, so the oracle and
+/// its goldens are untouched; a window, where frame rate is what the user sees, gets
+/// the GPU. `MFB_CANVAS_GPU` overrides either way (`0` = software, anything else =
+/// GPU); plan-98-E's own tests set it to `1`. Chosen by `__canvas_wantGpu`.
 pub(crate) const GRAPHICS_OFFSET_GPU: usize = 296;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
@@ -240,7 +242,7 @@ pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
 /// under Vulkan's guaranteed 128-byte range. The buffer has neither property: the
 /// whole frame's items are written once, a run of them is drawn with a single
 /// instanced `vkCmdDraw`, and the block's size is bounded by
-/// `CANVAS_ITEM_BUFFER_BYTES` rather than by a device limit.
+/// `VULKAN_ITEM_BUFFER_BYTES` rather than by a device limit.
 ///
 /// Host-visible and mapped for its lifetime, created with the *device* and not with
 /// the target, exactly like `…_VULKAN_EDGE_*` above — its size does not depend on the
@@ -251,8 +253,9 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
 /// Metal's frame buffer — the same transport, one `MTLBuffer` instead of a Vulkan
 /// buffer plus a descriptor (plan-116-A).
 ///
-/// It carries **two regions**: the item blocks from byte 0, then the polygon edges
-/// from `METAL_EDGE_BASE_WORDS`. Before this, Metal's edges rode a per-item
+/// It carries the item blocks from byte 0, then the polygon edges from
+/// `METAL_EDGE_BASE_WORDS`, then the regions listed at `METAL_BUFFER_BYTES` (gradient
+/// stops, glyph and picture texels, …). Before this, Metal's edges rode a per-item
 /// `setFragmentBytes:` payload, which an instanced draw cannot rebind between
 /// instances — so every polygon would have ended the instanced run, and letters F and
 /// H would each have rediscovered the same conflict. Both backends now carry edges the
@@ -289,8 +292,94 @@ pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE_MODES: usize = 728;
 /// builds. Spelled again in MFBASIC as the `BlendMode` variant count; the emitters and
 /// the header agree through `HEADER_BLEND`'s 0..3 range.
 pub(crate) const BLEND_MODE_COUNT: usize = 4;
+/// The macOS window's `CAMetalLayer`, and the state of the direct present (bug-686
+/// Phase 4).
+///
+/// A GPU frame in a real window is copied into this layer's next drawable and
+/// presented, instead of being read back into a CPU surface and blitted as a
+/// `CGImage`. The layer is a hidden sublayer of the canvas view's backing layer,
+/// created by the **main** thread when it builds the view — so a headless run, which
+/// builds no view, leaves `…_MTL_LAYER` zero, and that zero is what sends every
+/// headless frame down the readback path the oracle tests compare.
+///
+/// Ownership, one writer per word:
+///
+/// * `LAYER`, `LAYER_READY` and `LAYER_SHOWN` — **main**. `READY` is set once the
+///   layer's device, pixel format and `framebufferOnly` are configured; `SHOWN`
+///   tracks its `hidden` property, which the main thread flips on only when the
+///   graphics thread asks and off when a software (or readback) frame lands.
+/// * `DRAWABLE_W`/`_H` and `LAYER_SHOW` — **graphics**: the drawable size and the
+///   visibility it asks the main thread to apply, read by the main-thread IMP during
+///   a `waitUntilDone:YES` hop, so the graphics thread never touches a layer property.
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER: usize = 760;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_READY: usize = 768;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOWN: usize = 776;
+pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_W: usize = 784;
+pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_H: usize = 792;
+pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOW: usize = 800;
+/// The refresh rate of the monitor the window is on, in **millihertz**, published by
+/// the **main** thread (plan-155-A) when the surface is ready and again whenever the
+/// window lands on a monitor with a different rate.
+///
+/// `0` means unknown: headless, no window yet, or an OS that does not answer. Millihertz
+/// because GTK answers in it and 59.94 Hz panels exist. One writer and one aligned
+/// store, so no lock — the same reasoning as `GRAPHICS_OFFSET_WIDTH`. Publishing it
+/// signals nothing: a rate is not a redraw trigger (`.ai/canvas-threading.md` §4).
+pub(crate) const GRAPHICS_OFFSET_DISPLAY_MHZ: usize = 808;
+/// `MFB_CANVAS_DISPLAY_HZ × 1000`, stored once by the worker; non-zero wins over
+/// `…_DISPLAY_MHZ`. **A test affordance, and off by default.** A separate word rather
+/// than a write into the published one, so a platform republish can never clobber it.
+pub(crate) const GRAPHICS_OFFSET_DISPLAY_OVERRIDE: usize = 816;
+/// Frame statistics (plan-155-B), read by `canvas::getFrameStats` through
+/// `canvas::frameCounters`. Process-global for the reason everything cross-thread here
+/// is (`.ai/canvas-threading.md` §2): the graphics thread's frame record would be
+/// invisible to the worker as an MFBASIC global.
+///
+/// Two event logs, each a running total, a ring head and a ring of the last
+/// [`FRAME_RING_SLOTS`] timestamps (`canvas::frameNanos`), written and read only under
+/// `GRAPHICS_OFFSET_MUTEX`:
+///
+/// * **presents** — every `present` / `presentLayers`, identical re-presents included,
+///   written by the worker (`canvas::notePresent`);
+/// * **drawn** — every frame a backend actually drew, written by the graphics thread in
+///   `canvas::frameDone` (a wake-up whose damage was empty is not one).
+///
+/// Then the render time of the last drawn frame, in nanoseconds, and which renderer drew
+/// it (the `canvas::Renderer` ordinal: 0 Software, 1 Metal, 2 Vulkan).
+pub(crate) const GRAPHICS_OFFSET_PRESENTS: usize = 824;
+pub(crate) const GRAPHICS_OFFSET_PRESENT_HEAD: usize = 832;
+pub(crate) const GRAPHICS_OFFSET_PRESENT_RING: usize = 840;
+pub(crate) const GRAPHICS_OFFSET_DRAWN: usize = GRAPHICS_OFFSET_PRESENT_RING + FRAME_RING_SLOTS * 8;
+pub(crate) const GRAPHICS_OFFSET_DRAWN_HEAD: usize = GRAPHICS_OFFSET_DRAWN + 8;
+pub(crate) const GRAPHICS_OFFSET_DRAWN_RING: usize = GRAPHICS_OFFSET_DRAWN_HEAD + 8;
+pub(crate) const GRAPHICS_OFFSET_LAST_RENDER_NANOS: usize =
+    GRAPHICS_OFFSET_DRAWN_RING + FRAME_RING_SLOTS * 8;
+pub(crate) const GRAPHICS_OFFSET_LAST_RENDERER: usize = GRAPHICS_OFFSET_LAST_RENDER_NANOS + 8;
+/// Timestamps kept per event log. A rate over the trailing second counts ring entries
+/// newer than a second; when all of them are, the ring spans less than a second and the
+/// rate is measured from its span instead (`__canvas_rate`), so the bound costs no
+/// accuracy. A power of two, so the head wraps with a mask.
+pub(crate) const FRAME_RING_SLOTS: usize = 64;
+/// The words `canvas::frameCounters` returns, in order: `now`, presents, present head,
+/// drawn, drawn head, last render nanos, last renderer, display millihertz, then the
+/// present ring and the drawn ring. `__canvas_getFrameStats` indexes by these.
+pub(crate) const FRAME_COUNTER_HEADER_WORDS: usize = 8;
+pub(crate) const FRAME_COUNTER_WORDS: usize = FRAME_COUNTER_HEADER_WORDS + 2 * FRAME_RING_SLOTS;
+/// The condition `canvas::waitFrame` waits on (plan-155-C), 48 bytes like
+/// `GRAPHICS_OFFSET_COND`.
+///
+/// **Its own condition variable, and that is the point.** `signalRedraw` and the stop
+/// path wake `COND` with `pthread_cond_signal`, which wakes ONE waiter. A worker parked
+/// in `waitFrame` on `COND` could take a wake-up meant for the render loop, leaving a
+/// redraw owed and never taken while the worker waits for a pickup that never comes.
+/// So `waitFrame` waits on this one only, and it is broadcast wherever a waiter's answer
+/// can change: when the render loop takes a redraw (`PENDING` cleared) and on stop.
+pub(crate) const GRAPHICS_OFFSET_FRAME_COND: usize = GRAPHICS_OFFSET_LAST_RENDERER + 8;
+/// When `canvas::waitFrame` last returned, in the `CLOCK_REALTIME` nanoseconds its timed
+/// wait is expressed in. Written and read only by `waitFrame`, under the mutex.
+pub(crate) const GRAPHICS_OFFSET_LAST_WAIT: usize = GRAPHICS_OFFSET_FRAME_COND + 48;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -310,8 +399,8 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 /// one, so widening the block past it would have made the feature set depend on the
 /// device. It now travels in `…_VULKAN_ITEM_BUFFER` (Metal:
 /// `…_MTL_ITEM_BUFFER`), one record per drawn quad indexed by instance, so the only
-/// limit left is capacity: `CANVAS_MAX_FRAME_ITEMS` records must fit
-/// `CANVAS_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
+/// limit left is capacity: `VULKAN_MAX_FRAME_ITEMS` records must fit
+/// `VULKAN_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
 /// cannot fall out of step.
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
@@ -410,6 +499,19 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
+/// A **polygon**'s band-index header in the same `ivec4` (bug-686 on Metal, bug-688 on
+/// Vulkan): `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over
+/// every edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`,
+/// `VULKAN_BAND_BASE_WORDS`).
+///
+/// The per-kind sharing `ITEM_OFFSET_ARC` already does: only an arc reads its caps and
+/// only a polygon reads its bands, and no item is both. Each backend's `emit_band_index`
+/// writes these after `emit_item_block`'s generic arc-caps store, for polygons only; the
+/// shaders read them only when `misc.x` is the polygon kind.
+pub(crate) const ITEM_BAND_TOP: usize = 0;
+pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
+pub(crate) const ITEM_BAND_COUNT: usize = 8;
+pub(crate) const ITEM_BAND_START: usize = 12;
 /// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
 ///
 /// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
@@ -500,6 +602,45 @@ pub(crate) const GEO_KIND_TEXT: &str = "6";
 /// about groups cannot compile until the attribute comes off.
 #[cfg(test)]
 pub(crate) const GEO_KIND_GROUP: &str = "8";
+/// `__CANVAS_GEO_PICTURE` — a `canvas::Picture` (bug-484).
+///
+/// To the shaders a rectangle whose fill colour is sampled from an image; to the
+/// emitters the third kind with a payload, after the polygon's edges and the glyph's
+/// coverage. Its texels ride the frame buffer's **glyph region**, one packed RGBA word
+/// per texel (`r | g << 8 | b << 16 | a << 24`, the shadow's own byte order), and the
+/// block names its slice exactly as a glyph's does: width in `misc.w`, height in
+/// `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), base in `arc.z` (`ITEM_ARC_EDGE_BASE`). Sharing
+/// the glyph region rather than adding a fourth means sharing its cursor and its frame
+/// cap, and the predicates count a picture's texels against that cap.
+pub(crate) const GEO_KIND_PICTURE: &str = "9";
+/// `__CANVAS_GEO_POLYLINE` — a `canvas::PolyLine` (plan-154-A).
+///
+/// Its tail is the polygon edge layout (without the wrap edge) followed by its per-point
+/// colours as gradient stops, so an emitter that uploads it needs the polygon's edge path
+/// and the gradient's stop path, and nothing new.
+///
+/// Spelled here and once in MFBASIC; `the_geo_layout_constants_match_their_rust_counterparts`
+/// holds the two equal.
+pub(crate) const GEO_KIND_POLYLINE: &str = "10";
+/// A polyline's first and last segments with length, in the header's gradient axis
+/// slots (`__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`), which a polyline does not otherwise
+/// use.
+///
+/// The emitters copy them into the item block's `gradient.x`/`.y` as **whole numbers**,
+/// not the 16.16 the axis is written as: 16.16 holds a segment index only up to 32,767,
+/// and a plotted path can have more segments than that. The butt planes cut only these
+/// two segments, each on its outer end.
+pub(crate) const HEADER_POLYLINE_FIRST: usize = 43;
+pub(crate) const HEADER_POLYLINE_LAST: usize = 44;
+/// The header slots holding a picture's pixel-block address, high and low 24 bits.
+///
+/// Split because every header slot is hashed through `__canvas_hashFloat`, which
+/// scales by 65536 before `toInt` — a whole 48-bit address overflows it. The emitters
+/// rebuild the address as `hi << PICTURE_SHADOW_SPLIT_BITS | lo`; the block is a
+/// `List OF Byte`, so the texels start `COLLECTION_HEADER_SIZE` bytes in.
+pub(crate) const HEADER_PICTURE_SHADOW_HI: usize = 35;
+pub(crate) const HEADER_PICTURE_SHADOW_LO: usize = 36;
+pub(crate) const PICTURE_SHADOW_SPLIT_BITS: usize = 24;
 /// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
 pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
 /// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.
@@ -618,14 +759,6 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 pub(crate) const HEADER_SLOTS: usize = 47;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
-/// The most edges one polygon may carry on the **Metal** path.
-///
-/// `setFragmentBytes:` copies into the command buffer and is small, so Metal's edges
-/// ride a bounded payload sized at compile time. `__canvas_metalRenderable` declines
-/// a polygon past this rather than truncating it, because a truncated polygon
-/// renders as a *different shape* and would read as a geometry bug.
-pub(crate) const MAX_EDGES: usize = 256;
-
 /// The most edges one **frame** may carry on the Vulkan path.
 ///
 /// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
@@ -634,29 +767,46 @@ pub(crate) const MAX_EDGES: usize = 256;
 /// the scene's polygon edges against this and declines the frame to software if the
 /// total does not fit, so the emitter's own bound check is unreachable.
 ///
-/// 16384 edges is 256 KiB. It is generous rather than tuned: the fragment shader
-/// walks every edge of a polygon per covered pixel, so a scene anywhere near this
-/// bound is already too slow to want, on either backend.
-pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
+/// 262,144 since bug-688 (it was 16,384, which `examples/wind`'s coastline alone
+/// exceeds): Metal's number since bug-686, and 4 MiB of region. A large polygon no
+/// longer costs every edge per covered pixel — the band index (`VULKAN_BAND_BASE_WORDS`)
+/// has the shader walk only its own band's edges.
+pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 262_144;
 /// Four 16.16 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 
-/// The most **item blocks** one frame may carry — the capacity of the item buffer.
+/// The most **item blocks** one Vulkan frame may carry — the capacity of the item
+/// buffer.
 ///
 /// A *drawn quad*, not a scene item: every non-text item takes one block, and a glyph
 /// run takes one per glyph, because each glyph is its own quad with its own block
 /// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
 /// number this bounds.
 ///
-/// 4096 blocks is 448 KiB at the current `ITEM_BLOCK_SIZE`, and it grows with the
-/// block — which is the point: later letters widen the block, and the buffer absorbs
-/// that where the 128-byte push-constant range could not.
-///
-/// Both `*Renderable` predicates sum a frame's quads against this and decline the
+/// `__canvas_vulkanRenderable` sums a frame's quads against this and declines the
 /// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
 /// already has and for the same reason: a truncated scene is a *different scene*, and
 /// software is the oracle, so declining is never worse than drawing.
-pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+///
+/// 65,536 since bug-688, Metal's `METAL_MAX_FRAME_ITEMS`: 4,096 (the old shared
+/// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/wind` (about 5,700 blocks), a 5,000-quad
+/// scene and a terminal screen of text to software. 13 MiB of item buffer at the
+/// current `ITEM_BLOCK_SIZE`, host-visible and mapped for the renderer's life.
+pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
+
+/// The most **item blocks** one Metal frame may carry — `VULKAN_MAX_FRAME_ITEMS`'s
+/// Metal twin (bug-686; the Vulkan cap was the shared `CANVAS_MAX_FRAME_ITEMS` until bug-688).
+///
+/// 4096 quads sent ordinary scenes to software: a terminal screen of text is one quad
+/// per glyph, `examples/wind` publishes about 5,700 blocks a frame, and the 1,000-item
+/// scenes bug-686 measured were a quarter of the way there. 65,536 blocks is 13 MiB of
+/// item buffer at the current `ITEM_BLOCK_SIZE`, and every frame region after it moves
+/// with it — which is why the shader's region bases are generated from these constants
+/// rather than spelled in the MSL (`metal_shader_source`).
+///
+/// `__canvas_metalRenderable` declines a frame past it, exactly as before; the
+/// MFBASIC copy is generated from this constant (`helper_render.rs`).
+pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 
 /// How many 64-bit words one entry of the GPU draw list occupies.
 ///
@@ -681,24 +831,34 @@ pub(crate) const CANVAS_DRAW_ENTRY_COUNT_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.tr
 
 /// Byte offset of the blend mode within an entry (word 4).
 pub(crate) const CANVAS_DRAW_ENTRY_MODE: usize = 32;
-/// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
-pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+/// Vulkan's item buffer in bytes — one `ITEM_BLOCK_SIZE` record per quad, for
+/// `VULKAN_MAX_FRAME_ITEMS` quads. A buffer of its own (binding 1), unlike Metal's item
+/// region, which heads its one frame buffer.
+pub(crate) const VULKAN_ITEM_BUFFER_BYTES: usize = VULKAN_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+/// Metal's item region in bytes — one `ITEM_BLOCK_SIZE` record per quad, for
+/// `METAL_MAX_FRAME_ITEMS` quads. The first region of the Metal frame buffer.
+pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 
 /// The most edges one **frame** may carry on the Metal path, mirroring
 /// `VULKAN_MAX_FRAME_EDGES` (plan-116-A).
 ///
 /// Metal's edges used to ride a per-item `setFragmentBytes:` payload, which is copied
-/// into the command buffer at record time — so the cap was per *item* (`MAX_EDGES`)
+/// into the command buffer at record time — so the cap was per *item* (256 edges)
 /// and there was no frame total at all. An instanced draw cannot rebind that payload
 /// between instances, so the edges moved into a region of the frame buffer, exactly
 /// where Vulkan has always kept them, and the cap became a frame total to match.
 ///
-/// **This is the one scene class that newly declines to software**: a Metal scene
-/// whose polygon edges sum past 16384. It previously rendered on the GPU through the
-/// unbounded per-item payload. Software is the oracle, so the picture is at least as
-/// correct. The per-item `MAX_EDGES` decline is deliberately kept beside this one —
-/// unifying the two caps is later work, taken deliberately or not at all.
-pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
+/// A Metal scene whose polygon edges sum past this is declined to software. It was
+/// 16384 until bug-686, which `examples/wind`'s coastline alone exceeds; 262,144 edges
+/// is 4 MiB of region, and a 40,000-edge frame measured within max channel delta 1 of
+/// the software oracle (bug-686 spike C). Software is the oracle, so a declined frame
+/// is at least as correct — truncating instead would draw a *different shape*.
+///
+/// There is **no per-polygon cap** since bug-686. The 256-edge one was kept "by policy"
+/// after plan-116-A moved the edges into this region, and it existed twice — in the
+/// predicate and as a branch in `emit_edge_buffer` that drew an over-long polygon as
+/// nothing; spike B drew 300-4,000-edge polygons on Metal within max channel delta 1.
+pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// Where Metal's edge region starts inside the frame buffer, in 32-bit words.
 ///
 /// The item blocks come first, so this is simply past them. The shader adds it to each
@@ -707,27 +867,147 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
 /// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
 /// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
-pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
-/// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
+pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
+
+/// A polygon's **band index** (bug-686): which of its edges a pixel at a given height
+/// has to visit, so the fragment shader's `edgeDistance` stops looping over every edge
+/// for every covered pixel — O(edges × pixels), 252 ms of GPU for one 64,000-edge
+/// polygon (bug-686 section E).
 ///
-/// A starting value, as the plan says: raise it only against a measured scene. Five
-/// words a stop, so 4096 stops is 80 KiB — noise beside the edge and glyph regions.
+/// `emit_band_index` splits the polygon's shape-space y-range into bands and puts each
+/// edge in every band its `[ymin − r, ymax + r]` meets, r being the distance past which
+/// an edge cannot change the pixel's coverage. The shader evaluates the SAME loop body
+/// over its own band's list, so the result is bit-identical to the full loop (the
+/// argument is at `emit_band_index`). Per polygon, at the word offset its block carries
+/// in `ITEM_BAND_START`:
 ///
-/// The same number on both backends deliberately. A scene that renders on Metal and
-/// declines on Vulkan (or the reverse) would make "the GPU path" mean something
-/// different per host, and the oracle comparison could not be read the same way on
-/// both.
-pub(crate) const MAX_FRAME_GRADIENT_STOPS: usize = 4096;
+/// * `2 × bands` words of table — `(first, count)` per band, `first` relative to the
+///   list that follows;
+/// * the list — edge numbers, `0..edgeCount`, band after band.
+///
+/// The polygon's block carries `bandTop`, `bandHeight` (16.16, shape space), the band
+/// count and that offset in its `arcCaps` `ivec4`, which only an arc reads
+/// (`ITEM_BAND_*`). A band count
+/// of 0 means "loop over every edge": what a polygon under `BAND_MIN_EDGES` gets,
+/// and what any polygon gets whose index would not fit — correct, only slower. The
+/// index is never truncated and a frame is never declined for it.
+///
+/// Budget: bands are at most the polygon's edge count, and the list at most
+/// `BAND_LIST_PER_EDGE` entries per edge (a polygon over it gets taller bands), so
+/// one polygon needs at most `BAND_WORDS_PER_EDGE` words per edge — and the frame's
+/// edges are capped at `METAL_MAX_FRAME_EDGES` (`VULKAN_MAX_FRAME_EDGES`), so each
+/// backend's band region (`METAL_MAX_FRAME_BAND_WORDS`, `VULKAN_MAX_FRAME_BAND_WORDS`)
+/// always has room. Both backends build the same index (bug-688 ported it to Vulkan).
+pub(crate) const BAND_LIST_PER_EDGE: usize = 6;
+/// Table (two words per band, at most one band per edge) plus list, per edge.
+pub(crate) const BAND_WORDS_PER_EDGE: usize = 2 + BAND_LIST_PER_EDGE;
+/// The band region's size in 32-bit words.
+pub(crate) const METAL_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * METAL_MAX_FRAME_EDGES;
+/// The most bands one polygon is split into. Past ~1,000 the table costs more to build
+/// than a thinner list saves; a 600 px polygon gets 2-px bands up to here.
+pub(crate) const BAND_MAX: usize = 1024;
+/// Polygons with fewer edges than this loop over all of them (band count 0): the full
+/// loop over a handful of edges costs less than finding the band.
+pub(crate) const BAND_MIN_EDGES: usize = 32;
+/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const METAL_BAND_BASE_WORDS: usize = METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
+/// The most gradient stops one **Vulkan** frame may carry (plan-116-F; bug-688).
+///
+/// Two stops per quad of `VULKAN_MAX_FRAME_ITEMS`, as Metal's is per quad of its own:
+/// a gradient has at least two, so a frame of nothing but simple gradient-filled shapes
+/// is declined by the item cap before this one. It was 4,096 on both backends until
+/// bug-686 found 2,100 two-stop gradient rectangles — an ordinary chart — declined by it.
+pub(crate) const VULKAN_MAX_FRAME_GRADIENT_STOPS: usize = 2 * VULKAN_MAX_FRAME_ITEMS;
+/// The most gradient stops one **Metal** frame may carry (bug-686).
+///
+/// Two stops per quad of `METAL_MAX_FRAME_ITEMS`: a gradient has at least two, so this
+/// is the first cap at which a frame of nothing but simple gradient-filled shapes is
+/// declined by the item cap rather than by this one. 2.5 MiB of region.
+pub(crate) const METAL_MAX_FRAME_GRADIENT_STOPS: usize = 2 * METAL_MAX_FRAME_ITEMS;
 /// Five 32-bit words a stop: offset, then the four colour channels.
 pub(crate) const GRADIENT_STOP_WORDS: usize = 5;
-/// Where Metal's gradient region starts, in 32-bit words — after the items and edges.
+/// Where Metal's gradient region starts, in 32-bit words — after the items, edges and
+/// band index.
 pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
-    CANVAS_ITEM_BUFFER_BYTES / 4 + METAL_MAX_FRAME_EDGES * 4;
+    METAL_BAND_BASE_WORDS + METAL_MAX_FRAME_BAND_WORDS;
+/// The most coverage samples one **frame**'s glyphs may carry on the Metal path — the
+/// same number, and the same one-sample-per-word layout, as
+/// `VULKAN_MAX_FRAME_GLYPH_SAMPLES` (bug-670).
+///
+/// Metal's glyph bitmaps used to ride a per-glyph `setFragmentBytes:` payload. Once
+/// plan-116-H made a text item ONE instanced draw, that payload was overwritten by each
+/// glyph's publish before the draw ran, and every glyph drew the run's last bitmap. A
+/// frame-wide region, each glyph's slice named by the offset in its own block, is what
+/// Vulkan always did, and it is the only shape an instanced run can read.
+///
+/// `1 << 23` since bug-686 (it was `1 << 20`, Vulkan's size): a picture's texels ride
+/// this region too, and one 1024×1024 background plus anything else overflowed a
+/// million words. Eight million is a 2560×1440 background with room left for tiles and
+/// text, and 32 MiB of region.
+pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
+/// Where Metal's glyph region starts, in 32-bit words — after the gradient stops.
+pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
+    METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// gradient stops (five each).
-pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES
+/// the band index (bug-686), then gradient stops (five each), then glyph coverage (one
+/// sample a word), then the picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
+///
+/// A sum of the regions' sizes rather than "the last base plus the last size", so
+/// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
+/// computations and a region left out of the chain shows up there.
+pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
-    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
+    + METAL_MAX_FRAME_BAND_WORDS * 4
+    + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
+    + METAL_PICTURE_TABLE_BYTES;
+
+/// The per-frame **picture table**: which image blocks this frame has already copied
+/// into the glyph region, and where (bug-686). The last region of the Metal frame
+/// buffer, read only by the emitter — the shader never sees it, so it has no MSL base.
+///
+/// `emit_picture_buffer` used to copy a picture's texels for every `Picture` item, so a
+/// tilemap of 2,000 tiles drawn from two images copied 2,000 images and counted them
+/// against the glyph region's cap. It now looks the image's block up here first and, on
+/// a hit, points the item at the texels already uploaded; `__canvas_metalRenderable`
+/// counts each distinct block once to match.
+///
+/// Two parts, a record array and an open-addressed index over it:
+///
+/// * `METAL_PICTURE_RECORDS` records of `PICTURE_RECORD_BYTES`:
+///   `block` (u64, the pixel block's address), `base` (u32, its first texel in the
+///   glyph region), `slot` (u32, the index slot that names this record);
+/// * `METAL_PICTURE_INDEX_SLOTS` u32 slots, each a record number, probed linearly from
+///   a multiplicative hash of the block address.
+///
+/// **Nothing is cleared between frames.** A slot is live only if its record number is
+/// below this frame's record count AND that record's `slot` names it back — the
+/// sparse-set test — so last frame's slots, or whatever the buffer held at creation,
+/// read as empty without a pass over the index. Every record this frame writes is
+/// written before its slot, and nothing is deleted within a frame, so every live
+/// slot's probe chain is intact.
+///
+/// One record per quad of `METAL_MAX_FRAME_ITEMS` — a picture is one item and every
+/// item at least one quad, so the predicate's own cap means the table is never full;
+/// the index has twice as many slots, so a probe always reaches an empty one.
+pub(crate) const METAL_PICTURE_RECORDS: usize = METAL_MAX_FRAME_ITEMS;
+/// Bytes per picture record: block (8), base (4), index slot (4).
+pub(crate) const PICTURE_RECORD_BYTES: usize = 16;
+/// Slots in the picture index — a power of two, twice the records.
+pub(crate) const METAL_PICTURE_INDEX_SLOTS: usize = 2 * METAL_PICTURE_RECORDS;
+const _: () = assert!(
+    METAL_PICTURE_INDEX_SLOTS.is_power_of_two(),
+    "the picture index is masked, not divided"
+);
+/// Where the picture records start, in bytes — after the glyph region.
+pub(crate) const METAL_PICTURE_RECORDS_OFFSET: usize =
+    METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
+/// Where the picture index starts, in bytes — after the records.
+pub(crate) const METAL_PICTURE_INDEX_OFFSET: usize =
+    METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES;
+/// The picture table's whole size: records, then index slots.
+pub(crate) const METAL_PICTURE_TABLE_BYTES: usize =
+    METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES + METAL_PICTURE_INDEX_SLOTS * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///
@@ -735,36 +1015,81 @@ pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES
 /// reason a second buffer would have to be justified rather than assumed: it would need
 /// its own allocation, its own memory-type search, its own descriptor binding and its
 /// own upload, to hold data with exactly the edges' lifetime and exactly their access
-/// pattern. One buffer, two regions, one binding.
+/// pattern. One buffer, several regions, one binding.
 ///
 /// One sample per 32-bit word rather than four packed per word. That wastes three
 /// quarters of the region and buys a shader arm with no shifting and no masking, in the
 /// only place where a packing mistake would be invisible — a wrongly unpacked coverage
-/// byte still produces a glyph, just a wrong one. A megabyte of samples is 4 MiB of
-/// buffer, which is nothing on any device that has a Vulkan driver at all.
-pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
-/// Where the glyph region starts, in 32-bit words — i.e. immediately after the edges.
-pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
-/// Where the gradient region starts, in 32-bit words — after the edges and glyphs
-/// (plan-116-F). A third region of the one buffer, for the reason the second one gave:
-/// a separate buffer would need its own allocation, memory-type search, descriptor
-/// binding and upload, for data with exactly the same lifetime and access pattern.
-pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
-    VULKAN_GLYPH_BASE_WORDS + VULKAN_MAX_FRAME_GLYPH_SAMPLES;
-/// The whole shared buffer: edges, then glyph coverage, then gradient stops.
-pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
-    + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
-    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
-
-/// The most coverage samples one glyph may carry on the **Metal** path.
+/// byte still produces a glyph, just a wrong one.
 ///
-/// Metal's glyph bitmap rides `setFragmentBytes:` exactly as its edges do, so the bound
-/// is the same 4 KiB payload and it is per glyph rather than per frame. That is about a
-/// 64x64 bitmap, which is a glyph at roughly 200 px. `__canvas_metalRenderable` declines
-/// a scene containing a bigger one rather than clipping it, for the reason it declines
-/// an over-long polygon: a clipped glyph is a *different glyph*, and would read as a
-/// rasteriser bug rather than as a backend limit.
-pub(crate) const METAL_MAX_GLYPH_SAMPLES: usize = 4096;
+/// `1 << 23` since bug-688 (it was `1 << 20`): a picture's texels ride this region
+/// too, and a 1024×1024 background plus anything else overflowed a million words.
+/// Metal's `METAL_MAX_FRAME_GLYPH_SAMPLES`, and 32 MiB of region.
+pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
+
+// --- the Vulkan shared buffer (binding 0) ------------------------------------------
+//
+// Edges from word 0, then the band index, the gradient stops, the glyph/picture
+// texels and the picture table. The shader reaches the band, gradient and glyph
+// regions through BASES THAT ARE SPECIALIZATION CONSTANTS (bug-688): the fragment
+// shader declares them `layout(constant_id = N) const int`, and the pipeline feeds the
+// values below through `VkSpecializationInfo` (`VULKAN_SPEC_CONSTANTS`). Until then
+// `GRADIENT_BASE` and `GLYPH_BASE` were literals in the checked-in GLSL, kept equal to
+// these by a unit test — so every cap before them was frozen, because moving one meant
+// a hand edit of the shader and a SPIR-V rebuild or a plausible wrong picture.
+
+/// The band region's size in 32-bit words — `BAND_WORDS_PER_EDGE` per edge of
+/// `VULKAN_MAX_FRAME_EDGES`, the budget `emit_band_index` holds every polygon to.
+pub(crate) const VULKAN_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * VULKAN_MAX_FRAME_EDGES;
+/// Where the band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const VULKAN_BAND_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// Where the gradient region starts, in 32-bit words — after the band index.
+pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
+    VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
+/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
+/// gradient stops.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+    VULKAN_GRADIENT_BASE_WORDS + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Vulkan's per-frame picture table (bug-688) — Metal's (`METAL_PICTURE_TABLE_BYTES`)
+/// with the same record and index layout, one record per quad of
+/// `VULKAN_MAX_FRAME_ITEMS`. The last region of the shared buffer, read only by the
+/// emitter: the shader never sees it, so it has no specialization constant.
+pub(crate) const VULKAN_PICTURE_RECORDS: usize = VULKAN_MAX_FRAME_ITEMS;
+/// Slots in the picture index — a power of two, twice the records.
+pub(crate) const VULKAN_PICTURE_INDEX_SLOTS: usize = 2 * VULKAN_PICTURE_RECORDS;
+const _: () = assert!(
+    VULKAN_PICTURE_INDEX_SLOTS.is_power_of_two(),
+    "the picture index is masked, not divided"
+);
+/// Where the picture records start, in bytes — after the glyph region.
+pub(crate) const VULKAN_PICTURE_RECORDS_OFFSET: usize =
+    VULKAN_GLYPH_BASE_WORDS * 4 + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+/// Where the picture index starts, in bytes — after the records.
+pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
+    VULKAN_PICTURE_RECORDS_OFFSET + VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES;
+/// The picture table's whole size: records, then index slots.
+pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
+    VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
+/// The whole shared buffer: edges, band index, gradient stops, glyph/picture texels,
+/// picture table.
+///
+/// A sum of the regions' sizes rather than "the last base plus the last size", so
+/// `the_shared_buffer_holds_every_region` compares two independent computations and a
+/// region left out of the chain shows up there.
+pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
+    + VULKAN_MAX_FRAME_BAND_WORDS * 4
+    + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
+    + VULKAN_PICTURE_TABLE_BYTES;
+/// The fragment shader's specialization constants, as `(constant_id, value)`: the
+/// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
+/// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
+/// the two lists to each other.
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 3] = [
+    (0, VULKAN_GLYPH_BASE_WORDS),
+    (1, VULKAN_GRADIENT_BASE_WORDS),
+    (2, VULKAN_BAND_BASE_WORDS),
+];
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
 /// elsewhere. It sits at the BOTTOM of the frame, so the saves above it are out of reach
@@ -1193,6 +1518,17 @@ pub(crate) fn emit_wait_for_redraw(
         &scratch.base,
         GRAPHICS_OFFSET_PENDING,
     ));
+    // plan-155-C: the redraw has been picked up — the moment `canvas::waitFrame`
+    // waits for. Broadcast while the mutex is still held, so the waiter reads the
+    // cleared flag when it reacquires it.
+    emit_frame_cond_broadcast(
+        symbol,
+        scratch,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::move_immediate(&scratch.verdict, "Integer", "1"));
     instructions.push(abi::branch(&done));
 
@@ -1281,6 +1617,15 @@ pub(crate) fn emit_stop_graphics(
         relocations,
     };
     emit_thread_external_call(&mut ctx, "pthread_cond_signal")?;
+    // plan-155-C: a `canvas::waitFrame` in progress must see `STOPPING` too.
+    emit_frame_cond_broadcast(
+        symbol,
+        scratch,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
 
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::add_immediate(
@@ -1363,6 +1708,7 @@ pub(crate) fn emit_start_graphics(
     for (offset, call) in [
         (GRAPHICS_OFFSET_MUTEX, "pthread_mutex_init"),
         (GRAPHICS_OFFSET_COND, "pthread_cond_init"),
+        (GRAPHICS_OFFSET_FRAME_COND, "pthread_cond_init"),
     ] {
         state_base(symbol, &scratch.base, instructions, relocations);
         instructions.push(abi::add_immediate(abi::c_arg(0), &scratch.base, offset));
@@ -1577,14 +1923,329 @@ fn emit_graphics_spawn(
     Ok(())
 }
 
-/// `canvas::frameDone()` — the render loop reports a completed frame.
+/// The four values `canvas::frameDone` records, each already in a register the caller
+/// allocated (a value in an argument register would not survive the mutex call).
+pub(crate) struct FrameRecord<'a> {
+    /// Non-zero when a backend drew the frame; zero for a wake-up with nothing to draw.
+    pub(crate) drew: &'a str,
+    /// The `canvas::Renderer` ordinal that drew it.
+    pub(crate) renderer: &'a str,
+    /// How long `__canvas_renderFrame` took, in nanoseconds.
+    pub(crate) render_nanos: &'a str,
+    /// `canvas::frameNanos` at the end of the frame — the drawn ring's timestamp.
+    pub(crate) now: &'a str,
+}
+
+/// Push `value` onto the ring at `ring` whose head is at `head`, and advance the head.
+/// `scratch.base` must hold the graphics state; the caller holds the mutex.
+fn emit_ring_push(
+    scratch: &GraphicsScratch,
+    head: usize,
+    ring: usize,
+    value: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
+    instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
+    instructions.push(abi::add_registers(
+        &scratch.end,
+        &scratch.end,
+        &scratch.base,
+    ));
+    instructions.push(abi::store_u64(value, &scratch.end, ring));
+    instructions.push(abi::add_immediate(&scratch.cursor, &scratch.cursor, 1));
+    instructions.push(abi::move_immediate(
+        &scratch.end,
+        "Integer",
+        &(FRAME_RING_SLOTS - 1).to_string(),
+    ));
+    instructions.push(abi::and_registers(
+        &scratch.cursor,
+        &scratch.cursor,
+        &scratch.end,
+    ));
+    instructions.push(abi::store_u64(&scratch.cursor, &scratch.base, head));
+}
+
+/// `global += 1` for the graphics-state word at `offset`.
+fn emit_bump(scratch: &GraphicsScratch, offset: usize, instructions: &mut Vec<CodeInstruction>) {
+    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
+    instructions.push(abi::add_immediate(&scratch.scratch, &scratch.scratch, 1));
+    instructions.push(abi::store_u64(&scratch.scratch, &scratch.base, offset));
+}
+
+/// `canvas::notePresent(now)` — count a present and log its time (plan-155-B).
+///
+/// Every `present` and `presentLayers` calls this, identical re-presents included:
+/// `presents` is "what the program offered", which is the comparison `fps` is read
+/// against. Under the mutex because `canvas::frameCounters` reads the same words under
+/// it, so a snapshot never sees a half-written ring. A no-op before the thread starts —
+/// the mutex is not initialized until then, and both wrappers start it first.
+pub(crate) fn emit_note_present(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    now: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_no_thread");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_STARTED,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_eq(&skip));
+    emit_graphics_lock(
+        symbol,
+        scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    state_base(symbol, &scratch.base, instructions, relocations);
+    emit_bump(scratch, GRAPHICS_OFFSET_PRESENTS, instructions);
+    emit_ring_push(
+        scratch,
+        GRAPHICS_OFFSET_PRESENT_HEAD,
+        GRAPHICS_OFFSET_PRESENT_RING,
+        now,
+        instructions,
+    );
+    emit_graphics_lock(
+        symbol,
+        scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    instructions.push(abi::label(&skip));
+    Ok(())
+}
+
+/// Lock or unlock (`call`) the graphics mutex.
+fn emit_graphics_lock(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    call: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, call)
+}
+
+/// `canvas::frameCounters(now) AS List OF Integer` — one consistent snapshot of the
+/// frame statistics (plan-155-B), laid out as [`FRAME_COUNTER_WORDS`] says.
+///
+/// **One lock, one moment.** `presents` and `drawn` are written by different threads,
+/// and `pps - fps` is only meaningful if both are read at the same instant, so every word
+/// is copied inside a single critical section. The list is allocated before the lock is
+/// taken, so the critical section is loads and stores only.
+///
+/// Before the graphics thread exists there is no mutex to take and nothing has written
+/// a word (both writers run only once it has started), so the words are copied without
+/// it — all zeros, with `now` and the display rate filled in.
+pub(crate) fn emit_frame_counters(
+    builder: &mut CodeBuilder,
+    now: &Operand,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let now_value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&now_value, now));
+    let now_slot = builder.spill_to_slot("canvas_counters_now", &now_value);
+
+    let list_type = crate::types::ParameterType::list_of(crate::types::ParameterType::Integer);
+    let layout = CollectionTypeLayout::from_type(&list_type)
+        .ok_or_else(|| format!("canvas: no layout for {list_type}"))?;
+    let block_slot = builder.allocate_stack_object("canvas_counters_block", 8);
+    let ok = builder.label("canvas_counters_alloc_ok");
+    builder.emit(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        &(COLLECTION_HEADER_SIZE + FRAME_COUNTER_WORDS * 8).to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_eq(&ok));
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::label(&ok));
+    builder.emit(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        block_slot,
+    ));
+    let block = builder.temporary_vreg();
+    let words = builder.temporary_vreg();
+    let bytes = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+    builder.emit(abi::move_immediate(
+        &words,
+        "Integer",
+        &FRAME_COUNTER_WORDS.to_string(),
+    ));
+    builder.emit(abi::move_immediate(
+        &bytes,
+        "Integer",
+        &(FRAME_COUNTER_WORDS * 8).to_string(),
+    ));
+    builder.emit_write_collection_header_full(&layout, &block, &words, &words, &bytes, &bytes);
+
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let unlocked = builder.label("canvas_counters_unlocked");
+    let copied = builder.label("canvas_counters_copied");
+    let started = builder.temporary_vreg();
+    // Whether the thread exists cannot change under us: only this thread (the worker)
+    // starts it, and nothing stops it before the program ends.
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &started,
+        &scratch.base,
+        GRAPHICS_OFFSET_STARTED,
+    ));
+    builder.emit(abi::compare_immediate(&started, "0"));
+    builder.emit(abi::branch_eq(&unlocked));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::label(&unlocked));
+
+    // The copy: loads and stores only.
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    let data = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&data, abi::stack_pointer(), block_slot));
+    builder.emit(abi::add_immediate(&data, &data, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        abi::stack_pointer(),
+        now_slot,
+    ));
+    builder.emit(abi::store_u64(&scratch.scratch, &data, 0));
+    for (word, offset) in [
+        (1, GRAPHICS_OFFSET_PRESENTS),
+        (2, GRAPHICS_OFFSET_PRESENT_HEAD),
+        (3, GRAPHICS_OFFSET_DRAWN),
+        (4, GRAPHICS_OFFSET_DRAWN_HEAD),
+        (5, GRAPHICS_OFFSET_LAST_RENDER_NANOS),
+        (6, GRAPHICS_OFFSET_LAST_RENDERER),
+    ] {
+        builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, offset));
+        builder.emit(abi::store_u64(&scratch.scratch, &data, word * 8));
+    }
+    // Word 7: the display rate, override first — `canvas::displayMilliHz`'s rule.
+    let chosen = builder.label("canvas_counters_display");
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&chosen));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_MHZ,
+    ));
+    builder.emit(abi::label(&chosen));
+    builder.emit(abi::store_u64(&scratch.scratch, &data, 7 * 8));
+    for (ring, first_word) in [
+        (GRAPHICS_OFFSET_PRESENT_RING, FRAME_COUNTER_HEADER_WORDS),
+        (
+            GRAPHICS_OFFSET_DRAWN_RING,
+            FRAME_COUNTER_HEADER_WORDS + FRAME_RING_SLOTS,
+        ),
+    ] {
+        let again = builder.label("canvas_counters_ring");
+        builder.emit(abi::add_immediate(&scratch.cursor, &scratch.base, ring));
+        builder.emit(abi::add_immediate(
+            &scratch.end,
+            &scratch.cursor,
+            FRAME_RING_SLOTS * 8,
+        ));
+        builder.emit(abi::add_immediate(&scratch.arena, &data, first_word * 8));
+        builder.emit(abi::label(&again));
+        builder.emit(abi::load_u64(&scratch.scratch, &scratch.cursor, 0));
+        builder.emit(abi::store_u64(&scratch.scratch, &scratch.arena, 0));
+        builder.emit(abi::add_immediate(&scratch.cursor, &scratch.cursor, 8));
+        builder.emit(abi::add_immediate(&scratch.arena, &scratch.arena, 8));
+        builder.emit(abi::compare_registers(&scratch.cursor, &scratch.end));
+        builder.emit(abi::branch_lo(&again));
+    }
+
+    builder.emit(abi::compare_immediate(&started, "0"));
+    builder.emit(abi::branch_eq(&copied));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::label(&copied));
+    builder.emit(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        block_slot,
+    ));
+    Ok(())
+}
+
+/// `canvas::frameDone(drew, renderer, renderNanos, now)` — the render loop reports a
+/// completed frame.
 ///
 /// Advances the frame counter and wakes anything waiting on it. Broadcast rather
 /// than signal: the waiter is a different party from the render loop, and a signal
 /// could wake the loop's own wait instead.
+///
+/// When the frame was drawn (plan-155-B) it also logs it for `canvas::getFrameStats`:
+/// the drawn total and ring, the render time and the renderer — inside the same critical
+/// section, so the record adds no lock. A wake-up that drew nothing still advances
+/// `FRAMES` (a `syncFrame` waiter is released by it) but is not a drawn frame.
 pub(crate) fn emit_frame_done(
     symbol: &str,
     scratch: &GraphicsScratch,
+    record: &FrameRecord<'_>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
@@ -1617,6 +2278,28 @@ pub(crate) fn emit_frame_done(
         &scratch.base,
         GRAPHICS_OFFSET_FRAMES,
     ));
+    let not_drawn = format!("{symbol}_not_drawn");
+    instructions.push(abi::compare_immediate(record.drew, "0"));
+    instructions.push(abi::branch_eq(&not_drawn));
+    emit_bump(scratch, GRAPHICS_OFFSET_DRAWN, instructions);
+    emit_ring_push(
+        scratch,
+        GRAPHICS_OFFSET_DRAWN_HEAD,
+        GRAPHICS_OFFSET_DRAWN_RING,
+        record.now,
+        instructions,
+    );
+    instructions.push(abi::store_u64(
+        record.render_nanos,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_RENDER_NANOS,
+    ));
+    instructions.push(abi::store_u64(
+        record.renderer,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_RENDERER,
+    ));
+    instructions.push(abi::label(&not_drawn));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,
@@ -1646,6 +2329,267 @@ pub(crate) fn emit_frame_done(
     };
     emit_thread_external_call(&mut ctx, "pthread_mutex_unlock")?;
     Ok(())
+}
+
+/// Wake every `canvas::waitFrame` waiter (plan-155-C). The caller holds the mutex.
+fn emit_frame_cond_broadcast(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_cond_broadcast")
+}
+
+/// `CLOCK_REALTIME`, the clock a default condition variable's deadline is in — the
+/// same number on Linux and Darwin, and ignored by the Windows `clock_gettime` shim,
+/// whose single clock is the one its `pthread_cond_timedwait` arm reads.
+const CLOCK_REALTIME: &str = "0";
+const NANOS_PER_SECOND: &str = "1000000000";
+
+/// `now` = `CLOCK_REALTIME` in nanoseconds, through the timespec at `[sp + ts]`.
+fn emit_realtime_nanos(
+    builder: &mut CodeBuilder,
+    ts: usize,
+    now: &crate::codegen::engine::operand::VirtualRegister,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        CLOCK_REALTIME,
+    ));
+    builder.emit(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ts));
+    let mut ctx = EmitCtx {
+        symbol: &symbol,
+        platform_imports,
+        platform,
+        instructions: &mut builder.instructions,
+        relocations: &mut builder.relocations,
+    };
+    emit_thread_external_call(&mut ctx, "clock_gettime")?;
+    let scale = builder.temporary_vreg();
+    let nanos = builder.temporary_vreg();
+    builder.emit(abi::load_u64(now, abi::stack_pointer(), ts));
+    builder.emit(abi::load_u64(&nanos, abi::stack_pointer(), ts + 8));
+    builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
+    builder.emit(abi::multiply_registers(now, now, &scale));
+    builder.emit(abi::add_registers(now, now, &nanos));
+    Ok(())
+}
+
+/// `canvas::awaitPickup(intervalNanos)` — the wait inside `canvas::waitFrame`
+/// (plan-155-C). The caller has started the graphics thread, so the mutex exists.
+///
+/// Returns once **both** hold: the render loop has picked up every redraw asked for
+/// (`PENDING` clear), and `intervalNanos` have passed since the last return
+/// (`LAST_WAIT`). Or at once, when the thread is stopping. It waits on
+/// `GRAPHICS_OFFSET_FRAME_COND` only — untimed while a redraw is owed, timed until the
+/// deadline otherwise — and never signals anything, so it cannot cause a frame.
+///
+/// **Picked up, not drawn.** Waiting for the frame to finish would serialize the two
+/// threads: the worker idle while the frame renders, the renderer idle while the worker
+/// builds the next scene. Pickup leaves one frame in flight.
+///
+/// Times are `CLOCK_REALTIME`, the clock `pthread_cond_timedwait` takes. So that a
+/// wall-clock step backwards cannot stall the loop, the deadline is never later than
+/// `now + interval`; a step costs at most one interval. `LAST_WAIT` becomes the deadline
+/// when the return is less than one interval late, so the wake-up latency does not
+/// stretch every interval, and the time of the return otherwise, so a loop that fell
+/// behind gets no burst of catch-up returns.
+pub(crate) fn emit_await_pickup(
+    builder: &mut CodeBuilder,
+    interval: &Operand,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let interval_value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&interval_value, interval));
+    let ts = builder.allocate_stack_object("canvas_await_ts", 16);
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let now = builder.temporary_vreg();
+    let deadline = builder.temporary_vreg();
+    let cap = builder.temporary_vreg();
+    let again = builder.label("canvas_await_again");
+    let owed = builder.label("canvas_await_owed");
+    let done = builder.label("canvas_await_done");
+    let capped = builder.label("canvas_await_capped");
+
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    // deadline = min(LAST_WAIT + interval, now + interval)
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &deadline,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
+    builder.emit(abi::add_registers(&deadline, &deadline, &interval_value));
+    builder.emit(abi::add_registers(&cap, &now, &interval_value));
+    builder.emit(abi::compare_registers(&deadline, &cap));
+    builder.emit(abi::branch_le(&capped));
+    builder.emit(abi::move_register(&deadline, &cap));
+    builder.emit(abi::label(&capped));
+
+    builder.emit(abi::label(&again));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_STOPPING,
+    ));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&done));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_PENDING,
+    ));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&owed));
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    builder.emit(abi::compare_registers(&now, &deadline));
+    builder.emit(abi::branch_ge(&done));
+    // The floor: a timed wait until the deadline, as an absolute timespec.
+    let scale = builder.temporary_vreg();
+    let seconds = builder.temporary_vreg();
+    let rest = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
+    builder.emit(abi::unsigned_divide_registers(&seconds, &deadline, &scale));
+    builder.emit(abi::multiply_subtract_registers(
+        &rest, &seconds, &scale, &deadline,
+    ));
+    builder.emit(abi::store_u64(&seconds, abi::stack_pointer(), ts));
+    builder.emit(abi::store_u64(&rest, abi::stack_pointer(), ts + 8));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    builder.emit(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), ts));
+    {
+        let mut ctx = EmitCtx {
+            symbol: &symbol,
+            platform_imports,
+            platform,
+            instructions: &mut builder.instructions,
+            relocations: &mut builder.relocations,
+        };
+        emit_thread_external_call(&mut ctx, "pthread_cond_timedwait")?;
+    }
+    builder.emit(abi::branch(&again));
+
+    // A redraw is owed: wait, untimed, for the render loop to take it (or stop).
+    builder.emit(abi::label(&owed));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    {
+        let mut ctx = EmitCtx {
+            symbol: &symbol,
+            platform_imports,
+            platform,
+            instructions: &mut builder.instructions,
+            relocations: &mut builder.relocations,
+        };
+        emit_thread_external_call(&mut ctx, "pthread_cond_wait")?;
+    }
+    builder.emit(abi::branch(&again));
+
+    // The next interval runs from the deadline when this return is on schedule (less
+    // than one interval late), and from now when it is not. Measuring from the return
+    // alone adds the wake-up latency to every interval — measured: a 120 Hz loop ran
+    // at 99-100 presents a second — while measuring from the deadline alone would let a
+    // loop that fell behind return back-to-back until it caught up.
+    builder.emit(abi::label(&done));
+    let on_time = builder.label("canvas_await_on_time");
+    let stamped = builder.label("canvas_await_stamped");
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::subtract_registers(&cap, &now, &deadline));
+    builder.emit(abi::compare_registers(&cap, &interval_value));
+    builder.emit(abi::branch_lt(&on_time));
+    builder.emit(abi::store_u64(
+        &now,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
+    builder.emit(abi::branch(&stamped));
+    builder.emit(abi::label(&on_time));
+    builder.emit(abi::store_u64(
+        &deadline,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
+    builder.emit(abi::label(&stamped));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )
 }
 
 /// `canvas::syncFrame()` — wait for the frame this present asked for.
@@ -1835,6 +2779,78 @@ pub(crate) fn emit_publish_surface_size(
     instructions.push(abi::label(&unchanged));
     instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
+}
+
+/// Publish the display's refresh rate, in millihertz, from the platform's main thread
+/// (plan-155-A). `mhz` holds the value; `base` is a register the caller can spare.
+///
+/// One plain aligned store and nothing else — no lock, for `emit_publish_surface_size`'s
+/// reason, and **no redraw**: a new rate changes no pixel, and `.ai/canvas-threading.md`
+/// §4's triggers stay five. Readers want "some recent value", and a store of a word is
+/// never torn.
+///
+/// Takes operands rather than register names so a caller can pass an ABI role token
+/// (the Windows helper uses the Win64 argument registers, spelled `abi::mfb_arg(n)`):
+/// rendering such a token to a string loses the role the selector realizes it from.
+pub(crate) fn emit_publish_display_rate(
+    symbol: &str,
+    base: impl Into<Operand>,
+    mhz: impl Into<Operand>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let base = base.into();
+    push_symbol_address(
+        symbol,
+        GRAPHICS_STATE_SYMBOL,
+        &base,
+        instructions,
+        relocations,
+    );
+    instructions.push(abi::store_u64(mhz, &base, GRAPHICS_OFFSET_DISPLAY_MHZ));
+}
+
+/// `canvas::displayMilliHz() AS Integer` — the rate, override first; `0` when unknown.
+pub(crate) fn emit_display_milli_hz(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let chosen = format!("{symbol}_display_override");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_ne(&chosen));
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_MHZ,
+    ));
+    instructions.push(abi::label(&chosen));
+    instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+/// `canvas::setDisplayOverride(mhz)` — record `MFB_CANVAS_DISPLAY_HZ`, read from
+/// MFBASIC beside `setSyncMode` for the same reason: the environment is portably
+/// readable there.
+pub(crate) fn emit_set_display_override(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    value: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(
+        value,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
 }
 
 /// The one scratch register `emit_publish_surface_size` needs for its compare.

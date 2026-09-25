@@ -1018,11 +1018,18 @@ pub(crate) fn lower_tls_listen_macos(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), QUEUE),
     ]);
     // Allocate + initialize the listener context (shared ctx prefix + ring).
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", LCTX_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // On the C heap (bug-623 D, see `CTX_SIZE`).
+    emit_ctx_calloc(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        LCTX_SIZE,
+        &alloc_fail,
+    )?;
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -1558,12 +1565,19 @@ pub(crate) fn lower_tls_accept_macos(
         abi::add_immediate(&v11, &v11, 1),
         abi::store_u64(&v11, &v9, LCTX_TAIL),
     ]);
-    // Per-connection block context { sem, signal, state, content, error }.
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", CTX_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // Per-connection block context { sem, signal, state, content, error }, on the
+    // C heap (bug-623 D, see `CTX_SIZE`).
+    emit_ctx_calloc(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        CTX_SIZE,
+        &alloc_fail,
+    )?;
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -1864,6 +1878,7 @@ pub(crate) fn lower_tls_close_listener_macos(
     // rejects still-queued connections). Blocks on the listener ctx semaphore
     // until the async `nw_listener_cancel` reaches `cancelled`.
     let lcancel_drain = format!("{symbol}_lcancel_drain");
+    let skip_lctx_free = format!("{symbol}_skip_lctx_free");
     let done = format!("{symbol}_done");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
@@ -2020,6 +2035,27 @@ pub(crate) fn lower_tls_close_listener_macos(
         // the same reason as the connection close: nw_listener_cancel is async
         // and the listener state handler still signals ctx->sem on the cancelled
         // transition. It is reclaimed with the arena-allocated lctx block.
+        //
+        // bug-623: the lctx block itself goes back to the C heap now. The cancel
+        // drain above reached the terminal state, so neither the state handler
+        // nor the new-connection handler runs again, and `tls::accept` checks
+        // REC_CLOSED before it loads REC_CTX. A transferred listener's lctx,
+        // allocated by another thread's arena, is freed here too: a free touches
+        // only the freeing thread's bins (bug-623 D, see `CTX_SIZE`).
+        abi::load_u64(&v9, abi::stack_pointer(), LCTX),
+        abi::move_register(abi::c_arg(0), &v9),
+    ]);
+    emit_ctx_free(&mut EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions: &mut ins,
+        relocations: &mut rel,
+    })?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, REC_CTX),
+        abi::label(&skip_lctx_free),
         // Mark closed.
         abi::load_u64(&v9, abi::stack_pointer(), REC),
         abi::move_immediate(&v10, "Integer", "1"),

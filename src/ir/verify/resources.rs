@@ -22,9 +22,12 @@ pub(super) enum Unsendable {
     /// A resource reached the boundary: `Res(_)`, or a bare resource nominal
     /// whose type is not registered thread-sendable.
     Resource(ParameterType),
-    /// `Func` / `ThreadHandle` — genuinely unsendable, not a plane mix-up, so no
-    /// resource-plane remedy exists to point at.
+    /// `Func` — genuinely unsendable, not a plane mix-up, so no resource-plane
+    /// remedy exists to point at.
     Other(ParameterType),
+    /// A `ThreadWorker`: it belongs to its worker for the worker's whole run
+    /// (`TYPE_THREAD_WORKER_NOT_TRANSFERABLE`).
+    Worker(ParameterType),
 }
 
 impl Unsendable {
@@ -33,7 +36,9 @@ impl Unsendable {
     /// the whole point of walking for a cause.
     pub(super) fn leaf(&self) -> &ParameterType {
         match self {
-            Unsendable::Resource(type_) | Unsendable::Other(type_) => type_,
+            Unsendable::Resource(type_) | Unsendable::Other(type_) | Unsendable::Worker(type_) => {
+                type_
+            }
         }
     }
 }
@@ -197,10 +202,15 @@ impl TypeEnv {
             collect_local_reads_op(op, &mut reads);
             for name in &reads {
                 if moved.contains(name) {
-                    self.emit(
-                        "TYPE_USE_AFTER_MOVE",
-                        format!("Binding `{name}` was moved and cannot be used again."),
-                    );
+                    let detail = if self.trap_closed.borrow().contains(name) {
+                        format!(
+                            "Resource `{name}` is closed when an error reaches the function's \
+                             TRAP, so the handler cannot use it."
+                        )
+                    } else {
+                        format!("Binding `{name}` was moved and cannot be used again.")
+                    };
+                    self.emit("TYPE_USE_AFTER_MOVE", detail);
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
@@ -398,11 +408,39 @@ impl TypeEnv {
                         }
                     }
                 }
-                IrOp::While { body, .. }
-                | IrOp::For { body, .. }
-                | IrOp::DoUntil { body, .. }
-                | IrOp::Trap { body, .. } => {
+                IrOp::While { body, .. } | IrOp::For { body, .. } | IrOp::DoUntil { body, .. } => {
                     run_branch(body, locals, moved, aliases, contains);
+                }
+                // bug-676: every route into the function-level handler closes the
+                // function's own resources first (`trap_route_cleanups`, codegen:
+                // "trap-shared resources *are* still dropped here"), so inside the
+                // handler each one is used after its close — which read the closed
+                // handle's freed record and crashed. A `RES` parameter and a
+                // `FOR EACH` element are not the function's to close (`non_owning`),
+                // and a thread is closed but readable (bug-622), so neither is
+                // counted.
+                IrOp::Trap { body, .. } => {
+                    let closed: HashSet<String> = locals
+                        .iter()
+                        .filter(|(name, type_)| {
+                            !non_owning.contains(*name)
+                                && self.close_op_for(&resource_base_type(type_)).is_some()
+                        })
+                        .map(|(name, _)| name.clone())
+                        .collect();
+                    let mut handler_moved = moved.clone();
+                    handler_moved.extend(closed.iter().cloned());
+                    let previous = self.trap_closed.replace(closed);
+                    self.check_resource_moves(
+                        body,
+                        &mut locals.clone(),
+                        &mut handler_moved,
+                        owners,
+                        non_owning,
+                        &mut aliases.clone(),
+                        &mut contains.clone(),
+                    );
+                    self.trap_closed.replace(previous);
                 }
                 _ => {}
             }
@@ -590,8 +628,14 @@ impl TypeEnv {
             ParameterType::ResultOf(success) => self.thread_unsendable_cause(success, seen),
             // Sharing a resource collection across threads is out of scope (§15.6).
             ParameterType::Res(_) => Some(Unsendable::Resource(type_.clone())),
-            ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => {
-                Some(Unsendable::Other(type_.clone()))
+            ParameterType::Func(..) => Some(Unsendable::Other(type_.clone())),
+            // plan-156-D: a parent view is a sendable resource (its planes are
+            // checked where the type is declared); a worker's own view never crosses.
+            ParameterType::ThreadHandle { worker: true, .. } => {
+                Some(Unsendable::Worker(type_.clone()))
+            }
+            ParameterType::ThreadHandle { worker: false, .. } => {
+                self.resource_sendability_cause(type_)
             }
             other => {
                 // The built-in nominals are plain values.
@@ -656,8 +700,21 @@ impl TypeEnv {
     /// resource type itself may not cross and the data-plane remedy would be
     /// nonsense (it would name the plane the resource is already on).
     fn require_thread_sendable(&self, context: &str, type_: &ParameterType, plane: Plane) {
+        // A resource named directly on a data plane is a plane mix-up even when the
+        // resource itself may cross (the cause walk answers `None` for a sendable
+        // one): `thread::start`'s input and a thread's output are data planes. The
+        // declared message plane checks this itself before calling here.
+        if plane == Plane::Data && self.is_resource_type(type_) {
+            self.emit_thread_resource_plane_required(context, type_);
+            return;
+        }
         match self.thread_unsendable_cause(type_, &mut HashSet::new()) {
             None => {}
+            // A worker's view on a RESOURCE plane is the one mistake with a rule of
+            // its own; on a data plane it is simply not sendable (2-203-0063).
+            Some(Unsendable::Worker(worker)) if plane == Plane::Resource => {
+                self.emit_thread_worker_not_transferable(context, &worker)
+            }
             Some(cause @ Unsendable::Resource(_)) if plane == Plane::Data => {
                 self.emit_thread_resource_plane_required(context, cause.leaf());
             }
@@ -669,6 +726,17 @@ impl TypeEnv {
                 ),
             ),
         }
+    }
+
+    /// The one place `2-203-0140` is worded.
+    fn emit_thread_worker_not_transferable(&self, context: &str, worker: &ParameterType) {
+        self.emit(
+            "TYPE_THREAD_WORKER_NOT_TRANSFERABLE",
+            format!(
+                "{context} carries `{}`; a ThreadWorker belongs to its own worker for that worker's whole run and never crosses to another thread.",
+                worker.name()
+            ),
+        );
     }
 
     /// The one place `2-203-0138` is worded. `resource` is the offending leaf,
@@ -886,6 +954,13 @@ impl TypeEnv {
                             "Call to `{display}` requires a thread with a resource plane (`Thread OF … RES Res TO …`); this thread has no resource channel."
                         ),
                     );
+                } else if let Some(cause @ Unsendable::Worker(_)) =
+                    self.thread_unsendable_cause(&resource, &mut HashSet::new())
+                {
+                    self.emit_thread_worker_not_transferable(
+                        &format!("Call to `{display}` resource type"),
+                        cause.leaf(),
+                    );
                 } else if self.is_resource_type(&resource) {
                     // The resource plane carries only thread-sendable resources.
                     self.require_thread_sendable(
@@ -976,6 +1051,12 @@ impl TypeEnv {
                     } else {
                         Vec::new()
                     },
+                    // bug-679: `self` IS the declared-kind oracle (`impl TypeKinds
+                    // for TypeEnv`, plan-140-A), so `toInt(<enum>)` is recognised
+                    // as the one infallible `toInt` overload and its dead handler
+                    // is reported, matching `toString(<enum>)`. Every other `toInt`
+                    // can really fail and keeps its handler.
+                    self,
                 ) {
                     // A provably-infallible inline built-in (`len`, `toString`,
                     // every `bits::*`, …) under a TRAP compiles and runs; its
@@ -1001,10 +1082,11 @@ impl TypeEnv {
     /// recurse (cycle-guarded).
     ///
     /// plan-106-B: the container/FUNC/Result/RES/Thread tests are variant matches.
-    /// The ` STATE ` test stays a name test on purpose — the clause rides INSIDE a
-    /// resource's nominal spelling (`parse` has no `STATE` arm), so there is no
-    /// variant to match. The remaining tests are name lookups into the declaration
-    /// tables.
+    /// The ` STATE ` test stays a name test on purpose: `parse` builds a
+    /// [`Stateful`](ParameterType::Stateful) only for a single-token base or a
+    /// thread handle, and a clause on any other composite still rides inside one
+    /// opaque nominal spelling, where only the name can see it. The remaining tests
+    /// are name lookups into the declaration tables.
     pub(super) fn is_defaultable(
         &self,
         type_: &ParameterType,

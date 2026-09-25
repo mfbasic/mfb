@@ -20,7 +20,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "base" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "sub" }, { "kind": "string", "value": "leaf.txt" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF (List OF String) TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fs_thread_workers.pathJoinWorker" }, { "kind": "identifier", "value": "parts" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF (List OF String) TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fs_thread_workers.pathJoinWorker" }, { "kind": "identifier", "value": "parts" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "joined", "type": "String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "joined" }] }, "line": 9 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }

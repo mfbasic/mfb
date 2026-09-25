@@ -1,0 +1,61 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "string_global_default_owned",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "reassigned", "line": 9, "visibility": "public", "mutable": true, "type": "String", "value": null },
+  { "name": "appended", "line": 10, "visibility": "public", "mutable": true, "type": "String", "value": null },
+  { "name": "untouched", "line": 11, "visibility": "public", "mutable": true, "type": "String", "value": null }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "reassign",
+    "line": 13,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "assignGlobal", "line": 14, "name": "reassigned", "value": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "e" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "global", "name": "reassigned" }] } }
+    ]
+  },
+  {
+    "name": "append",
+    "line": 18,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "assignGlobal", "line": 19, "name": "appended", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "global", "name": "appended" }, "right": { "kind": "const", "type": "String", "value": "c" } } },
+    { "op": "assignGlobal", "line": 20, "name": "appended", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "global", "name": "appended" }, "right": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "d" }, { "kind": "const", "type": "Integer", "value": "40" }] } } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "global", "name": "appended" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "reassign", "args": [] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "append", "args": [] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "global", "name": "untouched" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

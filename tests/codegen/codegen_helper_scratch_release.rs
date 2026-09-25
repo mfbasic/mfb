@@ -231,10 +231,20 @@ fn assert_package_for(package: &str, target: &str, expected: &[(&str, Counts)]) 
 ///
 /// * `openFile`/`open`/`openFileNoFollow`/`createTempFile` allocate the path
 ///   scratch AND the `File` record they hand back — one free.
-/// * `readText`/`listDirectory`/`currentDirectory`/`tempDirectory` allocate the
-///   scratch (or the `getcwd` buffer) AND the `String`/`List` result — one free.
-/// * `canonicalPath` allocates the path scratch, the PATH_MAX `realpath` buffer,
-///   and the result — two frees.
+/// * `currentDirectory`/`tempDirectory` allocate the scratch (or the `getcwd`
+///   buffer) AND the `String` result — one free.
+/// * `listDirectory` allocates the path scratch AND the `List` result, and has TWO
+///   guarded frees: the scratch, and the List on the one path that does not return
+///   it — the directory vanishing between the two scans, after the List was sized
+///   (bug-696). That free's pointer is null on every path that returns the List.
+/// * `readText` and `canonicalPath` marshal NOTHING: plan-146-F replaced their
+///   `len + 1` path copy with a pointer into the argument block's own bytes at
+///   `+8`, which already end in a NUL (`borrow_cstring`, `os/gen_shared.rs`; the
+///   interior-NUL rejection survives as the read-only `emit_cstring_nul_scan`).
+///   `readText` therefore allocates only its result `String` (no free);
+///   `canonicalPath` the PATH_MAX `realpath` buffer and the result — one free.
+///   A borrowed argument is the caller's block: freeing it would be the
+///   use-after-free this test exists to catch, so a `1` here would be the bug.
 /// * `openWithin` allocates the root C-string, the PATH_MAX join buffer, and the
 ///   `File` record — two frees.
 /// * `readBytes` allocates the path scratch and an INTERNAL `File` record it only
@@ -249,7 +259,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_file_drain", (0, 0, 0)),
     ("_mfb_rt_fs_fs_appendBytes", (1, 1, 1)),
     ("_mfb_rt_fs_fs_appendText", (1, 1, 1)),
-    ("_mfb_rt_fs_fs_canonicalPath", (3, 2, 2)),
+    ("_mfb_rt_fs_fs_canonicalPath", (2, 1, 1)),
     ("_mfb_rt_fs_fs_close", (0, 0, 0)),
     ("_mfb_rt_fs_fs_createDirectories", (1, 1, 1)),
     ("_mfb_rt_fs_fs_createDirectory", (1, 1, 1)),
@@ -264,7 +274,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_fs_flush", (0, 0, 0)),
     ("_mfb_rt_fs_fs_isBuffered", (0, 0, 0)),
     ("_mfb_rt_fs_fs_isWithin", (4, 4, 4)),
-    ("_mfb_rt_fs_fs_listDirectory", (2, 1, 1)),
+    ("_mfb_rt_fs_fs_listDirectory", (2, 2, 2)),
     ("_mfb_rt_fs_fs_open", (2, 1, 1)),
     ("_mfb_rt_fs_fs_openFile", (2, 1, 1)),
     ("_mfb_rt_fs_fs_openFileNoFollow", (2, 1, 1)),
@@ -273,7 +283,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_fs_readAllBytes", (1, 0, 0)),
     ("_mfb_rt_fs_fs_readBytes", (2, 2, 2)),
     ("_mfb_rt_fs_fs_readLine", (5, 3, 1)),
-    ("_mfb_rt_fs_fs_readText", (2, 1, 1)),
+    ("_mfb_rt_fs_fs_readText", (1, 0, 0)),
     ("_mfb_rt_fs_fs_setBuffered", (0, 0, 0)),
     ("_mfb_rt_fs_fs_setCurrentDirectory", (1, 1, 1)),
     ("_mfb_rt_fs_fs_tempDirectory", (2, 1, 1)),
@@ -286,28 +296,47 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_path_join", (1, 0, 0)),
 ];
 
-/// `os`'s environment family marshals through the shared `marshal_cstring`.
-/// `setEnv` marshals TWO arguments and frees both; `getEnvOr` allocates the
-/// scratch, the result `String` built from `getenv`'s answer, and the fallback
-/// copy — one scratch. The rest of the package takes no `String` argument and
+/// `os`'s environment family marshals NOTHING since plan-146-F (finding F4): the
+/// shared `marshal_cstring` became `borrow_cstring` (`os/gen_shared.rs`), which
+/// hands the host a pointer to the argument `String` block's own bytes at `+8` —
+/// already NUL-terminated (`mfb spec` `03_heap-values.md`) — instead of a
+/// `len + 1` arena copy. So `setEnv` (which marshalled TWO arguments), `unsetEnv`
+/// and `hasEnv` are flat `(0, 0, 0)`: they allocate nothing at all, and their
+/// `ErrOutOfMemory` tails went with the copies. `getEnv` allocates only the
+/// result `String` built from `getenv`'s answer; `getEnvOr` that plus the
+/// fallback copy. None of the four frees anything: the borrowed block belongs to
+/// the caller, and freeing it would be the use-after-free this test guards.
+/// The rest of the package takes no `String` argument and
 /// allocates only its result: `args`, `environ`, `hostName`, `userName`,
-/// `executablePath`, `name`, `arch`, `resourcePath`. `os::arch()` being flat is
+/// `executablePath`, `name`, `arch`, `appResourcePath`. `os::arch()` being flat is
 /// the report's own contrast row.
+///
+/// The plan-157 user-path family reads its `relative` argument in place (no
+/// copy) and allocates only the `String` it returns, once per join site in
+/// `gen_host_paths.rs`. On this POSIX target `appDataPath`/`appCachePath` join
+/// either `$XDG_*_HOME` or `$HOME/<dir>` and `userDocumentsPath` either the
+/// documents directory or its `$HOME` fallback — two exclusive sites each, one
+/// result — while `userHomePath` has the one `$HOME` site. None frees anything:
+/// the block is the result.
 const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_arch", (1, 0, 0)),
     ("_mfb_rt_os_os_args", (1, 0, 0)),
     ("_mfb_rt_os_os_cpuCount", (0, 0, 0)),
     ("_mfb_rt_os_os_environ", (1, 0, 0)),
     ("_mfb_rt_os_os_executablePath", (1, 0, 0)),
-    ("_mfb_rt_os_os_getEnv", (2, 1, 1)),
-    ("_mfb_rt_os_os_getEnvOr", (3, 1, 1)),
-    ("_mfb_rt_os_os_hasEnv", (1, 1, 1)),
+    ("_mfb_rt_os_os_getEnv", (1, 0, 0)),
+    ("_mfb_rt_os_os_getEnvOr", (2, 0, 0)),
+    ("_mfb_rt_os_os_hasEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_hostName", (1, 0, 0)),
     ("_mfb_rt_os_os_name", (1, 0, 0)),
     ("_mfb_rt_os_os_pid", (0, 0, 0)),
-    ("_mfb_rt_os_os_resourcePath", (1, 0, 0)),
-    ("_mfb_rt_os_os_setEnv", (2, 2, 2)),
-    ("_mfb_rt_os_os_unsetEnv", (1, 1, 1)),
+    ("_mfb_rt_os_os_appResourcePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_appDataPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_appCachePath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userHomePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_userDocumentsPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_setEnv", (0, 0, 0)),
+    ("_mfb_rt_os_os_unsetEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_userName", (1, 0, 0)),
 ];
 
@@ -350,7 +379,7 @@ const TCP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_tcp_tcp_localAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_poll", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_pollList", (1, 3, 0)),
-    ("_mfb_rt_tcp_tcp_read", (2, 0, 0)),
+    ("_mfb_rt_tcp_tcp_read", (2, 5, 0)),
     ("_mfb_rt_tcp_tcp_remoteAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_setReadTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_setWriteTimeout", (0, 0, 0)),
@@ -432,7 +461,7 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 6, 0)),
     ("_mfb_rt_tls_tls_write", (0, 0, 0)),
     ("_mfb_rt_tls_tls_writeText", (0, 0, 0)),
 ];
@@ -458,12 +487,16 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
 /// `tests/net/rt_tls_listener_local_address.rs` is the test that catches it, and
 /// the bind-all spelling does NOT: that path parks a rodata pointer.
 const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
-    ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
+    // bug-623 D: the connection and listener ctx blocks moved from the arena to the C
+    // heap (`gen_macos::emit_ctx_calloc` / `emit_ctx_free`), so accept, connect and
+    // listen each allocate one fewer arena block and close / closeListener /
+    // connect's failure exit free one fewer. No guarded scratch release changed.
+    ("_mfb_rt_tls_tls_accept", (1, 0, 0)),
     ("_mfb_rt_tls_tls_close", (0, 1, 0)),
     ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
-    ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
-    ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
+    ("_mfb_rt_tls_tls_connect", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_connectAddr", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_listen", (6, 2, 2)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     // plan-132: `emit_address_from_host_and_port` allocates the scratch host
     // `String` and the record, and frees the scratch once the record holds it.
@@ -483,16 +516,19 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
 /// `emit_cstring`, so they are not scratch blocks and `listen` has only the one.
 const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
-    ("_mfb_rt_tls_tls_close", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_connect", (5, 1, 1)),
-    ("_mfb_rt_tls_tls_connectAddr", (5, 1, 1)),
+    ("_mfb_rt_tls_tls_close", (0, 1, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 1, 0)),
+    // bug-623 C: the 64 KiB wide server-name buffer is freed after its last use on
+    // success, and each failure exit (`fail`, `alloc_fail`) frees it, STATE and the
+    // record after releasing the SSPI handles and the socket: 1 + 3 + 3 frees.
+    ("_mfb_rt_tls_tls_connect", (5, 8, 1)),
+    ("_mfb_rt_tls_tls_connectAddr", (5, 8, 1)),
     ("_mfb_rt_tls_tls_listen", (9, 1, 1)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
-    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 2, 0)),
     ("_mfb_rt_tls_tls_write", (1, 0, 0)),
     ("_mfb_rt_tls_tls_writeText", (1, 0, 0)),
 ];

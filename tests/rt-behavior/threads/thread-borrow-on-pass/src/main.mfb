@@ -1,0 +1,35 @@
+IMPORT io
+IMPORT os
+IMPORT thread
+
+' A Thread passed to a function is lent to it, like any resource: the helper
+' drains the queue through the handle and the caller keeps it — the next
+' thread::isRunning and the final waitFor still answer.
+
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  FOR i = 1 TO n
+    thread::send(worker, i)
+    os::sleep(20)
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC drain(t AS Thread OF Integer TO Integer) AS Integer
+  MUT got AS Integer = 0
+  DO WHILE thread::poll(t, 0)
+    got = got + thread::receive(t, 0)
+  LOOP
+  RETURN got
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Integer TO Integer = thread::start(work, 5)
+  MUT total AS Integer = 0
+  DO WHILE thread::isRunning(t)
+    total = total + drain(t)
+    os::sleep(5)
+  LOOP
+  total = total + drain(t)
+  io::print("total " & toString(total) & " result " & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

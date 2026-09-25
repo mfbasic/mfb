@@ -263,6 +263,17 @@ impl CodegenPlatform for FailAt<'_> {
         self.inner
             .emit_env_set(_from, _platform_imports, _instructions, _relocations)
     }
+    fn emit_release_marshalled(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.tick()?;
+        self.inner
+            .emit_release_marshalled(from, platform_imports, instructions, relocations)
+    }
     fn emit_heap_alloc(
         &self,
         from: &str,
@@ -820,8 +831,14 @@ impl CodegenPlatform for FailAt<'_> {
     fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {
         self.inner.emit_tls_block_trampolines(server)
     }
-    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
-        self.inner.app_mode_data_objects(project_name, debug_hooks)
+    fn app_mode_data_objects(
+        &self,
+        project_name: &str,
+        debug_hooks: bool,
+        uses_mouse: bool,
+    ) -> Vec<CodeDataObject> {
+        self.inner
+            .app_mode_data_objects(project_name, debug_hooks, uses_mouse)
     }
     fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {
         self.inner.app_mode_reconcile_data_objects()

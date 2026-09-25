@@ -1,0 +1,294 @@
+' ---------------------------------------------------------------------------
+' tar/header.mfb — reading the 512-byte header block.
+'
+' Tar is a much simpler format than zip and a much messier one. Simpler,
+' because there is no index: an archive is a flat sequence of 512-byte headers,
+' each followed by its data padded up to the next 512-byte boundary. Messier,
+' because three dialects disagree about how to say anything a fixed-width field
+' cannot hold.
+'
+'   ustar   POSIX.1-1988. Names up to 100 bytes, or 155 + 100 split across
+'           `prefix` and `name`. Numbers are NUL/space-terminated octal text.
+'   GNU     A pseudo-entry of type `L` (or `K` for a link target) whose DATA is
+'           the long name, immediately followed by the real header.
+'   PAX     POSIX.1-2001. A pseudo-entry of type `x` whose data is a series of
+'           "len key=value\n" records, overriding fields of the next header.
+'
+' This reader understands all three, in that precedence: a PAX record beats a
+' GNU long-name record, which beats the ustar fields. A PAX `g` record sets
+' defaults for every following entry until replaced.
+'
+' Numbers have two spellings. Normally they are octal text. When a value does
+' not fit -- a size over 8 GiB, a timestamp after 2242 -- GNU writes it as
+' base-256 big-endian with the high bit of the first byte set. Both are read.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+PUBLIC LET BLOCK AS Integer = 512
+
+' The largest PAX or GNU long-name record this reader will hold.
+PRIVATE LET MAX_RECORD AS Integer = 1048576
+
+' Field offsets in the 512-byte header (POSIX.1-2017 `pax`, ustar layout).
+PRIVATE LET OFF_NAME AS Integer = 0
+PRIVATE LET OFF_MODE AS Integer = 100
+PRIVATE LET OFF_UID AS Integer = 108
+PRIVATE LET OFF_GID AS Integer = 116
+PRIVATE LET OFF_SIZE AS Integer = 124
+PRIVATE LET OFF_MTIME AS Integer = 136
+PRIVATE LET OFF_CHKSUM AS Integer = 148
+PRIVATE LET OFF_TYPE AS Integer = 156
+PRIVATE LET OFF_LINK AS Integer = 157
+PRIVATE LET OFF_MAGIC AS Integer = 257
+PRIVATE LET OFF_UNAME AS Integer = 265
+PRIVATE LET OFF_GNAME AS Integer = 297
+PRIVATE LET OFF_PREFIX AS Integer = 345
+
+' Whether every byte of a block is zero, which is how tar marks its end.
+FUNC isZeroBlock(block AS List OF Byte) AS Boolean
+  FOR EACH b IN block
+    IF toInt(b) <> 0 THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' The header's own checksum field, verified against the block.
+'
+' The checksum is the sum of every byte of the header with the checksum field
+' itself read as eight spaces. Historic implementations disagreed about whether
+' the bytes are signed, so -- as GNU tar does -- either answer is accepted
+' rather than rejecting archives that are fine everywhere else.
+SUB verifyChecksum(block AS List OF Byte, offset AS Integer)
+  LET recorded AS Integer = readOctal(block, OFF_CHKSUM, 8, "checksum")
+  MUT unsignedSum AS Integer = 0
+  MUT signedSum AS Integer = 0
+  FOR i = 0 TO BLOCK - 1
+    MUT value AS Integer = toInt(collections::get(block, i))
+    IF i >= OFF_CHKSUM AND i < OFF_CHKSUM + 8 THEN
+      value = 32
+    END IF
+    unsignedSum = unsignedSum + value
+    IF value > 127 THEN
+      signedSum = signedSum + value - 256
+    ELSE
+      signedSum = signedSum + value
+    END IF
+  NEXT
+  IF recorded <> unsignedSum AND recorded <> signedSum THEN
+    FAIL error(ErrorChecksum, "tar: header at " & toString(offset) & " records checksum " & toString(recorded) & ", computed " & toString(unsignedSum))
+  END IF
+END SUB
+
+' A numeric field, in whichever of the two spellings it uses.
+FUNC readNumber(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
+  LET first AS Integer = toInt(collections::get(block, at))
+  IF first >= 128 THEN
+    RETURN readBase256(block, at, width, field)
+  END IF
+  RETURN readOctal(block, at, width, field)
+END FUNC
+
+' GNU's base-256 form: big-endian, with the high bit of the first byte set as
+' the marker. Only non-negative values are read; a negative one (first byte
+' 0xFF) is outside anything this package can address.
+PRIVATE FUNC readBase256(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
+  IF toInt(collections::get(block, at)) <> 128 THEN
+    FAIL error(errorCode::ErrTooLarge, "tar: " & field & " is a base-256 value too large to address")
+  END IF
+  MUT value AS Integer = 0
+  FOR i = 1 TO width - 1
+    LET b AS Integer = toInt(collections::get(block, at + i))
+    IF value > 36028797018963967 THEN
+      FAIL error(errorCode::ErrTooLarge, "tar: " & field & " is a base-256 value too large to address")
+    END IF
+    value = value * 256 + b
+  NEXT
+  RETURN value
+END FUNC
+
+' Octal text, terminated by a NUL or a space, with leading spaces allowed. An
+' entirely blank field reads as 0, which is what tar writers emit for a field
+' they do not use.
+PRIVATE FUNC readOctal(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
+  MUT value AS Integer = 0
+  MUT seen AS Boolean = FALSE
+  FOR i = 0 TO width - 1
+    LET b AS Integer = toInt(collections::get(block, at + i))
+    IF b = 0 OR b = 32 THEN
+      IF seen THEN
+        RETURN value
+      END IF
+    ELSE
+      IF b < 48 OR b > 55 THEN
+        FAIL error(errorCode::ErrInvalidFormat, "tar: " & field & " is not octal")
+      END IF
+      value = value * 8 + (b - 48)
+      seen = TRUE
+    END IF
+  NEXT
+  RETURN value
+END FUNC
+
+' A fixed-width text field, up to its first NUL.
+FUNC readText(block AS List OF Byte, at AS Integer, width AS Integer) AS String
+  MUT bytes AS List OF Byte = []
+  FOR i = 0 TO width - 1
+    LET b AS Byte = collections::get(block, at + i)
+    IF toInt(b) = 0 THEN
+      RETURN decodeUtf8Lenient(bytes)
+    END IF
+    bytes = collections::append(bytes, b)
+  NEXT
+  RETURN decodeUtf8Lenient(bytes)
+END FUNC
+
+' Tar does not record a character set for names. UTF-8 is overwhelmingly what
+' they are; anything else is passed through as Latin-1 rather than failing an
+' archive over a byte in a filename.
+PRIVATE FUNC decodeUtf8Lenient(bytes AS List OF Byte) AS String
+  IF len(bytes) = 0 THEN
+    RETURN ""
+  END IF
+  LET decoded AS String = encoding::utf8Decode(bytes) TRAP(e)
+    RECOVER latin1(bytes)
+  END TRAP
+  RETURN decoded
+END FUNC
+
+PRIVATE FUNC latin1(bytes AS List OF Byte) AS String
+  MUT scalars AS List OF Scalar = []
+  FOR EACH b IN bytes
+    scalars = collections::append(scalars, toScalar(toInt(b)))
+  NEXT
+  RETURN strings::fromScalars(scalars)
+END FUNC
+
+' Whether the block carries the ustar magic. Old-style tar archives do not, and
+' are still readable -- they simply have no prefix, uname or gname.
+'
+' POSIX writes the field as `"ustar\0"` and GNU as `"ustar "` -- six bytes
+' either way, differing in the sixth. Comparing the trimmed text accepts both,
+' which matters because the GNU fixture's `uname`/`gname` are only read when the
+' magic is recognised: getting this wrong drops those two fields silently.
+FUNC hasUstarMagic(block AS List OF Byte) AS Boolean
+  RETURN strings::trim(readText(block, OFF_MAGIC, 6)) = "ustar"
+END FUNC
+
+' The name, joining the ustar `prefix` field when there is one.
+FUNC readName(block AS List OF Byte) AS String
+  LET name AS String = readText(block, OFF_NAME, 100)
+  IF NOT hasUstarMagic(block) THEN
+    RETURN name
+  END IF
+  LET prefix AS String = readText(block, OFF_PREFIX, 155)
+  IF len(prefix) = 0 THEN
+    RETURN name
+  END IF
+  RETURN prefix & "/" & name
+END FUNC
+
+FUNC headerMode(block AS List OF Byte) AS Integer
+  RETURN readNumber(block, OFF_MODE, 8, "mode")
+END FUNC
+
+FUNC headerUid(block AS List OF Byte) AS Integer
+  RETURN readNumber(block, OFF_UID, 8, "uid")
+END FUNC
+
+FUNC headerGid(block AS List OF Byte) AS Integer
+  RETURN readNumber(block, OFF_GID, 8, "gid")
+END FUNC
+
+FUNC headerSize(block AS List OF Byte) AS Integer
+  RETURN readNumber(block, OFF_SIZE, 12, "size")
+END FUNC
+
+FUNC headerMtime(block AS List OF Byte) AS Integer
+  RETURN readNumber(block, OFF_MTIME, 12, "mtime")
+END FUNC
+
+FUNC headerTypeFlag(block AS List OF Byte) AS Integer
+  RETURN toInt(collections::get(block, OFF_TYPE))
+END FUNC
+
+FUNC headerLinkTarget(block AS List OF Byte) AS String
+  RETURN readText(block, OFF_LINK, 100)
+END FUNC
+
+FUNC headerUser(block AS List OF Byte) AS String
+  IF NOT hasUstarMagic(block) THEN
+    RETURN ""
+  END IF
+  RETURN readText(block, OFF_UNAME, 32)
+END FUNC
+
+FUNC headerGroup(block AS List OF Byte) AS String
+  IF NOT hasUstarMagic(block) THEN
+    RETURN ""
+  END IF
+  RETURN readText(block, OFF_GNAME, 32)
+END FUNC
+
+' How many bytes an entry's data occupies, rounded up to a whole block.
+FUNC paddedSize(size AS Integer) AS Integer
+  IF size <= 0 THEN
+    RETURN 0
+  END IF
+  RETURN ((size + BLOCK - 1) / BLOCK) * BLOCK
+END FUNC
+
+' Parse a PAX extended header's data into key/value pairs.
+'
+' Each record is `"<length> <key>=<value>\n"`, where `<length>` counts the whole
+' record including its own digits and the newline. The length is what makes a
+' value containing `=` or a newline unambiguous, so it is used rather than
+' splitting on punctuation.
+FUNC parsePaxRecords(data AS List OF Byte) AS Map OF String TO String
+  IF len(data) > MAX_RECORD THEN
+    FAIL error(errorCode::ErrTooLarge, "tar: PAX header of " & toString(len(data)) & " bytes exceeds the " & toString(MAX_RECORD) & "-byte limit")
+  END IF
+  MUT out AS Map OF String TO String = Map OF String TO String {}
+  MUT at AS Integer = 0
+  WHILE at < len(data)
+    ' The record length, as decimal digits up to the first space.
+    MUT length AS Integer = 0
+    MUT cursor AS Integer = at
+    MUT digits AS Integer = 0
+    WHILE cursor < len(data) AND toInt(collections::get(data, cursor)) <> 32
+      LET b AS Integer = toInt(collections::get(data, cursor))
+      IF b < 48 OR b > 57 THEN
+        FAIL error(errorCode::ErrInvalidFormat, "tar: PAX record length is not a number")
+      END IF
+      length = length * 10 + (b - 48)
+      digits = digits + 1
+      cursor = cursor + 1
+    END WHILE
+    IF digits = 0 OR cursor >= len(data) OR length <= digits + 1 OR at + length > len(data) THEN
+      FAIL error(errorCode::ErrInvalidFormat, "tar: PAX record has an impossible length")
+    END IF
+    ' Between the space and the trailing newline: `key=value`.
+    LET bodyAt AS Integer = cursor + 1
+    LET bodyLength AS Integer = at + length - bodyAt - 1
+    LET body AS List OF Byte = collections::mid(data, bodyAt, bodyLength)
+    MUT split AS Integer = -1
+    FOR i = 0 TO len(body) - 1
+      IF split < 0 AND toInt(collections::get(body, i)) = 61 THEN
+        split = i
+      END IF
+    NEXT
+    IF split < 0 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "tar: PAX record has no key")
+    END IF
+    LET key AS String = decodeUtf8Lenient(collections::mid(body, 0, split))
+    LET value AS String = decodeUtf8Lenient(collections::mid(body, split + 1, len(body) - split - 1))
+    out = collections::set(out, key, value)
+    at = at + length
+  END WHILE
+  RETURN out
+END FUNC

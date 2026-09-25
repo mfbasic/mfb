@@ -1,0 +1,84 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug659_fixed_pow_fractional_product_wrap",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "probe",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 15, "type": "Float", "default": null },
+    { "name": "e", "line": 15, "type": "Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": false, "name": "base", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "exponent", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_err5", "type": "Error", "value": null },
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res1", "type": "Result OF Fixed", "value": { "kind": "callResult", "type": "Fixed", "target": "math.pow", "args": [{ "kind": "local", "name": "base" }, { "kind": "local", "name": "exponent" }] } },
+    {
+      "op": "if",
+      "line": 18,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      { "op": "bind", "line": 18, "mutable": false, "name": "$trap_arg0", "type": "Fixed", "value": { "kind": "resultValue", "type": "Fixed", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "assign", "line": 18, "name": "$trap_val3", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "$trap_arg0" }] } }
+      ],
+      "else": [
+      { "op": "assign", "line": 18, "name": "$trap_failed4", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 18, "name": "$trap_err5", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 18,
+      "condition": { "kind": "local", "name": "$trap_failed4" },
+      "then": [
+      { "op": "bind", "line": 18, "mutable": false, "name": "er", "type": "Error", "value": { "kind": "local", "name": "$trap_err5" } },
+      { "op": "assign", "line": 19, "name": "$trap_val3", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "RAISED " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "er" }, "member": "code" }] } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 18, "mutable": false, "name": "r", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "return", "line": 21, "value": { "kind": "local", "name": "r" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 24,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, 10.5)         = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "10.5" }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(1.5, 20.5)       = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }, { "kind": "const", "type": "Float", "value": "20.5" }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, 40.5)         = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "40.5" }] } }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(0.5, 40.5)       = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "40.5" }] } }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2e9, 1e8+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2000000000.0" }, { "kind": "const", "type": "Float", "value": "100000000.5" }] } }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2e9, 2e8+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2000000000.0" }, { "kind": "const", "type": "Float", "value": "200000000.5" }] } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2e9, 4e8+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2000000000.0" }, { "kind": "const", "type": "Float", "value": "400000000.5" }] } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2e9, 1e9+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2000000000.0" }, { "kind": "const", "type": "Float", "value": "1000000000.5" }] } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2e9, 2147483646.5)=" }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "2000000000.0" }, { "kind": "const", "type": "Float", "value": "2147483646.5" }] } }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(0.5, 2e8+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "200000000.5" }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(0.5, 1e9+.5)     = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "1000000000.5" }] } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(1e-9, 2e8+.5)    = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.000000001" }, { "kind": "const", "type": "Float", "value": "200000000.5" }] } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(1e-9, 4e8+.5)    = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.000000001" }, { "kind": "const", "type": "Float", "value": "400000000.5" }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(1e-9, 2147483646.5)=" }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Float", "value": "0.000000001" }, { "kind": "const", "type": "Float", "value": "2147483646.5" }] } }] } }
+    ]
+  }
+  ]
+}

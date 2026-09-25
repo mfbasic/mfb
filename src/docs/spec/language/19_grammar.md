@@ -134,20 +134,24 @@ templateType
                | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
                | (ident | qualifiedIdent) "OF" type { "," type } ;
-threadBody     = [ type ] [ "RES" type ] "TO" type ;  (* message defaults to Nothing *)
+threadBody     = [ type ] [ "RES" type ] "TO" type [ "STATE" type ] ;
+               (* message defaults to Nothing; a trailing STATE is the view's own,
+                  never the output's (§15) *)
 funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
 
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;
 field          = declVis ident "AS" type ;
 unionDecl      = declVis "UNION" ident [ templateParams ] [ unionIncludes ] { unionMember } "END" "UNION" ;
-unionIncludes  = "INCLUDES" unionName { "," unionName } ;
-unionName      = ident | qualifiedIdent ;
-unionMember    = ident | qualifiedIdent ;
+(* An included union and a member are read by the one `type` grammar, so either
+   may be a template instantiation (`Opt OF T`, `Box OF Integer`). Whether the
+   named type may be a member at all is a type rule, not a grammar one (§4.3). *)
+unionIncludes  = "INCLUDES" type { "," type } ;
+unionMember    = type ;
 enumDecl       = declVis "ENUM" ident identlist "END" "ENUM" ;
 identlist      = ident { "," ident } ;
 
 block          = { statement } ;
-statement      = letStmt | mutStmt | assignStmt
+statement      = letStmt | mutStmt | resStmt | assignStmt
                | ifStmt | forStmt | foreachStmt | whileStmt
                | doStmt | matchStmt
                | failStmt | propagateStmt | recoverStmt | returnStmt
@@ -156,6 +160,9 @@ statement      = letStmt | mutStmt | assignStmt
 
 letStmt        = "LET" ident [ "AS" type ] "=" expr ;
 mutStmt        = "MUT" ident [ "AS" type ] [ "=" expr ] ;
+(* A resource — a file, a socket, a `Thread`, … — is bound with RES and only
+   with RES (§5, §15); a RES binding is never reassigned. *)
+resStmt        = "RES" ident [ "AS" type ] [ "STATE" type ] [ "=" expr ] ;
 (* `ident.state` / `ident.state.field` are the only member-target assignments —
    they replace a RES binding's STATE payload (§15). *)
 assignStmt     = ident "=" expr
@@ -172,7 +179,7 @@ blockIfStmt    = "IF" expr "THEN" block
                    { "ELSEIF" expr "THEN" block }
                    [ "ELSE" block ]
                    "END" "IF" ;
-simpleStmt     = letStmt | mutStmt | assignStmt | failStmt | propagateStmt
+simpleStmt     = letStmt | mutStmt | resStmt | assignStmt | failStmt | propagateStmt
                | recoverStmt | returnStmt | exitStmt | continueStmt | exprStmt ;
 forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;

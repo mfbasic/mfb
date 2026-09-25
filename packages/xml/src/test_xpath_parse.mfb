@@ -1,0 +1,260 @@
+' ---------------------------------------------------------------------------
+' Tests: the XPath parser.
+'
+' Every case asserts the AST, not merely that the text parsed. `a[1]` and
+' `(a)[1]` both "parse"; only the shape says whether the predicate landed on the
+' step or on the filter, and that distinction is the difference between
+' `//a[1]` and `(//a)[1]`, which XPath 1.0 answers differently.
+'
+' `render` is a test artifact: a compact spelling of the AST, not a format
+' anything else depends on.
+'
+' Note on naming: `step` is a reserved word (FOR ... STEP), so neither the type
+' nor any binding here may be called that -- hence `PathStep` and `entry`.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC axisName(axis AS Integer) AS String
+  IF axis = AXIS_CHILD THEN RETURN "child"
+  IF axis = AXIS_DESCENDANT_OR_SELF THEN RETURN "dos"
+  IF axis = AXIS_PARENT THEN RETURN "parent"
+  IF axis = AXIS_SELF THEN RETURN "self"
+  RETURN "attr"
+END FUNC
+
+PRIVATE FUNC testName(entry AS PathStep) AS String
+  IF entry.test = TEST_NAME THEN RETURN entry.name
+  IF entry.test = TEST_STAR THEN RETURN "*"
+  IF entry.test = TEST_TEXT THEN RETURN "text()"
+  IF entry.test = TEST_NODE THEN RETURN "node()"
+  IF entry.test = TEST_COMMENT THEN RETURN "comment()"
+  RETURN "pi()"
+END FUNC
+
+PRIVATE FUNC opName(op AS Integer) AS String
+  IF op = OP_OR THEN RETURN "or"
+  IF op = OP_AND THEN RETURN "and"
+  IF op = OP_EQ THEN RETURN "="
+  IF op = OP_NE THEN RETURN "!="
+  IF op = OP_LT THEN RETURN "<"
+  IF op = OP_LE THEN RETURN "<="
+  IF op = OP_GT THEN RETURN ">"
+  IF op = OP_GE THEN RETURN ">="
+  IF op = OP_ADD THEN RETURN "+"
+  IF op = OP_SUB THEN RETURN "-"
+  IF op = OP_MUL THEN RETURN "*"
+  IF op = OP_DIV THEN RETURN "div"
+  IF op = OP_MOD THEN RETURN "mod"
+  IF op = OP_UNION THEN RETURN "|"
+  RETURN "neg"
+END FUNC
+
+PRIVATE FUNC renderSteps(steps AS List OF PathStep) AS String
+  MUT parts AS List OF String = []
+  FOR EACH entry IN steps
+    MUT rendered AS String = axisName(entry.axis) & ":" & testName(entry)
+    FOR EACH predicate IN entry.predicates
+      rendered = rendered & "[" & render(predicate) & "]"
+    NEXT
+    parts = collections::append(parts, rendered)
+  NEXT
+  RETURN strings::join(parts, "/")
+END FUNC
+
+PRIVATE FUNC render(e AS Expr) AS String
+  MUT out AS String = ""
+  MATCH e
+    CASE Binary(b)
+      out = "(" & render(b.left) & " " & opName(b.op) & " " & render(b.right) & ")"
+    CASE Unary(u)
+      out = "-(" & render(u.operand) & ")"
+    CASE Literal(l)
+      out = "'" & l.value & "'"
+    CASE Numeric(n)
+      out = "#" & toString(n.value)
+    CASE Call(c)
+      MUT args AS List OF String = []
+      FOR EACH argument IN c.args
+        args = collections::append(args, render(argument))
+      NEXT
+      out = c.name & "(" & strings::join(args, ",") & ")"
+    CASE Path(p)
+      MUT prefix AS String = "rel "
+      IF p.absolute THEN prefix = "abs "
+      out = "{" & prefix & renderSteps(p.steps) & "}"
+    CASE Filter(f)
+      MUT rendered AS String = "filter(" & render(f.base) & ")"
+      FOR EACH predicate IN f.predicates
+        rendered = rendered & "[" & render(predicate) & "]"
+      NEXT
+      IF len(f.steps) > 0 THEN
+        rendered = rendered & "/" & renderSteps(f.steps)
+      END IF
+      out = rendered
+  END MATCH
+  RETURN out
+END FUNC
+
+PRIVATE FUNC parsed(expression AS String) AS String
+  RETURN render(parseXPath(expression))
+END FUNC
+
+TESTING
+  TGROUP "location paths"
+    TCASE "absolute and relative paths"
+      expectString(parsed("/a/b"), "{abs child:a/child:b}")
+      expectString(parsed("a/b"), "{rel child:a/child:b}")
+      expectString(parsed("a"), "{rel child:a}")
+    END TCASE
+
+    TCASE "the root on its own"
+      expectString(parsed("/"), "{abs }")
+    END TCASE
+
+    TCASE "self and parent"
+      expectString(parsed("."), "{rel self:node()}")
+      expectString(parsed(".."), "{rel parent:node()}")
+      expectString(parsed("../a"), "{rel parent:node()/child:a}")
+    END TCASE
+
+    TCASE "the descendant-or-self abbreviation expands to its own location step"
+      expectString(parsed("//a"), "{abs dos:node()/child:a}")
+      expectString(parsed("a//b"), "{rel child:a/dos:node()/child:b}")
+      expectString(parsed(".//b"), "{rel self:node()/dos:node()/child:b}")
+    END TCASE
+
+    TCASE "name tests keep their prefix verbatim"
+      expectString(parsed("p:name"), "{rel child:p:name}")
+      expectString(parsed("//p:name"), "{abs dos:node()/child:p:name}")
+      expectString(parsed("*"), "{rel child:*}")
+      expectString(parsed("//*"), "{abs dos:node()/child:*}")
+    END TCASE
+
+    TCASE "node-type tests"
+      expectString(parsed("text()"), "{rel child:text()}")
+      expectString(parsed("node()"), "{rel child:node()}")
+      expectString(parsed("comment()"), "{rel child:comment()}")
+      expectString(parsed("processing-instruction()"), "{rel child:pi()}")
+      expectString(parsed("a/text()"), "{rel child:a/child:text()}")
+    END TCASE
+
+    TCASE "attributes"
+      expectString(parsed("@name"), "{rel attr:name}")
+      expectString(parsed("@*"), "{rel attr:*}")
+      expectString(parsed("a/@id"), "{rel child:a/attr:id}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "predicates"
+    TCASE "a predicate belongs to the location step it follows"
+      expectString(parsed("a[1]"), "{rel child:a[#1.00]}")
+      expectString(parsed("//a[1]"), "{abs dos:node()/child:a[#1.00]}")
+      expectString(parsed("a[last()]"), "{rel child:a[last()]}")
+    END TCASE
+
+    TCASE "predicates chain"
+      expectString(parsed("a[1][2]"), "{rel child:a[#1.00][#2.00]}")
+    END TCASE
+
+    TCASE "predicates hold whole expressions"
+      expectString(parsed("a[position() < 3]"), "{rel child:a[(position() < #3.00)]}")
+      expectString(parsed("a[@x]"), "{rel child:a[{rel attr:x}]}")
+      expectString(parsed("a[@x='v']"), "{rel child:a[({rel attr:x} = 'v')]}")
+      expectString(parsed("a[b]"), "{rel child:a[{rel child:b}]}")
+      expectString(parsed("a[b='v']"), "{rel child:a[({rel child:b} = 'v')]}")
+    END TCASE
+
+    TCASE "a filter expression puts the predicate on the RESULT, not on a step"
+      ' This is the distinction that makes //a[1] and (//a)[1] different.
+      expectString(parsed("(//a)[1]"), "filter({abs dos:node()/child:a})[#1.00]")
+      expectString(parsed("(//a)[1]/b"), "filter({abs dos:node()/child:a})[#1.00]/child:b")
+    END TCASE
+  END TGROUP
+
+  TGROUP "operators"
+    TCASE "boolean operators, with or looser than and"
+      expectString(parsed("a or b and c"), "({rel child:a} or ({rel child:b} and {rel child:c}))")
+      expectString(parsed("a and b or c"), "(({rel child:a} and {rel child:b}) or {rel child:c})")
+    END TCASE
+
+    TCASE "comparisons"
+      expectString(parsed("a = 1"), "({rel child:a} = #1.00)")
+      expectString(parsed("a != 1"), "({rel child:a} != #1.00)")
+      expectString(parsed("a < 1"), "({rel child:a} < #1.00)")
+      expectString(parsed("a <= 1"), "({rel child:a} <= #1.00)")
+      expectString(parsed("a > 1"), "({rel child:a} > #1.00)")
+      expectString(parsed("a >= 1"), "({rel child:a} >= #1.00)")
+    END TCASE
+
+    TCASE "arithmetic binds tighter than comparison"
+      expectString(parsed("1 + 2 = 3"), "((#1.00 + #2.00) = #3.00)")
+      expectString(parsed("1 + 2 * 3"), "(#1.00 + (#2.00 * #3.00))")
+      expectString(parsed("6 div 2 mod 2"), "((#6.00 div #2.00) mod #2.00)")
+      expectString(parsed("-1 + 2"), "(-(#1.00) + #2.00)")
+    END TCASE
+
+    TCASE "union binds tighter than any comparison"
+      expectString(parsed("a | b"), "({rel child:a} | {rel child:b})")
+      expectString(parsed("a | b | c"), "(({rel child:a} | {rel child:b}) | {rel child:c})")
+    END TCASE
+
+    TCASE "the operator-versus-name rule of XPath 1.0 section 3.7"
+      ' `div` and `*` are names in a step position and operators after one.
+      expectString(parsed("div"), "{rel child:div}")
+      expectString(parsed("a div b"), "({rel child:a} div {rel child:b})")
+      expectString(parsed("*"), "{rel child:*}")
+      expectString(parsed("a * b"), "({rel child:a} * {rel child:b})")
+      expectString(parsed("and"), "{rel child:and}")
+      expectString(parsed("mod"), "{rel child:mod}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "literals and functions"
+    TCASE "string literals take either quote"
+      expectString(parsed("'x'"), "'x'")
+      expectString(parsed("\"x\""), "'x'")
+    END TCASE
+
+    TCASE "numbers"
+      expectString(parsed("1"), "#1.00")
+      expectString(parsed("0"), "#0.00")
+    END TCASE
+
+    TCASE "function calls, with and without arguments"
+      expectString(parsed("true()"), "true()")
+      expectString(parsed("count(//a)"), "count({abs dos:node()/child:a})")
+      expectString(parsed("contains(a,'b')"), "contains({rel child:a},'b')")
+      expectString(parsed("concat('a','b','c')"), "concat('a','b','c')")
+      expectString(parsed("normalize-space(.)"), "normalize-space({rel self:node()})")
+      expectString(parsed("not(a)"), "not({rel child:a})")
+    END TCASE
+  END TGROUP
+
+  TGROUP "refusals"
+    TCASE "malformed expressions are ErrInvalidFormat"
+      expectTrap(parseXPath(""), 77050003)
+      expectTrap(parseXPath("a["), 77050003)
+      expectTrap(parseXPath("a[1"), 77050003)
+      expectTrap(parseXPath("("), 77050003)
+      expectTrap(parseXPath("(a"), 77050003)
+      expectTrap(parseXPath("'unterminated"), 77050003)
+      expectTrap(parseXPath("a b"), 77050003)
+      expectTrap(parseXPath("!"), 77050003)
+      expectTrap(parseXPath("count(a"), 77050003)
+    END TCASE
+
+    TCASE "syntax this subset excludes is ErrUnsupported, not a syntax error"
+      ' The difference matters: "I cannot read that" and "I read it and will not
+      ' do it" send a caller to different fixes.
+      expectTrap(parseXPath("child::a"), 77050007)
+      expectTrap(parseXPath("following-sibling::b"), 77050007)
+      expectTrap(parseXPath("ancestor::a"), 77050007)
+      expectTrap(parseXPath("$x"), 77050007)
+      expectTrap(parseXPath("id('x')"), 77050007)
+      expectTrap(parseXPath("lang('en')"), 77050007)
+      expectTrap(parseXPath("substring('abc',1)"), 77050007)
+    END TCASE
+  END TGROUP
+END TESTING

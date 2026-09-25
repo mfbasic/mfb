@@ -89,6 +89,8 @@ SUB main()
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  ' plan-154-B: a PolyLine, with a colour per point.
+  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
@@ -144,7 +146,7 @@ SUB main()
   ' ends are visible rather than one running off the item's own band.
   LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
 
-  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
+  canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END SUB
 "#;
 
@@ -247,6 +249,14 @@ SUB main()
 END SUB
 "#;
 
+/// ONE polygon with more edges than Metal's whole frame edge region holds
+/// (`METAL_MAX_FRAME_EDGES` = 262,144): 262,145 edges.
+///
+/// This scene was a 300-edge ring until bug-686, declined by a per-polygon cap of 256
+/// that bug deleted — 300 edges now draw on Metal
+/// (`polygons_past_two_hundred_fifty_six_edges_draw_on_metal`). No polygon size is
+/// refused any more; a polygon that alone passes the frame's region still is, and that
+/// is the decline this proves. 6 px across, so the software oracle stays quick.
 const TOO_MANY_EDGES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
@@ -257,9 +267,9 @@ SUB main()
   app::setMode(app::Mode.Canvas)
   MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
-  WHILE i < 300
-    LET a AS Float = toFloat(i) * 6.283185307179586 / 300.0
-    points = collections::append(points, canvas::Point[x := 450.0 + 200.0 * math::cos(a), y := 320.0 + 200.0 * math::sin(a)])
+  WHILE i < 262145
+    LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
+    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
   LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
@@ -270,18 +280,21 @@ END SUB
 
 /// Many polygons that individually fit but together overflow the frame's edge region.
 ///
-/// New in plan-116-A, and it covers a decline that did not exist before it. Metal's
-/// edges used to ride an unbounded per-item `setFragmentBytes:` payload, so the only cap
-/// was per *item*; they now take a slice of one region serving the whole frame
-/// (`METAL_MAX_FRAME_EDGES` = 16384), so the cap is a frame total, exactly as Vulkan's
-/// has always been.
+/// plan-116-A declined this scene: 40,000 edges was past the 16,384-edge frame region
+/// that letter introduced. bug-686 raised the region to 262,144 edges, and the scene is
+/// now a Metal acceptance case (`forty_thousand_polygon_edges_draw_on_metal`). The
+/// decline it used to prove is `PAST_THE_FRAME_EDGE_REGION`'s job below.
+const TOO_MANY_FRAME_EDGES: &str = include_str!("scenes/forty_thousand_edges.mfb");
+
+/// Polygons whose edges together pass Metal's frame edge region
+/// (`METAL_MAX_FRAME_EDGES` = 262,144 since bug-686).
 ///
-/// 200 rings of 200 edges is 40,000 edges. Each ring is far inside the per-item
-/// `__CANVAS_METAL_MAX_EDGES` (256), so `TOO_MANY_EDGES` above cannot reach this case —
-/// only the *sum* is over, which is precisely the new condition. The rectangle is there
-/// so the frame is not blank: a fallback that rendered nothing would compare equal to a
-/// fallback that rendered nothing and prove nothing.
-const TOO_MANY_FRAME_EDGES: &str = r#"IMPORT app
+/// 1,025 rings of 256 edges is 262,400 edges — 256 past the region, and no ring past
+/// any per-polygon limit, so only the *sum* can decline it. The rings are 4 px across so
+/// the software oracle, which walks every edge for every pixel of a polygon's bounds,
+/// draws the frame in seconds rather than minutes. The rectangle keeps the frame from
+/// being blank.
+const PAST_THE_FRAME_EDGE_REGION: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 IMPORT collections
@@ -291,15 +304,17 @@ SUB main()
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
   MUT ring AS Integer = 0
-  WHILE ring < 200
+  WHILE ring < 1025
+    LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
+    LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
     MUT points AS List OF canvas::Point = []
     MUT i AS Integer = 0
-    WHILE i < 200
-      LET a AS Float = toFloat(i) * 6.283185307179586 / 200.0
-      points = collections::append(points, canvas::Point[x := 450.0 + toFloat(ring) + 100.0 * math::cos(a), y := 320.0 + 100.0 * math::sin(a)])
+    WHILE i < 256
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
+      points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE
@@ -453,6 +468,9 @@ fn the_full_primitive_set_matches_the_software_oracle() {
 /// The assertion is deliberately **exact**, not within tolerance: the fallback runs
 /// the identical software renderer on the identical scene, so anything other than
 /// byte equality means the Metal path drew something it should not have.
+///
+/// The scene is one polygon past the frame's edge region (`TOO_MANY_EDGES`); since
+/// bug-686 there is no per-polygon cap for a smaller one to trip.
 #[test]
 fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     if !cfg!(target_os = "macos") {
@@ -464,11 +482,99 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     if !metal_built(&stats) {
         return;
     }
+    // bug-686: a polygon this small draws on Metal byte-identically to software (a
+    // 262,144-edge twin measured 0 differing bytes), so pixel equality alone would pass
+    // whether or not the frame was declined. The decline is asserted directly.
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a 262,145-edge polygon is past METAL_MAX_FRAME_EDGES, but Metal drew the frame: \
+         {stats}"
+    );
     if let Err(diff) = compare_exact(&gpu, &software) {
         panic!(
-            "a 300-edge polygon does not fit the shader's edge buffer, so the renderer \
-             must decline the whole scene and let the software oracle draw it — the \
-             two frames must be byte-identical, but {diff}"
+            "a 262,145-edge polygon does not fit Metal's frame edge region, so the \
+             renderer must decline the whole scene and let the software oracle draw it \
+             — the two frames must be byte-identical, but {diff}"
+        );
+    }
+}
+
+/// Two `canvas::PolyLine`s (plan-154-A): one with a colour per point, one plain with
+/// butt ends, beside a polygon so the frame is otherwise one Metal draws. The third is
+/// long enough (40 segments) to get a band index, so the band reach for a polyline is
+/// exercised, and it doubles back across its own rows.
+const POLYLINES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
+  MUT wave AS List OF canvas::Point = []
+  MUT hues AS List OF color::Color = []
+  MUT k AS Integer = 0
+  WHILE k <= 40
+    LET x AS Float = 80.0 + toFloat(k) * 18.0
+    LET y AS Float = 420.0 + toFloat((k MOD 4) * 22) - toFloat(k) * 2.5
+    wave = collections::append(wave, canvas::Point[x := x, y := y])
+    hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
+    k = k + 1
+  END WHILE
+  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 7.0)]
+  canvas::present([tri, trail, plain, long])
+END SUB
+"#;
+
+/// Metal draws `canvas::PolyLine` itself and matches the software oracle (plan-154-B).
+///
+/// Gated on the frame having been drawn on the GPU first — `gpuFrames` equal to
+/// `frames` — because a declined frame falls back to the oracle and would match it
+/// exactly, which is the passing picture a broken shader branch hides behind.
+///
+/// The scene carries a per-point colour trail (the path parameter's gradient lookup),
+/// a plain butt-capped path (the one-sided butt planes and the round joins), and a
+/// polygon, so the frame is one Metal draws in every other respect.
+#[test]
+fn polylines_match_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_polylines", POLYLINES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let line = stats.lines().next_back().expect("a stats line");
+    let count = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|f| f.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no `{name}=` in {line}"))
+            .parse()
+            .expect("a number")
+    };
+    assert!(
+        count("frames") > 0 && count("gpuFrames") == count("frames"),
+        "every PolyLine frame must be drawn on Metal, not declined to software: {line}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(
+        painted > 5_000,
+        "the scene drew {painted} pixels, so it proves nothing"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "Metal's PolyLine disagrees with the software oracle: {diff}\n\
+             A butt end that domes is the first/last segment words (`gradient.x`/`.y`); \
+             a colour that jumps at a corner is the path parameter; a missing path is \
+             the edge upload or the band reach (`emit_band_index`, radius slot)."
         );
     }
 }
@@ -486,13 +592,17 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
 /// software renderer on the identical scene, so anything other than byte equality means
 /// the Metal path drew part of a scene it should have refused. Asserting it by pixels
 /// rather than by reading a stats flag is the point — a renderer that silently truncated
-/// at 16384 edges would still report `gpuSelected=TRUE` and look healthy.
+/// at the region's end would still report `gpuSelected=TRUE` and look healthy.
+///
+/// bug-686 raised the region from 16,384 edges to 262,144, so the 40,000-edge scene this
+/// test used to decline now draws on Metal (`forty_thousand_polygon_edges_draw_on_metal`)
+/// and this one is past the new region instead.
 #[test]
 fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
     if !cfg!(target_os = "macos") {
         return;
     }
-    let program = build("canvas_metal_frame_edges", TOO_MANY_FRAME_EDGES);
+    let program = build("canvas_metal_frame_edges", PAST_THE_FRAME_EDGE_REGION);
     let (software, _) = render(&program, false, "sw");
     let (gpu, stats) = render(&program, true, "gpu");
     if !metal_built(&stats) {
@@ -502,9 +612,15 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
         software.pixels.iter().any(|&b| b != 0),
         "the software render drew nothing, so the comparison would be vacuous",
     );
+    // bug-686: rings this small can draw on Metal byte-identically to software, so pixel
+    // equality alone would pass whether or not the frame was declined.
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "262,400 edges is past METAL_MAX_FRAME_EDGES, but Metal drew the frame: {stats}"
+    );
     if let Err(diff) = compare_exact(&gpu, &software) {
         panic!(
-            "200 rings of 200 edges is 40,000 edges, past METAL_MAX_FRAME_EDGES — the \
+            "1,025 rings of 256 edges is 262,400 edges, past METAL_MAX_FRAME_EDGES — the \
              renderer must decline the whole frame and let the software oracle draw it, \
              so the two frames must be byte-identical, but {diff}"
         );
@@ -649,4 +765,376 @@ fn a_group_naming_an_absent_group_draws_nothing_on_the_gpu() {
              scene does."
         );
     }
+}
+
+/// A line of distinct glyphs, drawn with a real system font. The fixture font the
+/// other text tests use gives every character one glyph shape, which is exactly
+/// what hid the bug below.
+const TEXT_LINE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET bg AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(20, 24, 30))]
+  LET a AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "LEVEL 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET b AS canvas::DrawItem = canvas::Text[x := 300.0, y := 40.0, text := "BUGS quick", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 214, 90))]
+  canvas::present([bg, a, b])
+END SUB
+"#;
+
+/// Each glyph of a text run samples its OWN bitmap on the GPU.
+///
+/// plan-116-H made a text item one instanced draw, but left each glyph's bitmap as a
+/// per-glyph `setFragmentBytes:` at index 2 set in the publish loop — so by the time
+/// the draw ran, only the run's LAST glyph was bound, and every glyph drew that
+/// glyph's pixels at its own width: "LEVEL 01" came out as hatching and a clean "1".
+/// It passed every existing test because those compare whole frames within a 2%
+/// pixel budget, and a line of 22 px text is far less than 2% of 900x640.
+///
+/// So this compares only the rows the text occupies, where garbled glyphs are most of
+/// the pixels.
+#[test]
+fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_text_line", TEXT_LINE);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not select the Metal renderer: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 60usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) =
+        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
+    {
+        panic!(
+            "the Metal backend draws a text run differently from the software oracle: \
+             {diff}\nA glyph drawn with ANOTHER glyph's bitmap (hatching, or one letter \
+             repeated) is the per-glyph payload being overwritten before the draw."
+        );
+    }
+}
+
+/// Every `canvas::Picture` path, in one scene (bug-484).
+///
+/// Pictures ride the frame buffer's glyph region, one packed RGBA texel per word, and
+/// each picture's block names its own slice — so the scene carries **several** pictures
+/// and a text run between them: with one picture its slice starts at zero, and a base
+/// that was never written would pass. The text interleaves glyph slices with picture
+/// slices in the same region, which is what proves the two share one cursor.
+///
+/// Beyond that it covers each thing the picture inherits from the rectangle: nearest
+/// scaling of a 2x2 image, the fill tint, a translucent texel, a 90-degree transform, a
+/// clip, a non-Normal blend that also strokes (the split into two instances), a group
+/// offset, and a destination on fractional coordinates for the antialiased edge.
+const PICTURES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET quad AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
+  LET strip AS List OF Byte = [toByte(255), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(128), toByte(0), toByte(255), toByte(255), toByte(255)]
+  RES img AS canvas::Image = canvas::createImage(2, 2, quad)
+  RES thin AS canvas::Image = canvas::createImage(3, 1, strip)
+  RES grouped AS canvas::Image = canvas::createImage(2, 2, quad)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 260.0, paint := canvas::fill(color::rgb(96, 96, 96))]
+  LET plain AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := white]
+  LET label AS canvas::DrawItem = canvas::Text[x := 10.0, y := 240.0, text := "Pictures 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET tinted AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 128, 0))]
+  LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
+  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
+  LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
+  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := canvas::Bounds[x := 420.0, y := 10.0, w := 40.0, h := 80.0] }]
+  LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
+  LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
+  LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
+  canvas::setGroup("pics", [inner])
+  LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
+  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node])
+END SUB
+"#;
+
+/// The Metal backend draws every picture path the same as the software oracle, and
+/// the frame is proven to have been drawn by Metal (bug-484 Phase 3).
+///
+/// Until Phase 3 `__canvas_metalRenderable` declined any scene with a picture, so this
+/// fails on `gpuFrames=0` rather than on pixels — the honesty gate working, not the
+/// backend drawing. Compared on the band the pictures and the text occupy, for the
+/// reason the text-run test crops: they are far less than the whole frame's budget.
+#[test]
+fn every_picture_path_matches_the_software_oracle() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_pictures", PICTURES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not draw the picture scene on Metal: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 260usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) =
+        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
+    {
+        panic!(
+            "the Metal backend draws a picture differently from the software oracle: \
+             {diff}\nA picture showing ANOTHER picture's or a glyph's texels is a slice \
+             base that was not written or a cursor the two kinds do not share; a whole \
+             picture off by one texel column is the nearest-sampling arithmetic."
+        );
+    }
+}
+
+/// A text run containing a space, followed by items whose draw state differs: a
+/// blended circle and a translated group (bug-484, found by the picture scene).
+///
+/// A space has an empty bitmap and draws nothing, but `__canvas_blockInstances` counts
+/// it as one instance like every glyph. The Metal emitter used to skip publishing its
+/// block, so every later draw entry named the block one position on: the circle drew
+/// under the next item's pipeline and the group lost its offset. `TEXT_LINE` above has
+/// spaces too, but nothing after its runs has a draw state of its own, so the shift was
+/// invisible there.
+const SPACE_THEN_SHAPES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 200.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  LET words AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "A B C", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET mul AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 100.0, radius := 40.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
+  LET plain AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 100.0, radius := 40.0, paint := canvas::fill(color::rgb(40, 200, 90))]
+  LET dot AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 30.0, h := 30.0, paint := canvas::fill(color::rgb(20, 60, 230))]
+  canvas::setGroup("g", [dot])
+  canvas::present([ground, words, mul, plain, canvas::Group[name := "g", dx := 600.0, dy := 80.0]])
+END SUB
+"#;
+
+#[test]
+fn a_space_in_a_text_run_does_not_shift_the_draws_after_it() {
+    if !cfg!(target_os = "macos")
+        || !std::path::Path::new("/System/Library/Fonts/Supplemental/Arial.ttf").exists()
+    {
+        return;
+    }
+    let program = build("canvas_metal_space_shift", SPACE_THEN_SHAPES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "MFB_CANVAS_GPU=1 did not draw the scene on Metal: {stats}"
+    );
+    let band = |frame: &Frame| {
+        let rows = 200usize;
+        let stride = WIDTH as usize * 4;
+        Frame::from_rgba(WIDTH, rows as u32, frame.pixels[..rows * stride].to_vec())
+    };
+    if let Err(diff) =
+        compare_within_tolerance(&band(&gpu), &band(&software), Tolerance::GPU_DEFAULT)
+    {
+        panic!(
+            "items after a text run containing a space draw differently on Metal: {diff}\n\
+             A blank glyph must still publish its item block, or every later draw entry \
+             names its neighbour's."
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// bug-686: ordinary scenes that used to fall back to software must draw on Metal.
+//
+// Every test below asserts two things, in this order: that Metal drew the frame
+// (`gpuFrames` is not 0 — otherwise the pixel comparison would be the software renderer
+// against itself, and pass for no reason), and that what it drew agrees with the
+// software oracle within `Tolerance::GPU_DEFAULT`.
+// ---------------------------------------------------------------------------------------
+
+/// Build `source`, render it on both backends, and require that Metal drew it and
+/// agrees with software. `what` names the scene in the failure message.
+fn assert_metal_draws_like_software(name: &str, source: &str, what: &str) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build(name, source);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        software.pixels.chunks(4).any(|p| p != [0, 0, 0, 255]),
+        "the software render of {what} drew nothing, so the comparison would be vacuous",
+    );
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "{what} fell back to the software renderer instead of drawing on Metal (bug-686): \
+         {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal draws {what} differently from the software oracle: {diff}");
+    }
+}
+
+/// 5,000 small rectangles: past the old 4,096-quad frame cap (`CANVAS_MAX_FRAME_ITEMS`).
+const FIVE_THOUSAND_QUADS: &str = include_str!("scenes/five_thousand_quads.mfb");
+
+#[test]
+fn a_scene_past_four_thousand_quads_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_5000_quads",
+        FIVE_THOUSAND_QUADS,
+        "a 5,000-rectangle scene",
+    );
+}
+
+/// The frame-edge scene above (200 rings × 200 edges = 40,000 edges), now expected to draw.
+#[test]
+fn forty_thousand_polygon_edges_draw_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_40k_edges",
+        TOO_MANY_FRAME_EDGES,
+        "200 translucent rings of 200 edges (40,000 edges)",
+    );
+}
+
+/// 2,100 gradient-filled rectangles: 4,200 stops, past the old 4,096-stop frame cap.
+const MANY_GRADIENTS: &str = include_str!("scenes/many_gradients.mfb");
+
+#[test]
+fn a_scene_past_four_thousand_gradient_stops_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_gradient_stops",
+        MANY_GRADIENTS,
+        "2,100 gradient-filled rectangles (4,200 stops)",
+    );
+}
+
+/// A tilemap: 2,000 32×32 tiles drawn from TWO images. Counted per item the texels are
+/// 2,048,000, past the old 1M-texel frame cap; there are only 2,048 distinct texels.
+/// The images come from the scene's `pattern` helper: texels that vary by position and
+/// seed, so a picture drawn from the wrong texels shows.
+///
+/// The scenes in `scenes/` are shared with `scripts/test-canvas-gpu-rows.sh`, which
+/// renders them on Vulkan (bug-688), so both backends are held to the same programs.
+const TILEMAP: &str = include_str!("scenes/tilemap.mfb");
+
+#[test]
+fn a_tilemap_of_two_thousand_tiles_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_tilemap",
+        TILEMAP,
+        "2,000 32-pixel tiles from two images",
+    );
+}
+
+/// A 1920×1080 background scaled to the surface, plus one tile over it: 2,074,624
+/// texels, past the old 1M-texel frame cap even counted per distinct image.
+const BACKGROUND: &str = include_str!("scenes/background.mfb");
+
+#[test]
+fn a_full_hd_background_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_background",
+        BACKGROUND,
+        "a 1920x1080 background picture under a tile",
+    );
+}
+
+/// Polygons past the old 256-edge per-polygon cap: a filled ring of 1,000 points, one of
+/// 4,000, a stroked ring of 600, a rotated ring of 500, and a self-intersecting star
+/// polygon {301/5} (even-odd fill), all on one surface.
+///
+/// {301/5} and not a star of long chords such as {301/97}: fp32 against the f64 oracle
+/// flips a pixel's quantised coverage by one step where a distance lands within ~3e-5 px
+/// of a step boundary, and near black one step is up to 9 sRGB levels -- past
+/// `GPU_DEFAULT`'s 2. That is pre-existing and independent of edge count (a {251/97}
+/// star, under the old cap, measures max delta 4 at 42cea38df), so a long-chord star
+/// would test it rather than this bug; bug-687 records it.
+///
+/// The scene sits on a mid-grey ground since bug-688 for the same reason: on Vulkan the
+/// rotated ring's rim over black flipped one coverage step (4/255 against 5/255, which
+/// encodes 29 against 33).
+const LARGE_POLYGONS: &str = include_str!("scenes/large_polygons.mfb");
+
+/// A scene installed with `canvas::presentLayers`: two layers, one item each.
+const LAYERED: &str = include_str!("scenes/layered.mfb");
+
+/// A layered scene draws its layers on Metal (found fixing bug-686).
+///
+/// The GPU draw list (`__canvas_sceneDraws`) walked `canvas::installedItems()` only, so a
+/// scene installed with `presentLayers` — whose items all live in its layers — published
+/// no blocks at all: Metal drew an empty frame and reported `gpuFrames=1`, the honesty
+/// gate's worst case (measured: 0 lit pixels against software's 40,332).
+#[test]
+fn a_layered_scene_draws_its_layers_on_metal() {
+    assert_metal_draws_like_software("canvas_metal_layers", LAYERED, "a two-layer scene");
+}
+
+#[test]
+fn polygons_past_two_hundred_fifty_six_edges_draw_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_large_polygons",
+        LARGE_POLYGONS,
+        "filled, stroked, transformed and self-intersecting polygons of 300-4,000 edges",
+    );
+}
+
+/// One 64,000-edge polygon, filled and stroked: bug-686 section E's large polygon, which
+/// the band index draws in a frame budget where the full per-pixel edge loop took
+/// 252 ms. Shared with `scripts/test-canvas-gpu-rows.sh` (bug-688), which draws it on
+/// Vulkan.
+const HUGE_POLYGON: &str = include_str!("scenes/huge_polygon.mfb");
+
+#[test]
+fn a_sixty_four_thousand_edge_polygon_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_huge_polygon",
+        HUGE_POLYGON,
+        "a filled and stroked 64,000-edge polygon",
+    );
+}
+
+/// 40,000 polygon edges as 200 OPAQUE rings side by side (bug-688): the frame-edge
+/// capacity row without `TOO_MANY_FRAME_EDGES`'s 200-deep translucent stack, whose
+/// blend drift measures blending rather than edges (see the scene file). Shared with
+/// `scripts/test-canvas-gpu-rows.sh`, which draws it on Vulkan.
+const OPAQUE_FRAME_EDGES: &str = include_str!("scenes/forty_thousand_opaque_edges.mfb");
+
+#[test]
+fn forty_thousand_opaque_polygon_edges_draw_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_40k_opaque_edges",
+        OPAQUE_FRAME_EDGES,
+        "200 opaque rings of 200 edges (40,000 edges)",
+    );
 }

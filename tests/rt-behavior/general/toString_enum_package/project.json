@@ -1,0 +1,19 @@
+{
+  "name": "toString_enum_package",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "plan-140-C: `toString` of an enum declared PUBLIC in a second source file, and of one exported by a source-directory package (the package-IR path).",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "enum_pkg_tiny",
+      "version": "=0.1.0",
+      "source": "file:packages/enum_pkg_tiny",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

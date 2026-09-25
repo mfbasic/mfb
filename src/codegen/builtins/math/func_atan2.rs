@@ -32,7 +32,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ("x", &[], "The x coordinate. Its sign is what places the result in the correct quadrant, which is why `atan2(y, x)` beats `atan(y / x)`."),
         &[Float, Fixed],
         &[Float],
-        &["ErrFloatNaN", "ErrInvalidArgument"],
+        // bug-617: `emit_fixed_atan2` has NO raise site, so the `Fixed` overload
+        // declares nothing — this is the case that requires an absent per-type entry
+        // to mean the empty set rather than inheriting a shared list.
+        // `ErrInvalidArgument` is the list forms' length-mismatch check; the scalar
+        // forms have no length to mismatch.
+        &[],
+        &["ErrInvalidArgument"],
+        &[(Float, &["ErrFloatNaN"])],
         lower_math_atan2,
         pkg,
     );

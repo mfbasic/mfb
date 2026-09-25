@@ -2,7 +2,7 @@ IMPORT thread
 IMPORT thread_workers
 
 TYPE BadStartMessage
-  handle AS Thread OF String TO Integer
+  handle AS ThreadWorker OF String TO Integer
 END TYPE
 
 ISOLATED FUNC localWorker(t AS Thread OF String TO Integer, seed AS String) AS Integer
@@ -14,14 +14,14 @@ ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, s
 END FUNC
 
 FUNC main AS Integer
-  LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
-  LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
-  LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
-  LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
-  LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
-  LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
-  LET missing AS Thread OF String TO Integer = thread::start()
-  LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
-  LET skippedInbound AS Thread OF String TO Integer = thread::start(f := thread_workers::echoText, data := "a", outboundLimit := 1)
+  RES localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
+  RES badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
+  RES plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
+  RES subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
+  RES badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
+  RES wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
+  RES missing AS Thread OF String TO Integer = thread::start()
+  RES badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
+  RES skippedInbound AS Thread OF String TO Integer = thread::start(f := thread_workers::echoText, data := "a", outboundLimit := 1)
   RETURN 0
 END FUNC

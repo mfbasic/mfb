@@ -1,0 +1,39 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+
+FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
+  MUT px AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < w * h
+    px = collections::append(px, toByte(((i MOD w) * 7 + seed) MOD 256))
+    px = collections::append(px, toByte(((i / w) * 5 + seed * 3) MOD 256))
+    px = collections::append(px, toByte((((i MOD w) + (i / w)) * 3) MOD 256))
+    px = collections::append(px, toByte(255))
+    i = i + 1
+  END WHILE
+  RETURN px
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES a AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))
+  RES b AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 90))
+  LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 2000
+    LET x AS Float = toFloat((k * 11) MOD 870)
+    LET y AS Float = toFloat((k * 7) MOD 610)
+    IF k MOD 2 = 0 THEN
+      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := a, paint := white]
+      scene = collections::append(scene, p)
+    ELSE
+      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := b, paint := white]
+      scene = collections::append(scene, p)
+    END IF
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END SUB

@@ -1,5 +1,6 @@
 //! Purely-syntactic `path*` string `fs` code generation: the call-site path lowering, the five abi_inline members, and the standalone pathJoin runtime helper.
 
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::typed_list_element_type;
@@ -105,7 +106,12 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_fs_path_base_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the base name inside
+    /// `path`'s bytes (the whole `/` for an all-separator path).
+    pub(crate) fn fs_path_base_name_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         let path = path.clone();
         self.require_string("fs.pathBaseName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_base_name_path", &path.location);
@@ -161,6 +167,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&range_ready));
         self.emit(abi::add_registers(&start, &bytes, &index));
         self.emit(abi::subtract_registers(&span, &length, &index));
+        Ok((start, span))
+    }
+
+    fn lower_fs_path_base_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, span) = self.fs_path_base_name_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             origin: None,
@@ -170,7 +181,13 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the directory part.
+    /// Unlike the other windows it can point OUTSIDE `path`: the `.` constant
+    /// (bug-667's read-only-data route, for a path with no directory part).
+    pub(crate) fn fs_path_dir_name_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         let path = path.clone();
         self.require_string("fs.pathDirName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_dir_name_path", &path.location);
@@ -188,7 +205,6 @@ impl CodeBuilder<'_> {
         let byte = self.temporary_vreg();
         let index = self.temporary_vreg();
         let start = self.temporary_vreg();
-        let constant_ptr = self.temporary_vreg();
 
         self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&length, &path_ptr, 0));
@@ -219,42 +235,44 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&length, &index));
         self.emit(abi::branch(&materialize));
 
+        // bug-667: `.` and `/` are materialized like every other result, so the
+        // caller always owns a fresh block. Returned as read-only constants, the
+        // binding that took them freed read-only data (SIGBUS).
         self.emit(abi::label(&dot));
         let dot_register = self.load_string_constant(".")?;
-        self.emit(abi::move_register(&constant_ptr, &dot_register));
-        let done_constant = self.label("fs_path_dir_name_done_constant");
-        self.emit(abi::branch(&done_constant));
+        self.emit(abi::add_immediate(&bytes, &dot_register, 8));
+        self.emit(abi::move_immediate(&length, "Integer", "1"));
+        self.emit(abi::branch(&materialize));
 
+        // Every route here has `/` as the path's first byte.
         self.emit(abi::label(&root));
-        let slash_register = self.load_string_constant("/")?;
-        self.emit(abi::move_register(&constant_ptr, &slash_register));
-        self.emit(abi::branch(&done_constant));
+        self.emit(abi::move_immediate(&length, "Integer", "1"));
 
         self.emit(abi::label(&materialize));
         self.emit(abi::move_register(&start, &bytes));
+        Ok((start, length))
+    }
+
+    fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, length) = self.fs_path_dir_name_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &length)?;
-        let final_slot = self.allocate_stack_object("fs_path_dir_name_result", 8);
-        self.emit(abi::store_u64(&result, abi::stack_pointer(), final_slot));
-        let done = self.label("fs_path_dir_name_done");
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&done_constant));
-        self.emit(abi::store_u64(
-            &constant_ptr,
-            abi::stack_pointer(),
-            final_slot,
-        ));
-        self.emit(abi::label(&done));
-        let out = self.allocate_register();
-        self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(out.render()),
+            location: Operand::from(result.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
 
-    fn lower_fs_path_extension(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+    /// plan-146-C: the window half — the `(start, span)` of the extension inside
+    /// `path`'s bytes (an empty span when it has none), and the name of the `done`
+    /// label the caller emits after building its result (nothing branches to it;
+    /// it is in the goldens).
+    pub(crate) fn fs_path_extension_window(
+        &mut self,
+        path: &ValueResult,
+    ) -> Result<(VirtualRegister, VirtualRegister, String), String> {
         let path = path.clone();
         self.require_string("fs.pathExtension path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_extension_path", &path.location);
@@ -308,6 +326,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&start, &bytes));
         self.emit(abi::move_immediate(&span, "Integer", "0"));
         self.emit(abi::label(&materialize));
+        Ok((start, span, done))
+    }
+
+    fn lower_fs_path_extension(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (start, span, done) = self.fs_path_extension_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         self.emit(abi::label(&done));
         Ok(ValueResult {
@@ -319,6 +342,22 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_fs_path_normalize(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let (result, _) = self.lower_fs_path_normalize_out(path, StringOut::Block)?;
+        Ok(result)
+    }
+
+    /// plan-146-E: [`lower_fs_path_normalize`] with the destination chosen by the
+    /// caller. `StringOut::Block` is the copying lowering, byte for byte;
+    /// `StringOut::Scratch` normalizes into a block-SHAPED region of the function's
+    /// self-update scratch — this lowering reads its own output as it builds it
+    /// (`..` pops the previous component back off), and every offset in it is
+    /// relative to that header, so handing it scratch memory of the same shape
+    /// changes nothing but where the bytes live. Returns `(buffer, length slot)`.
+    pub(crate) fn lower_fs_path_normalize_out(
+        &mut self,
+        path: &ValueResult,
+        out: StringOut,
+    ) -> Result<(ValueResult, usize), String> {
         let path = path.clone();
         self.require_string("fs.pathNormalize path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_normalize_path", &path.location);
@@ -375,22 +414,44 @@ impl CodeBuilder<'_> {
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch9, 0));
-        self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            result_slot,
-        ));
-        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
-        self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
+        match out {
+            StringOut::Block => {
+                self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+                self.emit_arena_alloc_call();
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.raise_error_bare("ErrOutOfMemory")?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+                self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
+                self.emit(abi::store_u64(
+                    abi::mfb_return(1),
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
+                self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
+            }
+            StringOut::Scratch => {
+                // The same `length + 10` region, in the reused scratch.
+                let need = self.allocate_stack_object("fs_path_normalize_need", 8);
+                self.emit(abi::add_immediate(&scratch12, &scratch10, 10));
+                self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), need));
+                let data = self.emit_reserve_self_update_scratch(need)?;
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), data));
+                self.emit(abi::store_u64(
+                    &scratch13,
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+                self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
+                self.emit(abi::store_u64(abi::ZERO, &scratch13, 0));
+                self.emit(abi::store_u8(abi::ZERO, &scratch13, 8));
+            }
+        }
         self.emit(abi::store_u64(
             abi::ZERO,
             abi::stack_pointer(),
@@ -707,20 +768,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&finish_nonempty));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
         self.emit(abi::store_u64(&scratch8, &scratch9, 0));
+        if matches!(out, StringOut::Scratch) {
+            // The `.` fallback above bumped the length without going through the
+            // slot; the arm reads the slot, so keep it in step.
+            self.emit(abi::store_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                out_len_slot,
+            ));
+        }
         self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
         self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        // bug-536 shape B: `result_slot` holds this lowering's own
-        // `emit_arena_alloc_call` block. `fs.pathDirName` beside it is NOT
-        // marked — one of its arms yields a rodata constant pointer.
-        self.mark_fresh_string(Operand::from(result.render()));
-        Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(result.render()),
-            text: "fs.pathNormalize".to_string(),
-        })
+        if matches!(out, StringOut::Block) {
+            // bug-536 shape B: `result_slot` holds this lowering's own
+            // `emit_arena_alloc_call` block.
+            self.mark_fresh_string(Operand::from(result.render()));
+        }
+        Ok((
+            ValueResult {
+                origin: None,
+                type_: ParameterType::String,
+                location: Operand::from(result.render()),
+                text: "fs.pathNormalize".to_string(),
+            },
+            out_len_slot,
+        ))
     }
 }
 

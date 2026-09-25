@@ -1,0 +1,113 @@
+' os::userDocumentsPath — the user's Documents folder (plan-157-C). Every line is
+' TRUE/FALSE or an error code checked against the running OS's rule, so the
+' output is the same everywhere:
+'   macOS   <home>/Documents
+'   Linux   XDG_DOCUMENTS_DIR from <config>/user-dirs.dirs, parsed as GLib does,
+'           else <home>/Documents; <config> is $XDG_CONFIG_HOME when absolute,
+'           else <home>/.config
+'   Windows the Documents known folder (it reads neither HOME nor the file)
+' The Linux cases are run on every OS: on macOS and Windows they prove the file
+' and XDG_CONFIG_HOME are ignored.
+IMPORT os
+IMPORT io
+IMPORT fs
+IMPORT strings
+
+FUNC code(p AS String) AS Integer
+  MUT c AS Integer = 0
+  os::userDocumentsPath(p) TRAP(e)
+    c = e.code
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+' What this OS must answer, given the Linux answer for the current file.
+FUNC expected(home AS String, linux AS String, winBase AS String) AS String
+  IF os::name() = "windows" THEN
+    RETURN winBase
+  END IF
+  IF os::name() = "macos" THEN
+    RETURN home & "/Documents"
+  END IF
+  RETURN linux
+END FUNC
+
+SUB setFile(path AS String, text AS String)
+  fs::writeText(path, text)
+END SUB
+
+FUNC main AS Integer
+  LET winBase AS String = os::userDocumentsPath()
+  LET root AS String = fs::tempDirectory() & "/mfb156docs"
+  LET home AS String = root & "/home"
+  LET cfg AS String = root & "/cfg"
+  fs::createDirectories(cfg)
+  fs::createDirectories(home & "/.config")
+  os::setEnv("HOME", home)
+  os::setEnv("XDG_CONFIG_HOME", cfg)
+  LET file AS String = cfg & "/user-dirs.dirs"
+  IF fs::fileExists(file) THEN
+    fs::deleteFile(file)
+  END IF
+  ' 1. No file: <home>/Documents.
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/Documents", winBase)))
+  ' 2. A home-relative value (a translated folder name).
+  setFile(file, "# comment\nXDG_DESKTOP_DIR=\"$HOME/Desktop\"\nXDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n")
+  LET dok AS String = os::userDocumentsPath()
+  io::print(toString(dok = expected(home, home & "/Dokumente", winBase)))
+  ' 3. An absolute value; one trailing `/` is dropped.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"/srv/docs/\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, "/srv/docs", winBase)))
+  ' 4. Blanks around the key and `=`.
+  setFile(file, "   XDG_DOCUMENTS_DIR =  \"$HOME/x\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/x", winBase)))
+  ' 5. No quotes: the line is ignored.
+  setFile(file, "XDG_DOCUMENTS_DIR=$HOME/x\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/Documents", winBase)))
+  ' 6. Neither `$HOME` nor `/`: ignored.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"relative/x\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/Documents", winBase)))
+  ' 7. Two valid lines: the last wins.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"$HOME/a\"\nXDG_DOCUMENTS_DIR=\"$HOME/b\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/b", winBase)))
+  ' 8. A commented-out line is ignored.
+  setFile(file, "# XDG_DOCUMENTS_DIR=\"/c\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/Documents", winBase)))
+  ' 9. `$HOME` alone is the home folder.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"$HOME\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home, winBase)))
+  ' 10. A match after 5000 bytes of comments, with no final newline (the read
+  '     refills its 4 KiB chunk mid-file and ends the last line at end of file).
+  setFile(file, strings::repeat("# padding padding padding padding padding padding\n", 100) & "XDG_DOCUMENTS_DIR=\"$HOME/late\"")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/late", winBase)))
+  ' 11. A value longer than any usable path is ignored.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"/" & strings::repeat("x", 5000) & "\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/Documents", winBase)))
+  ' 12. The value runs to the LAST quote on the line.
+  setFile(file, "XDG_DOCUMENTS_DIR=\"$HOME/a\"b\"\n")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/a\"b", winBase)))
+  ' 13. XDG_CONFIG_HOME unset: <home>/.config/user-dirs.dirs.
+  setFile(home & "/.config/user-dirs.dirs", "XDG_DOCUMENTS_DIR=\"$HOME/fromhome\"\n")
+  os::unsetEnv("XDG_CONFIG_HOME")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/fromhome", winBase)))
+  ' 14. A relative XDG_CONFIG_HOME is ignored the same way.
+  os::setEnv("XDG_CONFIG_HOME", "rel/cfg")
+  io::print(toString(os::userDocumentsPath() = expected(home, home & "/fromhome", winBase)))
+  os::setEnv("XDG_CONFIG_HOME", cfg)
+  setFile(file, "XDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n")
+  ' 15. `relative` joins with `/`; omitted, there is no trailing `/`.
+  io::print(toString(os::userDocumentsPath("r.txt") = dok & "/r.txt"))
+  io::print(toString(strings::endsWith(os::userDocumentsPath(), "/")))
+  ' 16. `.`/`..` components raise ErrInvalidPath (77030002).
+  io::print(toString(code("../x")))
+  io::print(toString(code("a/./b")))
+  ' 17. In place, agreeing with the copying call.
+  MUT s AS String = "k"
+  s = os::userDocumentsPath(s)
+  io::print(toString(s = dok & "/k"))
+  MUT e AS String = ""
+  e = os::userDocumentsPath(e)
+  io::print(toString(e = dok))
+  RETURN 0
+END FUNC

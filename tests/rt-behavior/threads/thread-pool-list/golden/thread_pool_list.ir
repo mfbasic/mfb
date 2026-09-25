@@ -1,0 +1,65 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_pool_list",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "square",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "worker", "line": 9, "type": "ThreadWorker OF Integer TO Integer", "default": null },
+    { "name": "n", "line": 9, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "local", "name": "n" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": true, "name": "pool", "type": "List OF RES Thread OF Integer TO Integer", "value": { "kind": "list", "type": "List OF RES Thread OF Integer TO Integer", "values": [] } },
+    { "op": "bind", "line": 15, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "while",
+      "line": 16,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "8" } },
+      "body": [
+      { "op": "bind", "line": 17, "mutable": false, "name": "t", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "square", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 18, "name": "pool", "value": { "kind": "call", "type": "List OF RES Thread OF Integer TO Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "pool" }, { "kind": "local", "name": "t" }] } },
+      { "op": "assign", "line": 19, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 21, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 22,
+      "name": "t",
+      "type": "Thread OF Integer TO Integer",
+      "iterable": { "kind": "local", "name": "pool" },
+      "body": [
+      { "op": "assign", "line": 23, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "workers " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pool" }] }] } }, "right": { "kind": "const", "type": "String", "value": " total " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -77,6 +77,12 @@ libc = "0.2"
 # as a normal dependency through `image` → `png`, so it resolves offline and adds no
 # new compiled code.
 flate2 = "1"
+# bug-615/bug-618: the Fixed and Float trig accuracy tests
+# (`tests/runtime/rt_math_fixed_trig_accuracy.rs`, `rt_math_float_trig_large_angles.rs`)
+# check against an exact big-integer evaluation (Machin pi, Taylor sin/cos); near a
+# pole or past 2^53 no f64 oracle has the bits. Already in the lockfile through the
+# repository crate's jsonwebtoken, so it resolves offline and adds no new compiled code.
+num-bigint = "0.4"
 
 # ---------------------------------------------------------------------------
 # Test targets.
@@ -271,12 +277,32 @@ name = "rt_canvas_font"
 path = "tests/canvas/rt_canvas_font.rs"
 
 [[test]]
+name = "rt_canvas_system_fonts"
+path = "tests/canvas/rt_canvas_system_fonts.rs"
+
+[[test]]
+name = "rt_canvas_geo_arena"
+path = "tests/canvas/rt_canvas_geo_arena.rs"
+
+[[test]]
+name = "rt_canvas_geo_native"
+path = "tests/canvas/rt_canvas_geo_native.rs"
+
+[[test]]
+name = "rt_canvas_present_leak"
+path = "tests/canvas/rt_canvas_present_leak.rs"
+
+[[test]]
 name = "rt_canvas_golden"
 path = "tests/canvas/rt_canvas_golden.rs"
 
 [[test]]
 name = "rt_canvas_graphics_thread"
 path = "tests/canvas/rt_canvas_graphics_thread.rs"
+
+[[test]]
+name = "rt_canvas_frame_stats"
+path = "tests/canvas/rt_canvas_frame_stats.rs"
 
 [[test]]
 name = "rt_canvas_debug_hooks"
@@ -293,6 +319,10 @@ path = "tests/canvas/rt_canvas_image_decode.rs"
 [[test]]
 name = "rt_canvas_metal"
 path = "tests/canvas/rt_canvas_metal.rs"
+
+[[test]]
+name = "rt_canvas_picture"
+path = "tests/canvas/rt_canvas_picture.rs"
 
 [[test]]
 name = "rt_canvas_present_deep_copy"
@@ -412,12 +442,20 @@ name = "codegen_tls_c_return_x86_64"
 path = "tests/codegen/codegen_tls_c_return_x86_64.rs"
 
 [[test]]
+name = "codegen_mouse_arena_region"
+path = "tests/codegen/codegen_mouse_arena_region.rs"
+
+[[test]]
 name = "codegen_win64_entry_seed_scratch"
 path = "tests/codegen/codegen_win64_entry_seed_scratch.rs"
 
 [[test]]
-name = "codegen_win64_resource_path"
-path = "tests/codegen/codegen_win64_resource_path.rs"
+name = "codegen_win64_app_resource_path"
+path = "tests/codegen/codegen_win64_app_resource_path.rs"
+
+[[test]]
+name = "codegen_win64_host_paths"
+path = "tests/codegen/codegen_win64_host_paths.rs"
 
 # --- tests/gate/ ------------------------------------------------------
 [[test]]
@@ -456,6 +494,86 @@ path = "tests/guards/no_operator_strings.rs"
 [[test]]
 name = "no_type_strings"
 path = "tests/guards/no_type_strings.rs"
+
+[[test]]
+name = "inplace_self_update_census"
+path = "tests/guards/inplace_self_update_census.rs"
+
+[[test]]
+name = "rt_inplace_self_update"
+path = "tests/runtime/rt_inplace_self_update.rs"
+
+[[test]]
+name = "rt_inplace_item_operand"
+path = "tests/runtime/rt_inplace_item_operand.rs"
+
+[[test]]
+name = "rt_callback_failure_reaches_trap"
+path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
+
+[[test]]
+name = "rt_inplace_failure_atomic"
+path = "tests/runtime/rt_inplace_failure_atomic.rs"
+
+[[test]]
+name = "rt_inplace_sort"
+path = "tests/runtime/rt_inplace_sort.rs"
+
+[[test]]
+name = "rt_merge_fast_path_frees"
+path = "tests/runtime/rt_merge_fast_path_frees.rs"
+
+[[test]]
+name = "rt_reduce_collection_accumulator_frees"
+path = "tests/runtime/rt_reduce_collection_accumulator_frees.rs"
+
+[[test]]
+name = "rt_inplace_field_nested"
+path = "tests/runtime/rt_inplace_field_nested.rs"
+
+[[test]]
+name = "rt_inplace_global_record"
+path = "tests/runtime/rt_inplace_global_record.rs"
+
+[[test]]
+name = "rt_inplace_field_loop"
+path = "tests/runtime/rt_inplace_field_loop.rs"
+
+[[test]]
+name = "rt_list_element_record_borrow"
+path = "tests/runtime/rt_list_element_record_borrow.rs"
+
+[[test]]
+name = "rt_transform_block_result_frees"
+path = "tests/runtime/rt_transform_block_result_frees.rs"
+
+[[test]]
+name = "rt_for_each_self_update"
+path = "tests/runtime/rt_for_each_self_update.rs"
+
+[[test]]
+name = "rt_byref_string_capture_capacity"
+path = "tests/runtime/rt_byref_string_capture_capacity.rs"
+
+[[test]]
+name = "rt_lambda_capture_self_update"
+path = "tests/runtime/rt_lambda_capture_self_update.rs"
+
+[[test]]
+name = "rt_lambda_capture_not_copied_per_call"
+path = "tests/runtime/rt_lambda_capture_not_copied_per_call.rs"
+
+[[test]]
+name = "rt_global_self_update"
+path = "tests/runtime/rt_global_self_update.rs"
+
+[[test]]
+name = "rt_owned_argument"
+path = "tests/runtime/rt_owned_argument.rs"
+
+[[test]]
+name = "rt_user_global_vs_builtin_locals"
+path = "tests/runtime/rt_user_global_vs_builtin_locals.rs"
 
 [[test]]
 name = "test_targets_registered"
@@ -502,6 +620,10 @@ path = "tests/net/rt_http_https_still_verifies.rs"
 [[test]]
 name = "rt_http_server_dos"
 path = "tests/net/rt_http_server_dos.rs"
+
+[[test]]
+name = "rt_inline_trap_borrowed_resource"
+path = "tests/net/rt_inline_trap_borrowed_resource.rs"
 
 [[test]]
 name = "rt_macos_d4_union_state_tls"
@@ -569,8 +691,16 @@ name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
 [[test]]
+name = "rt_encoding_leb128_overflow"
+path = "tests/runtime/rt_encoding_leb128_overflow.rs"
+
+[[test]]
 name = "rt_error_value_copies"
 path = "tests/runtime/rt_error_value_copies.rs"
+
+[[test]]
+name = "rt_for_each_over_reassigned_global"
+path = "tests/runtime/rt_for_each_over_reassigned_global.rs"
 
 [[test]]
 name = "rt_foreign_type_reexport"
@@ -597,6 +727,22 @@ name = "rt_fs_temp_directory_clamp"
 path = "tests/runtime/rt_fs_temp_directory_clamp.rs"
 
 [[test]]
+name = "rt_fs_closed_handle_guards"
+path = "tests/runtime/rt_fs_closed_handle_guards.rs"
+
+[[test]]
+name = "rt_fs_create_directories_existing_entry"
+path = "tests/runtime/rt_fs_create_directories_existing_entry.rs"
+
+[[test]]
+name = "rt_fs_set_buffered_drain_failure"
+path = "tests/runtime/rt_fs_set_buffered_drain_failure.rs"
+
+[[test]]
+name = "rt_global_argument_reassigned_by_callee"
+path = "tests/runtime/rt_global_argument_reassigned_by_callee.rs"
+
+[[test]]
 name = "rt_gtk_term_utf8_grid"
 path = "tests/runtime/rt_gtk_term_utf8_grid.rs"
 
@@ -613,6 +759,10 @@ name = "rt_parameter_default_scope"
 path = "tests/runtime/rt_parameter_default_scope.rs"
 
 [[test]]
+name = "rt_package_dependency_closure"
+path = "tests/runtime/rt_package_dependency_closure.rs"
+
+[[test]]
 name = "rt_package_parameter_defaults"
 path = "tests/runtime/rt_package_parameter_defaults.rs"
 
@@ -625,6 +775,10 @@ name = "rt_imported_overload_imported_field_argument"
 path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
 
 [[test]]
+name = "rt_imported_type_name_collision"
+path = "tests/runtime/rt_imported_type_name_collision.rs"
+
+[[test]]
 name = "rt_imported_resource_scope_drop"
 path = "tests/runtime/rt_imported_resource_scope_drop.rs"
 
@@ -633,12 +787,24 @@ name = "rt_imported_type_qualified_name"
 path = "tests/runtime/rt_imported_type_qualified_name.rs"
 
 [[test]]
+name = "rt_package_private_type_collision"
+path = "tests/runtime/rt_package_private_type_collision.rs"
+
+[[test]]
+name = "rt_package_public_export_name_collision"
+path = "tests/runtime/rt_package_public_export_name_collision.rs"
+
+[[test]]
 name = "rt_imported_union_enum_members"
 path = "tests/runtime/rt_imported_union_enum_members.rs"
 
 [[test]]
 name = "rt_inline_trap_nested_call"
 path = "tests/runtime/rt_inline_trap_nested_call.rs"
+
+[[test]]
+name = "rt_inline_trap_union_bind"
+path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
 [[test]]
 name = "rt_inline_trap_raising_operator"
@@ -711,6 +877,22 @@ path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 [[test]]
 name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_datetime_negative_year_render"
+path = "tests/runtime/rt_datetime_negative_year_render.rs"
+
+[[test]]
+name = "rt_datetime_clock_overflow"
+path = "tests/runtime/rt_datetime_clock_overflow.rs"
+
+[[test]]
+name = "rt_math_fixed_trig_accuracy"
+path = "tests/runtime/rt_math_fixed_trig_accuracy.rs"
+
+[[test]]
+name = "rt_math_float_trig_large_angles"
+path = "tests/runtime/rt_math_float_trig_large_angles.rs"
 
 [[test]]
 name = "rt_debug_soak"
@@ -793,6 +975,10 @@ name = "rt_res_state_inplace_mutation"
 path = "tests/runtime/rt_res_state_inplace_mutation.rs"
 
 [[test]]
+name = "rt_inplace_field_mixed"
+path = "tests/runtime/rt_inplace_field_mixed.rs"
+
+[[test]]
 name = "rt_scope_drop_leaks"
 path = "tests/runtime/rt_scope_drop_leaks.rs"
 
@@ -807,6 +993,18 @@ path = "tests/runtime/rt_syscall_return_robustness.rs"
 [[test]]
 name = "rt_thread_send_cross_arena"
 path = "tests/runtime/rt_thread_send_cross_arena.rs"
+
+[[test]]
+name = "rt_thread_block_arena"
+path = "tests/runtime/rt_thread_block_arena.rs"
+
+[[test]]
+name = "rt_thread_table_growth"
+path = "tests/runtime/rt_thread_table_growth.rs"
+
+[[test]]
+name = "rt_worker_arena_release"
+path = "tests/runtime/rt_worker_arena_release.rs"
 
 [[test]]
 name = "rt_trapped_call_capability_gate"

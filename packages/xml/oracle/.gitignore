@@ -1,0 +1,11 @@
+# Build artifacts of the three sides of the oracle, and the fetched W3C suite.
+#
+# The root .gitignore covers node_modules/ and build/, but NOT a nested Rust
+# target/ (git check-ignore -v packages/xml/oracle/rust/target/x finds no match),
+# so it is named here. The W3C conformance suite is fetched by
+# fetch-xmlconf.sh rather than vendored, following the mustache oracle's
+# precedent of pinning a URL instead of a copy.
+probe/packages/
+probe/build/
+rust/target/
+xmlconf/

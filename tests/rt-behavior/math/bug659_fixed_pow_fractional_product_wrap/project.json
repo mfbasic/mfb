@@ -1,0 +1,9 @@
+{
+  "name": "bug659_fixed_pow_fractional_product_wrap",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

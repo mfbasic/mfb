@@ -35,9 +35,9 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://a.example/" }] }, "line": 18 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://b.example/" }] }, "line": 19 },
-      { "kind": "binding", "mutable": false, "name": "c", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://c.example/" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://a.example/" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://b.example/" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fetchStatus" }, { "kind": "string", "value": "http://c.example/" }] }, "line": 20 },
       { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "c" }] } }, "line": 21 }
       ]
     }

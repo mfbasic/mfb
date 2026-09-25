@@ -546,6 +546,21 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
     }
+    /// Windows-only (bug-696): release a result `emit_env_get`,
+    /// `emit_os_wide_string` or `emit_environ_pointer` handed out, once the caller
+    /// has copied or tested it. On entry `ARG[0]` holds the non-zero pointer the
+    /// seam returned. Unlike the POSIX `getenv`/`environ` answers, which point into
+    /// memory libc owns, those are arena buffers the marshalling allocated for the
+    /// caller, and nothing else frees them. Clobbers every caller-saved register.
+    fn emit_release_marshalled(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("releasing a marshalled result is only implemented on windows-x86_64".to_string())
+    }
     /// Allocate `ARG[0]` bytes from the process heap, returning the pointer in the
     /// return register (0 on failure) — the `malloc` contract. Defaults to a libc
     /// `malloc` call (byte-identical on macOS/Linux/riscv); Windows has no CRT, so it
@@ -587,6 +602,24 @@ pub(crate) trait CodegenPlatform {
         _relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         Err("os wide-string query is only implemented on windows-x86_64".to_string())
+    }
+    /// Windows-only, non-allocating known-folder query (plan-157-B): the folder
+    /// `which` names (`"appData"`, `"appCache"`, `"userHome"`, `"userDocuments"`)
+    /// as UTF-8, written to the caller's buffer. On entry `ARG[0]` is the buffer and
+    /// `ARG[1]` its capacity in bytes; on exit the return register holds the path's
+    /// byte length (no NUL) — the bytes were written only when `length + 1 <=
+    /// capacity` (a NUL follows them) — or -1 on failure. Nothing is allocated from
+    /// the arena, which is what lets the in-place `s = os::appDataPath(s)` arm stay
+    /// allocation-free per statement.
+    fn emit_known_folder_into(
+        &self,
+        _which: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("the known-folder query is only implemented on windows-x86_64".to_string())
     }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:
@@ -1076,8 +1109,17 @@ pub(crate) trait CodegenPlatform {
     ///
     /// `debug_hooks` is a `--debug` build (plan-130-E): a reporting hook's data is
     /// emitted only then.
-    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
-        let _ = (project_name, debug_hooks);
+    /// `uses_mouse` (plan-94-C/D/E) adds the data a backend's native mouse
+    /// handlers reference. Gated because a data object nothing references still
+    /// lands in the binary — bug-326-A21's lesson, and what the app fixtures'
+    /// goldens caught when the mouse selectors were first added unconditionally.
+    fn app_mode_data_objects(
+        &self,
+        project_name: &str,
+        debug_hooks: bool,
+        uses_mouse: bool,
+    ) -> Vec<CodeDataObject> {
+        let _ = (project_name, debug_hooks, uses_mouse);
         Vec::new()
     }
 
@@ -1194,6 +1236,38 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
+    /// The worker-side window sync `app::setTitle` / `app::setFullscreen` run after
+    /// updating the process-global window state (`builtins::app::gen_window`):
+    /// ask the UI thread to make the window's title and fullscreen state match that
+    /// state. Appended into the caller's `abi_function` vreg stream, so it may use
+    /// only role tokens and vregs, and must treat every caller-saved register as
+    /// clobbered. A no-op headless (no window, no event loop to marshal to).
+    /// An external call a backend makes here resolves its library through
+    /// `platform_imports` (POSIX), so an undeclared toolkit symbol is an error, not
+    /// a relocation bound to nothing. `None` means the target has no app window.
+    fn emit_app_window_sync(
+        &self,
+        _symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
+
+    /// The title this backend builds its app window with, which `app::getTitle`
+    /// returns until the program calls `app::setTitle`.
+    fn app_default_window_title(&self, project_name: &str) -> String {
+        project_name.to_string()
+    }
+
+    /// Backend data objects (selector strings, window-state scratch) the window
+    /// sync helpers reference. Emitted only for a program that uses an `app`
+    /// window member, so every other app program keeps its exact data-object set.
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        Vec::new()
+    }
+
     /// plan-98-C Phase 3 seam: hand a finished RGBA8 frame to the platform's canvas
     /// surface.
     ///
@@ -1293,10 +1367,13 @@ pub(crate) struct ArenaLayout {
     /// Byte offset of the `app::` presentation-mode word (plan-62-B), when this is
     /// an app build. Reserved just past the `term::` state region.
     pub(crate) presentation_mode_offset: Option<usize>,
-    /// Byte offset of the `canvas::` retained-scene region (plan-98-B), when the
-    /// program uses `canvas::`. Reserved just past the presentation-mode word.
+    /// Byte offset of the mouse-state region (plan-94-A §4.4a) — the decoded-event
+    /// ring, its cursors and the stdin decoder's partial-sequence buffer — when the
+    /// program uses `enableMouse`/`pollMouse`. Reserved just past the
+    /// presentation-mode word, so no existing offset moves.
+    pub(crate) mouse_state_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state + the app presentation-mode slot + the canvas scene region.
+    /// `term::` state + the app presentation-mode slot + the mouse-state region.
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,
@@ -1340,6 +1417,21 @@ pub(crate) struct AppEntrySpec {
     /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
     /// defined").
     pub(crate) uses_canvas: bool,
+    /// plan-94-C/D/E: whether the program uses `enableMouse`/`pollMouse`, so the
+    /// backend emits its native mouse handlers.
+    ///
+    /// Gated for the same reason `uses_canvas` is, and with the same failure mode
+    /// if it were not: every handler loads the process-global `_mfb_rt_mouse_mode`
+    /// word, which is itself emitted only for a mouse program — so installing the
+    /// handlers unconditionally would leave every other app binary naming an
+    /// undefined symbol.
+    pub(crate) uses_mouse: bool,
+    /// Whether the program uses an `app` window member (`setTitle`/`getTitle`/
+    /// `setFullscreen`/`getFullscreen`), so the backend emits its window-sync
+    /// helpers and the UI-thread fullscreen tracking. Gated like `uses_mouse`: the
+    /// helpers reference the process-global window state, which is itself emitted
+    /// only for such a program.
+    pub(crate) uses_window: bool,
     /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
     /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
     pub(crate) debug_hooks: bool,

@@ -41,12 +41,12 @@
         { "op": "assign", "line": 13, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
         ],
         "else": [
-        { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "worker timeout" }] } },
+        { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected worker error" }] } },
         { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
         ]
       },
       { "op": "bind", "line": 13, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
-      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected full result" }] } },
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "worker timeout " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } },
       { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }
@@ -94,12 +94,12 @@
         { "op": "assign", "line": 35, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
         ],
         "else": [
-        { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "cancelled" }] } },
+        { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected cancel error" }] } },
         { "op": "return", "line": 37, "value": { "kind": "const", "type": "Integer", "value": "0" } }
         ]
       },
       { "op": "bind", "line": 35, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
-      { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected cancel result" }] } },
+      { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cancelled " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } },
       { "op": "return", "line": 40, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }

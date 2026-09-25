@@ -1,0 +1,80 @@
+' os::userHomePath — the user's home folder (plan-157-C). Every line is TRUE/FALSE
+' or an error code checked against the running OS's rule, so the output is the
+' same everywhere:
+'   macOS / Linux  $HOME when set and non-empty (trailing `/` dropped), else the
+'                  account's home directory
+'   Windows        the profile known folder (HOME is never read)
+IMPORT os
+IMPORT io
+IMPORT strings
+
+FUNC code(p AS String) AS Integer
+  MUT c AS Integer = 0
+  os::userHomePath(p) TRAP(e)
+    c = e.code
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC expected(home AS String, winBase AS String) AS String
+  IF os::name() = "windows" THEN
+    RETURN winBase
+  END IF
+  RETURN home
+END FUNC
+
+FUNC main AS Integer
+  LET winBase AS String = os::userHomePath()
+  os::setEnv("HOME", "/tmp/mfb156h")
+  LET base AS String = os::userHomePath()
+  io::print(toString(base = expected("/tmp/mfb156h", winBase)))
+  ' A trailing `/` is dropped; a lone `/` stays.
+  os::setEnv("HOME", "/tmp/mfb156h/")
+  io::print(toString(os::userHomePath() = base))
+  os::setEnv("HOME", "/")
+  io::print(toString(os::userHomePath() = expected("/", winBase)))
+  ' ...and joins onto the root without a doubled `/`, in place too.
+  IF os::name() = "windows" THEN
+    io::print(toString(os::userHomePath("a") = winBase & "/a"))
+  ELSE
+    io::print(toString(os::userHomePath("a") = "/a"))
+  END IF
+  MUT r AS String = "a"
+  r = os::userHomePath(r)
+  io::print(toString(r = os::userHomePath("a")))
+  os::setEnv("HOME", "/tmp/mfb156h")
+  ' `relative` joins with `/`; omitted, there is no trailing `/`.
+  io::print(toString(os::userHomePath("a/b") = base & "/a/b"))
+  io::print(toString(strings::endsWith(base, "/")))
+  ' `.`/`..` components raise ErrInvalidPath (77030002); a dot in a name is fine.
+  io::print(toString(code("a/../b")))
+  io::print(toString(code("./x")))
+  io::print(toString(code(".rc")))
+  ' `\` ends a component on Windows only.
+  IF os::name() = "windows" THEN
+    io::print(toString(code("..\\x") = 77030002))
+  ELSE
+    io::print(toString(code("..\\x") = 0))
+  END IF
+  ' HOME unset or empty: the account's home directory (POSIX).
+  os::unsetEnv("HOME")
+  LET account AS String = os::userHomePath()
+  os::setEnv("HOME", "")
+  io::print(toString(os::userHomePath() = account))
+  IF os::name() = "windows" THEN
+    io::print(toString(account = winBase))
+  ELSE
+    io::print(toString(strings::startsWith(account, "/")))
+  END IF
+  os::setEnv("HOME", "/tmp/mfb156h")
+  ' In place, including after a HOME change between statements.
+  MUT s AS String = "k"
+  s = os::userHomePath(s)
+  io::print(toString(s = base & "/k"))
+  os::setEnv("HOME", "/tmp/other156")
+  MUT t AS String = "k"
+  t = os::userHomePath(t)
+  io::print(toString(t = expected("/tmp/other156", winBase) & "/k"))
+  RETURN 0
+END FUNC

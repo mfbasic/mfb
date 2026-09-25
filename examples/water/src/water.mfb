@@ -1,0 +1,330 @@
+' water - two thousand drops.
+'
+' The water is a fixed pool of POOL_SIZE drops. At the start every one of them is
+' idle; while the pipe is on it lets drops out of the pool a few at a time, and a
+' drop that falls off the bottom or either side of the window goes back into the
+' pool to be let out again. When all of them are out, the pipe waits for one to
+' come back, so the frame never has more than POOL_SIZE drops to move.
+'
+' A frame does three things to the drops that are out:
+'
+'   Falls them. Gravity is added to each drop's speed and the speed to its place,
+'   in a few short steps rather than one long one, so that a fast drop cannot
+'   step clean over a thin rectangle in a single frame.
+'
+'   Bounces them. A drop that ends a step inside an object is put back on its
+'   surface, and its speed is split into the part into the surface and the part
+'   along it. The part into the surface is turned round and most of it lost - the
+'   splash; the part along it is mostly kept, so water on a slope runs down it.
+'
+'   Spreads them. Drops closer together than SPACING are pushed apart and stop
+'   closing on each other. Without that, water landing on a flat top would pile
+'   up into a column of drops all on the same spot, like sand; with it, the
+'   drops shoulder each other aside and the water spreads and spills off.
+'
+' Finding the drops close to one drop is done with a grid of SPACING-sized cells,
+' each holding a chain of the drops in it, so a drop only looks at the drops in
+' its own cell and the eight around it rather than at all of them.
+'
+' Every list here is module-level state, updated with the self-assigning shape
+' `xs = collections::set(xs, i, v)`, which changes the list where it stands.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' ---------------------------------------------------------------------------
+' Tuning
+' ---------------------------------------------------------------------------
+
+LET POOL_SIZE AS Integer = 2000
+
+' Pixels per second per second, downward.
+LET GRAVITY AS Float = 980.0
+
+' The fastest a drop may go, in pixels per second - about what it reaches
+' falling the height of a large window.
+LET MAX_SPEED AS Float = 1500.0
+
+' How far from its centre a drop meets an object, and how big it is drawn.
+LET DROP_RADIUS AS Float = 1.5
+
+' How much of the speed into a surface a drop keeps as it bounces off, and how
+' much of its speed along the surface it loses.
+LET BOUNCE AS Float = 0.3
+LET FRICTION AS Float = 0.04
+
+' How close two drops may be before they push each other apart, how much of the
+' overlap each frame takes away, and how much of their closing speed it takes.
+LET SPACING AS Float = 3.25
+LET PUSH AS Float = 0.45
+LET DAMPING AS Float = 0.5
+
+' How many steps a frame's fall is cut into.
+LET SUBSTEPS AS Integer = 3
+
+' How far past the edge of the play area a drop may go before it is taken back.
+' A drop that has left the window cannot come back into it - nothing out there
+' pushes it - so the margin only keeps a drop from vanishing while it is still
+' partly on screen.
+LET EDGE_MARGIN AS Float = 8.0
+
+' ---------------------------------------------------------------------------
+' The pool
+' ---------------------------------------------------------------------------
+
+MUT dropX AS List OF Float = []
+MUT dropY AS List OF Float = []
+MUT dropVX AS List OF Float = []
+MUT dropVY AS List OF Float = []
+MUT dropOut AS List OF Boolean = []
+
+' The idle drops, as a stack: the first `idleCount` entries are the indices of
+' the drops still in the pool.
+MUT idle AS List OF Integer = []
+MUT idleCount AS Integer = 0
+
+' The spreading grid: `cellHead` is the first drop in each cell, or -1, and
+' `nextInCell` is the drop after each one in its cell's chain. `dropCell` is the
+' cell each drop was filed under, so the grid can be emptied by visiting the
+' drops rather than every cell.
+MUT cellHead AS List OF Integer = []
+MUT nextInCell AS List OF Integer = []
+MUT dropCell AS List OF Integer = []
+MUT gridColumns AS Integer = 0
+MUT gridRows AS Integer = 0
+
+' Fill the pool, every drop idle.
+SUB fillPool
+  dropX = []
+  dropY = []
+  dropVX = []
+  dropVY = []
+  dropOut = []
+  idle = []
+  nextInCell = []
+  dropCell = []
+  FOR i = 0 TO POOL_SIZE - 1
+    dropX = collections::append(dropX, 0.0)
+    dropY = collections::append(dropY, 0.0)
+    dropVX = collections::append(dropVX, 0.0)
+    dropVY = collections::append(dropVY, 0.0)
+    dropOut = collections::append(dropOut, FALSE)
+    nextInCell = collections::append(nextInCell, -1)
+    dropCell = collections::append(dropCell, -1)
+    ' Stacked highest index first, so the drops leave in index order.
+    idle = collections::append(idle, POOL_SIZE - 1 - i)
+  NEXT
+  idleCount = POOL_SIZE
+END SUB
+
+' How many drops are out of the pool.
+FUNC dropsOut AS Integer
+  RETURN POOL_SIZE - idleCount
+END FUNC
+
+FUNC unitRandom AS Float
+  RETURN toFloat(math::rand(0, 999999)) / 1000000.0
+END FUNC
+
+' Let one drop out of the pool at (x, y) moving at (vx, vy). Says FALSE, and
+' does nothing, when every drop is already out.
+FUNC release(x AS Float, y AS Float, vx AS Float, vy AS Float) AS Boolean
+  IF idleCount = 0 THEN RETURN FALSE
+  idleCount = idleCount - 1
+  LET i AS Integer = collections::get(idle, idleCount)
+  dropX = collections::set(dropX, i, x)
+  dropY = collections::set(dropY, i, y)
+  dropVX = collections::set(dropVX, i, vx)
+  dropVY = collections::set(dropVY, i, vy)
+  dropOut = collections::set(dropOut, i, TRUE)
+  RETURN TRUE
+END FUNC
+
+' Put drop i back in the pool.
+SUB retire(i AS Integer)
+  dropOut = collections::set(dropOut, i, FALSE)
+  idle = collections::set(idle, idleCount, i)
+  idleCount = idleCount + 1
+END SUB
+
+' ---------------------------------------------------------------------------
+' Falling and bouncing
+' ---------------------------------------------------------------------------
+
+' Advance every drop that is out by dt seconds, in a window whose play area is
+' `width` by `height`.
+SUB stepWater(dt AS Float, width AS Float, height AS Float)
+  IF dt <= 0.0 THEN EXIT SUB
+  LET h AS Float = dt / toFloat(SUBSTEPS)
+  LET count AS Integer = shapeCount()
+
+  FOR i = 0 TO POOL_SIZE - 1
+    IF NOT collections::get(dropOut, i) THEN CONTINUE FOR
+
+    MUT x AS Float = collections::get(dropX, i)
+    MUT y AS Float = collections::get(dropY, i)
+    MUT vx AS Float = collections::get(dropVX, i)
+    MUT vy AS Float = collections::get(dropVY, i)
+
+    FOR stepIndex = 1 TO SUBSTEPS
+      vy = vy + GRAVITY * h
+      LET speed AS Float = math::sqrt(vx * vx + vy * vy)
+      IF speed > MAX_SPEED THEN
+        vx = vx * MAX_SPEED / speed
+        vy = vy * MAX_SPEED / speed
+      END IF
+      x = x + vx * h
+      y = y + vy * h
+
+      FOR k = 0 TO count - 1
+        LET contact AS Contact = contactWith(collections::get(shapes, k), x, y, DROP_RADIUS)
+        IF NOT contact.hit THEN CONTINUE FOR
+        x = contact.x
+        y = contact.y
+        ' Only a drop moving into the surface bounces; one already moving away
+        ' from it - pushed in from the side by its neighbours - keeps going.
+        LET into AS Float = vx * contact.nx + vy * contact.ny
+        IF into < 0.0 THEN
+          LET alongX AS Float = (vx - into * contact.nx) * (1.0 - FRICTION)
+          LET alongY AS Float = (vy - into * contact.ny) * (1.0 - FRICTION)
+          vx = alongX - into * BOUNCE * contact.nx
+          vy = alongY - into * BOUNCE * contact.ny
+        END IF
+      NEXT
+    NEXT
+
+    IF y > height + EDGE_MARGIN OR x < -EDGE_MARGIN OR x > width + EDGE_MARGIN THEN
+      retire(i)
+      CONTINUE FOR
+    END IF
+
+    dropX = collections::set(dropX, i, x)
+    dropY = collections::set(dropY, i, y)
+    dropVX = collections::set(dropVX, i, vx)
+    dropVY = collections::set(dropVY, i, vy)
+  NEXT
+
+  spreadWater(width, height)
+END SUB
+
+' ---------------------------------------------------------------------------
+' Spreading
+' ---------------------------------------------------------------------------
+
+' Size the grid for a play area, rebuilding it only when the size changes.
+SUB sizeGrid(width AS Float, height AS Float)
+  LET columns AS Integer = math::floor((width + 2.0 * EDGE_MARGIN) / SPACING) + 1
+  LET rows AS Integer = math::floor((height + 2.0 * EDGE_MARGIN) / SPACING) + 1
+  IF columns = gridColumns AND rows = gridRows THEN EXIT SUB
+  gridColumns = columns
+  gridRows = rows
+  cellHead = []
+  FOR c = 1 TO columns * rows
+    cellHead = collections::append(cellHead, -1)
+  NEXT
+END SUB
+
+FUNC columnOf(x AS Float) AS Integer
+  RETURN math::clamp(math::floor((x + EDGE_MARGIN) / SPACING), 0, gridColumns - 1)
+END FUNC
+
+FUNC rowOf(y AS Float) AS Integer
+  RETURN math::clamp(math::floor((y + EDGE_MARGIN) / SPACING), 0, gridRows - 1)
+END FUNC
+
+' Push apart every pair of drops closer than SPACING, once.
+'
+' Each pair is visited from its lower-numbered drop only. The push moves the two
+' drops apart by equal amounts along the line between them, and takes away part
+' of the speed at which they were closing - never any speed at which they were
+' already parting, which is what lets a splash fly apart freely.
+SUB spreadWater(width AS Float, height AS Float)
+  sizeGrid(width, height)
+
+  ' File every drop that is out under its cell.
+  FOR i = 0 TO POOL_SIZE - 1
+    IF NOT collections::get(dropOut, i) THEN CONTINUE FOR
+    LET cell AS Integer = rowOf(collections::get(dropY, i)) * gridColumns + columnOf(collections::get(dropX, i))
+    dropCell = collections::set(dropCell, i, cell)
+    nextInCell = collections::set(nextInCell, i, collections::get(cellHead, cell))
+    cellHead = collections::set(cellHead, cell, i)
+  NEXT
+
+  LET reach2 AS Float = SPACING * SPACING
+  FOR i = 0 TO POOL_SIZE - 1
+    IF NOT collections::get(dropOut, i) THEN CONTINUE FOR
+    LET cell AS Integer = collections::get(dropCell, i)
+    LET column AS Integer = cell MOD gridColumns
+    LET row AS Integer = cell / gridColumns
+
+    FOR r = math::max(row - 1, 0) TO math::min(row + 1, gridRows - 1)
+      FOR q = math::max(column - 1, 0) TO math::min(column + 1, gridColumns - 1)
+        MUT j AS Integer = collections::get(cellHead, r * gridColumns + q)
+        DO WHILE j >= 0
+          IF j > i THEN
+            LET dx AS Float = collections::get(dropX, j) - collections::get(dropX, i)
+            LET dy AS Float = collections::get(dropY, j) - collections::get(dropY, i)
+            LET d2 AS Float = dx * dx + dy * dy
+            IF d2 < reach2 AND d2 > 0.0001 THEN
+              LET d AS Float = math::sqrt(d2)
+              LET nx AS Float = dx / d
+              LET ny AS Float = dy / d
+              LET shift AS Float = (SPACING - d) * PUSH * 0.5
+              dropX = collections::set(dropX, i, collections::get(dropX, i) - nx * shift)
+              dropY = collections::set(dropY, i, collections::get(dropY, i) - ny * shift)
+              dropX = collections::set(dropX, j, collections::get(dropX, j) + nx * shift)
+              dropY = collections::set(dropY, j, collections::get(dropY, j) + ny * shift)
+
+              LET closing AS Float = (collections::get(dropVX, j) - collections::get(dropVX, i)) * nx + (collections::get(dropVY, j) - collections::get(dropVY, i)) * ny
+              IF closing < 0.0 THEN
+                LET share AS Float = closing * DAMPING * 0.5
+                dropVX = collections::set(dropVX, i, collections::get(dropVX, i) + nx * share)
+                dropVY = collections::set(dropVY, i, collections::get(dropVY, i) + ny * share)
+                dropVX = collections::set(dropVX, j, collections::get(dropVX, j) - nx * share)
+                dropVY = collections::set(dropVY, j, collections::get(dropVY, j) - ny * share)
+              END IF
+            END IF
+          END IF
+          j = collections::get(nextInCell, j)
+        LOOP
+      NEXT
+    NEXT
+  NEXT
+
+  ' Empty the grid for the next frame, through the cells the drops were filed
+  ' under rather than through every cell.
+  FOR i = 0 TO POOL_SIZE - 1
+    LET cell AS Integer = collections::get(dropCell, i)
+    IF cell >= 0 THEN
+      cellHead = collections::set(cellHead, cell, -1)
+      dropCell = collections::set(dropCell, i, -1)
+    END IF
+  NEXT
+END SUB
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' The colour of a drop moving at `speed`: deep blue at rest, through to a pale
+' foam at full speed, so a splash shows up against the water it came from.
+FUNC dropColor(speed AS Float) AS color::Color
+  LET t AS Float = math::clamp(speed / 900.0, 0.0, 1.0)
+  RETURN color::rgba(40 + math::floor(t * 170.0), 110 + math::floor(t * 120.0), 220 + math::floor(t * 35.0), 225)
+END FUNC
+
+' Every drop that is out.
+FUNC waterItems AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = []
+  FOR i = 0 TO POOL_SIZE - 1
+    IF NOT collections::get(dropOut, i) THEN CONTINUE FOR
+    LET vx AS Float = collections::get(dropVX, i)
+    LET vy AS Float = collections::get(dropVY, i)
+    LET paint AS canvas::Paint = canvas::fill(dropColor(math::sqrt(vx * vx + vy * vy)))
+    LET drop AS canvas::DrawItem = canvas::Circle[x := collections::get(dropX, i), y := collections::get(dropY, i), radius := DROP_RADIUS, paint := paint]
+    items = collections::append(items, drop)
+  NEXT
+  RETURN items
+END FUNC

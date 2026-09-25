@@ -1,5 +1,8 @@
 // Included into schannel_impl.rs. Handshake support helpers + read/write/close.
 
+/// The byte size [`emit_wide_cstring`] allocates: 32,768 UTF-16 units.
+const WIDE_CSTRING_BYTES: usize = 65536;
+
 /// Marshal an MFB `String` (pointer at `str_off`) into a fresh arena UTF-16
 /// NUL-terminated buffer; store the buffer pointer at `out_off`. Uses
 /// MultiByteToWideChar(CP_UTF8). Branches to `fail` on allocation failure.
@@ -13,9 +16,10 @@ fn emit_wide_cstring(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    // Allocate 64 KiB (32767 wchars, Windows max) — the serverName is short.
+    // Allocate 64 KiB (32767 wchars, Windows max) — the serverName is short. The
+    // connect helper frees it with this size (bug-623).
     ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "65536"),
+        abi::move_immediate(abi::return_register(), "Integer", &WIDE_CSTRING_BYTES.to_string()),
         abi::move_immediate(abi::c_arg(1), "Integer", "2"),
     ]);
     emit_alloc(symbol, ins, rel, fail);

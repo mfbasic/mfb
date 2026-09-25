@@ -190,16 +190,32 @@ SIGBUS (the free list is written into read-only memory) and freeing a view into
 an argument or a container corrupts the free list, surfacing much later as
 "Allocation failed". Traps found while opting producers in:
 
-- `toString(String)` is the IDENTITY arm — it hands back its own argument. Not fresh.
-- `toString(Boolean)`, `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
-  constant-fold early return load a rodata pointer. Not fresh.
-- `fs::pathDirName` has one arm that yields a rodata constant and one that
-  materializes. Not fresh (its siblings `pathBaseName`/`pathExtension` materialize
-  on every path and are).
+- `toString(String)` is the IDENTITY arm: it hands its argument through only when
+  that argument is the statement's own pending temporary, and copies (marked fresh)
+  otherwise. An owning store does not copy a call's result, so the old
+  unconditional identity made `s = toString(s)` free the block it stored (bug-667).
+- `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
+  constant-fold early return load a rodata pointer. Not fresh — sound only because
+  `static_string_value` recognizes each, so `value_needs_owning_copy` copies it at
+  an owning store. A new rodata producer that predicate cannot see must copy
+  instead: `toString(Boolean)` and `fs::pathDirName`'s `.`/`/` did not, and a
+  binding freed rodata (SIGBUS, bug-667). Both now return a fresh marked block, as
+  does the default empty `String` of a module-level `MUT` with no initializer.
 - `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
   one-byte pad String that is copied into the result and never returned. No
   result-shaped rule can reach it — that one is handed to the statement free
-  explicitly with `register_fresh_string_temp`.
+  explicitly with `register_fresh_string_temp`. The in-place arm (plan-146-D)
+  builds the same `[len][bytes][NUL]` shape in a FRAME object instead: an arm may
+  not allocate per statement, and every reader of a `String` only wants that shape
+  at the pointer.
+- plan-146: a `String` self-update (`s = f(s, …)`) writes into `s`'s OWN block, so
+  it is sound only because a `MUT` binding never holds a block it does not own —
+  the rule the two traps above exist to keep. It also means a bound block may be
+  LARGER than `byteLength + 9`: the spare bytes are tracked beside the binding
+  (`string_capacity_slots`, `$strcap$<global>`, or the owner's slot shared through
+  the closure environment) and `emit_owned_value_drop` frees by
+  `len + 9 + shadow`. A new producer or a new store path for a `String` must keep
+  that pair in step — `mfb spec memory collections`, *Self-updates*.
 - A **user/`.mfb`-bodied** function returning `String` needs the callee-side
   contract below — the mark is set by a producer's own lowering and cannot travel
   out of a callee.
@@ -456,6 +472,19 @@ around an arbitrary value instead. Three traps around it:
   the carve-out. `fallible::is_total_literal_negation` exempts it, excluding `Byte`
   (whose negation raises `ErrUnderflow` for any non-zero operand). The i64::MIN spelling
   is safe because lowering folds `-9223372036854775808` to a single `Const`.
+
+**The desugar's delivery bypasses the ordinary value coercions.** `lower_inline_trap`
+stages the trapped expression in a `$trap_valN` temp typed with the **producer's** type,
+then hands it to the target as a bare `IrValue::Local(slot)` — while every other
+bind/assign path runs its value through `wrap_union_value` first. So a union-typed target
+initialized from a variant-typed fallible producer got no `UnionWrap` and held an untagged
+variant: `MATCH` on it read a tag that was never written and fell through EVERY case, with
+no diagnostic and a clean exit — the block silently skipped; in assignment position the
+same bind clobbered a previously-valid union value. Data unions and resource unions alike.
+Anything added to that delivery has to apply the coercions the ordinary path does
+(`wrap_trap_slot_value` is where they go). A `StateAssign` target can never need one: a
+STATE type must be copyable and defaultable (`TYPE_STATE_INVALID` 2-203-0085), which
+rejects a union outright.
 
 The scan and the rewrite (`scan_trap_call` / `rewrite_trap_call`) must agree, node for
 node, on which nodes are indexed — a position means `fallible[position]` to one and
@@ -735,3 +764,7 @@ The member-access check (`src/ir/verify/values.rs`) skipped unions as "unchecked
 ## `toFloat(String)` is correctly rounded
 
 It is an Eisel-Lemire parser with an exact big-integer fallback (`src/codegen/string/format/float_parse.rs`), fuzzed against Rust's `str::parse::<f64>` through `float_parse_ref.rs`. Don't add tolerance or `+ 0.5` workarounds for an assumed rounding error; they introduce one. Hand-written NIR of that size gets the same treatment: write the algorithm in Rust under `cfg(test)`, pin it against a real oracle, then transliterate.
+
+## Inside the compiler a BARE type spelling is always a USER type
+
+Since bug-480 Phase 4b a built-in VALUE type's declared identity is package-qualified — `net.Url`, `vector.Float2`, `color.Color`. A consumer writing the bare leaf gets `SYMBOL_UNKNOWN_TYPE`, and a package's injected companions are qualified by the parser (`qualify_own_builtin_type`, `src/ast/expr.rs`). So any bare spelling that reaches a registry or codegen lookup can only name a USER type, and a registry table keyed on the bare leaf is a latent hijack of the user type that happens to share the name: `registry::general_override_target` (`src/codegen/registry/mod.rs`) matched a user `TYPE Color` against the `color` package's `toString` override row, type-checked the call, then failed the build with `NIR call target '#color_toString' does not resolve` (bug-668). Key such tables by the package-qualified identity, never by the leaf.

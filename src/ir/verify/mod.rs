@@ -380,6 +380,18 @@ fn collect_diagnostics_with(
             env.check_thread_sendability(&param.type_.without_state());
             if let Some(state) = param.type_.state() {
                 env.check_thread_sendability(&state);
+                // bug-674: a parameter's `STATE T` is held to the rule a binding's,
+                // a field's and a return's already are — `T` must be a copyable,
+                // defaultable data type. It was the one position left unchecked.
+                if !env.is_defaultable(&state, &mut std::collections::HashSet::new()) {
+                    env.emit(
+                        "TYPE_STATE_INVALID",
+                        format!(
+                            "Parameter `{}` STATE type `{state}` must be a copyable, defaultable data type.",
+                            param.name
+                        ),
+                    );
+                }
             }
             // Every parameter must declare an `AS` type (lambda parameters
             // included — the former source checker checks both forms with this rule).
@@ -724,6 +736,10 @@ struct TypeEnv {
     /// diagnostic emitted from a nested value is attributed to (matching the AST
     /// checker, which reports at the enclosing statement line).
     current_line: Cell<u32>,
+    /// bug-676: the resources the error route into the function-level `TRAP` has
+    /// already closed, while its handler is being checked — so a read of one is
+    /// reported as that, not as an ordinary move.
+    trap_closed: RefCell<HashSet<String>>,
     /// Project-relative file of the function currently being checked.
     current_file: RefCell<String>,
     /// Declared return type of the function currently being checked (for
@@ -990,6 +1006,7 @@ impl TypeEnv {
             enums,
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
+            trap_closed: RefCell::new(HashSet::new()),
             current_file: RefCell::new(String::new()),
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
@@ -1481,6 +1498,16 @@ fn resource_base_type(type_: &ParameterType) -> ParameterType {
 /// (verified by the full `*-invalid` diagnostic corpus + `artifact-gate all`).
 ///
 /// Pinned by `truncated_thread_spelling_still_counts_as_a_thread`.
+/// Whether `type_` is a worker's own view (`ThreadWorker OF …`).
+fn is_thread_worker_type(type_: &ParameterType) -> bool {
+    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+        return *worker;
+    }
+    let name = type_.name();
+    let keyword = crate::types::THREAD_WORKER_TYPE;
+    name == keyword || name.starts_with(&format!("{keyword} OF "))
+}
+
 fn is_thread_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::ThreadHandle { .. }) {
         return true;

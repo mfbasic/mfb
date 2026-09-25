@@ -144,10 +144,9 @@ pub(crate) fn lower_create_image(
     let scratch = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&scratch, "Integer", RESOURCE_TAG_IMAGE));
     builder.emit(abi::store_u64(&scratch, &record, RESOURCE_OFFSET_TAG));
-    // `handle@8` is the backend id. Until a backend exists (plan-98-C/E/F) it is the
-    // record's own address, which is already unique and non-zero for the lifetime of
-    // the image — so an `ImageRef` is a real, distinguishable identity from the
-    // start rather than a placeholder, and the backend can adopt it as its key.
+    // `handle@8` is the backend id: the record's own address, which is unique and
+    // non-zero for the lifetime of the image. No backend keeps a per-image object, so
+    // it is only ever compared (plan-116-J's live-set check, `setBytes`'s redraw test).
     builder.emit(abi::store_u64(&record, &record, RESOURCE_OFFSET_HANDLE));
     builder.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_CLOSED));
     builder.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_STATE));
@@ -158,11 +157,6 @@ pub(crate) fn lower_create_image(
     builder.emit(abi::store_u64(&value, &record, IMAGE_HEIGHT));
     builder.emit(abi::load_u64(&value, abi::stack_pointer(), shadow_slot));
     builder.emit(abi::store_u64(&value, &record, IMAGE_PIXELS));
-    // Dirty from birth: the backend has never seen these pixels.
-    let one = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&one, "Integer", "1"));
-    builder.emit(abi::store_u64(&one, &record, IMAGE_DIRTY));
-    builder.emit(abi::store_u64(abi::ZERO, &record, IMAGE_LAST_USED_FRAME));
 
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &record));
     builder.emit(abi::move_immediate(

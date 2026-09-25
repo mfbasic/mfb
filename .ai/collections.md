@@ -6,7 +6,7 @@ Invariants and hard-won lessons for the MFB compiler's native collection codegen
 
 Collection mutation codegen is rewritten for amortized-O(1) append.
 
-- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
+- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias); a `FOR EACH` whose body writes its iterable walks a copy (see "In-place mutation" below). transform/filter use the same helper on their private accumulator.
 - **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). Construction stores aliased until plan-134-E: a constructor argument and the in-place list/map arms' item operand were lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stored `xs`'s own block (SIGSEGV at the next `get`). They now go through `lower_value_stored`. Adding a drop for the class before every owner held a distinct graph would have double-freed. plan-134-G added the owner drops (`owns_graph`) only after that, and plan-134-H the in-place element drops (`emit_drop_list_element` / `emit_drop_entry_value`) — see bug-536 shape C. The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
 - **GOTCHA — a fixed-width payload's data capacity is NOT an independent counter** (bug-621). For a fixed-width list element (`list_element_is_fixed_width`) or a map entry whose key and value are both fixed-width, every in-place grow sets `dataCapacity = newCapacity × stride` (`emit_fixed_width_data_capacity`), still clamped to at least the bytes needed. Stepping data on its own step — even on the grows the *count* triggered — froze the reservation at ≈19 bytes per slot whatever the width: a 16 MiB append-built `List OF Byte` peaked at 982 MB RSS, byte-identical to a `List OF Integer`. Only variable-width payloads (whose data need is independent of the count) keep the independent data step. A new grow arm must make the same split; `tests/runtime/rt_list_append_growth_bounds.rs` pins each existing arm against the rule.
@@ -16,53 +16,117 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
 
 
-## In-place mutation: one seam, one gate inventory (plan-121-A)
+## In-place mutation: one table, four sites (plan-121-A, plan-142), every field (plan-145), and every `String` builtin (plan-146)
 
-`x = OP(x, …)` on a uniquely-owned collection is lowered as a mutation of the
-live buffer whenever nothing else can observe that buffer. The recognisers are
-the `try_inplace_*` family, dispatched at
-`src/codegen/engine/control/builder_control.rs:879-909` (plain local + record
-field) and `:1050`/`:1056` (`RES … STATE`), each falling through to the general
-copying reassignment when it declines. **Declining is always correct** — in-place
-is an implementation strategy the program cannot observe, so an arm that is not
-sure must fall through.
+`x = OP(x, …)` — a *self-update* of a `List`/`Map`/`Set` (and, since plan-146, of
+a `String`: `s = s & t` and every `String` builtin whose result is derived from
+`s`) — mutates `x`'s own block instead of building a new one, at every
+binding site that can hold one: a function local (S1), a module-level global
+(S2), a local inside a `FOR EACH` over itself (S7), and a `MUT` captured by
+reference in a `collections::forEach` lambda (S9). A **field** of a record or of a
+`RES … STATE` payload is a site of the same seam (plan-145): `r = WITH r { f :=
+OP(r.f, …) }` and `h.state.f = OP(h.state.f, …)` build a `SelfUpdateSite` whose
+`field` names the owner (`FieldContainer::{Record, State, Global}`), the field, and
+any nested path, and every arm serves it (see "Field sites" below). The seam is
+`src/codegen/collection/assign/self_update.rs`:
 
-The part every arm repeats — resolve the destination slot, prove unique
-ownership, run the aliasing gates — lives in
-`src/codegen/collection/assign/inplace_dest.rs`:
+* `SELF_UPDATE_ARMS` — the dispatch list, `(ArmId, fn)`. The `NirOp::Assign` and
+  `NirOp::StoreGlobal` lowerings in `engine/control/builder_control.rs` build a
+  `SelfUpdateSite` and call `try_inplace_self_update`, which tries each arm; the
+  first to accept lowers the statement, and if none does the statement takes the
+  general copying reassignment. **Declining is always correct** — in-place is an
+  implementation strategy the program cannot observe, so an arm that is not sure
+  must decline, having emitted nothing.
+* `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
+  function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
+  from `x`'s block, and `proof` cites the lowering that shows `x` is only read).
+  **There is no third kind** — `Deferred(plan)` exists only for the
+  `AttributedString` rows a named follow-up plan owns (plan-146-A Open Decision 1).
+  Since plan-146 the census counts a `String`/`AttributedString` first parameter
+  too, and a second source (`TIER_B_TRANSFORMS`) covers the 19 `AttributedString`
+  transforms `mfb man` renders no overload for. A new builtin with a self-update form needs a row, or
+  `self_update_census_covers_every_registry_overload` fails naming it; and it needs
+  a line in `tests/runtime/inplace_self_update/cases.tsv`, or
+  `tests/guards/inplace_self_update_census.rs` fails naming it. The matrix test
+  (`every_arm_row_fires_at_every_enabled_site`) compiles every `Arm` row's probe at
+  every site and requires its marker; `tests/runtime/rt_inplace_self_update.rs`
+  requires every line's allocation count to stay flat in `N` at every site.
+* **Failure atomicity.** Every error an arm can raise — a callback's, an index or
+  domain error, `ErrOutOfMemory` from a grow — is raised before its first write,
+  so a failed self-update leaves `x` exactly as it was
+  (`tests/runtime/rt_inplace_failure_atomic.rs`). Per-element state lives in the
+  function's self-update scratch (`emit_reserve_self_update_scratch`), not in a
+  per-statement allocation.
+* **The `String` half** (plan-146, `collection/assign/string_self_update.rs`) is a
+  second resolver, `resolve_string_self_update`: plan-142's gates on a
+  `CollectionTypeLayout` (G10), which no `String` has. Four arms —
+  `StrIdentity` (`toString`), `StrWindow` (13 rows whose result is a run of `s`'s
+  bytes), `StrGrow` (6 rows that add bytes) and `StrRewrite` (6 rows built in the
+  scratch and copied back) — plus the concat arm. Three things a new `String` arm
+  must respect:
+  - **The capacity shadow is the rule, not the exception.** A block whose length
+    changed in place is no longer `byteLength + 9`, so its drop would free the
+    wrong size. `is_string_self_update` is the ONE predicate that decides which
+    bindings get a shadow, and both prescans (`prescan_string_self_appends`,
+    `add_global_string_capacities`) ask it; `STRING_SHADOW_ARMS` is the list of
+    arms that need one. An arm that changes the length and is not in that list is
+    a silent wrong-sized free.
+  - **A by-ref capture shares its OWNER's shadow** through a closure-environment
+    word (`string_shadow_captures`), as a lambda already shares its creator's
+    scratch. Every store through the reference — including a plain reassign — must
+    size its free by that shadow and reset it. The word is read into a frame slot
+    at first use: `%closure_env` is a call-boundary token, not a pinned register,
+    so an arm that calls a helper (`os::appResourcePath`) cannot re-read it
+    afterwards. `closure_env_free_types` must count every extra word, or the env
+    free is short.
+  - **A `String` arm serves no field site** (`FieldReach::None`): a `String` record
+    field is `deferred:string` until the follow-up plan. Each such arm needs its
+    `FIELD_NEVER` row at all 15 field sites.
 
-* `InPlaceDest` — `Direct { slot }` for a plain local (the slot holds the
-  collection block pointer; a realloc repoints it) vs
-  `Inlined { block_slot, field_index, write_back }` for a record or `STATE`
-  field (the collection lives *inside* the owning record's block, so a realloc
-  grows the **record** block). `write_back` is `Some` only for `STATE`, whose
-  block pointer is shared with the resource record and must be republished
-  through `RESOURCE_OFFSET_STATE` after the mutation (§15).
-* `InPlaceGate` — the proof obligations, with `admits_with` a pure predicate over
-  a borrowed `LiveIterables` view so the decline conditions are unit-testable
-  without building a whole `CodeBuilder`.
+Where the destination lives is `InPlaceDest`
+(`src/codegen/collection/assign/inplace_dest.rs`):
 
-**Read `planning/plan-121-gate-inventory.md` before adding an arm.** It lists all
-23 decline conditions (`G1`–`G23`), the 2 post-lowering assertions that are hard
-`Err`s rather than declines, the 4 emission obligations, and — the part that
-bites — a footnote justifying every asymmetry between arms, including which
-guards are load-bearing only as a *side effect* of the element-type check and so
-re-open a hole if that check is widened.
+* `Direct { slot }` — a local; the slot holds the block pointer and a realloc
+  repoints it.
+* `Inlined { block_slot, field_index, write_back }` — a record or `STATE` field; the
+  collection lives *inside* the owning record's block, so a realloc grows the
+  **record** block. `write_back` is `Some` only for `STATE`, whose block pointer is
+  shared with the resource record and is republished through
+  `RESOURCE_OFFSET_STATE` after the mutation (§15).
+* `Ref { ref_slot, block_slot }` (S9) and `Global { name, block_slot }` (S2) — the
+  arm works on a frame copy of the block pointer (read through the reference, or
+  out of the global), and `close_inplace_dest` stores it back.
+* plan-145: `Inlined`'s `write_back` is `WriteBack::{None, State, Global, Ref}`
+  and it carries the field's `path` (the inlined records above it). The unopened
+  `StateField`, `GlobalField` and `RefField` emit nothing until the arm calls
+  `open_inplace_dest` after its gates (`O-order-1`), which loads the owner's block
+  pointer into a working slot and turns them into `Inlined`; `close_inplace_dest`
+  publishes it back (the STATE slot, the global, or through the reference).
 
-Two rules from it that are easy to get wrong:
+`InPlaceGate` holds the aliasing proofs, with `admits_with` a pure predicate over a
+borrowed `LiveIterables` view so the decline conditions are unit-testable. The
+`G*` names are plan-121's (`planning/completed/plan-121-gate-inventory.md` is that
+plan's history; the code and its comments are the current list). Rules that are
+easy to get wrong:
 
-* **`O-order-1`: every gate runs before the first `lower_value`.** No arm may
-  lower a value and then decline — that emits dead code and leaks a stack slot,
-  and because vreg/stack-slot allocation order is observable in the emitted
-  bytes, it also breaks byte-identity for every unrelated fixture in the
-  function.
-* **`FOR EACH` permits an append but not a shift.** A loop snapshots the buffer
-  pointer and count at entry. An `append` writes only *beyond* that snapshot, so
-  it may proceed (until it reallocs — hence the guard). An `insert`, `removeAt`,
-  `prepend` or entry-compacting delete rewrites entries *below* the snapshot,
-  which a live iterator can observe, so those must decline whenever any
-  `FOR EACH` walks the collection. `append`'s permissive reasoning does not
-  transfer.
+* **`O-order-1`: every gate runs before the first `lower_value`.** An arm that
+  lowers a value and then declines emits dead code and leaks a stack slot, and
+  because vreg/stack-slot allocation order is observable in the emitted bytes, it
+  also breaks byte-identity for every unrelated fixture in the function.
+* **Nothing may still read the block an arm rewrites.** A live `FOR EACH` holds the
+  block pointer and count, so a loop whose body writes its iterable local walks a
+  copy made once at entry (`lower_for_each`, plan-142-F) and the body's
+  self-updates are free; `G7` still declines under a loop that borrows (a
+  graph-typed local the copy cannot take). A call argument rooted at a local that
+  a sibling closure captures by reference (`forEach(acc, LAMBDA … acc = …)`) is
+  likewise a snapshot (`operand_snapshot.rs`), as a global argument whose callee
+  can store to it is (bug-665). At S2, `G-global-operand` declines when an operand
+  — or the call itself, through a callback — can store to the global.
+* **A `String`'s capacity shadow must describe the live buffer.** The concat arm
+  keeps `s`'s spare bytes in a frame slot (a global's in a hidden `$strcap$g`
+  global), and every other store to `s` resets it. A by-ref-captured `String` gets
+  no shadow at all: a callback could replace the buffer without seeing it
+  (`rt_byref_string_capture_capacity`).
 * **There is a SECOND aliasing surface, and only payload-relocating ops hit it.**
   The `FOR EACH` rule above is about what an *iterator* sees; it is not the whole
   question. Ask also: **what else holds a reference into the bytes this operation
@@ -189,15 +253,17 @@ Two rules from it that are easy to get wrong:
   asserting the variable-width entry shift survives so the deletion cannot later
   widen into a miscompile.
 * **A collection inlined in a record: the container decides who holds a pointer,
-  and that is the whole question (plan-121-C).** A record/`STATE` field's
-  collection is *bytes inside the owner's block*, not its own allocation, so the
-  seven mutating operations split by whether they can **reallocate** — a line that
-  cuts across every other way of grouping them:
+  and that is the whole question (plan-121-C, plan-145-D/E).** A record/`STATE`
+  field's collection is *bytes inside the owner's block*, not its own allocation,
+  so every arm splits by whether it can **reallocate** — a line that cuts across
+  every other way of grouping them. Each `SELF_UPDATE_ARMS` entry carries its
+  class (`FieldReach`):
 
-  | | operations | how the mutation reaches the field |
+  | class | arms | how the mutation reaches the field |
   |---|---|---|
-  | cannot grow | `removeKey`, `removeAt`, Set `remove`, `set` of a **fixed-width** list element | the inlined **sub-block address** — the plain-local lowering, unchanged |
-  | can grow | `add`, `set` on a `Map`, `insert`, `prepend` | grow the **record** block and repoint it (`InlineGrow`) |
+  | `NoRealloc` | `filter take drop mid distinct math replace transform sort sortBy intersection difference mapValues` (and, of `Existing`, `removeKey removeAt` Set `remove`, fixed-width `set`) | the inlined **sub-block address** (`inplace_collection_slot`) — the plain-local lowering, unchanged — at ANY inlined field, last or not (a shrink keeps the collection's capacity, and the owner's size reads stored offsets) |
+  | `Realloc` / a growing route | `union symmetricDifference merge`; `append insert prepend add`, Map `set`, `splice`; the variable-width kinds of the `NoRealloc` list/map arms (their repack or reserve) | grow the **record** block and repoint it (`InlineGrow`), only at the owner's **last** inlined field and with no pointer operand read from the owner (`field_realloc_admitted`) |
+  | `None` | the `String` concat (plan-145-A Open Decision 1) | no field site; `FIELD_NEVER` and a `deferred:` line say so |
 
   Read the lowering, do not assume: `lower_map_remove_key_in_place` touches its
   slot four times and **every one is a load**, so it can be handed a sub-block
@@ -230,11 +296,31 @@ Two rules from it that are easy to get wrong:
   - **`FOR EACH x IN rec.field` is an alias nothing tracks.** `for_each_iterable_locals`
     tracks only a plain `Local` iterable, so growing that field inside the loop (or the
     plain rebuild freeing the old block) frees the buffer mid-iteration — wrong results,
-    no crash. Decline the in-place path and skip the free while such an iterable is live.
+    no crash. plan-145-H: when the body writes the owner, the loop walks a copy made once
+    at entry (`owns_owner_field_iterable`) and joins no tracking list, so the arms run
+    and nothing leaks; only a loop whose writes go through a callee still takes the
+    tracking lists' decline-and-skip-the-free route.
+* **Field sites beyond the arms (plan-145-C, -F, -G, -H).** One routine,
+  `try_inplace_scalar_fields`, stores a `WITH` whose every update is a scalar (its
+  slot), a pointer field (the new owned pointee stored, the old one dropped), or a
+  record of compile-time fixed size (`record_field_is_inlined_fixed`: its bytes
+  copied over the sub-block; a register-native vector's lanes stored directly). It
+  computes every value first, in source order, so a failing value leaves the owner
+  unchanged; a borrowed overwrite source is copied only when another store of the
+  same `WITH` could change it first. `try_inplace_mixed_with` runs one collection
+  arm beside scalar updates: the scalars are evaluated at the arm's first emission
+  (`field_pre_emit`), and a scalar after the arm in source order runs early only
+  when it has no effect and cannot fail differently. A nested path (`o = WITH o {
+  inner := WITH o.inner { … } }`) is peeled by `peel_field_path` — inlined levels
+  for the arms (their offsets summed by `emit_path_field_offset`, read once before
+  any grow), inlined or pointer levels for the store routine. A module-level record
+  (`gR = WITH gR { … }`, `StoreGlobal`) is the same site with its block pointer in
+  the global (`G-global-operand` over every update value). A record captured by
+  reference writes through `WriteBack::Ref`.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so
-  the same seven arms use the same two routes. What a STATE block adds is that it
+  every arm takes the same route as at a record field. What a STATE block adds is that it
   has a **second holder**: the resource record's `RESOURCE_OFFSET_STATE` slot,
   which every alias of the handle reads through, so a reallocated block must be
   republished (`close_inplace_dest`, obligation `O4`). A record local has no such
@@ -345,13 +431,39 @@ Two rules from it that are easy to get wrong:
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
 
-## An accumulator must be a local of the function that writes it
+## An accumulator threaded through a helper is handed over, not copied
 
-Every `try_inplace_*` arm resolves its destination through `self.locals`, so a collection threaded through a helper's parameter and return, or kept in a module-level `MUT`, misses the fast path and is copied whole on every write. Measured on 20,000 writes into a 200,000-byte `List OF Byte`: 5 ms as a same-function local, ~1.2 s through a helper or a global (290×). This holds for `append`, `set`, `add`, `removeKey`, bulk append and the record-field `WITH` append alike.
+A self-update is in place at a function local, a module-level `MUT` global (S2, plan-142-H), a local inside a `FOR EACH` over itself, and a `MUT` captured by a `forEach` lambda. Since plan-147 it is **also** in place when the collection goes through a helper's parameter and back out as its return: the caller's `acc = helper(acc, …)` **hands `acc`'s block over** instead of lending it, and the helper's `RETURN collections::set(xs, …)` updates that block in place.
 
-A call as the written item used to miss it too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
+Three sites carry it: **S11** `RETURN OP(x, …)` on an owned local at its last use (plan-147-B), **S12** the same inside an owned parameter's variant (plan-147-E), and **S11F** the field form `RETURN WITH r { f := OP(r.f, …) }` for record accumulators (plan-147-F). Mechanically, codegen emits an extra internal symbol per `(function, owned-parameter mask)` — `<base>$own<mask>` — which is the same NIR function lowered with those parameters owned; at an approved site the caller nulls its own slot and calls the variant. The base symbol and its ABI are untouched, so function values, `LINK` and `.mfp` packages see no change.
 
-`String` behaves the same way: `out = out & piece` on the same local is amortized O(1) (`try_inplace_concat_assign`), but returning it through a recursive helper copies it at every level (`packages/mustache`: over 120 s, versus 0.18 s once each level returned only its own output). And `out = out & ch` in a loop beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.
+Measured on `/tmp/owned` at N = 20,000 (2026-09-23, quietest of two runs), against the same program before plan-147:
+
+| Shape | Inline, before | **Through a helper**, before | Inline, now | **Through a helper**, now |
+|---|---|---|---|---|
+| `append` to `List OF Integer` | 1 ms | 19,224 ms | 530 µs | **440 µs** |
+| `set` into `Map OF Integer TO Integer` | 51 ms | 372,079 ms | 4,382 µs | **3,295 µs** |
+| recursive `fill` (N = 5,000) | — | 1,252 ms | — | **247 µs** |
+| `s & "x"` — hand-over REFUSED | 0 ms | 841 ms | 210 µs | 82,760 µs |
+
+The helper is now *faster* than the inline form for the first two — the hand-over skips the caller's own drop of the old value — so **write whichever reads better**. What used to be a 4,000× penalty is gone. The `String` row is in the table to show where it is NOT: that one is still O(n²) through a helper, because a bare `String` is refused (below). Its `before` column was recorded on a busy machine, so read the row as "still quadratic", not as a 10× win.
+
+**When it is refused.** The analysis is `collect_handover_args` / `consumable_params` (`src/codegen/engine/analysis/handover.rs`), and every condition is a refusal:
+
+- **H1** the argument is not an owned local of the caller — a parameter the caller does not own, a `by_ref` or captured local, an address-taken local, a `FOR`/`FOR EACH` variable;
+- **H2** the type is not a collection, or a record all of whose fields qualify — anything carrying a resource is excluded outright, and so is a bare `String` (below);
+- **H3** the value is read again: more than once in the statement (`x = pair(x, x)`), live after it, or read by any `TRAP` handler (`RECOVER x`). This is what keeps `mfb spec language memory-semantics` §14.2's "the old value remains live" true on a failure path;
+- **H4** it is a global — structural: a global argument keeps the value the global had at the call (§14.3);
+- **H5** the call is not a direct call to a user function — a builtin, a `LINK` function, a call through a function value, or an `ISOLATED` thread entry;
+- **H6** the callee only *reads* the parameter, so handing it over would move a free and nothing else.
+
+**`String` is the one shape this does not help, and a bare `String` parameter is now REFUSED outright.** Two independent reasons. (1) It would be unsound: `MUT x AS String = "abc"` binds the literal's static symbol, not an arena block, and the callee's owned-parameter free is a bus error — measured as exit 138, and as four `rt_inplace_self_update` case/site pairs (plan-147-F Corrections). (2) It would buy nothing anyway: a `String` block must be TIGHT to leave its frame (`arena_free` is caller-sized and bins by size class, and a caller frees a returned `String` by `byteLength` alone — bug-560), while every in-place `String` update leaves capacity spare, so the variant's `RETURN s & t` has to copy tight — exactly the allocation the copying helper would have made. Measured with the hand-over forced: identical, 2003 blocks at N = 2000 either way. A `String` FIELD of a record is a different thing and IS handed over: it sits by value inside the record's own block (`record_field_is_pointer`), so it moves with the record.
+
+So `out = out & piece` on the same local is still amortized O(1) (`try_inplace_concat_assign`), but through a helper it is still O(n²) — a recursive helper copied `packages/mustache`'s accumulator at every level, over 120 s versus 0.18 s once each level returned only its own output. **Keep a `String` accumulator in the function that owns it.** (And `out = out & ch` in a loop still beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.)
+
+A call as the written item used to miss the in-place gate too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
+
+**The written item may be any expression over a call, not just the call itself** (bug-681). Until that fix the widening applied only at the item's own top level: a `Binary`, `Unary`, `MemberAccess` or `ResultValue` around the call was handled by `static_type_name`, whose composite arms recurse into *itself*, so the call underneath fell back to the hand-written table and answered `None`. One `* 2` was the difference between `xs = collections::append(xs, f(i))` (in place, 1 ms at n=16000) and `xs = collections::append(xs, f(i) * 2)` (rebuild per element, 2798 ms and quadratic; a 259,920-element GRIB2 decode was killed by the OOM killer). It was never `append`-specific — `add`, `remove` and `removeKey` all lost the path the same way, and `MemberAccess` loses it on the bulk `append(list, sublist)` arm too, being the only composite that yields a `List`. The composite arms now live once in `static_composite_type`, parameterized by the query used for the operands: `static_type_name` passes itself and keeps its exact answers (it also gates float-arithmetic lowering and `is_function_value`), `static_item_type` passes itself and so reaches the call lookups at every leaf. If you add a composite `NirValue`, add it there — adding it to only one of the two queries is how this drifted apart. Pinned by `tests/runtime/rt_inplace_item_operand.rs`, which measures every `G11` call site against a control that hands the same item to a no-op `SUB`.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 
@@ -400,7 +512,19 @@ Making `collections::get` return an aliasing borrow (no copy) for a read-only MA
 1. **`lower_value` registers every freeable-flat call result as a pending temp** (`builder_values.rs:17` → `register_pending_temp:30`) — a statement-scope `arena_free`. A bare `String` additionally needs provenance: bug-536 shape B's freshness mark from a native producer (for `get`/`getOr`, set at the JOIN label by `mark_fresh_element_result`, because `getOr`'s miss-path default copy overwrote the found path's mark — bug-592), bug-576's mark from a runtime helper whose result block is the CALLING thread's (`runtime_result_is_caller_owned`), or shape B-2's `function_returns_fresh_string` promise from a `.mfb`-bodied callee (see "Bare `String` temps" and "A `.mfb` callee's `String`" in `.ai/codegen-invariants.md`). The `location` field of a `PendingTemp` is the IDENTITY token this claim matches on, so an identity lowering that returns its argument's block under a new operand must `retarget_pending_temp` or the claim silently misses and the owner reads freed memory. `lower_value_owned` claims it (`claim_pending_temp:70`) to transfer ownership to the binding. If you make a `get` return an ALIAS (skip `materialize_owned_element`'s `copy_flat_block`) and bind it with plain `lower_value` (no claim), the alias stays registered → the statement-scope free `arena_free`s a pointer INTO the container's data region → garbage reads + free-list corruption that surfaces as a LATER "Allocation failed". **Fix: gate `register_pending_temp` to early-return while the borrow flag is set — the alias is not a fresh block.** The flag belongs to the borrowed `get` node's OWN `lower_value` frame, not the whole initializer (bug-592): the `Bind` arm arms `borrow_get_armed`, `lower_value` takes it for that frame and clears it for every operand frame. Covering the whole initializer suppressed the frees of the call's operands too — a `String` key built by `getOr` inside a borrowed map read leaked 64 B per evaluation. Both readers (`materialize_owned_element`, `register_pending_temp`) see the same narrowed flag, so a nested operand is copied exactly when it is freed; the borrowed read's own `.ncode` is byte-identical before and after. (This cost the most debugging; the symptom looked like the alias pointer was wrong, but the alias was fine — it was being freed.)
 2. **`MATCH e` desugars to `$matchN = e; MATCH $matchN`, and the MATCH reads the scrutinee once as its `value` PLUS once per case via `UnionExtract`** (the variant bindings `n = UnionExtract($matchN)`). So a "used only as a MATCH scrutinee" classifier must (a) follow the copy chain `e → $matchN`, and (b) count `UnionExtract` reads as MATCH-internal, not as escapes. A naive `reads == scrutinee_reads` check sees `$matchN` read 4× (1 scrutinee + 3 UnionExtracts) and rejects it. BOTH `e` and `$matchN` must borrow, or the copy just moves from the `get` to the `$matchN` bind (net zero win).
 
-Soundness gates (a freed/dangling borrow is a UAF into the container): the container `L` must be immutable (bound ≤1, never `Assign`ed, not address-taken — a reassign frees `L`'s block while the borrow points in), and the element must be freeable-flat-**non-String** (a String `get` returns an OWNED fresh block — skipping its cleanup leaks; skipping its copy dangles). Gate the copy-skip AND the cleanup-skip (`owns_freeable_value` exclusion) on the SAME set. Verify with negatives (e RETURNED / container reassigned must fall back to copy) + a churn stress with interleaved allocations — matching output does NOT prove the borrow fired (the copy path is also correct); only the benchmark drop does.
+Soundness gates (a freed/dangling borrow is a UAF into the container): the element must be freeable-flat-**non-String** (a String `get` returns an OWNED fresh block — skipping its cleanup leaks; skipping its copy dangles), and nothing may write the container while the borrow is live. Gate the copy-skip AND the cleanup-skip (`owns_freeable_value` exclusion) on the SAME set. Verify with negatives (e RETURNED / container reassigned must fall back to copy) + a churn stress with interleaved allocations — matching output does NOT prove the borrow fired (the copy path is also correct); only an allocation count that stays flat as the iteration count doubles does (`tests/runtime/rt_list_element_record_borrow.rs`).
+
+## bug-689: the borrow widened — field reads, `MUT`/global containers, element updates
+
+`src/codegen/engine/analysis/borrow_get.rs` (`collect_borrow_gets`) replaced plan-86 E's MATCH-only classifier. Three things it learned, each with a trap:
+
+1. **"Nothing writes the container" is a WINDOW, not the whole function.** plan-86 E's immutability gate (bound ≤1, never assigned) refused every `MUT` and module-level container — exactly where `get` lives in a hot loop. The windowed form admits a binding whose reads all lie between its bind and the last statement of the SAME block that reads it, when no statement there rebinds a local container or reads it other than as `get`/`getOr`/`len`'s first argument or a `FOR EACH` iterable. **The read restriction is load-bearing, not the write check alone:** a local handed to a user function can be handed over (plan-147) and mutated in the callee, `helper(append(xs, …))` updates `xs` in place at its last use, and `LET m = xs` can move the block — none of those is an `Assign xs`. A global container instead needs `ops_reach_store(window, StoreLeaf::Global(g))` false. **The window must include the bind itself:** `LET e = get(g, f())` where `f` stores to `g` makes bug-496 snapshot `g` into a statement temporary, and the borrow then points into memory freed at the end of the bind.
+2. **`last_use`/`handover` recompute the set without a builder** (no call graph), so they answer "no call writes a global" — a SUPERSET of the lowering's borrows. That is safe only because they use the set purely to EXCLUDE names. Only *pinned* borrows (the plan-86 E form) exclude their initializer's reads; a windowed container needs no exclusion, since no read of it inside the window can move or hand it over.
+3. **`getOr` over a default the statement built cannot borrow in a binding.** On a miss the result IS the default, a statement temporary freed at the end of the bind — plan-86 E bound it and read freed memory (`MATCH e` over `getOr(xs, k, mk(k))` printed 0 for 1230). Only an immutable LOCAL default is pinned. The direct form `getOr(xs, k, d).f` is fine: the scalar is loaded before the statement ends.
+
+The **direct form** `get(xs, i).f…` (`scalar_field_of_borrowable_get`) borrows with no analysis at all when the chain ends in a scalar: the load happens immediately. Typing it needs the Map value type too, and `static_type_name` answers only for lists — deliberately; resolve locally (`get_element_type`) rather than widening that table.
+
+The **element-bound update** (`get → WITH → set` on the same pure index, the `WITH` adjacent to the `set`) lowers the `WITH` through the plan-145 field routes with a `Record { local: p }` owner whose slot holds the element's ADDRESS, and the write-back to nothing. Its one hard rule: **nothing may grow the element's block** — it is a span of the list's data region, and a grow reallocs and frees it. Every growing field route funnels through `field_is_last_inlined` (directly or via `field_realloc_admitted`), which answers no while `element_updates.field_owner` names the owner; `inplace_inline_grow` errors if one slips through. An update no route serves lowers as the statement it stands for, `xs = set(xs, i, WITH p { … })`, from a clone of the write-back op (so a global keeps its real type). Adjacency is what makes the early write unobservable; a read of `xs` between the `WITH` and the `set` disqualifies the pair (it must see the old element).
 
 ## Collection-binding validity = THREE orthogonal front-end gates (bug-434)
 

@@ -441,8 +441,15 @@ impl CodeBuilder<'_> {
         // This machinery is emitted only when a String block is actually at risk
         // of leaking (String accumulator and/or String element); scalar folds keep
         // their prior byte-identical codegen.
-        let manages_owned =
-            initial.type_ == ParameterType::String || element_type == ParameterType::String;
+        // A collection (or other block) accumulator is superseded the same way and
+        // must be freed the same way — it leaked a block per step until
+        // `tests/runtime/rt_reduce_collection_accumulator_frees.rs`. It is dropped
+        // through the ordinary owned-value drop; the `String` path keeps its own free.
+        let acc_is_block = initial.type_ != ParameterType::String
+            && (self.is_freeable_flat_value(&initial.type_) || self.owns_graph(&initial.type_));
+        let manages_owned = initial.type_ == ParameterType::String
+            || element_type == ParameterType::String
+            || acc_is_block;
         let (item_slot, acc_owned_slot, new_slot, new_owned_slot) = if manages_owned {
             let item_slot = self.allocate_stack_object("reduce_item", 8);
             let acc_owned_slot = self.allocate_stack_object("reduce_acc_owned", 8);
@@ -575,6 +582,28 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers(&r_a, &r_n));
                 self.emit(abi::branch_eq(&acc_kept));
                 self.free_collection_loop_item(accumulator_slot, &ParameterType::String)?;
+                self.emit(abi::label(&acc_kept));
+            }
+            if acc_is_block {
+                let r_o = self.temporary_vreg();
+                let r_a = self.temporary_vreg();
+                let r_n = self.temporary_vreg();
+                let acc_kept = self.label("reduce_acc_block_kept");
+                self.emit(abi::load_u64(&r_o, abi::stack_pointer(), acc_owned_slot));
+                self.emit(abi::compare_immediate(&r_o, "0"));
+                self.emit(abi::branch_eq(&acc_kept));
+                self.emit(abi::load_u64(&r_a, abi::stack_pointer(), accumulator_slot));
+                self.emit(abi::load_u64(&r_n, abi::stack_pointer(), new_slot));
+                self.emit(abi::compare_registers(&r_a, &r_n));
+                self.emit(abi::branch_eq(&acc_kept));
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: initial.type_.clone(),
+                    stack_offset: accumulator_slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
                 self.emit(abi::label(&acc_kept));
             }
 

@@ -14,7 +14,7 @@ END UNION
 ' returns 1 (File); the value survives the transfer's deep copy independently of
 ' the sender thread's freed arena.
 FUNC main AS Integer
-  LET t AS Thread OF RES Stream TO Integer = thread::start(union_xfer_stateless_workers::takeUnionVariant, "seed")
+  RES t AS Thread OF RES Stream TO Integer = thread::start(union_xfer_stateless_workers::takeUnionVariant, "seed")
   RES s AS Stream = fs::createTempFile()
   thread::transfer(t, s)
   LET got AS Integer = thread::waitFor(t)

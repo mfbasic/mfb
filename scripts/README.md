@@ -97,8 +97,9 @@ a `cargo test` target, another script, or a person.
   bookkeeping, a work dir with cleanup, `--box` parsing, `remote_ssh`/`remote_scp`
   (always `BatchMode` + `ConnectTimeout`, overridable with `MFB_SSH_CONNECT_TIMEOUT`),
   a `watchdog`, `win_ship`, `scaffold_project`. Sourced, not executable.
-  Run by: sourced by `test-winprocess.sh`, `test-winapp.sh`, `test-appimage.sh`,
-  `test-canvas-vulkan.sh`, `test-macapp.sh`, `linux-runtime-proof.sh`.
+  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-winapp.sh`, `test-appimage.sh`,
+  `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-macapp.sh`,
+  `linux-runtime-proof.sh`.
 - **remote-common-selftest.sh** — Checks the helpers locally: the watchdog kills and
   passes through, `remote_ssh` fails fast on a closed port, failure counting, and
   `rgba_compare.py` at and beyond tolerance. Usage: `bash scripts/remote-common-selftest.sh`.
@@ -107,7 +108,7 @@ a `cargo test` target, another script, or a person.
   (no channel off by more than 2, no more than 2% of pixels differing) and prints an
   `ok …` verdict or the first pixel beyond tolerance. Usage:
   `python3 scripts/rgba_compare.py <reference.rgba> <candidate.rgba> [width]`.
-  Run by: `test-canvas-vulkan.sh`, `test-winapp.sh`.
+  Run by: `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-winapp.sh`.
 - **test-macapp.sh** — Runtime acceptance for macOS app mode: builds `.app` bundles and
   runs them headlessly; the GUI legs (real windows, screenshots, injected keystrokes)
   run only with `MFB_MACAPP_GUI=1`, never while someone is using the machine.
@@ -120,15 +121,33 @@ a `cargo test` target, another script, or a person.
   its ELF loader), and checks extraction, sonames, the payload and startup. Usage:
   `bash scripts/test-appimage.sh <mfb-exe> [--box <port>] [--libc glibc|musl|both] [--gui]`.
   Run by: by hand (boxes 2228/2227).
+- **test-canvas-gpu-rows.sh** — The bug-686 scale rows (5,000 quads, 40,000 polygon
+  edges, 4,200 gradient stops, a tilemap, a 1080p background, 300-64,000-edge polygons,
+  layers) on the Vulkan backend: each scene in `tests/canvas/scenes/` must draw on the GPU
+  (`gpuFrames` non-zero) and agree with the software oracle within tolerance. Every run
+  sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows run the `rt_canvas_geo_native`
+  programs, including the publish race, so the shared native geometry paths are checked
+  on x86-64 and AArch64 Linux and Windows (bug-688). Usage:
+  `bash scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target linux-x86_64|linux-aarch64|windows-x86_64] [--box <port>] [--libc glibc|musl] [--icd auto|<manifest>] [--rows <a,b>]`.
+  Run by: by hand (box 2226 for linux-aarch64, 2230 for windows-x86_64).
 - **test-canvas-vulkan.sh** — Runtime acceptance for the canvas Vulkan backend: renders
   the same scenes on a Linux box with and without `MFB_CANVAS_GPU=1` and requires the
-  frames to agree within tolerance, including resize and group scenes. Usage:
-  `bash scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--libc glibc|musl] [--icd auto|<manifest>]`.
-  Run by: by hand (box 2228, or 2227 with `--libc musl --icd auto`).
+  frames to agree within tolerance, including resize, group and polyline scenes (the
+  last two against their checked-in goldens). Usage:
+  `bash scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--target linux-x86_64|linux-aarch64] [--libc glibc|musl] [--icd auto|<manifest>]`.
+  Run by: by hand (box 2228; 2226 with `--target linux-aarch64`; or 2227 with
+  `--libc musl --icd auto`).
 - **test-winapp.sh** — Runtime acceptance for Windows `--app` builds: app-mode startup,
   file writes, environment, canvas software and Vulkan frames, resize and `term`
   gating, run on the Windows box. Usage: `bash scripts/test-winapp.sh <mfb-exe> [--box <port>]`.
   Run by: by hand (box 2230).
+- **test-winleak.sh** — Runtime leak check for the Windows backend's UTF-16
+  marshalling (bug-696): builds one `--debug` probe that drives every path and
+  environment seam (and each shared consumer of a seam's result), runs each mode on
+  the Windows box with 1 call and with 25, and requires the same arena live bytes
+  at exit; a further run checks that non-ASCII values, file names and arguments
+  survive every marshalling direction byte for byte.
+  Usage: `bash scripts/test-winleak.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
 - **test-winprocess.sh** — Runtime acceptance for the Windows `process` backend on the
   console entry path: argv quoting, environment, working directory and stdin/stdout of
   spawned children, run on the Windows box.

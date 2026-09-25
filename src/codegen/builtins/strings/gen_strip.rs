@@ -6,12 +6,14 @@ use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-pub(crate) fn lower_strings_strip(
+/// plan-146-C: the window half — the `(ptr, len)` of the result inside `value`'s
+/// bytes (the whole of `value` when the affix is absent).
+pub(crate) fn lower_strings_strip_window(
     builder: &mut CodeBuilder,
     value: &ValueResult,
     part: &ValueResult,
     suffix: bool,
-) -> Result<ValueResult, String> {
+) -> Result<(VirtualRegister, VirtualRegister), String> {
     let scratch16 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
@@ -82,7 +84,17 @@ pub(crate) fn lower_strings_strip(
     builder.emit(abi::label(&build));
     builder.emit(abi::load_u64(&scratch13, abi::stack_pointer(), ptr_slot));
     builder.emit(abi::load_u64(&scratch12, abi::stack_pointer(), len_slot));
-    let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
+    Ok((scratch13, scratch12))
+}
+
+pub(crate) fn lower_strings_strip(
+    builder: &mut CodeBuilder,
+    value: &ValueResult,
+    part: &ValueResult,
+    suffix: bool,
+) -> Result<ValueResult, String> {
+    let (ptr, len) = lower_strings_strip_window(builder, value, part, suffix)?;
+    let result = builder.emit_materialize_string_from_bytes(&ptr, &len)?;
     let label = if suffix {
         "strings.stripSuffix"
     } else {

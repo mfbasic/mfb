@@ -1,0 +1,36 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT io
+
+FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = []
+  MUT i AS Integer = 0
+  WHILE i < 50
+    LET x AS Float = toFloat(i) * 7.5
+    MUT pts AS List OF canvas::Point = [canvas::Point[x := x, y := 1.0], canvas::Point[x := x + 5.0, y := 9.0], canvas::Point[x := x, y := 12.0]]
+    IF grown THEN
+      pts = []
+      pts = collections::append(pts, canvas::Point[x := x, y := 1.0])
+      pts = collections::append(pts, canvas::Point[x := x + 5.0, y := 9.0])
+      pts = collections::append(pts, canvas::Point[x := x, y := 12.0])
+    END IF
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(color::rgb(i, 100, 200))]
+    LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := 40.0, w := 5.0, h := 5.0, paint := canvas::fillStroke(color::rgb(1, 2, 3), color::rgb(4, 5, 6), 1.5)]
+    items = collections::append(items, poly)
+    items = collections::append(items, box)
+    i = i + 1
+  END WHILE
+  LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  items = collections::append(items, dot)
+  RETURN items
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  canvas::present(scene(0, FALSE))
+  canvas::present(scene(1, TRUE))
+  canvas::present(scene(2, FALSE))
+  io::print("rendered")
+END SUB

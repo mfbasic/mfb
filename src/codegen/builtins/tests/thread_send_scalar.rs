@@ -46,17 +46,17 @@ ISOLATED FUNC byter(t AS ThreadWorker OF Byte TO Integer, seed AS Integer) AS In
 END FUNC
 
 FUNC main() AS Integer
-  LET ints AS Thread OF Integer TO Integer = thread::start(counter, 0)
+  RES ints AS Thread OF Integer TO Integer = thread::start(counter, 0)
   thread::send(ints, 1)
   thread::send(ints, 2)
 
-  LET floats AS Thread OF Float TO Integer = thread::start(adder, 1)
+  RES floats AS Thread OF Float TO Integer = thread::start(adder, 1)
   thread::send(floats, 2.5)
 
-  LET flags AS Thread OF Boolean TO Integer = thread::start(flagger, 0)
+  RES flags AS Thread OF Boolean TO Integer = thread::start(flagger, 0)
   thread::send(flags, TRUE)
 
-  LET bytes AS Thread OF Byte TO Integer = thread::start(byter, 0)
+  RES bytes AS Thread OF Byte TO Integer = thread::start(byter, 0)
   thread::send(bytes, toByte(7))
 
   io::print(toString(thread::waitFor(ints)))

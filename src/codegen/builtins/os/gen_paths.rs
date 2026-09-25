@@ -112,9 +112,9 @@ pub(crate) fn emit_executable_path_into(
         // stored. Nothing here enforces the absence of that: it holds because the
         // helper's body names only physical ABI registers and its own frame
         // slots, so the allocator has no vreg operand to place inside the window.
-        // `lower_resource_path` DOES keep its `String` argument live across this
+        // `lower_app_resource_path` DOES keep its `String` argument live across this
         // call and is safe for exactly that reason — measured, not assumed, and
-        // pinned by `tests/codegen_win64_resource_path.rs`
+        // pinned by `tests/codegen_win64_app_resource_path.rs`
         // (`nothing_addresses_outside_the_windows_acquisition_frame`). See
         // `.ai/arch-abi.md`, "A platform hook that moves `sp` mid-body".
         PlatformFamily::Windows => {
@@ -138,7 +138,7 @@ pub(crate) fn emit_executable_path_into(
 }
 
 /// The `(components-to-strip, suffix-to-append)` base offset for
-/// `os::resourcePath`, per build mode (plan-55-B §4.2). `strip` drops that many
+/// `os::appResourcePath`, per build mode (plan-55-B §4.2). `strip` drops that many
 /// trailing `/`-delimited components of the absolute executable path (the filename
 /// is component 1); `suffix` is appended after. Must stay in lockstep with
 /// plan-55-A's `resource_output_dir`.

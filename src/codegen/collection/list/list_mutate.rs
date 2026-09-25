@@ -875,10 +875,15 @@ impl CodeBuilder<'_> {
     /// (possibly new) record pointer; the caller propagates it to the canonical
     /// owner (a resource STATE slot or the local's slot). Emits an
     /// `append_inplace_realloc` label on the grow path.
+    ///
+    /// plan-145-F: `summed_offset` is a frame slot already holding the field's
+    /// offset from the record block (a nested path's summed offset,
+    /// `emit_path_field_offset`); `None` reads it from `8 * field_index`.
     pub(crate) fn lower_inline_list_append_in_place(
         &mut self,
         record_slot: usize,
         field_index: usize,
+        summed_offset: Option<usize>,
         list_type: &ParameterType,
         element_type: &ParameterType,
         item_slot: usize,
@@ -913,8 +918,13 @@ impl CodeBuilder<'_> {
         // fieldOffset: the sub-block's block-relative start. Invariant across the
         // realloc (the prefix is copied verbatim), so read it once.
         let field_off_slot = self.allocate_stack_object("inline_append_foff", 8);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+        match summed_offset {
+            Some(slot) => self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), slot)),
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
+                self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+            }
+        }
         self.emit(abi::store_u64(
             &scratch9,
             abi::stack_pointer(),
@@ -1417,10 +1427,13 @@ impl CodeBuilder<'_> {
     /// The caller guarantees `self` is uniquely owned and `rhs` is a distinct
     /// buffer (the self-alias `append(x, x)` takes the value path at the gate).
     /// Emits an `append_inplace_realloc` label on the grow path.
+    /// plan-145-F: `summed_offset` as for
+    /// [`Self::lower_inline_list_append_in_place`].
     pub(crate) fn lower_inline_list_bulk_append_in_place(
         &mut self,
         record_slot: usize,
         field_index: usize,
+        summed_offset: Option<usize>,
         list_type: &ParameterType,
         element_type: &ParameterType,
         rhs_slot: usize,
@@ -1446,8 +1459,13 @@ impl CodeBuilder<'_> {
 
         // fieldOffset: sub-block start; invariant across realloc (prefix verbatim).
         let field_off_slot = self.allocate_stack_object("inline_bulk_foff", 8);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+        match summed_offset {
+            Some(slot) => self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), slot)),
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), record_slot));
+                self.emit(abi::load_u64(&scratch9, &scratch8, field_slot_off));
+            }
+        }
         self.emit(abi::store_u64(
             &scratch9,
             abi::stack_pointer(),
@@ -3145,13 +3163,20 @@ impl CodeBuilder<'_> {
     /// aligned end of the packed payloads; the old block is freed. Payload bytes
     /// are copied verbatim, so a pointer edge inside one keeps its target, exactly
     /// as the verbatim grow this replaces did.
-    fn emit_repack_list_data(
+    ///
+    /// plan-145-E: `inline` is `Some` for a list inlined in a record or `STATE`
+    /// field. The new block is then the RECORD (`fieldOffset` + the list):
+    /// `InlineGrow`'s three steps copy the prefix, the packed list is built at the
+    /// sub-block inside it, and the old record is freed; `buffer_slot` (the
+    /// sub-block address) is repointed into the new record.
+    pub(crate) fn emit_repack_list_data(
         &mut self,
         buffer_slot: usize,
         extra_slot: usize,
         list_type: &ParameterType,
         element_type: &ParameterType,
         entry_stride: usize,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
@@ -3249,6 +3274,9 @@ impl CodeBuilder<'_> {
             &step,
             &size_overflow,
         );
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -3261,6 +3289,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        let new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
 
         // The header and the entry table copy verbatim: `capacity` is unchanged, so
         // the data region keeps its block-relative base.
@@ -3322,8 +3351,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&cap, &nb, COLLECTION_OFFSET_CAPACITY));
         self.emit_write_collection_header_full(&layout, &nb, &cnt, &cap, &cursor, &step);
 
-        // Free the old block, then publish the new pointer.
-        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
+        // Free the old block (for an inlined list, the old RECORD), then publish
+        // the new pointer.
+        match (inline, new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, buffer_slot, list_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(buffer_slot, list_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         Ok(())
@@ -3608,6 +3643,7 @@ impl CodeBuilder<'_> {
                 list_type,
                 element_type,
                 entry_stride,
+                None,
             )?;
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(

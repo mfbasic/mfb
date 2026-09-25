@@ -864,33 +864,35 @@ impl TypeEnv {
         contained
     }
 
-    /// Whether a type transitively contains a thread handle — the former source checker's
-    /// `contains_thread`. Threads may never live in a collection; resources may
-    /// (as pointers, §15.6), so a collection ELEMENT and a `Map` VALUE use this
-    /// rather than the combined resource-or-thread predicate.
-    pub(super) fn contains_thread(
+    /// Whether a type transitively contains a `ThreadWorker`. A worker's own view never
+    /// lives in a collection. A parent `Thread` may, as a `RES` element or value — it is
+    /// a resource (plan-156-D), so the `RES` marker rules govern it like any other — so
+    /// a collection ELEMENT and a `Map` VALUE use this rather than the combined
+    /// resource-or-thread predicate.
+    pub(super) fn contains_thread_worker(
         &self,
         type_: &ParameterType,
         seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let t = resource_base_type(type_);
-        if is_thread_type(&t) {
+        if is_thread_worker_type(&t) {
             return true;
         }
         match &t {
             ParameterType::ListOf(e) | ParameterType::SetOf(e) | ParameterType::ResultOf(e) => {
-                return self.contains_thread(e, seen);
+                return self.contains_thread_worker(e, seen);
             }
             ParameterType::MapOf(k, v) => {
-                return self.contains_thread(k, seen) || self.contains_thread(v, seen);
+                return self.contains_thread_worker(k, seen)
+                    || self.contains_thread_worker(v, seen);
             }
-            ParameterType::Res(inner) => return self.contains_thread(inner, seen),
+            ParameterType::Res(inner) => return self.contains_thread_worker(inner, seen),
             _ => {}
         }
         if !seen.insert(t.clone()) {
             return false;
         }
-        let contained = self.any_field_of(&t, |ft| self.contains_thread(ft, seen));
+        let contained = self.any_field_of(&t, |ft| self.contains_thread_worker(ft, seen));
         seen.remove(&t);
         contained
     }

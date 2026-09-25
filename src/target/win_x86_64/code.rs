@@ -40,6 +40,7 @@ use crate::target::win_x86_64::app;
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
+const OLE32: &str = "ole32.dll"; // plan-157-B: CoTaskMemFree of a known-folder path
 const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const WS2_32: &str = "ws2_32.dll";
 /// bug-431: `LoadLibraryExA` flag — resolve the library (and its own
@@ -75,115 +76,220 @@ const CP_UTF8: &str = "65001";
 // (`ERROR_HANDLE_EOF`, 0x26). See `emit_read_file`.
 const ERROR_HANDLE_EOF: &str = "38";
 const ERROR_BROKEN_PIPE: &str = "109";
+// GetEnvironmentVariableW's last error for a variable that is not set (0xCB); see
+// `emit_env_get`.
+const ERROR_ENVVAR_NOT_FOUND: &str = "203";
 
 /// A UTF-16 path-marshaling frame for a Win32 `*W` filesystem call. The path
 /// arrives as a NUL-terminated UTF-8 C-string; every path-taking Win32 API is the
 /// wide (`W`) variant, so each call converts UTF-8 → UTF-16 via
-/// `MultiByteToWideChar` first (plan-47-F §3.4). The 64 KiB (32767-wchar, Windows'
-/// own max path length) buffer is allocated from the ARENA, not the stack: a large
-/// `sub rsp` would skip the Windows stack guard page and fault on first write
-/// (there is no inline `__chkstk` in this codegen). Only a tiny outgoing frame is
-/// reserved on the stack — layout relative to `sp` after `subtract_stack`:
+/// `MultiByteToWideChar` first (plan-47-F §3.4). The wide buffer is a marshalling
+/// buffer (see [`MARSHAL_HEADER`]) from the ARENA, not the stack: a large `sub rsp`
+/// would skip the Windows stack guard page and fault on first write (there is no
+/// inline `__chkstk` in this codegen). Only a tiny outgoing frame is reserved on
+/// the stack — layout relative to `sp` after `subtract_stack`:
 ///   [0x00 .. 0x20)  shadow space for the callee
 ///   [0x20]          MultiByteToWideChar 5th arg (lpWideCharStr) — a stack arg
 ///   [0x28]          MultiByteToWideChar 6th arg (cchWideChar)   — a stack arg
-///   [0x30]          saved UTF-8 path pointer (survives the arena/convert calls)
-///   [0x38]          the arena UTF-16 buffer pointer (the caller reads this)
+///   [0x30]          saved UTF-8 path pointer (survives the arena/convert calls);
+///                   free once the conversion is done, so callers park their
+///                   Win32 result here across [`emit_free_marshal_slot`]
+///   [0x38]          the UTF-16 buffer pointer (the caller reads it, then frees it)
 const MARSHAL_FRAME: usize = 0x40;
+const MARSHAL_PATH_SLOT: usize = 0x30;
 const MARSHAL_WBUF_SLOT: usize = 0x38;
 
-/// Emit an arena allocation of the UTF-16 buffer and
-/// `MultiByteToWideChar(CP_UTF8, 0, path, -1, wbuf, 32768)` into a
-/// [`MARSHAL_FRAME`] the caller has already reserved with `subtract_stack`. On
-/// entry the UTF-8 path pointer is in `ARG[0]`; on return the wide string's arena
-/// pointer is at `sp + MARSHAL_WBUF_SLOT` (and also live in `ARG[0]`... clobbered —
-/// the caller reloads from the slot).
-/// `_mfb_arena_alloc(size, align=2) -> RET[1]`, storing the returned buffer
-/// pointer at `sp + slot`. The 64 KiB-ish requests never OOM in practice (the
-/// arena maps fresh 1 MiB+ blocks), so the Result tag is not checked (matching
-/// `emit_marshal_path`). plan-66-B.
-fn arena_alloc_to_slot(
+/// bug-696: the bytes in front of every marshalling buffer this backend
+/// allocates, holding the size of the whole arena block (header included).
+///
+/// Each buffer is freed by whoever reads it last — the emitter for its own
+/// scratch, the shared consumer (through `emit_release_marshalled`) for a result
+/// it copies — and `_mfb_arena_free` needs the size the block was allocated with.
+/// Keeping it in the block means no holder has to carry it in a frame slot or
+/// recompute it, and a conversion can recover its buffer's capacity from it. 8
+/// bytes keep the payload 8-aligned (the arena hands out 16-aligned blocks), which
+/// a WCHAR string and a pointer array both need.
+const MARSHAL_HEADER: usize = 8;
+
+fn arena_call(
     from: &str,
-    size: &str,
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(symbol));
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: symbol.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
+/// Allocate a marshalling buffer whose payload is the byte count already in
+/// `abi::return_register()`, and store the payload pointer at `sp + slot` (the
+/// slot also carries the total size across the allocation, so it must be free).
+/// `_mfb_arena_alloc` clobbers every caller-saved register. These requests never
+/// OOM in practice (the arena maps fresh 1 MiB+ blocks), so the Result tag is not
+/// checked. plan-66-B, bug-696.
+fn emit_marshal_alloc(
+    from: &str,
     slot: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", size),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
+        abi::add_immediate(
+            abi::return_register(),
+            abi::return_register(),
+            MARSHAL_HEADER,
+        ),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), slot),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
     ]);
-    relocations.push(CodeRelocation {
-        from: from.to_string(),
-        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
-    instructions.push(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        slot,
-    ));
+    arena_call(
+        from,
+        crate::codegen::error::constants::ARENA_ALLOC_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), slot),
+        abi::store_u64(abi::mfb_arg(2), abi::mfb_return(1), 0),
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_return(1), MARSHAL_HEADER),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), slot),
+    ]);
 }
 
-/// Emit `WideCharToMultiByte(CP_UTF8, 0, [wide_slot], -1, [u8_slot], u8_cap, NULL,
-/// NULL)`, converting the NUL-terminated UTF-16 buffer at `sp + wide_slot` into the
-/// UTF-8 buffer at `sp + u8_slot`. The caller owns the frame (shadow space +
-/// [0x20]/[0x28]/[0x30]/[0x38] stack-arg slots). Returns the byte count (incl. NUL)
-/// in the return register. plan-66-B.
-fn emit_wide_slot_to_utf8(
+/// [`emit_marshal_alloc`] of a fixed `bytes`-byte payload.
+fn emit_marshal_alloc_fixed(
     from: &str,
-    wide_slot: usize,
-    u8_slot: usize,
-    u8_cap: &str,
+    bytes: &str,
+    slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        bytes,
+    ));
+    emit_marshal_alloc(from, slot, instructions, relocations);
+}
+
+/// Free the marshalling buffer whose payload pointer is in `abi::return_register()`
+/// (never 0). Clobbers every caller-saved register, so a Win32 result the caller
+/// still needs is parked in a frame slot first. bug-696.
+fn emit_marshal_free(
+    from: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.extend([
-        abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
-        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), u8_slot), // lpMultiByteStr (5th)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
-        abi::move_immediate(abi::mfb_arg(2), "Integer", u8_cap), // cbMultiByte (6th)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) NULL
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) NULL
-        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), wide_slot), // lpWideCharStr (3rd)
-        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
-        abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cchWideChar = -1
+        abi::subtract_immediate(
+            abi::return_register(),
+            abi::return_register(),
+            MARSHAL_HEADER,
+        ),
+        abi::load_u64(abi::mfb_arg(1), abi::return_register(), 0),
     ]);
-    call_external(
+    arena_call(
         from,
-        "WideCharToMultiByte",
-        KERNEL32,
+        crate::codegen::error::constants::ARENA_FREE_SYMBOL,
         instructions,
         relocations,
     );
 }
 
-/// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
-/// converting the NUL-terminated UTF-8 C-string at `sp + src_slot` into the UTF-16
-/// buffer at `sp + dst_slot`. Stages the two stack args (5th/6th) through `ARG[2]`
-/// as a caller-saved scratch before it is set to its real 3rd-arg value — the same
-/// discipline as `emit_marshal_path` (the SCRATCH pool must not be used on Win64).
-/// The caller owns the surrounding frame (shadow space + [0x20]/[0x28] arg slots).
-fn emit_utf8_slot_to_wide(
+/// [`emit_marshal_free`] of the buffer whose payload pointer is at `sp + slot`.
+fn emit_free_marshal_slot(
     from: &str,
-    src_slot: usize,
-    dst_slot: usize,
-    wchar_cap: &str,
+    slot: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        slot,
+    ));
+    emit_marshal_free(from, instructions, relocations);
+}
+
+/// Load the capacity of the marshalling buffer at `sp + slot`, in bytes, into
+/// `dst` (never `ARG[0]`): its header's block size less the header.
+fn emit_marshal_capacity(
+    dst: impl Into<Operand>,
+    slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let dst = dst.into();
     instructions.extend([
+        abi::load_u64(&dst, abi::stack_pointer(), slot),
+        abi::subtract_immediate(&dst, &dst, MARSHAL_HEADER),
+        abi::load_u64(&dst, &dst, 0),
+        abi::subtract_immediate(&dst, &dst, MARSHAL_HEADER),
+    ]);
+}
+
+/// Allocate a UTF-16 marshalling buffer at `sp + dst_slot` sized for the
+/// NUL-terminated UTF-8 string at `sp + src_slot`, plus `extra_wchars` spare code
+/// units after its NUL. A UTF-8 string of `n` bytes never needs more than `n`
+/// UTF-16 code units (a 1–3 byte sequence yields one, a 4-byte one two, and an
+/// invalid byte one U+FFFD), so `n + 1` holds it with its NUL. bug-696 — before,
+/// every path took a fixed 64 KiB.
+fn emit_wide_alloc_for_utf8(
+    from: &str,
+    src_slot: usize,
+    dst_slot: usize,
+    extra_wchars: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let n = instructions.len();
+    let scan = format!("{from}_wlen_{n}");
+    let done = format!("{from}_wlen_done_{n}");
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), src_slot),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::label(&scan),
+        abi::load_u8(abi::mfb_arg(3), abi::mfb_arg(2), 0),
+        abi::compare_immediate(abi::mfb_arg(3), "0"),
+        abi::branch_eq(&done),
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 1),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+        abi::branch(&scan),
+        abi::label(&done),
+        // (bytes + NUL + extra) code units × 2 bytes each.
+        abi::add_immediate(abi::return_register(), abi::mfb_arg(1), 1 + extra_wchars),
+        abi::shift_left_immediate(abi::return_register(), abi::return_register(), 1),
+    ]);
+    emit_marshal_alloc(from, dst_slot, instructions, relocations);
+}
+
+/// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], capacity)`,
+/// converting the NUL-terminated UTF-8 C-string at `sp + src_slot` into the UTF-16
+/// marshalling buffer at `sp + dst_slot`, whose capacity comes from its header.
+/// Stages the two stack args (5th/6th) through `ARG[2]` as a caller-saved scratch
+/// before it is set to its real 3rd-arg value (the SCRATCH pool must not be used on
+/// Win64). The caller owns the surrounding frame (shadow space + [0x20]/[0x28] arg
+/// slots).
+fn emit_utf8_slot_into_wide(
+    from: &str,
+    src_slot: usize,
+    dst_slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    emit_marshal_capacity(abi::mfb_arg(2), dst_slot, instructions);
+    instructions.extend([
+        abi::shift_right_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 1), // bytes → wchars
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),     // cchWideChar (6th)
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), dst_slot),  // lpWideCharStr (5th)
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
         abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
-        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), dst_slot), // lpWideCharStr (5th)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
-        abi::move_immediate(abi::mfb_arg(2), "Integer", wchar_cap), // cchWideChar (6th)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
         abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), src_slot), // lpMultiByteStr (3rd)
         abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
         abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cbMultiByte = -1 (NUL-terminated)
@@ -197,50 +303,400 @@ fn emit_utf8_slot_to_wide(
     );
 }
 
-fn emit_marshal_path(
+/// [`emit_wide_alloc_for_utf8`] then [`emit_utf8_slot_into_wide`]: the UTF-8 string
+/// at `sp + src_slot` as a fresh UTF-16 marshalling buffer at `sp + dst_slot`.
+fn emit_utf8_slot_to_wide(
     from: &str,
+    src_slot: usize,
+    dst_slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    emit_wide_alloc_for_utf8(from, src_slot, dst_slot, 0, instructions, relocations);
+    emit_utf8_slot_into_wide(from, src_slot, dst_slot, instructions, relocations);
+}
+
+/// Stage `WideCharToMultiByte(CP_UTF8, 0, [wide_slot], -1, …, NULL, NULL)`'s
+/// arguments other than the output buffer (5th, at `[0x20]`) and its size (6th, at
+/// `[0x28]`), which the caller stores first.
+fn emit_wide_to_utf8_call(
+    from: &str,
+    wide_slot: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.extend([
-        abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x30), // save path
-        // _mfb_arena_alloc(size = 65536, align = 2) -> RET[1] = buffer pointer.
-        // A 64 KiB request never OOMs in practice (the arena maps fresh 1 MiB+
-        // blocks via VirtualAlloc), so the Result tag is not checked here.
-        abi::move_immediate(abi::return_register(), "Integer", "65536"),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(CodeRelocation {
-        from: from.to_string(),
-        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
-    instructions.extend([
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // save wbuf
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) NULL
         abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // dwFlags
-        // Stage the two stack args using ARG[2] as a scratch BEFORE it is set to its
-        // real register value (the path). ARG[2] (rdx→r8) is caller-saved; the
-        // machine-floor SCRATCH pool must NOT be used here — on Win64 its low slots
-        // realize to callee-saved rbx/rsi/rdi, so writing them corrupts registers
-        // the caller keeps live (map_scratch_register's documented Win64 hazard).
-        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // wbuf (temp)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
-        abi::move_immediate(abi::mfb_arg(2), "Integer", "32768"),
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // cchWideChar (6th)
-        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x30),  // lpMultiByteStr = path
-        // cbMultiByte = -1 (the input is NUL-terminated); the encoder rejects a
-        // negative immediate, so build it as 0 - 1.
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), wide_slot), // lpWideCharStr (3rd)
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cchWideChar = -1
+    ]);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
+}
+
+/// Convert the NUL-terminated UTF-16 string at `sp + wide_slot` into a fresh UTF-8
+/// marshalling buffer of exactly the size it needs, whose payload pointer is left
+/// at `sp + dst_slot`: a measuring `WideCharToMultiByte` (NULL buffer, 0 size)
+/// returns the byte count with the NUL, then a second converts into the buffer.
+/// The buffer always starts NUL-terminated, so a conversion that fails leaves an
+/// empty string rather than arena bytes; the return register holds the second
+/// call's byte count (0 on failure). The caller owns the frame (shadow space +
+/// [0x20..0x40) stack args). bug-696 — before, each result took a fixed 8–128 KiB.
+fn emit_wide_slot_to_utf8(
+    from: &str,
+    wide_slot: usize,
+    dst_slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let n = instructions.len();
+    let sized = format!("{from}_u8len_{n}");
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpMultiByteStr NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // cbMultiByte 0 → measure
+    ]);
+    emit_wide_to_utf8_call(from, wide_slot, instructions, relocations);
+    instructions.extend([
+        // An `int`: only the low 32 bits of the C result are defined.
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), dst_slot),
+        abi::load_u32(abi::return_register(), abi::stack_pointer(), dst_slot),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&sized),
+        abi::move_immediate(abi::return_register(), "Integer", "1"),
+        abi::label(&sized),
+    ]);
+    emit_marshal_alloc(from, dst_slot, instructions, relocations);
+    instructions.extend([
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), dst_slot),
+        abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(2), 0),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
+    ]);
+    emit_marshal_capacity(abi::mfb_arg(2), dst_slot, instructions);
+    instructions.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28)); // cbMultiByte (6th)
+    emit_wide_to_utf8_call(from, wide_slot, instructions, relocations);
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), 0x20),
+        abi::load_u32(abi::return_register(), abi::stack_pointer(), 0x20),
+    ]);
+}
+
+/// plan-157-B: the `KNOWNFOLDERID` a host-path `emit_os_wide_string` query names,
+/// as `(Data1, Data2, Data3, Data4)` — the in-memory `GUID` layout.
+fn known_folder_guid(which: &str) -> Option<(u32, u16, u16, [u8; 8])> {
+    match which {
+        // FOLDERID_RoamingAppData {3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}
+        "appData" => Some((
+            0x3EB6_85DB,
+            0x65F9,
+            0x4CF6,
+            [0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D],
+        )),
+        // FOLDERID_LocalAppData {F1B32785-6FBA-4FCF-9D55-7B8E7F157091}
+        "appCache" => Some((
+            0xF1B3_2785,
+            0x6FBA,
+            0x4FCF,
+            [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+        )),
+        // FOLDERID_Profile {5E6C858F-0E22-4760-9AFE-EA3317B67173}
+        "userHome" => Some((
+            0x5E6C_858F,
+            0x0E22,
+            0x4760,
+            [0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73],
+        )),
+        // FOLDERID_Documents {FDD39AD0-238F-46AF-ADB4-6C85480369C7}
+        "userDocuments" => Some((
+            0xFDD3_9AD0,
+            0x238F,
+            0x46AF,
+            [0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7],
+        )),
+        _ => None,
+    }
+}
+
+/// plan-157-B: `SHGetKnownFolderPath(&guid, KF_FLAG_DEFAULT, NULL, &wide)`,
+/// marshalled to a NUL-terminated UTF-8 arena buffer whose pointer is left in the
+/// return register, 0 on failure — the `emit_os_wide_string` contract.
+///
+/// Frame (after `subtract_stack(0x60)`, the same window as the other queries):
+/// shadow `[0x00..0x20)`; the `GUID` at `[0x20..0x30)` — the stack-argument area
+/// `WideCharToMultiByte` reuses only AFTER the query no longer needs it; the
+/// `WideCharToMultiByte` result at `[0x40]`; the `CoTaskMem` wide pointer at
+/// `[0x48]` (the out-param, pre-zeroed so a failing call leaves NULL); the UTF-8
+/// marshalling buffer, sized to the path, at `[0x50]`. The wide pointer is
+/// `CoTaskMemFree`d on every path — Microsoft requires it "whether
+/// SHGetKnownFolderPath succeeds or not", and `CoTaskMemFree(NULL)` is a no-op. A
+/// conversion that writes nothing frees the UTF-8 buffer and fails the query. On
+/// success the caller owns the buffer and releases it with
+/// `emit_release_marshalled` (bug-696). Names only physical ABI registers and its
+/// own window slots, like every `emit_os_wide_string` arm (`.ai/arch-abi.md`, "A
+/// platform hook that moves `sp` mid-body").
+fn emit_known_folder_query(
+    from: &str,
+    guid: (u32, u16, u16, [u8; 8]),
+    n: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const GUID_SLOT: usize = 0x20;
+    const RESULT_SLOT: usize = 0x40;
+    const WIDE_SLOT: usize = 0x48;
+    const U8_SLOT: usize = 0x50;
+    let (data1, data2, data3, data4) = guid;
+    let words = [
+        data1,
+        u32::from(data2) | (u32::from(data3) << 16),
+        u32::from_le_bytes([data4[0], data4[1], data4[2], data4[3]]),
+        u32::from_le_bytes([data4[4], data4[5], data4[6], data4[7]]),
+    ];
+    let query_fail = format!("{from}_kf_query_fail_{n}");
+    let convert_fail = format!("{from}_kf_convert_fail_{n}");
+    let fail = format!("{from}_kf_fail_{n}");
+    let done = format!("{from}_kf_done_{n}");
+    instructions.push(abi::subtract_stack(0x60));
+    for (i, word) in words.iter().enumerate() {
+        instructions.extend([
+            abi::move_immediate(abi::mfb_arg(0), "Integer", &word.to_string()),
+            abi::store_u32(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT + 4 * i),
+        ]);
+    }
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), WIDE_SLOT),
+        abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // KF_FLAG_DEFAULT
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // hToken = NULL
+        abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(
+        from,
+        "SHGetKnownFolderPath",
+        SHELL32,
+        instructions,
+        relocations,
+    );
+    // An HRESULT is 32 bits: compare the zero-extended low word, not all of rax.
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"), // S_OK
+        abi::branch_ne(&query_fail),
+    ]);
+    emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, instructions, relocations);
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), RESULT_SLOT),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RESULT_SLOT),
+        abi::compare_immediate(abi::return_register(), "0"), // 0 bytes written = failed
+        abi::branch_eq(&convert_fail),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), U8_SLOT),
+        abi::branch(&done),
+        abi::label(&query_fail),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([abi::branch(&fail), abi::label(&convert_fail)]);
+    emit_free_marshal_slot(from, U8_SLOT, instructions, relocations);
+    instructions.extend([
+        abi::label(&fail),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::label(&done),
+        abi::add_stack(0x60),
+    ]);
+}
+
+/// plan-157-B: the non-allocating twin of [`emit_known_folder_query`], behind
+/// `CodegenPlatform::emit_known_folder_into`. Entry: `ARG[0]` = destination,
+/// `ARG[1]` = its capacity. Exit: the return register = the UTF-8 length (no
+/// NUL), with the bytes and a NUL written to the destination only when
+/// `length + 1 <= capacity`; -1 when the query or the conversion fails.
+///
+/// Frame (after `subtract_stack(0x60)`): shadow `[0x00..0x20)`; the `GUID` at
+/// `[0x20..0x30)` (the `WideCharToMultiByte` stack arguments reuse it after the
+/// query); the destination at `[0x40]`; the `CoTaskMem` wide pointer at `[0x48]`;
+/// the capacity at `[0x50]`; the measured length at `[0x58]`. The first
+/// `WideCharToMultiByte` passes a NULL buffer and 0 capacity, which returns the
+/// size the conversion needs (with its NUL) and writes nothing; the second
+/// converts into the caller's buffer only when that size fits. The wide pointer is
+/// `CoTaskMemFree`d on every path.
+fn emit_known_folder_into_query(
+    from: &str,
+    guid: (u32, u16, u16, [u8; 8]),
+    n: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const GUID_SLOT: usize = 0x20;
+    const DST_SLOT: usize = 0x40;
+    const WIDE_SLOT: usize = 0x48;
+    const CAP_SLOT: usize = 0x50;
+    const LEN_SLOT: usize = 0x58;
+    let (data1, data2, data3, data4) = guid;
+    let words = [
+        data1,
+        u32::from(data2) | (u32::from(data3) << 16),
+        u32::from_le_bytes([data4[0], data4[1], data4[2], data4[3]]),
+        u32::from_le_bytes([data4[4], data4[5], data4[6], data4[7]]),
+    ];
+    let query_fail = format!("{from}_kfi_query_fail_{n}");
+    let free_fail = format!("{from}_kfi_free_fail_{n}");
+    let fits = format!("{from}_kfi_fits_{n}");
+    let freed = format!("{from}_kfi_freed_{n}");
+    let fail = format!("{from}_kfi_fail_{n}");
+    let done = format!("{from}_kfi_done_{n}");
+    instructions.push(abi::subtract_stack(0x60));
+    instructions.extend([
+        abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), DST_SLOT),
+        abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), CAP_SLOT),
+    ]);
+    for (i, word) in words.iter().enumerate() {
+        instructions.extend([
+            abi::move_immediate(abi::mfb_arg(0), "Integer", &word.to_string()),
+            abi::store_u32(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT + 4 * i),
+        ]);
+    }
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), WIDE_SLOT),
+        abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // KF_FLAG_DEFAULT
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // hToken = NULL
+        abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(
+        from,
+        "SHGetKnownFolderPath",
+        SHELL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"), // S_OK
+        abi::branch_ne(&query_fail),
+        // Measure: WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL).
+        abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpMultiByteStr NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // cbMultiByte 0
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WIDE_SLOT),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cchWideChar = -1
+    ]);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        // `int` result: 0 = failure, else the size needed WITH the NUL.
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&free_fail),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), CAP_SLOT),
+        abi::compare_registers(abi::c_return(0), abi::mfb_arg(1)),
+        abi::branch_le(&fits),
+        abi::branch(&freed),
+        abi::label(&fits),
+        // Convert: WideCharToMultiByte(CP_UTF8, 0, wide, -1, dst, needed, NULL, NULL).
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), DST_SLOT),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), LEN_SLOT),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WIDE_SLOT),
         abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
         abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1),
     ]);
     call_external(
         from,
-        "MultiByteToWideChar",
+        "WideCharToMultiByte",
         KERNEL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), CAP_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), CAP_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&free_fail),
+        abi::label(&freed),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LEN_SLOT),
+        abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::branch(&done),
+        abi::label(&query_fail),
+        abi::label(&free_fail),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::label(&fail),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::label(&done),
+        abi::add_stack(0x60),
+    ]);
+}
+
+/// Marshal the UTF-8 path in `ARG[0]` into a [`MARSHAL_FRAME`] the caller has
+/// already reserved with `subtract_stack`: the path is parked at
+/// `sp + MARSHAL_PATH_SLOT` and its UTF-16 marshalling buffer, sized to the path,
+/// is left at `sp + MARSHAL_WBUF_SLOT` — with `extra_wchars` spare code units after
+/// its NUL for a caller that appends to it. The caller frees that buffer (with
+/// [`emit_free_marshal_slot`]) once its Win32 call has returned; bug-696. Every
+/// register is clobbered — the machine-floor SCRATCH pool is never used, since on
+/// Win64 its low slots realize to callee-saved rbx/rsi/rdi
+/// (`map_scratch_register`'s documented Win64 hazard).
+fn emit_marshal_path(
+    from: &str,
+    extra_wchars: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        MARSHAL_PATH_SLOT,
+    ));
+    emit_wide_alloc_for_utf8(
+        from,
+        MARSHAL_PATH_SLOT,
+        MARSHAL_WBUF_SLOT,
+        extra_wchars,
+        instructions,
+        relocations,
+    );
+    emit_utf8_slot_into_wide(
+        from,
+        MARSHAL_PATH_SLOT,
+        MARSHAL_WBUF_SLOT,
         instructions,
         relocations,
     );
@@ -298,8 +754,9 @@ fn emit_ascii_fold(reg: impl Into<Operand>, n: usize, instructions: &mut Vec<Cod
 }
 
 /// A reverse-marshaling frame for a Win32 `*W` call that PRODUCES a UTF-16 path
-/// (GetCurrentDirectoryW / GetTempPathW / GetFullPathNameW). The wide result is
-/// converted back to UTF-8 into the caller's arena buffer via WideCharToMultiByte.
+/// (GetCurrentDirectoryW / GetTempPathW / GetFinalPathNameByHandleW). The wide
+/// result is converted back to UTF-8 into the caller's arena buffer via
+/// WideCharToMultiByte.
 /// Layout relative to `sp` after `subtract_stack(RMARSHAL_FRAME)`:
 ///   [0x00 .. 0x20)  shadow space
 ///   [0x20]          WideCharToMultiByte 5th arg (lpMultiByteStr = UTF-8 dst)
@@ -309,6 +766,7 @@ fn emit_ascii_fold(reg: impl Into<Operand>, n: usize, instructions: &mut Vec<Cod
 ///   [0x40]          saved UTF-8 destination buffer pointer
 ///   [0x48]          saved destination capacity (bytes)
 ///   [0x50]          the arena UTF-16 scratch buffer pointer
+///   [0x58]          free for the caller (`emit_realpath` keeps its HANDLE here)
 const RMARSHAL_FRAME: usize = 0x60;
 const RMARSHAL_DST_SLOT: usize = 0x40;
 const RMARSHAL_CAP_SLOT: usize = 0x48;
@@ -393,20 +851,10 @@ fn emit_dir_path_query(
         abi::subtract_stack(RMARSHAL_FRAME),
         abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_DST_SLOT), // dst
         abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), RMARSHAL_CAP_SLOT), // capacity
-        // arena UTF-16 scratch (64 KiB, 32767 wchars = Windows max path).
-        abi::move_immediate(abi::return_register(), "Integer", "65536"),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: from.to_string(),
-        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    // UTF-16 scratch (64 KiB, 32768 wchars = Windows max path), freed at `done`.
+    emit_marshal_alloc_fixed(from, "65536", RMARSHAL_WBUF_SLOT, instructions, relocations);
     instructions.extend([
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
         abi::move_immediate(abi::mfb_arg(0), "Integer", "32768"), // nBufferLength (wchars)
         abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), RMARSHAL_WBUF_SLOT), // lpBuffer
     ]);
@@ -436,6 +884,20 @@ fn emit_dir_path_query(
         abi::label(&fail),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::label(&done),
+        // The capacity is spent; park the answer there across the free.
+        abi::store_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            RMARSHAL_CAP_SLOT,
+        ),
+    ]);
+    emit_free_marshal_slot(from, RMARSHAL_WBUF_SLOT, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            RMARSHAL_CAP_SLOT,
+        ),
         abi::add_stack(RMARSHAL_FRAME),
     ]);
 }
@@ -578,7 +1040,6 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         const IDX: usize = 0x58;
         const WARG: usize = 0x60;
         const U8ARG: usize = 0x68;
-        const ARG_CAP: &str = "131072";
         let from = entry_symbol;
         let n = instructions.len();
         let l = |s: &str| format!("{from}_argv_{s}_{n}");
@@ -632,8 +1093,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0),
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), WARG),
         ]);
-        arena_alloc_to_slot(from, ARG_CAP, U8ARG, instructions, relocations);
-        emit_wide_slot_to_utf8(from, WARG, U8ARG, ARG_CAP, instructions, relocations);
+        // Sized to the argument. It is never freed: `os::args` reads it for the
+        // life of the process.
+        emit_wide_slot_to_utf8(from, WARG, U8ARG, instructions, relocations);
         instructions.extend([
             // argv8[idx] = u8arg.
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), U8ARGV),
@@ -1396,7 +1858,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // does. So `result >> 31` is exactly the contract: 1 (nonzero) for
         // missing, 0 for exists — no branch and no oversized-immediate compare.
         instructions.push(abi::subtract_stack(MARSHAL_FRAME));
-        emit_marshal_path(from, instructions, relocations);
+        emit_marshal_path(from, 0, instructions, relocations);
         instructions.push(abi::load_u64(
             abi::mfb_arg(0),
             abi::stack_pointer(),
@@ -1413,6 +1875,19 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             // plan-85: GetFileAttributesW's DWORD is a C result (`rax`); `>>31` is bit
             // 31 (missing=1/exists=0), landing in this helper's MFB return register.
             abi::shift_right_immediate(abi::return_register(), abi::c_return(0), 31),
+            abi::store_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
+        ]);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
             abi::add_stack(MARSHAL_FRAME),
         ]);
         Ok(())
@@ -1437,7 +1912,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::subtract_stack(FRAME),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), STATBUF_SLOT),
         ]);
-        emit_marshal_path(from, instructions, relocations);
+        emit_marshal_path(from, 0, instructions, relocations);
         instructions.push(abi::load_u64(
             abi::mfb_arg(0),
             abi::stack_pointer(),
@@ -1456,6 +1931,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             // The SCRATCH pool must not be used — callee-saved on Win64.
             abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), STATBUF_SLOT),
             abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0), // GetFileAttributesW DWORD (C result)
+        ]);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::add_stack(FRAME),
         ]);
@@ -1491,31 +1969,56 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // walker is reused unchanged. The wide block is "K=V\0K=V\0…\0\0". Windows
         // prepends hidden per-drive `=C:=…` entries whose key is empty; the shared
         // walker splits on the first `=`, so those must be skipped (a leading `=`).
-        // Two passes over the block: count non-drive entries, then marshal each into
-        // the arena and fill the pointer array. Registers do not survive the
-        // arena_alloc / WideCharToMultiByte calls, so all loop state lives in stack
-        // slots. plan-66-B.
+        // plan-66-B.
         //
-        // Frame (subtract_stack(0x70)): shadow [0x00..0x20), marshal stack args
-        // [0x20..0x40), [0x40] block base, [0x48] array base, [0x50] cursor,
-        // [0x58] index, [0x60] per-entry UTF-8 buffer, [0x68] next cursor.
+        // bug-696: the array and every string live in ONE marshalling buffer, sized
+        // exactly, which the caller releases with `emit_release_marshalled` once it
+        // has copied the entries. Pass 1 measures each kept entry's UTF-8 size
+        // (`WideCharToMultiByte` with no buffer); pass 2 converts each into the
+        // string area behind the array. The system block is a snapshot, so both
+        // passes see the same entries. Every call clobbers the caller-saved
+        // registers, so all loop state lives in frame slots and only `ARG[0..3]`
+        // are scratch — never the SCRATCH pool, whose Win64 realizations include
+        // the callee-saved rbx/rsi/rdi.
+        //
+        // Frame (subtract_stack(0x80)): shadow [0x00..0x20), WideCharToMultiByte
+        // stack args [0x20..0x40), [0x40] system block, [0x48] array, [0x50]
+        // cursor, [0x58] count/index, [0x60] string bytes, then the next free
+        // string byte, [0x68] next cursor, [0x70] end of the string area.
         const BLOCK: usize = 0x40;
         const ARRAY: usize = 0x48;
         const CURSOR: usize = 0x50;
         const IDX: usize = 0x58;
-        const U8BUF: usize = 0x60;
+        const DATA: usize = 0x60;
         const NEXT: usize = 0x68;
-        // Fixed per-entry UTF-8 buffer: a single VAR=VALUE caps at ~32767 wchars →
-        // ≤ ~128 KiB UTF-8; use 128 KiB with a matching WideCharToMultiByte cap so
-        // the call can never overrun the buffer.
-        const ENTRY_CAP: &str = "131072";
+        const END: usize = 0x70;
         let n = instructions.len();
         let l = |s: &str| format!("{from}_environ_{s}_{n}");
         let (count_loop, count_scan, count_scan_done, count_next, count_done) =
             (l("cl"), l("cs"), l("csd"), l("cn"), l("cd"));
         let (fill_loop, fill_scan, fill_scan_done, fill_skip, fill_done) =
             (l("fl"), l("fs"), l("fsd"), l("fk"), l("fd"));
-        instructions.push(abi::subtract_stack(0x70));
+        // Leave `[CURSOR]`'s entry's first code unit in ARG[1] and the cursor of
+        // the entry after it at `[NEXT]`; `ARG[1] == 0` is the block's end.
+        let scan_entry = |scan: &str, scan_done: &str, end: &str| {
+            [
+                abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), CURSOR),
+                abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+                abi::compare_immediate(abi::mfb_arg(1), "0"),
+                abi::branch_eq(end), // double-NUL → end of block
+                abi::move_register(abi::mfb_arg(2), abi::mfb_arg(0)),
+                abi::label(scan),
+                abi::load_u16(abi::mfb_arg(3), abi::mfb_arg(2), 0),
+                abi::compare_immediate(abi::mfb_arg(3), "0"),
+                abi::branch_eq(scan_done),
+                abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 2),
+                abi::branch(scan),
+                abi::label(scan_done),
+                abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 2),
+                abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), NEXT),
+            ]
+        };
+        instructions.push(abi::subtract_stack(0x80));
         call_external(
             from,
             "GetEnvironmentStringsW",
@@ -1526,96 +2029,105 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         instructions.extend([
             // GetEnvironmentStringsW returns the block pointer as a C result (`rax`).
             abi::store_u64(abi::c_return(0), abi::stack_pointer(), BLOCK),
-            abi::move_register(abi::SCRATCH[0], abi::c_return(0)), // cursor (entry start)
-            abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),  // count
-            // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), CURSOR),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), DATA),
+            // --- Pass 1: count the kept entries and sum their UTF-8 sizes ---
             abi::label(&count_loop),
-            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[0], 0), // first wide char
-            abi::compare_immediate(abi::SCRATCH[3], "0"),
-            abi::branch_eq(&count_done), // double-NUL → end of block
-            abi::move_register(abi::SCRATCH[2], abi::SCRATCH[0]), // scan
-            abi::label(&count_scan),
-            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[2], 0),
-            abi::compare_immediate(abi::SCRATCH[3], "0"),
-            abi::branch_eq(&count_scan_done),
-            abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2),
-            abi::branch(&count_scan),
-            abi::label(&count_scan_done),
-            // reload the first char; skip if '=' (0x3D = 61, a hidden drive entry).
-            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[0], 0),
-            abi::compare_immediate(abi::SCRATCH[3], "61"),
+        ]);
+        instructions.extend(scan_entry(&count_scan, &count_scan_done, &count_done));
+        instructions.extend([
+            abi::compare_immediate(abi::mfb_arg(1), "61"), // a hidden drive entry ('=')
             abi::branch_eq(&count_next),
-            abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1), // count++
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpMultiByteStr NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // cbMultiByte 0 → measure
+        ]);
+        emit_wide_to_utf8_call(from, CURSOR, instructions, relocations);
+        instructions.extend([
+            // An `int`: only the low 32 bits of the C result are defined.
+            abi::store_u32(abi::c_return(0), abi::stack_pointer(), 0x20),
+            abi::load_u32(abi::mfb_arg(0), abi::stack_pointer(), 0x20),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), DATA),
+            abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(0)),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), DATA),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
+            abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
             abi::label(&count_next),
-            abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[2], 2), // next entry
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), NEXT),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CURSOR),
             abi::branch(&count_loop),
             abi::label(&count_done),
+            // --- One buffer: (count + 1) pointers, then the strings ---
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), IDX),
+            abi::add_immediate(abi::return_register(), abi::return_register(), 1),
+            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), DATA),
+            abi::add_registers(
+                abi::return_register(),
+                abi::return_register(),
+                abi::mfb_arg(1),
+            ),
         ]);
-        // --- Allocate the (count+1) pointer array ---
+        emit_marshal_alloc(from, ARRAY, instructions, relocations);
         instructions.extend([
-            abi::add_immediate(abi::return_register(), abi::SCRATCH[1], 1),
-            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3), // *8
-            abi::move_immediate(abi::SCRATCH[1], "Integer", "8"),
-            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
-        ]);
-        relocations.push(CodeRelocation {
-            from: from.to_string(),
-            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        instructions.extend([
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), BLOCK),
-            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
+            // The strings start after the array's (count + 1) pointers.
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
+            abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+            abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), ARRAY),
+            abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), DATA),
+            abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(0), abi::mfb_arg(1)),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), DATA),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), END),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), BLOCK),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CURSOR),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
-            // --- Pass 2: marshal each non-drive entry into the array ---
+            // --- Pass 2: convert each kept entry into the string area ---
             abi::label(&fill_loop),
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
-            abi::load_u16(abi::SCRATCH[1], abi::SCRATCH[0], 0), // first char
-            abi::compare_immediate(abi::SCRATCH[1], "0"),
-            abi::branch_eq(&fill_done),
-            abi::move_register(abi::SCRATCH[2], abi::SCRATCH[0]), // scan
-            abi::label(&fill_scan),
-            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[2], 0),
-            abi::compare_immediate(abi::SCRATCH[3], "0"),
-            abi::branch_eq(&fill_scan_done),
-            abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2),
-            abi::branch(&fill_scan),
-            abi::label(&fill_scan_done),
-            abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[2], 2), // next cursor = NUL + 2
-            abi::store_u64(abi::SCRATCH[3], abi::stack_pointer(), NEXT),
-            // skip drive entries (leading '=', ARG[1] still holds the first char).
-            abi::compare_immediate(abi::SCRATCH[1], "61"),
-            abi::branch_eq(&fill_skip),
         ]);
-        arena_alloc_to_slot(from, ENTRY_CAP, U8BUF, instructions, relocations);
-        // WideCharToMultiByte(CP_UTF8, 0, [CURSOR], -1, [U8BUF], ENTRY_CAP, NULL, NULL).
-        emit_wide_slot_to_utf8(from, CURSOR, U8BUF, ENTRY_CAP, instructions, relocations);
+        instructions.extend(scan_entry(&fill_scan, &fill_scan_done, &fill_done));
         instructions.extend([
-            // array[idx] = u8buf; idx++.
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
-            abi::shift_left_immediate(abi::SCRATCH[2], abi::SCRATCH[1], 3),
-            abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
-            abi::load_u64(abi::SCRATCH[2], abi::stack_pointer(), U8BUF),
-            abi::store_u64(abi::SCRATCH[2], abi::SCRATCH[0], 0),
-            abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1),
-            abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
+            abi::compare_immediate(abi::mfb_arg(1), "61"),
+            abi::branch_eq(&fill_skip),
+            // WideCharToMultiByte(CP_UTF8, 0, [CURSOR], -1, [DATA], END - DATA, …).
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), DATA),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), END),
+            abi::subtract_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(0)),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x28),
+        ]);
+        emit_wide_to_utf8_call(from, CURSOR, instructions, relocations);
+        instructions.extend([
+            abi::store_u32(abi::c_return(0), abi::stack_pointer(), 0x20),
+            abi::load_u32(abi::mfb_arg(0), abi::stack_pointer(), 0x20),
+            abi::compare_immediate(abi::mfb_arg(0), "0"), // nothing written: no entry
+            abi::branch_eq(&fill_skip),
+            // array[idx] = string; idx++; the next string follows this one's NUL.
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(1), 3),
+            abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), ARRAY),
+            abi::add_registers(abi::mfb_arg(3), abi::mfb_arg(3), abi::mfb_arg(2)),
+            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), DATA),
+            abi::store_u64(abi::mfb_arg(2), abi::mfb_arg(3), 0),
+            abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(0)),
+            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), DATA),
+            abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
             abi::label(&fill_skip),
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), NEXT),
-            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), NEXT),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CURSOR),
             abi::branch(&fill_loop),
             abi::label(&fill_done),
             // NULL-terminate the array at [idx].
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
-            abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 3),
-            abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]),
-            abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3),
+            abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)),
+            abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0),
             // FreeEnvironmentStringsW(block).
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), BLOCK),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), BLOCK),
         ]);
         call_external(
             from,
@@ -1626,7 +2138,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         );
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), ARRAY),
-            abi::add_stack(0x70),
+            abi::add_stack(0x80),
         ]);
         Ok(())
     }
@@ -1737,12 +2249,16 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // walked a C string from address 2. That is bug-479: every Windows canvas
         // program died in `canvas::present`, because `__canvas_ensureGraphics` is the
         // first thing on that path to read an environment variable that is actually set.
-        // Frame
-        // (after subtract_stack(0x60)): [0x00..0x20) shadow, [0x20]/[0x28] marshal
-        // 5th/6th stack args, [0x40] saved UTF-8 name, [0x48] wide name buf, [0x50]
-        // wide value buf, [0x58] UTF-8 value buf. Env values cap at 32767 wchars, so
-        // 64 KiB wide buffers hold any value; the UTF-8 out buffer is 128 KiB (worst
-        // case ~3 bytes/char). plan-66-B.
+        //
+        // Unlike `getenv`'s, the value is a marshalling buffer the CALLER owns: it
+        // releases it with `emit_release_marshalled` once it has copied or tested it
+        // (bug-696). The wide name and value buffers are freed here.
+        //
+        // Frame (after subtract_stack(0x60)): [0x00..0x20) shadow, [0x20..0x40)
+        // marshal stack args, [0x40] saved UTF-8 name (then the answer, across the
+        // frees), [0x48] wide name, [0x50] wide value, [0x58] UTF-8 value. Env
+        // values cap at 32767 wchars, so a 64 KiB wide value buffer holds any
+        // value; the name and the UTF-8 value are sized to what they hold. plan-66-B.
         const NAME_SLOT: usize = 0x40;
         const WNAME_SLOT: usize = 0x48;
         const WVAL_SLOT: usize = 0x50;
@@ -1754,19 +2270,24 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::subtract_stack(0x60),
             abi::store_u64(abi::c_arg(0), abi::stack_pointer(), NAME_SLOT), // save name (arena_alloc clobbers)
         ]);
-        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "65536", WVAL_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "131072", U8VAL_SLOT, instructions, relocations);
         // name (UTF-8) -> wide name.
-        emit_utf8_slot_to_wide(
-            from,
-            NAME_SLOT,
-            WNAME_SLOT,
-            "32768",
-            instructions,
-            relocations,
-        );
-        // GetEnvironmentVariableW(wideName, wideVal, 32768) -> char count (0 = unset).
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, instructions, relocations);
+        emit_marshal_alloc_fixed(from, "65536", WVAL_SLOT, instructions, relocations);
+        // GetEnvironmentVariableW(wideName, wideVal, 32768) -> the value's length in
+        // chars. 0 is BOTH "unset" and "set to the empty string": only the last
+        // error tells them apart — ERROR_ENVVAR_NOT_FOUND for unset — and the call
+        // does not clear it on success, so it is cleared first. The value buffer
+        // starts as an empty string for the empty case to convert. A variable set
+        // to "" used to read as unset here, while `os::environ` listed it and every
+        // POSIX target reported it present.
+        let found = format!("{from}_env_get_found_{n}");
+        instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WVAL_SLOT),
+            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+            abi::store_u16(abi::c_arg(1), abi::c_arg(0), 0),
+            abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+        ]);
+        call_external(from, "SetLastError", KERNEL32, instructions, relocations);
         instructions.extend([
             abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WNAME_SLOT),
             abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WVAL_SLOT),
@@ -1781,33 +2302,30 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         );
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"),
-            abi::branch_eq(&not_found),
-            // WideCharToMultiByte(CP_UTF8, 0, wideVal, -1, u8Val, 131072, NULL, NULL).
-            abi::move_immediate(abi::c_arg(0), "Integer", CP_UTF8),
-            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), U8VAL_SLOT), // lpMultiByteStr (5th)
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0x20),
-            abi::move_immediate(abi::c_arg(2), "Integer", "131072"), // cbMultiByte (6th)
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0x28),
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) = NULL
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) = NULL
-            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), WVAL_SLOT), // lpWideCharStr (3rd)
-            abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-            abi::subtract_immediate(abi::c_arg(3), abi::c_arg(3), 1), // cchWideChar = -1
+            abi::branch_ne(&found),
         ]);
-        call_external(
-            from,
-            "WideCharToMultiByte",
-            KERNEL32,
-            instructions,
-            relocations,
-        );
+        call_external(from, "GetLastError", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::load_u64(abi::c_return(0), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
+            // A DWORD: only the low 32 bits of the C result are defined.
+            abi::store_u32(abi::c_return(0), abi::stack_pointer(), U8VAL_SLOT),
+            abi::load_u32(abi::mfb_arg(0), abi::stack_pointer(), U8VAL_SLOT),
+            abi::compare_immediate(abi::mfb_arg(0), ERROR_ENVVAR_NOT_FOUND),
+            abi::branch_eq(&not_found),
+            abi::label(&found),
+        ]);
+        emit_wide_slot_to_utf8(from, WVAL_SLOT, U8VAL_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
             abi::branch(&done),
             abi::label(&not_found),
-            abi::move_immediate(abi::c_return(0), "Integer", "0"),
+            abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
             abi::label(&done),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), NAME_SLOT),
+        ]);
+        emit_free_marshal_slot(from, WNAME_SLOT, instructions, relocations);
+        emit_free_marshal_slot(from, WVAL_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::c_return(0), abi::stack_pointer(), NAME_SLOT),
             abi::add_stack(0x60),
         ]);
         Ok(())
@@ -1823,72 +2341,72 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // SetEnvironmentVariableW(wideName, wideValue|NULL). ARG[0] = UTF-8 name,
         // ARG[1] = UTF-8 value (0 to delete). Frame (after subtract_stack(0x50)):
         // shadow [0x00..0x20), [0x20]/[0x28] marshal stack args, [0x30] wide name,
-        // [0x38] wide value (or NULL), [0x40] saved name, [0x48] saved value.
-        // plan-66-B.
+        // [0x38] wide value (or NULL), [0x40] saved name (then the answer, across
+        // the frees), [0x48] saved value. Both wide buffers are sized to their
+        // strings and freed before returning (bug-696). plan-66-B.
         const WNAME_SLOT: usize = 0x30;
         const WVAL_SLOT: usize = 0x38;
         const NAME_SLOT: usize = 0x40;
         const VAL_SLOT: usize = 0x48;
         let n = instructions.len();
         let set_null = format!("{from}_env_set_null_{n}");
-        let do_set = format!("{from}_env_set_do_{n}");
+        let out = format!("{from}_env_set_out_{n}");
+        // SetEnvironmentVariableW([WNAME], [WVAL]) with its BOOL (nonzero = success)
+        // inverted to the POSIX setenv/unsetenv convention (0 = success, nonzero =
+        // failure) the shared helper's branch expects, parked at NAME_SLOT.
+        let emit_set = |arm: &str,
+                        instructions: &mut Vec<CodeInstruction>,
+                        relocations: &mut Vec<CodeRelocation>| {
+            instructions.extend([
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WNAME_SLOT),
+                abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WVAL_SLOT),
+            ]);
+            call_external(
+                from,
+                "SetEnvironmentVariableW",
+                KERNEL32,
+                instructions,
+                relocations,
+            );
+            let ok = format!("{from}_env_set_ok_{arm}_{n}");
+            let answered = format!("{from}_env_set_answered_{arm}_{n}");
+            instructions.extend([
+                abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
+                abi::branch_ne(&ok),                           // BOOL != 0 → success
+                abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
+                abi::branch(&answered),
+                abi::label(&ok),
+                abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+                abi::label(&answered),
+                abi::store_u64(abi::return_register(), abi::stack_pointer(), NAME_SLOT),
+            ]);
+        };
         instructions.extend([
             abi::subtract_stack(0x50),
             abi::store_u64(abi::c_arg(0), abi::stack_pointer(), NAME_SLOT),
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), VAL_SLOT),
         ]);
-        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(
-            from,
-            NAME_SLOT,
-            WNAME_SLOT,
-            "32768",
-            instructions,
-            relocations,
-        );
-        // value == 0 → delete (wideValue = NULL); else marshal the value.
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, instructions, relocations);
+        // value == 0 → delete (wideValue = NULL); else marshal the value, set, and
+        // free it on this arm.
         instructions.extend([
             abi::load_u64(abi::c_arg(0), abi::stack_pointer(), VAL_SLOT),
             abi::compare_immediate(abi::c_arg(0), "0"),
             abi::branch_eq(&set_null),
         ]);
-        arena_alloc_to_slot(from, "131072", WVAL_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(
-            from,
-            VAL_SLOT,
-            WVAL_SLOT,
-            "65536",
-            instructions,
-            relocations,
-        );
+        emit_utf8_slot_to_wide(from, VAL_SLOT, WVAL_SLOT, instructions, relocations);
+        emit_set("value", instructions, relocations);
+        emit_free_marshal_slot(from, WVAL_SLOT, instructions, relocations);
         instructions.extend([
-            abi::branch(&do_set),
+            abi::branch(&out),
             abi::label(&set_null),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), WVAL_SLOT), // lpValue = NULL → delete
-            abi::label(&do_set),
-            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WNAME_SLOT),
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WVAL_SLOT),
         ]);
-        call_external(
-            from,
-            "SetEnvironmentVariableW",
-            KERNEL32,
-            instructions,
-            relocations,
-        );
-        // SetEnvironmentVariableW returns BOOL (nonzero = success); invert to the
-        // POSIX setenv/unsetenv convention (0 = success, nonzero = failure) the
-        // shared helper's branch expects.
-        let ok = format!("{from}_env_set_ok_{n}");
-        let out = format!("{from}_env_set_out_{n}");
+        emit_set("delete", instructions, relocations);
+        instructions.push(abi::label(&out));
+        emit_free_marshal_slot(from, WNAME_SLOT, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
-            abi::branch_ne(&ok),                           // BOOL != 0 → success
-            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
-            abi::branch(&out),
-            abi::label(&ok),
-            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
-            abi::label(&out),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), NAME_SLOT),
             abi::add_stack(0x50),
         ]);
         Ok(())
@@ -1904,18 +2422,27 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         // Run the `*W` OS query for `which` into a wide buffer, marshal to a UTF-8
         // C-string, and leave the pointer in the return register (0 on failure).
-        // Frame (after subtract_stack(0x60)): shadow [0x00..0x20), marshal stack args
-        // [0x20..0x40), [0x40] size DWORD (in/out for the Ex/User queries), [0x48]
-        // wide buffer (2048 wchars), [0x50] UTF-8 buffer (8 KiB). plan-66-B.
+        // The UTF-8 string is a marshalling buffer sized to the answer, which the
+        // caller releases with `emit_release_marshalled`; the wide buffer is freed
+        // here (bug-696). Frame (after subtract_stack(0x60)): shadow [0x00..0x20),
+        // marshal stack args [0x20..0x40), [0x40] size DWORD (in/out for the
+        // Ex/User queries), [0x48] wide buffer (2048 wchars), [0x50] UTF-8 buffer,
+        // [0x58] the answer, across the free. plan-66-B.
         const SIZE_SLOT: usize = 0x40;
         const WIDE_SLOT: usize = 0x48;
         const U8_SLOT: usize = 0x50;
+        const ANSWER_SLOT: usize = 0x58;
         let n = instructions.len();
+        // plan-157-B: the host-path folders come from `SHGetKnownFolderPath`, whose
+        // wide buffer the system allocates — a different frame protocol.
+        if let Some(guid) = known_folder_guid(which) {
+            emit_known_folder_query(from, guid, n, instructions, relocations);
+            return Ok(());
+        }
         let fail = format!("{from}_oswq_fail_{n}");
         let done = format!("{from}_oswq_done_{n}");
         instructions.push(abi::subtract_stack(0x60));
-        arena_alloc_to_slot(from, "4096", WIDE_SLOT, instructions, relocations); // 2048 wchars
-        arena_alloc_to_slot(from, "8192", U8_SLOT, instructions, relocations);
+        emit_marshal_alloc_fixed(from, "4096", WIDE_SLOT, instructions, relocations); // 2048 wchars
         match which {
             // GetComputerNameExW(ComputerNameDnsHostname=1, lpBuffer, &nSize) → BOOL.
             "hostName" => {
@@ -1967,15 +2494,49 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             }
             other => return Err(format!("unknown os wide-string query '{other}'")),
         }
-        emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, "8192", instructions, relocations);
+        emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, instructions, relocations);
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), U8_SLOT),
             abi::branch(&done),
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::label(&done),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
+        ]);
+        emit_free_marshal_slot(from, WIDE_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
             abi::add_stack(0x60),
         ]);
+        Ok(())
+    }
+
+    fn emit_release_marshalled(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // The pointer is in ARG[0], which is the return register in the aligned
+        // MFB convention `_mfb_arena_free` is called with. No frame: an internal
+        // helper call needs no shadow space.
+        emit_marshal_free(from, instructions, relocations);
+        Ok(())
+    }
+
+    fn emit_known_folder_into(
+        &self,
+        which: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let guid =
+            known_folder_guid(which).ok_or_else(|| format!("unknown known folder '{which}'"))?;
+        let n = instructions.len();
+        emit_known_folder_into_query(from, guid, n, instructions, relocations);
         Ok(())
     }
 
@@ -2000,7 +2561,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         let ok = format!("{from}_fsop_ok_{n}");
         let done = format!("{from}_fsop_done_{n}");
         instructions.push(abi::subtract_stack(MARSHAL_FRAME));
-        emit_marshal_path(from, instructions, relocations);
+        emit_marshal_path(from, 0, instructions, relocations);
         instructions.push(abi::load_u64(
             abi::mfb_arg(0),
             abi::stack_pointer(),
@@ -2019,6 +2580,19 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"), // success
             abi::label(&done),
+            abi::store_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
+        ]);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
             abi::add_stack(MARSHAL_FRAME),
         ]);
         Ok(())
@@ -2069,7 +2643,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::subtract_stack(FRAME),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT), // save packed flags
         ]);
-        emit_marshal_path(from, instructions, relocations);
+        emit_marshal_path(from, 0, instructions, relocations);
         instructions.extend([
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpFileName
             abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT),
@@ -2104,6 +2678,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             // this move; this one was missed when plan-85 split `%retC` from the
             // aligned bank.
             abi::move_register(abi::return_register(), abi::c_return(0)),
+            // The flags are spent; park the handle there across the free.
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
+        ]);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
             abi::add_stack(FRAME),
         ]);
         Ok(())
@@ -2323,13 +2903,13 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::subtract_stack(FRAME),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), NEW_PATH_SLOT), // save new path
         ]);
-        emit_marshal_path(from, instructions, relocations); // old → [MARSHAL_WBUF_SLOT]
+        emit_marshal_path(from, 0, instructions, relocations); // old → [MARSHAL_WBUF_SLOT]
         instructions.extend([
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT),
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), WBUF_OLD_SLOT), // save wide old
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), NEW_PATH_SLOT),  // new path
         ]);
-        emit_marshal_path(from, instructions, relocations); // new → [MARSHAL_WBUF_SLOT]
+        emit_marshal_path(from, 0, instructions, relocations); // new → [MARSHAL_WBUF_SLOT]
         instructions.extend([
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WBUF_OLD_SLOT), // lpExistingFileName
             abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpNewFileName
@@ -2344,6 +2924,13 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"), // success
             abi::label(&done),
+            // The new path is spent; park the answer there across the frees.
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), NEW_PATH_SLOT),
+        ]);
+        emit_free_marshal_slot(from, WBUF_OLD_SLOT, instructions, relocations);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), NEW_PATH_SLOT),
             abi::add_stack(FRAME),
         ]);
         Ok(())
@@ -2394,7 +2981,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), XSTART),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), RETRY),
         ]);
-        arena_alloc_to_slot(from, "65536", WIDE, instructions, relocations);
+        // Sized once from the template: a retry rewrites its six markers in place,
+        // which never changes its length. Freed at `done` (bug-696).
+        emit_wide_alloc_for_utf8(from, TMPL, WIDE, 0, instructions, relocations);
         instructions.push(abi::label(&retry_loop));
         // 6 random bytes into the RAND scratch, then map each to 'a'+(byte % 26).
         instructions.extend([
@@ -2430,7 +3019,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // CreateFileW(lpFileName, GENERIC_READ|GENERIC_WRITE, 0, NULL, CREATE_NEW,
         //   FILE_ATTRIBUTE_NORMAL, NULL). Stage the three stack args (5th/6th/7th)
         // with ARG[0] as a temp BEFORE loading the four register args.
-        emit_utf8_slot_to_wide(from, TMPL, WIDE, "32768", instructions, relocations);
+        emit_utf8_slot_into_wide(from, TMPL, WIDE, instructions, relocations);
         instructions.extend([
             abi::move_immediate(abi::mfb_arg(0), "Integer", "1"), // CREATE_NEW
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20),
@@ -2476,6 +3065,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             // `rcx` for the same reason.
             abi::move_register(abi::return_register(), abi::c_return(0)),
             abi::label(&done),
+            // The retry count is spent; park the handle there across the free.
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), RETRY),
+        ]);
+        emit_free_marshal_slot(from, WIDE, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), RETRY),
             abi::add_stack(0x60),
         ]);
         Ok(())
@@ -2568,6 +3163,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // (> 0) on success, 0 on error. Marshal the path to UTF-16, append the
         // L"\*" search wildcard (FindFirstFileW lists a directory's contents only
         // with a wildcard), allocate the DIR struct, and FindFirstFileW into it.
+        // The wide pattern is freed before returning; the DIR is the caller's, and
+        // `emit_closedir` frees it — or this does, when the search fails (bug-696).
         const FRAME: usize = 0x50;
         const DIR_SLOT: usize = 0x48;
         let n = instructions.len();
@@ -2576,7 +3173,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         let fail = format!("{from}_od_fail_{n}");
         let done = format!("{from}_od_done_{n}");
         instructions.push(abi::subtract_stack(FRAME));
-        emit_marshal_path(from, instructions, relocations); // wide path at [sp+MARSHAL_WBUF_SLOT]
+        // Two spare code units for the `\*` the pattern gains after the path.
+        emit_marshal_path(from, 2, instructions, relocations); // wide path at [sp+MARSHAL_WBUF_SLOT]
         instructions.extend([
             // Find the NUL wchar terminating the wide path, then overwrite it with
             // L'\' L'*' L'\0'. ARG[0]=wide base, ARG[1]=byte index.
@@ -2629,8 +3227,32 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::move_register(abi::return_register(), abi::mfb_arg(1)),     // return DIR*
             abi::branch(&done),
             abi::label(&fail),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), DIR_SLOT),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", DIR_SIZE),
+        ]);
+        arena_call(
+            from,
+            crate::codegen::error::constants::ARENA_FREE_SYMBOL,
+            instructions,
+            relocations,
+        );
+        instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::label(&done),
+            // The path is marshalled; park the answer in its slot across the free.
+            abi::store_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
+        ]);
+        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                MARSHAL_PATH_SLOT,
+            ),
             abi::add_stack(FRAME),
         ]);
         Ok(())
@@ -2713,14 +3335,28 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // closedir(DIR*): DIR* in ARG[0]. FindClose(handle); return 0.
+        // closedir(DIR*): DIR* in ARG[0]. FindClose(handle), free the DIR
+        // `emit_opendir` allocated (bug-696); return 0. Frame: shadow [0x00..0x20),
+        // [0x20] the DIR across FindClose.
+        const DIR_SLOT: usize = 0x20;
         instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), DIR_SLOT),
             abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), DIR_HANDLE_OFF),
-            abi::subtract_stack(0x20),
         ]);
         call_external(from, "FindClose", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::add_stack(0x20),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), DIR_SLOT),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", DIR_SIZE),
+        ]);
+        arena_call(
+            from,
+            crate::codegen::error::constants::ARENA_FREE_SYMBOL,
+            instructions,
+            relocations,
+        );
+        instructions.extend([
+            abi::add_stack(0x30),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
         ]);
         Ok(())
@@ -2735,63 +3371,140 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         // realpath(path, resolved): path (arena UTF-8) in ARG[0], resolved buffer
         // (PATH_MAX+1 = 4097 bytes) in ARG[1]; return the resolved buffer pointer
-        // (nonzero) on success. Marshal the input, GetFullPathNameW into an arena
-        // UTF-16 scratch, then convert back to UTF-8 into the caller's buffer.
+        // (nonzero) on success, 0 on failure with the cause left in GetLastError.
+        //
+        // bug-694 C6: resolve the way POSIX `realpath` does — through the entry
+        // itself. Open it (CreateFileW, OPEN_EXISTING, backup semantics so a
+        // directory opens too) and ask GetFinalPathNameByHandleW for the path with
+        // every link followed. A missing entry fails the open with
+        // ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND. GetFullPathNameW, used
+        // before, only rewrote the string: a missing path "resolved", and a
+        // symbolic link was never followed.
+        //
+        // bug-696: both wide buffers are freed before returning. The frees make no
+        // Win32 call (the arena's scrub is an in-process PCG64), so the failure's
+        // GetLastError survives them. The frame is the reverse-marshal window plus
+        // three slots: the handle, the input buffer (its `MARSHAL_WBUF_SLOT` home
+        // is the conversion's 8th stack argument) and the output buffer's own
+        // start (`RMARSHAL_WBUF_SLOT` is advanced past the `\\?\` prefix).
+        const FRAME: usize = 0x80;
+        const HANDLE_SLOT: usize = 0x58;
+        const WIDE_IN_SLOT: usize = 0x60;
+        const WIDE_OUT_SLOT: usize = 0x68;
         let n = instructions.len();
+        let fail_close = format!("{from}_rp_failclose_{n}");
         let fail = format!("{from}_rp_fail_{n}");
+        let plain = format!("{from}_rp_plain_{n}");
+        let stripped = format!("{from}_rp_stripped_{n}");
         let done = format!("{from}_rp_done_{n}");
         instructions.extend([
-            abi::subtract_stack(RMARSHAL_FRAME),
+            abi::subtract_stack(FRAME),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), RMARSHAL_DST_SLOT), // resolved dst
             abi::move_immediate(abi::mfb_arg(2), "Integer", "4097"),
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_CAP_SLOT), // capacity
         ]);
-        emit_marshal_path(from, instructions, relocations); // input → wide at [MARSHAL_WBUF_SLOT]
+        emit_marshal_path(from, 0, instructions, relocations); // input → wide at [MARSHAL_WBUF_SLOT]
         instructions.extend([
-            // arena UTF-16 output scratch.
-            abi::move_immediate(abi::return_register(), "Integer", "65536"),
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
-        ]);
-        relocations.push(CodeRelocation {
-            from: from.to_string(),
-            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        instructions.extend([
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
-            // GetFullPathNameW(lpFileName=wide_in, nBufferLength=32768,
-            //                  lpBuffer=wide_out, lpFilePart=NULL)
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT),
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "32768"),
-            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
-            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_IN_SLOT),
         ]);
-        call_external(
+        // UTF-16 output scratch (32768 wchars).
+        emit_marshal_alloc_fixed(from, "65536", WIDE_OUT_SLOT, instructions, relocations);
+        // CreateFileW(wide_in, 0, FILE_SHARE_READ|WRITE|DELETE, NULL, OPEN_EXISTING,
+        //             FILE_FLAG_BACKUP_SEMANTICS, NULL) — a metadata-only handle, as
+        // emit_verify_within opens its root. The three stack args are staged
+        // through ARG[2] before it takes its register value.
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_OUT_SLOT),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "3"), // OPEN_EXISTING
+            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "33554432"), // FILE_FLAG_BACKUP_SEMANTICS
+            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile NULL
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_IN_SLOT),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // dwDesiredAccess = 0
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "7"),
+            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes NULL
+        ]);
+        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), HANDLE_SLOT),
+            // INVALID_HANDLE_VALUE (-1) is negative; a valid handle is positive.
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_lt(&fail),
+        ]);
+        emit_final_path_call(
             from,
-            "GetFullPathNameW",
-            KERNEL32,
+            HANDLE_SLOT,
+            RMARSHAL_WBUF_SLOT,
             instructions,
             relocations,
         );
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"),
-            abi::branch_eq(&fail),
+            abi::branch_eq(&fail_close),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
+        ]);
+        call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
+        // The final path carries the `\\?\` prefix (VOLUME_NAME_DOS). Drop it so the
+        // result reads `C:\dir\name`, and turn `\\?\UNC\server\share` back into
+        // `\\server\share`.
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 4),
+            abi::compare_immediate(abi::mfb_arg(1), "63"), // '?'
+            abi::branch_ne(&stripped),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 8),
+            abi::compare_immediate(abi::mfb_arg(1), "85"), // 'U'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 10),
+            abi::compare_immediate(abi::mfb_arg(1), "78"), // 'N'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 12),
+            abi::compare_immediate(abi::mfb_arg(1), "67"), // 'C'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 14),
+            abi::compare_immediate(abi::mfb_arg(1), "92"), // '\'
+            abi::branch_ne(&plain),
+            // `\\?\UNC\` → start at the `C`, rewritten to `\`, giving `\\server`.
+            abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 12),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "92"),
+            abi::store_u16(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::branch(&stripped),
+            abi::label(&plain),
+            abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 8),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::label(&stripped),
         ]);
         emit_wide_to_utf8(from, instructions, relocations); // wide_out → resolved dst
         instructions.extend([
+            // 0 bytes converted: the UTF-8 path does not fit the 4097-byte buffer.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&fail),
             abi::load_u64(
                 abi::return_register(),
                 abi::stack_pointer(),
                 RMARSHAL_DST_SLOT,
             ),
             abi::branch(&done),
+            abi::label(&fail_close),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
+        ]);
+        call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::label(&done),
-            abi::add_stack(RMARSHAL_FRAME),
+            // The handle is closed; park the answer in its slot across the frees.
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_SLOT),
+        ]);
+        emit_free_marshal_slot(from, WIDE_OUT_SLOT, instructions, relocations);
+        emit_free_marshal_slot(from, WIDE_IN_SLOT, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_SLOT),
+            abi::add_stack(FRAME),
         ]);
         Ok(())
     }
@@ -2812,6 +3525,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         const REQWIN_SLOT: usize = 0x50; // UTF-16 input to GetFullPathNameW
         const REQOUT_SLOT: usize = 0x58; // lexical canonical (no \\?\ prefix)
         const FILE_SLOT: usize = 0x60; // handle final path (\\?\ prefixed)
+        const ANSWER_SLOT: usize = 0x68; // the answer, across the frees (bug-696)
         let n = instructions.len();
         let fail = format!("{from}_nf_fail_{n}");
         let equal = format!("{from}_nf_equal_{n}");
@@ -2822,17 +3536,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), REQCSTR_SLOT),
         ]);
-        arena_alloc_to_slot(from, "65536", REQWIN_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "65536", REQOUT_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "65536", FILE_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(
-            from,
-            REQCSTR_SLOT,
-            REQWIN_SLOT,
-            "32768",
-            instructions,
-            relocations,
-        );
+        emit_marshal_alloc_fixed(from, "65536", REQOUT_SLOT, instructions, relocations);
+        emit_marshal_alloc_fixed(from, "65536", FILE_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, REQCSTR_SLOT, REQWIN_SLOT, instructions, relocations);
         // GetFullPathNameW(lpFileName=reqWideIn, nBufferLength=32768,
         //                  lpBuffer=reqOut, lpFilePart=NULL) — lexical only.
         instructions.extend([
@@ -2882,6 +3588,13 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "1"),
             abi::label(&done),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
+        ]);
+        for slot in [REQWIN_SLOT, REQOUT_SLOT, FILE_SLOT] {
+            emit_free_marshal_slot(from, slot, instructions, relocations);
+        }
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
             abi::add_stack(FRAME),
         ]);
         Ok(())
@@ -2898,13 +3611,14 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // Returns 0 (contained) / 1 (refuse). See the trait doc: fileFinal must
         // start with rootFinal + '\'. Both final paths carry the same \\?\ prefix,
         // so the compare starts at index 0.
-        const FRAME: usize = 0x70;
+        const FRAME: usize = 0x80;
         const HANDLE_SLOT: usize = 0x40; // the opened file handle
         const ROOTCSTR_SLOT: usize = 0x48;
         const ROOTWIN_SLOT: usize = 0x50; // root UTF-16 (CreateFileW input)
         const ROOTH_SLOT: usize = 0x58; // root directory HANDLE
         const ROOTFINAL_SLOT: usize = 0x60; // root final path (\\?\ prefixed)
         const FILEFINAL_SLOT: usize = 0x68; // file final path (\\?\ prefixed)
+        const ANSWER_SLOT: usize = 0x70; // the answer, across the frees (bug-696)
         let n = instructions.len();
         let fail = format!("{from}_wi_fail_{n}");
         let fail_close = format!("{from}_wi_failclose_{n}");
@@ -2917,17 +3631,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
             abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), ROOTCSTR_SLOT),
         ]);
-        arena_alloc_to_slot(from, "65536", ROOTWIN_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "65536", ROOTFINAL_SLOT, instructions, relocations);
-        arena_alloc_to_slot(from, "65536", FILEFINAL_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(
-            from,
-            ROOTCSTR_SLOT,
-            ROOTWIN_SLOT,
-            "32768",
-            instructions,
-            relocations,
-        );
+        emit_marshal_alloc_fixed(from, "65536", ROOTFINAL_SLOT, instructions, relocations);
+        emit_marshal_alloc_fixed(from, "65536", FILEFINAL_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, ROOTCSTR_SLOT, ROOTWIN_SLOT, instructions, relocations);
         // CreateFileW(rootWide, 0, FILE_SHARE_RWD=7, NULL, OPEN_EXISTING=3,
         //             FILE_FLAG_BACKUP_SEMANTICS=0x02000000, NULL) — a directory
         // handle to resolve the root's own symlinks. Stage the three stack args
@@ -3001,6 +3707,13 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "1"),
             abi::label(&done),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
+        ]);
+        for slot in [ROOTWIN_SLOT, ROOTFINAL_SLOT, FILEFINAL_SLOT] {
+            emit_free_marshal_slot(from, slot, instructions, relocations);
+        }
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ANSWER_SLOT),
             abi::add_stack(FRAME),
         ]);
         Ok(())
@@ -3441,6 +4154,29 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_app_window_sync(
+        &self,
+        symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // The `app` window members: `SendMessageW` the sync request to the main
+        // window (a no-op headless, where there is no window).
+        // Every call here is internal (macOS) or names its DLL (Win32).
+        let _ = platform_imports;
+        app::emit_window_sync_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
+    fn app_default_window_title(&self, project_name: &str) -> String {
+        app::default_window_title(project_name).to_string()
+    }
+
+    fn app_window_data_objects(&self) -> Vec<CodeDataObject> {
+        app::window_data_objects()
+    }
+
     fn emit_canvas_blit(
         &self,
         symbol: &str,
@@ -3453,7 +4189,13 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
-    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+    fn app_mode_data_objects(
+        &self,
+        project_name: &str,
+        debug_hooks: bool,
+        // plan-94-D/E add their mouse data here when these backends land.
+        _uses_mouse: bool,
+    ) -> Vec<CodeDataObject> {
         app::app_mode_data_objects(project_name, debug_hooks)
     }
 }
@@ -3639,5 +4381,226 @@ mod fionbio_tests {
                  not the corrupted 0x8004547E (nonblocking={nonblocking})"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod marshal_ownership_tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+    use crate::codegen::engine::types::types::CodegenPlatform;
+    use crate::codegen::error::constants::{ARENA_ALLOC_SYMBOL, ARENA_FREE_SYMBOL};
+    use std::collections::{BTreeSet, HashMap, HashSet};
+
+    type Seam = Box<
+        dyn Fn(
+            &Platform,
+            &HashMap<String, String>,
+            &mut Vec<CodeInstruction>,
+            &mut Vec<CodeRelocation>,
+        ) -> Result<(), String>,
+    >;
+
+    /// Every `_mfb_arena_alloc` minus every `_mfb_arena_free` along each path from
+    /// the seam's first instruction to its end, as the set of distinct nets that
+    /// reach the end. Conditional branches fork; a loop that allocates without
+    /// freeing climbs until the cap, so it cannot hide as a single iteration.
+    fn exit_balances(instructions: &[CodeInstruction]) -> BTreeSet<i32> {
+        const CAP: i32 = 8;
+        let labels: HashMap<String, usize> = instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, ins)| ins.op == CodeOp::Label)
+            .map(|(i, ins)| (ins.get("name").expect("label name"), i))
+            .collect();
+        let target = |ins: &CodeInstruction| -> usize {
+            let name = ins.get("target").expect("branch target");
+            *labels
+                .get(&name)
+                .unwrap_or_else(|| panic!("branch to a label outside the seam: {name}"))
+        };
+        let mut seen = HashSet::new();
+        let mut exits = BTreeSet::new();
+        let mut work = vec![(0usize, 0i32)];
+        while let Some((pc, net)) = work.pop() {
+            if !seen.insert((pc, net)) {
+                continue;
+            }
+            let Some(ins) = instructions.get(pc) else {
+                exits.insert(net);
+                continue;
+            };
+            match ins.op {
+                CodeOp::Branch => work.push((target(ins), net)),
+                CodeOp::BranchEq
+                | CodeOp::BranchNe
+                | CodeOp::BranchGe
+                | CodeOp::BranchLt
+                | CodeOp::BranchGt
+                | CodeOp::BranchLe
+                | CodeOp::BranchHi
+                | CodeOp::BranchLo => {
+                    work.push((target(ins), net));
+                    work.push((pc + 1, net));
+                }
+                CodeOp::BranchLink => {
+                    let callee = ins.get("target").unwrap_or_default();
+                    let step = if callee == ARENA_ALLOC_SYMBOL {
+                        1
+                    } else if callee == ARENA_FREE_SYMBOL {
+                        -1
+                    } else {
+                        0
+                    };
+                    work.push((pc + 1, (net + step).clamp(-CAP, CAP)));
+                }
+                _ => work.push((pc + 1, net)),
+            }
+        }
+        exits
+    }
+
+    fn seam(
+        f: impl Fn(
+                &Platform,
+                &str,
+                &HashMap<String, String>,
+                &mut Vec<CodeInstruction>,
+                &mut Vec<CodeRelocation>,
+            ) -> Result<(), String>
+            + 'static,
+    ) -> Seam {
+        Box::new(move |p, i, ins, rel| f(p, "t", i, ins, rel))
+    }
+
+    fn balances(emit: &Seam) -> BTreeSet<i32> {
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        emit(
+            &Platform,
+            &HashMap::new(),
+            &mut instructions,
+            &mut relocations,
+        )
+        .expect("seam emits");
+        exit_balances(&instructions)
+    }
+
+    /// bug-696: a Win32 seam that marshals through arena scratch frees every
+    /// buffer before it returns, on every path.
+    ///
+    /// The Windows backend converts each path and environment name to UTF-16 (and
+    /// each result back to UTF-8) through arena buffers — 64 KiB per path, 256 KiB
+    /// per `os::getEnvOr` — and freed none of them, so a program that touched a
+    /// file or read a variable in a loop grew without bound: 100 `os::getEnvOr`
+    /// calls held 26 MB on box 2230. Nothing else sees it: the output is correct,
+    /// the host is macOS, and no other target marshals.
+    ///
+    /// Every seam here reads its buffers only between its own first and last
+    /// instruction, so the net must be zero wherever it exits.
+    #[test]
+    fn every_marshalling_win32_seam_frees_its_scratch_on_every_path() {
+        let internal: Vec<(&str, Seam)> = vec![
+            ("emit_path_exists", seam(Platform::emit_path_exists)),
+            ("emit_path_stat", seam(Platform::emit_path_stat)),
+            (
+                "emit_current_directory",
+                seam(Platform::emit_current_directory),
+            ),
+            ("emit_temp_directory", seam(Platform::emit_temp_directory)),
+            ("emit_env_set", seam(Platform::emit_env_set)),
+            (
+                "emit_fs_path_operation(Chdir)",
+                seam(|p, f, i, ins, rel| {
+                    p.emit_fs_path_operation(f, FsPathOperation::Chdir, i, ins, rel)
+                }),
+            ),
+            (
+                "emit_fs_path_operation(Mkdir)",
+                seam(|p, f, i, ins, rel| {
+                    p.emit_fs_path_operation(f, FsPathOperation::Mkdir, i, ins, rel)
+                }),
+            ),
+            ("emit_open_file", seam(Platform::emit_open_file)),
+            ("emit_rename_path", seam(Platform::emit_rename_path)),
+            ("emit_mkstemps", seam(Platform::emit_mkstemps)),
+            ("emit_realpath", seam(Platform::emit_realpath)),
+            ("emit_verify_nofollow", seam(Platform::emit_verify_nofollow)),
+            ("emit_verify_within", seam(Platform::emit_verify_within)),
+            (
+                "emit_known_folder_into(appData)",
+                seam(|p, f, i, ins, rel| p.emit_known_folder_into("appData", f, i, ins, rel)),
+            ),
+        ];
+        let mut leaks = Vec::new();
+        for (name, emit) in &internal {
+            let nets = balances(emit);
+            if nets != BTreeSet::from([0]) {
+                leaks.push(format!("{name}: alloc-minus-free at exit = {nets:?}"));
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "these Win32 seams leave arena scratch allocated when they return \
+             (bug-696):\n  {}",
+            leaks.join("\n  ")
+        );
+    }
+
+    /// bug-696: a seam whose RESULT is arena memory hands out exactly that one
+    /// block — every scratch buffer it used on the way is already freed — and the
+    /// consumer releases the result through `emit_release_marshalled` once it has
+    /// copied it. `emit_opendir`'s `DIR` is the same shape, released by
+    /// `emit_closedir`. Whether each shared consumer actually calls the release is
+    /// only visible by running it: `scripts/test-winleak.sh`.
+    #[test]
+    fn a_win32_seam_returning_arena_memory_hands_out_one_block() {
+        let owners: Vec<(&str, Seam)> = vec![
+            ("emit_env_get", seam(Platform::emit_env_get)),
+            ("emit_environ_pointer", seam(Platform::emit_environ_pointer)),
+            ("emit_opendir", seam(Platform::emit_opendir)),
+            (
+                "emit_os_wide_string(hostName)",
+                seam(|p, f, i, ins, rel| p.emit_os_wide_string("hostName", f, i, ins, rel)),
+            ),
+            (
+                "emit_os_wide_string(userName)",
+                seam(|p, f, i, ins, rel| p.emit_os_wide_string("userName", f, i, ins, rel)),
+            ),
+            (
+                "emit_os_wide_string(executablePath)",
+                seam(|p, f, i, ins, rel| p.emit_os_wide_string("executablePath", f, i, ins, rel)),
+            ),
+            (
+                "emit_os_wide_string(appData)",
+                seam(|p, f, i, ins, rel| p.emit_os_wide_string("appData", f, i, ins, rel)),
+            ),
+        ];
+        let mut leaks = Vec::new();
+        for (name, emit) in &owners {
+            let nets = balances(emit);
+            if !nets.iter().all(|n| (0..=1).contains(n)) {
+                leaks.push(format!("{name}: alloc-minus-free at exit = {nets:?}"));
+            }
+        }
+        for (name, emit) in [
+            ("emit_closedir", seam(Platform::emit_closedir)),
+            (
+                "emit_release_marshalled",
+                seam(Platform::emit_release_marshalled),
+            ),
+        ] {
+            let nets = balances(&emit);
+            if nets != BTreeSet::from([-1]) {
+                leaks.push(format!(
+                    "{name}: must free exactly one block, nets = {nets:?}"
+                ));
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "arena ownership across the Win32 result seams is unbalanced (bug-696):\n  {}",
+            leaks.join("\n  ")
+        );
     }
 }

@@ -36,6 +36,14 @@ logical string length. A `String` object's total allocation size is therefore
 `+9` formula sizes a `String` block inlined into a record or collection
 (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 
+A `MUT` binding's own block is the one exception, and only while it is bound: an
+in-place self-update (`mfb spec memory collections`, *Self-updates*) may leave the
+block larger than `byteLength + 9`, with the spare bytes recorded beside the
+binding so its drop frees the block at its real size. The spare capacity never
+escapes — every copy, return and transfer reads `byteLength` bytes and produces
+the tight form above — so no reader of a `String` ever sees it.
+[[src/codegen/collection/assign/string_self_update.rs:emit_string_set_len]]
+
 ## Record
 
 User-defined records store one 8-byte field slot per declared field, in
@@ -265,8 +273,9 @@ per-backend resource layout to the header offsets, so a future resource whose
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 Every pointer to a resource shares the one record, and therefore shares the `state`
-pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves
-the 96-byte record itself as a tombstone carrying the flags — see
+pointer. Scope-drop reclaims the two buffers and the `STATE` payload; for most
+kinds it leaves the 96-byte record itself as a tombstone carrying the flags, while the
+`tcp`, `udp` and `tls` handles have their record freed by the owning binding's drop — see
 `./mfb spec memory arenas`.
 
 ## See Also

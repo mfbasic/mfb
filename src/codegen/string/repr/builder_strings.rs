@@ -1,4 +1,5 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::string_self_update::StringOut;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -13,6 +14,20 @@ use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_replace(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let (result, _, _) = self.lower_replace_out(args, StringOut::Block)?;
+        Ok(result)
+    }
+
+    /// plan-146-E: [`lower_replace`] with the destination chosen by the caller.
+    /// `StringOut::Block` is the copying lowering, byte for byte;
+    /// `StringOut::Scratch` writes the result into the function's self-update
+    /// scratch and answers `(pointer, length slot, "no match" flag slot)` — the
+    /// no-match case leaves the binding alone, so the arm skips the copy back.
+    pub(crate) fn lower_replace_out(
+        &mut self,
+        args: &[NirValue],
+        out: StringOut,
+    ) -> Result<(ValueResult, usize, usize), String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -71,8 +86,10 @@ impl CodeBuilder<'_> {
                 &value.type_,
                 element_type,
             )?;
-            // plan-134-E: the rebuilt list owns its elements' graphs.
-            return self.own_collection_payload_edges(result);
+            // plan-134-E: the rebuilt list owns its elements' graphs. A `List`
+            // never reaches the `String` in-place arm (its own arm serves it), so
+            // the extra slots are irrelevant here.
+            return Ok((self.own_collection_payload_edges(result)?, 0, 0));
         }
         if value.type_ != ParameterType::String {
             return Err(format!(
@@ -117,6 +134,18 @@ impl CodeBuilder<'_> {
 
         let result_slot = self.allocate_stack_object("replace_result", 8);
         let output_len_slot = self.allocate_stack_object("replace_output_len", 8);
+        // plan-146-E: the in-place arm's two extra slots and labels. They are
+        // allocated only in that mode, so the copying path's frame is unchanged.
+        let (unchanged_slot, scratch_ready, scratch_written) = if matches!(out, StringOut::Scratch)
+        {
+            (
+                self.allocate_stack_object("replace_unchanged", 8),
+                self.label("replace_scratch_ready"),
+                self.label("replace_scratch_written"),
+            )
+        } else {
+            (0, String::new(), String::new())
+        };
 
         let value_ptr = &scratch8;
         let value_len = &scratch9;
@@ -217,6 +246,13 @@ impl CodeBuilder<'_> {
             output_len_slot,
         ));
         // allocate output_len + 9 (block header), trapping the header add's wrap.
+        if matches!(out, StringOut::Scratch) {
+            // plan-146-E: the rewritten bytes go to the reused scratch instead.
+            let scratch = self.emit_string_out_scratch(output_len_slot)?;
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), scratch));
+            self.emit(abi::store_u64(&result, abi::stack_pointer(), result_slot));
+            self.emit(abi::branch(&scratch_ready));
+        }
         self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -244,6 +280,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(output_len, abi::mfb_return(1), 0));
         self.emit(abi::add_immediate(dest, abi::mfb_return(1), 8));
+        if matches!(out, StringOut::Scratch) {
+            self.emit(abi::branch(&scratch_written));
+            self.emit(abi::label(&scratch_ready));
+            // The scratch holds only the bytes: the cursor starts at its first.
+            self.emit(abi::load_u64(dest, abi::stack_pointer(), result_slot));
+            self.emit(abi::label(&scratch_written));
+        }
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
         self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
@@ -301,15 +344,34 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&second_loop));
 
         self.emit(abi::label(&second_done));
-        self.emit(abi::move_immediate(value_byte, "Integer", "0"));
-        self.emit(abi::store_u8(value_byte, dest, 0));
+        if matches!(out, StringOut::Block) {
+            self.emit(abi::move_immediate(value_byte, "Integer", "0"));
+            self.emit(abi::store_u8(value_byte, dest, 0));
+        }
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        if matches!(out, StringOut::Scratch) {
+            // A replacement happened, so the arm publishes the scratch.
+            self.emit(abi::move_immediate(value_byte, "Integer", "0"));
+            self.emit(abi::store_u64(
+                value_byte,
+                abi::stack_pointer(),
+                unchanged_slot,
+            ));
+        }
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&empty_old));
         self.raise_error("strings.replace", "ErrInvalidArgument")?;
 
         self.emit(abi::label(&copy_original));
+        if matches!(out, StringOut::Scratch) {
+            // plan-146-E: nothing matched, so the binding already holds the result;
+            // the arm skips the copy back entirely (and skips this deep copy).
+            let one = self.temporary_vreg();
+            self.emit(abi::move_immediate(&one, "Integer", "1"));
+            self.emit(abi::store_u64(&one, abi::stack_pointer(), unchanged_slot));
+            self.emit(abi::branch(&done));
+        }
         // No replacement occurred. The caller owns and frees this result, so it
         // must be a fresh arena block, not an alias of the input `value` (which
         // may be a caller local or a static constant — freeing either would
@@ -324,17 +386,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));
 
+        if matches!(out, StringOut::Scratch) {
+            return Ok((
+                ValueResult {
+                    origin: None,
+                    type_: ParameterType::String,
+                    location: Operand::from(result.render()),
+                    text: "strings.replace".to_string(),
+                },
+                output_len_slot,
+                unchanged_slot,
+            ));
+        }
         // bug-536 shape B: BOTH arms put a fresh block in `result` — the
         // replacing arm its own `emit_arena_alloc_call`, the no-match arm the
         // `copy_flat_block` right above (which exists precisely so the result is
         // never an alias of the input).
         self.mark_fresh_string(Operand::from(result.render()));
-        Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(result.render()),
-            text: "replace(String, String, String)".to_string(),
-        })
+        Ok((
+            ValueResult {
+                origin: None,
+                type_: ParameterType::String,
+                location: Operand::from(result.render()),
+                text: "replace(String, String, String)".to_string(),
+            },
+            output_len_slot,
+            unchanged_slot,
+        ))
     }
 
     pub(crate) fn lower_list_replace(
@@ -785,9 +863,64 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-140-C: `toString(<enum>)` is the member's name as declared. The value
+    /// is the member's 0-based ordinal, so a compare-and-branch chain over the
+    /// members in declaration order selects the name's string data. The last
+    /// member is the fall-through: an enum value is always one of its members,
+    /// so there is no "no match" case. The pre-pass registers these exact names
+    /// (`to_string_enum_members`), both reading `TypeModel::enum_names`.
+    ///
+    /// The selected name is then copied into a fresh arena block and marked
+    /// fresh, like every other `toString` result, rather than handed back as a
+    /// read-only pointer. A read-only result is only safe where every owner
+    /// recognizes it as one: an owning store that did not would take it as its
+    /// own and later free or grow it in place (a bound `toString(<Boolean>)`
+    /// followed by `s = s & "!"` does exactly that, see plan-140-C C-C3).
+    fn lower_enum_to_string(
+        &mut self,
+        value: ValueResult,
+        members: &[String],
+    ) -> Result<ValueResult, String> {
+        let Some((last, earlier)) = members.split_last() else {
+            return Err(format!(
+                "native toString: enum {} has no members",
+                value.type_
+            ));
+        };
+        let result = self.allocate_register();
+        let done = self.label("enum_to_string_done");
+        for (ordinal, member) in earlier.iter().enumerate() {
+            let next = self.label("enum_to_string_next");
+            self.emit(abi::compare_immediate(
+                &value.location,
+                &ordinal.to_string(),
+            ));
+            self.emit(abi::branch_ne(&next));
+            self.emit_load_string_constant(&result, member)?;
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&next));
+        }
+        self.emit_load_string_constant(&result, last)?;
+        self.emit(abi::label(&done));
+        let copied = self.copy_flat_block(&ParameterType::String, &result)?;
+        self.mark_fresh_string(Operand::from(copied.render()));
+        Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(copied.render()),
+            text: format!("toString({})", value.text),
+        })
+    }
+
     pub(crate) fn lower_to_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
+        if args.len() == 1 {
+            if let Some(members) = self.type_model.enum_member_names(&value.type_) {
+                let members = members.to_vec();
+                return self.lower_enum_to_string(value, &members);
+            }
+        }
         // Observation boundary: rendering a `Float` to text makes it
         // user-accessible, so a non-finite arithmetic result must trap here
         // rather than print as "inf"/"nan" (plan-17). `toString`/`toText` are
@@ -869,8 +1002,24 @@ impl CodeBuilder<'_> {
             // registration must be re-identified onto this result or the
             // statement-scope free outlives the owner that claims it — a
             // use-after-free, not a leak. See `retarget_pending_temp`.
+            //
+            // bug-667: the identity is only sound for a block this statement owns
+            // (its most recent pending temporary). Anything else — a binding's
+            // block, a parameter, a literal — is copied: handed back as-is, an
+            // owning store took it as its own, so `s = toString(s)` freed the
+            // block it stored.
             ParameterType::String => {
                 let location = Operand::from(value_register.render());
+                if !self.pending_temp_would_be_claimed(&value) {
+                    let copied = self.copy_flat_block(&ParameterType::String, &location)?;
+                    self.mark_fresh_string(Operand::from(copied.render()));
+                    return Ok(ValueResult {
+                        origin: None,
+                        type_: ParameterType::String,
+                        location: Operand::from(copied.render()),
+                        text: format!("toString({})", value.text),
+                    });
+                }
                 self.retarget_pending_temp(&value.location, &location);
                 Ok(ValueResult {
                     origin: None,
@@ -978,10 +1127,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&false_label));
         self.emit_load_string_constant(&result, "FALSE")?;
         self.emit(abi::label(&done));
+        // bug-667: the constant is copied into a fresh block, as the enum arm does.
+        // Handed back read-only, a binding took it as its own and freed it (or grew
+        // it in place) — SIGBUS.
+        let copied = self.copy_flat_block(&ParameterType::String, &result)?;
+        self.mark_fresh_string(Operand::from(copied.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(copied.render()),
             text: "toString(Boolean)".to_string(),
         })
     }

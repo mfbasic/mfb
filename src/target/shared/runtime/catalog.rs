@@ -6,7 +6,8 @@ use std::sync::OnceLock;
 /// [`supported_helper_specs`], which owns the `ptr::eq` identity contract (bug-382).
 /// As each package migrates, its rows delete from here and it joins the derivation.
 static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
-    // `app` is migrated: its two presentation-mode helpers (`getMode`, `setMode`)
+    // `app` is migrated: its helpers (`getMode`/`setMode` and the window members
+    // `setTitle`/`getTitle`/`setFullscreen`/`getFullscreen`)
     // are DERIVED from the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `APP_*_SPEC` rows live here.
     // `audio` is migrated: its specs (including the two per-direction resource close
@@ -24,7 +25,7 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // `io` is migrated: its specs are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
     // hand-written `IO_*_SPEC` rows live here.
-    // `term` is migrated: its 24 native OS-seam helpers (the mode toggle, colors,
+    // `term` is migrated: its 26 native OS-seam helpers (the mode toggle, colors,
     // attributes, cursor, clear/sync, box-drawing, text/glyph, size/resize) are
     // DERIVED from the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `TERM_*_SPEC` rows live here.
@@ -94,6 +95,11 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
                     call: call.name,
                     abi: RuntimeHelperAbi {
                         returns: abi_return_name(&call.return_type),
+                        // bug-630: flag, don't drop. `returns` still types the
+                        // helper's `CodeFunction` and satisfies the capability
+                        // check; the flag is what stops the resolver turning a
+                        // type variable into a value type.
+                        returns_generic: crate::codegen::registry::contains_var(&call.return_type),
                     },
                 });
             }

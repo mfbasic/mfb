@@ -26,6 +26,13 @@ returns.
 still collected with `thread::waitFor`, which is where you find out what it
 returned once it noticed.
 
+The same request is made for you when a `Thread` variable goes out of scope
+while its thread is still running: the handle closes, the worker is asked to
+stop exactly as `cancel` asks it, and it finishes on its own without anyone
+waiting for it. So a thread you started and no longer need does not have to be
+cancelled by hand — but its result is then lost, so call `thread::waitFor`
+before the variable goes away if you want it.
+
 Cancelling twice is harmless — the flag is already up."#;
 
 const EX: &str = r#"Ask a worker to stop, then collect what it did:
@@ -36,7 +43,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(workers::patient, "go")
+  RES t AS Thread OF String TO Integer = thread::start(workers::patient, "go")
   thread::cancel(t)
   LET outcome AS Integer = thread::waitFor(t)
   io::print("the worker returned " & toString(outcome))

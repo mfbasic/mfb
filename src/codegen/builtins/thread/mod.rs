@@ -87,7 +87,8 @@ by the `Res` in `Thread OF Msg RES Res TO Out`. A resource may not travel on the
 message channel; declare it on the resource channel instead. Every built-in
 socket and listener may cross — `fs::File`, `tcp::Socket`, `udp::Socket`,
 `tcp::Listener`, `tls::Socket` and `tls::Listener` — so a server may accept on
-one thread and hand each connection to a worker. The five that may not are `process::Process`, `audio::AudioInput`,
+one thread and hand each connection to a worker, and so may a `Thread` (never a
+`ThreadWorker`). The five that may not are `process::Process`, `audio::AudioInput`,
 `audio::AudioOutput`, `canvas::Image` and `canvas::Font`; `thread::transfer`'s
 page says why for each. A
 resource your own project declares may cross when it is declared
@@ -100,8 +101,19 @@ consumer.
 
 `thread::waitFor` waits for the thread to finish and gives you its return value
 — or, if the function failed, fails the same way in your own code, carrying the
-same error. It is also the end of the handle: `waitFor` closes it, and using
-that handle again raises `ErrResourceClosed`.
+same error. Asking again gives the same outcome again.
+
+A `Thread` is a `RES` handle, like an open file: bind it with `RES t =
+thread::start(…)`, and it is closed when that variable goes out of scope — a
+thread still running then is asked to stop, exactly as `thread::cancel` asks, and
+left to finish on its own. Passing it to a function lends it, so the caller
+still holds it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
+workers) or in a record's `RES` field.
+
+Each end of a thread can keep its own state. `RES t AS Thread OF Msg TO Out STATE
+P` gives the parent's handle a `P` record at `t.state`, and the worker declares
+its own on its first parameter, `worker AS ThreadWorker OF Msg TO Out STATE W`.
+The two are separate records: neither side ever sees the other's.
 
 `thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
 notices by calling `thread::isCancelled` and decides what to do about it. A
@@ -131,6 +143,12 @@ pub(crate) const TRANSFER_RESOURCE: &str = "thread.transferResource";
 pub(crate) const ACCEPT_RESOURCE: &str = "thread.acceptResource";
 pub(crate) const EMIT_RESOURCE: &str = "thread.emitResource";
 pub(crate) const READ_RESOURCE: &str = "thread.readResource";
+
+/// plan-156-C: the hidden drop op of a parent `Thread` view — the close op the
+/// resource machinery registers for it and scope exit runs. Never user-callable (an
+/// `os_alias` of `cancel`'s body). A `ThreadWorker` has no drop op: the runtime closes
+/// the worker's view when its entry returns.
+pub(crate) const DROP: &str = "thread.drop";
 
 /// Whether `name` is a user-facing `thread::` call (a registered descriptor member).
 /// The registry-backed replacement for the legacy `DefaultResolver::contains(&THREAD, …)`

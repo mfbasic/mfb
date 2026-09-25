@@ -27,6 +27,9 @@ const OLE32: &str = "ole32.dll";
 /// `Icmp*` exports were confirmed in `C:\Windows\System32\IPHLPAPI.DLL` on the
 /// Windows 11 test box (10.0.26100.9168).
 const IPHLPAPI: &str = "iphlpapi.dll";
+/// `canvas::systemFontTable`'s DirectWrite system font collection (plan-148-D). Only
+/// `DWriteCreateFactory` is imported; every other DirectWrite call is a vtable call.
+const DWRITE: &str = "dwrite.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -94,7 +97,31 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
-    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+    fn app_window_imports(&self) -> Vec<PlatformImport> {
+        // The `app` window members' UI-thread sync: the title lock, the UTF-8 →
+        // UTF-16 title conversion and its heap buffer, and the borderless-fullscreen
+        // window calls.
+        const USER32: &str = "user32.dll";
+        vec![
+            import("AcquireSRWLockExclusive", KERNEL32, "_main"),
+            import("ReleaseSRWLockExclusive", KERNEL32, "_main"),
+            import("MultiByteToWideChar", KERNEL32, "_main"),
+            import("GetProcessHeap", KERNEL32, "_main"),
+            import("HeapAlloc", KERNEL32, "_main"),
+            import("HeapFree", KERNEL32, "_main"),
+            import("SetWindowTextW", USER32, "_main"),
+            import("IsWindowVisible", USER32, "_main"),
+            import("GetWindowLongPtrW", USER32, "_main"),
+            import("SetWindowLongPtrW", USER32, "_main"),
+            import("GetWindowPlacement", USER32, "_main"),
+            import("SetWindowPlacement", USER32, "_main"),
+            import("SetWindowPos", USER32, "_main"),
+            import("MonitorFromWindow", USER32, "_main"),
+            import("GetMonitorInfoW", USER32, "_main"),
+        ]
+    }
+
+    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
         // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
         // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
         // worker is a CreateThread routine; console output rides GetStdHandle +
@@ -149,6 +176,11 @@ impl NativePlanPlatform for Platform {
             import("GetDC", USER32, "_main"),
             import("ReleaseDC", USER32, "_main"),
             import("ShowWindow", USER32, "_main"),
+            // plan-155-A: the refresh rate of the canvas window's monitor —
+            // monitor handle, its device name, then that device's current mode.
+            import("MonitorFromWindow", USER32, "_main"),
+            import("GetMonitorInfoW", USER32, "_main"),
+            import("EnumDisplaySettingsW", USER32, "_main"),
             import("InvalidateRect", USER32, "_main"),
             import("UpdateWindow", USER32, "_main"),
             import("BeginPaint", USER32, "_main"),
@@ -168,6 +200,15 @@ impl NativePlanPlatform for Platform {
             import("ExtTextOutW", GDI32, "_main"),
             import("MultiByteToWideChar", KERNEL32, "_main"),
         ]
+        .into_iter()
+        // plan-94-E: what the `WndProc` mouse arms call. Conditional, because an
+        // unused import is still recorded in the native plan and would diff every
+        // Windows app golden that never touches the mouse (plan-94-C Corrections
+        // C3). `ScreenToClient` serves the wheel's screen-coordinate asymmetry;
+        // `GetKeyState` supplies Alt, which `wParam` alone does not carry.
+        .chain(uses_mouse.then(|| import("ScreenToClient", USER32, "_main")))
+        .chain(uses_mouse.then(|| import("GetKeyState", USER32, "_main")))
+        .collect()
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
@@ -179,7 +220,9 @@ impl NativePlanPlatform for Platform {
             // ===== plan-66 A/B/C/D import arms, dropped by the stale main→P-66
             // merge (same as the mod.rs advertising); restored. =====
             // Phase A — datetime (no libc clocks on Windows).
-            "datetime.monotonicNanos" => vec![
+            // plan-155-B: `canvas::frameNanos` is the same clock body, and since
+            // `canvas::getFrameStats` it runs in every build, not only `--debug`.
+            "datetime.monotonicNanos" | "canvas.frameNanos" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],
@@ -212,6 +255,19 @@ impl NativePlanPlatform for Platform {
                 import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
             ],
             "os.isAdmin" => vec![import("IsUserAnAdmin", "shell32", required_by)],
+            // The `app` title members: the SRW title lock around the process-global
+            // title pointer, and (setTitle) the process-heap copy of the new title.
+            "app.setTitle" => vec![
+                import("GetProcessHeap", KERNEL32, required_by),
+                import("HeapAlloc", KERNEL32, required_by),
+                import("HeapFree", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+            ],
+            "app.getTitle" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+            ],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
                 import("AcquireSRWLockExclusive", KERNEL32, required_by),
                 import("ReleaseSRWLockExclusive", KERNEL32, required_by),
@@ -220,6 +276,9 @@ impl NativePlanPlatform for Platform {
                 import("GetEnvironmentVariableW", KERNEL32, required_by),
                 import("SetEnvironmentVariableW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+                // bug-696: `emit_env_get` clears the last error before its lookup,
+                // to tell an empty value from an unset variable.
+                import("SetLastError", KERNEL32, required_by),
             ],
             "os.hostName" => vec![
                 import("GetComputerNameExW", KERNEL32, required_by),
@@ -229,9 +288,24 @@ impl NativePlanPlatform for Platform {
                 import("GetUserNameW", ADVAPI32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
-            // bug-454: `os.resourcePath` reuses the same `GetModuleFileNameW`
+            // plan-157-B/C: the known-folder query (`emit_os_wide_string` /
+            // `emit_known_folder_into`), the `CoTaskMemFree` of its result, and the
+            // UTF-16 → UTF-8 marshal; each call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase"
+            | "os.userDocumentsPath"
+            | "os.userDocumentsPathBase" => vec![
+                import("SHGetKnownFolderPath", SHELL32, required_by),
+                import("CoTaskMemFree", OLE32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            // bug-454: `os.appResourcePath` reuses the same `GetModuleFileNameW`
             // acquisition, so it needs the same two imports.
-            "os.executablePath" | "os.resourcePath" => vec![
+            "os.executablePath" | "os.appResourcePath" => vec![
                 import("GetModuleFileNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
@@ -305,10 +379,18 @@ impl NativePlanPlatform for Platform {
                 import("DeleteFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateDirectoryW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+            ],
+            // bug-694 C5: `GetFileAttributesW` tells an existing final directory
+            // from a file.
+            "fs.createDirectories" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("GetFileAttributesW", KERNEL32, required_by),
             ],
             "fs.deleteDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
@@ -343,13 +425,16 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // canonicalPath and isWithin both canonicalize via GetFullPathNameW
+            // canonicalPath and isWithin both canonicalize through emit_realpath
             // (isWithin canonicalizes base+path then does a prefix containment check
             // in the shared helper). plan-66-E adds isWithin here. (This arm's
             // isWithin merge was dropped by the stale-merge into P-66; restored.)
+            // bug-694 C6: realpath opens the entry and reads its final path.
             "fs.canonicalPath" | "fs.isWithin" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
-                import("GetFullPathNameW", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetFinalPathNameByHandleW", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
@@ -373,8 +458,9 @@ impl NativePlanPlatform for Platform {
                 import("GetFinalPathNameByHandleW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // plan-66-E: openWithin canonicalizes the root lexically (realpath =
-            // GetFullPathNameW → WideCharToMultiByte), joins relPath, opens, then
+            // plan-66-E: openWithin canonicalizes the root (realpath = CreateFileW →
+            // GetFinalPathNameByHandleW → WideCharToMultiByte, bug-694 C6), joins
+            // relPath, opens, then
             // emit_verify_within opens the root as a directory
             // (FILE_FLAG_BACKUP_SEMANTICS) and checks the opened handle's resolved
             // final path stays under the root's resolved final path.
@@ -383,7 +469,6 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("CreateFileW", KERNEL32, required_by),
                 import("CloseHandle", KERNEL32, required_by),
-                import("GetFullPathNameW", KERNEL32, required_by),
                 import("GetFinalPathNameByHandleW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
@@ -415,7 +500,7 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
-            "fs.readLine" | "fs.eof" => vec![
+            "fs.readLine" | "fs.eof" | "fs.size" | "fs.readBytesAt" => vec![
                 import("ReadFile", KERNEL32, required_by),
                 import("SetFilePointerEx", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
@@ -447,6 +532,38 @@ impl NativePlanPlatform for Platform {
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
             ],
+            // plan-94-B. The console write path for the 1000/1002/1006 mode
+            // set/reset, plus the monotonic clock the ring stamps each event with
+            // — `QueryPerformanceCounter`/`Frequency`, because Windows has no
+            // `clock_gettime` (the same pair `datetime::monotonicNanos` uses).
+            // `getenv` serves the `MFB_MOUSE_INJECT` test affordance; it is the
+            // CRT spelling and resolves through the same import table the rest of
+            // the console path uses.
+            "term.enableMouse" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+                // No `getenv`: `MFB_MOUSE_INJECT` is POSIX-only (see
+                // `emit_mouse_inject`), and `getenv` is a CRT function rather
+                // than a kernel32 export, so declaring it here does not link.
+            ],
+            "term.pollMouse" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            // plan-94-E: the canvas members reach the same ring and clock.
+            // `canvas.enableMouse` needs neither here — the ring allocation makes
+            // no call, and the `MFB_MOUSE_INJECT` affordance (which would stamp an
+            // event) is POSIX-only.
+            "canvas.pollMouse" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            "canvas.systemFontTable" => vec![
+                import("DWriteCreateFactory", DWRITE, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the
@@ -459,6 +576,9 @@ impl NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -479,6 +599,9 @@ impl NativePlanPlatform for Platform {
                 import("WakeConditionVariable", KERNEL32, required_by),
                 import("WakeAllConditionVariable", KERNEL32, required_by),
                 import("SleepConditionVariableSRW", KERNEL32, required_by),
+                // plan-155-C: `canvas::awaitPickup`'s timed wait reads the clock its
+                // `pthread_cond_timedwait` / `clock_gettime` arms are built on.
+                import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
                 // plan-98-F Phase 3: the Vulkan loader arrives through
                 // `LoadLibraryExA`/`GetProcAddress`, never an import-table entry on
                 // `vulkan-1.dll` — a canvas program must still run on a Windows box

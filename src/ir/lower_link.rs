@@ -437,6 +437,16 @@ fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
 /// Collect native `LINK` resource declarations from the AST for package
 /// metadata. `close_may_fail` is derived from whether the close wrapper has a
 /// `SUCCESS_ON` gate (plan-link-update.md §9/§10).
+/// The `RESOURCE` types `hir` declares, as types — the one place a declared
+/// resource NAME crosses into the type domain, shared by the shape pass's resource
+/// table and the lowering's `TypeIndex` (bug-695).
+pub(super) fn native_resource_types(hir: &crate::hir::HirProject) -> HashSet<ParameterType> {
+    native_resources(hir)
+        .iter()
+        .map(|resource| ParameterType::declared(&resource.name))
+        .collect()
+}
+
 pub(super) fn native_resources(hir: &crate::hir::HirProject) -> Vec<IrNativeResource> {
     let mut close_may_fail: HashMap<String, bool> = HashMap::new();
     for file in &hir.files {

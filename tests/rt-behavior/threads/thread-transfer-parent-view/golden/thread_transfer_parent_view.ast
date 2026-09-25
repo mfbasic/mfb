@@ -1,0 +1,62 @@
+{
+  "project": "thread_transfer_parent_view",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "square",
+      "line": 8,
+      "params": [
+      { "name": "worker", "type": "ThreadWorker OF Integer TO Integer", "default": null, "line": 8 },
+      { "name": "n", "type": "Integer", "default": null, "line": 8 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "identifier", "value": "n" } }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "coordinator",
+      "line": 12,
+      "params": [
+      { "name": "worker", "type": "ThreadWorker OF RES (Thread OF Integer TO Integer) TO Integer", "default": null, "line": 12 },
+      { "name": "extra", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "job", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "worker" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "job" }] }, "right": { "kind": "identifier", "value": "extra" } }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "job", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "square" }, { "kind": "number", "value": "7" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "boss", "type": "Thread OF RES (Thread OF Integer TO Integer) TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "coordinator" }, { "kind": "number", "value": "1" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "boss" }, { "kind": "identifier", "value": "job" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "coordinator answered " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "boss" }] }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

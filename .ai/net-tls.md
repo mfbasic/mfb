@@ -42,6 +42,10 @@ instrument that reaches Schannel and WASAPI from a Mac), and
 `data_objects.rs`'s per-package gate; a scope-exit close is emitted by cleanup
 rather than as a NIR call, which is the same trap bug-249 records for `tls`.
 
+## `udp::bind` does not validate the port — a negative port SUCCEEDS
+
+`udp::bind("127.0.0.1", -1)` returns an open socket; a negative port is not a bind failure. To exercise a bind-failure / `TRAP`-handler path, make the HOST unresolvable instead (`udp::bind("300.0.0.1", 9000)`). Several reproductions in the tree that claim to exercise the failing path in fact only exercise the success path because of this — confirm which arm a repro actually takes before trusting it as coverage of the handler.
+
 ## TLS readiness must check the decrypted-buffer, not just the fd
 
 A TLS socket's "is a read ready?" is **not** an fd `poll(2)`. One TLS record decrypts to many application bytes; a single `SSL_read`/Network.framework receive drains a record and **buffers the remainder**, so the TLS layer can hold already-decrypted app bytes while the raw fd is idle. An fd-only poll then reports "not ready" while a byte is available — a correctness bug. Readiness = `(TLS-buffered app bytes > 0) OR (raw layer readable)`, and the buffered half is backend-specific:

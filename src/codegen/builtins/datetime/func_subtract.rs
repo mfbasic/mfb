@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str =
-    r#"Shift a `datetime::Instant` along the UTC timeline by the opposite of a signed `datetime::Duration`."#;
+const INTRO: &str = r#"Shift a `datetime::Instant` along the UTC timeline by the opposite of a signed `datetime::Duration`."#;
 const DESC: &str = r#"`datetime::subtract` returns the `datetime::Instant` reached by moving `at` along the UTC
 timeline by the opposite of the signed span `by`: a positive span moves it earlier,
 a negative span later. It subtracts the `seconds` field of `by` from

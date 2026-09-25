@@ -334,6 +334,187 @@ pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) 
 /// `_mfb_rt_app_get_mode` loads it and `_mfb_rt_app_set_mode` stores it.
 pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
 
+// plan-94-A §4.4a: the per-arena **mouse-state** region — the decoded-event ring,
+// its cursors, and the stdin decoder's partial-sequence buffer.
+//
+// Appended **past** the presentation-mode word, as a third conditionally-reserved
+// region, and only when the program uses `enableMouse`/`pollMouse`. Appending is
+// the whole point: `term_state_offset` and `presentation_mode_offset` keep their
+// exact values for every program that does not use mouse, so no existing entry
+// frame or golden moves. Growing `TERM_STATE_SLOTS` instead would have shifted the
+// presentation-mode word for every program using both `term::` and `app::`, AND
+// left a canvas-only program — which never reserves `term::` state at all — with
+// nowhere to put its ring.
+//
+// Per-arena (per-thread), not process-global, and deliberately so: the ring is
+// **worker-local**, written only by the stdin decoder running on the thread that
+// owns it. That is what lets overwrite-on-full need no atomics. The cross-thread
+// boundary in app mode is the window input pipe, not this region
+// (`.ai/canvas-threading.md` §2). The one piece of mouse state a UI thread DOES
+// need is the mode word below, which is process-global for exactly that reason.
+//
+// The four slot offsets below carry `#[allow(dead_code)]` because plan-94-A
+// RESERVES this region and plan-94-B is what reads and writes it. That split is the
+// design, not a deferral: A's deliverable is that the storage exists, is sized, and
+// lands past the presentation-mode word without moving an existing offset — which is
+// what `MOUSE_STATE_SLOTS` (used, by the arena builder) and the layout tests in
+// `builder::tests` actually check. B deletes these attributes as it wires each slot up.
+/// Byte offset of the pointer to the event ring block, allocated on
+/// `enableMouse(TRUE)` and zero while mouse mode is off.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_RING_PTR_OFFSET: usize = 0;
+/// Byte offset of the ring's head cursor — where the decoder writes next.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_HEAD_OFFSET: usize = 8;
+/// Byte offset of the ring's tail cursor — where `pollMouse` reads next. Head
+/// catching tail advances tail, which is the overwrite-on-full rule: newest wins.
+#[allow(dead_code)]
+pub(crate) const MOUSE_STATE_TAIL_OFFSET: usize = 16;
+/// Byte offset of the count of bytes currently held in the partial-sequence buffer.
+/// Zero means the decoder is not mid-sequence, which is its resting state.
+pub(crate) const MOUSE_STATE_PARSE_LEN_OFFSET: usize = 24;
+/// Byte offset of the **drain cursor**, ONE-BASED: `0` means nothing is owed, and
+/// any other value `n` means the next byte owed to the program is `buf[n - 1]`.
+///
+/// This is what makes "an escape sequence that turned out not to be a mouse
+/// report" correct rather than merely nearly-correct. When a buffered prefix
+/// cannot continue into a report, every byte of it still belongs to the program,
+/// in order — but the reader can only hand back one byte per call. So the prefix
+/// stays in the buffer and this cursor walks it, and the reader drains it before
+/// reading anything new from the OS.
+///
+/// Without a cursor the replayed bytes would re-enter the decoder as if they were
+/// freshly read, and an `ESC [ Z` would be re-parsed as the start of a new
+/// sequence instead of delivered.
+///
+/// **One-based rather than a plain index**, so that "owe the program `buf[0]`" is
+/// expressible. A zero-based cursor would spell that as `0`, which is also how it
+/// spells "nothing owed" — the two states are genuinely different and
+/// `io::pollInput` needs the first one: having read a byte to find out whether a
+/// character is ready, it must push that byte back undelivered.
+pub(crate) const MOUSE_STATE_DRAIN_POS_OFFSET: usize = 32;
+/// Byte offset of the partial-sequence buffer itself: the bytes of an escape
+/// sequence seen so far but not yet known to be (or not to be) a complete mouse
+/// report. A 1006 SGR report is at most `\x1b[<255;99999;99999M` — 21 bytes — so 32
+/// leaves room without a second block to manage.
+pub(crate) const MOUSE_STATE_PARSE_BUF_OFFSET: usize = 40;
+/// Bytes of partial-sequence buffer reserved at [`MOUSE_STATE_PARSE_BUF_OFFSET`].
+pub(crate) const MOUSE_STATE_PARSE_BUF_BYTES: usize = 32;
+/// Total reserved slots: through the end of the partial-sequence buffer.
+pub(crate) const MOUSE_STATE_SLOTS: usize =
+    (MOUSE_STATE_PARSE_BUF_OFFSET + MOUSE_STATE_PARSE_BUF_BYTES) / 8;
+
+// plan-94-B: the ring block itself — allocated on `enableMouse(TRUE)`, pointed at
+// by `MOUSE_STATE_RING_PTR_OFFSET`, freed on `enableMouse(FALSE)` / `term::off`.
+//
+// Fixed-size and overwrite-on-full. A growable queue was rejected because the
+// backpressure a mouse needs is "newest wins": a program that stalls for a second
+// wants where the mouse is NOW, not a second of replay. Overwriting also bounds
+// the memory with no policy to tune.
+/// Slots in the ring. 64 events at 48 bytes is ~3 KiB — more than a frame's worth
+/// of motion at any realistic report rate, and small enough to allocate once.
+pub(crate) const MOUSE_RING_CAPACITY: usize = 64;
+/// Byte offset, within a ring slot, of the `MouseKind` ordinal.
+pub(crate) const MOUSE_SLOT_KIND_OFFSET: usize = 0;
+/// Byte offset of the `MouseButton` ordinal.
+pub(crate) const MOUSE_SLOT_BUTTON_OFFSET: usize = 8;
+/// Byte offset of the first coordinate — `row` in cells, `x` in pixels. The slot
+/// stores whatever the producer put there; the UNIT is a property of the mouse
+/// mode (`MOUSE_MODE_SYMBOL`), not of the slot, which is what lets one ring serve
+/// both `term::pollMouse` and `canvas::pollMouse`.
+pub(crate) const MOUSE_SLOT_COORD_A_OFFSET: usize = 16;
+/// Byte offset of the second coordinate — `column` in cells, `y` in pixels.
+pub(crate) const MOUSE_SLOT_COORD_B_OFFSET: usize = 24;
+/// Byte offset of the packed modifier bits: `1 = shift`, `2 = ctrl`, `4 = alt`.
+pub(crate) const MOUSE_SLOT_MODS_OFFSET: usize = 32;
+/// Byte offset of the monotonic nanosecond stamp taken at enqueue. Compared only
+/// by subtraction, so it wraps harmlessly.
+pub(crate) const MOUSE_SLOT_STAMP_OFFSET: usize = 40;
+/// Bytes per ring slot.
+pub(crate) const MOUSE_SLOT_BYTES: usize = 48;
+/// Bytes in the whole ring block.
+pub(crate) const MOUSE_RING_BYTES: usize = MOUSE_RING_CAPACITY * MOUSE_SLOT_BYTES;
+
+/// The packed modifier bit for Shift in `MOUSE_SLOT_MODS_OFFSET`.
+pub(crate) const MOUSE_MOD_SHIFT: u64 = 1;
+/// The packed modifier bit for Control.
+pub(crate) const MOUSE_MOD_CTRL: u64 = 2;
+/// The packed modifier bit for Alt / Option.
+pub(crate) const MOUSE_MOD_ALT: u64 = 4;
+
+/// How long a decoded event stays pollable, in nanoseconds (100 ms).
+///
+/// A poll skips anything older and reports "nothing pending" rather than handing
+/// back a stale event. This is the other half of "newest wins": a program that
+/// stops polling for a moment resumes with what the user is doing now. 100 ms is
+/// about six frames at 60 Hz — long enough that an ordinary frame never drops an
+/// event, short enough that a resumed program never acts on a click the user has
+/// forgotten making.
+pub(crate) const MOUSE_EVENT_TTL_NANOS: u64 = 100_000_000;
+
+/// `MouseKind` ordinals — declaration order in both packages' `add_enum`
+/// (`None` first, so the zero record reads as "nothing pending").
+pub(crate) const MOUSE_KIND_NONE: u64 = 0;
+pub(crate) const MOUSE_KIND_DOWN: u64 = 1;
+pub(crate) const MOUSE_KIND_UP: u64 = 2;
+pub(crate) const MOUSE_KIND_MOVE: u64 = 3;
+pub(crate) const MOUSE_KIND_DRAG: u64 = 4;
+pub(crate) const MOUSE_KIND_SCROLL_UP: u64 = 5;
+pub(crate) const MOUSE_KIND_SCROLL_DOWN: u64 = 6;
+
+/// `MouseButton` ordinals — declaration order (`None` first).
+pub(crate) const MOUSE_BUTTON_NONE: u64 = 0;
+pub(crate) const MOUSE_BUTTON_LEFT: u64 = 1;
+pub(crate) const MOUSE_BUTTON_MIDDLE: u64 = 2;
+pub(crate) const MOUSE_BUTTON_RIGHT: u64 = 3;
+
+/// The environment variable that injects raw SGR mouse bytes at
+/// `enableMouse(TRUE)` (plan-94-B Corrections B2).
+///
+/// A test affordance, not a language surface, and the same shape as
+/// `MFB_WINAPP_INPUT`: it makes the decoder and the ring provable on a box with
+/// no mouse — which is the only way plan-94-C/D/E can be exercised at all, and
+/// the only way plan-94-B can prove the ring before the read path changes. It
+/// carries the bytes a terminal would really send, so it feeds the REAL decoder
+/// rather than bypassing it.
+pub(crate) const MOUSE_INJECT_ENV: &str = "MFB_MOUSE_INJECT";
+
+/// plan-94-A §4.4b: the process-global **mouse-mode word**, and the one piece of
+/// mouse state that is NOT per-arena.
+///
+/// An app backend's mouse handler runs on the **UI thread**, which has no arena
+/// state at all (`.ai/canvas-threading.md` §2) and therefore cannot read the region
+/// above. It needs two answers before it does anything — should I emit, and in
+/// which unit — and one word carries both:
+///
+/// ```text
+/// 0 = off      no handler emits anything
+/// 1 = cells    term:: asked; coordinates are character cells
+/// 2 = pixels   canvas:: asked; coordinates are surface pixels
+/// ```
+///
+/// Written by `term::enableMouse` / `canvas::enableMouse` on the worker, read by
+/// every UI-thread handler on every backend. A writable process-global data symbol
+/// is the same escape the canvas scene takes ([`super::super::super::runtime::canvas`]'s
+/// `CANVAS_SCENE_SYMBOL` / `GRAPHICS_STATE_SYMBOL`).
+///
+/// A full word rather than a byte so a plain 8-byte load/store works on every
+/// backend with no sub-word addressing, and no atomics: there is exactly one writer
+/// (the worker) and the readers tolerate a one-event-stale answer — the cost of
+/// losing the race is one mouse event emitted or dropped at the moment the program
+/// toggled reporting, which is indistinguishable from the user having moved the
+/// mouse a millisecond earlier.
+pub(crate) const MOUSE_MODE_SYMBOL: &str = "_mfb_rt_mouse_mode";
+/// `_mfb_rt_mouse_mode` = mouse reporting is off; no handler emits.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_OFF: u64 = 0;
+/// `_mfb_rt_mouse_mode` = `term::` asked; handlers emit character-cell coordinates.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_CELLS: u64 = 1;
+/// `_mfb_rt_mouse_mode` = `canvas::` asked; handlers emit surface-pixel coordinates.
+#[allow(dead_code)]
+pub(crate) const MOUSE_MODE_PIXELS: u64 = 2;
+
 // plan-98-B: the per-arena **canvas scene** region — the retained scene
 // `canvas::present` publishes. Reserved just past the presentation-mode word, on the
 // same pinned arena-state register, and only when the program uses `canvas::`.
@@ -374,26 +555,72 @@ pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
 pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
 /// Byte offset of the layer count.
 pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
-/// The scene block a publish displaced, held until the renderer is provably done
-/// with it, and the frame number at which it was retired.
+/// Head of the **retirement list**: the newest node holding blocks a publish
+/// displaced, kept until the renderer is provably done with them. Zero when empty.
 ///
 /// This is plan-98-D Phase 3's ring, in the shape a **variable-size** scene allows.
 /// The plan describes three fixed slots the producer and consumer rotate through,
 /// which presumes a slot is a reusable buffer. An MFBASIC collection is a value: each
 /// publish deep-copies into a freshly sized block, so a "slot" can only ever be a
-/// pointer, and three of them degenerate to exactly this — the one being built, the
-/// one published, and the one just displaced.
+/// pointer.
 ///
 /// Retiring rather than freeing immediately is the whole point: the renderer may be
-/// mid-copy of the block a publish is replacing. The free waits until the frame
-/// counter has passed `RETIRED_FRAME`, which means a frame has *completed* since the
-/// retirement, so no render still holds it.
-pub(crate) const CANVAS_SCENE_RETIRED_ITEMS_OFFSET: usize = 48;
-pub(crate) const CANVAS_SCENE_RETIRED_HASHES_OFFSET: usize = 56;
-pub(crate) const CANVAS_SCENE_RETIRED_LAYERS_OFFSET: usize = 64;
-pub(crate) const CANVAS_SCENE_RETIRED_FRAME_OFFSET: usize = 72;
+/// mid-copy of the block a publish is replacing — `__canvas_sceneDraws` and
+/// `__canvas_sceneOffsets` each re-read the installed pointer through
+/// `canvas::installedItems`, at arbitrary points inside a frame. The free waits until
+/// the frame counter has passed the node's stamp, which means a frame has *completed*
+/// since the retirement, so no render still holds it.
+///
+/// **Why a list and not one slot** (bug-683). It was one slot, and the retire store was
+/// unguarded, so a second publish inside one rendered frame overwrote the pointer
+/// already there and lost it. One slot cannot be enough: a program at 60 Hz against a
+/// renderer completing fewer frames retires an unbounded number of blocks between two
+/// frame ticks, and *every* one of them may be the one a render in flight is reading.
+/// Freeing the older one to make room is the exact use-after-free retirement exists to
+/// prevent. So the count of held blocks has to be what the schedule says it is — which
+/// is what a list gives, bounded in practice by presents per rendered frame, and
+/// drained to empty by the first publish after a frame completes.
+pub(crate) const CANVAS_SCENE_RETIRED_HEAD_OFFSET: usize = 48;
+/// bug-686: the revision a publish in progress is writing — `revision + 1` from the
+/// moment `canvas::publishScene` or `canvas::publishHashes` starts changing the scene
+/// region until it has finished, and equal to the revision otherwise.
+///
+/// It is the leading half of a sequence lock whose trailing half is the revision itself
+/// (`publishScene` closes it by bumping the revision; `publishHashes`, which does not
+/// start a new scene, by setting this back). A reader (`canvas::sceneSnapshot`) reads
+/// the revision, this, the pointers, and this again, and keeps the pointers only when
+/// both reads of this equal the revision — so the items, layers and hashes a frame
+/// draws are always one publish's. Written with a store-release and read with a
+/// load-acquire on AArch64 (`scene_base::emit_scene_store`), and set BEFORE a publish
+/// reads the frame counter to stamp what it retires, so a frame that could still have
+/// seen the displaced blocks has not yet completed when the stamp is taken.
+pub(crate) const CANVAS_SCENE_PENDING_OFFSET: usize = 56;
+/// bug-686: the revision the published hashes were computed for. `canvas::publishHashes`
+/// writes it (after the hashes pointer), and a frame uses the published hashes only
+/// when it equals the revision of the scene the frame snapshotted — otherwise the
+/// graphics thread hashes that scene itself. A frame can run between `publishScene` and
+/// `publishHashes`, and pairing the new items with the old hashes drew one item's cached
+/// geometry for another (a hit is trusted on its hash alone).
+pub(crate) const CANVAS_SCENE_HASHES_REVISION_OFFSET: usize = 64;
 /// Total slots in the canvas scene region.
-pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_FRAME_OFFSET + 8) / 8;
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_HASHES_REVISION_OFFSET + 8) / 8;
+
+// A retirement node: one publish's displaced blocks, the frame it displaced them at,
+// and the next (older) node. Arena-allocated by the publish, freed by the drain, and
+// never touched by the graphics thread — the blocks it *names* are what the renderer
+// may be reading, not the node.
+//
+// Newest-first, which is what makes the drain a single gate rather than a search: the
+// head carries the largest stamp, so `frame_now > head.frame` proves a frame has
+// completed since *every* node in the list and the whole chain is freeable at once.
+// The cost is that an older node waits for the newest to come of age — at most one
+// frame, and the list is empty again either way.
+pub(crate) const CANVAS_RETIRE_NODE_NEXT: usize = 0;
+pub(crate) const CANVAS_RETIRE_NODE_ITEMS: usize = 8;
+pub(crate) const CANVAS_RETIRE_NODE_HASHES: usize = 16;
+pub(crate) const CANVAS_RETIRE_NODE_LAYERS: usize = 24;
+pub(crate) const CANVAS_RETIRE_NODE_FRAME: usize = 32;
+pub(crate) const CANVAS_RETIRE_NODE_SIZE: usize = 40;
 
 /// The canvas scene region itself: one writable **process-global** block, not part of
 /// any thread's arena state.
@@ -1026,6 +1253,11 @@ pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 // lifetime.
 pub(crate) const RESOURCE_TAG_IMAGE: &str = "11";
 pub(crate) const RESOURCE_TAG_FONT: &str = "12";
+// plan-156-C: the two thread views. `handle@8` is the thread's control block, which
+// both views of one thread share; the parent's record is in the starting thread's
+// arena, the worker's is embedded in the control block itself.
+pub(crate) const RESOURCE_TAG_THREAD: &str = "13";
+pub(crate) const RESOURCE_TAG_THREAD_WORKER: &str = "14";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0

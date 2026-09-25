@@ -5,7 +5,7 @@ IMPORT thread_runtime_workers
 ' A worker's terminal error keeps the worker's own source location after the
 ' error is transferred across the thread boundary by thread::waitFor.
 FUNC main AS Integer
-  LET t = thread::start(thread_runtime_workers::failWithError, "seed")
+  RES t = thread::start(thread_runtime_workers::failWithError, "seed")
   LET a = thread::waitFor(t)
   RETURN a
   TRAP(e)

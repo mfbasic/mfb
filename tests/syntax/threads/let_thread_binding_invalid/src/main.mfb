@@ -1,0 +1,16 @@
+IMPORT thread
+
+' A thread is a resource, so it is bound with RES — like an open file. LET and
+' MUT bindings of one are refused, whether the type is written or inferred.
+
+ISOLATED FUNC five(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET typed AS Thread OF Integer TO Integer = thread::start(five, 5)
+  LET inferred = thread::start(five, 5)
+  MUT changing AS Thread OF Integer TO Integer = thread::start(five, 5)
+  RES ok AS Thread OF Integer TO Integer = thread::start(five, 5)
+  RETURN thread::waitFor(ok) - 5
+END FUNC

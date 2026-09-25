@@ -1,0 +1,26 @@
+IMPORT io
+
+' plan-140-C: a `toString` override over a record keeps dispatching to the
+' override, while the built-in answers for an enum in the same program --
+' including an enum field read inside the override.
+TYPE Point
+  x AS Integer
+  y AS Integer
+  tint AS Color
+END TYPE
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+FUNC toString(p AS Point) AS String
+  RETURN "(" & toString(p.x) & "," & toString(p.y) & " " & toString(p.tint) & ")"
+END FUNC
+
+FUNC main AS Integer
+  LET p AS Point = Point[3, 4, Color.Green]
+  io::print(toString(p))            ' (3,4 Green)   override
+  io::print(toString(Color.Blue))   ' Blue          built-in, enum
+  io::print(toString(42))           ' 42            built-in, unchanged
+  RETURN 0
+END FUNC

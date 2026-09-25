@@ -1,0 +1,47 @@
+' bug-675: `Float` arithmetic whose only operands are a module global or a
+' `RES … STATE` payload field used to abort the build with "native code string
+' literal 'Floating-point arithmetic overflowed to infinity.' has no data object".
+' The pass that decides which float-error messages a module needs could not type
+' a global read (NIR carries it untyped) or `h.state.f`, so it registered none,
+' and lowering then needed them. Nothing else in this program does `Float`
+' arithmetic, so nothing else registers them either.
+IMPORT fs
+IMPORT io
+
+TYPE Rec
+  a AS Float
+  b AS Float
+END TYPE
+
+TYPE P
+  a AS Float
+  b AS Float
+  n AS Integer
+END TYPE
+
+MUT gR AS Rec = Rec[a := 1.5, b := 1.5]
+MUT g AS Float = 0.25
+
+SUB bumpGlobals()
+  FOR i = 1 TO 4
+    gR = WITH gR { b := gR.b + 0.5 }
+    g = g * 2.0
+  NEXT
+END SUB
+
+SUB bumpState(RES h AS fs::File STATE P)
+  h.state.a = h.state.a - 0.25
+END SUB
+
+FUNC main() AS Integer
+  bumpGlobals()
+  io::print(toString(gR.a) & " " & toString(gR.b) & " " & toString(g))
+  RES h AS fs::File STATE P = fs::openFile("tests/rt-behavior/scope/float-arith-on-global-and-state-field-valid/project.json")
+  FOR i = 1 TO 3
+    h.state.b = h.state.b + 0.5
+  NEXT
+  bumpState(h)
+  io::print(toString(h.state.a) & " " & toString(h.state.b))
+  fs::close(h)
+  RETURN 0
+END FUNC

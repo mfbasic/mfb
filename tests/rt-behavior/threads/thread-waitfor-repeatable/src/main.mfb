@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT thread
+
+' thread::waitFor waits for the worker and hands back its result, and closes
+' nothing: asking twice answers twice.
+
+ISOLATED FUNC five(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Integer TO Integer = thread::start(five, 5)
+  io::print(toString(thread::waitFor(t)))
+  io::print(toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

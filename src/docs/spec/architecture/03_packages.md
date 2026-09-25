@@ -108,11 +108,25 @@ full decode-and-merge mechanic (and the four symbols it uses) is documented in
 
 A package whose own exported API names a type imported from a dependency
 re-exports that type by the owning package's identity rather than copying its
-definition; a consumer resolves such a reference to the owner's merged type
-(pulling the owner in transitively) and rejects the build if two intermediaries
-were built against ABI-incompatible versions of it. The encoding and the
-compatibility gate are documented under "Re-exporting a Dependency's Type" in
+definition; a consumer resolves such a reference to the owner's merged type —
+the owner must be declared in the consumer's own `packages[]` like any other
+dependency (bug-628; see below), it is not pulled in merely by declaring the
+intermediary — and rejects the build if two intermediaries were built against
+ABI-incompatible versions of it. The encoding and the compatibility gate are
+documented under "Re-exporting a Dependency's Type" in
 `./mfb spec architecture binary-representation`.
+
+## The Declared Dependency Closure
+
+A native build merges exactly the packages `project.json` declares, so a
+project's `packages[]` must list its whole dependency closure — every package
+that any declared package's own import table names, not only the packages the
+project's own source imports directly. `mfb build` checks the declared set
+against the packages' import tables and refuses to compile an inconsistent one
+rather than repairing it; `mfb pkg add`/`update`/`remove` are the only path
+that writes the closure, recording on each entry whether the user declared it
+(`direct`) and which declared packages need it (`requiredBy`). The full field
+and diagnostic reference is `./mfb spec tooling project-manifest`.
 
 ## See Also
 

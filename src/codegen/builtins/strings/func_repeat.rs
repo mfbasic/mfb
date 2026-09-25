@@ -59,28 +59,38 @@ FUNC main() AS Integer
 END FUNC
 ```"#;
 
-pub(crate) fn lower(
-    builder: &mut CodeBuilder,
-    args: &[ValueResult],
-    _ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    if args.len() != 2 {
-        return Err("strings.repeat: no native lowering for these arguments".to_string());
-    }
-    let value = &args[0];
-    let times = &args[1];
+/// plan-146-D: what the repeat measure half leaves for its caller: `byteLen(value)
+/// * times` (every raise this row has already emitted), plus the slots, labels and
+/// registers the copying path goes on to use — created here so the copying path
+/// and the in-place arm keep one allocation order.
+pub(crate) struct RepeatMeasure {
+    pub(crate) total_slot: usize,
+    pub(crate) result_slot: usize,
+    pub(crate) invalid: String,
+    pub(crate) alloc_ok: String,
+    pub(crate) outer: String,
+    pub(crate) inner: String,
+    pub(crate) inner_done: String,
+    pub(crate) outer_done: String,
+    pub(crate) val_ptr: VirtualRegister,
+    pub(crate) times_rem: VirtualRegister,
+    pub(crate) len: VirtualRegister,
+    pub(crate) total: VirtualRegister,
+    pub(crate) dst: VirtualRegister,
+    pub(crate) src_base: VirtualRegister,
+    pub(crate) inner_src: VirtualRegister,
+    pub(crate) inner_cnt: VirtualRegister,
+    pub(crate) byte: VirtualRegister,
+}
 
-    let value = value.clone();
-    builder.require_string("strings.repeat value", &value)?;
-    let value_slot = builder.spill_to_slot("strings_repeat_value", &value.location);
-    let times = times.clone();
-    if times.type_ != ParameterType::Integer {
-        return Err(format!(
-            "strings.repeat times must be Integer, got {}",
-            times.type_
-        ));
-    }
-    let times_slot = builder.spill_to_slot("strings_repeat_times", &times.location);
+/// plan-146-D: the measure half of `strings::repeat` — reject a negative `times`
+/// and compute `byteLen(value) * times` with the checked multiply (audit-unicode
+/// #1). Every raise happens here, before any output byte exists.
+pub(crate) fn repeat_measure(
+    builder: &mut CodeBuilder,
+    value_slot: usize,
+    times_slot: usize,
+) -> Result<RepeatMeasure, String> {
     let total_slot = builder.allocate_stack_object("strings_repeat_total", 8);
     let result_slot = builder.allocate_stack_object("strings_repeat_result", 8);
 
@@ -109,11 +119,6 @@ pub(crate) fn lower(
     let times_rem = &times_rem_v;
     let len = &len_v;
     let total = &total_v;
-    let dst = &dst_v;
-    let src_base = &src_base_v;
-    let inner_src = &inner_src_v;
-    let inner_cnt = &inner_cnt_v;
-    let byte = &byte_v;
 
     builder.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
     builder.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
@@ -127,6 +132,78 @@ pub(crate) fn lower(
     // the other argument rejections.
     builder.emit_checked_size_multiply(total, len, times_rem, &invalid);
     builder.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
+    Ok(RepeatMeasure {
+        total_slot,
+        result_slot,
+        invalid,
+        alloc_ok,
+        outer,
+        inner,
+        inner_done,
+        outer_done,
+        val_ptr: val_ptr_v,
+        times_rem: times_rem_v,
+        len: len_v,
+        total: total_v,
+        dst: dst_v,
+        src_base: src_base_v,
+        inner_src: inner_src_v,
+        inner_cnt: inner_cnt_v,
+        byte: byte_v,
+    })
+}
+
+pub(crate) fn lower(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    if args.len() != 2 {
+        return Err("strings.repeat: no native lowering for these arguments".to_string());
+    }
+    let value = &args[0];
+    let times = &args[1];
+
+    let value = value.clone();
+    builder.require_string("strings.repeat value", &value)?;
+    let value_slot = builder.spill_to_slot("strings_repeat_value", &value.location);
+    let times = times.clone();
+    if times.type_ != ParameterType::Integer {
+        return Err(format!(
+            "strings.repeat times must be Integer, got {}",
+            times.type_
+        ));
+    }
+    let times_slot = builder.spill_to_slot("strings_repeat_times", &times.location);
+    let measure = repeat_measure(builder, value_slot, times_slot)?;
+    let RepeatMeasure {
+        total_slot,
+        result_slot,
+        invalid,
+        alloc_ok,
+        outer,
+        inner,
+        inner_done,
+        outer_done,
+        val_ptr: val_ptr_v,
+        times_rem: times_rem_v,
+        len: len_v,
+        total: total_v,
+        dst: dst_v,
+        src_base: src_base_v,
+        inner_src: inner_src_v,
+        inner_cnt: inner_cnt_v,
+        byte: byte_v,
+    } = measure;
+    let val_ptr = &val_ptr_v;
+    let times_rem = &times_rem_v;
+    let len = &len_v;
+    let total = &total_v;
+    let dst = &dst_v;
+    let src_base = &src_base_v;
+    let inner_src = &inner_src_v;
+    let inner_cnt = &inner_cnt_v;
+    let byte = &byte_v;
     // allocate total + 9.
     builder.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
