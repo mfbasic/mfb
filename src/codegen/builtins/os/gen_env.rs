@@ -238,6 +238,22 @@ pub(crate) fn lower_get_env(
     instructions.push(abi::label(&alloc_error));
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
+    if platform.family() == PlatformFamily::Windows {
+        // bug-696: the Windows value is a marshalled buffer this body owns; every
+        // path here has copied it (or found none, `value == 0`).
+        emit_release_marshalled_result(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &value,
+            symbol,
+            &mut vregs,
+        )?;
+    }
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol,

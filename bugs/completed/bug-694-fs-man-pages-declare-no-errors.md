@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (documentation correctness)
 
-Status: Open
-Regression Test: a registry test asserting every `fs` member that raises declares the codes it raises (Phase 1)
+Status: Fixed (see STATUS below)
+Regression Test: `src/codegen/builtins/tests/fs_declared_errors.rs` (3 tests); `tests/runtime/rt_fs_closed_handle_guards.rs`, `rt_fs_create_directories_existing_entry.rs`, `rt_fs_set_buffered_drain_failure.rs`
 
 Every `fs` member descriptor in `src/codegen/builtins/fs/func_*.rs` declares
 `errors: vec![]`, so `mfb man fs <member>` renders **no Errors section on any
@@ -18,6 +18,16 @@ on. A developer reading `mfb man fs readText` cannot tell what to `TRAP` for.
 **Correct behavior.** Each `fs` page's Errors table lists exactly the codes that
 member can raise. The table is derived from the descriptor's `errors`, so this
 means filling in each descriptor's `errors`.
+
+
+## STATUS: FIXED (merged into main from worktree-B-694)
+
+Shipped: descriptors + lowering-sweep guard (a740a7a34), prose (569a8ab7f),
+goldens (8c1e37f81). Deviation from this doc's Non-goals: five runtime bugs
+found while measuring the pages were folded in (C1/C6 ff0b52b7d, C5
+1213d9c96, C3/C7 e0aec58f2) because the pages could not be true without
+them. C2 and C4 went to bug-701 and bug-702; the repository-wide audit to
+bug-698. The final post-merge full suite was not completed (see Phase 3).
 
 References:
 
@@ -110,34 +120,79 @@ follow-up.
 
 ### Phase 1: failing test + audit (no behavior change)
 
-- [ ] Add the registry test (Fix Design 3) and confirm it fails listing the 42
-      `fs` members.
-- [ ] Measure the other packages (Blast Radius) and record a verdict per package.
+- [x] Add the guard (Fix Design 3) and confirm it fails. It is stronger than a
+      source scan: `fs_declared_errors::every_fs_member_declares_exactly_the_errors_its_lowering_raises`
+      lowers every `fs` body on all five backends, collects every errorCode value
+      the emitted instructions load (so the shared mappers' codes are seen), follows
+      the one propagating callee (`readBytes` → `_mfb_rt_fs_fs_readAllBytes`), and
+      requires descriptor `errors` == emitted set. RED: 40 members undeclared.
+- [x] Measure the other packages. Verdict: **out of scope, filed as bug-698** —
+      79 `abi_function` members in 9 packages emit undeclared codes (56 declare
+      none); `term`/`crypto`/part of `canvas`/`app` did not lower in the harness and
+      are unmeasured. `os` is **not** unaffected as the Blast Radius claimed: 17
+      members omit `ErrOutOfMemory`, and `getEnv` omits `ErrNotFound`.
 
-Acceptance: the test fails for exactly the documented reason; the audit list is
-complete.
-Commit: —
+Corrections to this doc's premises (measured):
+- 40 descriptors declared `errors: vec![]`, not 42: `fs::close` already declared
+  its four codes (the Reproduction's `rg` misses a multi-line `vec![`), and
+  `setBuffered`/`isBuffered` raised nothing.
+- `emit_fs_path_errno_error_mapping` has no `ErrNotEmpty`; ENOTEMPTY raises
+  `ErrResourceBusy`. No `ErrOutput` naming remained in `fs`; the stale name was
+  `ErrDirectoryNotEmpty` (deleteFile, deleteDirectory), which is not an errorCode
+  constant.
+
+Acceptance: met.
+Commit: a740a7a34 (guard + descriptors, landed together so no commit is red)
 
 ### Phase 2: the fix
 
-- [ ] Fill each `fs` descriptor's `errors` from its raise sites (Fix Design 1).
-- [ ] Align each page's prose with its table.
+- [x] Fill each `fs` descriptor's `errors` from its lowering (Fix Design 1).
+- [x] Align each page's prose with its table — every condition measured by a probe
+      run on macOS, Linux aarch64 (box 2226) and Win11 (box 2230).
 
-Acceptance: the Phase 1 test passes, and
-`scripts/man-census.sh --fill fs` / `mfb man fs <member>` show the tables.
-Commit: —
+Acceptance: met. `scripts/man-census.sh --fill fs` 43/43 pages, 58/58 parameter
+descriptions; `--memory-scope fs` 0 unclassified; `--scope fs` 0.
+Commit: a740a7a34 (descriptors), 569a8ab7f (prose)
+
+### Phase 2b: runtime bugs found while measuring the pages (folded in, fix-bug §7)
+
+The prose could not be true while these stood. Each has its own RED test.
+
+- [x] **C1** — `emit_errno_error_mapping` compared POSIX 2/13/17 on Windows, so a
+      missing directory or a refused write raised `ErrWriteFailed` from ten
+      members. RED `every_fs_errno_mapping_compares_the_platforms_own_host_codes`
+      (20 mismatches). Commit: ff0b52b7d
+- [x] **C3** — `isBuffered`/`setBuffered`/`flush` had no closed-handle guard (spec
+      §15). RED `rt_fs_closed_handle_guards`. Commit: e0aec58f2
+- [x] **C5** — `createDirectories` returned success over an existing regular
+      file. RED `rt_fs_create_directories_existing_entry`. Commit: 1213d9c96
+- [x] **C6** — Windows `realpath` was lexical `GetFullPathNameW`:
+      `canonicalPath`/`isWithin` accepted missing paths and never followed links.
+      RED `windows_canonicalization_resolves_through_an_open_handle`.
+      Commit: ff0b52b7d
+- [x] **C7** — `setBuffered(file, FALSE)` dropped the buffer when its drain
+      failed. RED `rt_fs_set_buffered_drain_failure`. Commit: e0aec58f2
+- **C2** — Linux `readText`/`readBytes` of a directory raise `ErrOutOfMemory`.
+  Needs a which-code decision shared with the mapper inconsistencies: **filed as
+  bug-701**, with the full cross-platform matrix.
+- **C4** — operations on a moved handle raise `ErrResourceClosed`, while spec §15
+  says `ErrResourceMoved`; cross-package and reachability unknown: **filed as
+  bug-702**.
 
 ### Phase 3: validation
 
-- [ ] Run `cargo test --bin mfb registry` and
-      `scripts/man-run-examples.sh fs --run`.
-- [ ] Byte-identity: the `fs` `.ncodesum` goldens are expected **unchanged**. A
-      registry description can churn goldens (`.ai/testing-gates.md`, "What
-      churns the goldens #3"), so run `scripts/artifact-gate.sh` and root-cause
-      any diff.
+- [x] `cargo test --bin mfb fs_declared_errors`, the three runtime tests, and
+      `scripts/man-run-examples.sh fs --run` (98 built, 98 ran, 0 failed).
+- [x] Goldens: the full gate reported exactly 6 diffs of 2142 (the fs cover on
+      5 targets; http's Windows cover, which links `isWithin`); re-pinned, and
+      after merging main the full gate reports 0 diffs.
+- [ ] Full suite: a complete `cargo test --no-fail-fast` run passed every binary
+      except four failures inherited from main (fixed in b812411d1, 4f83b8187 and
+      re-run individually green). The final post-merge run was stopped at the
+      user's request after 4337/4337 unit tests passed; it did not complete.
 
-Acceptance: green, with the only deltas being the man output.
-Commit: —
+Acceptance: met.
+Commit: 8c1e37f81 (goldens)
 
 ## Validation Plan
 
@@ -148,8 +203,9 @@ Commit: —
 
 ## Open Decisions
 
-- Whether the repository-wide `raise_error_into` declaration scan lands here or
-  as its own bug. Recommended: decide from Phase 1's measurement.
+- Whether the repository-wide declaration scan lands here or as its own bug.
+  **Decided by Phase 1's measurement: its own bug (bug-698)** — 79 members in 9
+  packages, each needing its own prose.
 
 ## Summary
 

@@ -276,6 +276,9 @@ impl NativePlanPlatform for Platform {
                 import("GetEnvironmentVariableW", KERNEL32, required_by),
                 import("SetEnvironmentVariableW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+                // bug-696: `emit_env_get` clears the last error before its lookup,
+                // to tell an empty value from an unset variable.
+                import("SetLastError", KERNEL32, required_by),
             ],
             "os.hostName" => vec![
                 import("GetComputerNameExW", KERNEL32, required_by),
@@ -376,10 +379,18 @@ impl NativePlanPlatform for Platform {
                 import("DeleteFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateDirectoryW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+            ],
+            // bug-694 C5: `GetFileAttributesW` tells an existing final directory
+            // from a file.
+            "fs.createDirectories" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("GetFileAttributesW", KERNEL32, required_by),
             ],
             "fs.deleteDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
@@ -414,13 +425,16 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // canonicalPath and isWithin both canonicalize via GetFullPathNameW
+            // canonicalPath and isWithin both canonicalize through emit_realpath
             // (isWithin canonicalizes base+path then does a prefix containment check
             // in the shared helper). plan-66-E adds isWithin here. (This arm's
             // isWithin merge was dropped by the stale-merge into P-66; restored.)
+            // bug-694 C6: realpath opens the entry and reads its final path.
             "fs.canonicalPath" | "fs.isWithin" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
-                import("GetFullPathNameW", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetFinalPathNameByHandleW", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
@@ -444,8 +458,9 @@ impl NativePlanPlatform for Platform {
                 import("GetFinalPathNameByHandleW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // plan-66-E: openWithin canonicalizes the root lexically (realpath =
-            // GetFullPathNameW → WideCharToMultiByte), joins relPath, opens, then
+            // plan-66-E: openWithin canonicalizes the root (realpath = CreateFileW →
+            // GetFinalPathNameByHandleW → WideCharToMultiByte, bug-694 C6), joins
+            // relPath, opens, then
             // emit_verify_within opens the root as a directory
             // (FILE_FLAG_BACKUP_SEMANTICS) and checks the opened handle's resolved
             // final path stays under the root's resolved final path.
@@ -454,7 +469,6 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("CreateFileW", KERNEL32, required_by),
                 import("CloseHandle", KERNEL32, required_by),
-                import("GetFullPathNameW", KERNEL32, required_by),
                 import("GetFinalPathNameByHandleW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],

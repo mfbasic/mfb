@@ -37,7 +37,7 @@
 
 #[path = "../common/mod.rs"]
 mod common;
-use common::{build_ncode, temp_project};
+use common::temp_project;
 
 use serde_json::Value;
 

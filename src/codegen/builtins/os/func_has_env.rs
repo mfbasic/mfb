@@ -2,7 +2,7 @@
 //! `Body::abi_function` lowering ([`lower_has_env`]).
 
 use super::gen_env::{emit_env_lock, emit_env_unlock_return};
-use super::gen_shared::{borrow_cstring, void_result};
+use super::gen_shared::{borrow_cstring, emit_release_marshalled_result, void_result};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
@@ -42,14 +42,17 @@ pub(crate) fn lower_has_env(
     instructions.push(abi::move_register(abi::c_arg(0), &cname));
     // Windows: GetEnvironmentVariableW (via emit_env_get) leaves a non-zero UTF-8
     // value pointer when the variable exists, 0 when unset — the same
-    // nonzero-means-present test as POSIX getenv (plan-66-B).
-    if ctx.platform.family() == PlatformFamily::Windows {
+    // nonzero-means-present test as POSIX getenv (plan-66-B). That value is a
+    // marshalled buffer this body owns and releases at `done` (bug-696).
+    let value = (ctx.platform.family() == PlatformFamily::Windows).then(|| vregs.next());
+    if let Some(value) = &value {
         ctx.platform.emit_env_get(
             &symbol,
             ctx.platform_imports,
             &mut instructions,
             &mut relocations,
         )?;
+        instructions.push(abi::move_register(value, abi::c_return(0)));
     } else {
         ctx.platform.emit_external_call(
             "getenv",
@@ -61,7 +64,10 @@ pub(crate) fn lower_has_env(
     }
     instructions.extend([
         // plan-85: getenv's char* return is a C result (`rax`, `%retC`).
-        abi::compare_immediate(abi::c_return(0), "0"),
+        match &value {
+            Some(value) => abi::compare_immediate(value, "0"),
+            None => abi::compare_immediate(abi::c_return(0), "0"),
+        },
         abi::branch_ne(&present),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -71,6 +77,20 @@ pub(crate) fn lower_has_env(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
     ]);
     instructions.push(abi::label(&done));
+    if let Some(value) = &value {
+        emit_release_marshalled_result(
+            &mut EmitCtx {
+                symbol: symbol.as_str(),
+                platform_imports: ctx.platform_imports,
+                platform: ctx.platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            value,
+            &symbol,
+            &mut vregs,
+        )?;
+    }
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol: symbol.as_str(),

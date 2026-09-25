@@ -53,7 +53,12 @@ single call rather than from an open handle, use `fs::readBytes`.
 
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt a
 blocking host file read, so a worker that needs prompt cancellation around a
-blocking descriptor should check `thread::isCancelled` between operations."#;
+blocking descriptor should check `thread::isCancelled` between operations.
+
+`ErrReadFailed` means the host could not measure or read the file — a pipe or
+another handle that cannot be repositioned, or a file that shrinks while it is
+read — and `ErrResourceClosed` that `file` has been closed. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Read all remaining bytes from an open file:
 
 ```
@@ -99,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrReadFailed", "ErrResourceClosed"],
             body: Body::abi_function(lower_fs_read_all_bytes),
         }],
     });

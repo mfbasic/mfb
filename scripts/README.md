@@ -97,7 +97,7 @@ a `cargo test` target, another script, or a person.
   bookkeeping, a work dir with cleanup, `--box` parsing, `remote_ssh`/`remote_scp`
   (always `BatchMode` + `ConnectTimeout`, overridable with `MFB_SSH_CONNECT_TIMEOUT`),
   a `watchdog`, `win_ship`, `scaffold_project`. Sourced, not executable.
-  Run by: sourced by `test-winprocess.sh`, `test-winapp.sh`, `test-appimage.sh`,
+  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-winapp.sh`, `test-appimage.sh`,
   `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-macapp.sh`,
   `linux-runtime-proof.sh`.
 - **remote-common-selftest.sh** — Checks the helpers locally: the watchdog kills and
@@ -141,6 +141,13 @@ a `cargo test` target, another script, or a person.
   file writes, environment, canvas software and Vulkan frames, resize and `term`
   gating, run on the Windows box. Usage: `bash scripts/test-winapp.sh <mfb-exe> [--box <port>]`.
   Run by: by hand (box 2230).
+- **test-winleak.sh** — Runtime leak check for the Windows backend's UTF-16
+  marshalling (bug-696): builds one `--debug` probe that drives every path and
+  environment seam (and each shared consumer of a seam's result), runs each mode on
+  the Windows box with 1 call and with 25, and requires the same arena live bytes
+  at exit; a further run checks that non-ASCII values, file names and arguments
+  survive every marshalling direction byte for byte.
+  Usage: `bash scripts/test-winleak.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
 - **test-winprocess.sh** — Runtime acceptance for the Windows `process` backend on the
   console entry path: argv quoting, environment, working directory and stdin/stdout of
   spawned children, run on the Windows box.

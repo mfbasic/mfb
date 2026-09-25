@@ -263,6 +263,17 @@ impl CodegenPlatform for FailAt<'_> {
         self.inner
             .emit_env_set(_from, _platform_imports, _instructions, _relocations)
     }
+    fn emit_release_marshalled(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.tick()?;
+        self.inner
+            .emit_release_marshalled(from, platform_imports, instructions, relocations)
+    }
     fn emit_heap_alloc(
         &self,
         from: &str,

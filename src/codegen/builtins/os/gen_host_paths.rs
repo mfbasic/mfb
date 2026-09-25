@@ -9,7 +9,8 @@
 use super::gen_env::{emit_env_lock, emit_env_unlock_return};
 use super::gen_paths::emit_reject_dot_component;
 use super::gen_shared::{
-    alloc_reloc, emit_copy_counted, emit_store_byte_advance, push_alloc_error, void_result,
+    alloc_reloc, emit_copy_counted, emit_release_marshalled_result, emit_store_byte_advance,
+    push_alloc_error, void_result,
 };
 use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
@@ -886,6 +887,12 @@ pub(crate) fn lower_host_dir(
             };
             match &sink {
                 Sink::Join { arg } => {
+                    // bug-696: the folder's UTF-8 bytes are a marshalled buffer this
+                    // body owns, released at `done` once the join has copied them.
+                    // `bad_arg` reaches `done` before the query, so the owner starts
+                    // at 0.
+                    let owned = vregs.next();
+                    instructions.push(abi::move_immediate(&owned, "Integer", "0"));
                     emit_validate_relative(
                         symbol,
                         arg,
@@ -904,6 +911,7 @@ pub(crate) fn lower_host_dir(
                     let ptr = vregs.next();
                     instructions.extend([
                         abi::move_register(&ptr, abi::return_register()),
+                        abi::move_register(&owned, &ptr),
                         abi::compare_immediate(&ptr, "0"),
                         abi::branch_eq(&fail),
                     ]);
@@ -929,6 +937,18 @@ pub(crate) fn lower_host_dir(
                         &mut instructions,
                         &mut relocations,
                     );
+                    emit_release_marshalled_result(
+                        &mut EmitCtx {
+                            symbol,
+                            platform_imports: ctx.platform_imports,
+                            platform: ctx.platform,
+                            instructions: &mut instructions,
+                            relocations: &mut relocations,
+                        },
+                        &owned,
+                        symbol,
+                        &mut vregs,
+                    )?;
                 }
                 Sink::Into { dst, cap } => {
                     emit_windows_known_folder_into(

@@ -378,6 +378,28 @@ open/read/close/sync/seek, rename, `mkstemps`, directory open/read/close,
 helpers. Each implementation supplies the OS-correct syscall or libc sequence
 for that operation.
 
+**Windows marshalling buffers.** Every Windows path and environment seam calls a
+wide (`*W`) Win32 API, converting UTF-8 to UTF-16 with `MultiByteToWideChar` and
+back with `WideCharToMultiByte` through arena buffers. Each such buffer carries
+an 8-byte header holding its block size, so whoever reads it last frees it
+without tracking the size.[[src/target/win_x86_64/code.rs:MARSHAL_HEADER]] A
+seam frees its own scratch before it returns. A UTF-8 input's UTF-16 copy is
+sized to the string (`n` bytes never need more than `n + 1` UTF-16 units); a
+Win32 call that writes a path or an environment value gets a 64 KiB buffer (the
+32 768-wchar maximum), and the host, user and executable-name queries a 4 KiB
+one (2 048 wchars).[[src/target/win_x86_64/code.rs:emit_wide_alloc_for_utf8]][[src/target/win_x86_64/code.rs:emit_os_wide_string]] Three seams
+return arena memory instead of a host pointer — `emit_env_get`,
+`emit_os_wide_string` and `emit_environ_pointer` — each as one block sized to
+its answer (the environment's pointer array and all its strings share one). The
+shared consumer releases it with `emit_release_marshalled` after copying it, at
+the helper's single exit with the four result registers carried across the
+call.[[src/codegen/engine/types/types.rs:emit_release_marshalled]][[src/codegen/builtins/os/gen_shared.rs:emit_release_marshalled_result]]
+`emit_opendir`'s `DIR` belongs to the caller until `emit_closedir` frees it, and
+`emit_opendir` frees it itself when the search cannot start. The `os::args`
+vector is built once at entry and never freed.
+`scripts/test-winleak.sh` checks on a Windows host that no seam's live bytes grow
+with its call count.
+
 **`random_bytes`.** `emit_random_bytes` fills a buffer with OS entropy; both
 backends call `getentropy` (decorated `_getentropy` on macOS via libSystem,
 verbatim on Linux via libc).[[src/target/macos_aarch64/code.rs:emit_random_bytes]]

@@ -42,8 +42,7 @@ The text is written as the `String`'s UTF-8 bytes. A
 held, with no re-encoding, decoding, or newline translation. The write is
 retried until every byte has been written or the host reports an output failure,
 so a short host write that transfers only part of the buffer is resumed rather
-than treated as complete, and an interruption never loses or duplicates bytes; the
-same cursor before any byte has moved. An empty `String` produces an empty
+than treated as complete, and an interruption never loses or duplicates bytes. An empty `String` produces an empty
 (truncated) file.
 
 The new file gets permissions `0600` — readable and writable only by the user running the program,
@@ -62,7 +61,17 @@ The file is closed before the function returns on both the success and the
 write-failure paths. The write is not atomic: a reader observing the file while
 the write is in progress may see a partially written file, and a failure partway
 through leaves the file truncated and partially written. For an all-or-nothing
-replacement, use `fs::writeTextAtomic`."#;
+replacement, use `fs::writeTextAtomic`.
+
+An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
+the file cannot be opened the error says why: `ErrNotFound` if a directory in
+`path` does not exist, `ErrAccessDenied` if permission is refused, and
+`ErrWriteFailed` for any other refusal — including `path` naming a directory,
+which Windows reports as `ErrAccessDenied`. A failed write, flush to disk or
+close also raises `ErrWriteFailed`. `ErrOutOfMemory` means the program ran out
+of memory. The table also lists `ErrAlreadyExists` because every `fs` function
+that takes a path reports host refusals through one shared set of errors;
+replacing a file never produces it."#;
 const EX: &str = r#"Write text to a file:
 
 ```
@@ -116,7 +125,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrAccessDenied",
+                "ErrInvalidArgument",
+                "ErrNotFound",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_write_text),
         }],
     });
