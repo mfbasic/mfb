@@ -5,8 +5,63 @@ Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
-Status: Open
-Regression Test: `scripts/test-canvas-vulkan.sh` (the Vulkan-vs-software oracle, run on a Linux box), extended with the bug-686 rows; the `vulkan.rs` unit tests for caps, region chain and SPIR-V layout
+Status: V1-V4 FIXED; V5/V6 BLOCKED on hardware (no reachable Vulkan GPU)
+Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes
+
+## STATUS: V1-V4 FIXED, V5/V6 BLOCKED
+
+Landed on `worktree-B-688` and merged to `main`. What holds, with the commands behind it:
+
+- **V1 (no ordinary scene falls to software).** Vulkan's caps are Metal's (65,536 quads,
+  262,144 edges, 131,072 stops, 8M texels), generated into the predicate, and the shader's
+  region bases are specialization constants (`937ddc149`).
+  `scripts/test-canvas-gpu-rows.sh <mfb> --target linux-aarch64` (box 2226) and
+  `--target windows-x86_64` (box 2230): every render row draws on Vulkan
+  (`gpuFrames=1`) within `GPU_DEFAULT`: quads worst 0, 40k opaque edges worst 1 /
+  1.09%, gradients 0, tilemap 0, 1080p background 0, large polygons 1 / 0.26%,
+  64k polygon 1 / 0.03%, layers 1 / 0.84%. At `main` the first six were declined
+  (`gpuFrames=0`).
+- **V2 (band index).** `05c5ffa81`. The GPU frame with bands against the full loop on
+  the same device (2226), byte-compared: identical for large_polygons, huge_polygon,
+  forty_thousand_opaque_edges and a worst-case probe ({4001/1999} star, 4,000 spikes, a
+  stroked 3,000-edge ring under a shearing transform).
+- **V3 (pictures once per block).** `937ddc149`: the per-frame picture table and the
+  distinct-block predicate count; the tilemap row (2,000 tiles, two images) draws on
+  Vulkan.
+- **V4 (shared native paths on x86-64 and AArch64).** `MFB_CANVAS_GEO_VERIFY=1` on every
+  row and the four `rt_canvas_geo_native` programs: `geoVerifyMismatches=0` on
+  linux-aarch64 (2226) and windows-x86_64 (2230), including the publish race (2226: 15
+  frames on the GPU; 2230: 3 frames, software — the GPU run is too slow there to race,
+  see `df4f589a7`). **Not run on linux-x86_64** (2228/2227): this fix was limited to
+  boxes 2226 and 2230. x86-64 code generation is covered by 2230 (same ISA, Win64 ABI).
+- **A bug found and fixed on x86-64** (`069348f8b`): `emit_state_load`'s temporary vreg
+  could be coloured onto a live hand-assigned `SCRATCH` register; the band index faulted
+  on Windows (`0xC0000005`). The helper now uses no temporary.
+- **V5 / V6 BLOCKED.** Every reachable Vulkan driver is Mesa's CPU lavapipe
+  (`.ai/remote_systems.md`), so no frame-rate or present-cost number here would describe a
+  GPU. Per Open Decisions ("Hardware", recommended), no swapchain was built on a guess.
+  The instrument is ready: `tools/canvas-bench/bench.sh --target linux-… --box <port>`
+  (`bd49be0d0`). What remains is Phase 4, on a machine with a Vulkan GPU.
+
+Deviations:
+
+- **The Vulkan 40k-edge row uses `forty_thousand_opaque_edges.mfb`.** The translucent
+  bug-686 scene draws on Vulkan, but lavapipe's blending drifts one step from the oracle
+  per 20+ stacked blends (11.8% of the frame, every overlapped pixel off by exactly 1,
+  measured per overlap depth) — blend precision, not edges.
+- **`large_polygons.mfb` gained a grey ground**: over black, lavapipe tripped bug-687's
+  one-coverage-step flip (evidence recorded in bug-687).
+- **Band builder ported, not hoisted** (Open Decisions' alternative): hoisting would have
+  re-emitted Metal's instructions, which the non-goals keep unchanged.
+- **The `app-window-surface` linux-x86_64 sentinel was stale at `main`** and was corrected
+  (`df722b970`).
+
+Gates: `cargo test --release --no-fail-fast` — 227 suites, 6,032 passed, 0 failed;
+`scripts/artifact-gate.sh <mfb> all` — at main 1 diff (the stale sentinel), on the branch
+the 7 app-mouse-surface diffs, localized to `__canvas_vulkanRenderable` and the Vulkan
+emitter and regenerated (`7668925a4`); `scripts/test-canvas-vulkan.sh --box 2226 --target
+linux-aarch64` passed; `scripts/test-winapp.sh` (2230) passed; `rt_canvas_metal` 19
+passed; `scripts/spec-census.sh --citations` 0 misses.
 
 bug-686 made Metal draw ordinary scenes on the GPU and made the graphics thread fast.
 The shared half landed for every backend. Vulkan (Linux and Windows, `has_vulkan_backend`,
@@ -78,10 +133,12 @@ Environment matrix. **Phase 0 must fill it in; nothing here has been run yet:**
 
 | Environment | GPU | Can check correctness | Can check frame rate |
 | --- | --- | --- | --- |
-| box 2228, Ubuntu x86_64 glibc | QEMU-TCG VM, software Vulkan ICD | yes | **no**: emulated CPU, software GPU |
-| box 2227, Alpine x86_64 musl | QEMU-TCG VM, user-local ICD (`--icd auto`) | yes | no |
-| Windows x86_64 with a GPU | — (none reachable today) | — | — |
-| Linux x86_64 or aarch64 with a GPU | — (none reachable today) | — | — |
+| box 2226, Debian 12 aarch64 glibc (native VM, GNOME Wayland session) | virtio; Mesa lavapipe | **yes — run** | no: CPU driver |
+| box 2230, Win11 x86_64 (emulated) | virtio; Mesa lavapipe (`C:\mfbvk`) | **yes — run** | no |
+| box 2228, Ubuntu x86_64 glibc | QEMU-TCG VM, software Vulkan ICD | yes | no — not run by this fix |
+| box 2227, Alpine x86_64 musl | QEMU-TCG VM, user-local ICD (`--icd auto`) | yes | no — not run by this fix |
+| Windows x86_64 with a GPU | — (none reachable) | — | — |
+| Linux x86_64 or aarch64 with a GPU | — (none reachable) | — | — |
 
 ## Root Cause
 
@@ -274,55 +331,59 @@ Expected output shifts:
 ### Phase 0: environment and baseline (no behavior change)
 
 - [ ] Find real Linux and Windows machines with a Vulkan GPU, and record them in
-      `.ai/remote_systems.md`. **This blocks V5 and V6.** Without one, this bug can land V1–V4
-      and must stop before any frame-rate claim.
-- [ ] Fill in the environment matrix above: the ICD on 2228/2227 (`vulkaninfo`), and
-      `vulkanReady` there.
-- [ ] Add a Linux runner to `tools/canvas-bench/` (headless GTK app,
+      `.ai/remote_systems.md`. **BLOCKED: none is reachable** — 2226 and 2230 run Mesa
+      lavapipe, recorded in `.ai/remote_systems.md` (`948ef1044`). This blocks V5 and V6.
+- [x] Fill in the environment matrix above, for the boxes this fix could use (2226, 2230).
+- [x] Add a Linux runner to `tools/canvas-bench/` (headless GTK app,
       `MFB_GTKAPP_HEADLESS`), with the same subcommands as the macOS one.
 
-Acceptance: the matrix is complete. One command reproduces bug-686 sections B and H on
-Vulkan at `main`, and shows each row's renderer.
-Commit: —
+Acceptance: `scripts/test-canvas-gpu-rows.sh <main mfb> --target linux-aarch64`
+reproduced sections B and H at `main`, each row's renderer shown (`gpuFrames=0`).
+Commit: `bd49be0d0`, `948ef1044`
 
 ### Phase 1: failing tests + the x86-64 proof of the shared paths
 
-- [ ] Add bug-686's `rt_canvas_metal.rs` scale, large-polygon, tilemap, background, layered
-      and gradient rows to `test-canvas-vulkan.sh`. Confirm each over-cap row falls to
-      software today (RED for the documented reason).
-- [ ] Run every row, plus the snapshot race scene (`rt_canvas_geo_native`'s alternating
+- [x] Add bug-686's `rt_canvas_metal.rs` scale, large-polygon, tilemap, background, layered
+      and gradient rows — as `scripts/test-canvas-gpu-rows.sh` over shared
+      `tests/canvas/scenes/*.mfb`, not inside `test-canvas-vulkan.sh`, so the Rust suites and
+      the script read one copy. RED at `main` on 2226: quads, edges, gradients, tilemap,
+      background and the 64k polygon declined (`gpuFrames=0`).
+- [x] Run every row, plus the snapshot race scene (`rt_canvas_geo_native`'s alternating
       scenes), with `MFB_CANVAS_GEO_VERIFY=1` on `linux-x86_64` (2228), `linux-x86_64` musl
       (2227), `linux-aarch64` and `windows-x86_64`. Record `geoVerified`, `geoResolvedChecked`
       and mismatches. Any mismatch is a shared-code bug: fix it here, with its own test.
+      Run on linux-aarch64 (2226) and windows-x86_64 (2230), at `main` and on the branch:
+      0 mismatches everywhere. linux-x86_64 glibc/musl not run (boxes not available to
+      this fix).
 
-Acceptance: the RED rows fail only on the caps. `GEO_VERIFY` is 0 mismatches on every target
-run, or each mismatch has a fix commit.
-Commit: —
+Acceptance: met on the two targets run. The one row failing at `main` for a non-cap
+reason, `polygons`, failed on bug-687's flip (see Deviations).
+Commit: `6ef055958`
 
 ### Phase 2: caps, derived bases, picture table
 
-- [ ] Vulkan's own frame caps and buffer size, and the specialization-constant region bases.
+- [x] Vulkan's own frame caps and buffer size, and the specialization-constant region bases.
       Delete the `GRADIENT_BASE` literal. Replace `the_shaders_gradient_base_matches_the_buffer_layout`
       with a region-chain test like Metal's. Prove it wrong first (AGENTS.md): the new
       mechanism removes the literal the test mirrors.
-- [ ] Per-frame picture table and distinct-block predicate count. Regenerate the SPIR-V with
-      `scripts/regen-spirv.sh`.
+- [x] Per-frame picture table and distinct-block predicate count. Regenerate the SPIR-V with
+      `scripts/regen-spirv.sh` (`MFB_SPIRV_PORT=2226`).
 
-Acceptance: every Phase 1 over-cap row draws on Vulkan within `GPU_DEFAULT` of software.
-`vulkanReady=TRUE` on the boxes.
-Commit: —
+Acceptance: met on 2226 and 2230.
+Commit: `069348f8b`, `937ddc149`
 
 ### Phase 3: band index
 
-- [ ] Build the band table and edge index with the polygon's cached geometry, through
+- [x] Build the band table and edge index with the polygon's cached geometry, through
       `CodeBuilder`. Write them into the edge region, carry band fields in the item block,
       and loop over one band in `edgeDistance`.
-- [ ] Oracle rows at 300, 1,000, 4,000 and 64,000 edges, plus stroked, transformed and
-      self-intersecting polygons.
+- [x] Oracle rows at 300, 1,000, 4,000 and 64,000 edges, plus stroked, transformed and
+      self-intersecting polygons (`large_polygons.mfb`, `huge_polygon.mfb`).
 
-Acceptance: all rows are on Vulkan within tolerance. Pixels are identical to the full loop
-(band count 0 forced) on the same device.
-Commit: —
+Acceptance: met. "Band count 0 forced" was measured without a production switch: the
+previous commit's build IS the full loop, so the same scenes were rendered with both
+builds on 2226 and byte-compared — identical.
+Commit: `05c5ffa81`
 
 ### Phase 4: performance on real hardware, and present (needs Phase 0's machines)
 
@@ -332,26 +393,30 @@ Commit: —
       budget, add the swapchain present, with the readback kept for headless runs, damage
       and dumps, and a stats counter.
 
+**BLOCKED: no reachable Vulkan GPU** (Phase 0). Nothing here was measured; the renderer
+still reads back in a window, as before.
+
 Acceptance: at 10k moving items the renderer path is not the limit, and the numbers are
 recorded here with commands. A full-screen window holds the rate.
 Commit: —
 
 ### Phase 5: regenerate outputs, docs, full validation
 
-- [ ] Regenerate the `app-mouse-surface` sentinel after the full suite, inspect the diff,
-      and prove it is Vulkan-only.
-- [ ] Doc sync:
+- [x] Regenerate the `app-mouse-surface` sentinel after the full suite, inspect the diff,
+      and prove it is Vulkan-only. (The macOS dumps move too: the Vulkan predicate is
+      shared MFBASIC compiled into every app; the normalized `.ir`/`.nir` delta is only
+      `__canvas_vulkanRenderable`.)
+- [x] Doc sync:
       - `.ai/canvas-threading.md` §10 caps and §6 pictures ("Vulkan still copies and
         counts per item" goes);
       - the `ITEM_BLOCK_SIZE` list item 5;
       - `mfb spec app canvas`'s Vulkan sentences, with `scripts/spec-census.sh
         --citations` showing 0 misses.
-- [ ] Full suite (`cargo test --release --no-fail-fast`), `scripts/test-canvas-vulkan.sh` on
-      both boxes, and `rt_canvas_metal` unchanged.
+- [x] Full suite (`cargo test --release --no-fail-fast`), `scripts/test-canvas-vulkan.sh` on
+      2226, `scripts/test-winapp.sh` on 2230, and `rt_canvas_metal` (19 passed).
 
-Acceptance: full suite green. Every expected-output delta is intended. Every environment in
-the matrix passes.
-Commit: —
+Acceptance: met. `cargo test --release --no-fail-fast`: 227 suites, 6,032 passed, 0 failed (includes `artifact_gate_all`, after the sentinel regeneration).
+Commit: `948ef1044`, `df722b970`, `7668925a4`, `df4f589a7`
 
 ## Validation Plan
 

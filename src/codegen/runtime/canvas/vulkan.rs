@@ -41,8 +41,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
-    CANVAS_DRAW_ENTRY_SHIFT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS, EDGE_SLOTS,
+    push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT,
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
     FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H,
     GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
     GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
@@ -68,14 +68,17 @@ use crate::codegen::runtime::canvas::{
     HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
     HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
     HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
-    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
-    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
-    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND,
-    MAX_FRAME_GRADIENT_STOPS, PICTURE_SHADOW_SPLIT_BITS, VULKAN_BUFFER_BYTES,
-    VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
+    ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC,
+    ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL,
+    ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND,
+    ITEM_SURFACE_GRADIENT_KIND, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+    VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS,
+    VULKAN_GRADIENT_BASE_WORDS, VULKAN_ITEM_BUFFER_BYTES, VULKAN_MAX_FRAME_BAND_WORDS,
+    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS,
+    VULKAN_MAX_FRAME_ITEMS, VULKAN_PICTURE_INDEX_OFFSET, VULKAN_PICTURE_INDEX_SLOTS,
+    VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET, VULKAN_SPEC_CONSTANTS,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -560,6 +563,22 @@ const STAGE_INFO_STYPE: usize = 0;
 const STAGE_INFO_STAGE: usize = 20;
 const STAGE_INFO_MODULE: usize = 24;
 const STAGE_INFO_NAME: usize = 32;
+/// `pSpecializationInfo` — the fragment stage's region bases (bug-688).
+const STAGE_INFO_SPECIALIZATION: usize = 40;
+
+/// `VkSpecializationInfo`, 32 bytes: `mapEntryCount`, then `pMapEntries`, `dataSize`
+/// and `pData`, each 8-aligned.
+const SPEC_INFO_SIZE: usize = 32;
+const SPEC_INFO_COUNT: usize = 0;
+const SPEC_INFO_ENTRIES: usize = 8;
+const SPEC_INFO_DATA_SIZE: usize = 16;
+const SPEC_INFO_DATA: usize = 24;
+/// `VkSpecializationMapEntry`, 16 bytes: `constantID`, `offset`, then `size` as a
+/// `size_t`.
+const SPEC_ENTRY_SIZE: usize = 16;
+const SPEC_ENTRY_ID: usize = 0;
+const SPEC_ENTRY_OFFSET: usize = 4;
+const SPEC_ENTRY_BYTES: usize = 8;
 
 /// `VkPipelineVertexInputStateCreateInfo`, 48 bytes — all zero but the `sType`,
 /// because the vertex shader synthesizes its four corners from `gl_VertexIndex`.
@@ -1495,7 +1514,7 @@ fn emit_vulkan_descriptors(
     builder.emit(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
-        &CANVAS_ITEM_BUFFER_BYTES.to_string(),
+        &VULKAN_ITEM_BUFFER_BYTES.to_string(),
     ));
     builder.emit(abi::store_u64(
         abi::SCRATCH[0],
@@ -1586,7 +1605,7 @@ fn emit_vulkan_descriptors(
     builder.emit(abi::move_immediate(
         abi::c_arg(3),
         "Integer",
-        &CANVAS_ITEM_BUFFER_BYTES.to_string(),
+        &VULKAN_ITEM_BUFFER_BYTES.to_string(),
     ));
     emit_int_arg(builder, platform, 4, "0"); // flags
     emit_addr_arg(builder, platform, 5, off_out);
@@ -1620,7 +1639,7 @@ fn emit_vulkan_descriptors(
         (
             1,
             GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
-            CANVAS_ITEM_BUFFER_BYTES,
+            VULKAN_ITEM_BUFFER_BYTES,
             "1",
         ),
     ] {
@@ -1733,6 +1752,13 @@ fn emit_vulkan_pipeline(
     let off_subpass = builder.allocate_stack_object("vk_subpass", SUBPASS_SIZE);
     let off_pass_info = builder.allocate_stack_object("vk_pass_info", RENDER_PASS_INFO_SIZE);
     let off_stages = builder.allocate_stack_object("vk_stages", STAGE_INFO_SIZE * 2);
+    let off_spec_info = builder.allocate_stack_object("vk_spec_info", SPEC_INFO_SIZE);
+    let off_spec_entries = builder.allocate_stack_object(
+        "vk_spec_entries",
+        SPEC_ENTRY_SIZE * VULKAN_SPEC_CONSTANTS.len(),
+    );
+    let off_spec_data =
+        builder.allocate_stack_object("vk_spec_data", 4 * VULKAN_SPEC_CONSTANTS.len());
     let off_vertex_input = builder.allocate_stack_object("vk_vertex_input", VERTEX_INPUT_INFO_SIZE);
     let off_input_assembly =
         builder.allocate_stack_object("vk_input_assembly", INPUT_ASSEMBLY_INFO_SIZE);
@@ -2007,6 +2033,51 @@ fn emit_vulkan_pipeline(
         abi::SCRATCH[0],
     );
 
+    // --- the fragment stage's region bases (bug-688) -------------------------------
+    // The shader's GLYPH_BASE / GRADIENT_BASE / BAND_BASE are specialization constants,
+    // so the one definition of each is the Rust constant and nothing in the checked-in
+    // SPIR-V spells a layout number. One 32-bit value per constant, in the order of
+    // `VULKAN_SPEC_CONSTANTS`, each entry naming its own slice of the data.
+    let mut entry_fields = Vec::new();
+    let mut data_fields = Vec::new();
+    let spec_values: Vec<(String, String, String)> = VULKAN_SPEC_CONSTANTS
+        .iter()
+        .enumerate()
+        .map(|(n, (id, value))| (id.to_string(), (n * 4).to_string(), value.to_string()))
+        .collect();
+    for (n, (id, offset, value)) in spec_values.iter().enumerate() {
+        let entry = n * SPEC_ENTRY_SIZE;
+        entry_fields.push((entry + SPEC_ENTRY_ID, Field::U32(id)));
+        entry_fields.push((entry + SPEC_ENTRY_OFFSET, Field::U32(offset)));
+        entry_fields.push((entry + SPEC_ENTRY_BYTES, Field::U32("4")));
+        data_fields.push((n * 4, Field::U32(value)));
+    }
+    emit_struct(
+        builder,
+        off_spec_entries,
+        SPEC_ENTRY_SIZE * VULKAN_SPEC_CONSTANTS.len(),
+        &entry_fields,
+    );
+    emit_struct(
+        builder,
+        off_spec_data,
+        4 * VULKAN_SPEC_CONSTANTS.len(),
+        &data_fields,
+    );
+    let spec_count = VULKAN_SPEC_CONSTANTS.len().to_string();
+    let spec_bytes = (4 * VULKAN_SPEC_CONSTANTS.len()).to_string();
+    emit_struct(
+        builder,
+        off_spec_info,
+        SPEC_INFO_SIZE,
+        &[
+            (SPEC_INFO_COUNT, Field::U32(&spec_count)),
+            (SPEC_INFO_ENTRIES, Field::Addr(off_spec_entries)),
+            (SPEC_INFO_DATA_SIZE, Field::U32(&spec_bytes)),
+            (SPEC_INFO_DATA, Field::Addr(off_spec_data)),
+        ],
+    );
+
     // --- the pipeline -------------------------------------------------------------
     for (index, stage, module_slot) in [
         (0usize, SHADER_STAGE_VERTEX, off_vert_module),
@@ -2047,6 +2118,14 @@ fn emit_vulkan_pipeline(
             abi::stack_pointer(),
             base + STAGE_INFO_NAME,
         ));
+        if stage == SHADER_STAGE_FRAGMENT {
+            emit_struct(
+                builder,
+                base + STAGE_INFO_SPECIALIZATION,
+                8,
+                &[(0, Field::Addr(off_spec_info))],
+            );
+        }
     }
 
     emit_struct(
@@ -3694,7 +3773,7 @@ fn emit_gradient_upload(
     builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], count));
     builder.emit(abi::compare_immediate(
         abi::SCRATCH[1],
-        &MAX_FRAME_GRADIENT_STOPS.to_string(),
+        &VULKAN_MAX_FRAME_GRADIENT_STOPS.to_string(),
     ));
     builder.emit(abi::branch_le(&copy));
     builder.emit(abi::branch(&empty));
@@ -3832,9 +3911,11 @@ fn emit_edge_upload(
     off_item: usize,
     off_header: usize,
     off_edge_cursor: usize,
+    bands: &BandSlots,
 ) {
     let head = builder.label("vk_edge_head");
     let done = builder.label("vk_edge_done");
+    let band = builder.label("vk_edge_band");
     let empty = builder.label("vk_edge_empty");
     let copy = builder.label("vk_edge_copy");
 
@@ -3919,7 +4000,7 @@ fn emit_edge_upload(
 
     builder.emit(abi::label(&head));
     builder.emit(abi::compare_registers(index, count));
-    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::branch_ge(&band));
     // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
@@ -3947,6 +4028,11 @@ fn emit_edge_upload(
     builder.emit(abi::add_immediate(index, index, 1));
     builder.emit(abi::branch(&head));
 
+    // bug-688: the polygon's edges are in the region; index them by band.
+    builder.emit(abi::label(&band));
+    emit_band_index(builder, bands);
+    builder.emit(abi::branch(&done));
+
     builder.emit(abi::label(&empty));
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     builder.emit(abi::store_u32(
@@ -3963,14 +4049,536 @@ fn emit_edge_upload(
     builder.emit(abi::label(&done));
 }
 
+/// The stack slots `emit_band_index` works in (bug-688): the frame's band-region cursor
+/// and one polygon's working state — its first and past-the-last 16.16 edge in the
+/// shared buffer, its lowest edge y (16.16), the band reach `2r` (16.16), the band
+/// height (16.16), the band count, and the table's address.
+struct BandSlots {
+    state: usize,
+    item: usize,
+    header: usize,
+    cursor: usize,
+    edges: usize,
+    end: usize,
+    ymin: usize,
+    reach: usize,
+    height: usize,
+    count: usize,
+    table: usize,
+}
+
+impl BandSlots {
+    fn allocate(builder: &mut CodeBuilder, state: usize, item: usize, header: usize) -> Self {
+        let mut slot = |name: &str| builder.allocate_stack_object(name, 8);
+        BandSlots {
+            state,
+            item,
+            header,
+            cursor: slot("vk_band_cursor"),
+            edges: slot("vk_band_edges"),
+            end: slot("vk_band_end"),
+            ymin: slot("vk_band_ymin"),
+            reach: slot("vk_band_reach"),
+            height: slot("vk_band_height"),
+            count: slot("vk_band_count"),
+            table: slot("vk_band_table"),
+        }
+    }
+}
+
+/// Build this polygon's band index in the shared buffer's band region and write its
+/// header into the item block's `arcCaps` (bug-688; layout at `VULKAN_BAND_BASE_WORDS`).
+///
+/// The Vulkan port of Metal's `emit_band_index` (bug-686 section G), the same algorithm
+/// step for step, so a polygon's bands — and therefore its pixels — are the same on both
+/// backends. It is a port rather than one shared builder because Metal's is written
+/// against the macOS `Asm` and a hand-numbered stack frame, and sharing would re-emit
+/// Metal's instructions; bug-688 keeps Metal unchanged.
+///
+/// Runs after `emit_edge_upload` has converted the polygon's edges, and works on those
+/// 16.16 words — exactly what the shader reads — rather than on the header's doubles,
+/// so the band arithmetic is integer and a rounding difference between the two cannot
+/// put an edge in the wrong band.
+///
+/// ## Why the result is bit-identical to the full loop
+///
+/// An edge is put in every band its `[ylo − r, yhi + r]` meets, so a band holds (a)
+/// every edge whose y-span contains any row of the band — the only edges the even-odd
+/// crossing test counts, so `inside` is exact — and (b) every edge within `r` of any
+/// point of the band — so `best` is exact whenever the true distance is at most `r`,
+/// and otherwise both loops' `best` exceed `r`, where coverage has clamped:
+///
+/// * **Untransformed**, a fill clamps once `|d| ≥ 0.5` and a stroke once
+///   `|d| − half ≥ 0.5`, so `r = half + 0.5`, with `half = max(strokeHalf, 0)`.
+/// * **Transformed**, the shader evaluates five shape-space points against the centre's
+///   band; with `F = ‖M‖_F` (M the inverse matrix) `r = half + 0.5 + 2F` covers every
+///   neighbour and every scale the shader can divide by — the argument is written out at
+///   Metal's `emit_band_index`.
+///
+/// Plus a **1-unit guard** in shape space, for the float error of the shader's band
+/// lookup against these integer bands.
+///
+/// ## Sizing
+///
+/// Bands are 2 px tall untransformed, `√2·F` transformed, and taller when the span needs
+/// more than `min(edges, BAND_MAX)` bands. If the list would pass `BAND_LIST_PER_EDGE`
+/// entries per edge the height doubles until it fits; at one band the list is every edge
+/// once. So one polygon never needs more than `BAND_WORDS_PER_EDGE` words per edge, which
+/// the region is sized for; the region-full branch is unreachable and kept because the
+/// alternative is a write past the buffer. It, a polygon under `BAND_MIN_EDGES`, and a
+/// transform whose matrix is not finite write band count 0: the shader loops over every
+/// edge. Never a decline, never a truncation.
+///
+/// ## Differences from the AArch64-only original
+///
+/// * **Every float-to-integer result is checked for a negative value.** AArch64's
+///   `fcvtps` saturates an infinity to `i64::MAX`, which the `2^30` bound catches; x86-64's
+///   `cvtsd2si` returns `i64::MIN` for anything out of range, which that bound does not.
+/// * No calls; `SCRATCH[0..=8]` only, and no `compare_immediate` against a constant wider
+///   than 12 bits (on AArch64 its encoding borrows x16/x17, which are `SCRATCH[7]`/`[8]`).
+fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
+    let none = builder.label("vk_band_none");
+    let done = builder.label("vk_band_done");
+    let s = abi::SCRATCH;
+    let f = abi::FP_SCRATCH;
+    let block = |field: usize| at.item + ITEM_OFFSET_ARC_CAPS + field;
+    let sp = abi::stack_pointer;
+
+    // --- which polygons: E >= BAND_MIN_EDGES --------------------------------------
+    builder.emit(abi::load_u32(s[2], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::move_immediate(
+        s[3],
+        "Integer",
+        &BAND_MIN_EDGES.to_string(),
+    ));
+    builder.emit(abi::compare_registers(s[2], s[3]));
+    builder.emit(abi::branch_lt(&none));
+
+    // --- the edges: P = mapped + base*16, END = P + E*16 ------------------------------
+    builder.emit(abi::load_u32(
+        s[0],
+        sp(),
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    builder.emit(abi::shift_left_immediate(s[0], s[0], 4));
+    emit_state_load(builder, at.state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, s[1]);
+    builder.emit(abi::add_registers(s[0], s[0], s[1]));
+    builder.emit(abi::store_u64(s[0], sp(), at.edges));
+    builder.emit(abi::shift_left_immediate(s[1], s[2], 4));
+    builder.emit(abi::add_registers(s[1], s[0], s[1]));
+    builder.emit(abi::store_u64(s[1], sp(), at.end));
+
+    // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
+    let measure_head = builder.label("vk_band_measure_head");
+    let measure_done = builder.label("vk_band_measure_done");
+    builder.emit(abi::load_u32(s[2], s[0], 4));
+    builder.emit(abi::sign_extend_word(s[2], s[2]));
+    builder.emit(abi::move_register(s[3], s[2]));
+    builder.emit(abi::label(&measure_head));
+    builder.emit(abi::compare_registers(s[0], s[1]));
+    builder.emit(abi::branch_ge(&measure_done));
+    for offset in [4usize, 12] {
+        let not_lower = builder.label("vk_band_not_lower");
+        let not_higher = builder.label("vk_band_not_higher");
+        builder.emit(abi::load_u32(s[4], s[0], offset));
+        builder.emit(abi::sign_extend_word(s[4], s[4]));
+        builder.emit(abi::compare_registers(s[4], s[2]));
+        builder.emit(abi::branch_ge(&not_lower));
+        builder.emit(abi::move_register(s[2], s[4]));
+        builder.emit(abi::label(&not_lower));
+        builder.emit(abi::compare_registers(s[4], s[3]));
+        builder.emit(abi::branch_le(&not_higher));
+        builder.emit(abi::move_register(s[3], s[4]));
+        builder.emit(abi::label(&not_higher));
+    }
+    builder.emit(abi::add_immediate(s[0], s[0], 16));
+    builder.emit(abi::branch(&measure_head));
+    builder.emit(abi::label(&measure_done));
+    builder.emit(abi::store_u64(s[2], sp(), at.ymin));
+    // s3 = the edges' own y extent; s2 stays ymin through the reach computation.
+    builder.emit(abi::subtract_registers(s[3], s[3], s[2]));
+
+    // --- the reach r (f1) and the minimum band height (f4), in shape units --------
+    builder.emit(abi::load_u64(s[0], sp(), at.header));
+    builder.emit(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
+    // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.
+    builder.emit(abi::float_max_d(f[1], f[1], f[2]));
+    builder.emit(abi::move_immediate(s[4], "Integer", "3"));
+    builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
+    builder.emit(abi::move_immediate(s[4], "Integer", "2"));
+    builder.emit(abi::signed_convert_to_float_d(f[3], s[4]));
+    builder.emit(abi::float_divide_d(f[2], f[2], f[3]));
+    // r = half + 0.5 (the clamp) + 1 (the guard)
+    builder.emit(abi::float_add_d(f[1], f[1], f[2]));
+    builder.emit(abi::float_move_d_from_d(f[4], f[3]));
+    let untransformed = builder.label("vk_band_untransformed");
+    builder.emit(abi::load_double(f[5], s[0], HEADER_HAS_TRANSFORM * 8));
+    builder.emit(abi::float_convert_to_signed_x(s[4], f[5]));
+    builder.emit(abi::compare_immediate(s[4], "0"));
+    builder.emit(abi::branch_eq(&untransformed));
+    // F = ||M||_F from the four matrix terms, which the header carries as float32 BIT
+    // PATTERNS (`__canvas_float32Bits`). The assemblers have no single->double convert,
+    // so the bits are rebuilt as a double by hand: exponent rebiased by 1023 - 127 =
+    // 896, mantissa shifted up 52 - 23 = 29. The sign is dropped (the term is squared);
+    // a zero or subnormal term counts as 0, which the 1-unit guard dwarfs; an infinite
+    // or NaN one gives the polygon no bands.
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::signed_convert_to_float_d(f[6], s[4]));
+    for slot in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+    ] {
+        let zero_term = builder.label("vk_band_zero_term");
+        builder.emit(abi::load_double(f[7], s[0], slot * 8));
+        builder.emit(abi::float_convert_to_signed_x(s[4], f[7]));
+        builder.emit(abi::shift_right_immediate(s[5], s[4], 23));
+        builder.emit(abi::move_immediate(s[6], "Integer", "255"));
+        builder.emit(abi::and_registers(s[5], s[5], s[6]));
+        builder.emit(abi::compare_registers(s[5], s[6]));
+        builder.emit(abi::branch_eq(&none));
+        builder.emit(abi::compare_immediate(s[5], "0"));
+        builder.emit(abi::branch_eq(&zero_term));
+        builder.emit(abi::add_immediate(s[5], s[5], 896));
+        builder.emit(abi::shift_left_immediate(s[5], s[5], 52));
+        builder.emit(abi::move_immediate(s[6], "Integer", "8388607"));
+        builder.emit(abi::and_registers(s[7], s[4], s[6]));
+        builder.emit(abi::shift_left_immediate(s[7], s[7], 29));
+        builder.emit(abi::or_registers(s[5], s[5], s[7]));
+        builder.emit(abi::float_move_d_from_x(f[7], s[5]));
+        builder.emit(abi::float_multiply_d(f[7], f[7], f[7]));
+        builder.emit(abi::float_add_d(f[6], f[6], f[7]));
+        builder.emit(abi::label(&zero_term));
+    }
+    builder.emit(abi::float_sqrt_d(f[6], f[6]));
+    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
+    builder.emit(abi::float_add_d(f[7], f[6], f[6]));
+    builder.emit(abi::float_add_d(f[1], f[1], f[7]));
+    builder.emit(abi::float_sqrt_d(f[7], f[3]));
+    builder.emit(abi::float_multiply_d(f[4], f[6], f[7]));
+    builder.emit(abi::label(&untransformed));
+
+    // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
+    builder.emit(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
+    builder.emit(abi::signed_convert_to_float_d(f[7], s[4]));
+    builder.emit(abi::float_multiply_d(f[1], f[1], f[7]));
+    builder.emit(abi::float_ceil_to_signed_x(s[4], f[1]));
+    builder.emit(abi::float_multiply_d(f[4], f[4], f[7]));
+    builder.emit(abi::float_ceil_to_signed_x(s[5], f[4]));
+    // A reach or height past 2^30 (16,384 units) is a degenerate transform. AArch64
+    // saturates an out-of-range convert to i64::MAX, which the bound catches; x86-64
+    // answers i64::MIN, which the sign test catches.
+    builder.emit(abi::compare_immediate(s[4], "0"));
+    builder.emit(abi::branch_lt(&none));
+    builder.emit(abi::compare_immediate(s[5], "0"));
+    builder.emit(abi::branch_lt(&none));
+    builder.emit(abi::move_immediate(
+        s[6],
+        "Integer",
+        &(1u64 << 30).to_string(),
+    ));
+    builder.emit(abi::compare_registers(s[4], s[6]));
+    builder.emit(abi::branch_gt(&none));
+    builder.emit(abi::compare_registers(s[5], s[6]));
+    builder.emit(abi::branch_gt(&none));
+    let height_positive = builder.label("vk_band_height_positive");
+    builder.emit(abi::compare_immediate(s[5], "1"));
+    builder.emit(abi::branch_ge(&height_positive));
+    builder.emit(abi::move_immediate(s[5], "Integer", "1"));
+    builder.emit(abi::label(&height_positive));
+
+    // --- span = extent + 2r (s3); top = ymin - r must be an int32, and so must the
+    // bottom, because the shader reads `top` as a 16.16 `int` ----------------------
+    builder.emit(abi::shift_left_immediate(s[4], s[4], 1));
+    builder.emit(abi::store_u64(s[4], sp(), at.reach));
+    builder.emit(abi::add_registers(s[3], s[3], s[4]));
+    builder.emit(abi::shift_right_immediate(s[6], s[4], 1));
+    builder.emit(abi::subtract_registers(s[7], s[2], s[6]));
+    // The encoder parses an immediate as u64, so i32::MIN goes in as its 64-bit two's
+    // complement.
+    builder.emit(abi::move_immediate(
+        s[8],
+        "Integer",
+        &(i64::from(i32::MIN) as u64).to_string(),
+    ));
+    builder.emit(abi::compare_registers(s[7], s[8]));
+    builder.emit(abi::branch_lt(&none));
+    builder.emit(abi::add_registers(s[8], s[7], s[3]));
+    builder.emit(abi::move_immediate(s[6], "Integer", &i32::MAX.to_string()));
+    builder.emit(abi::compare_registers(s[8], s[6]));
+    builder.emit(abi::branch_gt(&none));
+
+    // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------------
+    // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
+    let bands_capped = builder.label("vk_band_bands_capped");
+    builder.emit(abi::load_u32(s[6], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
+    builder.emit(abi::compare_registers(s[6], s[7]));
+    builder.emit(abi::branch_le(&bands_capped));
+    builder.emit(abi::move_register(s[6], s[7]));
+    builder.emit(abi::label(&bands_capped));
+    const _: () = assert!(BAND_MIN_EDGES >= 2 && BAND_MAX >= 2);
+    builder.emit(abi::subtract_immediate(s[6], s[6], 1));
+    builder.emit(abi::add_registers(s[7], s[3], s[6]));
+    builder.emit(abi::subtract_immediate(s[7], s[7], 1));
+    builder.emit(abi::unsigned_divide_registers(s[7], s[7], s[6]));
+    let height_chosen = builder.label("vk_band_height_chosen");
+    builder.emit(abi::compare_registers(s[7], s[5]));
+    builder.emit(abi::branch_ge(&height_chosen));
+    builder.emit(abi::move_register(s[7], s[5]));
+    builder.emit(abi::label(&height_chosen));
+    builder.emit(abi::store_u64(s[7], sp(), at.height));
+
+    // --- size the list; double the height until it is within its budget -----------
+    // s3 (span) is live through this loop.
+    let fit_head = builder.label("vk_band_fit_head");
+    let size_head = builder.label("vk_band_size_head");
+    let size_done = builder.label("vk_band_size_done");
+    let fits = builder.label("vk_band_fits");
+    builder.emit(abi::label(&fit_head));
+    builder.emit(abi::load_u64(s[4], sp(), at.height));
+    builder.emit(abi::unsigned_divide_registers(s[6], s[3], s[4]));
+    builder.emit(abi::add_immediate(s[6], s[6], 1));
+    builder.emit(abi::store_u64(s[6], sp(), at.count));
+    builder.emit(abi::move_immediate(s[2], "Integer", "0"));
+    builder.emit(abi::load_u64(s[0], sp(), at.edges));
+    builder.emit(abi::load_u64(s[1], sp(), at.end));
+    builder.emit(abi::label(&size_head));
+    builder.emit(abi::compare_registers(s[0], s[1]));
+    builder.emit(abi::branch_ge(&size_done));
+    emit_band_range(builder, at);
+    builder.emit(abi::subtract_registers(s[5], s[5], s[4]));
+    builder.emit(abi::add_immediate(s[5], s[5], 1));
+    builder.emit(abi::add_registers(s[2], s[2], s[5]));
+    builder.emit(abi::add_immediate(s[0], s[0], 16));
+    builder.emit(abi::branch(&size_head));
+    builder.emit(abi::label(&size_done));
+    builder.emit(abi::load_u32(s[4], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::move_immediate(
+        s[5],
+        "Integer",
+        &BAND_LIST_PER_EDGE.to_string(),
+    ));
+    builder.emit(abi::multiply_registers(s[4], s[4], s[5]));
+    builder.emit(abi::compare_registers(s[2], s[4]));
+    builder.emit(abi::branch_le(&fits));
+    builder.emit(abi::load_u64(s[4], sp(), at.height));
+    builder.emit(abi::shift_left_immediate(s[4], s[4], 1));
+    builder.emit(abi::store_u64(s[4], sp(), at.height));
+    builder.emit(abi::branch(&fit_head));
+    builder.emit(abi::label(&fits));
+
+    // --- claim 2*bands + list words of the region ---------------------------------
+    builder.emit(abi::load_u64(s[6], sp(), at.count));
+    builder.emit(abi::shift_left_immediate(s[4], s[6], 1));
+    builder.emit(abi::add_registers(s[4], s[4], s[2]));
+    builder.emit(abi::load_u64(s[5], sp(), at.cursor));
+    builder.emit(abi::add_registers(s[4], s[4], s[5]));
+    builder.emit(abi::move_immediate(
+        s[7],
+        "Integer",
+        &VULKAN_MAX_FRAME_BAND_WORDS.to_string(),
+    ));
+    builder.emit(abi::compare_registers(s[4], s[7]));
+    builder.emit(abi::branch_gt(&none));
+    builder.emit(abi::store_u64(s[4], sp(), at.cursor));
+
+    // --- the header: top, height, count, table offset -----------------------------
+    builder.emit(abi::store_u32(s[5], sp(), block(ITEM_BAND_START)));
+    builder.emit(abi::store_u32(s[6], sp(), block(ITEM_BAND_COUNT)));
+    builder.emit(abi::load_u64(s[4], sp(), at.height));
+    builder.emit(abi::store_u32(s[4], sp(), block(ITEM_BAND_HEIGHT)));
+    builder.emit(abi::load_u64(s[4], sp(), at.reach));
+    builder.emit(abi::shift_right_immediate(s[4], s[4], 1));
+    builder.emit(abi::load_u64(s[7], sp(), at.ymin));
+    builder.emit(abi::subtract_registers(s[7], s[7], s[4]));
+    builder.emit(abi::store_u32(s[7], sp(), block(ITEM_BAND_TOP)));
+
+    // --- the table's address: mapped + BAND_BASE*4 + start*4 ----------------------
+    builder.emit(abi::shift_left_immediate(s[5], s[5], 2));
+    emit_state_load(builder, at.state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, s[4]);
+    builder.emit(abi::add_registers(s[5], s[5], s[4]));
+    builder.emit(abi::move_immediate(
+        s[4],
+        "Integer",
+        &(VULKAN_BAND_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(s[5], s[5], s[4]));
+    builder.emit(abi::store_u64(s[5], sp(), at.table));
+
+    // --- counts to zero: table[2k + 1] = 0 (s5 table, s6 bands) --------------------
+    let zero_head = builder.label("vk_band_zero_head");
+    let zero_done = builder.label("vk_band_zero_done");
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::move_immediate(s[7], "Integer", "0"));
+    builder.emit(abi::label(&zero_head));
+    builder.emit(abi::compare_registers(s[4], s[6]));
+    builder.emit(abi::branch_ge(&zero_done));
+    builder.emit(abi::shift_left_immediate(s[8], s[4], 3));
+    builder.emit(abi::add_registers(s[8], s[8], s[5]));
+    builder.emit(abi::store_u32(s[7], s[8], 4));
+    builder.emit(abi::add_immediate(s[4], s[4], 1));
+    builder.emit(abi::branch(&zero_head));
+    builder.emit(abi::label(&zero_done));
+
+    // --- count each band's edges -----------------------------------------------------
+    let count_head = builder.label("vk_band_count_head");
+    let count_band = builder.label("vk_band_count_band");
+    let count_next = builder.label("vk_band_count_next");
+    let count_done = builder.label("vk_band_count_done");
+    builder.emit(abi::load_u64(s[0], sp(), at.edges));
+    builder.emit(abi::load_u64(s[1], sp(), at.end));
+    builder.emit(abi::load_u64(s[2], sp(), at.table));
+    builder.emit(abi::label(&count_head));
+    builder.emit(abi::compare_registers(s[0], s[1]));
+    builder.emit(abi::branch_ge(&count_done));
+    emit_band_range(builder, at);
+    builder.emit(abi::label(&count_band));
+    builder.emit(abi::compare_registers(s[4], s[5]));
+    builder.emit(abi::branch_gt(&count_next));
+    builder.emit(abi::shift_left_immediate(s[6], s[4], 3));
+    builder.emit(abi::add_registers(s[6], s[6], s[2]));
+    builder.emit(abi::load_u32(s[7], s[6], 4));
+    builder.emit(abi::add_immediate(s[7], s[7], 1));
+    builder.emit(abi::store_u32(s[7], s[6], 4));
+    builder.emit(abi::add_immediate(s[4], s[4], 1));
+    builder.emit(abi::branch(&count_band));
+    builder.emit(abi::label(&count_next));
+    builder.emit(abi::add_immediate(s[0], s[0], 16));
+    builder.emit(abi::branch(&count_head));
+    builder.emit(abi::label(&count_done));
+
+    // --- each band's first list entry: table[2k] = sum of the counts before it -----
+    let start_head = builder.label("vk_band_start_head");
+    let start_done = builder.label("vk_band_start_done");
+    builder.emit(abi::load_u64(s[6], sp(), at.count));
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::move_immediate(s[7], "Integer", "0"));
+    builder.emit(abi::label(&start_head));
+    builder.emit(abi::compare_registers(s[4], s[6]));
+    builder.emit(abi::branch_ge(&start_done));
+    builder.emit(abi::shift_left_immediate(s[8], s[4], 3));
+    builder.emit(abi::add_registers(s[8], s[8], s[2]));
+    builder.emit(abi::store_u32(s[7], s[8], 0));
+    builder.emit(abi::load_u32(s[5], s[8], 4));
+    builder.emit(abi::add_registers(s[7], s[7], s[5]));
+    builder.emit(abi::add_immediate(s[4], s[4], 1));
+    builder.emit(abi::branch(&start_head));
+    builder.emit(abi::label(&start_done));
+
+    // --- the list: each edge's number into each of its bands, using table[2k] as the
+    // band's fill cursor (s8 = the list, s3 = the edge number) ------------------------
+    let fill_head = builder.label("vk_band_fill_head");
+    let fill_band = builder.label("vk_band_fill_band");
+    let fill_next = builder.label("vk_band_fill_next");
+    let fill_done = builder.label("vk_band_fill_done");
+    builder.emit(abi::shift_left_immediate(s[8], s[6], 3));
+    builder.emit(abi::add_registers(s[8], s[8], s[2]));
+    builder.emit(abi::load_u64(s[0], sp(), at.edges));
+    builder.emit(abi::load_u64(s[1], sp(), at.end));
+    builder.emit(abi::move_immediate(s[3], "Integer", "0"));
+    builder.emit(abi::label(&fill_head));
+    builder.emit(abi::compare_registers(s[0], s[1]));
+    builder.emit(abi::branch_ge(&fill_done));
+    emit_band_range(builder, at);
+    builder.emit(abi::label(&fill_band));
+    builder.emit(abi::compare_registers(s[4], s[5]));
+    builder.emit(abi::branch_gt(&fill_next));
+    builder.emit(abi::shift_left_immediate(s[6], s[4], 3));
+    builder.emit(abi::add_registers(s[6], s[6], s[2]));
+    builder.emit(abi::load_u32(s[7], s[6], 0));
+    builder.emit(abi::add_immediate(s[7], s[7], 1));
+    builder.emit(abi::store_u32(s[7], s[6], 0));
+    builder.emit(abi::subtract_immediate(s[7], s[7], 1));
+    builder.emit(abi::shift_left_immediate(s[7], s[7], 2));
+    builder.emit(abi::add_registers(s[7], s[7], s[8]));
+    builder.emit(abi::store_u32(s[3], s[7], 0));
+    builder.emit(abi::add_immediate(s[4], s[4], 1));
+    builder.emit(abi::branch(&fill_band));
+    builder.emit(abi::label(&fill_next));
+    builder.emit(abi::add_immediate(s[0], s[0], 16));
+    builder.emit(abi::add_immediate(s[3], s[3], 1));
+    builder.emit(abi::branch(&fill_head));
+    builder.emit(abi::label(&fill_done));
+
+    // --- the fill cursors ran to each band's end; take the counts back off ---------
+    let rewind_head = builder.label("vk_band_rewind_head");
+    builder.emit(abi::load_u64(s[6], sp(), at.count));
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::label(&rewind_head));
+    builder.emit(abi::compare_registers(s[4], s[6]));
+    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::shift_left_immediate(s[8], s[4], 3));
+    builder.emit(abi::add_registers(s[8], s[8], s[2]));
+    builder.emit(abi::load_u32(s[5], s[8], 0));
+    builder.emit(abi::load_u32(s[7], s[8], 4));
+    builder.emit(abi::subtract_registers(s[5], s[5], s[7]));
+    builder.emit(abi::store_u32(s[5], s[8], 0));
+    builder.emit(abi::add_immediate(s[4], s[4], 1));
+    builder.emit(abi::branch(&rewind_head));
+
+    // --- no bands: the shader loops over every edge -------------------------------
+    builder.emit(abi::label(&none));
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    for field in [
+        ITEM_BAND_TOP,
+        ITEM_BAND_HEIGHT,
+        ITEM_BAND_COUNT,
+        ITEM_BAND_START,
+    ] {
+        builder.emit(abi::store_u32(s[4], sp(), block(field)));
+    }
+    builder.emit(abi::label(&done));
+}
+
+/// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
+/// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
+/// `SCRATCH[6]` as a temporary.
+///
+/// With `top = ymin − r`: first = ⌊(ylo − ymin) / h⌋ and last = ⌊(yhi − ymin + 2r) / h⌋.
+/// Both numerators are non-negative (every y is at least ymin), so the unsigned divide
+/// is exact, and the last is at most ⌊span / h⌋ = bands − 1.
+fn emit_band_range(builder: &mut CodeBuilder, at: &BandSlots) {
+    let s = abi::SCRATCH;
+    let ordered = builder.label("vk_band_ordered");
+    builder.emit(abi::load_u32(s[4], s[0], 4));
+    builder.emit(abi::sign_extend_word(s[4], s[4]));
+    builder.emit(abi::load_u32(s[5], s[0], 12));
+    builder.emit(abi::sign_extend_word(s[5], s[5]));
+    builder.emit(abi::compare_registers(s[4], s[5]));
+    builder.emit(abi::branch_le(&ordered));
+    builder.emit(abi::move_register(s[6], s[4]));
+    builder.emit(abi::move_register(s[4], s[5]));
+    builder.emit(abi::move_register(s[5], s[6]));
+    builder.emit(abi::label(&ordered));
+    builder.emit(abi::load_u64(s[6], abi::stack_pointer(), at.ymin));
+    builder.emit(abi::subtract_registers(s[4], s[4], s[6]));
+    builder.emit(abi::subtract_registers(s[5], s[5], s[6]));
+    builder.emit(abi::load_u64(s[6], abi::stack_pointer(), at.reach));
+    builder.emit(abi::add_registers(s[5], s[5], s[6]));
+    builder.emit(abi::load_u64(s[6], abi::stack_pointer(), at.height));
+    builder.emit(abi::unsigned_divide_registers(s[4], s[4], s[6]));
+    builder.emit(abi::unsigned_divide_registers(s[5], s[5], s[6]));
+}
+
 /// Copy a `canvas::Picture`'s texels into the frame buffer's glyph region, and name
-/// the slice in the item block (bug-484).
+/// the slice in the item block (bug-484) — once per distinct image per frame (bug-688).
 ///
 /// A picture is a rectangle whose fill colour is sampled from an image, so its block is
 /// the rectangle's in every field but three, which it names exactly as a glyph does:
 /// width in `misc.w`, height in `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), and the slice's base
 /// in `arc.z` (`ITEM_ARC_EDGE_BASE`). The region, the cursor and the frame cap are the
 /// glyphs' — the predicates count a picture's texels against that same cap.
+///
+/// **Once per distinct pixel block** (bug-688, Metal's bug-686 design): the block is
+/// looked up in this frame's picture table first (`emit_picture_lookup`), and a hit
+/// points the item at the texels already uploaded and copies nothing. A tilemap of 2,000
+/// tiles drawn from two images copied 2,000 images and counted 2M texels against the
+/// frame cap; it now copies two. `__canvas_vulkanRenderable` counts each distinct block
+/// once to match.
 ///
 /// **Must run after `emit_edge_upload`**, which zeroes `misc.w` and `arc.z` for every
 /// kind that is not a polygon, and **before `emit_split_or_publish`**, so both records
@@ -3982,18 +4590,18 @@ fn emit_edge_upload(
 /// the packing the shader unpacks. The block's address arrives split across two header
 /// doubles (`HEADER_PICTURE_SHADOW_HI`/`_LO`) because a whole address overflows the
 /// header hash; the texels start `COLLECTION_HEADER_SIZE` bytes in. The block is never
-/// freed, so reading it here, during the frame, is safe.
+/// freed, so reading it here, during the frame, is safe. A zero address or a block
+/// shorter than the width and height promise draws nothing — the bound
+/// `canvas::shadowTexel` applies per read, applied once, as Metal's emitter does.
 ///
 /// A picture whose texels would not fit the frame's remaining glyph room draws nothing
 /// (`misc.w = 0`), rather than writing past the region. Unreachable: the predicate
 /// declined such a frame to software.
-fn emit_picture_upload(
-    builder: &mut CodeBuilder,
-    off_state: usize,
-    off_item: usize,
-    off_header: usize,
-    off_glyph_cursor: usize,
-) {
+///
+/// Registers: `SCRATCH[0..=8]` only, and no calls. No `compare_immediate` or
+/// `add_immediate` against a constant wider than 12 bits while `SCRATCH[7]` or
+/// `SCRATCH[8]` is live: on AArch64 their encoding borrows x16/x17, which ARE those two.
+fn emit_picture_upload(builder: &mut CodeBuilder, at: PictureSlots) {
     let done = builder.label("vk_pic_done");
     let empty = builder.label("vk_pic_empty");
     let copy_head = builder.label("vk_pic_copy_head");
@@ -4003,17 +4611,17 @@ fn emit_picture_upload(
     let height = abi::SCRATCH[3];
     let samples = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
-    let source = abi::SCRATCH[7];
+    let block = abi::SCRATCH[7];
 
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        off_item + ITEM_OFFSET_MISC,
+        at.item + ITEM_OFFSET_MISC,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_PICTURE));
     builder.emit(abi::branch_ne(&done));
 
-    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), at.header));
     for (slot, register) in [(HEADER_AUX0, width), (HEADER_AUX1, height)] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
         builder.emit(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
@@ -4024,12 +4632,56 @@ fn emit_picture_upload(
     builder.emit(abi::branch_le(&empty));
     builder.emit(abi::multiply_registers(samples, width, height));
 
+    // block = (hi << PICTURE_SHADOW_SPLIT_BITS) | lo
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_HI * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(block, abi::FP_SCRATCH[1]));
+    builder.emit(abi::shift_left_immediate(
+        block,
+        block,
+        PICTURE_SHADOW_SPLIT_BITS as u8,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_SHADOW_LO * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::or_registers(block, block, abi::SCRATCH[1]));
+    builder.emit(abi::compare_immediate(block, "0"));
+    builder.emit(abi::branch_eq(&empty));
+    // The block must hold every texel the width and height promise.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        block,
+        COLLECTION_OFFSET_COUNT,
+    ));
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[0], samples, 2));
+    builder.emit(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    builder.emit(abi::branch_gt(&empty));
+
+    // The height is the image's whatever the lookup finds, so it is stored now and its
+    // register is free for the lookup.
+    builder.emit(abi::store_u32(
+        height,
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+    // Has this frame already uploaded this block? Then name those texels and stop.
+    emit_picture_lookup(builder, &at, &done);
+
     // Room check against the glyph region's frame cap — the same bound the glyph copy
     // applies, through a register because the cap does not fit an immediate compare.
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        off_glyph_cursor,
+        at.glyph_cursor,
     ));
     builder.emit(abi::add_registers(
         abi::SCRATCH[1],
@@ -4044,33 +4696,47 @@ fn emit_picture_upload(
     builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[8]));
     builder.emit(abi::branch_gt(&empty));
 
-    // The slice: width, height, and the pre-advance cursor.
+    // The slice: width and the pre-advance cursor (the height is already stored).
     builder.emit(abi::store_u32(
         width,
         abi::stack_pointer(),
-        off_item + ITEM_OFFSET_MISC + 12,
-    ));
-    builder.emit(abi::store_u32(
-        height,
-        abi::stack_pointer(),
-        off_item + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+        at.item + ITEM_OFFSET_MISC + 12,
     ));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        off_item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
     ));
     builder.emit(abi::store_u64(
         abi::SCRATCH[1],
         abi::stack_pointer(),
-        off_glyph_cursor,
+        at.glyph_cursor,
     ));
+    // Record (block, base) so later pictures of this block reuse the texels. The base is
+    // still in `SCRATCH[0]`.
+    emit_picture_record(builder, &at);
 
-    // target = mapped + (GLYPH_BASE + cursor) * 4
-    builder.emit(abi::add_immediate(
+    // target = mapped + (GLYPH_BASE + base) * 4, the base being the advanced cursor less
+    // `samples` (the record used the registers that held it).
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.glyph_cursor,
+    ));
+    builder.emit(abi::subtract_registers(
         abi::SCRATCH[0],
         abi::SCRATCH[0],
-        VULKAN_GLYPH_BASE_WORDS,
+        samples,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &VULKAN_GLYPH_BASE_WORDS.to_string(),
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
     ));
     builder.emit(abi::shift_left_immediate(
         abi::SCRATCH[0],
@@ -4079,41 +4745,18 @@ fn emit_picture_upload(
     ));
     emit_state_load(
         builder,
-        off_state,
+        at.state,
         GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
         target,
     );
     builder.emit(abi::add_registers(target, target, abi::SCRATCH[0]));
-
-    // source = ((hi << 24) | lo) + COLLECTION_HEADER_SIZE
-    builder.emit(abi::load_double(
-        abi::FP_SCRATCH[1],
-        header,
-        HEADER_PICTURE_SHADOW_HI * 8,
-    ));
-    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
-    builder.emit(abi::shift_left_immediate(
-        source,
-        source,
-        PICTURE_SHADOW_SPLIT_BITS as u8,
-    ));
-    builder.emit(abi::load_double(
-        abi::FP_SCRATCH[1],
-        header,
-        HEADER_PICTURE_SHADOW_LO * 8,
-    ));
-    builder.emit(abi::float_convert_to_signed_x(
-        abi::SCRATCH[1],
-        abi::FP_SCRATCH[1],
-    ));
-    builder.emit(abi::or_registers(source, source, abi::SCRATCH[1]));
-    builder.emit(abi::add_immediate(source, source, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::add_immediate(block, block, COLLECTION_HEADER_SIZE));
 
     // `samples` counts down; it is at least 1 here.
     builder.emit(abi::label(&copy_head));
-    builder.emit(abi::load_u32(abi::SCRATCH[0], source, 0));
+    builder.emit(abi::load_u32(abi::SCRATCH[0], block, 0));
     builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
-    builder.emit(abi::add_immediate(source, source, 4));
+    builder.emit(abi::add_immediate(block, block, 4));
     builder.emit(abi::add_immediate(target, target, 4));
     builder.emit(abi::subtract_immediate(samples, samples, 1));
     builder.emit(abi::compare_immediate(samples, "0"));
@@ -4130,11 +4773,203 @@ fn emit_picture_upload(
         builder.emit(abi::store_u32(
             abi::SCRATCH[0],
             abi::stack_pointer(),
-            off_item + offset,
+            at.item + offset,
         ));
     }
 
     builder.emit(abi::label(&done));
+}
+
+/// The stack slots `emit_picture_upload` and its table helpers read.
+struct PictureSlots {
+    state: usize,
+    item: usize,
+    header: usize,
+    glyph_cursor: usize,
+    /// This frame's picture-table record count, zeroed with the other cursors.
+    pic_count: usize,
+    /// The empty index slot a missed lookup ended at, for `emit_picture_record`.
+    pic_slot: usize,
+}
+
+/// The picture table's multiplicative hash constant (xorshift*'s) — the one Metal's
+/// table uses — odd so the multiply is a bijection on the address bits it keeps.
+const PICTURE_HASH_MULTIPLIER: &str = "2685821657736338717";
+
+/// Look the picture's pixel block up in this frame's picture table (bug-688; the layout
+/// is at `VULKAN_PICTURE_RECORDS_OFFSET`, Metal's design). On a hit, name the uploaded
+/// texels in the item block (base in `arc.z`, width in `misc.w`) and branch to `done`;
+/// on a miss, park the empty index slot the probe ended at in `pic_slot` and fall
+/// through to the upload.
+///
+/// Live on entry: `block` (`SCRATCH[7]`), `width` (`SCRATCH[2]`), `samples`
+/// (`SCRATCH[4]`). Uses `SCRATCH[0,1,3,5,6,8]`.
+///
+/// A slot is live only when its record number is below this frame's count and that
+/// record names the slot back — the sparse-set test — so the index never needs clearing,
+/// and whatever the mapped memory held before the first frame reads as empty.
+fn emit_picture_lookup(builder: &mut CodeBuilder, at: &PictureSlots, done: &str) {
+    let probe = builder.label("vk_pic_probe");
+    let live = builder.label("vk_pic_live");
+    let miss = builder.label("vk_pic_miss");
+    let hit = builder.label("vk_pic_hit");
+    let (index, record_no, record, records, slot, count) = (
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+        abi::SCRATCH[8],
+    );
+    let (width, block) = (abi::SCRATCH[2], abi::SCRATCH[7]);
+    const INDEX_BITS: u32 = VULKAN_PICTURE_INDEX_SLOTS.trailing_zeros();
+
+    // records = mapped + RECORDS_OFFSET; index = mapped + INDEX_OFFSET.
+    emit_state_load(
+        builder,
+        at.state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        records,
+    );
+    builder.emit(abi::move_immediate(
+        index,
+        "Integer",
+        &VULKAN_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    builder.emit(abi::add_registers(index, records, index));
+    builder.emit(abi::move_immediate(
+        record_no,
+        "Integer",
+        &VULKAN_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    builder.emit(abi::add_registers(records, records, record_no));
+    // slot = ((block >> 4) * K) >> (64 - INDEX_BITS). Blocks are 16-byte aligned arena
+    // allocations, so the low four bits carry nothing.
+    builder.emit(abi::shift_right_immediate(slot, block, 4));
+    builder.emit(abi::move_immediate(
+        record_no,
+        "Integer",
+        PICTURE_HASH_MULTIPLIER,
+    ));
+    builder.emit(abi::multiply_registers(slot, slot, record_no));
+    builder.emit(abi::shift_right_immediate(
+        slot,
+        slot,
+        (64 - INDEX_BITS) as u8,
+    ));
+    builder.emit(abi::load_u64(count, abi::stack_pointer(), at.pic_count));
+
+    builder.emit(abi::label(&probe));
+    builder.emit(abi::shift_left_immediate(record_no, slot, 2));
+    builder.emit(abi::add_registers(record_no, index, record_no));
+    builder.emit(abi::load_u32(record_no, record_no, 0));
+    // Unsigned: a slot holding garbage from before this buffer's first frame is a large
+    // number, and it must read as "not below the count" rather than as negative.
+    builder.emit(abi::compare_registers(record_no, count));
+    builder.emit(abi::branch_lo(&live));
+    builder.emit(abi::branch(&miss));
+    builder.emit(abi::label(&live));
+    const _: () = assert!(
+        PICTURE_RECORD_BYTES == 16,
+        "records are addressed by a shift of 4"
+    );
+    builder.emit(abi::shift_left_immediate(record, record_no, 4));
+    builder.emit(abi::add_registers(record, records, record));
+    builder.emit(abi::load_u32(record_no, record, 12));
+    builder.emit(abi::compare_registers(record_no, slot));
+    builder.emit(abi::branch_ne(&miss));
+    builder.emit(abi::load_u64(record_no, record, 0));
+    builder.emit(abi::compare_registers(record_no, block));
+    builder.emit(abi::branch_eq(&hit));
+    // Another block's live slot: the next one, wrapping.
+    builder.emit(abi::add_immediate(slot, slot, 1));
+    builder.emit(abi::move_immediate(
+        record_no,
+        "Integer",
+        &(VULKAN_PICTURE_INDEX_SLOTS - 1).to_string(),
+    ));
+    builder.emit(abi::and_registers(slot, slot, record_no));
+    builder.emit(abi::branch(&probe));
+
+    builder.emit(abi::label(&hit));
+    builder.emit(abi::load_u32(record_no, record, 8));
+    builder.emit(abi::store_u32(
+        record_no,
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    builder.emit(abi::store_u32(
+        width,
+        abi::stack_pointer(),
+        at.item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::branch(done));
+
+    builder.emit(abi::label(&miss));
+    builder.emit(abi::store_u64(slot, abi::stack_pointer(), at.pic_slot));
+}
+
+/// Record the picture just given its slice of the glyph region — `block` in
+/// `SCRATCH[7]`, its base (the pre-advance glyph cursor) in `SCRATCH[0]` — at the index
+/// slot `emit_picture_lookup` parked (bug-688).
+///
+/// Uses `SCRATCH[0,1,3,5,6]`; `block`, `width` and `samples` survive for the copy.
+/// The count check is unreachable — one record per picture item, and the predicate caps
+/// items at `VULKAN_PICTURE_RECORDS` — and is kept because the alternative is a write
+/// past the table; an unrecorded picture is still uploaded, only not shared.
+fn emit_picture_record(builder: &mut CodeBuilder, at: &PictureSlots) {
+    let full = builder.label("vk_pic_table_full");
+    let (base, count, entry, temp, mapped) = (
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+        abi::SCRATCH[5],
+        abi::SCRATCH[6],
+    );
+    let block = abi::SCRATCH[7];
+
+    builder.emit(abi::load_u64(count, abi::stack_pointer(), at.pic_count));
+    builder.emit(abi::move_immediate(
+        temp,
+        "Integer",
+        &VULKAN_PICTURE_RECORDS.to_string(),
+    ));
+    builder.emit(abi::compare_registers(count, temp));
+    builder.emit(abi::branch_ge(&full));
+
+    // records[count] = (block, base, slot)
+    emit_state_load(
+        builder,
+        at.state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        mapped,
+    );
+    builder.emit(abi::shift_left_immediate(entry, count, 4));
+    builder.emit(abi::add_registers(entry, mapped, entry));
+    builder.emit(abi::move_immediate(
+        temp,
+        "Integer",
+        &VULKAN_PICTURE_RECORDS_OFFSET.to_string(),
+    ));
+    builder.emit(abi::add_registers(entry, entry, temp));
+    builder.emit(abi::store_u64(block, entry, 0));
+    builder.emit(abi::store_u32(base, entry, 8));
+    builder.emit(abi::load_u64(temp, abi::stack_pointer(), at.pic_slot));
+    builder.emit(abi::store_u32(temp, entry, 12));
+    // index[slot] = count -- written AFTER the record, so the slot is never live while
+    // the record it names is stale.
+    builder.emit(abi::shift_left_immediate(temp, temp, 2));
+    builder.emit(abi::add_registers(entry, mapped, temp));
+    builder.emit(abi::move_immediate(
+        temp,
+        "Integer",
+        &VULKAN_PICTURE_INDEX_OFFSET.to_string(),
+    ));
+    builder.emit(abi::add_registers(entry, entry, temp));
+    builder.emit(abi::store_u32(count, entry, 0));
+    builder.emit(abi::add_immediate(count, count, 1));
+    builder.emit(abi::store_u64(count, abi::stack_pointer(), at.pic_count));
+    builder.emit(abi::label(&full));
 }
 
 /// Copy the item block just built on the stack into the frame's item buffer at the
@@ -4147,7 +4982,7 @@ fn emit_picture_upload(
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, and a glyph run is
 /// one per glyph, because each glyph is its own quad with its own block. That is the
-/// same number `__canvas_vulkanRenderable` sums against `CANVAS_MAX_FRAME_ITEMS`, so
+/// same number `__canvas_vulkanRenderable` sums against `VULKAN_MAX_FRAME_ITEMS`, so
 /// the two cannot disagree about what "full" means.
 ///
 /// Branches to `full` without writing or advancing if the frame is already at
@@ -4169,7 +5004,7 @@ fn emit_item_publish(
     builder.emit(abi::load_u64(cursor, abi::stack_pointer(), off_item_cursor));
     builder.emit(abi::compare_immediate(
         cursor,
-        &CANVAS_MAX_FRAME_ITEMS.to_string(),
+        &VULKAN_MAX_FRAME_ITEMS.to_string(),
     ));
     builder.emit(abi::branch_ge(full));
 
@@ -4457,37 +5292,23 @@ fn emit_draw_list_pass(
     // travelled with the entry.
     // handle = *(state + …_PIPELINE_MODES + mode * 8) — the same shift-and-add the
     // publish walk uses, so the two cannot pick different pipelines for one mode.
+    //
+    // In vregs, not `SCRATCH[k]`: `entry` is a vreg live across this stretch, and the
+    // allocator does not see hand-assigned scratch, so on x86-64 it may put `entry` in
+    // the very register a fixed `SCRATCH[k]` names (bug-688 measured that collision in
+    // `emit_state_load`).
     let off_pipeline = builder.allocate_stack_object("vk_drawlist_pipeline", 8);
+    let state = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&word, &entry, CANVAS_DRAW_ENTRY_MODE));
+    builder.emit(abi::shift_left_immediate(&word, &word, 3));
+    builder.emit(abi::load_u64(&state, abi::stack_pointer(), off_state));
+    builder.emit(abi::add_registers(&word, &state, &word));
     builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        &entry,
-        CANVAS_DRAW_ENTRY_MODE,
-    ));
-    builder.emit(abi::shift_left_immediate(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        3,
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        off_state,
-    ));
-    builder.emit(abi::add_registers(
-        abi::SCRATCH[0],
-        abi::SCRATCH[1],
-        abi::SCRATCH[0],
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
+        &word,
+        &word,
         GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
     ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_pipeline,
-    ));
+    builder.emit(abi::store_u64(&word, abi::stack_pointer(), off_pipeline));
     builder.emit(abi::load_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
@@ -4573,8 +5394,12 @@ fn emit_draw_list_pass(
 /// shape: draw offscreen, read back, and let the frame leave through the same
 /// `canvas::blitSurface` every other path uses. That is what makes the two backends
 /// and the software oracle comparable at all — the tolerance comparator diffs an
-/// RGBA8 buffer — and here it is also what makes the renderer testable, because no
-/// reachable Linux box has a display server for a swapchain to present to.
+/// RGBA8 buffer — and here it is also what makes the renderer testable headless.
+///
+/// Unlike Metal (bug-686 Phase 4) there is no direct present: a frame is read back even
+/// in a window. Whether that readback threatens the frame budget is a real-GPU question
+/// bug-688 could not measure — every reachable Vulkan driver is Mesa's CPU lavapipe — so
+/// no `VK_KHR_swapchain` path was built on a guess.
 ///
 /// The submit is followed by `vkQueueWaitIdle`, so the frame is complete before this
 /// returns and `canvas::frameDone` advances D's counter after real GPU completion —
@@ -5205,6 +6030,11 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_glyph_meta = builder.allocate_stack_object("vk_glyph_meta", 8);
     let off_glyph_cov = builder.allocate_stack_object("vk_glyph_cov", 8);
     let off_glyph_cursor = builder.allocate_stack_object("vk_glyph_cursor", 8);
+    // bug-688: the frame's picture-table record count and a lookup's parked index slot.
+    let off_pic_count = builder.allocate_stack_object("vk_pic_count", 8);
+    let off_pic_slot = builder.allocate_stack_object("vk_pic_slot", 8);
+    // bug-688: the band index's region cursor and one polygon's working state.
+    let bands = BandSlots::allocate(builder, off_state, off_item, off_header);
     let off_glyph_index = builder.allocate_stack_object("vk_glyph_index", 8);
     let off_glyph_count = builder.allocate_stack_object("vk_glyph_count", 8);
     let off_glyph_w = builder.allocate_stack_object("vk_glyph_w", 8);
@@ -5649,6 +6479,19 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_grad_cursor,
     ));
+    // bug-688: an empty picture table. Nothing in the table itself is cleared -- a slot
+    // is live only below this count (`emit_picture_lookup`).
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pic_count,
+    ));
+    // bug-688: and an empty band region.
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        bands.cursor,
+    ));
     // The item-buffer cursor and the current run's base, both starting at quad zero.
     builder.emit(abi::store_u64(
         abi::SCRATCH[0],
@@ -5841,11 +6684,28 @@ pub(crate) fn emit_vulkan_draw_scene(
     builder.emit(abi::branch_eq(&text_item));
 
     emit_item_block(builder, off_item, off_width, off_height);
-    emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
+    emit_edge_upload(
+        builder,
+        off_state,
+        off_item,
+        off_header,
+        off_edge_cursor,
+        &bands,
+    );
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
     // and before the split, so both records of a split picture name its texels.
-    emit_picture_upload(builder, off_state, off_item, off_header, off_glyph_cursor);
+    emit_picture_upload(
+        builder,
+        PictureSlots {
+            state: off_state,
+            item: off_item,
+            header: off_header,
+            glyph_cursor: off_glyph_cursor,
+            pic_count: off_pic_count,
+            pic_slot: off_pic_slot,
+        },
+    );
     // Published, not drawn. The draw happens at the end of the run this item joins —
     // which is what makes consecutive shapes one instanced `vkCmdDraw` instead of N.
     emit_split_or_publish(
@@ -6166,17 +7026,23 @@ fn emit_state_load(
     offset: usize,
     dst: impl Into<Operand>,
 ) {
-    // A fresh vreg, not a fixed `SCRATCH[k]` — the same rule `emit_call_fn` follows,
-    // and for a sharper reason here. On x86-64 the scratch pool aliases the C argument
-    // bank (`map_scratch_register`): `SCRATCH[3]` is `r8`, which is `c_arg(4)`. This
-    // helper is called *between* argument stagings, so a fixed scratch silently
-    // overwrote an argument already in place — `vkCmdBindDescriptorSets` received the
-    // graphics-state pointer as its `descriptorSetCount` and walked a one-element
-    // array for a dozen entries. On AArch64 the two banks are disjoint, so the fault
-    // does not exist on the development host.
-    let base = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&base, abi::stack_pointer(), state_slot));
-    builder.emit(abi::load_u64(dst, &base, offset));
+    // No temporary at all: the state base goes into `dst` itself, which the second load
+    // overwrites anyway. Both kinds of temporary have broken this helper on x86-64:
+    //
+    // * A fixed `SCRATCH[k]`. The x86 scratch pool aliases the C argument bank
+    //   (`map_scratch_register`): `SCRATCH[3]` is `r8`, which is `c_arg(4)`. This helper
+    //   is called *between* argument stagings, so a fixed scratch overwrote an argument
+    //   already in place — `vkCmdBindDescriptorSets` received the graphics-state pointer
+    //   as its `descriptorSetCount` and walked a one-element array for a dozen entries.
+    // * A `builder.temporary_vreg()`. The allocator does not see the hand-assigned
+    //   `SCRATCH` values the emitters keep live, so it may colour the vreg onto one of
+    //   them: bug-688's band index held its table offset in `SCRATCH[5]` (`r10`) across
+    //   this call, the vreg came out as `r10`, and the table pointer became the state
+    //   block plus 4 MiB — an access violation on Windows, and nothing on AArch64, where
+    //   `x9`–`x17` are outside the allocatable file.
+    let dst = dst.into();
+    builder.emit(abi::load_u64(dst.clone(), abi::stack_pointer(), state_slot));
+    builder.emit(abi::load_u64(dst.clone(), dst, offset));
 }
 
 /// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
@@ -6508,30 +7374,6 @@ mod tests {
         }
     }
 
-    /// The item block is the size the GLSL `ItemBlock`'s std430 array stride is.
-    ///
-    /// **This replaced a check against Vulkan's guaranteed 128-byte push-constant
-    /// range** (plan-116-A). That bound was real while the block *was* a push constant:
-    /// 128 is the `maxPushConstantsSize` minimum every implementation must support, and
-    /// exceeding it would have failed at pipeline-layout creation on whichever machine
-    /// had the smallest limit — which is exactly the machine the developer does not
-    /// have. The block now rides a storage buffer, so that ceiling is gone, and
-    /// asserting it would pin a constraint nothing enforces.
-    ///
-    /// What replaces it is the constraint that *is* still live: the CPU emitter writes
-    /// records of `ITEM_BLOCK_SIZE` bytes and the shaders index an `ItemBlock[]`, so the
-    /// two agree only if std430's array stride equals that size. std430 gives a struct
-    /// the alignment of its largest member — `ivec4`, 16 bytes — and rounds the stride
-    /// up to a multiple of it. So the stride equals the size exactly when the size is a
-    /// multiple of 16, which is what this asserts, and it is why every member of the
-    /// block is an `ivec4` rather than packed.
-    ///
-    /// Measured against the real compiler rather than reasoned about alone:
-    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 160` with
-    /// members at 0/16/32/48/64/80/96/112/128/144 (2026-09-01, glslang 11:15.2.0) —
-    /// re-measured each time the block grew: 112 → 128 for plan-116-B's clip, then
-    /// 128 → 160 for plan-116-C's transform. A later letter that widens it again must
-    /// re-run that and keep this equality.
     /// The two backends' pipeline arrays hold one entry per `BlendMode`, and the two
     /// arrays do not overlap each other or run past the state block.
     ///
@@ -6559,6 +7401,30 @@ mod tests {
         );
     }
 
+    /// The item block is the size the GLSL `ItemBlock`'s std430 array stride is.
+    ///
+    /// **This replaced a check against Vulkan's guaranteed 128-byte push-constant
+    /// range** (plan-116-A). That bound was real while the block *was* a push constant:
+    /// 128 is the `maxPushConstantsSize` minimum every implementation must support, and
+    /// exceeding it would have failed at pipeline-layout creation on whichever machine
+    /// had the smallest limit — which is exactly the machine the developer does not
+    /// have. The block now rides a storage buffer, so that ceiling is gone, and
+    /// asserting it would pin a constraint nothing enforces.
+    ///
+    /// What replaces it is the constraint that *is* still live: the CPU emitter writes
+    /// records of `ITEM_BLOCK_SIZE` bytes and the shaders index an `ItemBlock[]`, so the
+    /// two agree only if std430's array stride equals that size. std430 gives a struct
+    /// the alignment of its largest member — `ivec4`, 16 bytes — and rounds the stride
+    /// up to a multiple of it. So the stride equals the size exactly when the size is a
+    /// multiple of 16, which is what this asserts, and it is why every member of the
+    /// block is an `ivec4` rather than packed.
+    ///
+    /// Measured against the real compiler rather than reasoned about alone:
+    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 160` with
+    /// members at 0/16/32/48/64/80/96/112/128/144 (2026-09-01, glslang 11:15.2.0) —
+    /// re-measured each time the block grew: 112 → 128 for plan-116-B's clip, then
+    /// 128 → 160 for plan-116-C's transform. A later letter that widens it again must
+    /// re-run that and keep this equality.
     #[test]
     fn the_item_block_matches_the_std430_stride() {
         assert_eq!(
@@ -6570,78 +7436,131 @@ mod tests {
              the first would read a shifted block"
         );
         assert_eq!(
-            CANVAS_ITEM_BUFFER_BYTES,
-            CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE,
+            VULKAN_ITEM_BUFFER_BYTES,
+            VULKAN_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE,
             "the buffer must hold exactly the number of records the predicates admit"
         );
     }
 
-    /// The GLSL's `GRADIENT_BASE` is `VULKAN_GRADIENT_BASE_WORDS` (plan-116-F).
+    /// The fragment shader's region bases are specialization constants, and the
+    /// pipeline feeds every one of them (bug-688).
     ///
-    /// The same arrangement `GLYPH_BASE` has and for the same reason: the shader cannot
-    /// see a Rust constant and the SPIR-V is checked in, so this is the only thing
-    /// standing between the two numbers. A disagreement would not fail anywhere —
-    /// every gradient would simply read its stops from the wrong place in a buffer that
-    /// is entirely valid memory, and render a plausible wrong ramp.
+    /// This replaced two tests that compared literals in the GLSL (`const int GLYPH_BASE
+    /// = 65536;`, `const int GRADIENT_BASE = 1114112;`) against the Rust layout. Those
+    /// literals are gone: each base is now `layout(constant_id = N) const int` with a
+    /// default of 0, and its value arrives through `VkSpecializationInfo` from
+    /// `VULKAN_SPEC_CONSTANTS`, which is built from the layout constants themselves. So
+    /// what can still disagree is the NAME-to-ID pairing — the GLSL says `GLYPH_BASE` is
+    /// id 0 and the Rust table must send the glyph base as id 0 — and whether the blob
+    /// was regenerated from this GLSL at all. A wrong pairing, or a stale blob with the
+    /// literals, does not fail anywhere: every glyph, ramp or band reads from another
+    /// region of a buffer that is entirely valid memory.
     #[test]
-    fn the_shaders_gradient_base_matches_the_buffer_layout() {
+    fn the_pipeline_specializes_every_region_base() {
         const GLSL: &str = include_str!("shaders/mfb_canvas.frag");
-        let want = format!("const int GRADIENT_BASE = {VULKAN_GRADIENT_BASE_WORDS};");
-        assert!(
-            GLSL.contains(&want),
-            "the GLSL declares a gradient-region base that is not \
-             VULKAN_GRADIENT_BASE_WORDS ({VULKAN_GRADIENT_BASE_WORDS})"
-        );
-    }
-
-    /// The GLSL's `GLYPH_BASE` is `VULKAN_GLYPH_BASE_WORDS`.
-    ///
-    /// The shader cannot see a Rust constant and the SPIR-V is checked in, so this is
-    /// the only thing standing between the two numbers. A disagreement would not fail
-    /// anywhere: every glyph would simply read coverage from the wrong place in a buffer
-    /// that is entirely valid memory, and the frame would come back full of noise —
-    /// which looks like a rasteriser bug, on a machine with a Vulkan driver.
-    #[test]
-    fn the_shaders_glyph_base_matches_the_buffer_layout() {
-        const GLSL: &str = include_str!("shaders/mfb_canvas.frag");
-        let line = GLSL
-            .lines()
-            .find(|l| l.trim_start().starts_with("const int GLYPH_BASE"))
-            .expect("the fragment shader declares GLYPH_BASE");
-        let declared: usize = line
-            .split('=')
-            .nth(1)
-            .and_then(|rhs| rhs.trim().trim_end_matches(';').parse().ok())
-            .unwrap_or_else(|| panic!("cannot read a number from `{line}`"));
+        let expected = [
+            ("GLYPH_BASE", VULKAN_GLYPH_BASE_WORDS),
+            ("GRADIENT_BASE", VULKAN_GRADIENT_BASE_WORDS),
+            ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
+        ];
         assert_eq!(
-            declared, VULKAN_GLYPH_BASE_WORDS,
-            "the shader reads glyph coverage from word {declared}, the emitter writes it \
-             at word {VULKAN_GLYPH_BASE_WORDS}",
+            VULKAN_SPEC_CONSTANTS.len(),
+            expected.len(),
+            "one specialization entry per region base the shader reads"
         );
+        for (name, words) in expected {
+            let line = GLSL
+                .lines()
+                .find(|l| l.contains(&format!("const int {name} ")))
+                .unwrap_or_else(|| panic!("the fragment shader does not declare {name}"));
+            let id: u32 = line
+                .split("constant_id")
+                .nth(1)
+                .and_then(|rest| rest.trim_start_matches([' ', '=']).split(')').next())
+                .and_then(|n| n.trim().parse().ok())
+                .unwrap_or_else(|| {
+                    panic!("{name} is not a specialization constant in the GLSL: `{line}`")
+                });
+            assert!(
+                VULKAN_SPEC_CONSTANTS.contains(&(id, words)),
+                "the GLSL reads {name} as constant_id {id}, but the pipeline does not send \
+                 its base ({words} words) under that id: {VULKAN_SPEC_CONSTANTS:?}"
+            );
+        }
+        // The blob is compiled from that GLSL: each id the shader reads is decorated
+        // `SpecId` (OpDecorate = 71, SpecId = 1) in the checked-in SPIR-V. A blob still
+        // holding the literals has no such decoration.
+        let words: Vec<u32> = SPIRV_FRAGMENT
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        let mut spec_ids = Vec::new();
+        let mut at = 5;
+        while at < words.len() {
+            let (count, opcode) = ((words[at] >> 16) as usize, words[at] & 0xffff);
+            if opcode == 71 && count == 4 && words[at + 2] == 1 {
+                spec_ids.push(words[at + 3]);
+            }
+            at += count.max(1);
+        }
+        for (id, _) in VULKAN_SPEC_CONSTANTS {
+            assert!(
+                spec_ids.contains(&id),
+                "the fragment SPIR-V has no SpecId {id} — it was not regenerated from the \
+                 GLSL (scripts/regen-spirv.sh). Found: {spec_ids:?}"
+            );
+        }
     }
 
     /// The shared buffer is exactly the regions it is asked to hold, and each region
     /// starts where the one before it ends.
     ///
-    /// Written as a running total rather than as a sum, so adding a fourth region means
+    /// Written as a running total rather than as a sum, so adding a region means
     /// extending the chain rather than rewriting an equation — plan-116-F added the
-    /// third and found this asserting the two-region total.
+    /// third and found this asserting the two-region total. bug-688 added the band index
+    /// and the picture table and reordered the regions to Metal's order; the bases the
+    /// shader reads are specialized from these constants, so the chain is the whole
+    /// layout contract.
     #[test]
     fn the_shared_buffer_holds_every_region() {
+        let mut end = VULKAN_EDGE_BYTES;
         assert_eq!(
-            VULKAN_GLYPH_BASE_WORDS * 4,
-            VULKAN_EDGE_BYTES,
-            "the glyph region must start where the edge region ends",
+            VULKAN_BAND_BASE_WORDS * 4,
+            end,
+            "the band region must start where the edge region ends",
         );
+        end += VULKAN_MAX_FRAME_BAND_WORDS * 4;
         assert_eq!(
             VULKAN_GRADIENT_BASE_WORDS * 4,
-            VULKAN_EDGE_BYTES + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4,
-            "the gradient region must start where the glyph region ends",
+            end,
+            "the gradient region must start where the band region ends",
         );
+        end += VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
         assert_eq!(
-            VULKAN_BUFFER_BYTES,
-            VULKAN_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
-            "the buffer must be exactly its three regions, with nothing past the last",
+            VULKAN_GLYPH_BASE_WORDS * 4,
+            end,
+            "the glyph region must start where the gradient region ends",
+        );
+        end += VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+        assert_eq!(
+            VULKAN_PICTURE_RECORDS_OFFSET, end,
+            "the picture records must start where the glyph region ends",
+        );
+        end += VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES;
+        assert_eq!(
+            VULKAN_PICTURE_INDEX_OFFSET, end,
+            "the picture index must start where the records end",
+        );
+        end += VULKAN_PICTURE_INDEX_SLOTS * 4;
+        assert_eq!(
+            VULKAN_BUFFER_BYTES, end,
+            "the buffer must be exactly its regions, with nothing past the last",
+        );
+        // Every region base the shader indexes is an `int`, and so is every index it
+        // computes inside the glyph region.
+        assert!(
+            VULKAN_PICTURE_RECORDS_OFFSET / 4 < i32::MAX as usize,
+            "a word index past i32::MAX cannot be read by the GLSL's `int` arithmetic"
         );
     }
 }

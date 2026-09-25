@@ -1,0 +1,30 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float, wobble AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    LET rr AS Float = r + wobble * math::sin(a * 7.0) + wobble * 0.3 * math::sin(a * 53.0)
+    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  ' A mid-grey ground, so no antialiased rim pixel sits near black: there one coverage
+  ' step is several sRGB levels, and fp32 against the f64 oracle flips a step where a
+  ' distance lands on a quantisation boundary (bug-687) -- measured as max delta 3 on
+  ' this polygon over black, on Metal, independent of the band index.
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 170.0, w := 300.0, h := 300.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  ' Small on purpose: the software oracle walks every edge per covered pixel, so the
+  ' reference costs edges x area -- 64,000 edges over a 500-px polygon took 15 minutes.
+  LET coast AS canvas::DrawItem = canvas::Polygon[points := ring(64000, 450.0, 320.0, 50.0, 6.0), paint := canvas::fillStroke(color::rgb(40, 160, 90), color::rgb(240, 240, 200), 2.0)]
+  canvas::present([ground, coast])
+END SUB
