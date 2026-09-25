@@ -146,7 +146,7 @@ pointer in `x0`. It:
 - Calls the worker export with:
 
 ```text
-x0 = thread handle (the control block — the worker's ThreadWorker)
+x0 = the worker's view (the ThreadWorker record embedded in the control block)
 x1 = input value
 ```
 
@@ -156,7 +156,7 @@ x1 = input value
 
 `_mfb_rt_thread_finish` first drains the worker's buffered standard output, then
 does, under the block lock: unless the parent already
-closed the handle (then the result is discarded), deep-copy the result into the
+dropped its view (the block is `CLOSED`; the result is discarded), deep-copy the result into the
 block arena — a success value through the result type's copy function, a failure's
 message (`String`) and origin (`ErrorLoc`) through their fixed copy functions; a
 copy that runs out of memory replaces the result with a plain `ErrOutOfMemory` —

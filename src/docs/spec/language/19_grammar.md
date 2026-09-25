@@ -149,7 +149,7 @@ enumDecl       = declVis "ENUM" ident identlist "END" "ENUM" ;
 identlist      = ident { "," ident } ;
 
 block          = { statement } ;
-statement      = letStmt | mutStmt | assignStmt
+statement      = letStmt | mutStmt | resStmt | assignStmt
                | ifStmt | forStmt | foreachStmt | whileStmt
                | doStmt | matchStmt
                | failStmt | propagateStmt | recoverStmt | returnStmt
@@ -158,6 +158,9 @@ statement      = letStmt | mutStmt | assignStmt
 
 letStmt        = "LET" ident [ "AS" type ] "=" expr ;
 mutStmt        = "MUT" ident [ "AS" type ] [ "=" expr ] ;
+(* A resource — a file, a socket, a `Thread`, … — is bound with RES and only
+   with RES (§5, §15); a RES binding is never reassigned. *)
+resStmt        = "RES" ident [ "AS" type ] [ "STATE" type ] [ "=" expr ] ;
 (* `ident.state` / `ident.state.field` are the only member-target assignments —
    they replace a RES binding's STATE payload (§15). *)
 assignStmt     = ident "=" expr
@@ -174,7 +177,7 @@ blockIfStmt    = "IF" expr "THEN" block
                    { "ELSEIF" expr "THEN" block }
                    [ "ELSE" block ]
                    "END" "IF" ;
-simpleStmt     = letStmt | mutStmt | assignStmt | failStmt | propagateStmt
+simpleStmt     = letStmt | mutStmt | resStmt | assignStmt | failStmt | propagateStmt
                | recoverStmt | returnStmt | exitStmt | continueStmt | exprStmt ;
 forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;

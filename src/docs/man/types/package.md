@@ -109,10 +109,15 @@ user code. See `mfb man errors`.
 
 - **`Thread OF Msg TO Out`** — an opaque parent-side handle to an isolated worker
   thread. `Msg` is the message type used with `thread::send`/`thread::receive`;
-  `Out` is the worker entry function's success type. Thread handles are neither
-  copyable nor sendable.
+  `Out` is the worker entry function's success type. A `Thread` is a `RES` handle,
+  like an open file: bind it with `RES`, and it closes when its scope ends — a
+  thread still running then is asked to stop. It is not copyable, but it can be
+  handed to another thread with `thread::transfer`, kept in a `List OF RES
+  Thread …`, and given its own state with a trailing `STATE S`.
 - **`ThreadWorker OF Msg TO Out`** — the opaque worker-side handle to the same
-  thread, passed into the thread entry function.
+  thread, passed into the thread entry function. It belongs to the worker for as
+  long as the worker runs, so it never goes into a collection or to another
+  thread.
 
 ## Package types
 

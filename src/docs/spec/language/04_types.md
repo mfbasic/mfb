@@ -431,9 +431,10 @@ Thread OF Msg TO Out                 ' isolated running or completed thread
 ThreadWorker OF Msg TO Out           ' worker-side view of the same thread
 Thread OF Msg RES Res TO Out         ' with a resource plane (thread::transfer/accept)
 Thread OF RES Res TO Out             ' resource plane only (message slot is Nothing)
+Thread OF Msg TO Out STATE S         ' a view carrying its own STATE (§16)
 ```
 
-`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`, and may be called again for the same outcome. Both handles are resources: the parent `Thread` closes when it is dropped, and the `ThreadWorker` belongs to the runtime.
+`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`, and may be called again for the same outcome. Both handles are resources: the parent `Thread` is bound with `RES` and closes when it is dropped, and the `ThreadWorker` belongs to the runtime. A trailing `STATE S` belongs to the handle, never to `Out`. [[src/types.rs:with_state]]
 
 ## 4.9 Type Inference
 

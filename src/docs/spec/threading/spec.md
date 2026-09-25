@@ -20,6 +20,8 @@ The model has these requirements:
 - A thread entry point is an `ISOLATED FUNC` — one this project declares, at any visibility, or an imported package's `EXPORT ISOLATED FUNC`.
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
+- Both handles are resources. The parent's is bound with `RES`, and its drop
+  cancels a worker still running; the worker's belongs to the runtime.
 - The parent communicates with the worker through bounded typed queues, split by
   direction (inbound parent→worker, outbound worker→parent) on each plane.
 - All values that cross a thread boundary have thread-sendable types.

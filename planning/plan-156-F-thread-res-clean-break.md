@@ -169,12 +169,35 @@ new fixture passes.
   `syntax/threads/**` → "acceptance tests passed (106 test(s) ran)";
   `artifact-gate all` → 0 diffs after the package regeneration; the Rust thread
   suites pass (`no_type_strings` failed on a bug-695 ratchet — Correction 3).
-Commit: —
+Commit: a6686c7e8
 
 ### Phase 2 — spec and man
 
-- [ ] The spec pass (§3), 37 files.
-- [ ] The man pass (§3).
+- [x] The spec pass (§3), 37 files.
+      (C, D and E each rewrote the sentences they falsified — C and D
+      Correction 4 — so this pass audited the rest by grepping the 37 files for
+      the retired claims and rewrote: `language/16` (the example binding; the
+      sendable list; a new closing section — thread handles are resources,
+      `RES`-only, not reassigned, drop cancels or joins; storage; per-view
+      `STATE`), `language/15` (thread handles in the four-event rule; pools in
+      §15.6), `language/04` §4.8 (the `STATE` form, `RES`), `language/05` (the
+      `RES` list), `language/19` (a `resStmt` — the gap §3 names), `architecture/21`
+      (a thread's trailing `STATE` is the handle's), `threading/spec.md`,
+      `02_isolation` (start/send copy through the block arena and never consume;
+      the "no arena but the main one is torn down" sentence was false since A),
+      `06` (the entry's `x0` is the worker view), `08` (the drop: owner count,
+      move-on-pass and `MUT` reassignment removed), `11` (`waitFor` closes
+      nothing), `tooling/05_fmt` (its example). `language/14`, `threading/09` and
+      the linker/app/stdlib mentions were already accurate. Diagnostics: the
+      rule row landed in D.)
+- [x] The man pass (§3).
+      (The 12 thread pages' examples were migrated in Phase 1 and their prose
+      in C and D; this pass added to the package page a paragraph on the `RES`
+      handle — bound with `RES`, closed and stopped at scope end, lent to
+      functions, kept in a pool — and one on per-end `STATE`; `types` (a `Thread`
+      is a `RES` handle that can be transferred and stored; a `ThreadWorker`
+      never leaves its worker); `variable` (a `Thread` is a RES handle); the five
+      `tour` snippets (`RES t = thread::start(…)`).)
 
 Acceptance: the spec gates pass and every thread man example runs.
   Check: `cargo build && cargo test --bin mfb spec` → pass (est. 4 min);
@@ -182,6 +205,11 @@ Acceptance: the spec gates pass and every thread man example runs.
   thread symbols deleted in C (est. 1 min);
   `scripts/man-census.sh --memory-scope` → 0 unclassified (est. 1 min);
   `scripts/man-run-examples.sh thread --run` → all pass (est. 2 min).
+  Result: `cargo test --release --bin mfb -- spec man registry` → 449 passed;
+  `scripts/spec-census.sh --citations` → 0 misses (0 stale-by-deletion),
+  `--links` → 971 links, 0 unresolved; `man-census.sh --memory-scope` → 0
+  unclassified; `man-run-examples.sh thread --run` → 13 built, 13 ran, 0 failed
+  (and `os --run` → 27/27, for the migrated `os::sleep` example).
 Commit: —
 
 ### Phase 3 — close out

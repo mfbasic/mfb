@@ -101,9 +101,19 @@ consumer.
 
 `thread::waitFor` waits for the thread to finish and gives you its return value
 — or, if the function failed, fails the same way in your own code, carrying the
-same error. Asking again gives the same outcome again. A `Thread` handle is
-closed when the variable holding it goes out of scope, like an open file;
-passing it to a function lends it, so the caller still holds it afterwards.
+same error. Asking again gives the same outcome again.
+
+A `Thread` is a `RES` handle, like an open file: bind it with `RES t =
+thread::start(…)`, and it is closed when that variable goes out of scope — a
+thread still running then is asked to stop, exactly as `thread::cancel` asks, and
+left to finish on its own. Passing it to a function lends it, so the caller
+still holds it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
+workers) or in a record's `RES` field.
+
+Each end of a thread can keep its own state. `RES t AS Thread OF Msg TO Out STATE
+P` gives the parent's handle a `P` record at `t.state`, and the worker declares
+its own on its first parameter, `worker AS ThreadWorker OF Msg TO Out STATE W`.
+The two are separate records: neither side ever sees the other's.
 
 `thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
 notices by calling `thread::isCancelled` and decides what to do about it. A

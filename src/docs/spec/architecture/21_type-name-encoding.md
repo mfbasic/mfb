@@ -150,8 +150,9 @@ byte-exact, so the encoding on this page is unchanged.
 [[src/types.rs:ParameterType]]
 
 **Top-level only.** A `Stateful` is built only when the text before ` STATE ` is
-a single bare token, so a clause nested inside an enclosing `List`/`Map`/`Thread`
-stays on the *element*: `List OF RES fs::File STATE Cursor` is
+a single bare token — or for a thread type, whose trailing clause is its view's
+(see Thread types) — so a clause nested inside an enclosing `List`/`Map`, or on a
+thread's resource plane, stays on the *element*: `List OF RES fs::File STATE Cursor` is
 `ListOf(Res(Stateful { .. }))`, and the outer list reports no state of its own.
 `ParameterType::split_state` is therefore a plain match on that variant.
 [[src/types.rs:split_state]]
@@ -203,7 +204,14 @@ body has three shapes, and a resource-only thread defaults its message to
 Thread OF Msg TO Out               ' data-only
 Thread OF Msg RES Res TO Out       ' data + resource planes
 Thread OF RES Res TO Out           ' resource-only (message defaults to Nothing)
+Thread OF Msg TO Out STATE S       ' any of the above, with the view's own STATE
 ```
+
+A trailing ` STATE S` after the output belongs to the handle: when the output
+parses to its own top-level `Stateful`, `ParameterType::parse` lifts the clause
+onto the handle (`Stateful { base: ThreadHandle { .. }, state: S }`), and
+`with_state` builds the same shape, so `name()` round-trips byte-exact. An output
+is data, which carries no STATE. [[src/types.rs:with_state]]
 
 The single source of truth for **emitting** a thread type is
 `format_thread_type`; the single source for **parsing** one back is

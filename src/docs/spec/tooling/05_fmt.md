@@ -113,7 +113,7 @@ In a type position `Keyword::Nothing` is emitted as `Nothing`; everywhere else a
 ```text
 LET x = nothing                         ' value   → NOTHING
 value AS Nothing                        ' type    → Nothing
-LET t AS Thread OF Nothing TO Integer   ' type    → Nothing
+RES t AS Thread OF Nothing TO Integer   ' type    → Nothing
 ```
 
 ### Comments: `REM` and `'`

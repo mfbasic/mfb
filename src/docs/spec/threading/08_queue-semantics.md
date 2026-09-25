@@ -152,24 +152,24 @@ runtime cleanup. A public detach operation would need the same ownership and
 cleanup guarantees as dropping the handle, while making it easier for user code
 to abandon a worker that still owns resources or queued values.
 
-The compiler lowers ordinary lexical ownership cleanup for every live parent
-`Thread` handle. Scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated
-errors, and trap routing run the same drop helper (`thread.drop`,
-`_mfb_rt_thread_thread_drop`) in reverse declaration order. The drop helper marks
-the control block `CLOSED` (state 2), sets the cancellation flag, closes and
+A parent `Thread` view is a resource, so the compiler drops it through the
+ordinary resource cleanup: scope exit, `RETURN`, `FAIL`, `PROPAGATE`,
+auto-propagated errors, and trap routing run its close op, the drop helper
+(`thread.drop`, `_mfb_rt_thread_thread_drop`), in reverse declaration order, and
+then free the 96-byte view record. The drop helper closes the view first, then
+marks the control block `CLOSED` (state 2), sets the cancellation flag, closes and
 clears both data queues (broadcasting their waiters) and wakes the resource plane.
 A worker still running is then `pthread_detach`ed; a worker that had already
-completed is `pthread_join`ed. Separately, each drop gives up its binding's owner
-count, and only the drop that takes the count to 0 gives up the handle side's
-reference on the control block, which is freed by whichever side lets go last
-(`control-block` § Lifetime). Reassigning a `MUT Thread` evaluates the new value
-first, then drops the old handle before storing the replacement. A handle returned
-from a function moves to the caller's binding. A handle passed to a function is
-closed by the callee's parameter but still released by the caller's binding, which
-may read it afterwards. A trap route to the function's `TRAP` handler closes a
-handle the handler can name without releasing it; the handler's own exit releases
-it. The cleanup call nulls the binding's slot after a release, so a later exit edge
-never releases the same binding twice.
+completed is `pthread_join`ed, unless a `thread::waitFor` already joined it. Last
+it gives up the handle side's reference on the control block, which is freed by
+whichever side lets go last (`control-block` § Lifetime). There is one parent view
+per thread and one drop of it: a `RETURN` moves the view to the caller's binding,
+`RES b = a` moves it to `b`, a successful `thread::transfer` moves it to the
+receiving thread, and a view passed to a function is lent — the callee drops
+nothing. A drop reached through a null slot (a binding its initializer never
+wrote) or on a closed view does nothing.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_cleanup_call]]
 
 The same scope-drop cleanup mechanism also frees ordinary owned **values** with
 one `arena_free` each, in the same reverse order on the same exit paths — the

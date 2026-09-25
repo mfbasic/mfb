@@ -5,7 +5,8 @@ chooses **ownership**:
 
 - **`LET`** — immutable binding (copyable data).
 - **`MUT`** — reassignable binding (copyable data).
-- **`RES`** — a uniquely-owned resource (a `File`, `Socket`, `Listener`, …).
+- **`RES`** — a uniquely-owned resource (a `File`, `Socket`, `Listener`, a
+  `Thread`, …).
   A resource has no aliases, so mutability is moot and `RES` needs no
   immutable/mutable sub-distinction. See §15.
 
