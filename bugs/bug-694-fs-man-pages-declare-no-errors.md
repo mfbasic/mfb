@@ -25,7 +25,7 @@ References:
   it, consistent with the auto-derived Errors table."
 - bug-454 (`bugs/completed/bug-454-win64-os-resourcepath-unsupported.md`): the
   same gap for `os::resourcePath`, and why no test caught it.
-- Found during plan-156-C (`planning/plan-156-C-os-user-paths.md`, Correction
+- Found during plan-157-C (`planning/plan-157-C-os-user-paths.md`, Correction
   C-5), while fixing `fs::createDirectories` on Windows.
 
 ## Failing Reproduction
@@ -83,7 +83,7 @@ what its helper raises, and every descriptor was migrated with an empty list.
 - Other packages whose `abi_function` helpers raise through `raise_error_into`:
   UNMEASURED. Phase 1 measures them package by package with the same `rg`, then
   classifies each as fixed here or out of scope, with the reason.
-- `os`: unaffected. Its members declare `errors` (bug-454, plan-156).
+- `os`: unaffected. Its members declare `errors` (bug-454, plan-157).
 
 ## Fix Design
 
@@ -95,7 +95,7 @@ what its helper raises, and every descriptor was migrated with an empty list.
    `ErrInvalidPath`/`ErrWriteFailed`; verify each against the code), plus
    `ErrOutOfMemory` wherever the helper allocates.
 2. Fill `errors` and bring each page's prose into line (also remove any stale
-   `ErrOutput` naming, the old name of `ErrWriteFailed`; plan-156-C fixed
+   `ErrOutput` naming, the old name of `ErrWriteFailed`; plan-157-C fixed
    `createDirectories` and `flush`).
 3. Add a registry test so a raising `fs` member can no longer declare none. The
    stronger form scans the `fs` helper sources for `raise_error_into(…, "Err…"`

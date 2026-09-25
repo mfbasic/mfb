@@ -36,7 +36,7 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             );
         }
     }
-    // plan-156-B: `s = os::appDataPath(s)` (and its host-path siblings) lowers in
+    // plan-157-B: `s = os::appDataPath(s)` (and its host-path siblings) lowers in
     // place, and the arm reads the base through the member's internal
     // `<member>Base` helper — a runtime call no NIR op names.
     for member in crate::codegen::collection::assign::string_self_update::HOST_PATH_ARM_MEMBERS {
@@ -349,7 +349,7 @@ pub(super) fn platform_imports(
 }
 
 /// The frontend `os::` calls whose lowering takes the process-global env/pwd lock
-/// (bug-64). The code layer's list, reused so the two cannot drift (plan-156-B
+/// (bug-64). The code layer's list, reused so the two cannot drift (plan-157-B
 /// replaced a hand-synced copy here).
 use crate::codegen::builtins::os::OS_ENV_LOCK_CALLS;
 

@@ -368,7 +368,7 @@ pub(crate) fn string_symbols(
             // plan-55-B: `os.appResourcePath` raises ErrUnsupported when the exe path
             // cannot be acquired (the same failure `executablePath` handles).
             "os.appResourcePath",
-            // plan-156-B: no home / no passwd entry / the known-folder query failed.
+            // plan-157-B: no home / no passwd entry / the known-folder query failed.
             "os.appDataPath",
             "os.appCachePath",
             "os.userHomePath",

@@ -40,7 +40,7 @@ use crate::target::win_x86_64::app;
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
-const OLE32: &str = "ole32.dll"; // plan-156-B: CoTaskMemFree of a known-folder path
+const OLE32: &str = "ole32.dll"; // plan-157-B: CoTaskMemFree of a known-folder path
 const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const WS2_32: &str = "ws2_32.dll";
 /// bug-431: `LoadLibraryExA` flag — resolve the library (and its own
@@ -164,7 +164,7 @@ fn emit_wide_slot_to_utf8(
     );
 }
 
-/// plan-156-B: the `KNOWNFOLDERID` a host-path `emit_os_wide_string` query names,
+/// plan-157-B: the `KNOWNFOLDERID` a host-path `emit_os_wide_string` query names,
 /// as `(Data1, Data2, Data3, Data4)` — the in-memory `GUID` layout.
 fn known_folder_guid(which: &str) -> Option<(u32, u16, u16, [u8; 8])> {
     match which {
@@ -200,7 +200,7 @@ fn known_folder_guid(which: &str) -> Option<(u32, u16, u16, [u8; 8])> {
     }
 }
 
-/// plan-156-B: `SHGetKnownFolderPath(&guid, KF_FLAG_DEFAULT, NULL, &wide)`,
+/// plan-157-B: `SHGetKnownFolderPath(&guid, KF_FLAG_DEFAULT, NULL, &wide)`,
 /// marshalled to a NUL-terminated UTF-8 arena buffer whose pointer is left in the
 /// return register, 0 on failure — the `emit_os_wide_string` contract.
 ///
@@ -290,7 +290,7 @@ fn emit_known_folder_query(
     ]);
 }
 
-/// plan-156-B: the non-allocating twin of [`emit_known_folder_query`], behind
+/// plan-157-B: the non-allocating twin of [`emit_known_folder_query`], behind
 /// `CodegenPlatform::emit_known_folder_into`. Entry: `ARG[0]` = destination,
 /// `ARG[1]` = its capacity. Exit: the return register = the UTF-8 length (no
 /// NUL), with the bytes and a NUL written to the destination only when
@@ -2184,7 +2184,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         const WIDE_SLOT: usize = 0x48;
         const U8_SLOT: usize = 0x50;
         let n = instructions.len();
-        // plan-156-B: the host-path folders come from `SHGetKnownFolderPath`, whose
+        // plan-157-B: the host-path folders come from `SHGetKnownFolderPath`, whose
         // wide buffer the system allocates — a different frame protocol.
         if let Some(guid) = known_folder_guid(which) {
             emit_known_folder_query(from, guid, n, instructions, relocations);

@@ -1,7 +1,7 @@
 ' fs::createDirectories with the host's own separators and an absolute path
-' (plan-156-C). On Windows a path may use `\` and start with a drive or `\\`
+' (plan-157-C). On Windows a path may use `\` and start with a drive or `\\`
 ' share; every missing level must be created and existing ones accepted. Before
-' plan-156-C the Windows walk split on `/` only and read "already exists" as the
+' plan-157-C the Windows walk split on `/` only and read "already exists" as the
 ' POSIX 17 instead of ERROR_ALREADY_EXISTS (183), so any nested create failed with
 ' ErrWriteFailed. POSIX spells the same trees with `/`, so output is identical.
 IMPORT fs

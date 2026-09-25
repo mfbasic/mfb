@@ -1,8 +1,8 @@
-# plan-156-B: `os::appDataPath` and `os::appCachePath`
+# plan-157-B: `os::appDataPath` and `os::appCachePath`
 
 Last updated: 2026-09-24
 Effort: large (3h–1d)
-Depends on: plan-156-A
+Depends on: plan-157-A
 
 This sub-plan adds two calls:
 
@@ -10,13 +10,13 @@ This sub-plan adds two calls:
 - `os::appCachePath(relative AS String = "") AS String`
 
 Each returns the per-user, per-app directory the host platform designates for
-application data or cache, joined with `relative`. Both follow the plan-156
-family contract (plan-156-A intro): the `.`/`..` component rejection raises
+application data or cache, joined with `relative`. Both follow the plan-157
+family contract (plan-157-A intro): the `.`/`..` component rejection raises
 `ErrInvalidPath`, an empty `relative` returns the base with no trailing `/`,
 the call creates nothing and checks nothing, and a failed lookup raises
 `ErrUnsupported`.
 
-This sub-plan also builds the shared machinery plan-156-C reuses:
+This sub-plan also builds the shared machinery plan-157-C reuses:
 
 - the relative-path validator and the result joiner, factored out of
   `lower_app_resource_path`;
@@ -41,7 +41,7 @@ for its base.
 
 References:
 
-- plan-156-A (the family contract, and the prerequisites for all of plan-156).
+- plan-157-A (the family contract, and the prerequisites for all of plan-157).
 - `.ai/compiler.md`: the Hard Completion Gate, the fixture rules, and register
   lifetimes across `bl _mfb_*`.
 - `.ai/arch-abi.md`: "A platform hook that moves `sp` mid-body". The Win64
@@ -57,8 +57,8 @@ References:
 
 ## Prerequisites
 
-See plan-156-A. On top of that, plan-156-A must be complete:
-`rg -c '"os\.resourcePath"' src` → no matches, and every plan-156-A phase has a
+See plan-157-A. On top of that, plan-157-A must be complete:
+`rg -c '"os\.resourcePath"' src` → no matches, and every plan-157-A phase has a
 filled `Commit:` line.
 
 ## 1. Goal
@@ -82,7 +82,7 @@ filled `Commit:` line.
 
 ## 2. Current State
 
-- **The pieces to factor.** `lower_app_resource_path` (after plan-156-A,
+- **The pieces to factor.** `lower_app_resource_path` (after plan-157-A,
   `src/codegen/builtins/os/func_app_resource_path.rs`) has three parts:
   - It validates `relative` inline: `emit_reject_dot_component` twice, plus a
     scan loop, with `\` also counted on Windows.
@@ -121,13 +121,13 @@ filled `Commit:` line.
   member needs an **`Arm`**.
 - **Hand-maintained call-name tables** that list the sibling `os.appResourcePath`
   (after A). Each new member must be added where its semantics match: see
-  plan-156-A §2's census list, plus `OS_ENV_LOCK_CALLS`.
+  plan-157-A §2's census list, plus `OS_ENV_LOCK_CALLS`.
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| Table sites a new `os` path member must join | the 16 files of plan-156-A's census (the tables among them), plus `OS_ENV_LOCK_CALLS` | `rg -n '"os\.appResourcePath"\|"appResourcePath"' src --glob '!src/docs/**'` (re-run after A lands; record the count here) |
+| Table sites a new `os` path member must join | the 16 files of plan-157-A's census (the tables among them), plus `OS_ENV_LOCK_CALLS` | `rg -n '"os\.appResourcePath"\|"appResourcePath"' src --glob '!src/docs/**'` (re-run after A lands; record the count here) |
 | Existing Windows OS-query arms | 3 (`hostName`, `userName`, `executablePath`) | `rg -n '^            "(hostName\|userName\|executablePath)" =>' src/target/win_x86_64/code.rs` |
 
 ### Verified properties
@@ -376,7 +376,7 @@ Acceptance: `appResourcePath` emits the same bytes as before.
   Result: `cmp` → `macos-aarch64 identical`, `linux-x86_64 identical`,
   `linux-aarch64 identical`, `linux-riscv64 identical`, `windows-x86_64 identical`
   (the before set was built from `/tmp/156b1-src`, a copy of the fixture, at
-  plan-156-A's HEAD).
+  plan-157-A's HEAD).
 Commit: 78cf1c0c1
 
 ### Phase B2: POSIX lookups and the macOS/Linux lowering
@@ -394,7 +394,7 @@ Commit: 78cf1c0c1
   - the sandboxed-macOS container sentence;
   - an example that creates the directory, then writes a file.
 - [x] Add `"os.appDataPath"`, `"os.appCachePath"` to `OS_ENV_LOCK_CALLS`. — done, plus the `*Base` twins; `plan/symbols.rs`'s hand-synced copy of the list was replaced by a re-export of this one.
-- [x] Add both calls to every matching table from plan-156-A's census: — done: `data_objects.rs`, the three supported-call lists, the three `plan.rs` import rows (each also serving the `*Base` call), `registry/mod.rs`'s two sorted `String`-result lists (with `os.appResourcePath` put back in sorted position), `audit/collect/source.rs` (`environment` plus the fallible list).
+- [x] Add both calls to every matching table from plan-157-A's census: — done: `data_objects.rs`, the three supported-call lists, the three `plan.rs` import rows (each also serving the `*Base` call), `registry/mod.rs`'s two sorted `String`-result lists (with `os.appResourcePath` put back in sorted position), `audit/collect/source.rs` (`environment` plus the fallible list).
   - `data_objects.rs`: `ErrUnsupported` and `ErrInvalidPath`;
   - the `linux_common`/`macos_aarch64` supported-call lists, and their
     `plan.rs` import rows (`getenv`, `getuid`, `getpwuid`,
@@ -451,7 +451,7 @@ matches.
   Check: `FILTER=func_os_app scripts/test-accept.sh target/debug/mfb target/accept-actual-156b`
   → 4 new fixtures written and nothing else changed (est. 3 min). Then run the
   2226 command above → all ok (est. 5 min; box 2226 because it is the only
-  reachable glibc Linux box, per the plan-156-A prerequisites).
+  reachable glibc Linux box, per the plan-157-A prerequisites).
   Result: `scripts/sync-goldens.sh` wrote the 4 fixtures' goldens; 2226 → both PASS; the `getent` line matched.
 Commit: ac48b1cad
 
@@ -497,7 +497,7 @@ Commit: ac48b1cad
 - [x] Add `io::print(os::appDataPath("d"))` and
       `io::print(os::appCachePath("c"))` to
       `tests/byte-identity/os/src/main.mfb`. The five `.ncodesum` goldens are
-      regenerated in plan-156-D, after the full suite. — done.
+      regenerated in plan-157-D, after the full suite. — done.
 - [x] Probe (in `/tmp`): a `.mfp` package whose function returns
       `os::appDataPath()`, called from an executable project named `host`.
       Record whether the result ends with `/host` or with the package's name.
@@ -523,7 +523,7 @@ Commit: ac48b1cad
 - **Runtime proof:** macOS (local), Linux aarch64 glibc (2226), Windows (2230).
   - Linux x86_64, musl and riscv64 are **not executed**, because their boxes
     refused ssh on 2026-09-24. Their codegen is covered by the byte-identity
-    `.ncodesum` goldens and the lowering tests. plan-156-D re-probes those
+    `.ncodesum` goldens and the lowering tests. plan-157-D re-probes those
     boxes and runs them if any answers.
 - **Doc sync:** the two man pages (descriptor prose) and
   `src/docs/spec/stdlib/14_os.md`. The spec gets a new "Per-user app
@@ -531,7 +531,7 @@ Commit: ac48b1cad
   `HOME`→`getpwuid` fallback, the known-folder mapping and `[[path:Symbol]]`
   citations, and the two error-table rows gain both calls. Gate:
   `cargo test --bin mfb spec`, `scripts/spec-census.sh --citations`.
-- **Final gate:** plan-156-D.
+- **Final gate:** plan-157-D.
 
 ## Open Decisions
 
@@ -577,7 +577,7 @@ Commit: ac48b1cad
   caller's buffer. `STRING_SHADOW_ARMS`, `target_needs_string_scratch`,
   `runtime_symbols` (which emits the `*Base` helper no NIR op names) and the
   import rows gained the members.
-- **B-5: plan-156-A left the self-update census red.** The optional `relative`
+- **B-5: plan-157-A left the self-update census red.** The optional `relative`
   changed `appResourcePath`'s rendered signature to `([relative AS String])`, and
   A's checks never ran `tests/guards/inplace_self_update_census.rs`. The
   `cases.tsv` / `field_expect.tsv` rows were updated here, and the two new members

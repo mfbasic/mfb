@@ -1,5 +1,5 @@
 //! `os::appDataPath` — descriptor entry + authored docs. The lowering is the shared
-//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::AppData`] (plan-156-B).
+//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::AppData`] (plan-157-B).
 
 use super::gen_host_paths::{lower_host_dir, HostDir};
 use crate::codegen::engine::builder::*;
@@ -19,7 +19,7 @@ pub(crate) fn lower_app_data_path(
 
 /// `os.appDataPathBase(dst, cap) -> length` — internal: the directory `os::appDataPath()`
 /// returns, written into a caller buffer without allocating, for the in-place
-/// `s = os::appDataPath(s)` arm (plan-156-B §4.4). See [`lower_host_dir`].
+/// `s = os::appDataPath(s)` arm (plan-157-B §4.4). See [`lower_host_dir`].
 pub(crate) fn lower_app_data_path_base(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],

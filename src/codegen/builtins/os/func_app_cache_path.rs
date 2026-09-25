@@ -1,5 +1,5 @@
 //! `os::appCachePath` — descriptor entry + authored docs. The lowering is the shared
-//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::AppCache`] (plan-156-B).
+//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::AppCache`] (plan-157-B).
 
 use super::gen_host_paths::{lower_host_dir, HostDir};
 use crate::codegen::engine::builder::*;
@@ -19,7 +19,7 @@ pub(crate) fn lower_app_cache_path(
 
 /// `os.appCachePathBase(dst, cap) -> length` — internal: the directory `os::appCachePath()`
 /// returns, written into a caller buffer without allocating, for the in-place
-/// `s = os::appCachePath(s)` arm (plan-156-B §4.4). See [`lower_host_dir`].
+/// `s = os::appCachePath(s)` arm (plan-157-B §4.4). See [`lower_host_dir`].
 pub(crate) fn lower_app_cache_path_base(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],

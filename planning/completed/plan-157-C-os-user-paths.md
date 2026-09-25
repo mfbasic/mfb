@@ -1,8 +1,8 @@
-# plan-156-C: `os::userHomePath` and `os::userDocumentsPath`
+# plan-157-C: `os::userHomePath` and `os::userDocumentsPath`
 
 Last updated: 2026-09-24
 Effort: large (3h–1d)
-Depends on: plan-156-B
+Depends on: plan-157-B
 
 This sub-plan adds two calls:
 
@@ -10,8 +10,8 @@ This sub-plan adds two calls:
 - `os::userDocumentsPath(relative AS String = "") AS String`
 
 They return the user's home folder and Documents folder. These are not
-app-scoped: no project name is appended. Both follow the plan-156 family
-contract (plan-156-A intro): an empty `relative` returns the base with no
+app-scoped: no project name is appended. Both follow the plan-157 family
+contract (plan-157-A intro): an empty `relative` returns the base with no
 trailing `/`, a `.`/`..` component raises `ErrInvalidPath`, a failed lookup
 raises `ErrUnsupported`, and the call never creates anything or checks that the
 path exists.
@@ -24,7 +24,7 @@ path exists.
 | Linux | `<home>` | `XDG_DOCUMENTS_DIR` from `<config>/user-dirs.dirs`, parsed as GLib does (§4.2); else `<home>/Documents` |
 | Windows | `FOLDERID_Profile` | `FOLDERID_Documents` (follows OneDrive and folder redirection) |
 
-- `<home>` is plan-156-B's `emit_posix_home_base`: `$HOME` if set and
+- `<home>` is plan-157-B's `emit_posix_home_base`: `$HOME` if set and
   non-empty, else `getpwuid(getuid())->pw_dir`, else `ErrUnsupported`, with
   trailing `/` trimmed.
 - `<config>` is `$XDG_CONFIG_HOME` if set, non-empty and absolute, else
@@ -36,8 +36,8 @@ access carries an explanation.
 
 References:
 
-- plan-156-A (the family contract, and the prerequisites for all of plan-156).
-- plan-156-B (the shared emitters in `gen_host_paths.rs`, the `HostPath`
+- plan-157-A (the family contract, and the prerequisites for all of plan-157).
+- plan-157-B (the shared emitters in `gen_host_paths.rs`, the `HostPath`
   self-update arm, and the Windows known-folder helper).
 - xdg-user-dirs `user-dirs.dirs` format. The file on box 2226 says:
   `XDG_xxx_DIR="$HOME/yyy"` or `XDG_xxx_DIR="/yyy"`, "No other format is
@@ -50,7 +50,7 @@ References:
 
 ## Prerequisites
 
-See plan-156-A. On top of that, plan-156-B must be complete: every phase has a
+See plan-157-A. On top of that, plan-157-B must be complete: every phase has a
 filled `Commit:` line, and
 `rg -n 'fn emit_posix_home_base' src/codegen/builtins/os/gen_host_paths.rs`
 → 1 match.
@@ -78,11 +78,11 @@ filled `Commit:` line, and
 
 ## 2. Current State
 
-- `gen_host_paths.rs` (plan-156-B) provides `emit_validate_relative`,
+- `gen_host_paths.rs` (plan-157-B) provides `emit_validate_relative`,
   `emit_join_result`, `emit_trim_trailing_slashes`, `emit_posix_home_base` and
   `emit_posix_env_abs_base`.
 - `emit_os_wide_string` (`src/target/win_x86_64/code.rs`) has the `"appData"`/
-  `"appCache"` known-folder arms and `emit_known_folder(guid)` (plan-156-B §4.2).
+  `"appCache"` known-folder arms and `emit_known_folder(guid)` (plan-157-B §4.2).
 - **The file-read precedent.** `src/codegen/builtins/fs/gen_atomic_write.rs:lower_fs_read_text_path_helper`
   uses host `open`/`read`/`close` through `platform.emit_external_call`, with
   flags from `open_flag_set(platform.family(), false)`, and carries the fd in a
@@ -126,9 +126,9 @@ The pieces:
   - Linux: new code, a streaming `user-dirs.dirs` parser (§4.2). **The
     correctness risk concentrates here.** It is a byte-at-a-time state machine
     written in `abi::` instructions, with a chunked `read` refill. That is the
-    largest new native routine in plan-156. It lands behind a dense fixture,
+    largest new native routine in plan-157. It lands behind a dense fixture,
     including a match that straddles a chunk boundary.
-- **The self-update arms** reuse plan-156-B's `GrowKind::HostPath`, with a row
+- **The self-update arms** reuse plan-157-B's `GrowKind::HostPath`, with a row
   each.
 - **The Info.plist key** is a one-line, isolated addition.
 
@@ -138,20 +138,20 @@ The pieces:
   reallocation loop. Streaming needs neither, and the only bounded buffer (the
   value, capped at `PATH_MAX` = 4096) has a principled bound: a longer path is
   unusable anyway.
-- **Parse `user-dirs.dirs` in an MFBASIC body.** Rejected in plan-156-B §3,
+- **Parse `user-dirs.dirs` in an MFBASIC body.** Rejected in plan-157-B §3,
   because `os` injects no source.
 - **Shell-style unescaping** (`\"`, `\\`, `\$`). GLib does not do it, and
   agreeing with GTK apps matters more than matching a comment in the file.
 
 **Byte-identity:** this is not the gate, since the plan changes behavior. The
 `os` byte-identity fixture gains both calls (C5). All five `.ncodesum` files
-are expected to change and get regenerated in plan-156-D.
+are expected to change and get regenerated in plan-157-D.
 
 ## 4. Detailed Design
 
 ### 4.1 `userHomePath`
 
-`lower_user_home_path` follows the same steps as plan-156-B's `lower_app_dir`,
+`lower_user_home_path` follows the same steps as plan-157-B's `lower_app_dir`,
 with `suffix = ""`:
 
 1. Capture the argument.
@@ -249,7 +249,7 @@ Decisions.
 
 ### 4.5 Tables, descriptors, docs
 
-- **Tables:** the same set as plan-156-B B2:
+- **Tables:** the same set as plan-157-B B2:
   - `OS_ENV_LOCK_CALLS`;
   - `data_objects.rs`, for both errors;
   - the supported-call lists for all three backends, and the `plan.rs` import
@@ -313,7 +313,7 @@ Acceptance: the fixture passes locally, on 2226 and on 2230.
     (est. 2 min).
   - `FILTER=func_os_userHome scripts/linux-runtime-proof.sh target/debug/mfb 2226 linux-aarch64 glibc`
     (est. 3 min).
-  - The 2230 ship-and-run (the plan-156-B B4 recipe), plus a PowerShell
+  - The 2230 ship-and-run (the plan-157-B B4 recipe), plus a PowerShell
     `GetFolderPath('UserProfile')` comparison (est. 5 min).
   Result: `func_os_userHomePath_valid` PASS on macOS (golden), 2226 (`linux runtime proof … passed`) and 2230 (`PASS`); PowerShell `UserProfile` = ours.
 Commit: ac48b1cad
@@ -431,9 +431,9 @@ Commit: ac48b1cad
   helper. That shows the parser is compiled in and not dead-stripped.
 - **Runtime proof:** macOS (local), Linux aarch64 glibc (2226) plus the GLib
   equivalence probe, and Windows (2230). musl, x86_64 and riscv64 Linux are not
-  executed unless plan-156-D's re-probe finds a box.
+  executed unless plan-157-D's re-probe finds a box.
 - **Doc sync:** two man pages, `14_os.md`.
-- **Final gate:** plan-156-D.
+- **Final gate:** plan-157-D.
 
 ## Open Decisions
 
@@ -461,7 +461,7 @@ Commit: ac48b1cad
   valid one.
 - **C-2: a root home doubled the separator.** With `HOME=/`,
   `os::appDataPath()` was `//Library/…` and `os::userHomePath("a")` was `//a`,
-  against plan-156-B's own Open Decision (`/Library/…`). Found by the new
+  against plan-157-B's own Open Decision (`/Library/…`). Found by the new
   `HOME=/` fixture line. `emit_root_elided_len` now drops the base's `/` when
   something follows (in the joiner and in the `*Base` sink), and the arm skips
   the joining `/` after a base ending in `/`.
@@ -494,4 +494,4 @@ Commit: ac48b1cad
 The risk is the Linux streaming parser: new byte-level native code whose rules
 come from GLib. It lands behind a 16-case fixture that includes a chunk-boundary
 case, plus a direct GLib comparison on a real GTK box. Everything else composes
-plan-156-B's pieces.
+plan-157-B's pieces.

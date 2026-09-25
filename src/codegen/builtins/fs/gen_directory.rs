@@ -468,7 +468,7 @@ pub(crate) fn lower_fs_create_directories_helper(
         &copy_done,
         &invalid_path,
     );
-    // plan-156-C: Windows splits on `\` as well as `/`, never tries to create
+    // plan-157-C: Windows splits on `\` as well as `/`, never tries to create
     // the drive (`C:`) or UNC share (`\\server\share`) prefix, reads "already
     // exists" as `ERROR_ALREADY_EXISTS` (183, not POSIX `EEXIST` 17 —
     // `emit_errno` is raw `GetLastError` there), and puts back the separator it
@@ -639,7 +639,7 @@ pub(crate) fn lower_fs_create_directories_helper(
     Ok((instructions, relocations, 0))
 }
 
-/// plan-156-C: where a Windows `createDirectories` walk starts — past a drive
+/// plan-157-C: where a Windows `createDirectories` walk starts — past a drive
 /// (`C:`, then one separator), past a UNC share (`\\server\share`, then one
 /// separator), or past one leading separator — so no prefix that cannot be
 /// created (`C:`, `\\server`) is ever handed to `CreateDirectoryW`. Leaves

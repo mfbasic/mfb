@@ -51,7 +51,7 @@ pub(crate) const STRING_SHADOW_ARMS: &[&str] = &[
     "padRightToWidth",
     "repeat",
     "appResourcePath",
-    // plan-156-B, the grow arm's host-path rows.
+    // plan-157-B, the grow arm's host-path rows.
     "appDataPath",
     "appCachePath",
     "userHomePath",
@@ -147,7 +147,7 @@ pub(crate) const STRING_WINDOW_FNS: &[(&str, RangeInclusive<usize>, WindowKind)]
     ("pathExtension", 1..=1, WindowKind::PathExtension),
 ];
 
-/// plan-156-B: the host-path members served by [`GrowKind::HostPath`] — each has
+/// plan-157-B: the host-path members served by [`GrowKind::HostPath`] — each has
 /// an internal `<member>Base` helper the arm calls, which the object plan must
 /// emit even though no NIR op names it (`plan/symbols.rs:runtime_symbols`).
 pub(crate) const HOST_PATH_ARM_MEMBERS: &[&str] = &[
@@ -169,7 +169,7 @@ pub(crate) enum GrowKind {
     /// `os::appResourcePath`: the result is `<base>/` + `relative`, so it is prefix
     /// growth whose prefix comes from the host.
     AppResourcePath,
-    /// plan-156-B: a host-path member whose base can change while the process
+    /// plan-157-B: a host-path member whose base can change while the process
     /// runs (`os::appDataPath` reads `HOME`) — the named qualified member. The
     /// base is re-read on every statement from the member's non-allocating
     /// internal `<member>Base` helper into the self-update scratch, never cached.
@@ -216,7 +216,7 @@ enum GrowWrite {
     Repeat { times_slot: usize },
     /// A buffer holding the prefix bytes, and their count.
     Prefix { ptr_slot: usize, len_slot: usize },
-    /// plan-156-B: the host base the `*Base` helper wrote into the self-update
+    /// plan-157-B: the host base the `*Base` helper wrote into the self-update
     /// scratch (pointer and length slots); its bytes go first, then — only when
     /// the value was non-empty — the joining `/`.
     HostBase { ptr_slot: usize, len_slot: usize },
@@ -1027,7 +1027,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
                 self.emit(abi::load_u64(&value_len, &value_ptr, 0));
-                // plan-156-A §4.3: the prefix ends in the joining `/`, which exists
+                // plan-157-A §4.3: the prefix ends in the joining `/`, which exists
                 // only for a non-empty value — `appResourcePath("")` is the bare
                 // base. For an empty value copy one byte less. The adjusted length
                 // goes to its own slot: `prefix_len_slot` is the prefix builder's.
@@ -1735,7 +1735,7 @@ impl CodeBuilder<'_> {
         // exactly the helper's set (`gen_host_paths.rs:emit_validate_relative`).
         // Treating `\` as a boundary on POSIX as well made the arm raise
         // `ErrInvalidPath` for `a\..\b`, which the copying call accepts there
-        // (plan-156-B Correction B-1): the arm must agree with the helper exactly.
+        // (plan-157-B Correction B-1): the arm must agree with the helper exactly.
         self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_eq(&boundary));
         if self.platform.target().starts_with("windows") {

@@ -279,7 +279,7 @@ impl LinuxPlan<'_> {
                 self.libc_import("getuid", required_by),
                 self.libc_import("getpwuid", required_by),
             ],
-            // plan-156-B/C: `HOME`/`XDG_*` through `getenv`, then the `passwd`
+            // plan-157-B/C: `HOME`/`XDG_*` through `getenv`, then the `passwd`
             // fallback; each call's internal `*Base` twin needs the same.
             "os.appDataPath"
             | "os.appCachePath"
@@ -291,7 +291,7 @@ impl LinuxPlan<'_> {
                 self.libc_import("getuid", required_by),
                 self.libc_import("getpwuid", required_by),
             ],
-            // plan-156-C: the Documents lookup also reads `user-dirs.dirs`.
+            // plan-157-C: the Documents lookup also reads `user-dirs.dirs`.
             "os.userDocumentsPath" | "os.userDocumentsPathBase" => vec![
                 self.libc_import("getenv", required_by),
                 self.libc_import("getuid", required_by),

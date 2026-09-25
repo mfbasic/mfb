@@ -1,4 +1,4 @@
-' os::appCachePath — the per-user app cache directory (plan-156-B). Every line is a
+' os::appCachePath — the per-user app cache directory (plan-157-B). Every line is a
 ' TRUE/FALSE or an error code, computed against the running OS's own rule, so the
 ' output is the same on macOS, Linux and Windows:
 '   macOS   <home>/Library/Caches/<project name>

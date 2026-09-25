@@ -534,7 +534,7 @@ filename cannot contain `\`.
 **Only on Windows — the in-place arm must use the same set.** The in-place
 `s = os::appResourcePath(s)` validator once treated `\` as a boundary on every
 target, so on POSIX it raised `ErrInvalidPath` for `a\..\b` while the copying
-call returned a path (plan-156-B Correction B-1). An arm must agree with its
+call returned a path (plan-157-B Correction B-1). An arm must agree with its
 copying helper byte for byte; "stricter is safe" is wrong when the two can be
 told apart.
 
@@ -545,14 +545,14 @@ told apart.
 `13` is silently wrong there: `ERROR_ALREADY_EXISTS` is **183**,
 `ERROR_PATH_NOT_FOUND` **3**, `ERROR_ACCESS_DENIED` **5**. `fs::createDirectories`
 compared against 17 and split only on `/`, so every nested create on Windows
-failed with `ErrWriteFailed` until plan-156-C (Correction C-4). The existing
+failed with `ErrWriteFailed` until plan-157-C (Correction C-4). The existing
 fixtures never ran on 2230, so nothing noticed. Branch per family, as
 `emit_fs_path_errno_error_mapping` (`fs/gen_shared.rs`) does, and run the fixture
 on box 2230.
 
 ### Known-folder queries: GUID in the arg area, free on every path, check the conversion
 
-`SHGetKnownFolderPath` (plan-156, `known_folder_guid` / `emit_known_folder_query`
+`SHGetKnownFolderPath` (plan-157, `known_folder_guid` / `emit_known_folder_query`
 / `emit_known_folder_into_query` in `win_x86_64/code.rs`) rides the same
 `subtract_stack(0x60)` window as `emit_os_wide_string`. Four rules:
 

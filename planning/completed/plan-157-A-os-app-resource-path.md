@@ -1,20 +1,20 @@
-# plan-156-A: rename `os::resourcePath` → `os::appResourcePath`, optional `relative`
+# plan-157-A: rename `os::resourcePath` → `os::appResourcePath`, optional `relative`
 
 Last updated: 2026-09-24
 Overall Effort: x-large (1d–3d)
 Effort: medium (1h–2h)
 Depends on: nothing
 
-plan-156 adds one family of five host-path calls to `os`. Each one returns an
+plan-157 adds one family of five host-path calls to `os`. Each one returns an
 absolute path and does nothing else:
 
 | Call | Base |
 | --- | --- |
 | `os::appResourcePath(relative = "")` | the build's resource directory (today's `os::resourcePath`) |
-| `os::appDataPath(relative = "")` | the per-user, per-app data directory (plan-156-B) |
-| `os::appCachePath(relative = "")` | the per-user, per-app cache directory (plan-156-B) |
-| `os::userHomePath(relative = "")` | the user's home directory (plan-156-C) |
-| `os::userDocumentsPath(relative = "")` | the user's Documents directory (plan-156-C) |
+| `os::appDataPath(relative = "")` | the per-user, per-app data directory (plan-157-B) |
+| `os::appCachePath(relative = "")` | the per-user, per-app cache directory (plan-157-B) |
+| `os::userHomePath(relative = "")` | the user's home directory (plan-157-C) |
+| `os::userDocumentsPath(relative = "")` | the user's Documents directory (plan-157-C) |
 
 All five follow the same contract. It was settled with the user in the design
 discussion and is not up for re-litigation:
@@ -60,13 +60,13 @@ References:
 
 ## Prerequisites
 
-This is the one hard gate for all of plan-156; B, C and D point here.
+This is the one hard gate for all of plan-157; B, C and D point here.
 
 | Must be true | Command | Status |
 |---|---|---|
 | Worktree `paths` exists on branch `worktree-paths` | `git -C .claude/worktrees/paths rev-parse --abbrev-ref HEAD` → `worktree-paths` | MET (2026-09-24) |
 | The debug compiler builds at the worktree's HEAD | `cargo build` → exit 0 | MET (2026-09-24, `cargo build` → Finished) |
-| A glibc Linux box answers ssh (runtime proof, plan-156-D) | `ssh -o ConnectTimeout=5 -p 2226 test@127.0.0.1 true` → exit 0 | MET (2026-09-24; 2222/2223/2227/2228/2229/2232 refused) |
+| A glibc Linux box answers ssh (runtime proof, plan-157-D) | `ssh -o ConnectTimeout=5 -p 2226 test@127.0.0.1 true` → exit 0 | MET (2026-09-24; 2222/2223/2227/2228/2229/2232 refused) |
 | The Windows box answers ssh (runtime proof, B/C/D) | `ssh -o ConnectTimeout=5 -p 2230 test@127.0.0.1 echo ok` → `ok` (Windows has no `true`) | MET (2026-09-24, re-run at A start) |
 
 Everything below assumes these conditions hold.
@@ -358,10 +358,10 @@ Commit: 10c43e3bc
       `.ai/testing-gates.md` (1) references. In `testing-gates.md` also correct
       the stale Windows fixture count with the measured `27`/`28` and the fact
       that `os` has a Windows golden (§2 Verified properties). — done; `testing-gates.md` now states the measured 29 Unix / 27 Windows goldens (only `link-const-pins` and `crypto-ec-valid` lack Windows).
-- [x] Update `planning/todo.md` (1 hit). — done: #12 now points at plan-156 and strikes `os::homePath`.
+- [x] Update `planning/todo.md` (1 hit). — done: #12 now points at plan-157 and strikes `os::homePath`.
 
 Acceptance: no live doc names the old call, and the spec citations resolve.
-  Check: `rg --hidden -c resourcePath --glob '!.git/**' --glob '!planning/completed/**' --glob '!bugs/**' --glob '!planning/old_man/**' --glob '!planning/plan-14[34]-findings/**' --glob '!planning/coverage-baseline.txt' --glob '!.claude/**' --glob '!planning/plan-156-*'`
+  Check: `rg --hidden -c resourcePath --glob '!.git/**' --glob '!planning/completed/**' --glob '!bugs/**' --glob '!planning/old_man/**' --glob '!planning/plan-14[34]-findings/**' --glob '!planning/coverage-baseline.txt' --glob '!.claude/**' --glob '!planning/plan-157-*'`
   → only identifiers that contain `app_resource_path`/`AppResourcePath`, and no
   bare `resourcePath`. Then `scripts/spec-census.sh --citations` → 0 dangling
   in `14_os.md`, and `cargo test --bin mfb spec` → pass (est. 5 min).
@@ -386,7 +386,7 @@ Acceptance: the examples build and the page renders and runs.
 Commit: 10c43e3bc, 93be6f452
 
 (The byte-identity `.ncodesum` and AST/IR golden regeneration for the `os`
-fixture waits for plan-156-D's full-suite run. Until then those goldens are
+fixture waits for plan-157-D's full-suite run. Until then those goldens are
 **expected red** on exactly `tests/byte-identity/os/**`, the renamed fixtures,
 and `self-update-grow-valid`. Record the red set in Corrections if anything
 else goes red.)
@@ -402,15 +402,22 @@ else goes red.)
   `--nir` and confirm the call site took the grow arm, i.e. no
   `_mfb_rt_os_appResourcePath` call at that site.
 - **Runtime proof:** the renamed valid fixture's run on macOS (A2). Linux and
-  Windows execution happens in plan-156-D.
+  Windows execution happens in plan-157-D.
 - **Doc sync:** the A3 list.
-- **Final gate:** deferred to plan-156-D (one full-suite run for the whole feature).
+- **Final gate:** deferred to plan-157-D (one full-suite run for the whole feature).
 
 ## Open Decisions
 
 - None. The name, the lack of an alias, and the default were decided by the user.
 
 ## Corrections
+
+- **A-0: renumbered from plan-156 to plan-157 at the end.** While this work ran
+  on `worktree-paths`, `main` landed an unrelated plan-156 ("Thread and
+  ThreadWorker become RES resources", `9f49cf2a8`). Every file, citation and
+  code comment of this plan was renamed to plan-157 before merging. The commit
+  messages on the branch still say plan-156; they cannot be changed without
+  rewriting history.
 
 - **A-1: `examples/audio` did not build at `main` HEAD.** A `/tmp/mfb156head`
   detached worktree at `main`, with the installed `libsnd.mfp` copied in, gave

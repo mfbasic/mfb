@@ -64,13 +64,13 @@ pub(crate) const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.userName",
     "os.setEnv",
     "os.unsetEnv",
-    // plan-156-B: the app-directory lookups read `HOME`/`XDG_*` and `getpwuid`.
+    // plan-157-B: the app-directory lookups read `HOME`/`XDG_*` and `getpwuid`.
     "os.appDataPath",
     "os.appCachePath",
     // ...and their internal non-allocating `*Base` twins the in-place arm calls.
     "os.appDataPathBase",
     "os.appCachePathBase",
-    // plan-156-C: the user folders read `HOME` (and `XDG_CONFIG_HOME`) too.
+    // plan-157-C: the user folders read `HOME` (and `XDG_CONFIG_HOME`) too.
     "os.userHomePath",
     "os.userDocumentsPath",
     "os.userHomePathBase",

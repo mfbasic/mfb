@@ -1,4 +1,4 @@
-//! plan-156: the `os::` host-path members that resolve through Windows'
+//! plan-157: the `os::` host-path members that resolve through Windows'
 //! `SHGetKnownFolderPath` (`appDataPath`, `appCachePath`, `userHomePath`,
 //! `userDocumentsPath`) must lower on `windows-x86_64` without addressing outside
 //! the acquisition's temporary frame, and must hand the system's buffer back with
@@ -13,7 +13,7 @@
 //! shape that could trip it.
 //!
 //! `-ncode` is the post-register-allocation plan, emitted identically on every
-//! host; the runtime behaviour is proved on box 2230 (plan-156-B B4).
+//! host; the runtime behaviour is proved on box 2230 (plan-157-B B4).
 
 #[path = "../common/mod.rs"]
 mod common;

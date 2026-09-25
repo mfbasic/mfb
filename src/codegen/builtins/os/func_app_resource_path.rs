@@ -142,7 +142,7 @@ pub(crate) fn lower_app_resource_path(
     ]);
     // Step 4 (§4.4): `prefix ["/" suffix] ["/" relative]`. The mode suffix is part
     // of the base; the joining `/` exists only for a non-empty `relative`, so an
-    // empty one yields the bare base with no trailing `/` (plan-156-A §4.2).
+    // empty one yields the bare base with no trailing `/` (plan-157-A §4.2).
     let mut suffix_bytes_with_slash = Vec::new();
     if !suffix_bytes.is_empty() {
         suffix_bytes_with_slash.push(b'/');

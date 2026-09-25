@@ -1,10 +1,10 @@
-# plan-156-D: os path family, final validation and golden refresh
+# plan-157-D: os path family, final validation and golden refresh
 
 Last updated: 2026-09-24
 Effort: medium (1h–2h)
-Depends on: plan-156-C
+Depends on: plan-157-C
 
-This sub-plan proves that plan-156 works as a whole and refreshes the goldens
+This sub-plan proves that plan-157 works as a whole and refreshes the goldens
 A through C knowingly left red. It holds the feature's one full-suite run, the
 widest runtime sweep the reachable boxes allow, the `.ai` notes, and the
 archive of all four sub-plans.
@@ -13,12 +13,12 @@ archive of all four sub-plans.
 
 - The full suite is green.
 - The only golden changes are those listed below.
-- All five calls behave per the plan-156 family contract on every reachable OS.
+- All five calls behave per the plan-157 family contract on every reachable OS.
 
 References:
 
-- plan-156-A (the prerequisites and the family contract), plan-156-B,
-  plan-156-C.
+- plan-157-A (the prerequisites and the family contract), plan-157-B,
+  plan-157-C.
 - `.ai/testing-gates.md`: regenerating goldens, "Concurrent test-accept
   clobbers actuals", and the known-red baseline.
 - AGENTS.md: "Before re-baselining a golden, run the full suite, never one
@@ -26,7 +26,7 @@ References:
 
 ## Prerequisites
 
-See plan-156-A. On top of that, plan-156-C must be complete: every C phase has
+See plan-157-A. On top of that, plan-157-C must be complete: every C phase has
 a filled `Commit:` line.
 
 ## 1. Goal
@@ -39,7 +39,7 @@ a filled `Commit:` line.
     `tests/syntax/os/func_os_*Path*_invalid` fixtures;
   - `tests/rt-behavior/strings/self-update-grow-valid/golden/*`;
   - `tests/acceptance` goldens touched by `os.mfb`;
-  - any rendered-plist golden plan-156-C C5 named.
+  - any rendered-plist golden plan-157-C C5 named.
 
 ### Non-goals (explicit constraints)
 
@@ -86,7 +86,7 @@ rt-behavior runs across OSes.
       `appResourcePath`, add the new calls, or add the fixture lines A through C
       added. — done with `scripts/sync-goldens.sh` (12 files, 4 tests). `self-update-grow-valid` checked: the old golden with `os.resourcePath`→`os.appResourcePath` substituted equals the new one (`only-rename`). `reads_resource`'s run output is unchanged. `_valid`'s adds the 5 A2 lines. The byte-identity `.ast` adds the 4 new calls.
 - [x] Regenerate the `os` byte-identity `.ncodesum` for all five targets, then
-      run `scripts/artifact-gate.sh`. — done with `bash scripts/regen-native-goldens.sh target/debug/mfb tests/byte-identity/os tests/byte-identity/fs` (`10 golden(s) rewritten, 0 failure(s)`). It changed exactly the 5 `os` sums and the `fs` Windows sum (POSIX `fs` unchanged, per plan-156-C C-4). Then `scripts/artifact-gate.sh target/debug/mfb os` / `fs` → `0 diff(s)` each.
+      run `scripts/artifact-gate.sh`. — done with `bash scripts/regen-native-goldens.sh target/debug/mfb tests/byte-identity/os tests/byte-identity/fs` (`10 golden(s) rewritten, 0 failure(s)`). It changed exactly the 5 `os` sums and the `fs` Windows sum (POSIX `fs` unchanged, per plan-157-C C-4). Then `scripts/artifact-gate.sh target/debug/mfb os` / `fs` → `0 diff(s)` each.
 
 Acceptance: both suites and the artifact gate are green, and every regenerated
 golden is on the list.
@@ -105,7 +105,7 @@ Commit: 759fc1379
       2226 = `linux-aarch64 glibc`; if up, 2227 = `linux-x86_64 musl`,
       2228 = `linux-x86_64 glibc`, 2229 = `linux-riscv64 musl`,
       2224 = `linux-aarch64 musl`. — 2226 (`linux-aarch64 glibc`): `FILTER=/os/` → `32 passed, 0 failed, 0 not run`. The other listed boxes were unreachable, so there is no x86_64, musl or riscv64 execution; those targets are covered by the regenerated `.ncodesum` goldens and the lowering tests only.
-- [x] On 2230, run the `func_os_*Path*` fixtures with the plan-156-B B4 recipe. — `/tmp/156-win-proof.sh` → PASS for all six `func_os_*Path*` fixtures, plus `fs-create-directories-native-separators-rt` and `func_fs_createDirectories_valid`.
+- [x] On 2230, run the `func_os_*Path*` fixtures with the plan-157-B B4 recipe. — `/tmp/156-win-proof.sh` → PASS for all six `func_os_*Path*` fixtures, plus `fs-create-directories-native-separators-rt` and `func_fs_createDirectories_valid`.
 - [x] Run the macOS app mode: build a scratch `--app` project that prints all
       five calls, and run it through `scripts/test-macapp.sh`'s launch path.
       `appResourcePath()` must end in `/Contents/Resources`, `appDataPath()` in
@@ -114,7 +114,7 @@ Commit: 759fc1379
       `scripts/test-appimage.sh --libc both` build of the same scratch project.
       `appDataPath()` must be the `$HOME`-derived path, not anything under the
       AppImage mount. If neither box is reachable, record that here as not run,
-      with the probe output. — not run: neither 2228 nor 2227 is reachable (see the re-probe line above), and the AppImage cannot be emulated (`.ai/compiler.md`). The Linux `--app` base rule (`resource_base_offset`) is unchanged by plan-156, and the new members do not branch on build mode.
+      with the probe output. — not run: neither 2228 nor 2227 is reachable (see the re-probe line above), and the AppImage cannot be emulated (`.ai/compiler.md`). The Linux `--app` base rule (`resource_base_offset`) is unchanged by plan-157, and the new members do not branch on build mode.
 
 Acceptance: every reachable box shows identical fixture output, and the app-mode
 paths match the table.
@@ -137,11 +137,11 @@ Commit: bb6899bca
 - [x] Render the man pages with `scripts/man-census.sh --fill os`,
       `scripts/man-run-examples.sh os --run` and
       `scripts/man-census.sh --memory-scope`. That gives 0 unclassified hits,
-      and all five pages render. — `man-census.sh --fill os` → `TOTAL 24 24 24 24 13/13`, `pages with neither Description nor Examples: 0`; `--memory-scope os fs` → `unclassified memory-vocabulary hits: 0`; `man-run-examples.sh os --run` → `27 … failed: 0`; `fs --run` → `98 … failed: 0` (after each run, the example-created `~/Library/{Application Support,Caches}/man_examples` was removed, per plan-156-B B-6).
-- [x] Move `plan-156-{A,B,C,D}-*.md` to `planning/completed/`. — done in the commit that moves them.
+      and all five pages render. — `man-census.sh --fill os` → `TOTAL 24 24 24 24 13/13`, `pages with neither Description nor Examples: 0`; `--memory-scope os fs` → `unclassified memory-vocabulary hits: 0`; `man-run-examples.sh os --run` → `27 … failed: 0`; `fs --run` → `98 … failed: 0` (after each run, the example-created `~/Library/{Application Support,Caches}/man_examples` was removed, per plan-157-B B-6).
+- [x] Move `plan-157-{A,B,C,D}-*.md` to `planning/completed/`. — done in the commit that moves them.
 
 Acceptance: the man gates are green and the plans are archived.
-  Check: the man commands above (est. 5 min), and `ls planning/plan-156-*` → no
+  Check: the man commands above (est. 5 min), and `ls planning/plan-157-*` → no
   matches.
   Result: see the task lines.
 Commit: bb6899bca, and the archive commit
@@ -155,7 +155,7 @@ Commit: bb6899bca, and the archive commit
 - **Runtime proof:** D2.
 - **Doc sync:** D3, plus a final `cargo test --bin mfb spec` and
   `scripts/spec-census.sh --citations` inside D1's `cargo test`.
-- **Final gate:** D1 (the one full-suite run for plan-156).
+- **Final gate:** D1 (the one full-suite run for plan-157).
 
 ## Open Decisions
 

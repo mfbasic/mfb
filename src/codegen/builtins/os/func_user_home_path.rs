@@ -1,5 +1,5 @@
 //! `os::userHomePath` — descriptor entry + authored docs. The lowering is the shared
-//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::UserHome`] (plan-156-C).
+//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::UserHome`] (plan-157-C).
 
 use super::gen_host_paths::{lower_host_dir, HostDir};
 use crate::codegen::engine::builder::*;
@@ -19,7 +19,7 @@ pub(crate) fn lower_user_home_path(
 
 /// `os.userHomePathBase(dst, cap) -> length` — internal: the directory `os::userHomePath()`
 /// returns, written into a caller buffer without allocating, for the in-place
-/// `s = os::userHomePath(s)` arm (plan-156-B §4.4, plan-156-C). See [`lower_host_dir`].
+/// `s = os::userHomePath(s)` arm (plan-157-B §4.4, plan-157-C). See [`lower_host_dir`].
 pub(crate) fn lower_user_home_path_base(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],

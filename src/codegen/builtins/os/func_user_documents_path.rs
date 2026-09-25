@@ -1,5 +1,5 @@
 //! `os::userDocumentsPath` — descriptor entry + authored docs. The lowering is the shared
-//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::UserDocuments`] (plan-156-C).
+//! [`super::gen_host_paths::lower_host_dir`] with [`HostDir::UserDocuments`] (plan-157-C).
 
 use super::gen_host_paths::{lower_host_dir, HostDir};
 use crate::codegen::engine::builder::*;
@@ -25,7 +25,7 @@ pub(crate) fn lower_user_documents_path(
 
 /// `os.userDocumentsPathBase(dst, cap) -> length` — internal: the directory `os::userDocumentsPath()`
 /// returns, written into a caller buffer without allocating, for the in-place
-/// `s = os::userDocumentsPath(s)` arm (plan-156-B §4.4, plan-156-C). See [`lower_host_dir`].
+/// `s = os::userDocumentsPath(s)` arm (plan-157-B §4.4, plan-157-C). See [`lower_host_dir`].
 pub(crate) fn lower_user_documents_path_base(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],

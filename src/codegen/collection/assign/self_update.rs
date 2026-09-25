@@ -1944,7 +1944,7 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(OS, STR, "os::appResourcePath(x)")],
     },
-    // plan-156-B: `GrowKind::HostPath` — the base is `f("")`, re-acquired per
+    // plan-157-B: `GrowKind::HostPath` — the base is `f("")`, re-acquired per
     // statement (it follows `HOME`), then `x` grows by `base` + `/`.
     SelfUpdateRow {
         function: "os::appDataPath",
@@ -1956,7 +1956,7 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(OS, STR, "os::appCachePath(x)")],
     },
-    // plan-156-C: the same `GrowKind::HostPath` arm.
+    // plan-157-C: the same `GrowKind::HostPath` arm.
     SelfUpdateRow {
         function: "os::userHomePath",
         kind: SelfUpdate::Arm(&[ArmId::StrGrow]),

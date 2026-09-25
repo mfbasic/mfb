@@ -588,7 +588,7 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os wide-string query is only implemented on windows-x86_64".to_string())
     }
-    /// Windows-only, non-allocating known-folder query (plan-156-B): the folder
+    /// Windows-only, non-allocating known-folder query (plan-157-B): the folder
     /// `which` names (`"appData"`, `"appCache"`, `"userHome"`, `"userDocuments"`)
     /// as UTF-8, written to the caller's buffer. On entry `ARG[0]` is the buffer and
     /// `ARG[1]` its capacity in bytes; on exit the return register holds the path's

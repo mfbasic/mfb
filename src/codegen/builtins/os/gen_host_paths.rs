@@ -1,4 +1,4 @@
-//! Shared emitters for the plan-156 host-path family (`os::appResourcePath`,
+//! Shared emitters for the plan-157 host-path family (`os::appResourcePath`,
 //! `appDataPath`, `appCachePath`, `userHomePath`, `userDocumentsPath`). Every
 //! member has the same contract: reject a `.`/`..` component of `relative`
 //! ([`emit_validate_relative`]), resolve a host base, and return
@@ -128,7 +128,7 @@ pub(crate) fn emit_validate_relative(
 /// Build the result `String` `base[..base_len] ++ suffix ++ ("/" ++ relative)`
 /// in a fresh arena block and set the OK result, then branch to `done`. The
 /// joining `/` exists only for a non-empty `relative`, so an empty one yields the
-/// bare base with no trailing `/` (plan-156-A §4.2). `suffix` is compile-time
+/// bare base with no trailing `/` (plan-157-A §4.2). `suffix` is compile-time
 /// bytes (a build-mode resource suffix, a per-OS directory, the app name) and
 /// carries its own leading `/`. An allocation failure branches to `alloc_error`.
 ///
@@ -377,7 +377,7 @@ pub(crate) fn emit_trim_trailing_slashes(
     ]);
 }
 
-/// The POSIX home directory (plan-156-B §4.1): `$HOME` when set and non-empty,
+/// The POSIX home directory (plan-157-B §4.1): `$HOME` when set and non-empty,
 /// else `getpwuid(getuid())->pw_dir`; `fail` when neither yields a non-empty
 /// path. Trailing `/` trimmed. The caller holds the env/pwd lock across this AND
 /// the copy of the returned bytes: `getenv`'s pointer is into `environ` (which a
@@ -513,9 +513,9 @@ pub(crate) enum HostDir {
     AppData,
     /// `os::appCachePath`: this app's regenerable cache, `/<module name>` appended.
     AppCache,
-    /// `os::userHomePath`: the user's home folder (plan-156-C).
+    /// `os::userHomePath`: the user's home folder (plan-157-C).
     UserHome,
-    /// `os::userDocumentsPath`: the user's Documents folder (plan-156-C).
+    /// `os::userDocumentsPath`: the user's Documents folder (plan-157-C).
     UserDocuments,
 }
 
@@ -550,7 +550,7 @@ enum Sink {
     Into { dst: String, cap: String },
 }
 
-/// The `*Base` helper's result (plan-156-B §4.4): `base ++ suffix` written to
+/// The `*Base` helper's result (plan-157-B §4.4): `base ++ suffix` written to
 /// `dst` when it fits `cap`, and its length returned either way — the arm reserves
 /// that much scratch and asks again. Writes no NUL; allocates nothing.
 #[allow(clippy::too_many_arguments)]
@@ -659,7 +659,7 @@ fn emit_into_fail_tail(fail: &str, done: &str, instructions: &mut Vec<CodeInstru
     ]);
 }
 
-/// Resolve `dir` on macOS / Linux into `sink` (plan-156-B §4.3, plan-156-C).
+/// Resolve `dir` on macOS / Linux into `sink` (plan-157-B §4.3, plan-157-C).
 /// The caller holds the env/pwd lock.
 ///
 /// - `AppData` / `AppCache`: macOS `<home>/Library/Application Support/<name>` /
@@ -791,7 +791,7 @@ fn emit_posix_host_dir(
 /// `relative` joined on, a fresh `String`, `ErrInvalidPath` / `ErrUnsupported`)
 /// and their internal `*Base` helpers (`into == true`: `(dst, cap) -> length`,
 /// the base written to `dst` when it fits, -1 on failure, nothing allocated —
-/// what the in-place `s = os::appDataPath(s)` arm calls, plan-156-B §4.4).
+/// what the in-place `s = os::appDataPath(s)` arm calls, plan-157-B §4.4).
 ///
 /// Windows reads the known folder (`FOLDERID_RoamingAppData` /
 /// `FOLDERID_LocalAppData`) and appends `/<name>`. On POSIX the env/pwd lock is

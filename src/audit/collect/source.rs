@@ -900,10 +900,10 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         "os" => match callee {
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
             | "os.environ" => Some("environment"),
-            // plan-156-B: the per-user app directories are read from `HOME` /
+            // plan-157-B: the per-user app directories are read from `HOME` /
             // `XDG_*` (and the account record) on POSIX.
             "os.appDataPath" | "os.appCachePath" | "os.userHomePath" => Some("environment"),
-            // plan-156-C: on Linux the Documents folder comes from reading
+            // plan-157-C: on Linux the Documents folder comes from reading
             // `~/.config/user-dirs.dirs`, a file the program never named.
             "os.userDocumentsPath" => Some("filesystem"),
             // `os.appResourcePath` reads `/proc/self/exe` exactly as

@@ -401,7 +401,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            // plan-156-B/C: `HOME` through `getenv`, then the `passwd` fallback; each
+            // plan-157-B/C: `HOME` through `getenv`, then the `passwd` fallback; each
             // call's internal `*Base` twin needs the same.
             "os.appDataPath"
             | "os.appCachePath"

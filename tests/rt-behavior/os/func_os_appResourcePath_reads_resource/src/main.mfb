@@ -13,7 +13,7 @@ IMPORT strings
 FUNC main AS Integer
   LET p AS String = os::appResourcePath("greeting.txt")
   ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows — the base is what the
-  ' host produced (plan-156-B Correction B-3: this line asserted `/` everywhere).
+  ' host produced (plan-157-B Correction B-3: this line asserted `/` everywhere).
   IF os::name() = "windows" THEN
     io::print(toString(strings::mid(p, 1, 2) = ":\\"))
   ELSE

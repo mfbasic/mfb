@@ -1,4 +1,4 @@
-//! plan-156-C: the Linux `os::userDocumentsPath` base — `XDG_DOCUMENTS_DIR` from
+//! plan-157-C: the Linux `os::userDocumentsPath` base — `XDG_DOCUMENTS_DIR` from
 //! `$XDG_CONFIG_HOME/user-dirs.dirs` (else `<home>/.config/user-dirs.dirs`),
 //! parsed exactly as GLib's `load_user_special_dirs` does, so an MFB program and a
 //! GTK application on the same desktop agree on the folder.

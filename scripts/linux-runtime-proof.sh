@@ -161,7 +161,7 @@ run_fixture() {
   # manifest `resources` are copied into `build/`, and `os::appResourcePath`
   # resolves them next to the running executable. Shipping the executable alone
   # made every resource-reading fixture fail with ErrPathNotFound on the box —
-  # harness error that looks like a product regression (plan-156-B Correction
+  # harness error that looks like a product regression (plan-157-B Correction
   # B-2). The per-flavor executables are skipped; the one under test is already
   # in place under its unflavored name.
   resources=$(cd "$scratch/build" && find . -mindepth 1 -maxdepth 1 ! -name '*.out' | sed 's|^\./||')

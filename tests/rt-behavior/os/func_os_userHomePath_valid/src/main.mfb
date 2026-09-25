@@ -1,4 +1,4 @@
-' os::userHomePath — the user's home folder (plan-156-C). Every line is TRUE/FALSE
+' os::userHomePath — the user's home folder (plan-157-C). Every line is TRUE/FALSE
 ' or an error code checked against the running OS's rule, so the output is the
 ' same everywhere:
 '   macOS / Linux  $HOME when set and non-empty (trailing `/` dropped), else the

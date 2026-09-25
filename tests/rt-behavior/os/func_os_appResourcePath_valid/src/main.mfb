@@ -12,7 +12,7 @@ END FUNC
 
 FUNC main AS Integer
   LET p AS String = os::appResourcePath("music/x.ogg")
-  ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows (plan-156-B
+  ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows (plan-157-B
   ' Correction B-3: this line asserted `/` everywhere).
   IF os::name() = "windows" THEN
     io::print(toString(strings::mid(p, 1, 2) = ":\\"))
@@ -48,7 +48,7 @@ FUNC main AS Integer
     RECOVER ""
   END TRAP
   io::print(toString(d))
-  ' plan-156-A: an omitted or empty `relative` is the bare base, no trailing `/`.
+  ' plan-157-A: an omitted or empty `relative` is the bare base, no trailing `/`.
   LET base AS String = os::appResourcePath()
   io::print(toString(strings::endsWith(base, "/")))
   io::print(toString(base = os::appResourcePath("")))
