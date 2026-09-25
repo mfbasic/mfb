@@ -81,7 +81,8 @@ const SGR_BUTTON_NONE: u64 = 3;
 /// within microseconds; a prefix still incomplete after this long is keystrokes.
 /// The same trade every curses library makes (its `ESCDELAY`), and the only
 /// point where a read or a `pollInput` waits longer than its caller asked.
-pub(crate) const ESCAPE_DELAY_MS: u64 = 25;
+/// It is the input decoder's one delay (bug-699 Decision 3), not a second one.
+pub(crate) const ESCAPE_DELAY_MS: u64 = crate::codegen::io::input::INPUT_DELAY_MS;
 
 /// Branch to `not_held` unless a prefix is buffered AND nothing is owed — the
 /// one state in which the decoder is sitting on bytes nobody will ever ask for

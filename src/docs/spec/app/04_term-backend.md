@@ -239,6 +239,7 @@ never 25 ms behind its `ESC`. This is the same trade curses makes with
 asked. On macOS and Linux every mouse member therefore imports `poll`; Windows
 `io::` reads already import the wait's primitives.
 [[src/codegen/io/mouse/decode.rs:ESCAPE_DELAY_MS]]
+[[src/codegen/io/input/mod.rs:INPUT_DELAY_MS]]
 [[src/codegen/builtins/io/gen_read_family.rs:emit_pump_escape_wait]]
 
 Decoded events go into a 64-slot per-thread ring, each stamped with a monotonic
@@ -262,7 +263,7 @@ a thread that never called `thread::openStdIn` reads no stdin bytes, so it
 decodes nothing and its `pollMouse` reports `MouseKind.None` forever. The
 existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
 
-### Two read-path interactions
+### Read-path interactions
 
 - **`io::pollInput` stays honest.** Its TRUE promises that the next read will not
   block, and with mouse on "bytes are ready" no longer implies "a character is
@@ -283,6 +284,13 @@ existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
   [[src/codegen/builtins/io/func_poll_input.rs:emit_mouse_ready_verify]]
   [[src/codegen/io/mouse/decode.rs:emit_branch_if_owed]]
   [[src/codegen/io/mouse/decode.rs:emit_pushback_byte]]
+- **A line read loops back above the drain.** `io::readLine` returns to its
+  per-byte read for every byte of a line, and that loop head sits above the
+  pump's owed-byte drain, so each byte of the line takes owed bytes before a new
+  one. With the head below the drain (before bug-699) a flushed `ESC x` was
+  overtaken by the next fresh byte, which re-entered the decoder mid-flush and
+  came back as another `ESC`: `a ESC x b` read as `a ESC ESC ESC`.
+  [[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
 - **`io::input`/`io::readLine` suspend tracking.** They restore the saved cooked
   line discipline for their read, which re-enables echo; a report arriving in that
   window would be echoed onto the screen as visible garbage. Tracking is therefore

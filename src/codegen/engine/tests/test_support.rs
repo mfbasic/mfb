@@ -356,6 +356,7 @@ impl<'a> BuilderHarness<'a> {
             term_state_offset: None,
             presentation_mode_offset: None,
             mouse_state_offset: None,
+            input_state_offset: None,
             arena_global_slots: 0,
             uses_rng: false,
             debug_arena_registry: false,

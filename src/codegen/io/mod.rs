@@ -1,5 +1,6 @@
 //! `codegen::io` module wiring.
 
+pub(crate) mod input;
 pub(crate) mod mouse;
 pub(crate) mod stdin;
 pub(crate) mod stdout;
