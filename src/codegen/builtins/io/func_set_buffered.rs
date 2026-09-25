@@ -81,7 +81,8 @@ from the next `io::flush` or buffered write.
 
 While buffering is on, held output is also drained when the buffer fills, on
 `io::flush`, before any standard-input read — so a buffered prompt always appears
-before the program blocks — and at program exit. The setting is per thread: each
+before the program blocks — and when the thread that wrote it finishes (for the
+main thread, at program exit). The setting is per thread: each
 thread has its own buffer and its own enabled flag, and one thread's choice is
 invisible to another. Standard error is never buffered, so this call affects
 standard output only. In app mode the buffer is inert and this call does nothing.

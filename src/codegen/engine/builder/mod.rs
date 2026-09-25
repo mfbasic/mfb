@@ -2871,7 +2871,11 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             platform,
         )?);
-        code_functions.push(lower_thread_finish(&platform_imports, platform)?);
+        code_functions.push(lower_thread_finish(
+            uses_stdout_buffer,
+            &platform_imports,
+            platform,
+        )?);
         data_objects.push(thread_table_data_object(platform.family()));
     }
     // plan-156-A: every per-type copy/drop function a thread call site (or the

@@ -295,9 +295,9 @@ re-enters as a no-op), restores the terminal if TUI mode was active, and then
 calls `arena_destroy` on the main arena — except in a program that can still have a
 live worker (one embedding any `thread.` runtime call), where the free is skipped
 on every platform and the OS reclaims the blocks at process exit instead
-(`./mfb spec threading os-integration`). A worker arena's chunks are not unmapped
-when its worker finishes; its arena-state block (a heap block) is freed with the
-thread's control block. Nothing another thread reads points into a worker arena:
+(`./mfb spec threading os-integration`). A worker arena's chunks are unmapped by
+the worker as the last step of its run; its arena-state block (a heap block) is
+freed with the thread's control block. Nothing another thread reads points into a worker arena:
 every value that crosses is copied into the control block's own block arena and
 from there into the receiver's arena (`./mfb spec threading control-block`).
 

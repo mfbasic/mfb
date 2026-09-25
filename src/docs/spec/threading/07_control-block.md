@@ -135,7 +135,8 @@ The `TRAP`-path closed handle (the value an inline `TRAP` on a failed
 worker. The release that takes its owner count to 0 frees just the stub.
 [[src/codegen/memory/value/builder_value_semantics.rs:emit_closed_thread_handle]]
 
-The worker arena's own chunks are not unmapped.
+The worker's arena chunks are unmapped by the worker at the end of its run (see
+`queue-semantics`); its arena-state block goes with the control block.
 
 ## The thread table
 

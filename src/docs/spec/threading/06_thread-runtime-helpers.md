@@ -153,15 +153,17 @@ x1 = input value
   source `ErrorLoc` pointer — and hands it to `_mfb_rt_thread_finish`, then
   returns `NULL` to pthread. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
-`_mfb_rt_thread_finish` does, under the block lock: unless the parent already
+`_mfb_rt_thread_finish` first drains the worker's buffered standard output, then
+does, under the block lock: unless the parent already
 closed the handle (then the result is discarded), deep-copy the result into the
 block arena — a success value through the result type's copy function, a failure's
 message (`String`) and origin (`ErrorLoc`) through their fixed copy functions; a
 copy that runs out of memory replaces the result with a plain `ErrOutOfMemory` —
 store it and mark the thread `COMPLETED`; close the inbound and both resource
-queues and wake every waiter of all four; and give up the worker's reference. If
-that was the last reference (the handle side let go of a running thread), the
-worker frees the control block itself.
+queues and wake every waiter of all four; and give up the worker's reference. It
+then unmaps the worker's own arena (`_mfb_arena_destroy` with the pinned arena
+register still on it). If its reference was the last (the handle side let go of a
+running thread), the worker frees the control block itself.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 ## See Also

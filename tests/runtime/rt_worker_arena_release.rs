@@ -61,3 +61,35 @@ fn a_thousand_ten_megabyte_workers_stay_under_a_hundred_megabytes() {
         rss / (1024 * 1024)
     );
 }
+
+/// A worker's buffered standard output lives in the worker's arena, so the worker's
+/// end drains it before that arena goes away: output a worker buffered and never
+/// flushed still appears, ahead of anything the parent prints after collecting it.
+const BUFFERED: &str = r#"IMPORT io
+IMPORT thread
+
+ISOLATED FUNC chatty(w AS ThreadWorker OF String TO Integer, seed AS Integer) AS Integer
+  io::setBuffered(TRUE)
+  io::print("from the worker")
+  RETURN seed
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(chatty, 7)
+  io::print("result " & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn a_workers_unflushed_buffered_output_is_drained_when_it_finishes() {
+    let project = common::temp_project("worker_buffered_output", BUFFERED);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the program");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _ = std::fs::remove_dir_all(&project);
+    assert!(output.status.success(), "{stdout}");
+    assert_eq!(stdout, "from the worker\nresult 7\n");
+}

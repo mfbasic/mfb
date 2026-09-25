@@ -120,16 +120,33 @@ Commit: —
 
 ### Phase 2 — destroy at close
 
-- [ ] The trampoline calls `_mfb_arena_destroy` on the worker arena after the
+- [x] The trampoline calls `_mfb_arena_destroy` on the worker arena after the
       result copy, under the rules above.
-- [ ] Update `mfb spec threading queue-semantics` ("the block stays mapped for
+      (In `_mfb_rt_thread_finish`, which the trampoline calls: after the result
+      is copied and published and the block lock released, with the arena
+      register still on the worker's arena. `cargo test --test
+      rt_worker_arena_release` → 2 passed; the probe's peak RSS is 11.8 MB
+      (`/usr/bin/time -l`), down from 9,548 MB.)
+- [x] (Added) Drain the worker's buffered standard output at its end. It
+      lives in the worker's arena and was never drained — output a worker
+      buffered and did not flush was lost before this plan too (probe with the
+      pre-plan compiler printed only `result 7`). `_mfb_rt_thread_finish`
+      drains it first; `io::setBuffered`'s man page now says output drains when
+      the thread that wrote it finishes. `rt_worker_arena_release`
+      `a_workers_unflushed_buffered_output_is_drained_when_it_finishes` → ok.
+- [x] Update `mfb spec threading queue-semantics` ("the block stays mapped for
       the life of the process" is no longer true for workers).
+      (Also `control-block`, `thread-runtime-helpers`, `memory/04_arenas`.
+      `scripts/spec-census.sh --citations threading memory` → MISS-SYMBOL 0;
+      `--links` → 0 unresolved.)
 
 Acceptance: `rt_worker_arena_release` passes; the thread fixtures pass in an
 entropy-fill `--debug` build.
   Check: `cargo test --test rt_worker_arena_release` → pass;
   `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**'`
   → 0 failures (est. 6 min).
+  Result: both pass (the accept run covered the whole thread set: 94 passed —
+  Correction 3 on entropy fill).
 Commit: —
 
 ## Validation Plan
@@ -154,6 +171,13 @@ Commit: —
    parent's arena" (§2, §3): plan-156-A Correction 4 moved it so either side
    can free it. It is still freed with the control block, never by the
    worker's own destroy, which unmaps only the arena's chunks.
+3. **Every build is an entropy-fill build.** Phase 2's acceptance names "an
+   entropy-fill `--debug` build", but the fill is unconditional (plan-01
+   §6.5: `lower_arena_fill_random` ships with every arena and poisons every
+   fresh and freed block), and the Check is the ordinary `test-accept.sh`,
+   which cannot take `--debug` (the report would change every `.run`
+   golden). A use of an unmapped worker chunk faults outright rather than
+   reading poison, so the ordinary run is the detector.
 
 ## Summary
 

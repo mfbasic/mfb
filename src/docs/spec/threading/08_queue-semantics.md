@@ -204,9 +204,12 @@ nobody accepted does not leak its OS handle. Until then — including after the 
 side drops a running thread — the messages stay owned by their queues.
 [[src/codegen/runtime/thread/control_block.rs:lower_thread_block_release]]
 
-A worker's own arena is not unmapped when the worker finishes; nothing the parent
-can read points into it, because the result and every message are block-arena
-copies.
+A worker's own arena is unmapped by the worker itself as the last step of its run
+(`_mfb_rt_thread_finish`, after it has published its result): nothing another
+thread can read points into it, because the result and every message are
+block-arena copies, and the worker's own scope drops have already run. Its buffered
+standard output is drained just before, so a worker that returns without
+`io::flush` loses nothing. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 ## See Also
 

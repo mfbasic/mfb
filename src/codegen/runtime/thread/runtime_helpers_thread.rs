@@ -1464,14 +1464,18 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 }
 
 /// `_mfb_rt_thread_finish(block, tag, value, message, source)`: the worker's exit,
-/// called by the trampoline with the entry's result. Under the block lock it copies
-/// the result into the block arena and publishes it with `COMPLETED` (unless the handle
-/// side already closed the thread, which then reads nothing), closes the inbound and
-/// both resource queues and wakes every waiter of every queue, and drops the worker's
-/// reference. When that was the last
-/// reference — the handle side let go of a thread that was still running — the worker
-/// frees the block itself.
+/// called by the trampoline with the entry's result, on the worker, with the arena
+/// register still on the worker's arena. It drains the worker's buffered standard
+/// output (when the program can buffer it). Under the block lock it copies the result
+/// into the block arena and publishes it with `COMPLETED` (unless the handle side
+/// already closed the thread, which then reads nothing), closes the inbound and both
+/// resource queues and wakes every waiter of every queue, and drops the worker's
+/// reference. Then it unmaps the worker's arena — nothing another thread can read
+/// points into it any more (plan-156-B) — and, if its reference was the last, frees
+/// the control block itself (the handle side let go of a thread that was still
+/// running).
 pub(crate) fn lower_thread_finish(
+    drain_stdout: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -1520,6 +1524,14 @@ pub(crate) fn lower_thread_finish(
         instructions: &mut instructions,
         relocations: &mut relocations,
     };
+    // The worker's buffered standard output (`io::setBuffered`) lives in its arena and
+    // is drained here, the worker's end — the same guarantee the main thread's buffer
+    // gets at program exit. Best-effort, like every drain: a write failure has no one
+    // left to report to.
+    if drain_stdout {
+        ctx.instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
+        ctx.relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+    }
     emit_block_lock(&mut ctx, BLOCK)?;
     // A handle side that already closed the thread reads no result: skip the copies.
     // Otherwise move the result into the block arena — everything the parent reads
@@ -1621,6 +1633,16 @@ pub(crate) fn lower_thread_finish(
         abi::store_u64("%v9", abi::stack_pointer(), REFS),
     ]);
     emit_block_unlock(&mut ctx, BLOCK)?;
+    // plan-156-B: return the worker's arena to the OS. The result, the messages and
+    // the transferred resources are all block-arena copies, and the worker's own
+    // scope drops already ran, so nothing reads the arena after this: unmap every
+    // chunk it mapped (`_mfb_arena_destroy` walks the arena the pinned register names,
+    // which here is the worker's). Its arena-state block is not freed here; it goes
+    // with the control block, after a handle side that frees the block has joined
+    // this thread.
+    ctx.instructions.push(abi::branch_link(ARENA_DESTROY_SYMBOL));
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
     let kept = format!("{symbol}_kept");
     ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REFS),
