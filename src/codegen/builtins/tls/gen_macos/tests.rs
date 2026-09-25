@@ -1001,3 +1001,43 @@ fn write_loads_its_gates_by_load_acquire() {
         );
     }
 }
+
+// bug-564 (found while measuring the OPEN finding): `tls::write`'s terminal-state
+// guard (`CTX_STATE >= 4`, bug-386/483) ran AFTER `dispatch_data_create`, and
+// `write_classify`'s exits never release that content. So every write to a
+// failed connection leaked the copy of its payload `dispatch_data_create` had
+// just made — a program that TRAPs each failing write and retries grows by the
+// payload size per attempt. The guard must run before the content exists.
+#[test]
+fn write_checks_the_terminal_state_before_creating_its_content() {
+    use crate::codegen::builtins::tls::gen_macos::CTX_STATE;
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, _rel, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, text).expect("lower");
+        let first_resolve = |name: &str| {
+            let want = sym_data_symbol(name);
+            ins.iter()
+                .position(|i| i.get("symbol").as_deref() == Some(&want))
+                .unwrap_or_else(|| panic!("tls::write resolves {name}"))
+        };
+        let create = first_resolve("dispatch_data_create");
+        let state_guard = ins
+            .iter()
+            .enumerate()
+            .position(|(n, i)| {
+                i.op == CodeOp::LdarU32
+                    && n > 0
+                    && ins[n - 1].get("imm").as_deref() == Some(&CTX_STATE.to_string())
+            })
+            .expect("tls::write keeps its terminal-state guard");
+        assert!(
+            state_guard < create,
+            "tls::write (text={text}): the terminal-state guard (index {state_guard}) must \
+             run before dispatch_data_create ({create}); its failure exit does not \
+             release the content, so a guard after the create leaks one payload copy \
+             per failed write"
+        );
+    }
+}
