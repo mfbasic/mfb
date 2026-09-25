@@ -116,7 +116,7 @@ Acceptance: the audit list is complete; the new test fails for the documented
 reason.
   Check: `cargo test --test rt_worker_arena_release` → fails, with RSS
   recorded (est. 2 min).
-Commit: —
+Commit: 9b256e843
 
 ### Phase 2 — destroy at close
 
@@ -147,7 +147,7 @@ entropy-fill `--debug` build.
   → 0 failures (est. 6 min).
   Result: both pass (the accept run covered the whole thread set: 94 passed —
   Correction 3 on entropy fill).
-Commit: —
+Commit: ae99de3d0
 
 ## Validation Plan
 
@@ -155,6 +155,10 @@ Commit: —
 - Runtime proof: `examples/wind` (its worker decodes about 23 MB) shows the
   worker's mapped bytes gone after the forecast loads, per the `--debug`
   report.
+  **Done** (Correction 4): the worker's arena mapped 179 chunks, 100,425,728
+  bytes, and unmapped all 179, 100,425,728 bytes; the block arena 3 chunks /
+  9,572,352 bytes, all unmapped; `thread.table_live 0`; the forecast was
+  collected (`sent=40`).
 - Doc sync: `threading/08_queue-semantics.md`.
 - Final gate: at the end of F.
 
@@ -178,6 +182,17 @@ Commit: —
    which cannot take `--debug` (the report would change every `.run`
    golden). A use of an unmapped worker chunk faults outright rather than
    reading poison, so the ordinary run is the detector.
+4. **How the wind proof ran.** Wind is a canvas app that never exits on its
+   own, and a headless macOS app prints no report on SIGTERM, so the proof
+   used a scratch copy under `/tmp` whose frame loop `EXIT PROGRAM 0`s right
+   after it collects the forecast worker (the report prints at a normal
+   exit), plus `p156` markers on stderr; built `--app --debug` with this
+   compiler and run with `MFB_MACAPP_HEADLESS=1`. Two harness traps cost
+   runs and are worth knowing: the program must be given an OPEN, empty
+   stdin (`( sleep N ) | ./wind`) — at EOF its key loop (`DO WHILE
+   pending(0)`) never ends, so the frame loop never collects the worker (the
+   pre-plan compiler behaves identically) — and the app process is named
+   `wind`, not `…/MacOS/wind`, for `pgrep`.
 
 ## Summary
 
