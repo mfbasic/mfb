@@ -45,7 +45,7 @@ the list-element site is an element-bound `Record` owner rather than a new
 `FieldContainer` variant (C2), and the two-statement form requires the `WITH`
 and the `set` to be adjacent (C3). The probe's B, C, E, F and G no longer grow
 with the frame count (C1). Also fixed here: a plan-86 E use-after-free over
-`getOr` (C4). Not done: converting `examples/wind` to `List OF Particle` (C6).
+`getOr` (C4). `examples/wind` now keeps its swarm as a `List OF Particle` (C6).
 Found and filed: bug-695 (inline domain errors leak owned locals) and bug-696
 (Windows marshalling buffers are never freed).
 
@@ -390,12 +390,17 @@ Commit: c0a6c1d97 (fix, tests, goldens, docs); 83d5f25bc (wind comment);
   a borrow would point into it after it is freed.
   `a_binding_whose_index_call_writes_the_module_level_list_is_a_copy` is RED
   without that check.
-- **C6 — `examples/wind` was not converted.** Its comment blamed the copy this
-  bug removes; it is corrected. Converting the swarm to `List OF Particle` and
-  comparing its `--debug` report was not done: the report is printed only on a
-  normal exit (the SIGTERM handler that prints it is console-only), wind exits
-  only on a key typed into its window, and a headless app run does not read
-  keys from stdin — so the comparison needs an interactive GUI session.
+- **C6 — `examples/wind` converted after the fix landed (b6b04a811), measured
+  through a harness, not the app's own report.** Wind's own `--debug` report
+  is printed only on a normal exit (the SIGTERM handler that prints it is
+  console-only), wind exits only on a key typed into its window, and headless
+  it never gets past the "Fetching" screen (before or after the change). So the
+  swarm was measured with a headless app-mode harness that compiles the
+  example's own `flow.mfb`/`earth.mfb`/`grib.mfb` over a synthetic wind field
+  with a fixed seed: old (seven parallel lists) and new (`List OF Particle`)
+  print identical state at 100 and 200 frames and allocate identically per
+  frame (+17,446,730 from 100 to 200 frames in both); `stepSwarm` has no
+  allocation site left.
 - **C7 — found: bug-695.** An inline domain error (a failing conversion, a
   division by zero, …) that leaves a function with no function-level `TRAP`
   skips the scope-drop walk and leaks every owned local. Pre-existing and
