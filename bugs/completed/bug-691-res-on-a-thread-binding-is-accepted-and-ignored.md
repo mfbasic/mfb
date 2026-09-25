@@ -5,8 +5,16 @@ Effort: large (3h–1d) — fixed as part of plan-156
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open — to be fixed by plan-156 (Thread and ThreadWorker become RES resources)
-Regression Test: none yet — `tests/rt-behavior/threads/bug691-res-thread-param/` (plan-156-C Phase 1)
+Status: Fixed
+Regression Test: `tests/rt-behavior/threads/bug691-res-thread-param/`
+
+## STATUS: FIXED (a9253dbb5)
+
+A parent `Thread` is a resource (plan-156-C): `RES` is its binding, and a thread
+parameter — `RES` or not — is lent, so the callee drops nothing and the caller's
+handle stays open. The reproduction prints `TRUE`, then `5`. Since plan-156-F
+(`a6686c7e8`) `RES` is also the only spelling: a `LET`/`MUT` thread binding is
+`TYPE_RESOURCE_REQUIRES_RES`.
 
 `RES` is the ownership keyword for resources (spec §15). On anything that is
 not a resource the verifier should reject it (`TYPE_RES_REQUIRES_RESOURCE`).

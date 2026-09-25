@@ -342,6 +342,16 @@ FUNC withNews(news AS ForecastNews, p AS Playback) AS Playback
   END MATCH
 END FUNC
 
+' Take every piece of news the worker has sent so far. The worker is lent to
+' this function: it reads the queue, and the caller still holds the thread.
+FUNC drainNews(worker AS Thread OF ForecastNews TO Integer, p AS Playback) AS Playback
+  MUT q AS Playback = p
+  DO WHILE thread::poll(worker, 0)
+    q = withNews(thread::receive(worker, 0), q)
+  LOOP
+  RETURN q
+END FUNC
+
 ' ---------------------------------------------------------------------------
 ' Main
 ' ---------------------------------------------------------------------------
@@ -401,14 +411,10 @@ FUNC main AS Integer
 
     ' The worker's news. Whether it has finished is asked before its queue is
     ' drained, not after: a worker that sends its last hour and ends between
-    ' the two would otherwise be collected with that hour still unread. The
-    ' handle stays in this function: handing a Thread to another function
-    ' hands it over for good, and it is closed when that function returns.
+    ' the two would otherwise be collected with that hour still unread.
     IF fetching THEN
       LET finished AS Boolean = NOT thread::isRunning(worker)
-      DO WHILE thread::poll(worker, 0)
-        playback = withNews(thread::receive(worker, 0), playback)
-      LOOP
+      playback = drainNews(worker, playback)
       IF finished THEN
         fetching = FALSE
         MUT problem AS String = ""

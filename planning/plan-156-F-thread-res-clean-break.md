@@ -210,12 +210,15 @@ Acceptance: the spec gates pass and every thread man example runs.
   `--links` → 971 links, 0 unresolved; `man-census.sh --memory-scope` → 0
   unclassified; `man-run-examples.sh thread --run` → 13 built, 13 ran, 0 failed
   (and `os --run` → 27/27, for the migrated `os::sleep` example).
-Commit: —
+Commit: 80a0822b2
 
 ### Phase 3 — close out
 
-- [ ] bug-691/692/693: `STATUS: FIXED` blocks, then move them to
+- [x] bug-691/692/693: `STATUS: FIXED` blocks, then move them to
       `bugs/completed/`.
+      (bug-691 → `a9253dbb5` (C), bug-692 → `f1e2ba176` (D; its block records
+      that the RES field's copy aliases, per D's Correction 1), bug-693 →
+      `30f7668a6` (E).)
 - [ ] Archive plan-156-A…F to `planning/completed/` as each is done. F is
       archived last.
 
@@ -233,6 +236,13 @@ Commit: —
   `withNews(worker, playback)` borrowing the `RES` thread, runs to autoplay;
   its `--debug` report shows the worker arena unmapped after the forecast
   loads.
+  **Done** (Correction 4): `examples/wind` itself now drains the queue in
+  `drainNews(worker, p)`, lent the `RES` thread, and its stale comment ("handing
+  a Thread to another function hands it over for good") is gone. A scratch copy
+  that exits after collecting, built `--app --debug` and run headless with an
+  open stdin: `p156 collected sent=40 playing=TRUE running=FALSE`; the worker
+  arena mapped 179 chunks / 99,909,632 bytes and unmapped all 179; the block
+  arena's 3 chunks unmapped; `thread.table_live 0`.
 - Doc sync: listed in Phase 2.
 - **Final gate (run once, here):**
   - `cargo test` (est. UNMEASURED: record the wall time in Corrections);
@@ -270,6 +280,14 @@ Commit: —
    bug-695's `TypeIndex` resource set added one. Fixed in `b6208d7c9` by one
    shared `lower_link::native_resource_types`, which the shape pass (which built
    the same set) now uses too.
+
+4. **The wind helper is `drainNews`, not `withNews`.** `withNews(news, p)` is
+   already the per-message function the helper calls, so the new helper that
+   takes the thread got its own name. One harness run printed "still running
+   after 400 s": the timeout had landed just as the slower `--debug` download
+   finished. Rerun waiting for the report, the process exited within 5 s of it,
+   and main's compiler behaves the same on the pre-plan copy, so there is no
+   hang at exit.
 
 ## Summary
 

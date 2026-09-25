@@ -5,8 +5,20 @@ Effort: large (3h–1d) — fixed as part of plan-156
 Severity: HIGH
 Class: Correctness
 
-Status: Open — to be fixed by plan-156 (Thread and ThreadWorker become RES resources)
-Regression Test: none yet — `tests/rt-behavior/threads/bug692-record-thread-copy/` (plan-156-D Phase 1)
+Status: Fixed
+Regression Test: `tests/syntax/threads/bug692_record_thread_field_invalid/`,
+`tests/rt-behavior/threads/bug692-record-thread-copy/`
+
+## STATUS: FIXED (f1e2ba176)
+
+A thread in a record is a resource field (plan-156-D): the reproduction's bare
+`t AS Thread OF …` field is now `TYPE_RESOURCE_REQUIRES_RES`. Spelled
+`t AS RES Thread OF …`, the field is a pointer and — per spec §15.6, which
+plan-156-D's correction 1 followed — copying the record aliases the one open
+thread rather than duplicating it, so both `waitFor`s answer `5`
+(`waitFor` is repeatable since plan-156-C) and the thread is closed once, by the
+owning scope. The "expected a compile error at the copy" line above predates
+that decision.
 
 A `Thread` is not copyable (§14.1: "Threads and resource handles are not
 copyable"), and a record is copyable only when all its fields are. Collections

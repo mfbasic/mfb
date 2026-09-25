@@ -5,8 +5,17 @@ Effort: medium (1h–2h) — fixed as part of plan-156
 Severity: MEDIUM
 Class: Correctness (internal compiler error)
 
-Status: Open — to be fixed by plan-156 (per-view STATE on Thread and ThreadWorker)
-Regression Test: none yet — `tests/rt-behavior/threads/bug693-worker-state/` (plan-156-E Phase 1)
+Status: Fixed
+Regression Test: `tests/rt-behavior/threads/bug693-worker-state/`,
+`tests/rt-behavior/threads/thread-view-state-independent/`
+
+## STATUS: FIXED (30f7668a6)
+
+A thread type's trailing `STATE` is its view's, not its output's (plan-156-E):
+`parse` lifts it onto the handle, a `ThreadWorker` parameter default-builds its
+view's `STATE` at entry, and `STATE` is accepted on a thread parameter without
+`RES`. The reproduction builds and prints `5`; the parent's and the worker's
+`STATE` are independent.
 
 Declaring a `STATE` on a `ThreadWorker` parameter and assigning to it aborts
 the build with an internal error instead of either compiling or giving a
