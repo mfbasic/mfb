@@ -6053,15 +6053,7 @@ impl TypeIndex {
                 }
             }
         }
-        let resources = hir
-            .files
-            .iter()
-            .flat_map(|file| &file.items)
-            .filter_map(|item| match item {
-                HirItem::Resource(resource) => Some(ParameterType::declared(&resource.name)),
-                _ => None,
-            })
-            .collect();
+        let resources = super::lower_link::native_resource_types(hir);
         Self {
             records,
             enums,

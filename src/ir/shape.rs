@@ -693,9 +693,8 @@ impl<'a> Walker<'a> {
         imported_resource_types: &[String],
     ) -> Self {
         // plan-111-B: a resource type is a nominal, so the set holds types.
-        let resource_types: HashSet<ParameterType> = super::lower_link::native_resources(hir)
-            .iter()
-            .map(|resource| ParameterType::declared(&resource.name))
+        let resource_types: HashSet<ParameterType> = super::lower_link::native_resource_types(hir)
+            .into_iter()
             .chain(
                 imported_resource_types
                     .iter()
