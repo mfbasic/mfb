@@ -14,11 +14,11 @@ IMPORT os
 ' (the two channels arrive as consecutive mono frames). Open a second stream
 ' shaped by the file's own SoundInfo instead.
 SUB playSoundFile(dev AS audio::AudioDevice, path AS String)
-  RES music AS SoundFile STATE SoundInfo = libsnd::openSound(path) TRAP(e)
+  RES music AS libsnd::SoundFile STATE libsnd::SoundInfo = libsnd::openSound(path) TRAP(e)
     io::print("Couldn't open " & path & ":\n" & e.message)
     EXIT SUB
   END TRAP
-  LET info AS SoundInfo = music.state
+  LET info AS libsnd::SoundInfo = music.state
   io::print("Playing " & toString(info.samplerate) & " Hz, " & toString(info.channels) & " channel(s), " & toString(info.frames) & " frames")
 
   RES fileOut AS audio::AudioOutput = audio::openOutput(dev, info.samplerate, info.channels, 512) TRAP(e)
