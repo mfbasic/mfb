@@ -751,6 +751,7 @@ pub(crate) fn lower_fs_list_directory_helper(
     let copy_name_done = format!("{symbol}_copy_name_done");
     let invalid = format!("{symbol}_invalid");
     let open_error = format!("{symbol}_open_error");
+    let second_open_error = format!("{symbol}_second_open_error");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
@@ -783,6 +784,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     let scratch = vregs.next();
 
     let c_path_size = vregs.next();
+    // bug-696: the List, when the second scan's open fails after it was
+    // allocated; released at `done` like `c_path`. Nulled with it below.
+    let abandoned = vregs.next();
+    let abandoned_size = vregs.next();
 
     let mut instructions = vec![
         // bug-574: `c_path` is the marshalled path this helper never hands back
@@ -791,6 +796,8 @@ pub(crate) fn lower_fs_list_directory_helper(
         // the empty-path rejection just below and `ErrOutOfMemory` — free nothing.
         abi::move_immediate(&c_path, "Integer", "0"),
         abi::move_immediate(&c_path_size, "Integer", "0"),
+        abi::move_immediate(&abandoned, "Integer", "0"),
+        abi::move_immediate(&abandoned_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -939,7 +946,7 @@ pub(crate) fn lower_fs_list_directory_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_gt(&second_open_ok),
-        abi::branch(&open_error),
+        abi::branch(&second_open_error),
         abi::label(&second_open_ok),
         abi::move_register(&dir, abi::return_register()),
         abi::label(&fill_loop),
@@ -1044,6 +1051,20 @@ pub(crate) fn lower_fs_list_directory_helper(
         abi::move_register(RESULT_VALUE_REGISTER, &collection),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
+        // bug-696: the directory went away between the two scans, after the List
+        // was allocated. Hand it to the release at `done` — at its pass-1 size —
+        // and report the open error. No call here, so `errno` is still the
+        // failed open's.
+        abi::label(&second_open_error),
+        abi::move_register(&abandoned, &collection),
+        abi::move_immediate(
+            &abandoned_size,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ),
+        abi::multiply_registers(&abandoned_size, &count, &abandoned_size),
+        abi::add_registers(&abandoned_size, &abandoned_size, &data_len),
+        abi::add_immediate(&abandoned_size, &abandoned_size, COLLECTION_HEADER_SIZE),
         abi::label(&open_error),
     ]);
     let errno_reg = vregs.next();
@@ -1078,7 +1099,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     instructions.push(abi::label(&done));
     emit_helper_scratch_release(
         symbol,
-        &[HelperScratch::new(&c_path, &c_path_size)],
+        &[
+            HelperScratch::new(&c_path, &c_path_size),
+            HelperScratch::new(&abandoned, &abandoned_size),
+        ],
         &mut vregs,
         &mut instructions,
         &mut relocations,
