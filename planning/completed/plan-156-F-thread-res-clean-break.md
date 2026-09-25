@@ -219,12 +219,15 @@ Commit: 80a0822b2
       (bug-691 → `a9253dbb5` (C), bug-692 → `f1e2ba176` (D; its block records
       that the RES field's copy aliases, per D's Correction 1), bug-693 →
       `30f7668a6` (E).)
-- [ ] Archive plan-156-A…F to `planning/completed/` as each is done. F is
+- [x] Archive plan-156-A…F to `planning/completed/` as each is done. F is
       archived last.
+      (A `509259761`, B `09b0e5017`, C `40bae938f`, D `fa9122773`, E
+      `e10926acc`; F in the commit that records this.)
 
 Acceptance: the three bug files are in `bugs/completed/`.
   Check: `ls bugs/completed/bug-69[123]-*` → 3 files (est. 1 s).
-Commit: —
+  Result: the three files are in `bugs/completed/`.
+Commit: afbbb3482 (bugs, wind); this plan's archive in the next
 
 ## Validation Plan (the whole plan-156 feature)
 
@@ -244,7 +247,23 @@ Commit: —
   arena mapped 179 chunks / 99,909,632 bytes and unmapped all 179; the block
   arena's 3 chunks unmapped; `thread.table_live 0`.
 - Doc sync: listed in Phase 2.
-- **Final gate (run once, here):**
+- **Final gate, as run** (Correction 1 — thread tests only), once, on the tree
+  with main merged (`f5fa49123`) and formatted (`b4e89fc49`), after rebuilding
+  `target/release/mfb`:
+  - `test-accept.sh` over `rt-behavior/thread*/**`, `syntax/threads/**`,
+    `rt-error/threads/**`, `byte-identity/{thread,resource-xfer-slots}` and the
+    twelve other fixtures that use threads → "acceptance tests passed (118
+    test(s) ran)";
+  - the 22 Rust test targets that exercise threads → all ok, among them
+    `rt_scope_drop_leaks` (154 passed), `rt_thread_table_growth` (1),
+    `rt_worker_arena_release` (2) and `rt_thread_block_arena` (4);
+  - `cargo test --release --bin mfb -- thread verify state resource spec man
+    registry` → 1174 passed.
+  After the merge (main touched 16 of this branch's files, conflicting only on
+  four regenerated `app-mouse-surface` sums, regenerated again), also:
+  `artifact-gate all` → 2158 checked, 0 diffs; an IR sweep of 963 fixtures → 0
+  differ; no `LET`/`MUT` thread binding in the tree.
+- **Final gate (as planned, replaced by the above):**
   - `cargo test` (est. UNMEASURED: record the wall time in Corrections);
   - `bash scripts/test-accept.sh target/release/mfb $(mktemp -d)` (full
     corpus, est. 15 min per the `sync-goldens.sh` header);
