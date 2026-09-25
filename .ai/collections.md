@@ -34,9 +34,30 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   `NirOp::StoreGlobal` lowerings in `engine/control/builder_control.rs` build a
   `SelfUpdateSite` and call `try_inplace_self_update`, which tries each arm; the
   first to accept lowers the statement, and if none does the statement takes the
-  general copying reassignment. **Declining is always correct** — in-place is an
-  implementation strategy the program cannot observe, so an arm that is not sure
-  must decline, having emitted nothing.
+  general copying reassignment. **Declining is correct only where the spec says a
+  copy is required** (the old value is still read — a live snapshot, `FOR EACH`,
+  or a callee that can store to it). In-place `MUT` self-update is a guaranteed
+  cost bound, not an optimization (owner decision, bug-652): an arm that declines
+  anywhere else, or accepts but costs O(size of `x`) where the call adds, removes
+  or moves fewer elements, is a bug. An arm that cannot prove its gates must still
+  decline having emitted nothing (`O-order-1`) — and that decline is then the bug
+  to fix, not a safe default. The measured current offenders are listed in `mfb
+  spec memory collections` (Self-updates, "Cost"); pin a fix with a CPU-time
+  scaling test like `tests/runtime/rt_list_take_drop_in_place.rs` (equal total
+  elements as `R` builds of `n` vs one of `R·n`; wall time is useless on a loaded
+  box — measured 4.61 s wall for 0.71 s CPU).
+* **Shrink compaction cost (bug-652).** `lower_list_compact_in_place`'s probe and
+  slide walk every entry; that is the call's work for `KeepSource::Marks`
+  (`filter`/`distinct`) and for a range with `start > 0` (every kept element
+  moves), but not for a `start == 0` range. So a range first tries
+  `emit_compact_range_truncate`: `len == count` is a no-op, `len == 0` resets,
+  otherwise it walks the REMOVED entries from the last down, retracting
+  `dataLength` while each payload ends (aligned) at it. Any removed payload that is
+  not the tail (list reordered by `sort`/`prepend`/`insert`/relocating `set`) falls
+  through, having written nothing, to the general path — whose live-byte count is
+  what bounds dead bytes, so it cannot simply be skipped (`append`'s grow copies
+  dead bytes verbatim; nothing else would ever reclaim them). The dropped-element
+  (graph-free) pass jumps its index over a range's kept run.
 * `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
   function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
   from `x`'s block, and `proof` cites the lowering that shows `x` is only read).

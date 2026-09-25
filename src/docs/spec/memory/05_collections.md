@@ -601,6 +601,41 @@ read `byteLength` bytes and hand on the tight form.
   per-function scratch block, grown geometrically; a lambda borrows the scratch of
   the function that created it. A global `String`'s spare capacity is kept in a
   hidden global beside it. [[src/codegen/collection/assign/self_update.rs:add_global_string_capacities]]
+- **Cost.** A self-update costs the elements it adds, removes or moves, or, for
+  an operation that tests or rewrites every element (`filter`, `distinct`,
+  `replace`, `transform`, `sort`, `sortBy`, the element-wise `math` functions,
+  `intersection`, `mapValues`, the `String` rewrite family), the elements it
+  tests. Apart from the forms listed below as not yet within the bound, it
+  never costs the size of the part of `x` it leaves alone, at any optimization
+  level.
+  [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+  - `take`, `drop` and `mid` compact `x` in place. A range that removes
+    nothing (`take(x, len(x))`, `drop(x, 0)`, `mid(x, 0, len(x))`) is O(1). A
+    range that starts at 0 is a truncation: the kept elements do not move, so
+    it costs the removed elements. On a variable-width list that holds when the
+    removed payloads are the tail of the data region, which is always true for a
+    list built by `append`. `dataLength` then retracts over them. A range that
+    starts past 0 moves every kept element and costs that. The dropped-element
+    pass frees only the removed elements' graphs.
+    [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
+    [[src/codegen/collection/list/list_compact.rs:lower_list_compact_in_place]]
+  - **Not yet within the bound** — these in-place forms cost O(size of `x`) per
+    call:
+    - a truncation of a variable-width list whose removed payloads are not the
+      data tail (after a `sort`, `prepend`, `insert` or relocating `set`). It
+      takes the general compaction, which walks every entry to count live
+      bytes. [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
+    - `removeAt` on a variable-width list, which fixes up every entry's offset.
+      [[src/codegen/collection/buffer/collection_buffer.rs:emit_offset_compaction_fixup]]
+    - `removeKey` and a `Set`'s `remove`. They scan for the key, shift the later
+      entries, and invalidate the bucket index, which the next probe rebuilds.
+      [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
+    - `difference` and `symmetricDifference`, which mark every element of `x`.
+      [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_filter_set]]
+      [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
+    - the `String` window family, which copies the whole result window to the
+      block start even when it is already there.
+      [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
 - **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
   codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
   result is a new value.
