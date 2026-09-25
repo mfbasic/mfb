@@ -296,35 +296,62 @@ matching `Line`; the 7 existing goldens are unchanged.
   Check: `cargo test --test rt_canvas_golden` → pass, 8 goldens (est. 4 min).
   Result: 21 passed, 0 failed; `ls tests/golden/canvas/*.png | wc -l` → 8;
   `git status --short tests/golden` shows only the new `polyline.png`.
-Commit: —
+Commit: f13583db7
 
 ### Phase 2 — native build, fallback, seams, docs
 
-- [ ] `func_geo_build.rs`: add PolyLine to `Kind::ALL`, with native
+- [x] `func_geo_build.rs`: add PolyLine to `Kind::ALL`, with native
       header+tail build. `tests/canvas/rt_canvas_geo_native.rs` gets a
-      PolyLine case that matches the MFBASIC build bit for bit.
-- [ ] `helper_render.rs`: `__canvas_metalRenderable` and
+      PolyLine case that matches the MFBASIC build bit for bit. The case is
+      nine polylines in the shared matrix scene
+      (`tests/canvas/scenes/canvas_geo_native_matrix.mfb`), crossed with all
+      195 paints: `the_native_geometry_matches_the_mfbasic_builders_bit_for_bit`
+      → ok, with `geoNative == generations` (every item built natively) and
+      `geoVerifyMismatches=0`.
+- [x] `helper_render.rs`: `__canvas_metalRenderable` and
       `__canvas_vulkanRenderable` return FALSE when a PolyLine is present.
+      (The decline landed in Phase 1; the test lands here.)
       Add a test in `tests/canvas/rt_canvas_metal.rs`: a PolyLine scene run
       with `MFB_CANVAS_GPU=1` produces a frame identical to the software
       oracle, and the stats line shows `gpuFrames=0`.
-- [ ] Update the tests that construct every variant:
+      `a_polyline_frame_falls_back_to_the_software_renderer` → ok.
+- [x] Update the tests that construct every variant:
       `tests/cli/cli_canvas_package.rs`, and
       `tests/runtime/inplace_self_update/field_kinds.tsv` (regenerate with
-      `field_kinds_gen.py`).
-- [ ] Spec, `src/docs/spec/app/06_canvas.md`: add PolyLine to the item list;
+      `field_kinds_gen.py`). `PolyLine` has no default (it holds an enum and a
+      `Paint`), so the generator gained a literal for it.
+- [x] (added) `canvas::FrameStats` had no `field_kinds.tsv` row either. plan-155-B
+      added the record without one, so `every_package_record_type_has_a_field_kind_line`
+      failed at HEAD, listing `canvas::FrameStats` beside `canvas::PolyLine`. It also
+      holds an enum, so it got a literal too. After regeneration:
+      `cargo test --test inplace_self_update_census` → 2 passed;
+      `MFB_SELF_UPDATE_FILTER='canvas::FrameStats|canvas::PolyLine' cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation`
+      → 1 passed.
+- [x] Spec, `src/docs/spec/app/06_canvas.md`: add PolyLine to the item list;
       rewrite the caps/joins text (a round join, the caps at the ends, the
       per-point colours); state that a PolyLine frame falls back to software until
       its backend draws it. Cite `__canvas_polylineEdges` and the renderable
-      checks.
-- [ ] Man page: the record `description` in `mod.rs`, with an example that
-      draws a fading trail with per-point colours.
+      checks. The spec has no item list, so PolyLine got its own paragraph beside
+      the caps text instead (Corrections A3). It cites `__canvas_polylineTail`
+      (the name the edges function took), `__canvas_polylineHeader`,
+      `__canvas_polylineHalf`, `POLYLINE_SCAN` and both renderable checks.
+      `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`.
+- [x] Man page: the record `description` in `mod.rs`, with an example that
+      draws a fading trail with per-point colours. A record has no example field
+      (`RegistryRecord` is name, export, description, props), so the example is
+      on `canvas::stroke`, the page whose description names the items with no
+      interior (Corrections A4). `scripts/man-census.sh --memory-scope` →
+      0 unclassified.
 
 Acceptance: the native build matches bit for bit; the fallback test passes;
 the docs render and their examples run.
   Check: `cargo test --test rt_canvas_geo_native --test rt_canvas_metal --test cli_canvas_package` → pass (est. 8 min);
   `scripts/man-run-examples.sh canvas --run` → all pass (est. 3 min);
   `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0` (est. 1 min).
+  Result: `rt_canvas_geo_native` 4 passed, `rt_canvas_metal` 20 passed,
+  `cli_canvas_package` 7 passed; `MFB=./target/debug/mfb scripts/man-run-examples.sh canvas --run`
+  → examples 32, built 32, ran 32, failed 0; `MISS-SYMBOL 0`;
+  `cargo test --bin mfb spec` → 44 passed.
 Commit: —
 
 ## Validation Plan
@@ -367,6 +394,14 @@ Commit: —
   The degenerate-input rule was restated to match, and the butt ends move to the
   first and last edges with length, so a repeated end point cannot turn a butt
   end round.
+- **A3 (2026-09-24): `06_canvas.md` has no item list.** Phase 2 said to add
+  PolyLine to it; `grep -n "RoundedRect" src/docs/spec/app/06_canvas.md` finds no
+  list of the variants. PolyLine's contract went in a paragraph of its own
+  after the caps/joins text.
+- **A4 (2026-09-24): a record page carries no example.** `RegistryRecord` has no
+  `example` field (`grep -n "pub(crate) struct RegistryRecord" -A15 src/codegen/registry/mod.rs`),
+  so the fading-trail example is on `canvas::stroke`'s page. Its description was
+  also corrected: `stroke` is now the paint for three interior-less items.
 
 ## Summary
 

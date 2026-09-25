@@ -497,6 +497,53 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     }
 }
 
+/// Two `canvas::PolyLine`s (plan-154-A): one with a colour per point, one plain with
+/// butt ends, beside a polygon so the frame is otherwise one Metal draws.
+const POLYLINES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
+  canvas::present([tri, trail, plain])
+END SUB
+"#;
+
+/// A frame holding a `canvas::PolyLine` is declined to software until the Metal shader
+/// draws one (plan-154-A; plan-154-B replaces this with the oracle comparison).
+///
+/// Exact, like the other declines: the fallback runs the identical software renderer on
+/// the identical scene. And the decline is asserted directly, because a frame that
+/// reached a shader with no PolyLine branch could still come back looking plausible.
+#[test]
+fn a_polyline_frame_falls_back_to_the_software_renderer() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_polyline_fallback", POLYLINES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "the Metal shader has no PolyLine branch yet, so `__canvas_metalRenderable` must \
+         decline the frame, but Metal drew it: {stats}"
+    );
+    let painted = software.pixels.chunks(4).filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0).count();
+    assert!(painted > 5_000, "the scene drew {painted} pixels, so it proves nothing");
+    if let Err(diff) = compare_exact(&gpu, &software) {
+        panic!(
+            "a declined PolyLine frame must be the software oracle's, byte for byte, \
+             but {diff}"
+        );
+    }
+}
+
 /// A frame whose polygons *individually* fit but *together* overflow the edge region is
 /// declined too.
 ///

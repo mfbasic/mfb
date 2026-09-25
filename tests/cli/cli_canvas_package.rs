@@ -88,14 +88,15 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
     \x20 LET j AS canvas::DrawItem = grp\n\
+    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 2.0)]\n\
     \x20 canvas::removeGroup(\"panel\")\n\
     \x20 canvas::removeGroup(\"never-installed\")\n\
-    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j]\n\
-    \x20 IF len(scene) <> 10 THEN\n\
+    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j, k]\n\
+    \x20 IF len(scene) <> 11 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
     \x20 LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := scene]\n\
-    \x20 IF len(layer.items) <> 10 THEN\n\
+    \x20 IF len(layer.items) <> 11 THEN\n\
     \x20   RETURN 6\n\
     \x20 END IF\n\
     \x20 io::print(\"CANVAS_SURFACE_OK\")\n\

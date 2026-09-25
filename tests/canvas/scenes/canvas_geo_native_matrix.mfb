@@ -72,7 +72,23 @@ FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
   LET g5 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0, 0.0), pt(5.0, 5.0), pt(10.0, 10.0)], paint := p]
   LET g6 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0, 0.0), pt(8.0, 0.0), pt(8.0, 0.0), pt(8.0, 8.0), pt(0.0, 8.0)], paint := p]
   LET g7 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0 - 4.125, 0.0 - 9.5), pt(2000000.5, 3.0), pt(nz, 0.1), pt(0.3, 0.7), pt(0.0 - 0.001, 5.0)], paint := p]
-  out = [r1, r2, r3, r4, r5, r6, r7, r8, q1, q2, q3, q4, q5, c1, c2, c3, c4, c5, l1, l2, l3, l4, l5, l6, g1, g2, g3, g4, g5, g6, g7]
+  ' plan-154-A. Colours none / one per point / fewer / more than the points, both caps,
+  ' repeated end points (the butt cut moves inward), every point coincident with each
+  ' cap (a dot, and the empty header), one point and none, and extreme coordinates.
+  LET noColors AS List OF color::Color = []
+  LET three AS List OF color::Color = [color::rgba(255, 0, 0, 255), color::rgba(0, 255, 0, 128), color::rgba(0, 0, 255, 0)]
+  LET one AS List OF color::Color = [color::rgba(7, 8, 9, 10)]
+  LET many AS List OF color::Color = [color::rgb(1, 1, 1), color::rgb(2, 2, 2), color::rgb(3, 3, 3), color::rgb(4, 4, 4), color::rgb(5, 5, 5), color::rgb(6, 6, 6), color::rgb(7, 7, 7), color::rgb(8, 8, 8)]
+  LET pl1 AS canvas::DrawItem = canvas::PolyLine[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := noColors, cap := canvas::CapStyle.Round, paint := p]
+  LET pl2 AS canvas::DrawItem = canvas::PolyLine[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := three, cap := canvas::CapStyle.Butt, paint := p]
+  LET pl3 AS canvas::DrawItem = canvas::PolyLine[points := [pt(0.0 - 4.5, 1.0), pt(2.0, 3.0), pt(9.75, 0.0 - 6.0), pt(12.0, 12.0)], colors := one, cap := canvas::CapStyle.Round, paint := p]
+  LET pl4 AS canvas::DrawItem = canvas::PolyLine[points := [pt(5.0, 5.0), pt(5.0, 5.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(20.0, 1.0), pt(20.0, 1.0)], colors := many, cap := canvas::CapStyle.Butt, paint := p]
+  LET pl5 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0), pt(3.0, 3.0), pt(3.0, 3.0)], colors := three, cap := canvas::CapStyle.Round, paint := p]
+  LET pl6 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0), pt(3.0, 3.0)], colors := noColors, cap := canvas::CapStyle.Butt, paint := p]
+  LET pl7 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0)], colors := three, cap := canvas::CapStyle.Round, paint := p]
+  LET pl8 AS canvas::DrawItem = canvas::PolyLine[points := none, colors := noColors, cap := canvas::CapStyle.Butt, paint := p]
+  LET pl9 AS canvas::DrawItem = canvas::PolyLine[points := [pt(nz, 0.1), pt(2000000.5, 3.0), pt(0.0 - 0.001, 5.0), pt(1000000.0, 0.0 - 1000000.0)], colors := three, cap := canvas::CapStyle.Round, paint := p]
+  out = [r1, r2, r3, r4, r5, r6, r7, r8, q1, q2, q3, q4, q5, c1, c2, c3, c4, c5, l1, l2, l3, l4, l5, l6, g1, g2, g3, g4, g5, g6, g7, pl1, pl2, pl3, pl4, pl5, pl6, pl7, pl8, pl9]
   RETURN out
 END FUNC
 
