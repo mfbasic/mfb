@@ -776,13 +776,9 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ' bug-686: no per-polygon cap. A polygon of any size draws, bounded only by the
     ' frame's edge region below; the emitter indexes a large one by band so the shader
     ' does not walk every edge per pixel.
-    IF kind = __CANVAS_GEO_POLYGON THEN
+    ' plan-154-B: a PolyLine's segments take the same region, one edge each.
+    IF kind = __CANVAS_GEO_POLYGON OR kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-    END IF
-    ' plan-154-A: the Metal shader has no PolyLine branch yet, so a frame holding one is
-    ' declined to software rather than drawn as whatever an unknown kind draws.
-    IF kind = __CANVAS_GEO_POLYLINE THEN
-      RETURN FALSE
     END IF
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN

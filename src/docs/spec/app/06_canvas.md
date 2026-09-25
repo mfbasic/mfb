@@ -127,9 +127,10 @@ each backend's predicate declines a frame that would overflow one of them. Metal
 Vulkan have the same caps: more than 65,536
 item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
 the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
-picture-and-glyph texels (each distinct image counted once). The one shape either
-declines is `PolyLine`, until its backend's shader draws one: both predicates decline a
-frame holding one, and that frame is drawn in software. There is no per-polygon
+picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
+count against the edge cap, one edge each. The one shape a backend declines is
+`PolyLine` on Vulkan, until its shader draws one: `__canvas_vulkanRenderable` declines a
+frame that holds one, and that frame is drawn in software. There is no per-polygon
 edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
 so a pixel tests only the edges that can reach it, and the result is identical to
 testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
@@ -144,6 +145,18 @@ specialization constants that the pipeline sets from the same constants.
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+
+**A `PolyLine` on the GPU reuses the polygon's edges and the gradient's stops.** Its
+segments upload through the polygon edge path and are banded the same way. The band
+reach is measured from the larger of the stroke half-width and the radius slot: a
+polyline is stroke-as-fill, so its half-width is in the radius slot. Its per-point colours
+are its gradient stops, uploaded by the gradient path unchanged. The shader walks the
+segments as the oracle does and looks the colour up at the path parameter instead of an
+axis parameter. The first and last live segments travel in the block's gradient-axis
+words as whole numbers rather than 16.16, because 16.16 holds an index only up to 32,767.
+[[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
+[[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;

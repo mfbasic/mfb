@@ -1384,3 +1384,39 @@ fn a_two_point_polyline_draws_the_line_between_its_points() {
         );
     }
 }
+
+/// The hardware backend draws the polyline scene the reference shows (plan-154-B).
+///
+/// Against the committed reference, like the other GPU twins, and gated on every frame
+/// having been drawn on the GPU: a backend that declined the scene would fall back to
+/// software and reproduce the reference exactly.
+#[test]
+fn the_gpu_draws_the_polyline_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_polylines_gpu", POLYLINES);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the PolyLine frame, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+    let reference = golden_path("polyline");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's polyline scene disagrees with the reference: {diff}\n\
+             Localize by row as `polylines_match_their_reference_exactly` describes. A \
+             butt end that domes is the first/last segment words; a colour step at a \
+             corner is the path parameter; the coincident round dot is the first == last \
+             zero-length case."
+        );
+    }
+}

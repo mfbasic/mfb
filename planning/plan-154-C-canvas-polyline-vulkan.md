@@ -37,9 +37,8 @@ If either row is not met, this plan cannot start, full stop.
 
 ### Non-goals
 
-- **Vulkan's caps are unchanged.** `VULKAN_MAX_FRAME_EDGES` = 16,384
-  (`src/codegen/runtime/canvas/mod.rs`). Raising it, and adding a band index,
-  are bug-688's work.
+- **Vulkan's caps are unchanged.** `VULKAN_MAX_FRAME_EDGES` = 262,144
+  (`src/codegen/runtime/canvas/mod.rs`; Corrections C1).
 - **No per-item block growth.**
 
 ## 2. Current State
@@ -53,25 +52,25 @@ any shader edit, regenerate the `.spv` files with `scripts/regen-spirv.sh`.
 
 **Consequence for wind.** Wind would need 35,200 edges for its polylines
 (3,200 particles × 11 segments; this is arithmetic from `countFor`'s
-`maxParticles`, not a measurement). That is already past the 16,384 cap, and
-the comment on `VULKAN_MAX_FRAME_EDGES` records that wind's coastline alone
-exceeds it. So wind frames on Vulkan stay in software until bug-688 lands.
-That is correct, and it is outside this sub-plan.
+`maxParticles`, not a measurement). That is well inside the 262,144 cap
+(Corrections C1).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| `GEO_KIND_POLYGON` sites in vulkan.rs | UNMEASURED — first task | `grep -n "GEO_KIND_POLYGON" src/codegen/runtime/canvas/vulkan.rs` |
+| `GEO_KIND_POLYGON` sites in vulkan.rs | 2: the import (line 46) and the edge upload's kind test (line 3937) | `grep -n "GEO_KIND_POLYGON" src/codegen/runtime/canvas/vulkan.rs` |
 
 ## 3. Design Overview
 
-This is the same as plan-154-B, but without a band index:
+This is the same as plan-154-B, including the band index (Corrections C1):
 
 1. At each `GEO_KIND_POLYGON` edge-upload site, also accept
-   `GEO_KIND_POLYLINE`.
+   `GEO_KIND_POLYLINE`, with plan-154-B's steps 3a (whole-number first and last
+   segments) and 3b (band reach from the radius slot).
 2. Add a fragment branch that loops over the item's edges, tracks the minimum
-   and `(i, t)`, and applies the butt end caps and the fade.
+   and `(i, t)`, applies the butt end caps, and takes its colour from the
+   gradient lookup at the path parameter, as plan-154-B does.
 3. Regenerate the SPIR-V.
 4. Remove the decline in `__canvas_vulkanRenderable`.
 
@@ -114,7 +113,14 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+- **C1 (2026-09-24): the Vulkan caps and band index already match Metal's.**
+  The plan said `VULKAN_MAX_FRAME_EDGES` is 16,384 and Vulkan has no band index.
+  Both were raised or ported by bug-688's first phases:
+  `grep -n "pub(crate) const VULKAN_MAX_FRAME_EDGES" src/codegen/runtime/canvas/mod.rs`
+  → 262,144, and `grep -n "fn emit_band_index" src/codegen/runtime/canvas/vulkan.rs`
+  → line 4139. So wind's 35,200 polyline edges fit, and the upload step is the
+  same as Metal's. The design text was corrected; the wind-stays-in-software
+  paragraph was false and is gone.
 
 ## Summary
 

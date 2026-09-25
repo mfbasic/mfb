@@ -54,9 +54,10 @@ For each particle:
 1. Walk the ring newest-first, collecting the points of the current run.
 2. A wrap or off-screen segment closes the run, and so does the end of the
    ring.
-3. Emit a PolyLine for each run of two or more points. Its `fade` reproduces
-   the run's share of the head-to-tail ramp, and its paint alpha is the
-   run's first-point alpha.
+3. Emit a PolyLine for each run of two or more points, with one colour per
+   point: point `k` (newest first) gets the alpha `40 + floor(fade * 195)`
+   with `fade = 1 - k / segments`, the ramp the per-segment `Line`s used
+   (plan-154-A Corrections A1: the fade is a per-point colour list).
 
 The measured quantity is `blocks=` and the frame time, before and after, on
 Metal.
@@ -95,7 +96,8 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+- **D1 (2026-09-24): no `fade` field.** plan-154-A's record carries a per-point
+  colour list instead (its Corrections A1), so §3 step 3 was rewritten for it.
 
 ## Summary
 
