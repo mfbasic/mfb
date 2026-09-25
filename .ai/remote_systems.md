@@ -108,6 +108,27 @@ Linux-host only, so it cannot run on the Mac). `tools/math-kernels/rvv-qemu-runn
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
 `tools/math-kernels/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
 
+## Vulkan: every reachable driver is a CPU one
+
+Probed 2026-09-24 (bug-688). **No reachable box has a Vulkan GPU**, so a Vulkan frame
+rate measured here is a CPU rasteriser's, not a GPU's; correctness (the software-oracle
+comparison) is meaningful, performance is not.
+
+| box | GPU as the VM sees it | Vulkan driver | display |
+|---|---|---|---|
+| 2226 Debian 12 aarch64 glibc | virtio GPU | Mesa lavapipe, system ICD (`lvp_icd.aarch64.json`) | a live GNOME **Wayland** session (`/run/user/1001/wayland-0`) |
+| 2230 Win11 x86_64 (emulated) | Red Hat VirtIO GPU DOD | Mesa lavapipe under `C:\mfbvk\mesa\x64`, registered in `HKLM\SOFTWARE\Khronos\Vulkan\Drivers` | none used (headless) |
+
+* 2226 runs aarch64 natively, so it is the fast box for Vulkan rows
+  (`scripts/test-canvas-gpu-rows.sh --target linux-aarch64`). It also compiles SPIR-V:
+  `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` — but its glslang (Debian 11:12.0.0) is not
+  2228's, so an unchanged `.vert` comes back with different bytes. Restore a blob whose GLSL
+  did not change rather than committing the churn.
+* 2230 is x86-64 under emulation: a software-oracle render of a large polygon scene takes
+  tens of minutes there. Order the geometry rows first when time matters.
+* Probe: `ls /usr/share/vulkan/icd.d` (Linux); on Windows,
+  `Get-ItemProperty HKLM:\SOFTWARE\Khronos\Vulkan\Drivers` from PowerShell.
+
 ## Box 2230 (Windows): ssh quirks and crash diagnosis without a debugger
 
 `cmd.exe` over ssh produces several things that look like a broken box but aren't:

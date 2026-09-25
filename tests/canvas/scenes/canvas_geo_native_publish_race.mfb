@@ -1,0 +1,54 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT io
+IMPORT os
+
+FUNC scene(flip AS Boolean) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = []
+  LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 1.5, ty := 0.0]
+  MUT k AS Integer = 0
+  WHILE k < 6000
+    LET px AS Float = toFloat((k * 37) MOD 880)
+    LET py AS Float = toFloat((k * 53) MOD 620)
+    LET qx AS Float = toFloat((k * 41) MOD 880) + 0.5
+    LET qy AS Float = toFloat((k * 59) MOD 620) + 0.25
+    LET box AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 6.0, h := 4.0, paint := canvas::fill(color::rgb(0, 200, 255))]
+    LET dot AS canvas::DrawItem = canvas::Circle[x := qx, y := qy, radius := 3.0, paint := canvas::fill(color::rgb(255, 80, 0))]
+    LET oval AS canvas::DrawItem = canvas::Ellipse[x := qx, y := qy, radiusX := 5.0, radiusY := 2.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 200))]
+    LET moved AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 5.0, h := 5.0, paint := WITH canvas::fill(color::rgb(1, 200, 3)) { transform := t }]
+    IF k MOD 10 = 0 THEN
+      IF flip THEN
+        items = collections::append(items, moved)
+      ELSE
+        items = collections::append(items, oval)
+      END IF
+    ELSE
+      IF (k MOD 2 = 0) = flip THEN
+        items = collections::append(items, dot)
+      ELSE
+        items = collections::append(items, box)
+      END IF
+    END IF
+    k = k + 1
+  END WHILE
+  RETURN items
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS List OF canvas::DrawItem = scene(FALSE)
+  LET b AS List OF canvas::DrawItem = scene(TRUE)
+  MUT n AS Integer = 0
+  WHILE n < 60
+    IF n MOD 2 = 0 THEN
+      canvas::present(a)
+    ELSE
+      canvas::present(b)
+    END IF
+    os::sleep(20)
+    n = n + 1
+  END WHILE
+  io::print("rendered")
+END SUB

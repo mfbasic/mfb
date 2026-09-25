@@ -10,9 +10,9 @@
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 use crate::codegen::runtime::canvas::{
-    CANVAS_MAX_FRAME_ITEMS, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
-    METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS,
-    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
+    METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS,
 };
 use std::sync::LazyLock;
 
@@ -291,10 +291,10 @@ END FUNC
 '      exists so that two draws of one group differ only by a translation. If the blocks
 '      were duplicated per reference, the offset could simply be baked into each copy
 '      when it is written, and none of that machinery would be needed.
-'   2. It bounds what reuse costs. `__CANVAS_MAX_FRAME_ITEMS` is 4096; a UI drawing one
-'      200-item panel at thirty positions costs 200 blocks under sharing and 6000 under
-'      duplication -- over the cap, so the frame would decline to software and the
-'      feature would be slowest exactly where it is most used.
+'   2. It bounds what reuse costs. The quad cap was 4096 when this was written; a UI
+'      drawing one 200-item panel at thirty positions costs 200 blocks under sharing and
+'      6000 under duplication -- over that cap, so the frame would have declined to
+'      software and the feature been slowest exactly where it is most used.
 '   3. It is this letter's stated goal (1), reuse, expressed in the buffer.
 '
 ' The consequence for the predicates is that **two different things are capped**: the
@@ -707,19 +707,19 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
 END FUNC
 
 ' The frame's item buffer holds one block per drawn QUAD, and both backends index it by
-' instance -- so this is the one cap that is neither Metal's nor Vulkan's, it is the
-' shared transport's (plan-116-A, `CANVAS_MAX_FRAME_ITEMS`). A shape is one quad; a glyph
-' run is one per glyph, because each glyph is its own quad with its own block.
+' instance (plan-116-A). A shape is one quad; a glyph run is one per glyph, because each
+' glyph is its own quad with its own block.
 '
 ' Counting the run's whole glyph count over-estimates by the glyphs whose cache entry the
 ' eviction pass dropped -- those draw nothing and take no block. Over-estimating declines
 ' a hair early, which is the safe direction: under-estimating would let the emitter write
 ' past the mapping.
 '
-' bug-686: Metal's item buffer is larger than Vulkan's, so each backend has its own
-' cap -- `__CANVAS_MAX_FRAME_ITEMS` is Vulkan's, `__CANVAS_METAL_MAX_FRAME_ITEMS`
-' Metal's. Every value on these lines is generated from the Rust constant it names.
-LET __CANVAS_MAX_FRAME_ITEMS AS Integer = @CANVAS_MAX_FRAME_ITEMS@
+' Each backend has its own cap (bug-686 gave Metal its own; bug-688 gave Vulkan its own
+' at the same size) -- `__CANVAS_VULKAN_MAX_FRAME_ITEMS` and
+' `__CANVAS_METAL_MAX_FRAME_ITEMS`. Every value on these lines is generated from the Rust
+' constant it names.
+LET __CANVAS_VULKAN_MAX_FRAME_ITEMS AS Integer = @VULKAN_MAX_FRAME_ITEMS@
 LET __CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = @METAL_MAX_FRAME_ITEMS@
 
 ' The glyph samples one frame may carry on Metal, summed over its runs -- a frame-wide
@@ -730,10 +730,9 @@ LET __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = @METAL_MAX_FRAME_GLYPH_S
 LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = @METAL_MAX_FRAME_EDGES@
 
 ' The gradient stops one frame may carry, summed over its items -- the cap on the
-' gradient region of each backend's shared buffer (plan-116-F). Vulkan's is
-' `__CANVAS_MAX_FRAME_GRADIENT_STOPS`; Metal's was the same number until bug-686
-' found 2,100 two-stop gradients declined by it.
-LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = @MAX_FRAME_GRADIENT_STOPS@
+' gradient region of each backend's shared buffer (plan-116-F). Both were 4,096 until
+' bug-686 found 2,100 two-stop gradients declined by it; each is now two per quad.
+LET __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS AS Integer = @VULKAN_MAX_FRAME_GRADIENT_STOPS@
 LET __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = @METAL_MAX_FRAME_GRADIENT_STOPS@
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
@@ -754,8 +753,7 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ' bug-686: counted once per distinct pixel BLOCK, because the Metal emitter uploads
     ' each block once per frame and points every later picture of it at those texels
     ' (`emit_picture_lookup`). The key is the block address the emitter looks up, rebuilt
-    ' from the same two header slots. Vulkan still copies per item, so its predicate still
-    ' counts per item.
+    ' from the same two header slots. Vulkan does the same since bug-688.
     IF kind = __CANVAS_GEO_PICTURE THEN
       LET block AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
       IF NOT collections::contains(pictures, block) THEN
@@ -887,14 +885,23 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
     ' bug-484: as in `__canvas_metalRenderable` -- texels share the glyph region's cap.
+    '
+    ' bug-688: counted once per distinct pixel BLOCK, as Metal counts them, because the
+    ' Vulkan emitter now uploads each block once per frame too (`emit_picture_lookup` in
+    ' `vulkan.rs`). A tilemap of 2,000 tiles from two images is 2,048 texels, not 2M.
     IF kind = __CANVAS_GEO_PICTURE THEN
-      samples = samples + __canvas_pictureSamples(offset)
+      LET block AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
+      IF NOT collections::contains(pictures, block) THEN
+        pictures = collections::add(pictures, block)
+        samples = samples + __canvas_pictureSamples(offset)
+      END IF
     END IF
     ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
     ' list asks. A blended item that both strokes and fills publishes two
@@ -912,7 +919,7 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+  IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN
     RETURN FALSE
   END IF
   IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
@@ -921,7 +928,7 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   ' The gradient region is one buffer serving the whole frame, so overflowing it
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
-  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+  IF gradientStops > __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 2: Vulkan no longer declines a scene containing a group. The
@@ -973,14 +980,17 @@ END FUNC"#;
 /// would reach the MFBASIC compiler as a syntax error, and
 /// `every_cap_token_in_the_render_source_is_generated` pins that none is left.
 const RENDER_CAPS: &[(&str, usize)] = &[
-    ("CANVAS_MAX_FRAME_ITEMS", CANVAS_MAX_FRAME_ITEMS),
+    ("VULKAN_MAX_FRAME_ITEMS", VULKAN_MAX_FRAME_ITEMS),
     ("METAL_MAX_FRAME_ITEMS", METAL_MAX_FRAME_ITEMS),
     (
         "METAL_MAX_FRAME_GLYPH_SAMPLES",
         METAL_MAX_FRAME_GLYPH_SAMPLES,
     ),
     ("METAL_MAX_FRAME_EDGES", METAL_MAX_FRAME_EDGES),
-    ("MAX_FRAME_GRADIENT_STOPS", MAX_FRAME_GRADIENT_STOPS),
+    (
+        "VULKAN_MAX_FRAME_GRADIENT_STOPS",
+        VULKAN_MAX_FRAME_GRADIENT_STOPS,
+    ),
     (
         "METAL_MAX_FRAME_GRADIENT_STOPS",
         METAL_MAX_FRAME_GRADIENT_STOPS,
@@ -1051,7 +1061,7 @@ END FUNC"#;
 /// putting a per-platform `getenv` on the spawn path.
 ///
 /// **The renderer.** A program in a real window draws on the GPU (Metal on macOS,
-/// Vulkan on Linux, where a pipeline exists); a headless run — any of the three
+/// Vulkan on Linux and Windows, where a pipeline exists); a headless run — any of the three
 /// `MFB_*_HEADLESS` switches the tests use — draws in software.
 /// `MFB_CANVAS_GPU` overrides both ways: `0` forces software, any other value
 /// forces the GPU. The software renderer is the exact-match oracle the goldens and

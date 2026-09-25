@@ -26,7 +26,8 @@ struct ItemBlock {
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
-    ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px)
+    ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px);
+                   //   for a polygon, its band header (bug-688, `polygonBand`)
     ivec4 ellipse; // an ellipse's rotation cos, sin (16.16); then a gradient's
                    //   stop count and first-stop index
     ivec4 gradient; // a gradient's axis startX,startY,endX,endY (16.16 px)
@@ -73,14 +74,19 @@ layout(std430, set = 0, binding = 0) readonly buffer Edges {
     int values[];
 } edges;
 
-// Where the glyph coverage region starts inside that same buffer. Kept in step with
-// `VULKAN_GLYPH_BASE_WORDS` by a unit test rather than by two hand-edited numbers.
-const int GLYPH_BASE = 65536;
-
-// Where the gradient region starts in that same buffer (plan-116-F), kept in step
-// with `VULKAN_GRADIENT_BASE_WORDS` by a unit test rather than by two hand-edited
-// numbers — the arrangement `GLYPH_BASE` already has.
-const int GRADIENT_BASE = 1114112;
+// Where the other regions start inside that same buffer, in words: glyph coverage and
+// picture texels, gradient stops (plan-116-F), and the polygon band index (bug-688).
+//
+// SPECIALIZATION CONSTANTS, not literals (bug-688). The pipeline feeds each one from
+// the Rust layout constant of the same region (`VULKAN_SPEC_CONSTANTS` in
+// `runtime/canvas/mod.rs`, through `VkSpecializationInfo`), so the layout is defined
+// once and this blob never has to be rebuilt because a cap before a region moved. They
+// were literals until then, and every cap was frozen by it. The default 0 is never
+// used: a pipeline built without the specialization data would read every region from
+// the edges, which `the_pipeline_specializes_every_region_base` rules out.
+layout(constant_id = 0) const int GLYPH_BASE = 0;
+layout(constant_id = 1) const int GRADIENT_BASE = 0;
+layout(constant_id = 2) const int BAND_BASE = 0;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -159,10 +165,20 @@ bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
 // antialiasing rather than needing its own coverage rule. A scanline filler and an
 // SDF filler would disagree about edge pixels, and that is exactly the disagreement
 // an oracle cannot have.
-float edgeDistance(int base, int count, vec2 p) {
+//
+// bug-688 (Metal's bug-686 band index): `list` is where this pixel's band's edge
+// numbers start in `edges`, and `count` how many there are -- or `list` is -1 and
+// `count` the polygon's edge count, the loop over every edge this function always was
+// (`polygonBand`). The loop BODY is untouched, and that is what makes the band index
+// exact: an edge left out of a band is one whose y-span misses the pixel's row (so it
+// cannot toggle `inside`) and that is further than the band's reach from it (so it
+// cannot change the clamped coverage `best` feeds). Order does not matter: `min` and a
+// parity toggle are both order-independent.
+float edgeDistance(int base, int count, int list, vec2 p) {
     float best = 1.0e6;
     bool inside = false;
-    for (int e = 0; e < count; ++e) {
+    for (int j = 0; j < count; ++j) {
+        int e = list < 0 ? j : edges.values[list + j];
         int i = (base + e) * 4;
         vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
         vec2 b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
@@ -188,7 +204,24 @@ vec2 inverseMap(vec2 p) {
                     + intBitsToFloat(item.xform1.y));
 }
 
-float geoDistance(vec2 p) {
+// bug-688: the edge list a polygon's shape-space point at height `y` visits, as (first
+// word in `edges`, length), or (-1, edgeCount) for "every edge" -- any other kind, or a
+// polygon the emitter gave no band index (`arcCaps.z` = 0). The band header is
+// `arcCaps` = (top, height in 16.16, band count, table offset), written by
+// `emit_band_index` in `vulkan.rs`; the table is (first, count) per band and the list
+// follows it. A point above the first band or below the last uses the end band, which
+// the emitter built to hold every edge that can matter there. Metal's `polygonBand`,
+// line for line.
+ivec2 polygonBand(float y) {
+    int nb = item.arcCaps.z;
+    if (item.misc.x != 4 || nb <= 0) { return ivec2(-1, item.misc.w); }
+    float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));
+    int band = int(clamp(k, 0.0, float(nb - 1)));
+    int t = BAND_BASE + item.arcCaps.w;
+    return ivec2(t + nb * 2 + edges.values[t + band * 2], edges.values[t + band * 2 + 1]);
+}
+
+float geoDistance(ivec2 band, vec2 p) {
     float radius = fx(item.misc.y);
     vec2 c = vec2(fx(item.shape.x), fx(item.shape.y));
     // bug-484: a Picture (9) is a rectangle to the distance field — its header carries
@@ -234,7 +267,7 @@ float geoDistance(vec2 p) {
                                fx(item.ellipse.x), fx(item.ellipse.y)) - radius;
     }
     if (item.misc.x == 4) {
-        return edgeDistance(item.arc.z, item.misc.w, p);
+        return edgeDistance(item.arc.z, band.y, band.x, p);
     }
     // The empty kind (5) and anything unknown. (`Picture` was once kind 5 and drew
     // nothing; since bug-484 it is kind 9 and takes the rectangle arm above.) A glyph (6) never reaches here: it has coverage, not a
@@ -444,13 +477,21 @@ int clipCoverage(vec2 p) {
 ///
 /// Five distance evaluations when transformed, one otherwise. The branch is uniform
 /// across an instance, so it costs a predicted branch rather than divergence.
+///
+/// bug-688: all five evaluations of a transformed polygon use the band of the CENTRE
+/// point `q`. The emitter widened that band's reach by the transform's scale for
+/// exactly this, so it holds every edge any of the four neighbours needs; a band looked
+/// up per neighbour could differ between them, and the difference quotient of two
+/// different edge sets is not the gradient of anything.
 vec2 shapeDistanceAndScale(vec2 p) {
-    if (!hasTransform()) { return vec2(geoDistance(p), 1.0); }
-    float d = geoDistance(inverseMap(p));
-    float gx = geoDistance(inverseMap(p + vec2(0.5, 0.0)))
-             - geoDistance(inverseMap(p - vec2(0.5, 0.0)));
-    float gy = geoDistance(inverseMap(p + vec2(0.0, 0.5)))
-             - geoDistance(inverseMap(p - vec2(0.0, 0.5)));
+    if (!hasTransform()) { return vec2(geoDistance(polygonBand(p.y), p), 1.0); }
+    vec2 q = inverseMap(p);
+    ivec2 band = polygonBand(q.y);
+    float d = geoDistance(band, q);
+    float gx = geoDistance(band, inverseMap(p + vec2(0.5, 0.0)))
+             - geoDistance(band, inverseMap(p - vec2(0.5, 0.0)));
+    float gy = geoDistance(band, inverseMap(p + vec2(0.0, 0.5)))
+             - geoDistance(band, inverseMap(p - vec2(0.0, 0.5)));
     float g = sqrt(gx * gx + gy * gy);
     return vec2(d, g > 0.000001 ? g : 1.0);
 }

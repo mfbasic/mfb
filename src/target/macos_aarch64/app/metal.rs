@@ -52,6 +52,10 @@ use crate::codegen::error::constants::error_constants::{
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
+    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
+    ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+};
+use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
     GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
     GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
@@ -77,16 +81,12 @@ use crate::codegen::runtime::canvas::{
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS,
     METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
     METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS,
-    METAL_PICTURE_RECORDS_OFFSET, METAL_PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+    METAL_PICTURE_RECORDS_OFFSET, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
 };
 use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
     GRAPHICS_OFFSET_MTL_LAYER_READY, GRAPHICS_OFFSET_MTL_LAYER_SHOW,
     GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
-};
-use crate::codegen::runtime::canvas::{
-    ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS,
-    METAL_BAND_LIST_PER_EDGE, METAL_BAND_MAX, METAL_BAND_MIN_EDGES, METAL_MAX_FRAME_BAND_WORDS,
 };
 use std::sync::LazyLock;
 
@@ -4221,7 +4221,7 @@ fn emit_picture_lookup(asm: &mut Asm, done: &str) {
     asm.push(abi::branch(&miss));
     asm.push(abi::label(&live));
     const _: () = assert!(
-        METAL_PICTURE_RECORD_BYTES == 16,
+        PICTURE_RECORD_BYTES == 16,
         "records are addressed by a shift of 4"
     );
     asm.push(abi::shift_left_immediate(record, record_no, 4));
@@ -4505,13 +4505,13 @@ fn emit_edge_buffer(asm: &mut Asm) {
 /// ## Sizing
 ///
 /// Bands are 2 px tall untransformed, `√2·F` (about two surface pixels) transformed, and
-/// taller when the span needs more than `min(edges, METAL_BAND_MAX)` bands. If the list
-/// would pass `METAL_BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
+/// taller when the span needs more than `min(edges, BAND_MAX)` bands. If the list
+/// would pass `BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
 /// most rows, like a star of long spikes — the height doubles until it fits; at one band
 /// the list is every edge once. So one polygon never needs more than
-/// `METAL_BAND_WORDS_PER_EDGE` words per edge, which the region is sized for; the
+/// `BAND_WORDS_PER_EDGE` words per edge, which the region is sized for; the
 /// region-full branch is unreachable and kept because the alternative is a write past
-/// the buffer. It, a polygon under `METAL_BAND_MIN_EDGES`, and a transform whose
+/// the buffer. It, a polygon under `BAND_MIN_EDGES`, and a transform whose
 /// matrix is not finite write band count 0: the shader loops over every edge. Never a
 /// decline, never a truncation.
 ///
@@ -4526,7 +4526,7 @@ fn emit_band_index(asm: &mut Asm) {
     let label = |name: &str| format!("{METAL_DRAW_SYMBOL}_band_{name}");
     let block = |field: usize| OFF_ITEM + ITEM_OFFSET_ARC_CAPS + field;
 
-    // --- which polygons: E >= METAL_BAND_MIN_EDGES --------------------------------
+    // --- which polygons: E >= BAND_MIN_EDGES --------------------------------
     asm.push(abi::load_u32(
         s[2],
         abi::stack_pointer(),
@@ -4535,7 +4535,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::move_immediate(
         s[3],
         "Integer",
-        &METAL_BAND_MIN_EDGES.to_string(),
+        &BAND_MIN_EDGES.to_string(),
     ));
     asm.push(abi::compare_registers(s[2], s[3]));
     asm.push(abi::branch_lt(&none));
@@ -4696,24 +4696,20 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::compare_registers(s[8], s[6]));
     asm.push(abi::branch_gt(&none));
 
-    // --- height = max(minimum, ceil(span / (min(E, METAL_BAND_MAX) - 1))) -----------
-    // At most `min(E, METAL_BAND_MAX)` bands: span / height <= that - 1.
+    // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------
+    // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
     let bands_capped = label("bands_capped");
     asm.push(abi::load_u32(
         s[6],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC + 12,
     ));
-    asm.push(abi::move_immediate(
-        s[7],
-        "Integer",
-        &METAL_BAND_MAX.to_string(),
-    ));
+    asm.push(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
     asm.push(abi::compare_registers(s[6], s[7]));
     asm.push(abi::branch_le(&bands_capped));
     asm.push(abi::move_register(s[6], s[7]));
     asm.push(abi::label(&bands_capped));
-    const _: () = assert!(METAL_BAND_MIN_EDGES >= 2 && METAL_BAND_MAX >= 2);
+    const _: () = assert!(BAND_MIN_EDGES >= 2 && BAND_MAX >= 2);
     asm.push(abi::subtract_immediate(s[6], s[6], 1));
     asm.push(abi::add_registers(s[7], s[3], s[6]));
     asm.push(abi::subtract_immediate(s[7], s[7], 1));
@@ -4753,7 +4749,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::move_immediate(
         s[5],
         "Integer",
-        &METAL_BAND_LIST_PER_EDGE.to_string(),
+        &BAND_LIST_PER_EDGE.to_string(),
     ));
     asm.push(abi::multiply_registers(s[4], s[4], s[5]));
     asm.push(abi::compare_registers(s[2], s[4]));
@@ -5438,7 +5434,7 @@ mod tests {
         );
         assert_eq!(
             METAL_PICTURE_INDEX_OFFSET,
-            METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES,
+            METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES,
             "the picture index must start where the picture records end"
         );
         assert_eq!(
