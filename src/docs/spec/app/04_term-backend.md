@@ -35,8 +35,8 @@ actually serves:
 | Member | console (all platforms) | macOS app | Linux GTK app | Windows app |
 |--------|-------------------------|-----------|---------------|-------------|
 | `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
-| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`); raises `ErrUnsupported` while inactive like the rest |
-| `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
+| `terminalSize` | live terminal size | live view size | live view size | live client size (`WM_SIZE`) |
+| `didResize` | latches a terminal resize | latches a view resize | latches a view resize | reports a client resize (counter pair) |
 | `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
 | `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
 | `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` |
@@ -53,6 +53,11 @@ helper that stamps the cell arrays directly.
 [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
 [[src/target/linux_gtk/term_draw.rs:emit_term_stamp_helper]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_draw_box]]
+
+The Windows column read "**fixed 80x25**" and "**always `FALSE`**" on the
+`terminalSize`/`didResize` rows until bug-540 WIN-02/WIN-03: the size was two
+compile-time constants and `didResize` fell through to the console body, whose
+arena flag nothing on Windows latches. See "Windows: GDI memDC" below.
 
 The Windows column read "draws, **style ignored**" on those three rows until
 bug-540: the bodies wrote the glyph as a literal (`9472`, `9474`, the four Light
@@ -152,7 +157,10 @@ recorded on the surface's own geometry (the macOS `TVSTATE` struct, the GTK stat
 global) rather than the arena term-state, each app backend implements its own
 `didResize` arm reading that surface flag, while the console/CLI backend reads the
 slot-56 flag above. In every case the read clears the flag so it latches until
-observed. [[src/codegen/term/core/term.rs:emit_did_resize]]
+observed. On Windows, where the resize is recorded on the UI thread and read on
+the worker, the "flag" is a counter pair with one writer each (below), and the
+read records what it reported. [[src/codegen/term/core/term.rs:emit_did_resize]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_did_resize]]
 
 `store_term_state` is the one-line writer; on macOS AArch64 it renders as
 `mov x9, #value; str x9, [x19, term_state_offset+field]`, with the pinned register
@@ -894,18 +902,90 @@ The write path (`emit_app_io_write`) converts UTF-8→UTF-16 once
 surrogate pair (drawn as its 2-unit pair = one glyph), computes display width via a
 compact East-Asian-Wide **range check** (`emit_win_wide_width` — the Win64 backend
 has no SCRATCH pool, so utf8proc's two-stage trie is impractical, and a range test
-also keeps the ~1.5 MB table out of every Windows app), reserves a trailing column
-for a wide glyph, wraps at the edge, advances `col += width`, and folds trailing
+also keeps the ~1.5 MB table out of every Windows app), and folds trailing
 combining marks (U+0300..U+036F) plus ZWJ sequences into one `TextOutW` so GDI
-composes them. [[src/target/win_x86_64/app/mod.rs:emit_app_io_write]]
+composes them. Cursor movement follows the console grid writer's order exactly:
+a cursor left past the right edge wraps when the **next** cluster arrives (not
+when the last one is stamped), a width-2 cluster that would straddle the edge
+wraps first, and a cursor below the last row scrolls the surface one row; `\n`
+and `io::print`'s trailing newline are `col = 0; row += 1` with the same scroll.
+Immediate mode has no cells to shift, so the scroll is the memDC's own —
+`BitBlt(memDC, 0, 0, W, (rows-1)*16, memDC, 0, 16, SRCCOPY)` then a `PatBlt`
+`BLACKNESS` of the freed last row, in an out-of-line helper so the walk's frame —
+and so its finalized slot offsets, which `term::drawText` must share — does not
+grow by `BitBlt`'s five stack arguments. Until bug-540 this path wrapped eagerly, never
+scrolled (text past the bottom was stamped below the surface) and `io::print`
+did not end its line on the grid.
+[[src/target/win_x86_64/app/mod.rs:emit_app_io_write]]
 [[src/target/win_x86_64/app/mod.rs:emit_win_wide_width]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_scroll]]
+[[src/target/win_x86_64/app/mod.rs:emit_win_grid_newline]]
+[[src/codegen/term/grid/term_grid.rs:emit_scroll_back]]
 
 The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/
 `drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp the
 style-selected box-drawing glyphs / positioned text directly into the memDC. The cell is a fixed
 8×16 px grid (Consolas at height 16); a font-linked CJK glyph spans two cells.
-The surface is a fixed **80 columns × 25 rows** (`TUI_COLS`/`TUI_ROWS`); it does
-not follow the client size.
+**The surface follows the client area** (bug-540 WIN-02). Its size in cells is two
+writable globals, `GRID_COLS_SYM`/`GRID_ROWS_SYM`, written only by
+`emit_term_resize` and read by every bound in the backend — the line/box/fill
+clips, the `drawText`/`drawGlyph` guards, `moveTo`'s clamp, the write path's wrap
+and scroll, the mouse cell range check and `term::terminalSize` itself. There is
+no compile-time grid size left to clamp against; `GridAxis` names the axis and
+each bound is `size - 1` read at the point of use.
+[[src/target/win_x86_64/app/mod.rs:GRID_COLS_SYM]]
+[[src/target/win_x86_64/app/mod.rs:GridAxis]]
+[[src/target/win_x86_64/app/mod.rs:emit_win_grid_last]]
+
+The **backing bitmap is allocated once at a maximum** — `TUI_MAX_COLS` ×
+`TUI_MAX_ROWS` cells (480 × 135, a 3840×2160 client) — and the globals are the
+*logical* surface inside it; the size is clamped to `1 ..= max` on each axis. The
+bitmap is never recreated, because the resize runs on the UI thread while the
+worker may be drawing into the same memDC: swapping the bitmap under a
+`TextOutW` is the race this design avoids. Everything outside the logical surface
+is kept black (`term::on` and `term::clear` blank the whole bitmap, and a resize
+blanks right of and below the old/new overlap), so `WM_PAINT` `BitBlt`s the whole
+bitmap and lets the client clip it. Cells a grow exposes therefore start blank —
+the console's "keep the top-left overlap" rule.
+[[src/target/win_x86_64/app/mod.rs:TUI_MAX_COLS]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_on]]
+
+`emit_term_resize` (`_mfb_winapp_term_resize(widthPx, heightPx)`) is the one
+place the size changes: `columns = width / 8`, `rows = height / 16`, each at
+least 1 (the macOS `setFrameSize:` rule) and at most the maximum; a 0×0
+(minimised) client is ignored and an unchanged size is not a resize. It is
+called by `WndProc`'s `WM_SIZE` arm in every presentation mode — the size is the
+window's, not TUI mode's — including the `WM_SIZE` `CreateWindowExW` sends
+before the worker exists, which is what seeds a windowed run. It is a hand-built
+frame (`0x58 ≡ 8 mod 16`) that touches only volatile registers.
+[[src/target/win_x86_64/app/mod.rs:emit_term_resize]]
+[[src/target/win_x86_64/app/mod.rs:emit_wndproc]]
+
+**`term::didResize` is a counter pair**, the `canvas::didResize` shape: the
+handler bumps `TUI_RESIZES_SYM` on a genuine change — only once `term::on` has
+built a surface (`TUI_MEMDC` non-zero), so nothing is reported before the first
+`term::on` — and the worker's `didResize` arm compares it with
+`TUI_RESIZES_SEEN_SYM`, recording what it reported. One writer per word, so no
+lock; a read-and-clear flag shared by two threads would lose a resize landing
+between the load and the store. `term::on` acknowledges every resize counted so
+far (its pending-resize reset) as its **first** act, before it publishes the
+memDC: the handler counts only once the memDC exists, so every countable resize
+then follows the acknowledgement and is reported. Acknowledging last swallowed a
+resize landing in between (measured on box 2230). `term::on` does not reset the
+size.
+[[src/target/win_x86_64/app/mod.rs:TUI_RESIZES_SYM]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_did_resize]]
+
+**A headless run has no window**, so its surface starts at `TUI_HEADLESS_COLS` ×
+`TUI_HEADLESS_ROWS` (80×25, the globals' initial data), and the only resize it can
+see is the scripted one: `MFB_WINAPP_TERM_RESIZE_W`/`_H` (owner-approved
+2026-09-25, the twin of `MFB_CANVAS_RESIZE_W`/`_H`) give a client size in pixels,
+and `_main` hands them to the same `emit_term_resize` once `term::on` has built
+the surface — polling with `WaitForSingleObject(worker, 20)` so a program that
+never enters TUI mode ends the wait by exiting. This is what
+`scripts/test-winapp.sh` drives on box 2230.
+[[src/target/win_x86_64/app/mod.rs:TUI_HEADLESS_COLS]]
+[[src/target/win_x86_64/app/mod.rs:emit_main]]
 
 Because there is no grid to index, coordinate normalisation is explicit here
 rather than a consequence of the cell walk, and it is **required for termination,
@@ -916,7 +996,7 @@ Four shared helpers supply what the console emitter gets from `emit_stamp_run`:
 | helper | rule it enforces |
 |--------|------------------|
 | `win_normalize_pair` | the two endpoints of a span, and the two corners of a region, may be written in either order — run it FIRST, the clip below assumes a normalised pair |
-| `win_clip_span` | **the ordered rule that matters**: reject the empty intersection (`hi < 0`, or `lo > max`) BEFORE saturating either endpoint, then clamp both to `0 ..= TUI_COLS-1` / `0 ..= TUI_ROWS-1`. Saturating independently is not a substitute — a span wholly off the grid (`-2 ..= -1`) saturates to `0 ..= 0` and stamps a cell the program never asked for. The clamp is also what bounds the loop |
+| `win_clip_span` | **the ordered rule that matters**: reject the empty intersection (`hi < 0`, or `lo > max`) BEFORE saturating either endpoint, then clamp both to `0 ..= columns-1` / `0 ..= rows-1` of the live surface. Saturating independently is not a substitute — a span wholly off the grid (`-2 ..= -1`) saturates to `0 ..= 0` and stamps a cell the program never asked for. The clamp is also what bounds the loop |
 | `win_clamp_slot` | the saturation step `win_clip_span` calls once the intersection is known non-empty; not correct on its own |
 | `win_guard_on_grid` | a line whose fixed coordinate is off the grid draws nothing, a `drawBox` corner off the grid is skipped rather than slid onto the rim (so the unclamped corners are kept alongside the clamped loop bounds), and `drawGlyph`'s single cell is bounds-checked |
 
@@ -933,8 +1013,8 @@ the console and macOS bodies do.
 **`term::drawText` is `io::write`'s cluster walk, emitted a second time** (bug-540
 WIN-04), exactly as on Linux: `emit_win_term_cluster_walk` is specialized at emit
 time by `WinTermWriteMode`. `Write` starts at the `TUI_ROW`/`TUI_COL` globals,
-wraps a wide cluster to the next row rather than split it, handles `\n`/`\r`, and
-leaves the new cursor in the globals. `DrawText` starts at its `(row, column)`
+wraps a wide cluster to the next row rather than split it, scrolls at the bottom,
+handles `\n`/`\r`, and leaves the new cursor in the globals. `DrawText` starts at its `(row, column)`
 arguments (a row off the surface draws nothing), ends the run at the right edge and
 when a width-2 cluster has only one column left, advances a negative start column
 without stamping, gives a control unit one column and no stamp, and never touches
