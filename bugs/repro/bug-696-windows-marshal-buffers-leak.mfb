@@ -1,10 +1,10 @@
-' bug-691 repro: the Windows backend's UTF-16 marshalling scratch buffers are
+' bug-696 repro: the Windows backend's UTF-16 marshalling scratch buffers are
 ' allocated from the arena on every call and never freed. 100 calls of
 ' os::getEnvOr / os::hasEnv leave 100 x 256 KiB live; 100 fs::fileExists
 ' leave 100 x 64 KiB.
 '
 ' Build for Windows and run each mode on a Windows host:
-'   mfb init /tmp/p && cp bugs/repro/bug-691-windows-marshal-buffers-leak.mfb /tmp/p/src/main.mfb
+'   mfb init /tmp/p && cp bugs/repro/bug-696-windows-marshal-buffers-leak.mfb /tmp/p/src/main.mfb
 '   mfb build -q --debug -target windows-x86_64 /tmp/p
 '   (on Windows)  set W=env&& p.exe     -- then W=has, W=fs, W=none
 ' and read arena.0.live_bytes from the report on stderr.

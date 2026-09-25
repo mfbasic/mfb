@@ -1,4 +1,4 @@
-# bug-691: every Windows `os::getEnv*`/`hasEnv` call leaks 256 KiB and every Windows path call leaks 64 KiB — the backend's UTF-16 marshalling buffers are never freed
+# bug-696: every Windows `os::getEnv*`/`hasEnv` call leaks 256 KiB and every Windows path call leaks 64 KiB — the backend's UTF-16 marshalling buffers are never freed
 
 Last updated: 2026-09-24
 Effort: large (3h–1d)
@@ -34,7 +34,7 @@ References:
 
 ## Failing Reproduction
 
-`bugs/repro/bug-691-windows-marshal-buffers-leak.mfb`, built
+`bugs/repro/bug-696-windows-marshal-buffers-leak.mfb`, built
 `mfb build -q --debug -target windows-x86_64` at bug-689's tree (`aa644f908` +
 bug-689) and run on box 2230 (Win11 x86-64) with `set W=<mode>&& p.exe`:
 

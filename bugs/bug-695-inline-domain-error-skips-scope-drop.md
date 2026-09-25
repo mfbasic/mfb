@@ -1,4 +1,4 @@
-# bug-690: an inline domain error that leaves its function skips the scope-drop walk, leaking every owned local
+# bug-695: an inline domain error that leaves its function skips the scope-drop walk, leaking every owned local
 
 Last updated: 2026-09-24
 Effort: large (3h–1d)
@@ -39,10 +39,10 @@ References:
 
 ## Failing Reproduction
 
-`bugs/repro/bug-690-domain-error-leaks-owned-locals.mfb`:
+`bugs/repro/bug-695-domain-error-leaks-owned-locals.mfb`:
 
 ```
-mfb init /tmp/p && cp bugs/repro/bug-690-domain-error-leaks-owned-locals.mfb /tmp/p/src/main.mfb
+mfb init /tmp/p && cp bugs/repro/bug-695-domain-error-leaks-owned-locals.mfb /tmp/p/src/main.mfb
 mfb build -q --debug /tmp/p
 for w in a b c d; do W=$w /tmp/p/build/p.out 2>&1 | grep -E '^arena.0.(alloc|free)_calls|live_bytes'; done
 ```

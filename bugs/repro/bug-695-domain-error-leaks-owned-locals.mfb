@@ -1,4 +1,4 @@
-' bug-690 repro: an inline domain error (a failing conversion, a division by
+' bug-695 repro: an inline domain error (a failing conversion, a division by
 ' zero) that propagates out of a function with no function-level TRAP returns
 ' without the scope-drop walk, so every owned local of that function leaks.
 ' A failing CALL (a) and a FAIL (c) free them; the inline raises (b, d) do not.
