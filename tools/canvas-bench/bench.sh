@@ -466,6 +466,9 @@ cmd_text() {
 # ---------------------------------------------------------------------------
 # wind
 # ---------------------------------------------------------------------------
+# wind quits at the end of its input (`readKey` turns EOF into Quit), and a background
+# job's stdin is /dev/null, so launched plainly it draws one frame and exits. Its stdin
+# is therefore a FIFO this side holds open for writing: reads block, never EOF.
 cmd_wind() {
   local window=${1:-20}
   local dir="$WORK/wind"
@@ -475,7 +478,9 @@ cmd_wind() {
     build_app "$dir" --debug
     local rdir; rdir=$(remote_dir_of "$dir")
     local rstats="$rdir/stats"
-    ssh_box "cd '$rdir' && setsid env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS='$rstats' ./squashfs-root/usr/bin/wind >run.log 2>&1 </dev/null & disown; true"
+    # `;`, not `&&`, before `setsid`: a `&` after an AND-list backgrounds the whole list,
+    # whose shell keeps this ssh session's stdout open until wind exits.
+    ssh_box "cd '$rdir' && rm -f stdin.fifo; mkfifo stdin.fifo; setsid sh -c 'exec 3<>stdin.fifo; exec env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$rstats ./squashfs-root/usr/bin/wind <&3' >run.log 2>&1 </dev/null & disown; true"
     local waited=0
     local rlines
     rlines=$(ssh_box "wc -l < '$rstats' 2>/dev/null || echo 0" | tr -d ' ')
@@ -502,7 +507,9 @@ cmd_wind() {
     build_app "$dir" --debug
     local bin; bin=$(bin_path "$dir" wind)
     local stats="$dir/stats"
-    ( env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" >/dev/null 2>&1 ) &
+    mkfifo "$dir/stdin.fifo"
+    exec 3<>"$dir/stdin.fifo"
+    ( env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" <&3 >/dev/null 2>&1 ) &
     local pid=$!
     local waited=0
     until [ -f "$stats" ] && [ "$(wc -l < "$stats" | tr -d ' ')" -ge 2 ]; do
@@ -519,6 +526,7 @@ cmd_wind() {
     local lb; lb=$(sed -n "${b}p" "$stats")
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+    exec 3>&-
     local frames=$((b - a))
     local fps; fps=$(awk -v f="$frames" -v w="$window" 'BEGIN{printf "%.2f", f/w}')
     echo "waited ${waited}s for first map frame; frames in ${window}s window = $frames (fps=$fps)"

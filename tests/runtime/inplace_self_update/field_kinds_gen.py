@@ -152,8 +152,8 @@ LITERALS = {
     "term::MouseEvent": "term::MouseEvent[kind := term::MouseKind.None, button := term::MouseButton.None, row := 1, column := 1, shift := FALSE, ctrl := FALSE, alt := FALSE]",
     # The canvas records that hold an enum or a `canvas::Paint` (`canvas::fill`).
     "canvas::Paint": "canvas::fill(color::fromName(\"red\"))",
-    "canvas::MouseEvent": "canvas::MouseEvent[kind := canvas::MouseKind.None, button := canvas::MouseButton.None, position := canvas::Point[0.0, 0.0], shift := FALSE, ctrl := FALSE, alt := FALSE]",
     "canvas::FrameStats": "canvas::FrameStats[dt := 0.0, pps := 0.0, fps := 0.0, displayHz := 0.0, frameSeconds := 0.0, presents := 0, frames := 0, renderer := canvas::Renderer.Software]",
+    "canvas::MouseEvent": "canvas::MouseEvent[kind := canvas::MouseKind.None, button := canvas::MouseButton.None, position := canvas::Point[0.0, 0.0], shift := FALSE, ctrl := FALSE, alt := FALSE]",
     "canvas::Gradient": "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[0.0, 0.0], endPoint := canvas::Point[1.0, 1.0], stops := []]",
     "canvas::Rectangle": "canvas::Rectangle[x := 1.0, y := 1.0, w := 2.0, h := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::RoundedRect": "canvas::RoundedRect[x := 1.0, y := 1.0, w := 2.0, h := 2.0, cornerRadius := 0.5, paint := canvas::fill(color::fromName(\"red\"))]",
@@ -162,6 +162,7 @@ LITERALS = {
     "canvas::Line": "canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 1.0, y2 := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Arc": "canvas::Arc[x := 1.0, y := 1.0, radius := 2.0, startAngle := 0.0, endAngle := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Polygon": "canvas::Polygon[points := [canvas::Point[0.0, 0.0]], paint := canvas::fill(color::fromName(\"red\"))]",
+    "canvas::PolyLine": "canvas::PolyLine[points := [canvas::Point[0.0, 0.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
     "KFix": "KFix[p := 1, q := 2.5]",
     "KVar": 'KVar[s := "v"]',
 }

@@ -613,6 +613,25 @@ pub(crate) const GEO_KIND_GROUP: &str = "8";
 /// the glyph region rather than adding a fourth means sharing its cursor and its frame
 /// cap, and the predicates count a picture's texels against that cap.
 pub(crate) const GEO_KIND_PICTURE: &str = "9";
+/// `__CANVAS_GEO_POLYLINE` — a `canvas::PolyLine` (plan-154-A).
+///
+/// Its tail is the polygon edge layout (without the wrap edge) followed by its per-point
+/// colours as gradient stops, so an emitter that uploads it needs the polygon's edge path
+/// and the gradient's stop path, and nothing new.
+///
+/// Spelled here and once in MFBASIC; `the_geo_layout_constants_match_their_rust_counterparts`
+/// holds the two equal.
+pub(crate) const GEO_KIND_POLYLINE: &str = "10";
+/// A polyline's first and last segments with length, in the header's gradient axis
+/// slots (`__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`), which a polyline does not otherwise
+/// use.
+///
+/// The emitters copy them into the item block's `gradient.x`/`.y` as **whole numbers**,
+/// not the 16.16 the axis is written as: 16.16 holds a segment index only up to 32,767,
+/// and a plotted path can have more segments than that. The butt planes cut only these
+/// two segments, each on its outer end.
+pub(crate) const HEADER_POLYLINE_FIRST: usize = 43;
+pub(crate) const HEADER_POLYLINE_LAST: usize = 44;
 /// The header slots holding a picture's pixel-block address, high and low 24 bits.
 ///
 /// Split because every header slot is hashed through `__canvas_hashFloat`, which

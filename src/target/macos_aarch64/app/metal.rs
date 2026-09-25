@@ -65,16 +65,17 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H,
-    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
+    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
     GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
     HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1,
     HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R,
     HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
-    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_RADIUS, HEADER_SHAPE,
-    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
-    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
+    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
+    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
+    HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
+    HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
     ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
     ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
     ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
@@ -313,11 +314,47 @@ const METAL_SHADER_BODY: &str = concat!(
     // emitter built to hold every edge that can matter there.
     "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y) {\n",
     "  int nb = item.arcCaps.z;\n",
-    "  if (item.misc.x != 4 || nb <= 0) { return int2(-1, item.misc.w); }\n",
+    "  if ((item.misc.x != 4 && item.misc.x != 10) || nb <= 0) { return int2(-1, item.misc.w); }\n",
     "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
     "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
     "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
     "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
+    "}\n",
+    // plan-154-B: a PolyLine's distance and path parameter, as (d, t) -- the twin of
+    // `__canvas_polylineScan` in the oracle and of `polylineScan` in
+    // `runtime/canvas/shaders/mfb_canvas.frag`. The minimum over the segments' round
+    // bands is the union that makes every corner round; only the first and last LIVE
+    // segments (`gradient.x`/`.y`, whole numbers) take a butt plane, each on its outer
+    // end. A zero-length segment is skipped unless it is the whole path (first == last),
+    // where it is the round dot. `t` is (segment + clamped t) / segments, continuous at a
+    // corner, and the same walk sets both, so the colour's segment is the distance's.
+    "static float2 polylineScan(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
+    "  int first = item.gradient.x;\n",
+    "  int last = item.gradient.y;\n",
+    "  float halfW = fx(item.misc.y);\n",
+    "  bool butt = item.arc.w == 0;\n",
+    "  float best = 1.0e6;\n",
+    "  float param = 0.0;\n",
+    "  for (int j = 0; j < band.y; ++j) {\n",
+    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
+    "    if (e < first || e > last) { continue; }\n",
+    "    int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
+    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "    float2 v = float2(fx(edges[i + 2]), fx(edges[i + 3])) - a;\n",
+    "    float len2 = dot(v, v);\n",
+    "    if (!(len2 > 0.0) && first != last) { continue; }\n",
+    "    float2 w = p - a;\n",
+    "    float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;\n",
+    "    float c = clamp(t, 0.0, 1.0);\n",
+    "    float d = length(w - v * c) - halfW;\n",
+    "    if (butt) {\n",
+    "      float len = sqrt(len2);\n",
+    "      if (e == first) { d = max(d, -t * len); }\n",
+    "      if (e == last) { d = max(d, (t - 1.0) * len); }\n",
+    "    }\n",
+    "    if (d < best) { best = d; param = (float(e) + c) / float(item.misc.w); }\n",
+    "  }\n",
+    "  return float2(best, param);\n",
     "}\n",
     "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
     "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
@@ -365,6 +402,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    band = min(band, length(p - cs) - radius);\n",
     "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
+    "  if (item.misc.x == 10) { return polylineScan(item, edges, band, p).x; }\n",
     "  return edgeDistance(edges, item.arc.z, band.y, band.x, p);\n",
     "}\n",
     // The shape-space distance and the local scale of the mapping, as (d, s).
@@ -433,20 +471,11 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  return c;\n",
     "}\n",
-    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    // plan-154-B: the stop lookup at a ramp parameter `t`, split from the axis that
+    // computes `t` so a PolyLine can ask it at its path parameter instead.
+    "static int4 gradientAt(float t, constant int *edges, constant MfbItem &item) {\n",
     "  int count = item.ellipse.z;\n",
     "  int base = METAL_GRADIENT_BASE + item.ellipse.w * 5;\n",
-    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
-    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
-    "  float2 axis = gto - gfrom;\n",
-    "  float len2 = dot(axis, axis);\n",
-    "  float t = 0.0;\n",
-    "  if (item.gradientKind == 1) {\n",
-    "    float len = sqrt(len2);\n",
-    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
-    "  } else {\n",
-    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
-    "  }\n",
     "  t = clamp(t, 0.0, 1.0);\n",
     "  int idx = count;\n",
     "  for (int i = 0; i < count; ++i) {\n",
@@ -472,6 +501,20 @@ const METAL_SHADER_BODY: &str = concat!(
     "              gradientChannel(edges[lo + 2], edges[hi + 2], num),\n",
     "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
     "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
+    "}\n",
+    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
+    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
+    "  float2 axis = gto - gfrom;\n",
+    "  float len2 = dot(axis, axis);\n",
+    "  float t = 0.0;\n",
+    "  if (item.gradientKind == 1) {\n",
+    "    float len = sqrt(len2);\n",
+    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
+    "  } else {\n",
+    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
+    "  }\n",
+    "  return gradientAt(t, edges, item);\n",
     "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill, the twin of the `isPicture` arm of
@@ -586,6 +629,13 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float d = dRaw / dScale;\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
+    // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
+    // the path -- the parameter of the nearest point, in shape space, from the same band
+    // the distance used.
+    "  if (item.misc.x == 10 && item.ellipse.z >= 2) {\n",
+    "    float2 q = hasTransform(item) ? inverseMap(item, p) : p;\n",
+    "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y), q).y, edges, item);\n",
+    "  }\n",
     // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
     // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
     "  if (item.misc.x == 9) {\n",
@@ -4340,8 +4390,30 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::SCRATCH[5],
         abi::FP_SCRATCH[1],
     ));
+    let has_edges = format!("{METAL_DRAW_SYMBOL}_edge_has");
     asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYGON));
+    asm.push(abi::branch_eq(&has_edges));
+    // plan-154-B: a PolyLine's segments are edges in the polygon layout, one per
+    // segment and without a wrap edge, so they take the same upload and band index.
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYLINE));
     asm.push(abi::branch_ne(&empty));
+    // Its first and last live segments, as whole numbers over the 16.16 axis
+    // `emit_item_block` wrote into `gradient` (`HEADER_POLYLINE_FIRST`). Here rather than
+    // in `emit_item_block` because that runs for glyphs too and this does not; a
+    // polyline is never a glyph.
+    for (index, slot) in [(0usize, HEADER_POLYLINE_FIRST), (1, HEADER_POLYLINE_LAST)] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[5],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_GRADIENT + index * 4,
+        ));
+    }
+    asm.push(abi::label(&has_edges));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
@@ -4591,6 +4663,11 @@ fn emit_band_index(asm: &mut Asm) {
     // --- the reach r (f1) and the minimum band height (f4), in shape units --------
     asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_GLYPH_HEADER));
     asm.push(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-154-B: a PolyLine is stroke-as-fill, so its half-width is the RADIUS slot and
+    // slot 7 is -1. A polygon never writes the radius slot (it stays the blank header's
+    // 0), so taking the larger of the two leaves every polygon's reach as it was.
+    asm.push(abi::load_double(f[2], s[0], HEADER_RADIUS * 8));
+    asm.push(abi::float_max_d(f[1], f[1], f[2]));
     asm.push(abi::move_immediate(s[4], "Integer", "0"));
     asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
     // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.

@@ -543,7 +543,9 @@ fi
 
 # The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
 # `Frame::load_png` would hand the Rust comparators.
-python3 - "tests/golden/canvas/groups.png" "$work/groups.rgba" <<'PY'
+#   png_to_rgba <png> <out.rgba>
+png_to_rgba() {
+python3 - "$1" "$2" <<'PY'
 import struct, sys, zlib
 
 raw = open(sys.argv[1], "rb").read()
@@ -587,6 +589,8 @@ for _ in range(height):
     prev = line
 open(sys.argv[2], "wb").write(bytes(out))
 PY
+}
+png_to_rgba "tests/golden/canvas/groups.png" "$work/groups.rgba"
 
 remoteg="$remote/groups"
 remote_ssh "$PORT" "$host" "mkdir -p $remoteg"
@@ -649,6 +653,78 @@ case "$verdict" in
     point and need it too. A white band visible in a TRANSLATED panel means the
     opposite mistake: the clip is a surface rectangle and must not move with its
     group." ;;
+esac
+
+# ---------------------------------------------------------------------------------
+# plan-154-C: `canvas::PolyLine` on the GPU, against the checked-in reference.
+#
+# Extracted from `tests/canvas/rt_canvas_golden.rs` for the same reason the group scene is:
+# the `POLYLINES` const that `polylines_match_their_reference_exactly` renders is the one
+# source of `polyline.png`. It carries round and butt zig-zags (the joins, and the butt
+# planes on the first and last live segments), a switch-back, a butt path with repeated
+# end points, per-point colours fading to transparent (the gradient lookup at the path
+# parameter), fewer colours than points, a two-point path, and the degenerate paths.
+echo "--- polylines: building for $TARGET ---"
+projp="$work/polylines"
+mkdir -p "$projp/src"
+sed 's/"name": "vkcanvas"/"name": "vkpolylines"/' "$proj/project.json" > "$projp/project.json"
+sed -n '/^const POLYLINES: &str = r#"/,/^"#;$/p' tests/canvas/rt_canvas_golden.rs \
+  | sed -e '1s/^const POLYLINES: &str = r#"//' -e '$d' > "$projp/src/main.mfb"
+if ! grep -q "canvas::PolyLine" "$projp/src/main.mfb"; then
+  fail "could not extract the POLYLINES scene from tests/canvas/rt_canvas_golden.rs — the const's shape changed"
+  exit 1
+fi
+"$MFB_EXE" build --app --debug --target "$TARGET" "$projp" >/dev/null
+png_to_rgba "tests/golden/canvas/polyline.png" "$work/polyline.rgba"
+
+remotep="$remote/polylines"
+remote_ssh "$PORT" "$host" "mkdir -p $remotep"
+remote_scp "$PORT" "$projp/build/vkpolylines-$LIBC.AppImage" "$host:$remotep/app.AppImage" >/dev/null
+
+echo "--- polylines: running on box $PORT ---"
+remote_ssh "$PORT" "$host" "
+  set -e
+  cd $remotep
+  ./app.AppImage --appimage-extract >/dev/null 2>&1
+  cd squashfs-root
+  bin=./usr/bin/vkpolylines
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remotep/sw.txt \
+    MFB_CANVAS_DUMP=$remotep/sw.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remotep/gpu.txt \
+    MFB_CANVAS_DUMP=$remotep/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
+"
+remote_scp "$PORT" "$host:$remotep/sw.rgba" "$work/psw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remotep/gpu.rgba" "$work/pgpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remotep/gpu.txt" "$work/pgpu.txt" >/dev/null
+
+pstats="$(tail -1 "$work/pgpu.txt")"
+echo "    $pstats"
+
+# A declined PolyLine frame is software against itself, so the frame count comes first.
+case "$pstats" in
+  *gpuFrames=0*) fail "the polyline scene produced no GPU frame — __canvas_vulkanRenderable declined it" ;;
+  *) pass "the polyline scene reached the GPU (gpuFrames non-zero)" ;;
+esac
+
+verdict="$(compare "$work/polyline.rgba" "$work/psw.rgba" 900)"
+case "$verdict" in
+  ok*)
+    if [ "$verdict" = "ok worst=0 differing=0.0000%" ]; then
+      pass "polylines: the software render reproduces tests/golden/canvas/polyline.png exactly"
+    else
+      fail "polylines: the software render is only NEAR the reference ($verdict) — the oracle must match it exactly"
+    fi
+    ;;
+  *) fail "polylines: the software render disagrees with tests/golden/canvas/polyline.png: $verdict" ;;
+esac
+
+verdict="$(compare "$work/polyline.rgba" "$work/pgpu.rgba" 900)"
+case "$verdict" in
+  ok*) pass "polylines: the Vulkan render matches tests/golden/canvas/polyline.png ($verdict)" ;;
+  *)   fail "polylines: the Vulkan render disagrees with the reference: $verdict
+    A butt end that domes is the first/last segment words (gradient.x/.y, whole
+    numbers); a colour step at a corner is the path parameter; a missing path is the
+    edge upload or the band reach (the radius slot)." ;;
 esac
 
 if [ "$rc_failures" -eq 0 ]; then

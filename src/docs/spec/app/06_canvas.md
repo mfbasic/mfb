@@ -127,7 +127,8 @@ each backend's predicate declines a frame that would overflow one of them. Metal
 Vulkan have the same caps: more than 65,536
 item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
 the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
-picture-and-glyph texels (each distinct image counted once). There is no per-polygon
+picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
+count against the edge cap, one edge each. There is no per-polygon
 edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
 so a pixel tests only the edges that can reach it, and the result is identical to
 testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
@@ -135,11 +136,27 @@ predicates. So are the region bases the shaders read: Metal formats them into it
 shader source when it compiles it, and Vulkan's checked-in SPIR-V declares them as
 specialization constants that the pipeline sets from the same constants.
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+
+**A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
+segments upload through the polygon edge path and are banded the same way. The band
+reach is measured from the larger of the stroke half-width and the radius slot: a
+polyline is stroke-as-fill, so its half-width is in the radius slot. Its per-point colours
+are its gradient stops, uploaded by the gradient path unchanged. The shader walks the
+segments as the oracle does and looks the colour up at the path parameter instead of an
+axis parameter. The first and last live segments travel in the block's gradient-axis
+words as whole numbers rather than 16.16, because 16.16 holds an index only up to 32,767.
+[[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
+[[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
@@ -214,10 +231,9 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
-**`Line.cap` and `Arc.cap` shape the two ends of a stroke.** They are the only two
-`DrawItem` variants with ends — both are drawn entirely from `Paint.stroke` and have no
-interior — so the field is on those records rather than on `Paint`, and a shape with no
-ends cannot carry one.
+**`Line.cap`, `Arc.cap` and `PolyLine.cap` shape the two ends of a stroke.** They are the
+only three `DrawItem` variants with ends, and none has an interior, so the field is on
+those records rather than on `Paint`, and a shape with no ends cannot carry one.
 
 `CapStyle.Butt` cuts the stroke square at the endpoint. `CapStyle.Round` extends it by a
 half-disc of `Paint.strokeWidth / 2` centred there. Both are defined on the same signed
@@ -238,7 +254,42 @@ construction requires every field, so no item can have a defaulted `cap`, and th
 only a tag number.
 
 `Polygon` has no cap and no **join** style; its corners are whatever the crossing-count
-fill rule produces. A join is a separate concept and no variant exposes one.
+fill rule produces. `PolyLine`'s joins are always round, and no variant exposes a join
+style.
+
+**A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
+strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
+segments' distances. A minimum of round-capped bands is what makes every interior corner
+round, so the round join needs no code of its own. Each segment is measured with
+`Line`'s own arithmetic, so a two-point `PolyLine` draws exactly the pixels of the `Line`
+between the same points with the same cap.
+[[src/codegen/builtins/canvas/helper_draw.rs:POLYLINE_SCAN]]
+
+* **Ends.** The butt planes cut only the **first and last segments with length**, each
+  on its outer end, with the same `max(d − half, −t·|v|, (t−1)·|v|)` a butt `Line` uses.
+  A zero-length segment adds nothing, because its point is already inside its
+  neighbours' round ends. So a repeated end point cannot turn a butt end round.
+  The header records which segments those are, once, by the same `dx·dx + dy·dy > 0`
+  test the walk uses.
+* **Degenerate paths.** Fewer than two points draw nothing. A path whose points all
+  coincide draws what a zero-length `Line` with its cap draws: a dot of `half` for
+  `Round`, nothing for `Butt`.
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHeader]]
+* **Colour.** An empty `colors` strokes the whole path in `Paint.stroke`. Otherwise
+  point `k` has colour `colors[k]`, or `Paint.stroke` past the end of the list. The
+  colours are stored as the record's gradient stops, one per point at offset
+  `k / (n − 1)`, after its segments. A pixel whose nearest segment is `i`, at clamped
+  parameter `t` along it, is drawn in the gradient colour at `(i + t) / (n − 1)`. That
+  mixes the colours of the segment's two points exactly as `Paint.fillGradient` mixes
+  two stops, in linear light with straight alpha. The segment that picks the colour is the
+  one that sets the distance, because a single walk answers both. The parameter is
+  continuous at a corner, so a tie between two segments picks the same colour either
+  way. With colours, the path draws whatever the alpha of `Paint.stroke`; only a
+  non-positive `strokeWidth` stops it.
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineTail]]
+  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHalf]]
+* **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
+  is negative. So `Paint.fill` and `Paint.fillGradient` never reach a polyline.
 
 **`Paint.transform` maps the item's coordinates onto the surface.** The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,

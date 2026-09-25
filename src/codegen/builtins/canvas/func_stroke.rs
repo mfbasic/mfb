@@ -9,7 +9,8 @@ const INTRO: &str =
     r#"Build a `canvas::Paint` that outlines an item and leaves its interior empty."#;
 
 const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, and the only sensible
-`canvas::Paint` for the two items that have no interior at all, `canvas::Line` and `canvas::Arc`. Every
+`canvas::Paint` for the three items that have no interior at all, `canvas::Line`,
+`canvas::Arc` and `canvas::PolyLine`. Every
 other field is left at its no-op value: a transparent fill, `Normal` blend, the
 identity transform, and no clip.
 
@@ -35,6 +36,33 @@ SUB main()
   LET green AS color::Color = color::rgb(0, 160, 0)
   LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
   canvas::present([smile])
+END SUB
+```
+
+A trail that fades out: one `canvas::PolyLine` with a colour per point, whose alpha
+falls to zero at the tail. With colours given, the path draws in them rather than in
+the paint's own colour, so the paint here only sets the width:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT points AS List OF canvas::Point = []
+  MUT colors AS List OF color::Color = []
+  MUT k AS Integer = 0
+  WHILE k < 8
+    LET x AS Float = 60.0 + toFloat(k) * 40.0
+    LET y AS Float = 200.0 + toFloat((k MOD 2) * 60)
+    points = collections::append(points, canvas::Point[x := x, y := y])
+    colors = collections::append(colors, color::rgba(255, 140, 40, 255 - (k * 255) / 7))
+    k = k + 1
+  END WHILE
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := points, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 140, 40), 12.0)]
+  canvas::present([trail])
 END SUB
 ```"#;
 

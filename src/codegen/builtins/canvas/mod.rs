@@ -874,7 +874,7 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // ---- The nine `DrawItem` variants (a CLOSED set) ----------------------
+    // ---- The `DrawItem` variants (a CLOSED set) ---------------------------
 
     pkg.add_record(RegistryRecord {
         name: "Rectangle",
@@ -1145,6 +1145,12 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Group",
                 description: "A reference to a named group of items, translated.",
             },
+            // plan-154-A, appended last for the same reason as `Ellipse`: the order fixes
+            // each variant's tag.
+            UnionVariant {
+                name: "PolyLine",
+                description: "An open path, stroked, with a colour per point.",
+            },
         ],
     });
 
@@ -1211,6 +1217,56 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "angle",
                 ty: ParameterType::Float,
                 description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+            },
+            paint_prop(),
+        ],
+    });
+
+    // plan-154-A. Declared after `Ellipse` and appended LAST to `DrawItem` below, for
+    // the tag-order reason given there.
+    pkg.add_record(RegistryRecord {
+        name: "PolyLine",
+        export: true,
+        description: "An open path through a list of points, stroked as one item. \
+                      Every corner where two segments meet is rounded, and `cap` \
+                      shapes the two ends. Give `colors` a colour per point and the \
+                      stroke blends from each point's colour to the next along the \
+                      segment between them, so a trail that fades out is one item \
+                      whose colours' alpha falls to zero, not one `canvas::Line` per \
+                      segment. Colours mix in linear light, as a `canvas::Gradient`'s \
+                      do. A path has no interior, so it is drawn from \
+                      `paint.strokeWidth` and ignores `paint.fill` and \
+                      `paint.fillGradient`. Fewer than two points draws nothing.",
+        props: vec![
+            RecordProp {
+                name: "points",
+                ty: ParameterType::list_of(ParameterType::named("Point")),
+                description: "The points in order. The path does not close — use \
+                              `canvas::Polygon` for a closed shape. A point repeated \
+                              in place adds nothing; if every point is the same one, \
+                              the path draws what a zero-length `canvas::Line` with \
+                              the same `cap` draws.",
+            },
+            RecordProp {
+                name: "colors",
+                ty: ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::color::COLOR_TYPE_ID,
+                )),
+                description: "The stroke colour at each point, in the same order as \
+                              `points` — `color::Color` values, so the program needs \
+                              `IMPORT color` to name them. An empty list draws the \
+                              whole path in `paint.stroke`. A point past the end of \
+                              this list takes `paint.stroke`, and colours past the \
+                              last point are ignored. With any colours given, the path \
+                              draws even when `paint.stroke` is transparent.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Round` extends the \
+                              stroke past the first and last point by a half-disc; \
+                              `Butt` cuts it square there. The corners between \
+                              segments are always round.",
             },
             paint_prop(),
         ],
@@ -1446,6 +1502,7 @@ mod tests {
                 "RoundedRect",
                 "Ellipse",
                 "Group",
+                "PolyLine",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );

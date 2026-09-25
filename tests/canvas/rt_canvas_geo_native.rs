@@ -77,8 +77,10 @@ fn field(line: &str, name: &str) -> i64 {
 /// Every native kind at fractional, negative, large and tiny coordinates, and every
 /// degenerate size the builders special-case: zero and negative width, height and
 /// radius, a corner radius below zero and past the limit, zero-length and
-/// negative-zero lines, and polygons of 0, 1 and 2 points, collinear and with a
-/// duplicate vertex.
+/// negative-zero lines, polygons of 0, 1 and 2 points, collinear and with a
+/// duplicate vertex, and polylines (plan-154-A) with no colours, fewer and more colours
+/// than points, repeated end points, every point coincident under each cap, and 0 and
+/// 1 points.
 ///
 /// Frame 1 is the whole native matrix. Frame 2 is items the native builder must
 /// decline — a real transform, a two-stop gradient, an `Ellipse`, an `Arc` — so the
@@ -101,7 +103,7 @@ fn the_native_geometry_matches_the_mfbasic_builders_bit_for_bit() {
     let built = field(matrix, "generations");
     assert!(
         native > 1000,
-        "the matrix is ~6,000 items of the five native kinds (distinct ones: over a \
+        "the matrix is ~7,800 items of the six native kinds (distinct ones: over a \
          thousand), but the native builder produced {native} records.\n{matrix}"
     );
     assert_eq!(

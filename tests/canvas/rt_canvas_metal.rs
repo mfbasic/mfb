@@ -89,6 +89,8 @@ SUB main()
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  ' plan-154-B: a PolyLine, with a colour per point.
+  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
@@ -144,7 +146,7 @@ SUB main()
   ' ends are visible rather than one running off the item's own band.
   LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
 
-  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
+  canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END SUB
 "#;
 
@@ -493,6 +495,86 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
             "a 262,145-edge polygon does not fit Metal's frame edge region, so the \
              renderer must decline the whole scene and let the software oracle draw it \
              — the two frames must be byte-identical, but {diff}"
+        );
+    }
+}
+
+/// Two `canvas::PolyLine`s (plan-154-A): one with a colour per point, one plain with
+/// butt ends, beside a polygon so the frame is otherwise one Metal draws. The third is
+/// long enough (40 segments) to get a band index, so the band reach for a polyline is
+/// exercised, and it doubles back across its own rows.
+const POLYLINES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
+  MUT wave AS List OF canvas::Point = []
+  MUT hues AS List OF color::Color = []
+  MUT k AS Integer = 0
+  WHILE k <= 40
+    LET x AS Float = 80.0 + toFloat(k) * 18.0
+    LET y AS Float = 420.0 + toFloat((k MOD 4) * 22) - toFloat(k) * 2.5
+    wave = collections::append(wave, canvas::Point[x := x, y := y])
+    hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
+    k = k + 1
+  END WHILE
+  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 7.0)]
+  canvas::present([tri, trail, plain, long])
+END SUB
+"#;
+
+/// Metal draws `canvas::PolyLine` itself and matches the software oracle (plan-154-B).
+///
+/// Gated on the frame having been drawn on the GPU first — `gpuFrames` equal to
+/// `frames` — because a declined frame falls back to the oracle and would match it
+/// exactly, which is the passing picture a broken shader branch hides behind.
+///
+/// The scene carries a per-point colour trail (the path parameter's gradient lookup),
+/// a plain butt-capped path (the one-sided butt planes and the round joins), and a
+/// polygon, so the frame is one Metal draws in every other respect.
+#[test]
+fn polylines_match_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_polylines", POLYLINES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let line = stats.lines().next_back().expect("a stats line");
+    let count = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|f| f.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no `{name}=` in {line}"))
+            .parse()
+            .expect("a number")
+    };
+    assert!(
+        count("frames") > 0 && count("gpuFrames") == count("frames"),
+        "every PolyLine frame must be drawn on Metal, not declined to software: {line}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(
+        painted > 5_000,
+        "the scene drew {painted} pixels, so it proves nothing"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "Metal's PolyLine disagrees with the software oracle: {diff}\n\
+             A butt end that domes is the first/last segment words (`gradient.x`/`.y`); \
+             a colour that jumps at a corner is the path parameter; a missing path is \
+             the edge upload or the band reach (`emit_band_index`, radius slot)."
         );
     }
 }

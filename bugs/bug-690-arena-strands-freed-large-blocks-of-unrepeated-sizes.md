@@ -156,6 +156,18 @@ Contrast cases, which work today and must keep working:
   lists of 2,000–3,000 elements), because append capacities round up and the
   same few sizes recur.
 
+**plan-154-D makes wind a faster repro (2026-09-25).** With each trail drawn as
+one `canvas::PolyLine` holding its own point and colour lists, the scene's size
+changes on almost every frame instead of cycling through a bounded set. A
+release, headless, `MFB_CANVAS_GPU=1` wind grows linearly: 1,423 → 11,819 MB RSS
+over 150 s (about 70 MB/s). The `Line` version it replaced levels off near 4.8 GB
+over the same 150 s. `vmmap` on the PolyLine wind after 25 s shows the growth in
+`VM_ALLOCATE`. It holds 520 regions of 5,296–5,360 KB, about one per frame and
+about a scene copy's size. Malloc and IOAccelerator memory stay flat. Software
+rendering (`MFB_CANVAS_GPU=0`) levels off at about 1.1 GB. Constant-size probes
+(1,000 moving PolyLines a frame, with or without colours) stay flat on both
+renderers. So it is this bug, not the new item kind.
+
 | Environment | Result |
 | --- | --- |
 | macos-aarch64, console and `--app` | fails ✗ |

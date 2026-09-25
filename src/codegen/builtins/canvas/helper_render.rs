@@ -779,6 +779,10 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-154-B: a PolyLine's segments take the same region, one edge each.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -916,6 +920,10 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
       gradientStops = gradientStops + stops
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-154-C: a PolyLine's segments take the same region, one edge each.
+    IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT

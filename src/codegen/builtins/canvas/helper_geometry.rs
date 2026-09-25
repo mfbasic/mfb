@@ -83,7 +83,16 @@ LET __CANVAS_GEO_GROUP AS Integer = 8
 LET __CANVAS_GEO_PICTURE AS Integer = 9
 LET __CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = 35
 LET __CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = 36
-LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216"#;
+LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216
+' plan-154-A. A PolyLine: stroke-as-fill like a Line (the stroke colour in the fill
+' slots, the half-width in the radius slot 6, slot 7 at -1), its segment count in the
+' aux slot 20 as a polygon's edge count is, and a tail of that many edges in the
+' polygon layout followed by its per-point colours as gradient stops. The first and
+' last segments with length go in the gradient axis slots 43-44, which a polyline does
+' not otherwise use: its colours are parameterised by the path, not by an axis.
+LET __CANVAS_GEO_POLYLINE AS Integer = 10
+LET __CANVAS_GEO_POLYLINE_FIRST AS Integer = 43
+LET __CANVAS_GEO_POLYLINE_LAST AS Integer = 44"#;
 
 /// The cache, as flat lists rather than a list of records.
 ///
@@ -315,6 +324,12 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
     stopCount = 0
   END IF
   IF kind = __CANVAS_GEO_ARC THEN
+    stopCount = 0
+  END IF
+  ' plan-154-A: a PolyLine is stroke-as-fill too. Its tail does carry stops -- its
+  ' per-point colours, never `fillGradient`'s -- and `__canvas_polylineHeader` writes
+  ' their count itself after this returns.
+  IF kind = __CANVAS_GEO_POLYLINE THEN
     stopCount = 0
   END IF
   ' Fewer than two stops is not a gradient (plan-116-F section 4.1), so it carries no
@@ -614,6 +629,101 @@ FUNC __canvas_polygonHeader(p AS Polygon) AS List OF Float
   out = collections::set(out, 20, toFloat(count))
   LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(p.paint), 0.0) + 1.0
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
+END FUNC
+
+' plan-154-A: a PolyLine's stroke half-width, or a negative number when it draws nothing.
+'
+' With no colours it is exactly `__canvas_strokeHalf` -- a transparent `paint.stroke`
+' draws nothing, as it does for a Line. With colours the per-point colours ARE the
+' stroke, so only the width decides: a program that fades a trail from colour to
+' colour should not also have to set `paint.stroke` to something opaque that is never
+' drawn.
+FUNC __canvas_polylineHalf(p AS PolyLine) AS Float
+  IF len(p.colors) = 0 THEN
+    RETURN __canvas_strokeHalf(p.paint)
+  END IF
+  IF p.paint.strokeWidth <= 0.0 THEN
+    RETURN 0.0 - 1.0
+  END IF
+  RETURN p.paint.strokeWidth / 2.0
+END FUNC
+
+' plan-154-A: a PolyLine's header.
+'
+' The first and last segments WITH LENGTH are found here, once, because they are where
+' a butt cap cuts. A repeated end point makes a zero-length first or last segment, and
+' cutting a zero-length segment square has no direction to cut along -- so the cut moves
+' to the nearest segment that has one, and the repeated point adds nothing. The length
+' test is `dx * dx + dy * dy > 0.0` on the same differences the tail stores, so the
+' distance walk (`__canvas_polylineScan`) and this agree on which segments are live.
+'
+' A path with no live segment at all -- every point the same -- draws what a
+' zero-length Line with its cap draws: a dot for Round (segment 0, which the walk then
+' measures as a point), nothing for Butt (`__canvas_segmentDistanceButt` answers "far
+' outside" for a zero-length segment, so the empty header is the same picture).
+FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
+  LET count AS Integer = len(p.points)
+  IF count < 2 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  LET half AS Float = __canvas_polylineHalf(p)
+  IF half <= 0.0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  LET start AS Point = collections::getOr(p.points, 0, origin)
+  MUT minX AS Float = start.x
+  MUT maxX AS Float = start.x
+  MUT minY AS Float = start.y
+  MUT maxY AS Float = start.y
+  MUT first AS Integer = 0 - 1
+  MUT last AS Integer = 0 - 1
+  MUT i AS Integer = 0
+  WHILE i + 1 < count
+    LET a AS Point = collections::getOr(p.points, i, origin)
+    LET b AS Point = collections::getOr(p.points, i + 1, origin)
+    LET dx AS Float = b.x - a.x
+    LET dy AS Float = b.y - a.y
+    IF dx * dx + dy * dy > 0.0 THEN
+      IF first < 0 THEN
+        first = i
+      END IF
+      last = i
+    END IF
+    minX = __canvas_minF(minX, b.x)
+    maxX = __canvas_maxF(maxX, b.x)
+    minY = __canvas_minF(minY, b.y)
+    maxY = __canvas_maxF(maxY, b.y)
+    i = i + 1
+  END WHILE
+  LET cap AS Integer = __canvas_capTag(p.cap)
+  IF first < 0 THEN
+    IF cap = 0 THEN
+      RETURN __canvas_emptyHeader()
+    END IF
+    first = 0
+    last = 0
+  END IF
+  MUT stops AS Integer = 0
+  IF len(p.colors) > 0 THEN
+    stops = count
+  END IF
+  MUT out AS List OF Float = __canvas_blankHeader()
+  out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYLINE))
+  out = collections::set(out, 6, half)
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
+  out = __canvas_paintHeader(out, p.paint)
+  out = __canvas_strokeAsFill(out)
+  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + (count - 1) * 5 + stops * 5))
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stops))
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, 0.0)
+  out = collections::set(out, 20, toFloat(count - 1))
+  out = collections::set(out, __CANVAS_GEO_POLYLINE_FIRST, toFloat(first))
+  out = collections::set(out, __CANVAS_GEO_POLYLINE_LAST, toFloat(last))
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, 0.0)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, 0.0)
+  LET pad AS Float = half + 1.0
+  RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 
 /// The per-kind tail: the work the cache exists to skip.
@@ -646,6 +756,62 @@ r#"FUNC __canvas_polygonEdges(points AS List OF Point) AS List OF Float
       out = collections::append(out, 0.0)
     END IF
     i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' plan-154-A: a PolyLine's tail -- its segments in the polygon edge layout, WITHOUT the
+' wrap edge a polygon closes with, then (when it has colours) one gradient stop per
+' point.
+'
+' The stops are what lets both GPUs draw the colours with no new region: they upload a
+' record's stops to the frame's gradient region already. Point k's stop sits at offset
+' k / (count - 1), and the renderer asks `__canvas_gradientColor` for the colour at the
+' path parameter (segment + t) / (count - 1), which falls between the stops of that
+' segment's two points -- so the colour is the gradient mix of those two, in linear
+' light, exactly as a `Paint.fillGradient` ramp mixes.
+FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
+  LET count AS Integer = len(p.points)
+  MUT out AS List OF Float = []
+  IF count < 2 THEN
+    RETURN out
+  END IF
+  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  MUT i AS Integer = 0
+  WHILE i + 1 < count
+    LET a AS Point = collections::getOr(p.points, i, origin)
+    LET b AS Point = collections::getOr(p.points, i + 1, origin)
+    LET dx AS Float = b.x - a.x
+    LET dy AS Float = b.y - a.y
+    LET lenSq AS Float = dx * dx + dy * dy
+    out = collections::append(out, a.x)
+    out = collections::append(out, a.y)
+    out = collections::append(out, dx)
+    out = collections::append(out, dy)
+    IF lenSq > 0.0 THEN
+      out = collections::append(out, 1.0 / lenSq)
+    ELSE
+      out = collections::append(out, 0.0)
+    END IF
+    i = i + 1
+  END WHILE
+  LET given AS Integer = len(p.colors)
+  IF given = 0 THEN
+    RETURN out
+  END IF
+  LET segs AS Float = toFloat(count - 1)
+  MUT k AS Integer = 0
+  WHILE k < count
+    MUT c AS color::Color = p.paint.stroke
+    IF k < given THEN
+      c = collections::getOr(p.colors, k, p.paint.stroke)
+    END IF
+    out = collections::append(out, toFloat(k) / segs)
+    out = collections::append(out, toFloat(toInt(c.red)))
+    out = collections::append(out, toFloat(toInt(c.green)))
+    out = collections::append(out, toFloat(toInt(c.blue)))
+    out = collections::append(out, toFloat(toInt(c.alpha)))
+    k = k + 1
   END WHILE
   RETURN out
 END FUNC
@@ -935,6 +1101,14 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     ' the walk (a group is expanded, not cached); the arm is what keeps MATCH exhaustive.
     CASE Group(g)
       header = __canvas_emptyHeader()
+    ' plan-154-A. The tail only when the header is a real polyline: an empty header
+    ' declares a 47-float record, and a tail appended behind it would be floats the
+    ' record does not own.
+    CASE PolyLine(pl)
+      header = __canvas_polylineHeader(pl)
+      IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
+        tail = __canvas_polylineTail(pl)
+      END IF
   END MATCH
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
   ' from `__canvas_blankHeader` -- and slot 1 declares the record's length on that
@@ -1155,6 +1329,20 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       MUT h AS Integer = __canvas_hashStart(10)
       h = __canvas_hashFloat(__canvas_hashFloat(h, g.dx), g.dy)
       RETURN __canvas_hashText(h, g.name)
+    ' plan-154-A. Hashed natively (`func_item_hash.rs`), so this arm is what keeps the
+    ' MATCH exhaustive; it folds the same fields in case that ever changes.
+    CASE PolyLine(pl)
+      MUT h AS Integer = __canvas_hashStart(11)
+      h = __canvas_hashStep(h, len(pl.points))
+      FOR EACH q IN pl.points
+        h = __canvas_hashPoint(h, q)
+      NEXT
+      h = __canvas_hashStep(h, len(pl.colors))
+      FOR EACH c IN pl.colors
+        h = __canvas_hashStep(h, ((toInt(c.red) * 256 + toInt(c.green)) * 256 + toInt(c.blue)) * 256 + toInt(c.alpha))
+      NEXT
+      h = __canvas_hashStep(h, __canvas_capTag(pl.cap))
+      RETURN __canvas_hashPaint(h, pl.paint)
   END MATCH
 END FUNC"#;
 
@@ -1237,6 +1425,11 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_textHeader(t, tail)
     CASE Group(g)
       header = __canvas_emptyHeader()
+    CASE PolyLine(pl)
+      header = __canvas_polylineHeader(pl)
+      IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
+        tail = __canvas_polylineTail(pl)
+      END IF
   END MATCH
   MUT out AS List OF Float = header
   out = collections::append(out, tail)

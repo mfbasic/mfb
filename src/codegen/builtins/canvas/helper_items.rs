@@ -566,7 +566,12 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       MUT gA AS Integer = fillA
       IF gradCount >= 2 THEN
         MUT t AS Float = 0.0
-        IF gradRadial THEN
+        ' plan-154-A: a PolyLine's stops are its per-point colours, and its ramp runs
+        ' along the PATH -- the parameter of the nearest point, taken in shape space
+        ' (`qx`/`qy`) because that is where the path's own coordinates live.
+        IF kind = __CANVAS_GEO_POLYLINE THEN
+          t = __canvas_polylineScan(tail, edges, qx, qy, radius, cap, TRUE)
+        ELSEIF gradRadial THEN
           IF gradLen > 0.0 THEN
             LET rdx AS Float = px - gradFX
             LET rdy AS Float = py - gradFY
