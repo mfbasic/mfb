@@ -854,6 +854,17 @@ fixes: a second read after the close raises, and `poll` reports readable
    the 64 KiB block again as 8 bytes, and the next connect's host string was carved out
    of a block still linked in large bin 0. Fixed: the helper stages in the free's own
    argument registers and names no vreg.
+   **Follow-up (`753391711`): the rest of the class.** Every other helper in
+   `marshal/byte_list.rs` (`emit_read_byte_list`, `emit_build_byte_list`,
+   `emit_zero_guarded`, `emit_free_byte_list_guarded`) and the record marshaller's
+   `MarshalRegs::fixed()` also named hard-coded `%v9`..`%v17`, and were safe only
+   because no current caller kept a value live in that range across them. All of
+   them now take the caller's `&mut Vregs` and mint their scratch. Every caller is
+   threaded: crypto `sign`/`verify`/`generate`/`randomBytes`, `gen_cert::cfdata_to_list`,
+   `big::toBytes`, Schannel `tls::read`. Pins:
+   `marshal::byte_list::tests::no_marshal_helper_names_a_fixed_vreg` (a source scan of
+   `byte_list.rs`/`record.rs`/`record_list.rs`, RED at `fc65db399` with 133 names) and
+   `every_helper_mints_its_vregs_from_the_caller` (behavioural; mutation-checked).
    (Not a stale golden: cmd's `prog & echo %ERRORLEVEL%` expands before `prog` runs, so it
    prints `[exit 0]` for a crash. Use PowerShell's `$LASTEXITCODE`.)
 
@@ -868,6 +879,8 @@ fixes: a second read after the close raises, and `poll` reports readable
   Commit: `c366f7c0b`
 - [x] Fix 3, `emit_free_buffer_guarded` names no vreg (Windows second connect).
   Commit: `97afb6768`
+- [x] Follow-up: every marshal helper mints its vregs from the caller's `Vregs`.
+  Commit: `753391711`
 - [x] Archive the doc and probes, and correct the stale "never raises" comment in
   `tests/net/rt_macos_tls_write_after_clean_close.rs`.
   Commit: this commit (see `git log -1 -- bugs/completed/bug-564-tls-poll-rt-teardown-segfault.md`)
@@ -895,10 +908,18 @@ worktree with only the test (plus the two constants) applied.
 - Goldens: the full `artifact-gate.sh all` found exactly the predicted set, and every
   diff was localized per function against main's compiler. No function appeared or
   vanished; see the three commit messages. 13 `.ncodesum` rewritten, then `artifact-gate [all]: 1528 tests, 1707 build(s), 2158 golden(s) checked, 0 diff(s)`.
+- Follow-up `753391711`: `cargo test --release --bin mfb -- marshal tls crypto big`
+  101 passed, 0 failed. `rt_big_int` 16, the four `rt_crypto_*_interop` 9, and the tls
+  `rt_*` 8, all passed. `test-accept.sh` over `*crypto*` `*tls*` `http*`
+  `resource-xfer-slots` `*big*`: 61 passed. The full gate showed exactly 12 diffs, each
+  confined to the changed callers' functions; after regen the scoped gates
+  crypto/tls/http/resource-xfer-slots each report 0 diffs. crypto-ec-valid matches its
+  golden on 2230 and 2226, and tls-poll-rt/tls-poll-list-rt/tls-read-eof-raises-rt match
+  theirs on 2230.
 - The full `cargo test` suite was NOT run on this branch, on the coordinator's
   instruction: it runs once after the parallel bug branches merge.
 
-STATUS: FIXED (`af430af78`, `c366f7c0b`, `97afb6768`). Deviation: the OPEN finding
+STATUS: FIXED (`af430af78`, `c366f7c0b`, `97afb6768`, `753391711`). Deviation: the OPEN finding
 was closed as a false premise rather than implemented. The measured behaviour
 (delivery to a half-closed peer) is the same on all three backends, and the 2026-09-12
 decision assumed otherwise. Whether every backend should instead refuse writes after
