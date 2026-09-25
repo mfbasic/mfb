@@ -1,12 +1,13 @@
 # bug-540: Windows `--app` `term::` is a reduced implementation — styles ignored, fixed 80x25, no resize, no clustering
 
-Last updated: 2026-09-12
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **WIN-01, WIN-04 and WIN-05 are fixed; WIN-02 and WIN-03 remain**
-(blocked on the scripted-resize product decision below)
+Status: Open — **WIN-01, WIN-04 and WIN-05 are fixed; WIN-02 and WIN-03 remain,
+unblocked 2026-09-25** (owner approved the scripted `term::` resize hook; the terminal
+must work the same on every target)
 Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (five cases, covering
 WIN-01, WIN-04 and WIN-05), the `term::` style/reset case and the `term::drawText`
 cluster case in `scripts/test-winapp.sh` (box 2230). Nothing yet covers WIN-02/03.
@@ -93,7 +94,17 @@ The GTK fix does, however, supply a worked precedent for **WIN-01** and
   together rather than separately.
 
 
-## USER DECISION (2026-09-06) — deferred; the blocker is verification, not effort
+## USER DECISION (2026-09-25) — approved; WIN-02/WIN-03 are unblocked
+
+Ruling: **the scripted `term::` resize hook is approved, and the terminal must work
+the same on all targets.** `term::terminalSize` follows the window and
+`term::didResize` reports a genuine resize on Windows exactly as it does on the
+console, macOS and GTK backends. A Windows-only difference in any `term::` contract is
+a bug, never a documented platform note. The 2026-09-06 deferral below is superseded:
+its blocker (no Windows runner) was removed when box 2230 began executing
+`scripts/test-winapp.sh` (the 2026-09-12 smoke run above).
+
+## USER DECISION (2026-09-06) — deferred; the blocker is verification, not effort (superseded 2026-09-25)
 
 Ruling: **defer until a Windows runner exists.**
 
@@ -270,6 +281,9 @@ sharpest statement of the defect.
 - **WIN-03** a genuine client-size change latches a flag that `term::didResize`
   reads and clears exactly once, via a Windows dispatcher arm reading Windows
   surface state (the macOS `TV_DID_RESIZE` shape).
+- **Same on every target** (owner, 2026-09-25): after WIN-02/03 no `term::` man page
+  or spec section describes a Windows-specific size or resize behavior; the gap
+  disclosures the man pages carry today are removed with the fix.
 - **WIN-04** `emit_term_draw_text_at` folds extended grapheme clusters, computes
   a display width per cluster, and drops a width-2 cluster that would straddle
   the right edge instead of drawing it.
@@ -510,13 +524,10 @@ Commit: —
   a real runtime assertion), before the dynamic-size conversion starts.
 - ~~Confirm no shipped example depends on 80x25.~~ **Closed: none does.** All four
   `term::terminalSize` callers in `examples/` trap and reflow from the value.
-- **Still open, and it is the gating question for WIN-02/WIN-03:** does the
-  scripted `term::` resize hook (`MFB_WINAPP_TERM_RESIZE_W`/`_H`, the twin of the
-  canvas one) belong in the product, or should WIN-02 land on lowering-level
-  evidence plus structural assertions the way a hand-written aarch64 GTK body has
-  to? The canvas precedent says the hook is acceptable; recording it as a decision
-  because it adds test-only surface to a shipped binary, which is a judgement call
-  and not a technical one.
+- ~~Does the scripted `term::` resize hook (`MFB_WINAPP_TERM_RESIZE_W`/`_H`, the
+  twin of the canvas one) belong in the product?~~ **Decided 2026-09-25 (owner):
+  approved.** Build it first (the Phase 2 prerequisite), then WIN-02 and WIN-03,
+  verified on box 2230 by `scripts/test-winapp.sh`.
 
 ## Summary
 

@@ -1,11 +1,12 @@
 # bug-687: Metal's fp32 coverage flips one quantisation step against the f64 oracle, and near black that is past `GPU_DEFAULT`
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: medium (1-3d)
 Severity: MEDIUM
 Class: Correctness (GPU/oracle agreement)
 
-Status: Open
+Status: Open — **option 2 chosen (owner, 2026-09-25)**: emulate more precision in the
+shader; the comparison instrument and `GPU_DEFAULT` stay as they are.
 Regression Test: none yet — see Phases
 
 Found while fixing bug-686. A polygon drawn on Metal differs from the software oracle by
@@ -85,14 +86,41 @@ rather than for where an edge happens to land.
 3. **Quantise coverage in both paths at a coarser grid** — changes the oracle's output
    and every golden; rejected unless 1 is rejected too.
 
-Recommended: 1.
+~~Recommended: 1.~~ **Decided 2026-09-25 (owner): option 2.** The oracle comparison
+(`tests/common/canvas_image.rs`, `Tolerance::GPU_DEFAULT`) is not edited. The fix is in
+the shaders: Metal (`src/codegen/runtime/canvas/metal.rs`, the embedded MSL) and Vulkan
+(`src/codegen/runtime/canvas/shaders/mfb_canvas.frag`, rebuilt to
+`mfb_canvas.frag.spv`), since bug-688 showed lavapipe trips the same flip.
+
+**Known risk, stated before implementing.** The root cause above says no finite-precision
+change reaches zero, and the C model's exact-integer edge vectors cut mismatches from 145
+to 51, not 0. Option 2 is therefore measured, not assumed: if the extended-precision
+distance still leaves pixels past `GPU_DEFAULT` on the Phase 1 rows, stop and report the
+residual table to the owner. Do **not** fall back to option 1 or widen the tolerance
+without a new owner decision.
 
 ## Phases
 
 ### Phase 1: the contract
 
-- [ ] Decide option 1 vs 2; if 1, implement the quantum-aware comparison in
-      `tests/common/canvas_image.rs` with the four-point proof, and add the {251/97} and
-      {301/97} stars as oracle rows that must pass.
+- [x] Decide option 1 vs 2 — **option 2** (owner, 2026-09-25).
+- [ ] Add the {251/97}, {301/97} and {301/2} stars over black, and `LARGE_POLYGONS`
+      over black, as oracle rows on Metal and Vulkan that must pass at `GPU_DEFAULT`.
+      Confirm they fail at HEAD (the tables above).
+- [ ] Extend the C model of both paths with the double-float (two-fp32) distance and
+      the exact 16.16 integer edge vectors; report the mismatch count and worst dark
+      delta on every row before touching a shader. If the model does not reach
+      `GPU_DEFAULT` on every row, stop here and report (see "Known risk").
+
+### Phase 2: the shaders
+
+- [ ] Metal MSL and Vulkan GLSL: compute edge vectors from exact integer differences and
+      evaluate the signed distance in double-float on the edge loop; keep the
+      quantisation `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` unchanged. Rebuild the SPIR-V.
+- [ ] Measure the per-pixel cost on the bug-686 rows (`scripts/test-canvas-gpu-rows.sh`,
+      `tools/canvas-bench`); record it here. On lavapipe the numbers describe a CPU, not a
+      GPU (bug-688) — say so next to them.
+- [ ] Phase 1 rows pass on Metal (local) and Vulkan (2226, 2230); every existing GPU row
+      still passes.
 
 Commit: —
