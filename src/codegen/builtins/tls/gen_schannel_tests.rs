@@ -153,3 +153,79 @@ fn write_classifies_the_winsock_error_behind_a_failed_send() {
         }
     }
 }
+
+// bug-564 (found while measuring its OPEN finding on box 2230): a peer that sent
+// close_notify and kept its socket open — a TLS half-close, which is what
+// `openssl s_client` and .NET `SslStream.ShutdownAsync` both do — hung the
+// Schannel `tls::read` forever. `DecryptMessage` reports close_notify as
+// SEC_I_CONTEXT_EXPIRED (0x00090317), a SUCCESS status with no plaintext, and the
+// read loop treated it as an empty record and went back to a `recv` that only the
+// peer's FIN could end. OpenSSL and Network.framework both raise
+// `ErrConnectionClosed` at that point.
+//
+// Pinned three ways: the status routes to an exit that records the close in the
+// state block; a later read raises from that record before it can reach `recv`;
+// and `tls::poll` reports such a socket readable, since the next read will not
+// block. Execution proof is Windows-only (box 2230).
+#[test]
+fn a_close_notify_ends_the_read_and_stays_ended() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let peer_closed = st::PEER_CLOSED.to_string();
+    let position = |ins: &[CodeInstruction], what: &str, f: &dyn Fn(&CodeInstruction) -> bool| {
+        ins.iter()
+            .position(|i| f(i))
+            .unwrap_or_else(|| panic!("missing {what}"))
+    };
+    let label_at = |ins: &[CodeInstruction], name: &str| {
+        position(ins, name, &|i| {
+            i.op == CodeOp::Label && i.get("name").as_deref() == Some(name)
+        })
+    };
+
+    let (ins, _rel, _slots) =
+        lower_tls_read("t_read", &imports, &TestPlatform).expect("lower schannel tls::read");
+    let status_check = position(&ins, "a SEC_I_CONTEXT_EXPIRED arm", &|i| {
+        i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some(SEC_I_CONTEXT_EXPIRED)
+    });
+    assert!(
+        ins[status_check + 1].op == CodeOp::BranchEq
+            && ins[status_check + 1].get("target").as_deref() == Some("t_read_context_expired"),
+        "DecryptMessage's SEC_I_CONTEXT_EXPIRED must leave the read loop"
+    );
+    let (expired, peer) = (
+        label_at(&ins, "t_read_context_expired"),
+        label_at(&ins, "t_read_peer"),
+    );
+    assert!(
+        expired < peer
+            && ins[expired..peer].iter().any(|i| i.op == CodeOp::StrU64
+                && i.get("offset").as_deref() == Some(&peer_closed)),
+        "the close_notify exit must record PEER_CLOSED and fall into ErrConnectionClosed"
+    );
+    let sticky = position(&ins, "a PEER_CLOSED check at read entry", &|i| {
+        i.op == CodeOp::LdrU64 && i.get("offset").as_deref() == Some(&peer_closed)
+    });
+    assert!(
+        sticky < label_at(&ins, "t_read_dloop")
+            && ins[sticky..sticky + 3]
+                .iter()
+                .any(|i| i.op == CodeOp::BranchNe
+                    && i.get("target").as_deref() == Some("t_read_peer")),
+        "a read after the close_notify must raise before it reaches recv"
+    );
+
+    let (ins, _rel, _slots) =
+        lower_tls_poll("t_poll", &imports, &TestPlatform).expect("lower schannel tls::poll");
+    let sticky = position(&ins, "a PEER_CLOSED check in poll", &|i| {
+        i.op == CodeOp::LdrU64 && i.get("offset").as_deref() == Some(&peer_closed)
+    });
+    assert!(
+        sticky < label_at(&ins, "t_poll_poll_infinite")
+            && ins[sticky..sticky + 3]
+                .iter()
+                .any(|i| i.op == CodeOp::BranchNe
+                    && i.get("target").as_deref() == Some("t_poll_ready")),
+        "tls::poll must report a socket whose close_notify was consumed as readable"
+    );
+}

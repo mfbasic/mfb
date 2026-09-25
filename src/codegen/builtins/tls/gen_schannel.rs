@@ -74,6 +74,8 @@ const SECBUFFER_STREAM_HEADER: &str = "7";
 const SECBUFFER_EXTRA: &str = "5";
 const SECBUFFER_VERSION: &str = "0";
 const SEC_E_OK: &str = "0";
+// DecryptMessage's status for a received close_notify alert (0x00090317).
+const SEC_I_CONTEXT_EXPIRED: &str = "590615";
 const SECPKG_ATTR_STREAM_SIZES: &str = "4";
 const SECPKG_ATTR_REMOTE_CERT_CONTEXT: &str = "83";
 // CertVerifyCertificateChainPolicy: CERT_CHAIN_POLICY_SSL = 4.
@@ -111,6 +113,13 @@ mod st {
     pub const INDESC: usize = 232; // in SecBufferDesc (16)
     pub const ATTRS: usize = 248; // context attrs out (u32)
     pub const EXPIRY: usize = 256; // TimeStamp (8)
+                                   // bug-564: 1 once `DecryptMessage` has returned SEC_I_CONTEXT_EXPIRED, i.e.
+                                   // the peer's close_notify has been consumed. `tls::read` raises
+                                   // ErrConnectionClosed from it on every later call and `tls::poll` reports
+                                   // readable, because the socket itself may stay open (a TLS half-close) and a
+                                   // `recv` there would block until the peer's FIN. Inside the zeroed header
+                                   // (0..RECV) on both the connect and the accept path, so it starts at 0.
+    pub const PEER_CLOSED: usize = 264;
     pub const RECV: usize = 320; // ciphertext receive buffer (RECV_CAP)
     pub const LEFT: usize = 320 + super::RECV_CAP; // decrypted plaintext buffer
     pub const SIZE: usize = 320 + super::RECV_CAP + super::RECV_CAP;

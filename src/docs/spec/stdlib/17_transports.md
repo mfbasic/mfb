@@ -85,8 +85,18 @@ either guess or raise on valid traffic. `encoding::utf8Decode` does the decoding
 once the caller has assembled a whole message. `write` is not symmetric — the
 sender always knows what it has — so it takes a `String` as a second overload.
 
-An empty read (`[]`) marks end of stream: the peer closed. It is not an error and
-not a timeout.
+End of stream is a raise, not a value: once the peer has closed, `read` raises
+`ErrConnectionClosed`, and a `read` that returns always holds at least one byte
+(`rt-behavior/tcp/tcp-read-eof-raises-rt`, `rt-behavior/tls/tls-read-eof-raises-rt`).
+On `tls` the end of stream is the peer's `close_notify`, whether or not the peer
+also closes its socket, and every later `read` raises the same way instead of
+waiting on the socket. Schannel needs that spelled out: `DecryptMessage` reports a
+`close_notify` as the SUCCESS status `SEC_I_CONTEXT_EXPIRED`, with no plaintext,
+so the backend records it in its state block and checks that before any `recv`
+(bug-564; before it, a peer that sent `close_notify` and kept its socket open hung
+the read until the peer's FIN).
+[[src/codegen/builtins/tls/gen_schannel.rs:SEC_I_CONTEXT_EXPIRED]]
+[[src/codegen/builtins/tls/gen_schannel_read_close.rs:lower_tls_read]]
 
 A write to a peer that has gone away raises `ErrConnectionClosed` — the same
 code both `read` calls carry at end of stream, on `tcp` and on `tls` alike, and
