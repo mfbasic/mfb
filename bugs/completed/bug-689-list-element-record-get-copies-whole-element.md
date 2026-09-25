@@ -5,8 +5,9 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (performance: a self-update the compiler is expected to run in place instead rebuilds)
 
-Status: Open
-Regression Test: none yet — `tests/runtime/rt_list_element_record_borrow.rs` (Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_list_element_record_borrow.rs`; the classifier's
+unit tests in `src/codegen/engine/analysis/borrow_get.rs`
 
 Reading a record out of a list copies the whole element into a fresh arena
 block, every time. `collections::get(ps, i).lon` reads one `Float` field of
@@ -36,6 +37,17 @@ allocate". That is not the mechanism: records inline their collection fields
 With both fixed, the probe's B, C, E, F and G variants allocate a bounded
 number of blocks that does not grow with the iteration count, the same as A
 and D do today.
+
+## STATUS: FIXED (c0a6c1d97)
+
+Both changes shipped, with two design deviations recorded in *Corrections*:
+the list-element site is an element-bound `Record` owner rather than a new
+`FieldContainer` variant (C2), and the two-statement form requires the `WITH`
+and the `set` to be adjacent (C3). The probe's B, C, E, F and G no longer grow
+with the frame count (C1). Also fixed here: a plan-86 E use-after-free over
+`getOr` (C4). Not done: converting `examples/wind` to `List OF Particle` (C6).
+Found and filed: bug-695 (inline domain errors leak owned locals) and bug-696
+(Windows marshalling buffers are never freed).
 
 References:
 
@@ -235,64 +247,171 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_list_element_record_borrow.rs`, following
+- [x] Add `tests/runtime/rt_list_element_record_borrow.rs`, following
       `tests/runtime/rt_inplace_field_loop.rs`'s `--debug` report harness.
       Cover the E, F, G, C and B shapes, the map-value equivalent, and
       `FOR EACH`. Assert `alloc_calls` stays bounded as the iteration count
       grows (run N and 2N and require equal counts), plus
       `alloc_calls = free_calls` and `live_bytes 0`. Confirm the new
-      assertions fail at HEAD.
-- [ ] Add negatives that must still copy, and assert their output:
+      assertions fail at HEAD. — 10 bounded positives (direct field, scalar
+      record, binding over an immutable list, over a `MUT` list, over a
+      module-level list, map value, C, B, B over a module-level list, the
+      single-expression form); at `aa644f908` every one grew by exactly 64
+      allocations per rep (one per `get`, `n() = 64`). `FOR EACH` measured
+      separately: see the audit.
+- [x] Add negatives that must still copy, and assert their output:
       - the result is returned;
       - it is stored into another list;
       - the container is written while a bound element is live;
       - the container is appended to (grown) between the `get` and the read;
       - a call that can write the module-level container runs between the two.
-- [ ] Complete the blast-radius audit above, with a verdict per site.
+      — plus: an index operand that writes the module-level container (C5
+      below), a read of the list between the `WITH` and the `set`, a read of
+      the element after its write-back, a growing field update, and failure
+      atomicity in both spellings. All passed at `aa644f908` except the
+      failure-atomicity one, which leaked (bug-695, below).
+- [x] Complete the blast-radius audit above, with a verdict per site. —
+      `materialize_owned_element`, list and map `get`/`getOr`: fixed.
+      `FOR EACH e IN xs` over a `List OF` record: unaffected — 138 allocations
+      at 10 reps and at 20 (`FOR EACH p IN ps: sum = sum + p.age + len(p.trail)`),
+      it walks the elements without copying them. "`builder_control`
+      materialising bound elements": no such caller exists —
+      `materialize_owned_element` is called only from `func_get`/`func_get_or`
+      (`grep -rn materialize_owned_element src`); `owned.rs`'s module doc
+      claimed otherwise and is corrected. `FieldContainer`: see C2.
+      `examples/wind`: comment corrected; see C6.
 
 Acceptance: the positives fail for the documented reason; the negatives
 pass; the audit is complete.
-Commit: —
+Commit: c0a6c1d97
 
 ### Phase 2 — read-only borrow (gap 1)
 
-- [ ] Widen `collect_borrow_get_locals` and add the direct
+- [x] Widen `collect_borrow_get_locals` and add the direct
       `get(...).field` classifier. Replace the whole-scope immutability gate
       with a no-write-between-get-and-last-read check that is sound for
-      `MUT` and module-level containers.
-- [ ] Apply the same widening to map `get`/`getOr`.
-- [ ] Churn stress with interleaved allocations. Matching output does not
+      `MUT` and module-level containers. — `collect_borrow_gets`
+      (`src/codegen/engine/analysis/borrow_get.rs`) keeps the plan-86 E form
+      as *pinned* and adds the *windowed* one; `scalar_field_of_borrowable_get`
+      (`builder_value_semantics.rs`) is the direct form.
+- [x] Apply the same widening to map `get`/`getOr`.
+- [x] Churn stress with interleaved allocations. Matching output does not
       prove the borrow fired; only the allocation count does
-      (`.ai/collections.md`).
+      (`.ai/collections.md`). — the negatives interleave list allocations
+      after the write; the positives assert the count.
 
 Acceptance: E, F and G are bounded; every negative still copies; no
 leak.
-Commit: —
+Commit: c0a6c1d97
 
 ### Phase 3 — list-element field site (gap 2)
 
-- [ ] Add `FieldContainer::ListElement` and recognise the single-expression
-      form, reusing the existing field arms.
-- [ ] Then the two-statement `get` → `WITH` → `set` form (B).
+- [x] Add `FieldContainer::ListElement` and recognise the single-expression
+      form, reusing the existing field arms. — as an element-bound
+      `Record` owner instead of a new variant (C2).
+- [x] Then the two-statement `get` → `WITH` → `set` form (B).
 
 Acceptance: B and C are bounded; the failure-atomicity negatives (bad index,
 a failing field operand) leave the list unchanged.
-Commit: —
+Commit: c0a6c1d97
 
 ### Phase 4 — expected outputs + full validation
 
-- [ ] Regenerate any `.ncode`/perf goldens the borrow shifts. Diff them and
-      confirm the delta is only the removed copies.
-- [ ] Run the full suite.
-- [ ] Re-run the repro. Update `examples/wind/src/flow.mfb`'s swarm comment.
+- [x] Regenerate any `.ncode`/perf goldens the borrow shifts. Diff them and
+      confirm the delta is only the removed copies. — 14 `.ncodesum`s on
+      three fixtures, one function each, checked per function against the
+      `aa644f908` compiler: `__audio_mmlApplyLegato` (the B shape; the `get`
+      copy and the whole `set` gone, nothing added), `__regex_flatten` (the
+      `firstLeaf` and `$match` copies and their frees), `__canvas_polygonEdges`
+      (two `getOr` copies). `artifact-gate all`: 0 diffs.
+- [x] Run the full suite. — `cargo test --no-fail-fast`: 228 binaries ok,
+      `EXIT=0`. After merging `main` (no bug-689 code path touched): the golden
+      gate over the merged tree, 2136 checked, 0 diffs.
+- [x] Re-run the repro. Update `examples/wind/src/flow.mfb`'s swarm comment.
       If the swarm is converted to `List OF Particle`, compare its `--debug`
-      allocation report before and after.
-- [ ] Doc sync: `mfb spec memory collections` *Self-updates* (the new field
+      allocation report before and after. — repro table in C1, on
+      macos-aarch64, linux-aarch64 (2226) and windows-x86_64 (2230); comment
+      updated; not converted (C6).
+- [x] Doc sync: `mfb spec memory collections` *Self-updates* (the new field
       site, and the widened borrow in the `get` section); `.ai/collections.md`
       (the borrow gates).
 
 Acceptance: full suite green; the repro is bounded for B, C, E, F and G.
-Commit: —
+Commit: c0a6c1d97 (fix, tests, goldens, docs); 83d5f25bc (wind comment);
+5d876fbc9 (C8's golden); f414d4916 (merge of `main`)
+
+## Corrections
+
+- **C1 — the Goal's "below 100" cannot be met by this probe, under any
+  lowering.** The probe builds 3200 elements, each with its own record (and
+  for B/C/E a 12-slot trail list grown by `append`), so its setup allocates in
+  proportion to the element count before a single frame runs. The property the
+  bug is about is that the count does not grow with the FRAME count, and that
+  is what the regression test asserts (N and 2N reps, equal counts). The probe
+  after the fix (`mfb build -q --debug`, macos-aarch64, `V=$v p.out`):
+
+  | V | `alloc_calls` before | after |
+  | --- | --- | --- |
+  | A | 47 | 47 |
+  | B | 6,416,019 | 16,019 |
+  | C | 6,416,018 | 16,018 |
+  | D | 7 | 7 |
+  | E | 6,416,018 | 16,018 |
+  | F | 6,403,215 | 3,215 |
+  | G | 6,406,418 | 6,418 |
+
+  Every "after" row equals the probe's setup (5 per Particle, 1 per Dot, 2 per
+  G element) plus a constant; `alloc_calls = free_calls`, `live_bytes 0` for
+  all seven.
+- **C2 — no `FieldContainer::ListElement`.** The element-bound binding `p`
+  (or a hidden one for the single-expression form) holds the element's address
+  in its slot, and the `WITH` is lowered with the ordinary
+  `FieldContainer::Record { local: p }` — `emit_field_owner_block` already loads
+  "the block" from the slot, so every field route works unchanged. What differs
+  is only that nothing may grow that block: `field_is_last_inlined` answers no
+  for the owner named in `element_updates.field_owner`, and every growing route
+  asks it. The Fix Design's "admit growth where the span ends at `dataLength`"
+  was not done: an update no route serves (a growing field, a `String` field,
+  two collection fields) is lowered as the statement it stands for,
+  `xs = set(xs, i, WITH p { … })`, whose in-place `set` already implements that
+  rule.
+- **C3 — the two-statement form needs the `WITH` and the `set` ADJACENT.** Not
+  just "`p` dead after the `set`": between the `WITH` (which now writes the
+  element early) and the `set` nothing may observe `xs`. Reads of `p`'s fields
+  and of `xs` by lookup may come anywhere before the `WITH`.
+- **C4 — a latent plan-86 E bug, fixed here.** A `MATCH` over
+  `LET e = getOr(xs, k, <a default the statement builds>)` bound `e` to the
+  default on a miss, and the statement freed the default at its end: `e` read
+  freed memory (`a_match_over_a_get_or_miss_reads_the_default` printed `0` for
+  `1230` at `aa644f908`). A binding over `getOr` now borrows only with an
+  immutable local default.
+- **C5 — the window includes the bind.** `LET p = get(gps, f())` with `f`
+  storing to `gps` makes bug-496 snapshot `gps` into a statement temporary;
+  a borrow would point into it after it is freed.
+  `a_binding_whose_index_call_writes_the_module_level_list_is_a_copy` is RED
+  without that check.
+- **C6 — `examples/wind` was not converted.** Its comment blamed the copy this
+  bug removes; it is corrected. Converting the swarm to `List OF Particle` and
+  comparing its `--debug` report was not done: the report is printed only on a
+  normal exit (the SIGTERM handler that prints it is console-only), wind exits
+  only on a key typed into its window, and a headless app run does not read
+  keys from stdin — so the comparison needs an interactive GUI session.
+- **C7 — found: bug-695.** An inline domain error (a failing conversion, a
+  division by zero, …) that leaves a function with no function-level `TRAP`
+  skips the scope-drop walk and leaks every owned local. Pre-existing and
+  independent of this bug; filed as `bugs/bug-695-inline-domain-error-skips-scope-drop.md`.
+- **C9 — found: bug-696.** Cross-checking this fix on Win11 (box 2230) — the
+  probe's B, C, E, F and G print the same values and the same bounded counts as
+  on macOS and Linux aarch64 (box 2226) — showed 262,144 bytes live at exit on
+  Windows only. It is the probe's one `os::getEnvOr`: the Windows backend never
+  frees its UTF-16 marshalling buffers. Pre-existing and independent; filed as
+  `bugs/bug-696-windows-marshal-buffers-leak.md`.
+- **C8 — found: a stale golden.** `syntax/app/app-window-surface`'s
+  `linux-x86_64.app.ncodesum` (`91b6f6cd…`, written by `b7abf9c0e`) is produced
+  by no committed compiler: `694ce7095` (the implementation it pins) and
+  `aa644f908` both build `d2ecd5f6…`, deterministically, and nothing between
+  them touches codegen. It was the one diff in the `aa644f908` baseline gate;
+  regenerated in its own commit.
 
 ## Validation Plan
 
