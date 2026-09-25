@@ -218,7 +218,7 @@ const RESIZE_BUF_CHARS: usize = 16;
 /// simulates would have asked for. Spelled here as the GTK backend spells it; the
 /// registry owns the name.
 const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
-/// The Win64 nonvolatile integer bank (bug-695), in save-slot order. A window
+/// The Win64 nonvolatile integer bank (bug-698), in save-slot order. A window
 /// procedure is a callback, so it owes `DispatchMessageW` every one of these — and
 /// the machine-floor scratch pool its arms stage values in realizes to six of them
 /// (`map_scratch_register`). Physical names on purpose: this list is Win64's
@@ -1110,7 +1110,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     } else {
         FRAME
     };
-    // bug-695: the nonvolatile save area sits at the TOP of the frame, past every arm's
+    // bug-698: the nonvolatile save area sits at the TOP of the frame, past every arm's
     // slots, so no existing offset moves. 64 bytes keeps the frame ≡ 8 (mod 16).
     let frame = arms_frame + WIN64_NONVOLATILE.len() * 8;
     let mut ins: Vec<CodeInstruction> = Vec::new();
@@ -1368,7 +1368,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
             &mut ins,
             &mut rel,
         );
-        // bug-695: and ask for the frame at that size. A resize is redraw trigger 2
+        // bug-698: and ask for the frame at that size. A resize is redraw trigger 2
         // (`.ai/canvas-threading.md` §4), signalled by the main thread — macOS and GTK
         // do it after publishing, and this arm stopped at the publish, so a static
         // scene kept its old-size frame until something else presented. A no-op before
@@ -1673,7 +1673,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
 }
 
-/// bug-695: save [`WIN64_NONVOLATILE`] right after the frame is allocated and reload
+/// bug-698: save [`WIN64_NONVOLATILE`] right after the frame is allocated and reload
 /// it before every return, at `[sp + save_base ..]`.
 ///
 /// A rewrite over the finished body rather than a save written into each arm: the arms
@@ -4508,7 +4508,7 @@ fn utf16z_data_object(symbol: &str, text: &str) -> CodeDataObject {
 ///
 /// Every value that crosses a call lives in a stack slot: the only registers used are
 /// the Win64 volatile argument/return registers, so the helper owes its caller
-/// nothing (WndProc already preserves the nonvolatile bank, bug-695).
+/// nothing (WndProc already preserves the nonvolatile bank, bug-698).
 ///
 /// Frame: shadow[0x00..0x20], hwnd@0x20, force@0x28, `MONITORINFOEXW`@0x30 (104 bytes,
 /// `szDevice` at +40), `DEVMODEW`@0x98 (220 bytes: `dmSize` at +68, `dmDriverExtra` at
@@ -5505,7 +5505,7 @@ mod canvas_reconcile_tests {
         out
     }
 
-    /// bug-695: WndProc is a Win64 callback, so it owes user32 the nonvolatile bank.
+    /// bug-698: WndProc is a Win64 callback, so it owes user32 the nonvolatile bank.
     ///
     /// Its arms stage values in the machine-floor scratch pool, whose x86 realizations
     /// are `rbx`/`rsi`/`rdi`/`rbp`/`r12`/`r13` — all nonvolatile under Win64 — and the
@@ -5601,7 +5601,7 @@ mod canvas_reconcile_tests {
         assert_eq!(frame % 16, 8, "entered at rsp % 16 == 8, so every call aligns");
     }
 
-    /// bug-695: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled
+    /// bug-698: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled
     /// by the main thread on every platform. macOS (`setFrameSize:`) and GTK (the
     /// resize signal) signal after publishing; Windows' WM_SIZE published the size and
     /// stopped, so a static scene was never re-rendered at the new size — WM_PAINT kept

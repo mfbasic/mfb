@@ -258,7 +258,7 @@ gate:
       stays (Corrections 2).
 - [x] Read the Windows `WM_SIZE` arm and settle whether its missing
       `signalRedraw` is a bug (§2). If it is, `/write-bug` it and fix it
-      before Phase 3. → a bug, and a second one beside it: bug-695, fixed in
+      before Phase 3. → a bug, and a second one beside it: bug-698, fixed in
       `13f3ea204` (Corrections 3).
 - [x] Fix the four "vsync" sentences listed in §2. Say what actually
       happens: the scene is redrawn when it changes, on resize, and on OS
@@ -297,7 +297,7 @@ fixed and render.
   Check: `cargo test --test rt_canvas_graphics_thread display_hz` → 1 passed (est. 3 min);
   `mfb man canvas | grep -c vsync` → 0 and `mfb spec app canvas | grep -c vsync` → 0 (est. 1 min).
   Verified: 1 passed; 0; 0.
-Commit: `16a90c4e4` (bug-695: `13f3ea204`)
+Commit: `16a90c4e4` (bug-698: `13f3ea204`)
 
 ### Phase 2 — macOS publish
 
@@ -366,7 +366,7 @@ Commit: `1e6d26581`
         window, so GDK knows no monitor yet; the value arrives through `enter-monitor`.
       - 2230 (Win11, over ssh, windowed): `frames=1 displayHz=60.00`,
         `frames=2 displayHz=60.00` — probe 60 Hz. rc=0 — the first windowed run of the
-        bug-695 WndProc.
+        bug-698 WndProc.
 - [x] Re-baseline `tests/syntax/app/app-mouse-surface`, only the lines the
       publish calls add (inspect one diff first, per `.ai/testing-gates.md`). → and the
       other app fixtures, whose Linux/Windows sums move for the unconditional imports:
@@ -424,7 +424,7 @@ Commit: `535b6bdd5`
 2. **macOS deployment target is 11.0** (`build_version` writes `minos = 11 << 16`), and
    `maximumFramesPerSecond` is macOS 12+, so the `respondsToSelector:` guard is live
    code, not a formality.
-3. **Windows `WM_SIZE` — two bugs, not one (bug-695, `13f3ea204`).** The missing
+3. **Windows `WM_SIZE` — two bugs, not one (bug-698, `13f3ea204`).** The missing
    `signalRedraw` was a missed repaint: a resized static scene kept its old-size frame.
    Reading the arm also showed WndProc wrote `rbx/rsi/rdi/rbp/r12/r13` (the SCRATCH pool's
    x86 realizations, all Win64-nonvolatile) with `"calleeSaved": []` — every arm, not
@@ -480,6 +480,10 @@ Commit: `535b6bdd5`
    volatile Win64 registers), which must reach the selector as tokens. Changed to
    `impl Into<Operand>` — the unit tests passed with the string form because they
    inspect pre-select instructions; the Windows `--app` build is what failed.
+11. **bug-698, not bug-695.** The WndProc fix was committed (`13f3ea204`) as "bug-695",
+   the next free number in this worktree; main meanwhile renumbered two of its own bugs
+   to bug-695/696 (`a96313a76`) and added bug-697. The code comments and this record were
+   renamed to bug-698 at the merge; the commit message keeps the old number.
 
 ## Summary
 

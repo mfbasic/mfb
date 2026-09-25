@@ -340,7 +340,7 @@ own ~35-38 ms of work, so the checkable form is — a light loop measures `pps` 
   (est. 3 min, needs a real window).
   Verified: examples 31 built / 31 ran / 0 failed; spec 44 passed, `MISS-SYMBOL 0`,
   `man-census --memory-scope` 0 unclassified; wind builds; runtime as recorded above.
-Commit: —
+Commit: `1367cfa57`
 
 ## Validation Plan
 
