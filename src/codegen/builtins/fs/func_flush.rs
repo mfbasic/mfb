@@ -79,7 +79,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWriteFailed"],
+            errors: vec!["ErrWriteFailed", "ErrResourceClosed"],
             body: Body::abi_function(lower_fs_flush),
         }],
     });
