@@ -69,7 +69,7 @@ FUNC toolbarItems(width AS Float, height AS Float) AS List OF canvas::DrawItem
     MUT lower AS Float = 0.0
     IF kind = ShapeKind.Triangle THEN lower = (TRIANGLE_ABOVE - TRIANGLE_BELOW) / 2.0 * scale
     IF kind = ShapeKind.Star THEN lower = STAR_OUTER * (1.0 - math::cos(math::pi / toFloat(STAR_POINTS))) / 2.0 * scale
-    LET icon AS Shape = Shape[kind := kind, x := x + BUTTON_SIZE / 2.0, y := top + BUTTON_SIZE / 2.0 + lower, angle := 0.0, scale := scale]
+    LET icon AS Shape = Shape[kind := kind, x := x + BUTTON_SIZE / 2.0, y := top + BUTTON_SIZE / 2.0 + lower, angle := 0.0, scale := scale, spin := 0.0]
     items = collections::append(items, shapeItem(icon, FALSE))
   NEXT
   RETURN items

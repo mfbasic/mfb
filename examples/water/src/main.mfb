@@ -4,8 +4,8 @@
 ' splashes off and runs down whatever is in its way; what reaches the bottom or
 ' the sides of the window drains away and comes back out of the pipe. The
 ' toolbar on the right adds things to put in its way - a rectangle, a triangle, a
-' circle, an ellipse and a star - which can then be moved, turned, sized and
-' removed.
+' circle, an ellipse and a star - which can then be moved, turned, set spinning,
+' sized and removed.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/water
@@ -18,7 +18,10 @@
 '   click a button      add that object to the window
 '   click an object     select it
 '   drag an object      move it (and select it)
-'   a d                 turn the selected object anticlockwise, clockwise
+'   a d                 turn the selected object anticlockwise, clockwise, and
+'                       stop it spinning
+'   q e                 set the selected object spinning anticlockwise,
+'                       clockwise; the same key again stops it
 '   w s                 make the selected object bigger, smaller
 '   arrow keys          the same as w a s d, once they reach the program: in a
 '                       window build today they do not (bug-699)
@@ -125,6 +128,10 @@ TYPE Rotate
   turns AS Float       ' ROTATE_STEPs, clockwise positive
 END TYPE
 
+TYPE Spin
+  direction AS Float   ' -1 anticlockwise, 1 clockwise
+END TYPE
+
 TYPE Resize
   steps AS Float       ' SCALE_STEPs, bigger positive
 END TYPE
@@ -140,6 +147,7 @@ END TYPE
 
 UNION Command
   Rotate
+  Spin
   Resize
   Remove
   Quit
@@ -150,6 +158,8 @@ FUNC commandFor(key AS String) AS Command
   MATCH key
     CASE "a", "A", "LEFT" : RETURN Rotate[turns := -1.0]
     CASE "d", "D", "RIGHT" : RETURN Rotate[turns := 1.0]
+    CASE "q", "Q" : RETURN Spin[direction := -1.0]
+    CASE "e", "E" : RETURN Spin[direction := 1.0]
     CASE "w", "W", "UP" : RETURN Resize[steps := 1.0]
     CASE "s", "S", "DOWN" : RETURN Resize[steps := -1.0]
       ' The key marked delete on a Mac sends DEL; the one marked Backspace
@@ -208,7 +218,7 @@ LET HINT_SIZE AS Float = 13.0
 FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawItem
   MUT state AS String = "on"
   IF NOT p.on THEN state = "off"
-  LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
+  LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  q e spin  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
   RETURN canvas::Text[x := 12.0, y := height - 12.0, text := text, font := face, size := HINT_SIZE, paint := canvas::fill(HINT_COLOR)]
 END FUNC
 
@@ -271,7 +281,12 @@ FUNC main AS Integer
 
     DO WHILE pending(0)
       MATCH commandFor(readKey())
-        CASE Rotate(r) : IF selected >= 0 THEN rotateShape(selected, r.turns)
+        CASE Rotate(r)
+          IF selected >= 0 THEN
+            stopSpin(selected)
+            rotateShape(selected, r.turns)
+          END IF
+        CASE Spin(v) : IF selected >= 0 THEN toggleSpin(selected, v.direction)
         CASE Resize(z) : IF selected >= 0 THEN scaleShape(selected, z.steps)
         CASE Remove
           IF selected >= 0 THEN
@@ -326,6 +341,7 @@ FUNC main AS Integer
     LOOP
 
     LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
+    spinShapes(elapsed)
     pipe = pour(pipe, elapsed)
     stepWater(elapsed, play, height)
 

@@ -2,8 +2,8 @@
 '
 ' An object is a rectangle, a triangle, a circle, an ellipse or a star, placed
 ' by its centre, turned by an angle and sized by a scale. Objects never move on
-' their own: the water bounces off them, and only the mouse and the keys move,
-' turn, size or remove them.
+' their own, except to spin once a key has set them spinning: the water bounces
+' off them, and only the mouse and the keys move, turn, size or remove them.
 '
 ' Everything that asks where an object's surface is - the water, and the mouse -
 ' asks the same question: given a point, is it within `reach` of the object, and
@@ -29,6 +29,7 @@ TYPE Shape
   y AS Float
   angle AS Float       ' radians, clockwise from +X
   scale AS Float
+  spin AS Float        ' radians per second, clockwise positive; 0 when still
 END TYPE
 
 ' Where a point meets an object's surface: the place `reach` outside the surface
@@ -76,6 +77,9 @@ LET MAX_SCALE AS Float = 3.0
 LET ROTATE_STEP AS Float = 0.1309      ' 7.5 degrees
 LET SCALE_STEP AS Float = 1.1
 
+' How fast a spinning object turns: a quarter turn a second.
+LET SPIN_SPEED AS Float = 1.5708
+
 ' The widest an object of each kind is at scale 1 - what the toolbar sizes its
 ' icons by.
 FUNC widestOf(kind AS ShapeKind) AS Float
@@ -103,7 +107,7 @@ END FUNC
 
 ' Add an object and say where it went in the list.
 FUNC addShape(kind AS ShapeKind, x AS Float, y AS Float) AS Integer
-  shapes = collections::append(shapes, Shape[kind := kind, x := x, y := y, angle := 0.0, scale := 1.0])
+  shapes = collections::append(shapes, Shape[kind := kind, x := x, y := y, angle := 0.0, scale := 1.0, spin := 0.0])
   RETURN len(shapes) - 1
 END FUNC
 
@@ -117,6 +121,27 @@ END SUB
 
 SUB rotateShape(i AS Integer, turns AS Float)
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := collections::get(shapes, i).angle + turns * ROTATE_STEP })
+END SUB
+
+' Set an object spinning in a direction (-1 anticlockwise, 1 clockwise), or
+' stop it when it is already spinning that way.
+SUB toggleSpin(i AS Integer, direction AS Float)
+  LET s AS Shape = collections::get(shapes, i)
+  MUT spin AS Float = direction * SPIN_SPEED
+  IF s.spin * direction > 0.0 THEN spin = 0.0
+  shapes = collections::set(shapes, i, WITH s { spin := spin })
+END SUB
+
+SUB stopSpin(i AS Integer)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { spin := 0.0 })
+END SUB
+
+' Turn every spinning object by how far it spins in `seconds`.
+SUB spinShapes(seconds AS Float)
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    IF s.spin <> 0.0 THEN shapes = collections::set(shapes, i, WITH s { angle := s.angle + s.spin * seconds })
+  NEXT
 END SUB
 
 SUB scaleShape(i AS Integer, steps AS Float)
