@@ -1,5 +1,6 @@
 //! `codegen::engine::analysis` module wiring.
 
+pub(crate) mod borrow_get;
 pub(crate) mod handover;
 pub(crate) mod last_use;
 pub(crate) mod module_analysis;

@@ -532,6 +532,10 @@ name = "rt_inplace_field_loop"
 path = "tests/runtime/rt_inplace_field_loop.rs"
 
 [[test]]
+name = "rt_list_element_record_borrow"
+path = "tests/runtime/rt_list_element_record_borrow.rs"
+
+[[test]]
 name = "rt_transform_block_result_frees"
 path = "tests/runtime/rt_transform_block_result_frees.rs"
 
