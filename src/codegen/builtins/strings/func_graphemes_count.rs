@@ -14,9 +14,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Count the extended grapheme clusters in a string."#;
 
 const DESC: &str = r#"`strings::graphemesCount` returns the number of Unicode extended grapheme
-clusters in `value`. It is defined as the element count of
-`strings::graphemes(value)`, and is computed by performing that same
-segmentation and reading the resulting list's length.
+clusters in `value`; the result always equals `len(strings::graphemes(value))`.
 
 An extended grapheme cluster is one user-perceived character, and it may be built
 from several Unicode scalar values: a base letter followed by combining marks, a
@@ -52,14 +50,15 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-A combining sequence counts as one cluster but two scalars:
+A combining sequence (`e` followed by `U+0301`) counts as one cluster but two
+scalars:
 
 ```
 IMPORT io
 IMPORT strings
 
 FUNC main() AS Integer
-  LET text AS String = "e" & "́" & "fg"
+  LET text AS String = "e\u{301}fg"
   io::print(toString(strings::graphemesCount(text)))
   io::print(toString(len(text)))
   RETURN 0

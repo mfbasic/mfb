@@ -459,7 +459,7 @@ moved again to **721-727** (`git log --all --oneline | grep -oE 'bug-7[0-9][0-9]
 
 Acceptance: 26 units `exit 0`; sweeps clean; every `term` example leaves the
 terminal restored (verified by running it).
-Commit: —
+Commit: f58c14267 (Codex half, 14 of 26), 3be554816 (closed)
 
 ### Phase 4 — strings (42 units)
 

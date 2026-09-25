@@ -19,9 +19,20 @@ string's extended grapheme clusters, of each cluster's display width.
 Each cluster contributes `0`, `1`, or `2` columns. A cluster's width is the width
 of its first non-zero-width scalar: `0` for a cluster made only of zero-width
 scalars (a lone combining mark, a zero-width space, or a zero-width joiner), `2`
-for a cluster led by an East Asian Wide or Fullwidth character or an
-emoji-presentation symbol, and `1` for everything else. The per-scalar widths
-follow the standard Unicode character-width data.
+for a cluster led by an East Asian Wide or Fullwidth character — which covers CJK
+ideographs, Hangul syllables and most pictographic emoji such as 👍 — and `1` for
+everything else. The per-scalar widths are derived from the Unicode East Asian
+Width and General Category properties. A regional-indicator flag such as 🇯🇵
+measures `1` even though terminals draw it two columns wide, because its lead
+scalar is not East Asian Wide.
+
+Control characters — tab, newline, carriage return, ESC, DEL — also count `0`, so
+a tab does not advance the measured width and an ANSI colour escape is measured
+by its visible letters and brackets. Unassigned and private-use scalars count
+`1`. Later scalars in a cluster never change its width: a variation selector
+(`U+FE0F`) or an enclosing keycap (`U+20E3`) does not widen the cluster, so
+`"❤️"` and `"1️⃣"` both measure `1`, although a terminal usually draws them two
+columns wide.
 
 The string is first segmented into extended grapheme clusters using the same
 UAX #29 boundary rules as `strings::graphemes`, so a base letter with combining
@@ -62,14 +73,15 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Zero-width and combining scalars do not add columns:
+Zero-width and combining scalars do not add columns — `U+0301` is a combining
+acute accent:
 
 ```
 IMPORT io
 IMPORT strings
 
 FUNC main() AS Integer
-  LET nfd AS String = "cafe" & "́"
+  LET nfd AS String = "cafe\u{301}"
   io::print(toString(strings::displayWidth(nfd)))
   io::print(toString(len(nfd)))
   RETURN 0

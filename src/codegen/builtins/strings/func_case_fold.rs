@@ -24,8 +24,9 @@ scalar may fold to several, so `"Straße"` folds to `"strasse"` and the result c
 be longer than the input. Never assume `len` is preserved across a fold.
 
 Folding is not lowercasing. It is designed for comparison rather than display,
-and it also collapses distinctions that lowercasing preserves — `U+212A` KELVIN
-SIGN folds to plain `k`. Do not present a folded string to a user; keep the
+and the two can disagree: `strings::lower("ß")` leaves `ß` alone while
+`strings::caseFold("ß")` gives `ss`, and some scripts fold to their uppercase
+form — Cherokee `U+13A0` lowercases to `U+AB70` but folds to `U+13A0`. Do not present a folded string to a user; keep the
 original for display and use the folded form only as a comparison key.
 
 Folding does not normalize. Strings that differ in Unicode normalization form can
@@ -65,15 +66,19 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Normalize first when the inputs may differ in composition:
+Normalize first when the inputs may differ in composition — without it the
+decomposed `E` plus combining acute does not match `é` (prints `FALSE`, then `TRUE`):
 
 ```
 IMPORT io
 IMPORT strings
 
 FUNC main() AS Integer
-  LET a AS String = strings::caseFold(strings::normalizeNfc("CAFÉ"))
-  LET b AS String = strings::caseFold(strings::normalizeNfc("café"))
+  LET decomposed AS String = "CAFE\u{0301}"
+  LET composed AS String = "café"
+  io::print(toString(strings::caseFold(decomposed) = strings::caseFold(composed)))
+  LET a AS String = strings::caseFold(strings::normalizeNfc(decomposed))
+  LET b AS String = strings::caseFold(strings::normalizeNfc(composed))
   io::print(toString(a = b))
   RETURN 0
 END FUNC

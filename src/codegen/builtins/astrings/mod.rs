@@ -131,7 +131,8 @@ position; each function's own page documents that overload. A function that only
 reads the text answers exactly as it does for the visible `String`. A function
 that changes the text returns an `AttributedString` whose styling follows the text
 it keeps; text the call adds, such as `replace`'s replacement or padding, carries
-no styling. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
+no styling. `repeat` is the one exception: every copy carries the styling of the
+original. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
 text with no styling.
 
 The readers include `byteLen`, `contains`, `count`, `displayWidth`, `startsWith`,
