@@ -659,6 +659,13 @@ lost — on the one path whose entire job is to report edges.
   `MFB_CANVAS_SYNC=0` is ON (`__canvas_ensureGraphics` tests the length), which is how a
   "pipelined" measurement in bug-686 silently ran serialized. Leave it unset to pipeline.
 
+* `MFB_CANVAS_DISPLAY_HZ` — pin the display refresh rate the runtime reports
+  (plan-155-A), in whole hertz. Stored ×1000 into `GRAPHICS_OFFSET_DISPLAY_OVERRIDE`
+  by `__canvas_ensureGraphics`, and it wins over the rate the main thread publishes,
+  which it never overwrites (a separate word). It exists because a headless run has no
+  window and so no monitor to ask; the stats line's `displayHz=` shows what the runtime
+  would use.
+
 A fourth selects the renderer rather than observing it:
 
 * `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all

@@ -317,8 +317,21 @@ pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOWN: usize = 776;
 pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_W: usize = 784;
 pub(crate) const GRAPHICS_OFFSET_MTL_DRAWABLE_H: usize = 792;
 pub(crate) const GRAPHICS_OFFSET_MTL_LAYER_SHOW: usize = 800;
+/// The refresh rate of the monitor the window is on, in **millihertz**, published by
+/// the **main** thread (plan-155-A) when the surface is ready and again whenever the
+/// window lands on a monitor with a different rate.
+///
+/// `0` means unknown: headless, no window yet, or an OS that does not answer. Millihertz
+/// because GTK answers in it and 59.94 Hz panels exist. One writer and one aligned
+/// store, so no lock — the same reasoning as `GRAPHICS_OFFSET_WIDTH`. Publishing it
+/// signals nothing: a rate is not a redraw trigger (`.ai/canvas-threading.md` §4).
+pub(crate) const GRAPHICS_OFFSET_DISPLAY_MHZ: usize = 808;
+/// `MFB_CANVAS_DISPLAY_HZ × 1000`, stored once by the worker; non-zero wins over
+/// `…_DISPLAY_MHZ`. **A test affordance, and off by default.** A separate word rather
+/// than a write into the published one, so a platform republish can never clobber it.
+pub(crate) const GRAPHICS_OFFSET_DISPLAY_OVERRIDE: usize = 816;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 808;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 824;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -2080,6 +2093,67 @@ pub(crate) fn emit_publish_surface_size(
     instructions.push(abi::label(&unchanged));
     instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
+}
+
+/// Publish the display's refresh rate, in millihertz, from the platform's main thread
+/// (plan-155-A). `mhz` holds the value; `base` is a register the caller can spare.
+///
+/// One plain aligned store and nothing else — no lock, for `emit_publish_surface_size`'s
+/// reason, and **no redraw**: a new rate changes no pixel, and `.ai/canvas-threading.md`
+/// §4's triggers stay five. Readers want "some recent value", and a store of a word is
+/// never torn.
+pub(crate) fn emit_publish_display_rate(
+    symbol: &str,
+    base: &str,
+    mhz: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, base, instructions, relocations);
+    instructions.push(abi::store_u64(mhz, base, GRAPHICS_OFFSET_DISPLAY_MHZ));
+}
+
+/// `canvas::displayMilliHz() AS Integer` — the rate, override first; `0` when unknown.
+pub(crate) fn emit_display_milli_hz(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let chosen = format!("{symbol}_display_override");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_ne(&chosen));
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_MHZ,
+    ));
+    instructions.push(abi::label(&chosen));
+    instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+/// `canvas::setDisplayOverride(mhz)` — record `MFB_CANVAS_DISPLAY_HZ`, read from
+/// MFBASIC beside `setSyncMode` for the same reason: the environment is portably
+/// readable there.
+pub(crate) fn emit_set_display_override(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    value: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(
+        value,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
 }
 
 /// The one scratch register `emit_publish_surface_size` needs for its compare.

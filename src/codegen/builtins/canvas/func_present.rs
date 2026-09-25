@@ -8,9 +8,9 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Install a list of `canvas::DrawItem`s as the canvas's current content."#;
 
-const DESC: &str = r#"`present` **installs** a scene. It is not a per-frame draw call: the runtime keeps
-rendering the installed scene — on vsync, on resize, on damage — until the next
-`present` replaces it. A static picture is therefore presented once and costs
+const DESC: &str = r#"`present` **installs** a scene. It is not a per-frame draw call: the runtime draws
+the installed scene, and draws it again only when the window is resized or
+uncovered, until the next `present` replaces it. A static picture is therefore presented once and costs
 nothing thereafter, and a program that never changes its content never calls
 `present` again.
 

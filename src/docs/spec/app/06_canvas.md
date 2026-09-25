@@ -8,8 +8,10 @@ is, what installing one guarantees, and how images live; the per-call API is
 ## Retained, not immediate
 
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
-installs it with `canvas::present`, and the runtime keeps rendering that scene —
-on vsync, on resize, on damage — until the next `present` replaces it.
+installs it with `canvas::present`, and the runtime redraws that scene when a
+present changes it, on resize, and on OS damage — until the next `present`
+replaces it. Time is not a trigger and no backend waits for the display: a frame
+is drawn when one is owed, never on a display-refresh tick.
 [[src/codegen/builtins/canvas/mod.rs:CANVAS]]
 
 This is a deliberate divergence from `term::`, which is ambient mutation plus a

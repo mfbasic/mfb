@@ -50,8 +50,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Nothing in `src` reads a display refresh rate yet | `grep -rniE "maximumFramesPerSecond\|gdk_monitor_get_refresh_rate\|EnumDisplaySettings\|dmDisplayFrequency" src` → no matches | MET (2026-09-24) |
-| The graphics state ends at 808 bytes | `grep -n "GRAPHICS_STATE_SIZE: usize" src/codegen/runtime/canvas/mod.rs` → `= 808` | MET (2026-09-24) |
+| Nothing in `src` reads a display refresh rate yet | `grep -rniE "maximumFramesPerSecond\|gdk_monitor_get_refresh_rate\|EnumDisplaySettings\|dmDisplayFrequency" src` → no matches | MET (2026-09-24, re-run at start of /follow-plan: no output) |
+| The graphics state ends at 808 bytes | `grep -n "GRAPHICS_STATE_SIZE: usize" src/codegen/runtime/canvas/mod.rs` → `= 808` | MET (2026-09-24, re-run: `321:pub(crate) const GRAPHICS_STATE_SIZE: usize = 808;`) |
 
 Everything below assumes both hold.
 
@@ -243,7 +243,7 @@ gate:
 
 ### Phase 1 — probes, docs fix, storage and override (uncertainty first)
 
-- [ ] Probe each API outside the compiler, with a scratch program in `/tmp`,
+- [x] Probe each API outside the compiler, with a scratch program in `/tmp`,
       not `scripts/`:
       - macOS: Swift/ObjC, `NSScreen.main!.maximumFramesPerSecond`.
       - box 2226: C, GTK4, `gdk_monitor_get_refresh_rate`.
@@ -251,30 +251,46 @@ gate:
       
       Record each value, and whether headless or ssh sessions answer 0, in
       Corrections. This decides how the Phase 2/3 runtime proofs are observed.
-- [ ] Find the macOS deployment target, and record whether the
-      `respondsToSelector:` guard can ever be false.
-- [ ] Read the Windows `WM_SIZE` arm and settle whether its missing
+      → macOS 120, 2226 74993 mHz over plain ssh, 2230 60 Hz over ssh (Corrections 1).
+- [x] Find the macOS deployment target, and record whether the
+      `respondsToSelector:` guard can ever be false. → minos 11.0
+      (`src/os/macos/link/commands.rs:build_version`, `11 << 16`), so yes: the guard
+      stays (Corrections 2).
+- [x] Read the Windows `WM_SIZE` arm and settle whether its missing
       `signalRedraw` is a bug (§2). If it is, `/write-bug` it and fix it
-      before Phase 3.
-- [ ] Fix the four "vsync" sentences listed in §2. Say what actually
+      before Phase 3. → a bug, and a second one beside it: bug-695, fixed in
+      `13f3ea204` (Corrections 3).
+- [x] Fix the four "vsync" sentences listed in §2. Say what actually
       happens: the scene is redrawn when it changes, on resize, and on OS
       damage; the canvas does not wait for the display. The man text follows
       `.ai/man-content.md` (no internals); the spec sentence may name the
-      triggers.
-- [ ] `src/codegen/runtime/canvas/mod.rs`: add `GRAPHICS_OFFSET_DISPLAY_MHZ`
+      triggers. → `mfb man canvas | grep -c vsync` → 0; `mfb spec app canvas | grep -c vsync` → 0.
+- [x] `src/codegen/runtime/canvas/mod.rs`: add `GRAPHICS_OFFSET_DISPLAY_MHZ`
       (808) and `GRAPHICS_OFFSET_DISPLAY_OVERRIDE` (816), each with a doc
       comment in the style of `GRAPHICS_OFFSET_SYNC`; set
       `GRAPHICS_STATE_SIZE` to 824; add `emit_publish_display_rate`.
-- [ ] `func_graphics.rs`: add internal `displayMilliHz() AS Integer`
+- [x] `func_graphics.rs`: add internal `displayMilliHz() AS Integer`
       (override first) and `setDisplayOverride(mhz AS Integer)`.
       `helper_render.rs:__canvas_ensureGraphics` reads
       `MFB_CANVAS_DISPLAY_HZ`.
-- [ ] `helper_surface.rs`: append `displayHz=<mHz/1000 as Float>` to the stats
+- [x] (added) List `canvas.displayMilliHz` / `canvas.setDisplayOverride` as supported
+      runtime calls in `src/target/{macos_aarch64,linux_common,win_x86_64}/mod.rs` —
+      without it the first build failed "native backend does not support runtime call
+      'canvas.displayMilliHz'" (Corrections 4).
+- [x] `helper_surface.rs`: append `displayHz=<mHz/1000 as Float>` to the stats
       line.
-- [ ] Test, in `tests/canvas/rt_canvas_graphics_thread.rs`:
+- [x] Test, in `tests/canvas/rt_canvas_graphics_thread.rs`:
       `display_hz_override_reaches_the_stats_line` runs a headless present
       with `MFB_CANVAS_DISPLAY_HZ=144` and checks the stats line has
-      `displayHz=144`.
+      `displayHz=144`. → `cargo test --test rt_canvas_graphics_thread display_hz` →
+      1 passed (the field renders `144.00`; the test parses it as a number).
+- [x] (added) Re-baseline the canvas sentinel for Phase 1's own change: `.ir` (line
+      shifts in the synthesized `builtins/canvas.mfb`), `.nir`/`.nplan` (the
+      `setDisplayOverride` call and its two string literals), and the four
+      `.app.ncodesum` (the same, plus `_mfb_str_N` renumbering). No other golden embeds
+      the canvas builtins (`grep -rl "builtins/canvas.mfb" tests`). `cargo test --bin mfb
+      canvas` → 92 passed.
+- [x] (added) `.ai/canvas-threading.md` §11: `MFB_CANVAS_DISPLAY_HZ`.
 
 Acceptance: the override test passes on this Mac; the four sentences are
 fixed and render.
@@ -343,7 +359,37 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **Probe results (Phase 1).** All three answer a real rate in the session a proof
+   can reach, so no platform needs the "headless → 0" fallback proof:
+   - macOS (this Mac, 15.7.7): `NSScreen.maximumFramesPerSecond` → `Built-in Retina
+     Display 120` (`swiftc /tmp/p155/hz.swift`).
+   - box 2226 (Debian 12 GTK4, aarch64): `gdk_monitor_get_refresh_rate` → **74993** mHz,
+     via Python `ctypes` against `libgtk-4.so.1` (the box has no C compiler and no
+     `pkg-config`). It answers the same over **plain ssh** with no `WAYLAND_DISPLAY` set —
+     GTK finds the live GNOME session's `wayland-0` through `XDG_RUNTIME_DIR`.
+   - box 2230 (Win11): `EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS)` →
+     `dmDisplayFrequency` **60**, 1024x768, over ssh (PowerShell `Add-Type` P/Invoke;
+     `dmDisplayFrequency` at byte offset **184** of `DEVMODEW`, whose full size is 220).
+2. **macOS deployment target is 11.0** (`build_version` writes `minos = 11 << 16`), and
+   `maximumFramesPerSecond` is macOS 12+, so the `respondsToSelector:` guard is live
+   code, not a formality.
+3. **Windows `WM_SIZE` — two bugs, not one (bug-695, `13f3ea204`).** The missing
+   `signalRedraw` was a missed repaint: a resized static scene kept its old-size frame.
+   Reading the arm also showed WndProc wrote `rbx/rsi/rdi/rbp/r12/r13` (the SCRATCH pool's
+   x86 realizations, all Win64-nonvolatile) with `"calleeSaved": []` — every arm, not
+   just WM_SIZE. That had to be fixed before Phase 3 adds more code to WndProc. Fixed
+   by saving the whole bank in the frame; the five Windows `.app.ncodesum` moved and the
+   diff was confined to WndProc.
+4. **A new canvas runtime call must be listed per target.** The plan named the
+   registry only; `src/target/{macos_aarch64,linux_common,win_x86_64}/mod.rs` each carry
+   the list of `canvas.*` calls the native backend accepts. Added as a Phase 1 task.
+   plan-155-B's `notePresent`/`frameCounters` and C's `awaitPickup` need the same, and
+   C's timed wait also needs its libSystem imports on macOS' `plan.rs` arm.
+5. **Final gate narrowed by the user (2026-09-24).** "Do not run the full suite as a
+   final gate, only run the canvas tests. If main changes and there are not code overlap
+   do not run the full suite, only run the canvas tests." plan-155-C's final gate is
+   therefore the canvas test set (`rt_canvas_*`, the canvas CLI man-example test, the
+   sentinel), not `cargo test`.
 
 ## Summary
 

@@ -1079,6 +1079,9 @@ FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
     canvas::setGpuMode(__canvas_wantGpu())
+    ' plan-155-A: a test affordance, off by default -- pin the display rate the
+    ' runtime reports, since a headless run has no monitor to ask.
+    canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF

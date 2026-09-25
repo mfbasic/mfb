@@ -62,6 +62,8 @@ impl NativeBackend for Backend {
                 "canvas.setSyncMode",
                 "canvas.surfaceWidth",
                 "canvas.surfaceHeight",
+                "canvas.displayMilliHz",
+                "canvas.setDisplayOverride",
                 "canvas.setGpuMode",
                 "canvas.useGpu",
                 "canvas.metalAvailable",

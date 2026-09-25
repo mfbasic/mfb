@@ -2,8 +2,9 @@
 //!
 //! `canvas` is the 2D drawing surface of `Mode.Canvas` (plan-98-A). Its model is a
 //! **retained scene**, not an immediate-mode command stream: a program builds a
-//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime keeps
-//! rendering that scene on vsync / resize / damage until the next `present`. This is
+//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime redraws
+//! that scene when it changes, on resize and on OS damage — never on a timer, and
+//! without waiting for the display — until the next `present`. This is
 //! a deliberate divergence from `term::`, which is ambient mutation plus a
 //! present-diff — a retained scene is what lets the runtime cache per-item geometry
 //! on a content hash and make a re-`present` of unchanged content free.
@@ -135,8 +136,8 @@ nothing, in any build. So a program still computes its palette before it ever
 presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
-installs it with `canvas::present`; the runtime keeps rendering that scene on
-vsync, resize and damage until the next `present`. `present` is therefore not a
+installs it with `canvas::present`; the runtime draws that scene, and draws it again
+only when the window is resized or uncovered, until the next `present`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
 and re-presenting an unchanged scene publishes nothing, renders nothing and holds
 no memory. (It does still copy the scene once to compare it, so it is not free —
