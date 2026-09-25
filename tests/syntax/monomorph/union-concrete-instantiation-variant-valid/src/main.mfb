@@ -1,0 +1,35 @@
+' bug-680: a union variant may name a fully concrete template instantiation.
+' The union itself takes no template parameter; `Box OF Integer` is parsed on
+' the same type grammar every other type position uses.
+
+IMPORT io
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+TYPE Empty
+  value AS Nothing
+END TYPE
+
+UNION Slot
+  Box OF Integer
+  Empty
+END UNION
+
+FUNC describe(slot AS Slot) AS String
+  MATCH slot
+    CASE Box(b)
+      RETURN "box " & toString(b.value)
+    CASE Empty(e)
+      RETURN "empty"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Slot = Box[7]
+  LET b AS Slot = Empty[NOTHING]
+  io::print(describe(a))
+  io::print(describe(b))
+  RETURN 0
+END FUNC

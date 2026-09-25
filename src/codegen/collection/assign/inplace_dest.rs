@@ -490,6 +490,20 @@ impl CodeBuilder<'_> {
         match dest {
             InPlaceDest::Inlined { block_slot, .. } => {
                 let block_slot = *block_slot;
+                // bug-689: `field_is_last_inlined` keeps every growing route off a
+                // list element's block; reaching here with one is a missed gate, and
+                // a grow would free memory inside the list.
+                if let Some(owner) = &self.element_updates.field_owner {
+                    if self
+                        .locals
+                        .get(owner)
+                        .is_some_and(|local| local.stack_offset == block_slot)
+                    {
+                        return Err(format!(
+                            "native in-place: a growing route reached list element '{owner}'"
+                        ));
+                    }
+                }
                 let field_off_slot = self.open_inplace_inlined_field_offset(dest)?;
                 Ok(Some(
                     crate::codegen::collection::map::map_mutate::InlineGrow {
@@ -554,10 +568,22 @@ impl CodeBuilder<'_> {
     ///
     /// plan-145-F: for a nested path every level must be last-inlined too, so the
     /// grown field ends the OUTER block and nothing after any level shifts.
+    ///
+    /// bug-689: never for an element-bound owner (`element_updates.field_owner`).
+    /// Its block is a span of a list's data region: growing it would realloc — and
+    /// free — memory that is not an allocation of its own. Every route that can grow
+    /// a field asks this (directly, or through `field_realloc_admitted`), so this one
+    /// answer keeps them all off the element.
     pub(crate) fn field_is_last_inlined(&self, site: &SelfUpdateSite<'_>) -> bool {
         site.field.as_ref().is_some_and(|field| {
-            self.record_collection_last_inlined(&field.record_type, field.field)
-                .is_some_and(|(index, _)| index == field.field_index)
+            let element_owner = matches!(
+                (&field.container, &self.element_updates.field_owner),
+                (FieldContainer::Record { local }, Some(owner)) if local == owner
+            );
+            !element_owner
+                && self
+                    .record_collection_last_inlined(&field.record_type, field.field)
+                    .is_some_and(|(index, _)| index == field.field_index)
                 && field.path.iter().all(|level| {
                     self.type_model
                         .record_fields

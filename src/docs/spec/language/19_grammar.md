@@ -140,9 +140,11 @@ funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;
 field          = declVis ident "AS" type ;
 unionDecl      = declVis "UNION" ident [ templateParams ] [ unionIncludes ] { unionMember } "END" "UNION" ;
-unionIncludes  = "INCLUDES" unionName { "," unionName } ;
-unionName      = ident | qualifiedIdent ;
-unionMember    = ident | qualifiedIdent ;
+(* An included union and a member are read by the one `type` grammar, so either
+   may be a template instantiation (`Opt OF T`, `Box OF Integer`). Whether the
+   named type may be a member at all is a type rule, not a grammar one (§4.3). *)
+unionIncludes  = "INCLUDES" type { "," type } ;
+unionMember    = type ;
 enumDecl       = declVis "ENUM" ident identlist "END" "ENUM" ;
 identlist      = ident { "," ident } ;
 

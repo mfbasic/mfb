@@ -1,0 +1,54 @@
+' bug-680: a UNION template parameter reaches its variants. `Opt OF T` names
+' the template instantiation `Some OF T` as a variant, and each use of `Opt`
+' monomorphizes to a union over `Some OF <arg>` and `None`.
+
+IMPORT io
+
+TYPE Some OF T
+  value AS T
+END TYPE
+
+TYPE None
+  value AS Nothing
+END TYPE
+
+DOC
+  UNION Opt
+  DESC An optional value; a PROP names a template member by its template.
+  PROP Some The value is present.
+  PROP None The value is absent.
+END DOC
+UNION Opt OF T
+  Some OF T
+  None
+END UNION
+
+FUNC describeInt(opt AS Opt OF Integer) AS String
+  MATCH opt
+    CASE Some(s)
+      RETURN "some int " & toString(s.value)
+    CASE None(n)
+      RETURN "no int"
+  END MATCH
+END FUNC
+
+FUNC describeText(opt AS Opt OF String) AS String
+  MATCH opt
+    CASE Some(s)
+      RETURN "some text " & s.value
+    CASE None(n)
+      RETURN "no text"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Opt OF Integer = Some[42]
+  LET b AS Opt OF Integer = None[NOTHING]
+  LET c AS Opt OF String = Some["hi"]
+  LET d AS Opt OF String = None[NOTHING]
+  io::print(describeInt(a))
+  io::print(describeInt(b))
+  io::print(describeText(c))
+  io::print(describeText(d))
+  RETURN 0
+END FUNC

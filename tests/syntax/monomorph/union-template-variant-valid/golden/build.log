@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-variant-valid
+Wrote AST to tests/syntax/monomorph/union-template-variant-valid/union_template_variant_valid.ast
+Wrote IR to tests/syntax/monomorph/union-template-variant-valid/union_template_variant_valid.ir
+[exit 0]
+$ mfb build tests/syntax/monomorph/union-template-variant-valid
+Wrote executable to tests/syntax/monomorph/union-template-variant-valid/build/union_template_variant_valid.out
+[exit 0]
+$ tests/syntax/monomorph/union-template-variant-valid/build/union_template_variant_valid.out
+some int 42
+no int
+some text hi
+no text
+[exit 0]

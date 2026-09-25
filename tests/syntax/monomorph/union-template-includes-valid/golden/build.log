@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-includes-valid
+Wrote AST to tests/syntax/monomorph/union-template-includes-valid/union_template_includes_valid.ast
+Wrote IR to tests/syntax/monomorph/union-template-includes-valid/union_template_includes_valid.ir
+[exit 0]
+$ mfb build tests/syntax/monomorph/union-template-includes-valid
+Wrote executable to tests/syntax/monomorph/union-template-includes-valid/build/union_template_includes_valid.out
+[exit 0]
+$ tests/syntax/monomorph/union-template-includes-valid/build/union_template_includes_valid.out
+some
+failed x
+none
+9
+[exit 0]

@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-concrete-instantiation-variant-valid
+Wrote AST to tests/syntax/monomorph/union-concrete-instantiation-variant-valid/union_concrete_instantiation_variant_valid.ast
+Wrote IR to tests/syntax/monomorph/union-concrete-instantiation-variant-valid/union_concrete_instantiation_variant_valid.ir
+[exit 0]
+$ mfb build tests/syntax/monomorph/union-concrete-instantiation-variant-valid
+Wrote executable to tests/syntax/monomorph/union-concrete-instantiation-variant-valid/build/union_concrete_instantiation_variant_valid.out
+[exit 0]
+$ tests/syntax/monomorph/union-concrete-instantiation-variant-valid/build/union_concrete_instantiation_variant_valid.out
+box 7
+empty
+[exit 0]

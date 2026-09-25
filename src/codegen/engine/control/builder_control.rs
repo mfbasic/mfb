@@ -721,6 +721,187 @@ impl CodeBuilder<'_> {
         field_owner_is(target, container)
     }
 
+    /// plan-86 E, bug-689: take the function's `get` borrows. An element-bound
+    /// binding is kept only for an element this lowering really aliases — a record
+    /// the `Bind` arm borrows (`is_borrow_get`: freeable-flat, not a `String`) and
+    /// not a promoted vector (whose lanes live in registers, so the element would
+    /// never see its update). A dropped one leaves `names` too: it is reassigned,
+    /// so it must own its block.
+    pub(crate) fn install_borrow_gets(
+        &mut self,
+        borrow_gets: crate::codegen::engine::analysis::borrow_get::BorrowGets,
+    ) {
+        let mut names = borrow_gets.names;
+        let mut updates = ElementUpdates::default();
+        for (name, binding) in borrow_gets.elements {
+            let aliased = self.is_freeable_flat_value(&binding.type_)
+                && binding.type_ != ParameterType::String
+                && self.type_model.record_fields.contains_key(&binding.type_)
+                && !self.promotable_vector_locals.contains(&name);
+            if !aliased {
+                names.remove(&name);
+                continue;
+            }
+            if let Some(update) = binding.update {
+                updates.updates.insert(update, name.clone());
+            }
+            updates.write_backs.extend(binding.write_back);
+            updates.bindings.insert(name, binding);
+        }
+        self.borrow_get_locals = names;
+        self.element_updates = updates;
+    }
+
+    /// bug-689: `p = WITH p { … }` on an element-bound `p` — `p`'s slot holds the
+    /// address of the element inside its list, so the plan-145 field routes store
+    /// into the element where it lies. None of them may grow the element's block
+    /// (`field_is_last_inlined` answers no for it): the block is a span of the
+    /// list's data region, not an allocation of its own.
+    ///
+    /// When no route serves the update, lower what the pair of statements means,
+    /// `xs = set(xs, i, WITH p { … })` — the `WITH` builds an owned record reading
+    /// the element, and `set` replaces the element (in place when its arm can,
+    /// resizing the payload if it must). The write-back that follows is lowered as
+    /// nothing either way, and `p` is dead after it, so its slot is never read
+    /// again once the payload may have moved.
+    fn lower_element_update(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
+        let binding = self
+            .element_updates
+            .bindings
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("native element update: '{name}' is not element-bound"))?;
+        let slot = self
+            .locals
+            .get(name)
+            .map(|local| local.stack_offset)
+            .ok_or_else(|| format!("native element update: unknown local '{name}'"))?;
+        let owner = FieldContainer::Record { local: name };
+        self.element_updates.field_owner = Some(name.to_string());
+        let in_place = (|| -> Result<bool, String> {
+            if self.try_inplace_scalar_fields(owner, value)? {
+                return Ok(true);
+            }
+            let field_site =
+                self.field_self_update_site(owner, value)
+                    .map(|(field, field_type, update)| {
+                        (
+                            SelfUpdateSite {
+                                name,
+                                type_: field_type,
+                                dest: InPlaceDest::Inlined {
+                                    block_slot: slot,
+                                    field_index: field.field_index,
+                                    path: field.path_indices(),
+                                    write_back: WriteBack::None,
+                                },
+                                by_ref: false,
+                                field: Some(field),
+                            },
+                            update,
+                        )
+                    });
+            if let Some((site, update)) = &field_site {
+                if self.try_inplace_self_update(site, update)? {
+                    return Ok(true);
+                }
+            }
+            self.try_inplace_mixed_with(owner, value, Some(slot), false)
+        })();
+        self.element_updates.field_owner = None;
+        if in_place? {
+            return Ok(());
+        }
+        let write_back = binding.write_back_op(value.clone());
+        self.lower_ops(std::slice::from_ref(&write_back))
+    }
+
+    /// bug-689: `xs = set(xs, i, WITH get(xs, i) { … })` — the single-expression
+    /// element update — lowered as the element-bound pair it abbreviates: a hidden
+    /// binding holds the element's address (the `get` borrowed, so a bad `i` raises
+    /// before anything is written), every `get(xs, i).f` in the `WITH` reads it, and
+    /// [`Self::lower_element_update`] updates the element. `Ok(false)` — having
+    /// emitted nothing — when the statement is not that shape, or a use of the
+    /// element other than a field read, a non-lookup read of a local `xs`, or a
+    /// call that can store to a global `xs` rules it out.
+    fn try_single_expression_element_update(
+        &mut self,
+        op: &NirOp,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        use crate::codegen::engine::analysis::borrow_get::{
+            bind_single_expression_element, single_expression_update, ContainerRef, ElementBinding,
+        };
+        let Some((container, index, with)) = single_expression_update(value) else {
+            return Ok(false);
+        };
+        let NirValue::WithUpdate {
+            type_,
+            target: get,
+            updates,
+        } = with
+        else {
+            return Ok(false);
+        };
+        let element_ok = self.is_freeable_flat_value(type_)
+            && *type_ != ParameterType::String
+            && self.type_model.record_fields.contains_key(type_);
+        let container_ok = match &container {
+            ContainerRef::Local(name) => {
+                !self.address_taken_locals.contains(name)
+                    && self.locals.get(name).is_some_and(|local| !local.by_ref)
+            }
+            // Nothing the updates run may store to the global: it would free or
+            // replace the block the element lives in while the update holds it.
+            ContainerRef::Global(name) => !updates.iter().any(|update| {
+                self.values_reach_store(
+                    std::slice::from_ref(&update.value),
+                    StoreLeaf::Global(name),
+                )
+            }),
+        };
+        if !element_ok || !container_ok {
+            return Ok(false);
+        }
+        let hidden = format!("$element{}", self.element_updates.hidden);
+        let Some(rewritten) = bind_single_expression_element(with, &container, index, &hidden)
+        else {
+            return Ok(false);
+        };
+        self.element_updates.hidden += 1;
+        let stack_offset = self.allocate_stack_object(&hidden, 8);
+        self.locals.insert(
+            hidden.clone(),
+            LocalValue {
+                type_: type_.clone(),
+                stack_offset,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        // The borrowed `get`: its own frame skips the owning copy and the
+        // statement-scope free (the alias is the container's, not a fresh block).
+        self.borrow_get_armed = true;
+        let element = self.lower_value(get);
+        self.borrow_get_armed = false;
+        self.borrow_get_result = false;
+        let element = element?;
+        self.store_value_at(&element, abi::stack_pointer(), stack_offset);
+        self.element_updates.bindings.insert(
+            hidden.clone(),
+            ElementBinding {
+                type_: type_.clone(),
+                template: op.clone(),
+                update: None,
+                write_back: None,
+            },
+        );
+        let result = self.lower_element_update(&hidden, &rewritten);
+        self.element_updates.bindings.remove(&hidden);
+        self.locals.remove(&hidden);
+        result.map(|()| true)
+    }
+
     /// plan-145-C: whether the field arm for `target` can raise beyond its
     /// operands — an index out of range. Only the operations known not to are
     /// `false`; anything else answers `true`.
@@ -1607,6 +1788,20 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
+                        // bug-689: an element-bound write-back — the element already
+                        // holds the value it writes — and the single-expression update.
+                        if self
+                            .element_updates
+                            .write_backs
+                            .contains(&crate::codegen::engine::analysis::last_use::op_key(op))
+                        {
+                            return Ok(());
+                        }
+                        if let Some(value) = value {
+                            if self.try_single_expression_element_update(op, value)? {
+                                return Ok(());
+                            }
+                        }
                         let global = self.global_value(name)?;
                         let value_type = if crate::codegen::engine::types::is_unset_type(type_) {
                             global.type_.clone()
@@ -1770,6 +1965,20 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Assign { name, value } => {
+                        // bug-689: an element-bound binding's update, its write-back
+                        // (the element already holds the value it writes), and the
+                        // single-expression update. None changes the list's length, so
+                        // the facts below stay true.
+                        let key = crate::codegen::engine::analysis::last_use::op_key(op);
+                        if self.element_updates.write_backs.contains(&key) {
+                            return Ok(());
+                        }
+                        if let Some(element) = self.element_updates.updates.get(&key).cloned() {
+                            return self.lower_element_update(&element, value);
+                        }
+                        if self.try_single_expression_element_update(op, value)? {
+                            return Ok(());
+                        }
                         // plan-86 G1: reassigning `name` invalidates any `len_of_local`
                         // or provable-index fact keyed on it, and any fact naming it
                         // as the list `L`.
