@@ -1289,70 +1289,92 @@ impl<'a> Monomorphizer<'a> {
                 expression,
                 cases,
                 line,
-            } => HirStatement::Match {
-                expression: self.lower_expression(expression, substitutions, context, None, *line),
-                cases: cases
-                    .iter()
-                    .map(|case| {
-                        let mut case_context = context.clone();
-                        if let HirMatchPattern::Union { binding, type_ } = &case.pattern {
-                            case_context
-                                .locals
-                                .insert(binding.clone(), self.concrete_type(type_, substitutions));
-                        }
-                        HirMatchCase {
-                            pattern: match &case.pattern {
-                                HirMatchPattern::Else => HirMatchPattern::Else,
-                                HirMatchPattern::Literal(expression) => {
-                                    HirMatchPattern::Literal(self.lower_expression(
-                                        expression,
+            } => {
+                let expression =
+                    self.lower_expression(expression, substitutions, context, None, *line);
+                let scrutinee = self.expression_type(&expression, context);
+                HirStatement::Match {
+                    expression,
+                    cases: cases
+                        .iter()
+                        .map(|case| {
+                            let mut case_context = context.clone();
+                            // bug-680: a CASE names a template-instantiated variant by
+                            // its template's name (`CASE Some(s)` over `Opt OF Integer`),
+                            // so the pattern takes the concrete variant the scrutinee's
+                            // union actually carries.
+                            let union_pattern_type = match &case.pattern {
+                                HirMatchPattern::Union { type_, .. } => {
+                                    Some(self.union_pattern_type(
+                                        scrutinee.as_ref(),
+                                        type_,
+                                        substitutions,
+                                        case.line,
+                                    ))
+                                }
+                                _ => None,
+                            };
+                            if let (HirMatchPattern::Union { binding, .. }, Some(type_)) =
+                                (&case.pattern, &union_pattern_type)
+                            {
+                                case_context.locals.insert(binding.clone(), type_.clone());
+                            }
+                            HirMatchCase {
+                                pattern: match &case.pattern {
+                                    HirMatchPattern::Else => HirMatchPattern::Else,
+                                    HirMatchPattern::Literal(expression) => {
+                                        HirMatchPattern::Literal(self.lower_expression(
+                                            expression,
+                                            substitutions,
+                                            &mut case_context,
+                                            None,
+                                            case.line,
+                                        ))
+                                    }
+                                    HirMatchPattern::Union { binding, .. } => {
+                                        HirMatchPattern::Union {
+                                            type_: union_pattern_type
+                                                .clone()
+                                                .expect("a union pattern resolves its type above"),
+                                            binding: binding.clone(),
+                                        }
+                                    }
+                                    HirMatchPattern::OneOf(expressions) => HirMatchPattern::OneOf(
+                                        expressions
+                                            .iter()
+                                            .map(|expression| {
+                                                self.lower_expression(
+                                                    expression,
+                                                    substitutions,
+                                                    &mut case_context,
+                                                    None,
+                                                    case.line,
+                                                )
+                                            })
+                                            .collect(),
+                                    ),
+                                },
+                                guard: case.guard.as_ref().map(|guard| {
+                                    self.lower_expression(
+                                        guard,
                                         substitutions,
                                         &mut case_context,
                                         None,
                                         case.line,
-                                    ))
-                                }
-                                HirMatchPattern::Union { type_, binding } => {
-                                    HirMatchPattern::Union {
-                                        type_: self.concrete_type(type_, substitutions),
-                                        binding: binding.clone(),
-                                    }
-                                }
-                                HirMatchPattern::OneOf(expressions) => HirMatchPattern::OneOf(
-                                    expressions
-                                        .iter()
-                                        .map(|expression| {
-                                            self.lower_expression(
-                                                expression,
-                                                substitutions,
-                                                &mut case_context,
-                                                None,
-                                                case.line,
-                                            )
-                                        })
-                                        .collect(),
-                                ),
-                            },
-                            guard: case.guard.as_ref().map(|guard| {
-                                self.lower_expression(
-                                    guard,
+                                    )
+                                }),
+                                body: self.lower_statements(
+                                    &case.body,
                                     substitutions,
                                     &mut case_context,
-                                    None,
-                                    case.line,
-                                )
-                            }),
-                            body: self.lower_statements(
-                                &case.body,
-                                substitutions,
-                                &mut case_context,
-                            ),
-                            line: case.line,
-                        }
-                    })
-                    .collect(),
-                line: *line,
-            },
+                                ),
+                                line: case.line,
+                            }
+                        })
+                        .collect(),
+                    line: *line,
+                }
+            }
             HirStatement::For {
                 name,
                 start,
@@ -1632,7 +1654,20 @@ impl<'a> Monomorphizer<'a> {
                         .collect();
                     let fields = match template.kind {
                         TypeDeclKind::Type => template.fields.clone(),
-                        TypeDeclKind::Union => Vec::new(),
+                        // A union is never built by its own name — a member
+                        // constructor builds it — so there is nothing to infer.
+                        // Reported here with the verifier's own rule for the
+                        // non-template union (`Shape[…]`), because the bare
+                        // template name would otherwise reach the post-monomorph
+                        // resolve and be misreported as an unknown type (bug-680).
+                        TypeDeclKind::Union => {
+                            self.report(
+                                "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+                                &format!("`{type_name}` is a UNION, not a record TYPE."),
+                                line,
+                            );
+                            Vec::new()
+                        }
                         TypeDeclKind::Enum => Vec::new(),
                     };
                     for (field, argument) in fields.iter().zip(lowered_args.iter()) {
@@ -2036,6 +2071,97 @@ impl<'a> Monomorphizer<'a> {
     /// `imported_records` (under its package-qualifier-stripped spelling) when no
     /// local type claims the name. Without it an imported record's field typed
     /// as `Unknown`, which matched every nominal imported overload.
+    /// The concrete type of a union `CASE` pattern.
+    ///
+    /// A pattern naming a `TYPE` template (bug-680) takes its arguments from the
+    /// scrutinee: `CASE Some(s)` over an `Opt OF Integer` is the
+    /// `Some OF Integer` instantiation that union carries. A template name is
+    /// never a member on its own, so the scrutinee's union — its own members and
+    /// every `INCLUDES`d union's — is the only place the arguments can come
+    /// from. When that union carries no instantiation of the template, or more
+    /// than one (so the name cannot say which), the pattern is reported here,
+    /// in source spellings, rather than left for the post-monomorph resolve to
+    /// misreport as an unknown type.
+    ///
+    /// Any other pattern (a concrete type, or a scrutinee that is not a known
+    /// union) is substituted like every other type position.
+    fn union_pattern_type(
+        &mut self,
+        scrutinee: Option<&ParameterType>,
+        pattern: &ParameterType,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
+        line: usize,
+    ) -> ParameterType {
+        let Some(union) = scrutinee.map(ParameterType::without_state) else {
+            return self.concrete_type(pattern, substitutions);
+        };
+        let template = match pattern {
+            ParameterType::Named(template)
+                if self.type_templates.contains_key(pattern)
+                    && self
+                        .concrete_types
+                        .get(&union)
+                        .is_some_and(|decl| matches!(decl.kind, TypeDeclKind::Union)) =>
+            {
+                template.resolve()
+            }
+            _ => return self.concrete_type(pattern, substitutions),
+        };
+        let mut found = Vec::new();
+        self.collect_union_instantiations(&union, template, &mut found, &mut HashSet::new());
+        if let [only] = found.as_slice() {
+            return only.clone();
+        }
+        let union_display = self.template_view(&union).name().replace('.', "::");
+        let detail = if found.is_empty() {
+            format!("CASE `{template}` is not a member of UNION `{union_display}`.")
+        } else {
+            let members = found
+                .iter()
+                .map(|member| format!("`{}`", self.template_view(member).name()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "CASE `{template}` is ambiguous in UNION `{union_display}`, which carries \
+                 {members}; a CASE names a member by its type name, so a union may carry \
+                 only one instantiation of a template."
+            )
+        };
+        self.report("TYPE_MATCH_PATTERN_MISMATCH", &detail, line);
+        pattern.clone()
+    }
+
+    fn collect_union_instantiations(
+        &self,
+        union: &ParameterType,
+        template: &str,
+        found: &mut Vec<ParameterType>,
+        visited: &mut HashSet<ParameterType>,
+    ) {
+        if !visited.insert(union.clone()) {
+            return;
+        }
+        let Some(type_decl) = self
+            .concrete_types
+            .get(union)
+            .filter(|type_decl| matches!(type_decl.kind, TypeDeclKind::Union))
+        else {
+            return;
+        };
+        for variant in &type_decl.variants {
+            let is_instance = self
+                .type_instantiations
+                .get(&variant.type_)
+                .is_some_and(|(name, _)| name == template);
+            if is_instance && !found.contains(&variant.type_) {
+                found.push(variant.type_.clone());
+            }
+        }
+        for include in &type_decl.includes {
+            self.collect_union_instantiations(include, template, found, visited);
+        }
+    }
+
     fn record_fields(&self, type_: &ParameterType) -> Option<&Vec<HirTypeField>> {
         self.concrete_types
             .get(type_)

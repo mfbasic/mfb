@@ -1468,6 +1468,9 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
         asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // plan-155-A: `mfbScreenChanged:`, the display-rate observer's method. Same
+        // gate: its IMP publishes into the canvas graphics state.
+        display::emit_install_screen_changed_method(&mut asm, abi::LOCAL[2]);
     }
     // plan-94-C: the eleven pixel-coordinate mouse IMPs, before registration for
     // the same reason `TermView`'s are. Only a canvas program has them: they read
@@ -1607,6 +1610,10 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
             crate::codegen::runtime::canvas::GRAPHICS_OFFSET_MTL_LAYER,
         ));
         asm.push(abi::label(&no_metal_layer));
+        // plan-155-A: republish the display rate whenever the window changes screen.
+        // Registered once, with the view that carries the method. The layer and the
+        // colour registers are free by now, and both are callee-saved.
+        display::emit_observe_screen_changes(&mut asm, abi::LOCAL[2], abi::LOCAL[3], abi::LOCAL[4]);
     }
 
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
@@ -1631,6 +1638,13 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // plan-155-A: publish the display rate for the window the surface is now in. On
+    // every canvas entry rather than only at build: it costs three sends, and a window
+    // that moved screens while out of canvas mode still reports correctly.
+    if uses_canvas {
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+        asm.call_internal(display::DISPLAY_RATE_SYMBOL);
+    }
 
     // Clear ASSOC_KEY: io writes degrade to the fd sink in canvas mode.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));

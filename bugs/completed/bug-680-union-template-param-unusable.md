@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: Fixed
 Regression Test: `tests/syntax/monomorph/union-template-variant-valid` (new),
 plus a rejection case for the genuinely-undeclared spelling
 
@@ -238,60 +238,137 @@ Rejected alternatives:
   spec churn for strictly less capability, and the back end already supports the
   substitution, so it should be chosen deliberately rather than by default.
 
+
+### Phase 1 findings (measured on the worktree build, probes under `/tmp/b680probe/`)
+
+All seven new fixtures fail at HEAD with the documented
+`MFB_PARSE_UNEXPECTED_TOKEN … after union member type` on the variant line
+(`target/release/mfb build tests/syntax/monomorph/<fixture>` with the pre-fix
+binary).
+
+Verdict per path that assumed a variant is a bare declared name:
+
+- **`INCLUDES` merging — same defect, fixed.** `parse_union_includes` also used
+  `parse_qualified_name`, so `UNION Outcome OF T INCLUDES Opt OF T` failed to
+  parse at the header. Now reads `parse_type_name`; `hir::elaborate_type_decl`
+  classifies includes (and variants) against the declaration's template params
+  exactly as fields are (`parse_type`). `lower_type` already substituted
+  includes. Fixture `union-template-includes-valid`.
+- **`MATCH` union-pattern resolution — broken, fixed.** `CASE Some(s)` lowered
+  its pattern through `concrete_type(Named("Some"))`, which stays the bare
+  template name, and the post-monomorph resolve reported `SYMBOL_UNKNOWN_TYPE:
+  Type `Some``. New `Monomorphizer::union_pattern_type` types the scrutinee and
+  takes the one instantiation of that template the concrete union (and its
+  `INCLUDES`) carries.
+- **Member-name conflicts — new rule.** Because the CASE names a member by its
+  template, a union carrying two instantiations of one template could never be
+  matched. Declared directly: `TYPE_DUPLICATE_VARIANT` in
+  `resolve_type_decl` (fixture `union-template-duplicate-instantiation-invalid`).
+  Reached through `INCLUDES`: `TYPE_MATCH_PATTERN_MISMATCH` at the CASE
+  (`union-template-case-ambiguous-invalid`). A CASE naming a template the union
+  does not carry: `TYPE_MATCH_PATTERN_MISMATCH` in source spellings
+  (`union-template-case-not-member-invalid`), instead of the unknown-type
+  misreport.
+- **Exhaustiveness — correct as-is.** Runs on the concrete union
+  (`TYPE_MATCH_NOT_EXHAUSTIVE … does not cover None` for a missing arm). Its
+  message quotes the mangled `Opt$Integer`; that is a pre-existing,
+  compiler-wide property of every post-monomorph diagnostic (a plain
+  `TYPE Box OF T` misuse reports `Box$Integer` at HEAD), not introduced here.
+- **`DOC` `PROP` member names — broken, fixed.** `validate_doc_block` built the
+  union's member set from the rendered type (`Some OF T`), so `PROP Some` was
+  `DOC_PROP_UNKNOWN`. A template member is now named by its template.
+  Covered in `union-template-variant-valid`.
+- **`codegen/registry` `UnionVariant` — unaffected.** Built-in companions only;
+  none declares a template union.
+
+Inference gap (`TypeDeclKind::Union => Vec::new()`): **not reachable as
+inference** — a union is never constructed by its own name (`Shape[42]` is
+`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), so there is nothing to infer. But the
+template spelling `Opt[42]` reached the post-monomorph resolve as the bare
+template and was misreported as `SYMBOL_UNKNOWN_TYPE`; it now reports
+`TYPE_CONSTRUCTOR_REQUIRES_RECORD` at that site
+(`union-template-constructor-invalid`).
+
+## STATUS: FIXED (30c52e601)
+
+Landed as the recommended "fix" outcome: §3's `UNION` claim is now true.
+Deviations from the plan, all found by the Phase 1 audit and fixed in the
+same commit:
+
+- `INCLUDES` had the same parser defect and now uses `parse_type_name` too.
+- `MATCH` needed a monomorph step (`Monomorphizer::union_pattern_type`), not
+  just the parser change: a bare `CASE Some(s)` otherwise reached the
+  post-monomorph resolve as an unknown type.
+- New rule: a union may carry at most one instantiation of a template
+  (`TYPE_DUPLICATE_VARIANT` at the declaration; `TYPE_MATCH_PATTERN_MISMATCH`
+  at a CASE when it arises through `INCLUDES`).
+- `DOC` `PROP` member names and the `Opt[x]` constructor diagnostic fixed.
+- Eight fixtures instead of two (`tests/syntax/monomorph/union-*`); the golden
+  delta is exactly those eight plus one unrelated line: the full gate was red
+  at HEAD on `app-window-surface`'s linux-x86_64 app ncodesum, which no
+  committed compiler ever produced (35ab73a30; main landed the identical
+  correction independently).
+
+Not fixed here (pre-existing, compiler-wide): post-monomorph diagnostics quote
+mangled names (`Opt$Integer`, and `Box$Integer` for a plain `TYPE Box OF T`).
+
+Verification: `cargo test --no-fail-fast` — 227 `test result: ok`, 0 failed;
+the reproduction above builds.
+
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/syntax/monomorph/union-template-variant-valid` following the
+- [x] Add `tests/syntax/monomorph/union-template-variant-valid` following the
       layout of `tests/syntax/monomorph/monomorph_instantiation_fanout_bounded`
       (`project.json`, `src/`, `golden/`): a `UNION Opt OF T` over `Some OF T`
       and `None`, instantiated at two distinct argument types, matched with
       `CASE Some(s)` / `CASE None`. Confirm it fails today with the two
       `MFB_PARSE_UNEXPECTED_TOKEN` errors quoted above.
-- [ ] Add the concrete-argument case (`UNION Opt { Box OF Integer, B }`) as a
+- [x] Add the concrete-argument case (`UNION Opt { Box OF Integer, B }`) as a
       second fixture — it fails today for the same reason and proves the fix is
       not parameter-specific.
-- [ ] Audit and write the verdict into this file for each path that assumes a
+- [x] Audit and write the verdict into this file for each path that assumes a
       variant is a bare declared name: member-name-conflict detection,
       `INCLUDES` merging, `MATCH` union-pattern resolution, exhaustiveness, and
       `src/codegen/registry/mod.rs:UnionVariant`.
-- [ ] Characterize the `TypeDeclKind::Union => Vec::new()` inference gap
+- [x] Characterize the `TypeDeclKind::Union => Vec::new()` inference gap
       (`src/monomorph/lower.rs:1635`): write the program that would need it and
       record whether it is reachable.
 
 Acceptance: both new fixtures fail for the documented parse reason; every
 audited path has a written verdict; the inference gap is reachable-or-not with
 the probe recorded.
-Commit: —
+Commit: 30c52e601 (fixtures; audit recorded in this doc)
 
 ### Phase 2 — the fix
 
-- [ ] Widen `ast::types::UnionVariant` to carry a rendered type string
+- [x] Widen `ast::types::UnionVariant` to carry a rendered type string
       (`src/ast/types.rs:449`).
-- [ ] Point `parse_union_variant` at `parse_type_name`
+- [x] Point `parse_union_variant` at `parse_type_name`
       (`src/ast/items.rs:416`), keeping `normalize_qualified_type_name` on the
       head of the path.
-- [ ] Fix any in-scope site the Phase 1 audit flagged.
-- [ ] Confirm the undeclared-type diagnostic now names the type, not the `OF`
+- [x] Fix any in-scope site the Phase 1 audit flagged.
+- [x] Confirm the undeclared-type diagnostic now names the type, not the `OF`
       token.
 
 Acceptance: Phase 1 fixtures pass; the four contrast rows in the reproduction
 table still behave as documented; nothing in Non-goals changed.
-Commit: —
+Commit: 30c52e601
 
 ### Phase 3 — spec sync + full validation
 
-- [ ] Update `./mfb spec language types` §4.3 if the accepted variant grammar is
+- [x] Update `./mfb spec language types` §4.3 if the accepted variant grammar is
       now wider than "names concrete `TYPE` declarations that already exist".
-- [ ] Regenerate only the goldens the two new fixtures introduce; confirm no
+- [x] Regenerate only the goldens the two new fixtures introduce; confirm no
       pre-existing golden moves (no tree `.mfb` declares a union template, so
       the expected delta is exactly the new fixtures).
-- [ ] Run the full suite.
-- [ ] Re-run the reproduction above end to end.
+- [x] Run the full suite.
+- [x] Re-run the reproduction above end to end.
 
 Acceptance: full suite green; golden delta is exactly the two new fixtures;
 spec and implementation agree.
-Commit: —
+Commit: d92260aca (spec), 35ab73a30 (unrelated stale golden found by the full gate)
 
 ## Validation Plan
 

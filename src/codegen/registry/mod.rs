@@ -6814,6 +6814,7 @@ mod raw_result_block_ownership {
         "canvas.carriedHashes",     // List OF Integer (bug-686)
         "canvas.fontBlobUnchecked", // List OF Byte
         "canvas.fontBytes",         // List OF Byte
+        "canvas.frameCounters",     // List OF Integer (plan-155-B)
         "canvas.geoBuild",          // List OF Float (bug-686)
         "canvas.getBytes",          // List OF Byte
         "canvas.getSize",           // canvas.Size

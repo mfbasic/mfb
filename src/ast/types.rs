@@ -447,6 +447,9 @@ pub struct TypeField {
 
 #[derive(Clone, Debug)]
 pub struct UnionVariant {
+    /// The member type as rendered by `parse_type_name` — a bare or qualified
+    /// name, or a template instantiation such as `Some OF T` (bug-680) — in the
+    /// same form `TypeField::type_name` carries.
     pub name: String,
     pub line: usize,
 }

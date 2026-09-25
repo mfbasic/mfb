@@ -752,6 +752,13 @@ pub(super) fn emit_reconcile_idle_helper(
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_native_get_surface");
     asm.store_state(abi::c_return(0), ST_CANVAS_SURFACE);
+    // plan-155-A: publish the display rate for the monitor the surface is on, and
+    // follow it to other monitors. Here, beside the surface read, because this is the
+    // first point the window has a `GdkSurface` — and it runs on every canvas entry.
+    if uses_canvas {
+        asm.load_state(abi::c_arg(0), ST_CANVAS_SURFACE);
+        asm.call_internal(DISPLAY_RATE_SYMBOL);
+    }
     // A title or fullscreen request made while windowless lands now.
     if uses_window {
         super::window::emit_sync_call(&mut asm);
@@ -1647,6 +1654,122 @@ pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(32));
     asm.push(abi::return_());
     asm.finish(CANVAS_RESIZE_SYMBOL, "Nothing")
+}
+
+/// Mask a C `int` return to its 32 bits: the ABI leaves the upper half of the 64-bit
+/// return register unspecified. A refresh rate is never negative, so zero-extension
+/// is the right widening.
+fn emit_int_return_to_u64(asm: &mut Asm, dst: &str) {
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        "4294967295",
+    ));
+    asm.push(abi::and_registers(dst, abi::c_return(0), abi::SCRATCH[1]));
+}
+
+/// plan-155-A: `void _mfb_gtkapp_display_rate(GdkSurface *surface)` (main loop).
+///
+/// Publishes `gdk_monitor_get_refresh_rate(gdk_display_get_monitor_at_surface(
+/// gdk_surface_get_display(surface), surface))` — already millihertz, `0` when GDK does
+/// not know — and connects the surface's `enter-monitor` the first time it sees that
+/// surface ([`ST_DISPLAY_HOOKED`]). A surface with no monitor yet (Wayland assigns one
+/// when it is mapped) publishes `0`; `enter-monitor` then republishes the real rate.
+pub(super) fn emit_display_rate_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(DISPLAY_RATE_SYMBOL);
+    let hooked = format!("{DISPLAY_RATE_SYMBOL}_hooked");
+    let no_monitor = format!("{DISPLAY_RATE_SYMBOL}_no_monitor");
+    let publish = format!("{DISPLAY_RATE_SYMBOL}_publish");
+    let done = format!("{DISPLAY_RATE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // surface
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // Connect `enter-monitor` once per surface.
+    asm.load_state(abi::LOCAL[1], ST_DISPLAY_HOOKED);
+    asm.push(abi::compare_registers(abi::LOCAL[1], abi::LOCAL[0]));
+    asm.push(abi::branch_eq(&hooked));
+    //   g_signal_connect_data(surface, "enter-monitor", on_enter, NULL, NULL, 0)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address(abi::c_arg(1), STR_ENTER_MONITOR.0);
+    asm.local_address(abi::c_arg(2), ENTER_MONITOR_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
+    asm.store_state(abi::LOCAL[0], ST_DISPLAY_HOOKED);
+    asm.push(abi::label(&hooked));
+
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("gdk_surface_get_display");
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("gdk_display_get_monitor_at_surface");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_monitor));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("gdk_monitor_get_refresh_rate");
+    emit_int_return_to_u64(&mut asm, abi::LOCAL[1]);
+    asm.push(abi::branch(&publish));
+    asm.push(abi::label(&no_monitor));
+    asm.push(abi::move_immediate(abi::LOCAL[1], "Integer", "0"));
+    asm.push(abi::label(&publish));
+    crate::codegen::runtime::canvas::emit_publish_display_rate(
+        DISPLAY_RATE_SYMBOL,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(DISPLAY_RATE_SYMBOL, "Nothing")
+}
+
+/// plan-155-A: `void _mfb_gtkapp_enter_monitor(GdkSurface *surface, GdkMonitor *monitor,
+/// gpointer data)` — the surface moved onto `monitor`; publish its rate. Nothing is
+/// signalled: a rate changes no pixel.
+pub(super) fn emit_enter_monitor_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(ENTER_MONITOR_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_arg(1))); // monitor
+    asm.call_external("gdk_monitor_get_refresh_rate");
+    emit_int_return_to_u64(&mut asm, abi::LOCAL[1]);
+    crate::codegen::runtime::canvas::emit_publish_display_rate(
+        ENTER_MONITOR_SYMBOL,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(ENTER_MONITOR_SYMBOL, "Nothing")
 }
 
 /// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.

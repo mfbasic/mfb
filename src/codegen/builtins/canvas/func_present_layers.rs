@@ -56,9 +56,14 @@ END SUB
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
-  IF canvas::publishLayers(layers) THEN
+  ' `publishLayers` first: it carries the `Mode.Canvas` gate, which must raise before
+  ' anything starts a graphics thread. Then, as in `present` (plan-155-B), start the
+  ' thread and count the present whether or not the layers changed.
+  LET installed AS Boolean = canvas::publishLayers(layers)
+  __canvas_ensureGraphics()
+  canvas::notePresent(canvas::frameNanos())
+  IF installed THEN
     canvas::publishHashes(__canvas_hashLayers(layers))
-    __canvas_ensureGraphics()
     canvas::signalRedraw()
     canvas::syncFrame()
   END IF
