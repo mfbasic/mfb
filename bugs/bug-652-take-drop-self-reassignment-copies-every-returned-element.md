@@ -1,28 +1,39 @@
-# bug-652: self-reassigning a list through `collections::take`/`drop` copies every returned element, so a build loop is O(n²)
+# bug-652: an in-place `take`/`drop` over a variable-width list walks the whole list, so a self-reassigning build loop is still O(n²)
 
-Last updated: 2026-09-15
-Effort: large (3h–1d)
-Severity: MEDIUM (performance; output is correct)
+Last updated: 2026-09-25
+Effort: medium (1h–2h)
+Severity: MEDIUM (performance; output is correct — but see "In-place is required")
 Class: Performance / scalability
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Open — **rescoped 2026-09-25.** The original defect (no in-place arm, a fresh
+copy plus a per-element graph deep copy) was fixed by plan-142-B (`a70924e35`,
+2026-09-21) and the flat `List OF Integer` case is now linear. What remains is the
+variable-width compaction's cost: it is O(count) per call even when it removes nothing.
+Regression Test: `tests/runtime/rt_list_take_drop_in_place.rs`. Repro: `bugs/repro/bug-652-take-drop-variable-width-compaction.mfb`
 
 `pending = collections::take(pending, len(pending))` and
-`pending = collections::drop(pending, 0)` allocate a fresh list and copy every returned
-element, even though the store makes the source dead. `collections::append` on the
-identical local hits the documented in-place arm and is O(1) amortized, so a loop that
-rewrites a shared pending list one element at a time is O(n²) while the same loop built
-with `append` alone is linear. At n=8000 with a cyclic element type that is 0.02 s vs
-~22 s; at 100,000 nodes a take/drop builder exceeds a 30 s alarm.
+`pending = collections::drop(pending, 0)` now run in place
+(`try_inplace_take_assign` / `try_inplace_drop_assign` →
+`lower_list_compact_in_place`), with no allocation and no graph copy. But for a
+variable-width element type the compaction walks every entry of the list, up to three
+times, on every call, even when the kept range is the whole list. So a loop that
+rewrites a shared pending list one element at a time is still O(n²): at 100,000 nodes
+`wideTake` takes 42 s where `wideAppend` takes 0.07 s.
 
 The output is correct. This is a scalability defect, not a miscompile.
 
-**The single correct behavior a fix produces:** `x = collections::take(x, len(x))` and
-`x = collections::drop(x, 0)` on an owned, uniquely-referenced `MUT` local cost O(1) in
-the number of elements retained, so the `wideTake` / `wideDropAll` shapes below land in
-the same order of magnitude as `wideAppend` (0.02 s at n=8000) instead of ~22 s, and the
-"wide" builder at 100,000 nodes completes rather than hitting the alarm.
+**In-place is required, not an optimization (owner decision, 2026-09-25).** A `MUT`
+self-update `x = collections::f(x, …)` must cost time proportional to the work the call
+actually does (elements added, removed or moved), never to the size of the untouched
+collection, at every optimization level. Without that the language is not functional
+for ordinary build loops. The spec and `.ai/collections.md` still describe in-place
+update as an optimization the compiler may skip; this bug corrects them (Phase 2).
+
+**The single correct behavior a fix produces:** `x = collections::take(x, k)`,
+`x = collections::drop(x, k)` and `x = collections::mid(x, …)` on an owned,
+uniquely-referenced `MUT` binding cost O(elements removed) — O(1) when nothing is
+removed — for fixed-width and variable-width elements alike, so `wideTake` /
+`wideDropAll` scale like `wideAppend` (4x the elements, ~4x the time).
 
 **Not blocking plan-138.** Found while executing plan-138-A Phase 1 (`packages/xml`).
 That plan uses a recursive-descent builder whose per-element children list only ever
@@ -31,16 +42,22 @@ working path and does not wait on this fix.
 
 References:
 
-- `.ai/collections.md` — "In-place MUT append" (`try_inplace_append_assign`), and the
-  in-place inventory of plan-121-A ("Declining is always correct").
-- `planning/completed/plan-134-C-last-use-move-analysis.md` — the last-use move analysis
-  whose answer is what `take`/`drop` never consult.
-- `planning/completed/plan-134-D-copy-insertion-at-owning-stores.md` — `needs_graph_copy`,
-  the class that multiplies the per-element cost.
-- `src/docs/spec/language/12_collections.md` — `take`/`drop` are source generics; the
-  destructive-update contract is stated only for assignment-back-to-the-same-`MUT`.
+- `src/codegen/collection/list/list_compact.rs` — `lower_list_compact_in_place`, the
+  plan-142-B compaction primitive shared by `filter`, `distinct`, `take`, `drop`, `mid`.
+- `src/codegen/collection/assign/builder_inplace_shrink.rs` —
+  `try_inplace_take_assign`, `try_inplace_drop_assign`.
+- `.ai/collections.md` — "In-place mutation: one table, four sites" and its
+  "Declining is always correct" rule, which the owner decision above overturns.
+- `src/docs/spec/language/12_collections.md` ("Destructive update is an optimization
+  only …") and `src/docs/spec/language/14_memory-semantics.md` ("The compiler may
+  choose … destructive update") — the sentences Phase 2 turns into a guarantee.
+- `planning/completed/plan-142-B-shrink-arms.md` (`a70924e35`) — the in-place filter/take/drop/mid/
+  distinct arms that fixed the original report.
 
 ## Failing Reproduction
+
+(As filed 2026-09-15. The measurement tables in this section are the **original**
+numbers, before plan-142-B; see "Re-measured" below for HEAD.)
 
 A package declaring a `Node` union that reaches a type cycle (`Element.children` is a
 `List OF Node`), plus four loop shapes that differ only in which `collections` call is
@@ -165,228 +182,304 @@ bash /tmp/xml-builder-spike/time.sh /tmp/xml-builder-spike/app/build/spike.out <
 - Expected: linear, as the `append`-only builder already is (0.11–0.13 s at 100,000
   nodes, plan-138-A Phase 1).
 
+
+### Re-measured at `79bd6e39b` (2026-09-25) — the original report is stale, the scaling is not
+
+The `/tmp/xml-builder-spike` probe is gone; its load-bearing source (the types and the
+six shapes above) is now `bugs/repro/bug-652-take-drop-variable-width-compaction.mfb`
+(types declared in the program rather than a package). Commands:
+
+```
+CARGO_TARGET_DIR=/tmp/b652-target cargo build --release --bin mfb
+mfb init /tmp/b652/app && cp bugs/repro/bug-652-take-drop-variable-width-compaction.mfb /tmp/b652/app/src/main.mfb
+cd /tmp/b652/app && /tmp/b652-target/release/mfb build
+/usr/bin/time -p ./build/app.out <shape> <n>
+```
+
+| shape | n=8,000 | n=32,000 | n=100,000 | 2026-09-15 (n=8,000) |
+| --- | --- | --- | --- | --- |
+| `wideAppend` | 0.00 s | 0.02 s | 0.07 s | 0.02 s |
+| `wideTake` (take-all) | 0.09–0.10 s | **2.89 s** | **42.14 s** | 21.7 s |
+| `wideDropAll` (drop-none-kept-all) | 0.09–0.19 s | **4.96 s** | **24.47 s** | 22.1 s |
+| `wideDrop` (result to another name) | 0.01 s | — | — | 0.02 s |
+| `intTake` / `intDropAll` | 0.00 s | 0.00 s | 0.00 s | 0.62 s |
+
+- The flat case is **fixed**: `List OF Integer` take-all/drop-all is 0.00 s even at
+  100,000 (the fixed-width `KeepSource::Range` fast path in `emit_compact_fixed_width`).
+- The variable-width case is ~200x faster at n=8,000 but still **super-linear**: 4x the
+  nodes costs 29x (`wideTake` 0.10 → 2.89 s), and 100,000 nodes takes 42 s. Why it is
+  worse than 16x was not measured; cache effects are a guess.
+- `sample <pid> 5` on `wideTake 100000` (binary unsymbolicated, `nm` lists 9 symbols)
+  puts almost every sample in three inline loops whose shape matches
+  `lower_list_compact_in_place`: the dropped-element pass, the order probe, and the
+  in-order slide — on their compare/branch instructions, not the word-copy loop. The
+  clamp (`start = 0`, `len = clamp(n, 0, count)`) sits just before them. No allocation
+  or `_mfb_rt_graph_copy` call is hot. Mapping samples to passes is a reading of the
+  disassembly (`otool -tv`), not a symbolicated profile.
+
 ## Root Cause
 
-Two independent contributors. Both are cited below; the second is what makes the cyclic
-element type 35x worse than the flat one.
+**`lower_list_compact_in_place` is O(count) for a variable-width element type, even
+for a `KeepSource::Range` that keeps everything.** Read at `79bd6e39b`
+(`src/codegen/collection/list/list_compact.rs`):
 
-**1. `take`/`drop` are whole-range copies with no in-place or move arm.**
+1. **Dropped-element pass.** When `kind2_payload_size(element_type).is_none() &&
+   self.owns_graph(element_type)` — true for `Node` — a loop runs `index` over
+   `[0, count)` and calls `emit_keep_branch` on every entry to find the ones to
+   `emit_drop_list_element`. For a `Range` the dropped entries are exactly
+   `[0, start)` and `[start + len, count)`; the loop visits all `count`.
+2. **Order probe** (`emit_compact_entries`, `compact_probe_loop`). Walks every entry to
+   decide whether each payload sits at the aligned end of the previous one. O(count),
+   regardless of how many entries survive.
+3. **In-order slide** (`compact_ord_loop`). Walks every entry again and, for each kept
+   one, compares the payload and entry against their destination
+   (`compact_ord_payload_ok` / `compact_ord_entry_ok`) — nothing moves when
+   `start = 0`, but every entry is still visited.
 
-`collections::take` and `collections::drop` are source generics
-(`src/docs/spec/language/12_collections.md`), whose bodies are one line each:
-`__collections_take` (`src/codegen/builtins/collections/func_take.rs:90`) is
-`RETURN __collections_slice(value, 0, count)` and `__collections_drop`
-(`src/codegen/builtins/collections/func_drop.rs:81`) is
-`RETURN __collections_slice(value, count, len(value))`.
+The fixed-width path does not have this problem: `emit_compact_fixed_width` special-cases
+`KeepSource::Range` as one block slide (skipped when `start == 0`) plus a header write.
+That is why `intTake`/`intDropAll` are 0.00 s at 100,000 and `wideTake` is 42 s.
 
-`__collections_slice` is intercepted before any FUNC call is emitted — the `NirValue::Call`
-arm at `src/codegen/engine/value/builder_values.rs:1939` calls `try_inline_slice_op` on the
-monomorphized `#collections_slice$T` target — and lowered natively by `try_inline_slice_op`
-→ `lower_list_slice_range` (`src/codegen/builtins/collections/gen_slice.rs:27`, `:56`),
-which allocates a **fresh** collection and copies the entries `[start, stop)` into it —
-a block copy for a contiguous fixed-width ("kind 2") payload, otherwise the per-element
-loop at `gen_slice.rs:311-340`. The work is proportional to the number of elements in the
-returned range, which is exactly what the `drop-none` vs `drop-all` contrast measures:
-`drop(pending, len(pending))` copies nothing, `drop(pending, 0)` copies everything.
+For `filter` and `distinct` (`KeepSource::Marks`) the full walk is inherent — every
+element must be tested — so their O(count) is the call's own work, not this bug.
 
-Nothing recognises the self-assignment. The in-place dispatch chain in the `NirOp::Assign`
-arm at `src/codegen/engine/control/builder_control.rs:1100` (chain spanning `:1131-1228`)
-runs
-`try_inplace_append_assign`, `try_inplace_bulk_append_assign`, `try_inplace_set_add_assign`,
-`try_inplace_set_assign`, `try_inplace_remove_key_assign`, `try_inplace_prepend_assign`,
-`try_inplace_remove_at_assign`, `try_inplace_insert_assign`,
-`try_inplace_set_remove_assign`, `try_inplace_concat_assign` and the
-`try_inplace_record_field_*` family (definitions in
-`src/codegen/collection/assign/builder_inplace_assign.rs`) — **there is no slice, take or
-drop arm**, so `x = collections::take(x, …)` falls through to the general copying
-reassignment at `builder_control.rs:1234` (`lower_value_owned` plus a free of the old
-block). `append` on the same local is fast for exactly the reason `take` is slow:
-`try_inplace_append_assign` (`builder_inplace_assign.rs:23`) routes to
-`lower_list_append_in_place` (`src/codegen/collection/list/list_mutate.rs:426`).
+### Historical root cause (fixed by plan-142-B, `a70924e35`)
 
-The move analysis that *should* apply never sees this site. plan-134-C's
-`collect_last_use_moves` (`src/codegen/engine/analysis/last_use.rs:912`, queried by
-`is_last_use` at `:97`) is consulted only through `store_is_last_use`
-(`src/codegen/engine/value/builder_values.rs:1319`), and only at **stores** —
-`builder_exits.rs:291` and `:327`, `builder_values.rs:816`, `:833`, `:1415`. The `x` in
-`collections::take(x, len(x))` is a **call argument**, not a store, so the analysis is
-never asked whether this is `x`'s last read. It is: the result is immediately assigned
-back over `x`, making the source dead at the store.
-
-Command behind the inventory and consult-site claims:
-`grep -rn "try_inplace_[a-z_]*" src/codegen/engine/control/builder_control.rs` and
-`grep -rn "store_is_last_use" src/`.
-
-**2. The cyclic element type additionally deep-copies each element's graph.**
-
-After the range copy, `try_inline_slice_op` calls `own_collection_payload_edges`
-(`gen_slice.rs:47-48` → `src/codegen/memory/arena/builder_arena_transfer.rs:1649`), commented
-"plan-134-E: the slice owns its elements' graphs". That helper is gated on
-`needs_graph_copy` (`builder_arena_transfer.rs:1654`) and then runs
-`fix_collection_transfer_payloads` → `fix_collection_transfer_payload`, a per-entry loop
-that classifies each element with `graph_copy_edge_kind` and pushes it through
-`emit_graph_copy_push` into the non-recursive work-stack walker `_mfb_rt_graph_copy`
-(`src/codegen/memory/arena/graph_copy.rs:57`). That is a full graph deep copy **per
-element**, on top of the byte copy.
-
-`needs_graph_copy` (`src/codegen/engine/value/builder_values.rs:1301`) is
-`!is_freeable_flat_value(type_) && type_reaches_cycle(…) && !type_contains_resource(…)`,
-where `type_reaches_cycle`
-(`src/codegen/collection/layout/builder_collection_layout.rs:3252`) is a BFS over record
-fields, union variants and list/map components.
-`Node` satisfies it (`Element.children AS List OF Node` reaches a cycle); `Integer` does
-not, so the `List OF Integer` slice is a plain block copy and skips this pass entirely.
-That is precisely the measured split: 21.9 s vs 0.62 s for the same loop shape and n.
-
-So the flat case is quadratic from contributor 1 alone, and the cyclic case pays
-contributor 1 x contributor 2.
+As filed on 2026-09-15: `take`/`drop` had no self-update arm, so
+`x = collections::take(x, …)` fell through to the copying reassignment, which built a
+fresh list via `__collections_slice` → `lower_list_slice_range` and, for a type
+reaching a cycle, deep-copied each element's graph through
+`own_collection_payload_edges` → `_mfb_rt_graph_copy` (the 35x multiplier). plan-142-B
+added `ArmId::Take` / `ArmId::Drop` (`SELF_UPDATE_ARMS`, `SELF_UPDATE_TABLE` rows
+`collections::take` / `collections::drop` are `SelfUpdate::Arm`), which compact in
+place and never reach the slice or the graph copy.
 
 ## Goal
 
-- `x = collections::take(x, len(x))` and `x = collections::drop(x, 0)` on an owned,
-  uniquely-referenced `MUT` local do not copy the retained elements: `wideTake` and
-  `wideDropAll` at n=8000 land within the same order of magnitude as `wideAppend`.
-- The "wide" take/drop builder is linear: 4x the nodes costs ~4x the time, and 100,000
-  nodes completes inside the 30 s alarm.
-- `intTake` / `intDropAll` improve too (the flat case is quadratic for contributor 1
-  independently of the graph copy).
+- `x = collections::take(x, k)`, `x = collections::drop(x, k)` and
+  `x = collections::mid(x, …)` over a variable-width list cost O(elements removed):
+  O(1) when the kept range is the whole list.
+- `wideTake` / `wideDropAll` scale linearly: 4x the nodes costs ~4x the time, and
+  100,000 nodes lands in the same order of magnitude as `wideAppend` (0.07 s).
+- The spec and `.ai/collections.md` state in-place self-update as a guaranteed cost
+  bound, not an optimization.
 
 ### Non-goals (must NOT change)
 
 - **Value semantics.** `collections::take(a, k)` where the result is bound to a *different*
   name, returned, or passed on must keep copying — `a` must be unaffected. Only the
   self-assignment `x = take(x, …)` may mutate in place, exactly as `append` does today.
-- **The `drop-none` fast path stays free.** A fix must not make the currently-free
-  shapes (`wideAppend`, `wideDrop`) slower.
+- **The currently-free shapes stay free.** `wideAppend`, `wideDrop`, `intTake`,
+  `intDropAll` must not get slower.
 - **Do not weaken the repro to make it pass.** Re-timing a smaller n, or swapping the
-  cyclic `Node` union for a flat element type, hides the effect rather than fixing it —
-  the cyclic element type is the whole point of contributor 2.
+  cyclic `Node` union for a flat element type, hides the effect rather than fixing it.
 - **Clamping semantics.** `take(count)` = `slice(0, count)` and `drop(count)` =
   `slice(count, len)`, with `start`/`stop` clamped into range, must be preserved
-  bit-for-bit; `func_take.rs` warns explicitly not to read the dead MFBASIC
-  `__collections_slice` body as the spec of that clamping.
-- Correctness of `chunks` / `window`, the other `__collections_slice` callers, which
-  legitimately need a fresh copy per piece.
+  bit-for-bit.
+- **Drop obligations.** Every removed element that owns a graph is still freed exactly
+  once (plan-134-H); only the *kept* elements stop being visited.
+- **`filter` / `distinct`** keep their full walk (see Root Cause).
 
 ## Blast Radius
 
-Found by `grep -rn "__collections_slice" src/` and the in-place inventory grep above.
+Found by `grep -rn "lower_list_compact_in_place\|KeepSource::Range" src/codegen`.
 
-- `collections::take` (`func_take.rs:90`) — fixed by this bug.
-- `collections::drop` (`func_drop.rs:81`) — fixed by this bug; same helper, same hazard.
-- `__collections_slice` / `lower_list_slice_range` (`gen_slice.rs:56`) — the shared
-  mechanism; where a fix most likely lands.
-- `collections::chunks` (`func_chunks.rs:422`) and `collections::window`
-  (`func_window.rs:442`) — both call `__collections_slice`, but each piece is a *new*
-  list handed to the caller, never a self-assignment, so no last-read arm applies.
-  Unaffected by design; they must keep copying.
-- The `&` concat operator — already has `try_inplace_concat_assign`
-  (`builder_inplace_assign.rs:1714`, dispatched at `builder_control.rs:1180`), so the
-  self-assigning concat shape is covered today. Note this is the **operator**, not a
-  `collections::` member: there is no public `collections::concat`, `collections::slice`
-  or `collections::reverse`. It is the closest precedent a take/drop arm should follow.
-- Other whole-collection-returning members with **no** in-place arm — latent, same
-  "returns a fresh list, no in-place arm" shape, **out of scope**: none was measured here
-  and each has different aliasing conditions. From
-  `src/codegen/builtins/collections/mod.rs:register` plus each `func_*.rs`: `mid`,
-  `replace`, `filter`, `transform`, `sort`, `sortBy`, `distinct`, `flatten`, `chunks`,
-  `window`, `zip`, `groupBy`, `mapValues`, `merge`, `partition`, the set-algebra family
-  (`toSet`, `union`, `intersection`, `difference`, `symmetricDifference`) and the
-  projections `keys`, `values`, `toList`. `filter` and `transform` are worth calling out:
-  each already uses `lower_list_append_in_place` into its own *private* accumulator, yet
-  still returns a brand-new list, so `x = collections::filter(x, f)` copies everything
-  exactly as `take` does. Worth a follow-up audit once the take/drop arm sets the pattern.
+- `collections::take`, `collections::drop`, `collections::mid` — every
+  `KeepSource::Range` caller of `lower_list_compact_in_place`. Fixed by this bug.
+- `collections::filter`, `collections::distinct` — `KeepSource::Marks`; share the
+  primitive, must be unaffected.
+- The field-site forms (plan-145: `r = WITH r { f := collections::take(r.f, …) }`,
+  `h.state.f = …`) go through the same arms and the same primitive, including the
+  out-of-order repack's `InlineGrow`; they must keep passing the plan-145 matrix.
+- **The guarantee's wider audit.** `SELF_UPDATE_TABLE` marks 23 `collections::` members
+  `Arm` and `reduce`/`reduceRight` `Exempt`
+  (`grep -A1 'function: "collections::' src/codegen/collection/assign/self_update.rs`).
+  "Has an arm" does not prove "costs the call's own work": this bug is an arm that
+  exists and is still O(count). Phase 1 audits every `Arm` row's cost shape against
+  the guarantee; any other arm found O(count) where the call's work is smaller is fixed
+  here or filed.
 
 ## Fix Design
 
-The shape that matches existing precedent is a new in-place/move arm in the
-`builder_control.rs:1131-1223` chain — a `try_inplace_slice_assign` recognising
-`x = collections::take(x, k)` / `x = collections::drop(x, k)` on a non-`by_ref`, owned
-`MUT` local, lowering to a header rewrite (`take`: bump `count`/`dataLength` down, dropping
-the tail; `drop`: memmove the retained range down to the data base and adjust the header)
-plus element drops for the discarded range. That reuses the `InPlaceDest` /
-`inplace_dest.rs` gates the other arms already share, and inherits plan-121-A's
-"declining is always correct" rule — an arm that cannot prove unique ownership falls
-through to today's copy.
+Give `emit_compact_entries` (and the dropped-element pass) the `KeepSource::Range`
+fast path the fixed-width path already has:
 
-The correctness risk concentrates in the **discarded** elements, not the retained ones:
-`take` must drop what it truncates and `drop` must drop what it skips, or the fix trades
-a performance bug for a leak. plan-134-H's `emit_drop_list_element` is the existing
-instrument for that.
+- **Dropped-element pass:** for a `Range`, loop only over `[0, start)` and
+  `[start + len, count)` instead of `[0, count)` with a keep test.
+- **`start == 0` (take, and drop/mid of nothing at the front):** a truncation. Set
+  `count = len`; the kept entries and payloads do not move. `dataLength` becomes the end
+  of entry `len - 1`'s payload when the data is in order; when it is not, leaving the
+  tail as dead bytes is already tolerated (the `emit_repack_list_data` contract the
+  out-of-order path relies on), and the existing dead-bytes-exceed-live-bytes repack
+  trigger still bounds the block. Which of the two to take must not need the full order
+  probe — decide it from the kept range only, or keep `dataLength` conservative.
+- **`start > 0`:** slide only the kept range down. The probe and slide touch
+  `len` entries, and the drop pass touches `start + (count - start - len)` entries, so the
+  call is O(len + removed); with the self-update loop shapes in the repro this is O(1)
+  per call only when `start == 0` or `len == 0`. A drop-from-the-front loop that keeps a
+  long tail is inherently O(len) per call on a contiguous array; say so in the spec
+  guarantee (cost proportional to elements moved) rather than promise O(1).
+- Keep `KeepSource::Marks` on the current path.
 
-Rejected: making `own_collection_payload_edges` cheaper. It is load-bearing for
-plan-134-E correctness (the slice really does own its elements' graphs when it is a
-genuine copy), and it would not touch the flat `List OF Integer` case, which is quadratic
-without it.
+Rejected: an offset/start field in the list header so `drop` is O(1) without moving
+data — changes the collection layout every consumer reads, for a shape (drop from the
+front, keep a long tail) the repro does not exercise.
 
-Also rejected: extending `store_is_last_use` to call arguments in general. That is a much
-larger semantic change reaching every builtin, and plan-134-C deliberately scoped the
-analysis to stores.
+## Corrections
+
+- **C1 (2026-09-25, found while implementing Phase 2).** Fix Design says an
+  out-of-order truncation can leave the removed tail as dead bytes, because "the
+  existing dead-bytes-exceed-live-bytes repack trigger still bounds the block". That
+  trigger needs the list's live-byte total. The header does not store it, and
+  computing it walks every kept entry, which is O(count). Skipping the walk is not
+  safe: `append`'s grow copies `dataLength` verbatim, dead bytes included, so a
+  pop/append loop over an out-of-order list would grow the block without bound. So the
+  shipped fast path (`emit_compact_range_truncate`) takes only the cases that need no
+  live count:
+  - nothing is removed;
+  - everything is removed;
+  - every removed payload is the data tail, which always holds for a list built by
+    `append`.
+
+  Otherwise it falls through, having written nothing, to the unchanged general path.
+  Measured residual, with the bug-703 repro on the fixed compiler: `popSorted` (sort
+  once, then `x = take(x, len(x) - 1)` until empty) goes from 0.04 s to 0.72 s user
+  for 4n (×18). `popAppended`, the same pops without the sort, is linear. Filed as
+  **bug-703** finding 6. The spec lists it as a current exception.
 
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Land a perf regression case for the `wideTake` / `wideDropAll` shapes at a node
-      count whose linear-vs-quadratic gap is unambiguous, per the project's perf-golden
-      conventions (`.ai/testing-gates.md`). Confirm it fails at HEAD for the documented
-      reason.
-- [ ] Add a value-semantics test pinning the non-goal: `LET b = collections::take(a, k)`
-      must leave `a` intact, for both a flat and a cyclic element type.
-- [ ] Settle the Open Decision below before designing the arm.
+- [x] Land a scaling test for `wideTake` / `wideDropAll` (variable-width, type reaching a
+      cycle) that times n and 4n and fails when the ratio is super-linear, per the
+      perf-golden conventions in `.ai/testing-gates.md`. Confirm it fails at HEAD.
+      → `tests/runtime/rt_list_take_drop_in_place.rs`
+      (`a_take_all_…_is_linear`, `a_drop_none_…_is_linear`). **Deviation from "n and
+      4n":** each shape runs the same total number of elements two ways, as 8 builds of
+      `n` and as 1 build of `8n`. Linear work gives ×1 and a per-call O(size) walk gives
+      ×8, with the bound at ×3 + 0.05 s. The time is the child's CPU time, taken from
+      `wait4`'s `ru_utime + ru_stime`, not wall time. This box ran at load average ≈ 207
+      (`uptime`), and wall time was unusable: `wideAppend` 1,000,000 measured 4.61 s wall
+      for 0.71 s user. A plain n-vs-4n wall ratio also needs n ≥ 25,000 before the
+      fixed shapes rise above timer noise, and at that size HEAD takes minutes.
+      **RED at HEAD `4ef538bb9`**, with release `mfb` built from that tree:
+      `CARGO_TARGET_DIR=/tmp/b652-target MFB_TEST_EXE=/tmp/b652-target/release/mfb cargo test --test rt_list_take_drop_in_place variable_width -- --test-threads=1 --nocapture`
+      → `wideTake: 8×5000 = 0.399 s CPU; 1×40000 = 3.020 s CPU; ×7.58` and
+      `wideDropAll: 8×5000 = 0.412 s CPU; 1×40000 = 3.131 s CPU; ×7.60`, both
+      panicking. The ratio is ×7.6 against the ×8 that O(count) per call predicts.
+      Mechanism confirmed before writing the test: `-ncode` for `wideTake`
+      (`/tmp/b652/app`) holds `compact_drop_loop`, `compact_probe_loop`,
+      `compact_ord_loop` and `compact_dis_loop`, with no slice and no graph copy.
+      `sample` of `wideTake 100000` puts 2,592 of 2,616 samples in one inline range
+      (`0x1b90`–`0x1d60`) with no call on the stack. That matches the doc's Root Cause.
+- [x] Add a guard that `intTake` / `intDropAll` / `wideAppend` / `wideDrop` stay linear.
+      → `the_already_linear_shapes_stay_linear`. It is green at HEAD: `wideAppend`
+      ×1.60, `wideDrop` ×1.28, `intTake` ×1.31, `intDropAll` ×1.41.
+- [x] Add a value-semantics test: `LET b = collections::take(a, k)` leaves `a` intact,
+      flat and cyclic element types.
+      → `take_drop_mid_keep_value_semantics_and_the_right_elements`. It covers
+      `take`/`drop`/`mid` as copies and through an alias (`LET keep = x` then
+      `x = take(x, 1)`). The element types are a cyclic union `Node`, `String` and
+      `Integer`. It also runs self-updates over lists whose payloads are out of entry
+      order: after `prepend`, `insert`, a longer `set`, and `sort`. Green at HEAD. The
+      expected output was checked by hand.
+- [x] Add a leak test: a `take` / `drop` / `mid` that removes graph-owning elements
+      ends `--debug` with `alloc_calls = free_calls`, `live_bytes 0`.
+      → `take_drop_mid_free_every_removed_element_once`, which runs the same program.
+      Green at HEAD: `alloc_calls 532`, `free_calls 532`, `live_bytes 0`,
+      `double_free_skips 0`.
+- [x] Audit every `SelfUpdate::Arm` row in `SELF_UPDATE_TABLE` for cost proportional to
+      the call's work, not to the collection's size. Record the table here; fix or file
+      each offender. → The table is below. Five offenders were found, plus this bug's
+      own out-of-order residual (see Corrections). They are too large for this bug, so
+      they are filed as **bug-703** with a measured repro
+      (`bugs/repro/bug-703-self-update-arms-cost-collection-size.mfb`).
 
-Acceptance: the perf case fails at HEAD; the value-semantics cases pass at HEAD and are
-green guards for Phase 2.
+#### Audit — `SELF_UPDATE_TABLE` `Arm` rows (2026-09-25)
+
+A read-only audit of each arm's lowering produced this table. Each offender was then
+spot-checked by grepping its named loop label, and measured with the bug-703 repro
+(user CPU seconds, n → 4n).
+
+| ArmId (rows) | Inherent work | Emitted cost | Verdict |
+| --- | --- | --- | --- |
+| Append | 1 element | writes into spare room; geometric realloc | OK |
+| BulkAppend | size of the RHS | copies the RHS; geometric realloc | OK |
+| Set | 1 element | same-size overwrite O(1); a length change relocates to the tail, with a geometric repack on overflow | OK (amortized) |
+| SetAdd | 1 element | hash probe, then bucket put | OK |
+| SetRemove, RemoveKey | 1 element | `mrk_scan_loop` linear, `mrk_shift_loop` suffix, `BUCKETS_READY = 0` (next probe rebuilds the index) | **OFFENDER** → bug-703 (×18 / ×20) |
+| Prepend | moves n | shifts all entries | OK (moved) |
+| RemoveAt | moves the suffix | kind2 suffix only; variable-width `remove_inplace_fix_loop` over **all** entries | **OFFENDER** (var-width) → bug-703 (×15) |
+| Insert | moves count − i | shifts the tail | OK |
+| Concat | size of the RHS | copies the RHS into spare capacity; geometric regrow | OK |
+| Filter, Distinct | tests all | mark pass plus Marks compaction | OK |
+| Take, Drop, Mid | removed + moved | variable-width: probe + slide over all entries | **this bug** (fixed in Phase 2; out-of-order truncation → bug-703) |
+| Replace, Transform, Math, MapValues, Intersection | tests all | one walk | OK |
+| Sort, SortBy | n log n | merge sort plus permute | OK |
+| Union, Merge | size of t / n | walks only the argument; geometric reserve | OK |
+| Difference | ≤ size of t | marks **all of s**, `mcompact_loop` over s | **OFFENDER** → bug-703 (×18) |
+| SymmetricDifference | size of t | marks t **and all of s**, compacts s | **OFFENDER** → bug-703 (×18) |
+| StrIdentity | 0 | nothing | OK |
+| StrWindow (13 rows) | removed bytes | always `inplace_str_window_move` of the whole window, even when it does not move | **OFFENDER** for `stripSuffix`, no-match `stripPrefix`, `trimEnd` → bug-703 (`stripSuffix` ×15) |
+| StrGrow | added (+ moved) | geometric reserve | OK |
+| StrRewrite | tests all | build in scratch, copy back | OK |
+
+Not an offender under the rule: a non-probe-eligible key type makes Map/Set lookups
+linear (`mapset_loop`). That cost belongs to the lookup, not to an arm.
+
+Acceptance: the scaling test fails at HEAD; the guards pass at HEAD. ✓ (above)
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Add the take/drop in-place arm and wire it into the `builder_control.rs` chain.
-- [ ] Drop the discarded elements (`emit_drop_list_element`); prove no leak with a
-      `live_bytes` soak in the style of bug-644/645.
+- [ ] `KeepSource::Range` fast path in `lower_list_compact_in_place` /
+      `emit_compact_entries` (Fix Design).
+- [ ] Spec: `12_collections.md` — replace "Destructive update is an optimization only
+      for the assignment-back-to-the-same-`MUT` pattern" with the guarantee: a `MUT`
+      self-update is performed in place, and its cost is proportional to the elements it
+      adds, removes or moves, at every optimization level. State where the guarantee does
+      not apply (the old value is still read by another live binding, so a copy is
+      required). `14_memory-semantics.md` (opening paragraph) "may choose … destructive update" —
+      align with the guarantee. Cite the arms (`[[path:Symbol]]`, `.ai/specifications.md`).
+- [ ] `.ai/collections.md` — replace "**Declining is always correct**" with: declining
+      is correct only where the spec says a copy is required; an arm that declines
+      anywhere else, or accepts but costs O(size), is a bug.
+- [ ] `mfb man collections` — check `take`/`drop`/`mid`/`append` pages describe the
+      in-place self-update in developer terms (`.ai/man-content.md`: "mutate", "copy").
 
-Acceptance: Phase 1's perf case passes; value semantics and clamping unchanged.
+Acceptance: Phase 1's scaling test passes; value, leak and linear guards unchanged.
 Commit: —
 
-### Phase 3 — regenerate expected outputs + full validation
+### Phase 3 — full validation
 
-- [ ] Re-run the n=8000 table and the scaling table; both linear.
-- [ ] Full suite; confirm `.ncode` deltas are confined to the take/drop sites.
+- [ ] Re-run the table above at n = 8,000 / 32,000 / 100,000; every shape linear.
+- [ ] Full suite; `.ncode` deltas confined to the compaction sites.
+- [ ] `cargo build`, `cargo test --bin mfb spec`.
 
 Commit: —
 
 ## Validation Plan
 
-- Regression test(s): the Phase 1 perf case plus the value-semantics guards.
-- Runtime proof: the n=8000 table above re-measured with the same `time.sh` command, and
-  the "wide" builder completing at 100,000 nodes.
-- Memory proof: a `live_bytes` soak proving the discarded elements are dropped exactly
-  once, `double_free_skips 0`.
-- Doc sync: `.ai/collections.md`'s in-place inventory gains the new arm;
-  `src/docs/spec/language/12_collections.md` states the destructive-update contract for
-  `append` only and would need the same sentence for take/drop.
+- Regression test(s): the Phase 1 scaling test plus the linear, value-semantics and
+  leak guards.
+- Runtime proof: the re-measure table above with the same commands.
+- Memory proof: `--debug` report `alloc_calls = free_calls`, `live_bytes 0`,
+  `double_free_skips 0` for take/drop/mid removing graph-owning elements.
+- Doc sync: spec §12 / §14 guarantee, `.ai/collections.md` rule, man pages.
 - Full suite: the project's acceptance gate per `.ai/testing-gates.md`.
 
 ## Open Decisions
 
-- **Is the whole-list copy intended value semantics for `take`/`drop`, or an outright
-  defect?** I could not settle this from evidence, and the two readings imply different
-  fixes. The spec is genuinely silent on the point: `src/docs/spec/language/12_collections.md`
-  promises destructive update only for "the result of an update function assigned back to
-  the same `MUT` binding, such as `pts = collections::append(pts, v)`", and names `append`
-  as its only example, while calling all update helpers "semantically pure functions" for
-  which "destructive update is an optimization only". Under the first reading the copy is
-  *correct* and this bug is the **missing last-read move arm plus the graph-copy
-  multiplier** — a missing optimization, fixed as designed above. Under the second, a
-  self-assignment through `take`/`drop` was always meant to be in-place like `append`, and
-  the omission is a defect in the in-place inventory. Either way the user-visible fix is
-  the same arm; what differs is whether the spec sentence needs widening (reading 1) or
-  merely clarifying (reading 2). **Owner decision** — it determines whether Phase 2 also
-  edits §12.
+- ~~Is the whole-list copy intended value semantics, or a defect?~~ **Decided
+  2026-09-25 (owner): in-place `MUT` self-update is required, not an optimization.**
+  Phase 2 writes it into the spec as a guarantee.
 
 ## Summary
 
-The engineering risk is entirely in the discarded elements: retaining a range in place is
-mechanical, but `take` truncating and `drop` shifting must drop exactly what they remove
-or the fix becomes a leak. The copy path itself, the clamping contract, and the
-`chunks`/`window` callers stay untouched. plan-138 is not waiting on this.
+plan-142-B fixed what was filed: `take`/`drop` self-updates no longer allocate or deep
+copy, and the flat case is linear. The variable-width compaction still visits every
+entry on every call, so a take/drop build loop over a `Node` list is still quadratic
+(42 s at 100,000). The fix is a `KeepSource::Range` fast path that touches only removed
+and moved entries, plus writing the owner's rule — in-place self-update is a guaranteed
+cost, not an optimization — into the spec and the collections invariants.

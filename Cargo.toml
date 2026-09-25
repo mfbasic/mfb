@@ -835,6 +835,10 @@ name = "rt_list_set_widening_linear"
 path = "tests/runtime/rt_list_set_widening_linear.rs"
 
 [[test]]
+name = "rt_list_take_drop_in_place"
+path = "tests/runtime/rt_list_take_drop_in_place.rs"
+
+[[test]]
 name = "rt_native_float_pow_operator_runtime"
 path = "tests/runtime/rt_native_float_pow_operator_runtime.rs"
 

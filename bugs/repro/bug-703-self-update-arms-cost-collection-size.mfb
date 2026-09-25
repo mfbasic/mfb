@@ -1,0 +1,117 @@
+' bug-703 repro: in-place self-updates whose cost is O(size of x) per call
+' where the call adds, removes or moves O(1) elements, so each loop is O(n^2).
+' Usage: app.out <shape> <n>
+'   shapes: append (linear contrast) removeAtLast removeKey setRemove
+'           difference symDiff stripSuffix popSorted
+' Expected: every shape linear in n (4x n costs ~4x the time).
+IMPORT io
+IMPORT os
+IMPORT collections
+IMPORT strings
+
+FUNC removeAtLast(n AS Integer) AS Integer
+  MUT x AS List OF String = []
+  FOR i = 1 TO n
+    x = collections::append(x, "keep" & toString(i))
+    x = collections::append(x, "gone")
+    x = collections::removeAt(x, len(x) - 1)
+  NEXT
+  RETURN len(x)
+END FUNC
+
+FUNC removeKeyLoop(n AS Integer) AS Integer
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 1 TO n
+    m = collections::set(m, "k" & toString(i), i)
+    m = collections::set(m, "tmp", 0)
+    m = collections::removeKey(m, "tmp")
+  NEXT
+  RETURN len(m)
+END FUNC
+
+FUNC setRemoveLoop(n AS Integer) AS Integer
+  MUT s AS Set OF Integer = Set OF Integer {}
+  FOR i = 1 TO n
+    s = collections::add(s, i)
+    s = collections::add(s, -1)
+    s = collections::remove(s, -1)
+  NEXT
+  RETURN len(s)
+END FUNC
+
+FUNC differenceLoop(n AS Integer) AS Integer
+  MUT s AS Set OF Integer = Set OF Integer {}
+  LET t AS Set OF Integer = Set OF Integer { -5 }
+  FOR i = 1 TO n
+    s = collections::add(s, i)
+    s = collections::difference(s, t)
+  NEXT
+  RETURN len(s)
+END FUNC
+
+FUNC symDiffLoop(n AS Integer) AS Integer
+  MUT s AS Set OF Integer = Set OF Integer {}
+  LET t AS Set OF Integer = Set OF Integer { -5 }
+  FOR i = 1 TO n
+    s = collections::add(s, i)
+    s = collections::symmetricDifference(s, t)
+  NEXT
+  RETURN len(s)
+END FUNC
+
+FUNC stripSuffixLoop(n AS Integer) AS Integer
+  MUT s AS String = ""
+  FOR i = 1 TO n
+    s = s & "x"
+    s = strings::stripSuffix(s, "q")
+  NEXT
+  RETURN len(s)
+END FUNC
+
+FUNC popSorted(n AS Integer) AS Integer
+  MUT x AS List OF String = []
+  FOR i = 1 TO n
+    x = collections::append(x, toString(n - i))
+  NEXT
+  x = collections::sort(x)
+  MUT total AS Integer = 0
+  WHILE len(x) > 0
+    total = total + len(collections::get(x, len(x) - 1))
+    x = collections::take(x, len(x) - 1)
+  END WHILE
+  RETURN total
+END FUNC
+
+FUNC appendLoop(n AS Integer) AS Integer
+  MUT x AS List OF String = []
+  FOR i = 1 TO n
+    x = collections::append(x, "keep" & toString(i))
+  NEXT
+  RETURN len(x)
+END FUNC
+
+FUNC main AS Integer
+  LET args = os::args()
+  LET shape = collections::get(args, 0)
+  LET n = toInt(collections::get(args, 1))
+  MUT r AS Integer = 0
+  IF shape = "removeAtLast" THEN
+    r = removeAtLast(n)
+  ELSEIF shape = "removeKey" THEN
+    r = removeKeyLoop(n)
+  ELSEIF shape = "setRemove" THEN
+    r = setRemoveLoop(n)
+  ELSEIF shape = "difference" THEN
+    r = differenceLoop(n)
+  ELSEIF shape = "symDiff" THEN
+    r = symDiffLoop(n)
+  ELSEIF shape = "stripSuffix" THEN
+    r = stripSuffixLoop(n)
+  ELSEIF shape = "popSorted" THEN
+    r = popSorted(n)
+  ELSEIF shape = "append" THEN
+    r = appendLoop(n)
+  END IF
+  io::print(shape & " " & toString(r))
+  RETURN 0
+END FUNC
