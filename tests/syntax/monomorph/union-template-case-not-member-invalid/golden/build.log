@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-case-not-member-invalid
+  21 | FUNC f(o AS Opt OF Integer) AS Integer
+  22 |   MATCH o
+  23 |     CASE Box(b)
+     | ^
+tests/syntax/monomorph/union-template-case-not-member-invalid/src/main.mfb:23 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Box` is not a member of UNION `Opt OF Integer`.
+[exit 1]

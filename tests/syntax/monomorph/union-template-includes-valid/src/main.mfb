@@ -1,0 +1,64 @@
+' bug-680: a generic union INCLUDES a template instantiation (`Opt OF T`), a
+' generic function MATCHes it by template name, and a nested instantiation
+' (`Opt OF Opt OF Integer`) matches at both levels.
+
+IMPORT io
+
+TYPE Some OF T
+  value AS T
+END TYPE
+
+TYPE None
+  value AS Nothing
+END TYPE
+
+TYPE Failed
+  why AS String
+END TYPE
+
+UNION Opt OF T
+  Some OF T
+  None
+END UNION
+
+UNION Outcome OF T INCLUDES Opt OF T
+  Failed
+END UNION
+
+FUNC show OF T(o AS Outcome OF T) AS String
+  MATCH o
+    CASE Some(s)
+      RETURN "some"
+    CASE None(n)
+      RETURN "none"
+    CASE Failed(f)
+      RETURN "failed " & f.why
+  END MATCH
+END FUNC
+
+FUNC depth(o AS Opt OF Opt OF Integer) AS Integer
+  MATCH o
+    CASE Some(outer)
+      MATCH outer.value
+        CASE Some(inner)
+          RETURN inner.value
+        CASE None(n)
+          RETURN -1
+      END MATCH
+    CASE None(n)
+      RETURN -2
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Outcome OF Integer = Some[3]
+  LET b AS Outcome OF String = Failed["x"]
+  LET c AS Outcome OF String = None[NOTHING]
+  io::print(show(a))
+  io::print(show(b))
+  io::print(show(c))
+  LET inner AS Opt OF Integer = Some[9]
+  LET d AS Opt OF Opt OF Integer = Some[inner]
+  io::print(toString(depth(d)))
+  RETURN 0
+END FUNC

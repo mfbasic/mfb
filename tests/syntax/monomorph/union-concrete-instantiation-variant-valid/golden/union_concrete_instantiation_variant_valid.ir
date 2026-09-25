@@ -1,0 +1,109 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "union_concrete_instantiation_variant_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "public",
+    "name": "Empty",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 15,
+    "visibility": "public",
+    "name": "Slot",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Box$Integer",
+      "line": 16,
+      "fields": [
+      { "visibility": null, "line": 8, "name": "value", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Empty",
+      "line": 17,
+      "fields": [
+      { "visibility": null, "line": 12, "name": "value", "type": "Nothing" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "public",
+    "name": "Box$Integer",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "value", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "describe",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "slot", "line": 20, "type": "Slot", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "$match0", "type": "Slot", "value": { "kind": "local", "name": "slot" } },
+    {
+      "op": "match",
+      "line": 21,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 22,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Box$Integer" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 22, "mutable": false, "name": "b", "type": "Box$Integer", "value": { "kind": "unionExtract", "type": "Box$Integer", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 23, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "box " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "value" }] } } }
+        ]
+      },
+      {
+        "line": 24,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Empty" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 24, "mutable": false, "name": "e", "type": "Empty", "value": { "kind": "unionExtract", "type": "Empty", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 25, "value": { "kind": "const", "type": "String", "value": "empty" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": false, "name": "a", "type": "Slot", "value": { "kind": "unionWrap", "union": "Slot", "member": "Box$Integer", "value": { "kind": "constructor", "type": "Box$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "b", "type": "Slot", "value": { "kind": "unionWrap", "union": "Slot", "member": "Empty", "value": { "kind": "constructor", "type": "Empty", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "b" }] }] } },
+    { "op": "return", "line": 34, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

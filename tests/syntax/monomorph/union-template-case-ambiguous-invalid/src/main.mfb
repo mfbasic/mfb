@@ -1,0 +1,32 @@
+' bug-680: two instantiations of one template reached through INCLUDES make a
+' CASE naming that template ambiguous; it is reported at the CASE.
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+TYPE Empty
+  value AS Nothing
+END TYPE
+
+UNION IntSlot
+  Box OF Integer
+  Empty
+END UNION
+
+UNION Both INCLUDES IntSlot
+  Box OF String
+END UNION
+
+FUNC f(b AS Both) AS Integer
+  MATCH b
+    CASE Box(x)
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  RETURN f(Empty[NOTHING])
+END FUNC

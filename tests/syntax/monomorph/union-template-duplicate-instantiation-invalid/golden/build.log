@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-duplicate-instantiation-invalid
+   8 | UNION Two
+   9 |   Box OF Integer
+  10 |   Box OF String
+     | ^
+tests/syntax/monomorph/union-template-duplicate-instantiation-invalid/src/main.mfb:10 error[2-203-0030 TYPE_DUPLICATE_VARIANT]: union variant is declared more than once
+               Member type `Box OF String` in UNION `Two` instantiates template `Box` again (line 9); a CASE names a member by its type name, so a union may carry only one instantiation of a template.
+[exit 1]

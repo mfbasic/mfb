@@ -318,10 +318,18 @@ impl Resolver<'_> {
                                 type_decl.fields.iter().map(|f| f.name.as_str()).collect()
                             }
                             TypeDeclKind::Union => {
+                                // bug-680: a template-instantiated member
+                                // (`Some OF T`) is named by its template, as a
+                                // CASE names it.
                                 variant_names = type_decl
                                     .variants
                                     .iter()
-                                    .map(|v| v.type_.name().into_owned())
+                                    .map(|v| match &v.type_ {
+                                        ParameterType::UserOf(template, _) => {
+                                            template.resolve().to_string()
+                                        }
+                                        other => other.name().into_owned(),
+                                    })
                                     .collect::<Vec<_>>();
                                 variant_names.iter().map(String::as_str).collect()
                             }
@@ -739,6 +747,11 @@ impl Resolver<'_> {
                 }
 
                 let mut variants = HashMap::new();
+                // bug-680: a CASE names a member by its type name, and for a
+                // template instantiation that is the template's name — so two
+                // instantiations of one template (`Box OF Integer`, `Box OF
+                // String`) could never be told apart by a CASE.
+                let mut templates = HashMap::new();
                 for variant in &type_decl.variants {
                     if let Some(previous) = variants.insert(variant.type_.clone(), variant.line) {
                         self.report(
@@ -752,6 +765,23 @@ impl Resolver<'_> {
                             file,
                             variant.line,
                         );
+                    } else if let ParameterType::UserOf(template, _) = &variant.type_ {
+                        if let Some(previous) = templates.insert(*template, variant.line) {
+                            self.report(
+                                "TYPE_DUPLICATE_VARIANT",
+                                &format!(
+                                    "Member type `{}` in UNION `{}` instantiates template `{}` \
+                                     again (line {}); a CASE names a member by its type name, \
+                                     so a union may carry only one instantiation of a template.",
+                                    variant.type_.name(),
+                                    type_decl.name,
+                                    template.resolve(),
+                                    previous
+                                ),
+                                file,
+                                variant.line,
+                            );
+                        }
                     }
                     self.resolve_type(file, &variant.type_, variant.line, imports);
                 }

@@ -1,0 +1,96 @@
+{
+  "project": "union_concrete_instantiation_variant_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "templateParams": ["T"],
+      "line": 7,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "T", "line": 8 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Empty",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing", "line": 12 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Slot",
+      "line": 15,
+      "includes": [],
+      "variants": [
+      { "name": "Box OF Integer", "line": 16 },
+      { "name": "Empty", "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 20,
+      "params": [
+      { "name": "slot", "type": "Slot", "default": null, "line": 20 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "slot" },
+        "line": 21,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Box", "binding": "b" },
+          "guard": null,
+          "line": 22,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "box " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "value" }] } }, "line": 23 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Empty", "binding": "e" },
+          "guard": null,
+          "line": 24,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "empty" }, "line": 25 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 29,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Slot", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Slot", "value": { "kind": "constructor", "type": "Empty", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 34 }
+      ]
+    }
+    ]
+  }
+  ]
+}

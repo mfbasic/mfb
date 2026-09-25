@@ -1,0 +1,21 @@
+' bug-680: a template union is never built by its own name — a member
+' constructor builds it — and says so with the same rule a non-template
+' union's `Shape[…]` gets, not as an unknown type.
+
+TYPE Some OF T
+  value AS T
+END TYPE
+
+TYPE None
+  value AS Nothing
+END TYPE
+
+UNION Opt OF T
+  Some OF T
+  None
+END UNION
+
+FUNC main() AS Integer
+  LET a = Opt[42]
+  RETURN 0
+END FUNC

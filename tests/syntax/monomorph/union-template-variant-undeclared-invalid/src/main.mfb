@@ -1,0 +1,16 @@
+' bug-680: a union variant naming an undeclared template is rejected with a
+' diagnostic that names the undeclared type, not the `OF` token.
+
+TYPE None
+  value AS Nothing
+END TYPE
+
+UNION Opt OF T
+  Missing OF T
+  None
+END UNION
+
+FUNC main() AS Integer
+  LET a AS Opt OF Integer = None[NOTHING]
+  RETURN 0
+END FUNC

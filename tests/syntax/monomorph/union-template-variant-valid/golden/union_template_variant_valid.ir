@@ -1,0 +1,183 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "union_template_variant_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "public",
+    "name": "None",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 21,
+    "visibility": "public",
+    "name": "Opt$Integer",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Some$Integer",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "line": 8, "name": "value", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "None",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "line": 12, "name": "value", "type": "Nothing" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 21,
+    "visibility": "public",
+    "name": "Opt$String",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Some$String",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "line": 8, "name": "value", "type": "String" }
+      ]
+    },
+    {
+      "name": "None",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "line": 12, "name": "value", "type": "Nothing" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "public",
+    "name": "Some$Integer",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "public",
+    "name": "Some$String",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "value", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "describeInt",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "opt", "line": 26, "type": "Opt$Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 27, "mutable": false, "name": "$match0", "type": "Opt$Integer", "value": { "kind": "local", "name": "opt" } },
+    {
+      "op": "match",
+      "line": 27,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 28,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Some$Integer" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 28, "mutable": false, "name": "s", "type": "Some$Integer", "value": { "kind": "unionExtract", "type": "Some$Integer", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 29, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "some int " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "value" }] } } }
+        ]
+      },
+      {
+        "line": 30,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "None" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 30, "mutable": false, "name": "n", "type": "None", "value": { "kind": "unionExtract", "type": "None", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 31, "value": { "kind": "const", "type": "String", "value": "no int" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "describeText",
+    "line": 35,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "opt", "line": 35, "type": "Opt$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 36, "mutable": false, "name": "$match1", "type": "Opt$String", "value": { "kind": "local", "name": "opt" } },
+    {
+      "op": "match",
+      "line": 36,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 37,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Some$String" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 37, "mutable": false, "name": "s", "type": "Some$String", "value": { "kind": "unionExtract", "type": "Some$String", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 38, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "some text " }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "value" } } }
+        ]
+      },
+      {
+        "line": 39,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "None" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 39, "mutable": false, "name": "n", "type": "None", "value": { "kind": "unionExtract", "type": "None", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 40, "value": { "kind": "const", "type": "String", "value": "no text" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 45, "mutable": false, "name": "a", "type": "Opt$Integer", "value": { "kind": "unionWrap", "union": "Opt$Integer", "member": "Some$Integer", "value": { "kind": "constructor", "type": "Some$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] } } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "b", "type": "Opt$Integer", "value": { "kind": "unionWrap", "union": "Opt$Integer", "member": "None", "value": { "kind": "constructor", "type": "None", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "c", "type": "Opt$String", "value": { "kind": "unionWrap", "union": "Opt$String", "member": "Some$String", "value": { "kind": "constructor", "type": "Some$String", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "d", "type": "Opt$String", "value": { "kind": "unionWrap", "union": "Opt$String", "member": "None", "value": { "kind": "constructor", "type": "None", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeInt", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeInt", "args": [{ "kind": "local", "name": "b" }] }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeText", "args": [{ "kind": "local", "name": "c" }] }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeText", "args": [{ "kind": "local", "name": "d" }] }] } },
+    { "op": "return", "line": 53, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

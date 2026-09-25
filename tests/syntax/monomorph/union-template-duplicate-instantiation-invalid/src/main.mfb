@@ -1,0 +1,16 @@
+' bug-680: a CASE names a member by its type name, so a union may not carry two
+' instantiations of one template — `CASE Box(b)` could not say which.
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+UNION Two
+  Box OF Integer
+  Box OF String
+END UNION
+
+FUNC main() AS Integer
+  LET t AS Two = Box[1]
+  RETURN 0
+END FUNC

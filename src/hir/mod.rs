@@ -266,8 +266,9 @@ pub(crate) struct HirTypeDecl {
     /// two an include is has to be decided by the grammar — here, at the AST
     /// boundary, rather than by a `parse` in the resolver.
     pub(crate) includes: Vec<ParameterType>,
-    /// Union variants carry only a name; elaborated for the same reason as
-    /// [`includes`](Self::includes).
+    /// Union variants name a member type — possibly a template instantiation
+    /// over this declaration's parameters (bug-680); elaborated for the same
+    /// reason as [`includes`](Self::includes).
     pub(crate) variants: Vec<HirUnionVariant>,
     /// Enum members carry only a name, so the AST node is reused verbatim.
     pub(crate) members: Vec<crate::ast::EnumMember>,
@@ -745,13 +746,15 @@ fn elaborate_type_decl(decl: &crate::ast::TypeDecl) -> HirTypeDecl {
         includes: decl
             .includes
             .iter()
-            .map(|i| ParameterType::parse(i))
+            .map(|include| parse_type(include, type_params))
             .collect(),
         variants: decl
             .variants
             .iter()
             .map(|variant| HirUnionVariant {
-                type_: ParameterType::parse(&variant.name),
+                // A variant may carry the union's own template parameters
+                // (`Some OF T`), classified exactly as a field's are (bug-680).
+                type_: parse_type(&variant.name, type_params),
                 line: variant.line,
             })
             .collect(),

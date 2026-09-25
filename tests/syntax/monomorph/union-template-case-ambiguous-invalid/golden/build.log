@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/monomorph/union-template-case-ambiguous-invalid
+  21 | FUNC f(b AS Both) AS Integer
+  22 |   MATCH b
+  23 |     CASE Box(x)
+     | ^
+tests/syntax/monomorph/union-template-case-ambiguous-invalid/src/main.mfb:23 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Box` is ambiguous in UNION `Both`, which carries `Box OF String`, `Box OF Integer`; a CASE names a member by its type name, so a union may carry only one instantiation of a template.
+[exit 1]
