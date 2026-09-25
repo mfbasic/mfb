@@ -17,8 +17,8 @@ What an arrow key or Delete produces depends on the input surface the program ru
 - **Console on a terminal:** the terminal emulator sends VT/xterm sequences (Left =
   `ESC [ D`), and emulators disagree on details (`ESC O A` vs `ESC [ A` by cursor-key
   mode; Home as `ESC [ H`, `ESC [ 1 ~` or `ESC O H`; Backspace `0x7F` or `0x08`). The
-  six examples that handle arrows (`snake`, `dungeon`, `wind`, `browser`,
-  `bugs/canvas`, `bugs/tui`) decode that shape by hand.
+  eight examples that handle arrows (`snake`, `dungeon`, `wind`, `water`, `ai_chat`,
+  `browser`, `bugs/canvas`, `bugs/tui`) decode that shape by hand.
 - **`--app` build on macOS** (canvas, TermView raw, transcript): the runtime
   writes the raw `NSEvent characters` to the input pipe. Arrows arrive as AppKit
   private-use code points (U+F700–F703), forward-delete as U+F728, and Backspace
@@ -329,8 +329,30 @@ Found with `grep -rlE 'u\{1B\}|"UP"' examples`, a search for key handlers under
   `grep -rlE "io::NAME\b" examples tests packages src --include='*.mfb'` —
   `readChar` 18 files, `readByte` 5, `pollInput` 15; `grep -rlE
   "io::(readChar|readByte|pollInput)\b" src --include='*.rs'` — 21 Rust files (man
-  examples, descriptors, tests). The six hand-rolled decoders (`snake`, `dungeon`,
-  `wind`, `browser`, `bugs/canvas`, `bugs/tui`) move to `readKey`.
+  examples, descriptors, tests).
+- **Examples to migrate — all 13** (`grep -rlE "io::(readChar|readByte|pollInput)\b"
+  examples`, 2026-09-25; the list first named only six):
+
+  | Example | Uses | Hand-rolled Esc decoder → `readKey` |
+  | --- | --- | --- |
+  | `ai_chat` | `readChar`, `pollInput` | yes |
+  | `browser` (`app`) | `readChar`, `pollInput` | yes |
+  | `bugs/canvas` | `readChar`, `pollInput` | yes |
+  | `bugs/tui` | `readChar`, `pollInput` | yes |
+  | `dungeon` | `readChar`, `pollInput` | yes |
+  | `snake` | `readChar`, `pollInput` | yes |
+  | `water` | `readChar`, `pollInput` | yes |
+  | `wind` | `readChar`, `pollInput` | yes |
+  | `emoji` | `readChar`, `pollInput` ×2 | no |
+  | `life` | `readChar`, `pollInput` ×2 | no |
+  | `hangman` | `readChar` ×3 | no |
+  | `hello_input` | `readChar` | no |
+  | `wide-demo` | `readChar` | no |
+
+  The eight decoders move to `readKey`; the other five move to `readScalar` /
+  `readGrapheme` (or `readKey` where they wait for "any key"), and every
+  `pollInput` becomes the reader's `timeoutMs`. Re-run the grep at Phase 6 start —
+  it, not this table, is the list.
 - **Docs:** `src/docs/spec/app/03_console-io.md`, the io/term spec sections, `mfb man
   io` and `mfb man term` (`on`/`off` mention kitty in developer terms), the narrative
   guides that mention the removed readers (`grep -rn "readChar\|readByte\|pollInput"
@@ -454,19 +476,29 @@ Commit: —
 ### Phase 6: remove `readChar` / `readByte` / `pollInput`
 
 - [ ] Delete the three members and their descriptors; migrate every caller in the
-      Blast Radius (the six decoders to `readKey`, `pollInput` loops to
-      `timeoutMs = 0` with `TRAP … ErrTimeout`).
+      Blast Radius (all 13 examples in its table — the eight decoders to `readKey` —
+      and `pollInput` loops to `timeoutMs = 0` with `TRAP … ErrTimeout`).
+- [ ] **Examples gate:** `bash scripts/build-examples.sh` (builds every executable
+      project under `examples/` for all five registered targets and exits non-zero
+      on any failure; CI job `examples` in `.github/workflows/coverage.yml`) must
+      exit 0 **before the removal commit lands**, run locally against a compiler
+      built from that commit. The script reuses an existing `target/release/mfb`,
+      so rebuild it first — a stale compiler that still has `readChar` would pass.
+      CI runs the job only after `test`/`acceptance`/`artifact`/`coverage`, so it
+      is not a substitute for the local run.
 - [ ] Spec and man updated; `grep -rn "readChar\|readByte\|pollInput" src examples
       tests packages` returns nothing live.
 
-Acceptance: the grep is empty; every migrated example builds and its keys work in a
-console build and a macOS `--app` build.
+Acceptance: the grep is empty; `scripts/build-examples.sh` exits 0 on a fresh
+compiler; every migrated example's keys work in a console build and a macOS `--app`
+build.
 Commit: —
 
 ### Phase 7: full validation
 
 - [ ] Full suite (`cargo test`), `cargo test --bin mfb spec`,
-      `scripts/man-census.sh --memory-scope` (0 unclassified).
+      `scripts/man-census.sh --memory-scope` (0 unclassified),
+      `bash scripts/build-examples.sh` exits 0.
 - [ ] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
       keys by hand in `--app`.
 
@@ -482,7 +514,8 @@ Commit: —
   shows releases, a plain one `NotSupported`.
 - Doc sync: `03_console-io.md` (buffer, encodings, delay, `NotSupported`), `mfb man
   io`, `mfb man term on/off`.
-- Full suite: `cargo test`, `cargo test --bin mfb spec`.
+- Full suite: `cargo test`, `cargo test --bin mfb spec`, and the examples gate
+  `bash scripts/build-examples.sh` (every example, every target).
 
 ## Open Decisions
 
