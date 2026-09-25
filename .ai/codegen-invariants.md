@@ -531,6 +531,22 @@ Repro shape: `FOR r ... FOR i=0..N { g=graphemes(u); ...=toBytes(u); ...=normali
 
 Likely a residual path not covered by the earlier mixed-churn fix (arena-allocator-quadratic-mixed-churn) / large-block bins. The benchmark works around it by keeping those two rows at coverage-only counts. A real fix belongs in the arena free-list allocator (src/), not the benchmark.
 
+Re-measured for bug-690 (2026-09-25, macos-aarch64, release): that repro shape at 8 × 20,000 iterations (`graphemes` + `toBytes` + `normalizeNfc` of one 52-byte string) ran flat at ~76 ms per repeat both before and after the large-bin change, and the benchmark `arena` group (`transient`/`mixed`/`growshrink`) was unchanged. The large-bin rework did not make this entry worse; whether it still reproduces at the sizes above was not re-measured.
+
+## Arena large bins are size classes; the big-request flush is credit-gated (bug-690)
+
+Freed chunks over `ARENA_QUICK_BIN_MAX` park on 64 log2 size classes (4 per power of two, `emit_large_bin_slot`), not on bins hashed by exact size. The old exact-size bins reused a large block only for a request of exactly its size, so a program whose large sizes vary (`canvas::present` of a scene whose item count changes, any exact-length copy) mapped memory in proportion to the SUM of the sizes it had freed — 13 GB in `examples/wind`. Three things now have to hold together, and removing any one brings a form of the growth back:
+
+- **Take any fit, split, re-park.** A large request takes the best fit among the first `ARENA_LARGE_BIN_SCAN_LIMIT` nodes of its class (exact wins at once, so repetitive list churn still pops the chunk it just freed), else the head of the next non-empty higher class. Without coalescing this alone left the console repro at 15× its fixed-size twin: splits only ever shrink chunks.
+- **Flush before a big grow, gated by credit.** Large frees add their bytes to `ARENA_LARGE_FLUSH_CREDIT_OFFSET`; a flush resets it to minus `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` per chunk it sorted, and a big request flushes only while it is positive. Gating on *bytes left parked* instead was measured too conservative (the console repro stuck at 3.4×, with a map on every step of a climb); gating on the sort's chunk count is what makes the flush both cheap and frequent enough. The flush now gathers the large bins and re-parks large runs into their classes — nothing re-fills the address-ordered list but big-grow tails.
+- **Mapped blocks never merge**, because a 32-byte block header sits between any two. So a request that climbs a little past what it freed (a scene one item longer per frame) maps afresh at every step unless its block carries slack: a big grow with a chunk parked in its own class or the one below maps `size / 4` extra. Without it the 300-frame canvas test's worker arena ended at 6× its peak live bytes; with it, 1.5×.
+
+A small request that finds nothing else takes at most `ARENA_LARGE_DV_MAX` of the smallest parked large chunk as its designated victim, re-parking the rest, so memory freed in large blocks serves small requests without one small request locking a whole scene-sized block away.
+
+**Unmapping is not an option for bounding this.** Cross-thread hand-over (`.ai/canvas-threading.md` §2) relies on every arena's chunks staying mapped for the life of the process.
+
+**Timing a microbenchmark row across an allocator change is layout-sensitive.** `list (Fixed) mid` measured +20% after this change while `take` — the same 4,048-byte alloc/free pair, the same path counters — was unchanged; the `mid` loop's machine code and its source and destination addresses were identical, an 8-byte padding of the arena state moved it by 4%, and a later unrelated edit to `arena_alloc` moved it from 800 back to 707 µs. `reduce`/`reduceRight` moved 19% the other way. Compare whole-run totals and path counters (`--debug` `hit_*`, `flushes`, `grow`) before attributing a single row's shift to the allocator.
+
 
 ## A type argument is a `ParameterType`, and the ratchet gate has known edges
 
