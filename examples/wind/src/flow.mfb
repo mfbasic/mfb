@@ -383,9 +383,8 @@ END FUNC
 
 ' One run of a trail, as the PolyLine that draws it.
 '
-' It builds the item and nothing else. The caller appends it, because a list
-' passed into a function and handed back is copied whole, every call - with one
-' call per run that turns building the frame's items into a quadratic.
+' It builds the item and nothing else; the caller appends it to the frame's
+' items.
 FUNC trailPath(run AS List OF canvas::Point, colors AS List OF color::Color, tint AS color::Color) AS canvas::DrawItem
   RETURN canvas::PolyLine[points := run, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.35)]
 END FUNC
