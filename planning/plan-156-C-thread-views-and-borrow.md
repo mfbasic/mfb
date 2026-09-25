@@ -183,16 +183,37 @@ Commit: —
 
 ### Phase 2 — the verifier sees a resource
 
-- [ ] Add the `ThreadHandle` arms to every predicate listed in §2 (each file
+- [x] Add the `ThreadHandle` arms to every predicate listed in §2 (each file
       named there). `close_op_for` answers `thread.__drop` for worker = false
       and `None` for worker = true.
-- [ ] `ops.rs` Bind arm: a `ThreadHandle` is a resource, so `RES` is accepted
+      (`close_op_for` answers `thread.drop` — the existing hidden drop code
+      form, Correction 1 — for a parent view and `None` for a worker view. The
+      rest, predicate by predicate: `is_resource_or_resource_union`,
+      `consumed_resource`, `resources.rs:is_resource_type` answer through
+      `close_op_for`; `provably_data_type`, `is_copyable`, `is_defaultable`
+      already answer "no" for a `ThreadHandle`; `contains_thread` /
+      `contains_resource_or_thread` / `verify::is_thread_type` are unchanged
+      because threads stay out of collections until D; `res_axis_slot` exempts
+      a thread view until D opens storage (non-goal "keep today's
+      rejections"); `ir/shape.rs:is_resource_type`,
+      `codegen/builtins:is_resource_type`, `builtin_resource_close_function`,
+      `CodeBuilder::is_thread_type` and `plan/symbols.rs` are codegen/registry
+      lookups and change with the codegen in Phase 3.)
+- [x] `ops.rs` Bind arm: a `ThreadHandle` is a resource, so `RES` is accepted
       and `LET`/`MUT` temporarily map to it (comment: "until plan-156-F").
-- [ ] Verifier unit tests in `src/ir/verify/tests.rs`: `TYPE_USE_AFTER_MOVE`
+- [x] Verifier unit tests in `src/ir/verify/tests.rs`: `TYPE_USE_AFTER_MOVE`
       after `RETURN t`; a borrowed parameter is not a move.
+      (`returning_a_thread_view_consumes_it`,
+      `passing_a_thread_view_to_a_function_borrows_it`, plus
+      `a_thread_view_transfer_moves_the_source`, `res_on_a_thread_binding_is_accepted`,
+      `a_let_thread_binding_is_accepted_until_the_clean_break`. The two move
+      tests fail without the `close_op_for` arm — a thread is then not
+      tracked as a resource at all.)
 
 Acceptance: the new unit tests pass; existing verifier tests pass.
   Check: `cargo test --bin mfb verify` → pass (est. 3 min).
+  Result: 487 passed. The thread syntax fixtures are unchanged by it
+  (`test-accept.sh target/debug/mfb … 'syntax/threads/**'` → 39 passed).
 Commit: —
 
 ### Phase 3 — view records, drop op, borrow, repeatable `waitFor`
@@ -235,6 +256,14 @@ Commit: —
 - Final gate: at the end of F.
 
 ## Corrections
+
+1. **The drop op is the existing `thread.drop`, not a new `thread.__drop`.**
+   `thread.drop` is already the hidden, non-user-callable drop code form
+   (an `os_alias` of `cancel`'s body) with its runtime symbol, its catalog
+   spec and its per-target import entries; `process.__drop`'s double
+   underscore is that package's spelling of the same idea. Reusing it avoids
+   a rename across the per-target lists with no change in meaning. Named
+   `crate::codegen::builtins::thread::DROP`.
 
 ## Summary
 

@@ -132,6 +132,12 @@ pub(crate) const ACCEPT_RESOURCE: &str = "thread.acceptResource";
 pub(crate) const EMIT_RESOURCE: &str = "thread.emitResource";
 pub(crate) const READ_RESOURCE: &str = "thread.readResource";
 
+/// plan-156-C: the hidden drop op of a parent `Thread` view — the close op the
+/// resource machinery registers for it and scope exit runs. Never user-callable (an
+/// `os_alias` of `cancel`'s body). A `ThreadWorker` has no drop op: the runtime closes
+/// the worker's view when its entry returns.
+pub(crate) const DROP: &str = "thread.drop";
+
 /// Whether `name` is a user-facing `thread::` call (a registered descriptor member).
 /// The registry-backed replacement for the legacy `DefaultResolver::contains(&THREAD, …)`
 /// — it must NOT include the internal resource-plane names, which are synthesized

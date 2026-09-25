@@ -7057,6 +7057,88 @@ fn res_transfer_moves_source() {
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
 }
 
+// --- plan-156-C: a parent Thread view is a resource --------------------------
+
+const THREAD_VIEW: &str = "Thread OF Integer TO Integer";
+
+fn thread_op(target: &str, handle: &str, returns: &str) -> IrOp {
+    eval(IrValue::Call {
+        target: target.to_string(),
+        args: vec![IrValue::Local(handle.to_string())],
+        type_: crate::types::ParameterType::parse(returns),
+        loc: IrSourceLoc::default(),
+    })
+}
+
+/// `RES b = a` hands the view over, exactly as for `fs.File`: `a` is moved.
+#[test]
+fn a_thread_view_transfer_moves_the_source() {
+    let body = vec![
+        bind("a", THREAD_VIEW, None, true, false),
+        bind(
+            "b",
+            THREAD_VIEW,
+            Some(IrValue::Local("a".to_string())),
+            true,
+            false,
+        ),
+        thread_op("thread.isRunning", "a", "Boolean"),
+    ];
+    let f = owner_fn("run", "Nothing", body, &["a", "b"]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// `RETURN t` consumes the view: its close obligation leaves with it, so a read of
+/// `t` after the return is a read of a moved resource.
+#[test]
+fn returning_a_thread_view_consumes_it() {
+    let body = vec![
+        bind("t", THREAD_VIEW, None, true, false),
+        IrOp::Return {
+            value: Some(IrValue::Local("t".to_string())),
+            loc: IrSourceLoc::default(),
+        },
+        thread_op("thread.isRunning", "t", "Boolean"),
+    ];
+    let f = owner_fn("make", THREAD_VIEW, body, &["t"]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// Passing the view to a function lends it (§15): the caller's next op on it is a
+/// read of a live resource, not a use after move.
+#[test]
+fn passing_a_thread_view_to_a_function_borrows_it() {
+    let body = vec![
+        bind("t", THREAD_VIEW, None, true, false),
+        thread_op("peek", "t", "Boolean"),
+        thread_op("thread.isRunning", "t", "Boolean"),
+        thread_op("thread.waitFor", "t", "Integer"),
+    ];
+    let f = owner_fn("run", "Nothing", body, &["t"]);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_USE_AFTER_MOVE"),
+        "a lent thread view was treated as moved: {got:?}"
+    );
+}
+
+/// `RES` on a thread binding is a resource binding, not `RES` on data.
+#[test]
+fn res_on_a_thread_binding_is_accepted() {
+    let body = vec![bind("t", THREAD_VIEW, None, true, false)];
+    let f = owner_fn("run", "Nothing", body, &["t"]);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_RES_REQUIRES_RESOURCE");
+}
+
+/// Until plan-156-F, `LET`/`MUT` still spell a thread binding (lowered exactly like
+/// `RES`), so a thread held by a non-`RES` binding is not yet rejected.
+#[test]
+fn a_let_thread_binding_is_accepted_until_the_clean_break() {
+    let body = vec![bind("t", THREAD_VIEW, None, true, false)];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
 // --- thread.result member --------------------------------------------------
 
 #[test]

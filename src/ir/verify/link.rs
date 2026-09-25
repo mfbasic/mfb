@@ -959,6 +959,12 @@ impl TypeEnv {
     /// resources first (`RESOURCE T CLOSE BY alias.func`), then the builtin
     /// close table.
     pub(super) fn close_op_for(&self, base: &ParameterType) -> Option<&str> {
+        // plan-156-C: a parent `Thread` view is a resource whose close op is the hidden
+        // drop; a `ThreadWorker` view has none (the runtime closes it at the entry's
+        // return). A thread type has no single nominal, so it is matched structurally.
+        if let ParameterType::ThreadHandle { worker, .. } = base {
+            return (!worker).then_some(crate::codegen::builtins::thread::DROP);
+        }
         self.resource_closers
             .get(base)
             .map(String::as_str)
