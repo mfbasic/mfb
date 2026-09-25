@@ -1346,13 +1346,15 @@ fn polylines_match_their_reference_exactly() {
 #[test]
 fn a_two_point_polyline_draws_the_line_between_its_points() {
     fn scene(item: &str) -> String {
-        let draw = |x1: f64, y1: f64, x2: f64, y2: f64, cap: &str, width: f64| match item {
+        let draw = |x1: f64, y1: f64, x2: f64, y2: f64, cap: &str, width: f64| {
+            match item {
             "line" => format!(
                 "canvas::Line[x1 := {x1:?}, y1 := {y1:?}, x2 := {x2:?}, y2 := {y2:?}, cap := canvas::CapStyle.{cap}, paint := canvas::stroke(color::rgb(250, 200, 90), {width:?})]"
             ),
             _ => format!(
                 "canvas::PolyLine[points := [canvas::Point[x := {x1:?}, y := {y1:?}], canvas::Point[x := {x2:?}, y := {y2:?}]], colors := [], cap := canvas::CapStyle.{cap}, paint := canvas::stroke(color::rgb(250, 200, 90), {width:?})]"
             ),
+        }
         };
         let items = [
             draw(80.0, 100.0, 380.0, 100.0, "Round", 30.0),
@@ -1375,7 +1377,10 @@ fn a_two_point_polyline_draws_the_line_between_its_points() {
     let lines = render("canvas_polyline_as_line_a", &scene("line"));
     let polylines = render("canvas_polyline_as_line_b", &scene("polyline"));
     let painted = lines.pixels.chunks(4).filter(|p| p[0] != 0).count();
-    assert!(painted > 10_000, "the Line scene drew {painted} pixels, so it proves nothing");
+    assert!(
+        painted > 10_000,
+        "the Line scene drew {painted} pixels, so it proves nothing"
+    );
     if let Err(diff) = compare_exact(&polylines, &lines) {
         panic!(
             "a two-point PolyLine differs from the Line between the same points: {diff}\n\

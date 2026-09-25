@@ -1,9 +1,8 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
-    GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, HEADER_CAP,
-    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST,
-    HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_SLOTS,
-    PICTURE_SHADOW_SPLIT_BITS,
+    GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
+    HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
+    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -80,7 +79,10 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
     }
     // plan-154-B: the emitters copy a polyline's first and last live segments out of
     // these two slots as whole numbers.
-    assert_eq!(declared("__CANVAS_GEO_POLYLINE_FIRST"), HEADER_POLYLINE_FIRST);
+    assert_eq!(
+        declared("__CANVAS_GEO_POLYLINE_FIRST"),
+        HEADER_POLYLINE_FIRST
+    );
     assert_eq!(declared("__CANVAS_GEO_POLYLINE_LAST"), HEADER_POLYLINE_LAST);
 }
 

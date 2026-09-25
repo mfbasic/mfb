@@ -560,8 +560,15 @@ fn polylines_match_the_software_oracle_on_metal() {
         count("frames") > 0 && count("gpuFrames") == count("frames"),
         "every PolyLine frame must be drawn on Metal, not declined to software: {line}"
     );
-    let painted = software.pixels.chunks(4).filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0).count();
-    assert!(painted > 5_000, "the scene drew {painted} pixels, so it proves nothing");
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(
+        painted > 5_000,
+        "the scene drew {painted} pixels, so it proves nothing"
+    );
     if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
         panic!(
             "Metal's PolyLine disagrees with the software oracle: {diff}\n\
