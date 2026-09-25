@@ -293,7 +293,7 @@ Acceptance: every existing canvas runtime test still passes.
   `ensureGraphics` changes when the thread starts on every present path, and
   no single file covers all of them).
   Verified: 205 passed, 0 failed (15 suites).
-Commit: see Phase 2 (Corrections 5)
+Commit: `35de07771` (with Phase 2, Corrections 5)
 
 ### Phase 2 — the public record and function
 
@@ -359,7 +359,7 @@ Acceptance: the six tests pass; the man page renders and its example runs.
   `cargo test --bin mfb spec` → pass, and `scripts/spec-census.sh --citations`
   → `MISS-SYMBOL 0` (est. 3 min).
   Verified: 6 passed; `scripts/man-run-examples.sh canvas --run` → examples 30, built 30, ran 30, failed 0; spec 44 passed; `MISS-SYMBOL 0`.
-Commit: —
+Commit: `35de07771`
 
 ## Validation Plan
 
