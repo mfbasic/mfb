@@ -64,14 +64,45 @@ fn a_normal_module_gets_no_debug_code_or_data() {
     assert_eq!(active_features(&normal).count(), 0);
 }
 
+/// A `--debug` program that starts a thread gets the `thread` section, which reads
+/// the thread table that program carries.
+#[test]
+fn a_threaded_debug_module_gets_the_thread_section() {
+    const THREADED: &str = "IMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
+FUNC main() AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(work, 1)\n  RETURN thread::waitFor(t)\nEND FUNC\n";
+    let mut module =
+        crate::testutil::nir_for_src(THREADED, CodeTarget::MacosAarch64, NativeBuildMode::Console)
+            .unwrap();
+    module.debug = DebugOptions { enabled: true };
+    mir::set_backend(MacosPlatform.backend());
+    let symbols: Vec<String> = code_functions(&module, &imports(), &MacosPlatform)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.symbol)
+        .collect();
+    assert!(
+        symbols.iter().any(|s| s == "_mfb_debug_report_thread"),
+        "no thread section in {symbols:?}"
+    );
+}
+
 /// A `--debug` module gets `_mfb_debug_shutdown` plus one report section per
-/// registry entry, and every symbol those functions address as data exists.
+/// registry entry that applies to it, and every symbol those functions address as
+/// data exists. Only the `thread` section depends on the program (it reads the
+/// thread table, which exists only when the program starts a thread), and this
+/// program starts none; `a_threaded_debug_module_gets_the_thread_section` covers it.
 #[test]
 fn a_debug_module_gets_the_report_helper_and_each_section() {
     let functions = report_functions();
     let symbols: Vec<&str> = functions.iter().map(|f| f.symbol.as_str()).collect();
     assert_eq!(symbols.first(), Some(&DEBUG_SHUTDOWN_SYMBOL));
+    let debug_module = module(true);
     for feature in DEBUG_FEATURES {
+        if !feature.applies(&debug_module) {
+            assert_eq!(feature.name(), thread::THREAD_SECTION, "only the thread section is conditional");
+            continue;
+        }
         let report = feature.report_symbol().expect("every section reports");
         assert!(
             symbols.contains(&report),
