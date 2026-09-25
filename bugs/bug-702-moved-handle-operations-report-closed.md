@@ -1,4 +1,4 @@
-# bug-700: operations on a moved handle report `ErrResourceClosed`; the spec says `ErrResourceMoved`
+# bug-702: operations on a moved handle report `ErrResourceClosed`; the spec says `ErrResourceMoved`
 
 Last updated: 2026-09-24
 Effort: medium (1h–2h)

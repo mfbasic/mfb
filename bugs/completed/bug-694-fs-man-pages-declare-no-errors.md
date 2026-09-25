@@ -26,7 +26,7 @@ Shipped: descriptors + lowering-sweep guard (a740a7a34), prose (569a8ab7f),
 goldens (8c1e37f81). Deviation from this doc's Non-goals: five runtime bugs
 found while measuring the pages were folded in (C1/C6 ff0b52b7d, C5
 1213d9c96, C3/C7 e0aec58f2) because the pages could not be true without
-them. C2 and C4 went to bug-699 and bug-700; the repository-wide audit to
+them. C2 and C4 went to bug-701 and bug-702; the repository-wide audit to
 bug-698. The final post-merge full suite was not completed (see Phase 3).
 
 References:
@@ -174,10 +174,10 @@ The prose could not be true while these stood. Each has its own RED test.
       failed. RED `rt_fs_set_buffered_drain_failure`. Commit: e0aec58f2
 - **C2** — Linux `readText`/`readBytes` of a directory raise `ErrOutOfMemory`.
   Needs a which-code decision shared with the mapper inconsistencies: **filed as
-  bug-699**, with the full cross-platform matrix.
+  bug-701**, with the full cross-platform matrix.
 - **C4** — operations on a moved handle raise `ErrResourceClosed`, while spec §15
   says `ErrResourceMoved`; cross-package and reachability unknown: **filed as
-  bug-700**.
+  bug-702**.
 
 ### Phase 3: validation
 

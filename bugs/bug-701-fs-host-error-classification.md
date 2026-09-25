@@ -1,4 +1,4 @@
-# bug-699: `fs` classifies the same host refusal differently by member and by platform
+# bug-701: `fs` classifies the same host refusal differently by member and by platform
 
 Last updated: 2026-09-24
 Effort: large (3h–1d)
