@@ -1,7 +1,8 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::macos_aarch64::app::{
     CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
-    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, LIB_QUARTZCORE,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, CLASS_NS_NOTIFICATION_CENTER,
+    CLASS_NS_SCREEN, LIB_QUARTZCORE, NS_WINDOW_DID_CHANGE_SCREEN,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
@@ -943,6 +944,22 @@ impl plan::NativePlanPlatform for Platform {
                         symbol: symbol.to_string(),
                         required_by: required_by.clone(),
                     }),
+            )
+            .chain(
+                // plan-155-A: the display-rate publish reads `NSScreen` and observes
+                // `NSWindowDidChangeScreenNotification` through the default center.
+                // Canvas-gated for the reason the Metal rows are.
+                [
+                    ("AppKit", CLASS_NS_SCREEN),
+                    ("AppKit", NS_WINDOW_DID_CHANGE_SCREEN),
+                    ("Foundation", CLASS_NS_NOTIFICATION_CENTER),
+                ]
+                .into_iter()
+                .map(|(library, symbol)| PlatformImport {
+                    library: library.to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                }),
             )
             .collect(),
             "thread.start"

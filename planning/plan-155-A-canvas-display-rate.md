@@ -296,22 +296,45 @@ Acceptance: the override test passes on this Mac; the four sentences are
 fixed and render.
   Check: `cargo test --test rt_canvas_graphics_thread display_hz` → 1 passed (est. 3 min);
   `mfb man canvas | grep -c vsync` → 0 and `mfb spec app canvas | grep -c vsync` → 0 (est. 1 min).
-Commit: —
+  Verified: 1 passed; 0; 0.
+Commit: `16a90c4e4` (bug-695: `13f3ea204`)
 
 ### Phase 2 — macOS publish
 
-- [ ] `metal.rs` / `bootstrap.rs`: add the `maximumFramesPerSecond` and
-      `respondsToSelector:` selectors. Publish when the surface is ready.
-- [ ] `window.rs`: observe `NSWindowDidChangeScreenNotification` and
-      republish from the observer.
+- [x] `metal.rs` / `bootstrap.rs`: add the `maximumFramesPerSecond` and
+      `respondsToSelector:` selectors. Publish when the surface is ready. → a new
+      `app/display.rs` (selectors, `_mfb_macapp_display_rate`, the IMP), called from
+      `emit_reconcile_canvas_helper` on every canvas entry; imports on the canvas arm
+      of `plan.rs` (Corrections 6).
+- [x] `window.rs`: observe `NSWindowDidChangeScreenNotification` and
+      republish from the observer. → observed from the canvas view (method
+      `mfbScreenChanged:` on `MFBCanvasView`), not `window.rs`, whose observers exist
+      only for a window-member program (Corrections 6). Pinned by
+      `the_canvas_reconcile_publishes_and_observes_only_for_a_canvas_program`,
+      `the_rate_send_is_guarded_and_published`,
+      `the_screen_change_imp_republishes_for_the_notifying_window`
+      (`cargo test --bin mfb macos_aarch64::app` → 36 passed).
 - [ ] Runtime proof: build a non-headless `--debug` canvas app, run it with
       `MFB_CANVAS_STATS=/tmp/s.txt`, and read `displayHz=` off the stats line.
       It must match the Phase 1 probe (120 on a ProMotion panel, 60 on an
       external monitor if one is attached). Record the observed line.
+      → `/tmp/p155/win` (present, sleep 1.5 s, present), run without any HEADLESS
+      variable: two lines, `directFrames=1 … displayHz=120.00` and `directFrames=2 …
+      displayHz=120.00` (`directFrames` > 0 proves a real window). No external monitor
+      is attached, so the screen-change path was not driven at runtime.
+- [x] (added) The `canvas_view_overrides_the_two_methods_that_deliver_keys` count
+      `class_addMethod == 3` → 4, and `mfbScreenChanged:` added to its selector list
+      (Corrections 7). Goldens: macOS `.app.ncodesum` of the sentinel and of
+      `app-window-surface` (the seven selector strings, nothing else — localized by
+      `.ncode` diff), the sentinel's macOS `.nplan` (the three imports per canvas-arm
+      call). `rt_canvas_graphics_thread` → 12 passed, 2 ignored (every headless canvas
+      run now executes the publish in the reconcile).
+- [x] (added) `.ai/canvas-threading.md` §5: the display-rate paragraph.
 
 Acceptance: a real, windowed macOS run reports the probed rate.
   Check: the runtime proof above → `displayHz=` equals the probe (est. 5 min;
   it needs a real window, which is why a headless test can't stand in).
+  Verified: `displayHz=120.00` = the probe's 120.
 Commit: —
 
 ### Phase 3 — GTK and Windows publish
@@ -390,6 +413,21 @@ Commit: —
    do not run the full suite, only run the canvas tests." plan-155-C's final gate is
    therefore the canvas test set (`rt_canvas_*`, the canvas CLI man-example test, the
    sentinel), not `cargo test`.
+6. **macOS placement (Phase 2).** The plan named `metal.rs`/`bootstrap.rs` and
+   `window.rs`. The code went into a new `app/display.rs`: the observer cannot live in
+   `window.rs`, whose functions and selectors are emitted only for a window-member
+   program, and the method must be on a class a canvas program always has —
+   `MFBCanvasView`, built by the canvas reconcile. "Surface ready" is the end of
+   `emit_reconcile_canvas_helper` (every canvas entry). A window not yet on a screen
+   answers nil for `screen`, so `[NSScreen mainScreen]` stands in; headless runs
+   therefore publish the main screen's rate too, which is why the tests that care set
+   `MFB_CANVAS_DISPLAY_HZ`. Imports ride the canvas arm of `plan.rs`, like the Metal
+   classes.
+7. **A test count the design disproved.** `canvas_view_overrides_the_two_methods_that_deliver_keys`
+   (plan-98-A; count last set in `f329ccc87`) pins `class_addMethod == 3` on the canvas
+   view to catch stray overrides. §3 puts the screen-change method on that view, so the
+   line became 4 and the selector joined the by-name list; nothing else in the test
+   changed.
 
 ## Summary
 

@@ -206,6 +206,16 @@ Main never touches the pixel buffer, and graphics never touches the window. The 
 is not involved at all — the guarantee `term::` does not give: **a canvas resizes and
 repaints correctly while the program is blocked in `io::input`.**
 
+**The display rate is published the same way, and triggers no redraw** (plan-155-A).
+The main thread writes the window's monitor's refresh rate, in millihertz, into
+`GRAPHICS_OFFSET_DISPLAY_MHZ` with one plain store: macOS on every canvas entry and on
+`NSWindowDidChangeScreenNotification` (`app/display.rs`, the screen's *maximum* rate,
+guarded by `respondsToSelector:` because the binary's minimum is 11.0 and the property
+is 12+); GTK on realize and on the surface's `enter-monitor`; Windows at canvas
+creation, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
+`0` means unknown. A rate changes no pixel, so nothing is signalled — §4's triggers
+stay five.
+
 A frame already in flight when the resize lands finishes at the old size and is
 presented; the next frame is at the new size. Tearing the frame mid-render would mean
 drawing part of the picture at each size.
