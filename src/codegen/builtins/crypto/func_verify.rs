@@ -192,6 +192,7 @@ fn emit_macos_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -209,6 +210,7 @@ fn emit_macos_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -219,6 +221,7 @@ fn emit_macos_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -497,6 +500,7 @@ fn emit_linux_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -507,6 +511,7 @@ fn emit_linux_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -517,6 +522,7 @@ fn emit_linux_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1155,6 +1161,7 @@ fn emit_windows_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1165,6 +1172,7 @@ fn emit_windows_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1175,6 +1183,7 @@ fn emit_windows_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );

@@ -226,7 +226,7 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, &v9, st::LEFT_LEN),
     ]);
-    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &result_alloc_fail, &mut ins, &mut rel);
+    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &result_alloc_fail, &mut vregs, &mut ins, &mut rel);
     // bug-623: OUTBUF (NOUT bytes) was only the copy source for the list; release
     // it, then reload the list from COLL -- `arena_free` clobbers the result bank.
     ins.extend([
