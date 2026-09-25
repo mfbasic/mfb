@@ -120,8 +120,8 @@ fn body<'a>(functions: &'a serde_json::Map<String, Value>, symbol: &str) -> &'a 
 
 /// Every immediate in a body that falls in the box-drawing / block-element range
 /// `U+2500..U+259F` — i.e. exactly the `TERM_*_CODEPOINTS` entries, and nothing a
-/// coordinate, colour or count could be confused with (the largest grid bound this
-/// backend emits is 79).
+/// coordinate, colour or count could be confused with (the largest size immediate
+/// this backend emits is the 3840-pixel backing bitmap width).
 fn glyph_immediates(instructions: &[Value]) -> std::collections::BTreeSet<u32> {
     instructions
         .iter()
@@ -411,12 +411,16 @@ fn windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_control
         "term::drawText must test for a control character (< U+0020) before stamping — the \
          documented contract skips them, and TextOutW draws whatever the font maps a C0 unit to"
     );
-    let row_guard = draw_text.windows(3).any(|w| {
-        w[0]["op"] == "mov_imm"
-            && w[0]["value"] == "24"
-            && w[1]["op"] == "cmp"
-            && w[2]["op"] == "b.gt"
-            && w[2]["target"] == "dt_done"
+    // `rows-1` is read from the live surface (bug-540 WIN-02) — this matched the
+    // fixed surface's literal `24` until the surface stopped being 80x25.
+    let row_guard = draw_text.windows(5).any(|w| {
+        w[0]["op"] == "adrp"
+            && w[1]["op"] == "ldr_u64"
+            && w[2]["op"] == "sub_imm"
+            && w[2]["imm"] == "1"
+            && w[3]["op"] == "cmp"
+            && w[4]["op"] == "b.gt"
+            && w[4]["target"] == "dt_done"
     });
     assert!(
         row_guard,
