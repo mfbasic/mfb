@@ -14,6 +14,8 @@
 
 mod app_io;
 mod bootstrap;
+mod display;
+pub(crate) use display::{CLASS_NS_SCREEN, NS_WINDOW_DID_CHANGE_SCREEN};
 mod metal;
 mod mouse_view;
 // plan-98-E: the plan declares these as canvas-gated imports, so they have to
@@ -946,6 +948,8 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // graphics-thread hop and the `mfbMetalLayer:` IMP it lands in.
         functions.push(metal::emit_metal_layer_sync());
         functions.push(metal::emit_metal_layer_apply());
+        // plan-155-A: the display-rate publish and its screen-change IMP.
+        functions.extend(display::emit_display_functions());
     }
     Ok(functions)
 }
@@ -1304,6 +1308,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
     ]
     .into_iter()
     .chain(metal::metal_data_objects())
+    .chain(display::display_data_objects())
     .map(|(symbol, text)| CodeDataObject {
         symbol: symbol.to_string(),
         kind: "raw".to_string(),
@@ -1784,6 +1789,8 @@ mod canvas_reconcile_tests {
     ///   mode blocks forever. Those two are why the subclass exists at all.
     /// * `setFrameSize:` — plan-98-D Phase 3: a user drag becomes a new surface size
     ///   here.
+    /// * `mfbScreenChanged:` — plan-155-A: the `NSWindowDidChangeScreenNotification`
+    ///   observer's method, which republishes the display rate.
     ///
     /// Asserted by **selector**, not by counting `class_addMethod`: a count says
     /// nothing about *which* methods were installed, and it forces an unrelated edit
@@ -1807,6 +1814,11 @@ mod canvas_reconcile_tests {
                 SEL_SET_FRAME_SIZE.0,
                 "without it a resize never reaches the renderer",
             ),
+            (
+                display::SEL_MFB_SCREEN_CHANGED.0,
+                "plan-155-A: without it a move to another screen never republishes the \
+                 display rate",
+            ),
         ] {
             assert!(
                 referenced.contains(&selector),
@@ -1815,7 +1827,7 @@ mod canvas_reconcile_tests {
         }
         assert_eq!(
             calls_external(&func, "_class_addMethod"),
-            3,
+            4,
             "one class_addMethod per override, and no more"
         );
         assert_eq!(

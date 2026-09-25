@@ -2,8 +2,9 @@
 //!
 //! `canvas` is the 2D drawing surface of `Mode.Canvas` (plan-98-A). Its model is a
 //! **retained scene**, not an immediate-mode command stream: a program builds a
-//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime keeps
-//! rendering that scene on vsync / resize / damage until the next `present`. This is
+//! `List OF DrawItem` and installs it with `canvas::present`, and the runtime redraws
+//! that scene when it changes, on resize and on OS damage — never on a timer, and
+//! without waiting for the display — until the next `present`. This is
 //! a deliberate divergence from `term::`, which is ambient mutation plus a
 //! present-diff — a retained scene is what lets the runtime cache per-item geometry
 //! on a content hash and make a re-`present` of unchanged content free.
@@ -48,6 +49,7 @@ mod func_frame_nanos;
 mod func_geo_build;
 mod func_geo_cache;
 mod func_get_bytes;
+mod func_get_frame_stats;
 mod func_get_size;
 mod func_graphics;
 mod func_group_stats;
@@ -71,6 +73,7 @@ mod func_set_bytes;
 mod func_set_group;
 mod func_stroke;
 mod func_system_fonts;
+mod func_wait_frame;
 mod gen_font;
 mod gen_font_table;
 mod gen_group;
@@ -135,8 +138,8 @@ nothing, in any build. So a program still computes its palette before it ever
 presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
-installs it with `canvas::present`; the runtime keeps rendering that scene on
-vsync, resize and damage until the next `present`. `present` is therefore not a
+installs it with `canvas::present`; the runtime draws that scene, and draws it again
+only when the window is resized or uncovered, until the next `present`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
 and re-presenting an unchanged scene publishes nothing, renders nothing and holds
 no memory. (It does still copy the scene once to compare it, so it is not free —
@@ -149,6 +152,20 @@ it. The cache holds a bounded number of entries and reuses the space an
 evicted entry took, so a program presenting items with new coordinates every
 frame reaches a steady memory size — set by how much is on screen, not by how
 long it has been running — and can animate indefinitely at that size.
+
+`present` **returns at once**; it never waits for the frame to be drawn. An animation
+loop that should run at the display's pace ends each iteration with
+`canvas::waitFrame`, and reads the time step to advance by from
+`canvas::getFrameStats().dt`:
+
+```
+DO WHILE running
+  LET s AS canvas::FrameStats = canvas::getFrameStats()
+  step(math::min(s.dt, MAX_STEP))
+  canvas::present(scene())
+  canvas::waitFrame()
+LOOP
+```
 
 `present` **copies the whole scene** — item fields, polygon point lists, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
@@ -528,6 +545,89 @@ pub(crate) fn register(r: &mut Registry) {
                               it fills — an ellipse's radial gradient does not become \
                               elliptical.",
                 advisory: None,
+            },
+        ],
+    });
+
+    // plan-155-B: what drew a frame, and the timing record `canvas::getFrameStats`
+    // returns. The variant order is the ordinal `canvas::frameDone` records, so it is
+    // frozen: Software first, because it is also what a canvas reports before its first
+    // frame.
+    pkg.add_enum(RegistryEnum {
+        name: "Renderer",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Software",
+                description: "Drawn on the CPU. The default for a program with no window, and what a canvas reports before its first frame.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Metal",
+                description: "Drawn on the GPU through Metal (macOS).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Vulkan",
+                description: "Drawn on the GPU through Vulkan (Linux and Windows).",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "FrameStats",
+        export: true,
+        description: "The canvas's timing at one moment, as `canvas::getFrameStats` \
+                      returns it. Every field is from the same instant, so two of them \
+                      can be compared.",
+        props: vec![
+            RecordProp {
+                name: "dt",
+                ty: ParameterType::Float,
+                description: "Seconds between the last two `canvas::present` calls — the \
+                              step to advance an animation by. `0.0` until the second \
+                              present.",
+            },
+            RecordProp {
+                name: "pps",
+                ty: ParameterType::Float,
+                description: "Presents in the last second, identical ones included. Falls \
+                              to `0.0` a second after presenting stops.",
+            },
+            RecordProp {
+                name: "fps",
+                ty: ParameterType::Float,
+                description: "Frames drawn in the last second. A present of an unchanged \
+                              scene draws no frame, so a static scene reports `0.0`.",
+            },
+            RecordProp {
+                name: "displayHz",
+                ty: ParameterType::Float,
+                description: "The refresh rate of the monitor the window is on, in hertz. \
+                              `0.0` when it is not known.",
+            },
+            RecordProp {
+                name: "frameSeconds",
+                ty: ParameterType::Float,
+                description: "How long the last drawn frame took to draw, in seconds. \
+                              `0.0` before the first frame.",
+            },
+            RecordProp {
+                name: "presents",
+                ty: ParameterType::Integer,
+                description: "Every `canvas::present` and `canvas::presentLayers` call \
+                              since the program started.",
+            },
+            RecordProp {
+                name: "frames",
+                ty: ParameterType::Integer,
+                description: "Every frame drawn since the program started.",
+            },
+            RecordProp {
+                name: "renderer",
+                ty: ParameterType::named("Renderer"),
+                description: "What drew the last frame. `Software` before the first.",
             },
         ],
     });
@@ -1204,6 +1304,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_metal_draw::register(&mut pkg);
     func_metal_present::register(&mut pkg);
     func_graphics::register(&mut pkg);
+    func_get_frame_stats::register(&mut pkg);
+    func_wait_frame::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);
     func_scene_hashes::register(&mut pkg);

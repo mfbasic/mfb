@@ -8,8 +8,10 @@ is, what installing one guarantees, and how images live; the per-call API is
 ## Retained, not immediate
 
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
-installs it with `canvas::present`, and the runtime keeps rendering that scene —
-on vsync, on resize, on damage — until the next `present` replaces it.
+installs it with `canvas::present`, and the runtime redraws that scene when a
+present changes it, on resize, and on OS damage — until the next `present`
+replaces it. Time is not a trigger and no backend waits for the display: a frame
+is drawn when one is owed, never on a display-refresh tick.
 [[src/codegen/builtins/canvas/mod.rs:CANVAS]]
 
 This is a deliberate divergence from `term::`, which is ambient mutation plus a
@@ -370,6 +372,77 @@ to linear, mixed, and re-encoded. A black-to-white ramp is therefore evenly brig
 across its width; mixing the encoded bytes directly would make it dark for most of its
 length, which is the same error as blending encoded bytes and is just as plausible-
 looking.
+
+**Frame statistics are two event logs, read in one critical section.**
+`canvas::getFrameStats` reports two different counts, and they are written by
+different threads:
+
+- **Presents.** Every `present` and `presentLayers` call is logged by the worker,
+  including an identical re-present that publishes nothing.
+- **Drawn frames.** A frame a backend actually drew is logged by the graphics
+  thread when the frame completes. A wake-up whose damage is empty is not logged.
+  Nor is anything logged for a resize or an expose that redraws nothing.
+
+Each log is a running total, plus a ring of the last 64 monotonic timestamps with
+its head. All of it lives in the process-global graphics state, since the worker
+cannot see the graphics thread's globals. It is written and read only under the
+graphics mutex, which the frame-completion path already takes, so the drawn log adds
+no lock. `canvas::frameCounters` copies both logs, the last frame's render time and
+renderer, and the display rate in one critical section. Before the graphics thread
+starts it copies without the lock: at that point nothing has written a word.
+[[src/codegen/runtime/canvas/mod.rs:emit_note_present]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_done]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_counters]]
+
+A rate is over the trailing second, counted from one log's ring:
+
+- **The ring has not saturated.** If fewer than 64 held entries are newer than
+  `now - 1 s`, the rate is exactly that count.
+- **The ring has saturated.** If all 64 are newer, the ring spans less than a
+  second, and the rate is `63 / (newest - oldest)`. A loop that presents thousands
+  of times a second is then measured, not reported as 64.
+
+Either way the rate is 0 one second after the last event. `dt` is the gap between
+the two newest present timestamps, and 0 before the second present. `renderer` is
+the backend that returned the drawn frame: `Software` (0), `Metal` (1, including a
+frame presented straight to the window's layer) or `Vulkan` (2). It reads
+`Software` before the first frame.
+[[src/codegen/builtins/canvas/func_get_frame_stats.rs:body]]
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_LOOP]]
+
+Both wrappers call `__canvas_ensureGraphics` and then log the present
+**unconditionally**, ahead of their publish test. So the first present of any scene
+starts the graphics thread, even one identical to the empty initial scene.
+[[src/codegen/builtins/canvas/func_present.rs:BODY]]
+
+**`present` never waits; `waitFrame` is the pacing call.** `canvas::waitFrame` returns
+once both of these hold:
+
+1. **Nothing is owed.** The render loop has picked up every redraw asked for so far —
+   the redraw flag is clear.
+2. **The floor has passed.** At least one display interval (`1 / displayHz`, or 1/60 s
+   when the rate is unknown) has elapsed since `waitFrame` last returned.
+
+It also returns at once when the graphics thread is stopping. The floor holds on every
+backend, because none of them waits for the display: without it, an unchanged scene
+(nothing is ever owed) or a cheap one would spin.
+
+It waits for the redraw to be *picked up*, not *drawn*. Waiting until the frame has
+finished would serialize the threads: the worker would idle while the frame renders,
+and the renderer would idle while the worker builds the next scene. Pickup leaves one
+frame in flight.
+
+`waitFrame` waits on a condition variable of its own, broadcast when a redraw is taken
+and on stop. The render loop's condition is woken by `pthread_cond_signal`, which wakes
+one waiter, so sharing it could hand a render-loop wake-up to the worker.
+
+The floor's deadline is kept in the clock the condition variable's timed wait uses,
+`CLOCK_REALTIME`. It is never later than `now + interval`, so a wall-clock step costs
+at most one interval. The next interval is measured from the deadline when the return
+is less than one interval late, so wake-up latency does not accumulate; otherwise it is
+measured from the return, so a loop that fell behind gets no burst of catch-up returns.
+[[src/codegen/runtime/canvas/mod.rs:emit_await_pickup]]
+[[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]
 
 ## Named groups
 
