@@ -22,7 +22,7 @@ References: plan-154-A (contract), plan-154-B (the Metal twin this mirrors),
 | Must be true | Command | Status |
 |---|---|---|
 | plan-154-B complete | `ls planning/plan-154-B-*` → no match (archived) | MET (2026-09-25: no match; archived in 06b22c3f3) |
-| A Vulkan box answers | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` on HEAD → reports `vulkanReady=TRUE` | MET (2026-09-25 on 2226, HEAD 1bd…: `vulkanReady=TRUE`, "canvas Vulkan runtime tests passed"; 2228 refuses connections — Corrections C2) |
+| A Vulkan box answers | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` on HEAD → reports `vulkanReady=TRUE` | MET (2026-09-25 on 2226, HEAD 06b22c3f3: `vulkanReady=TRUE`, "canvas Vulkan runtime tests passed"; 2228 refuses connections — Corrections C2) |
 
 If either row is not met, this plan cannot start, full stop.
 
@@ -118,7 +118,7 @@ Acceptance: the polyline scene matches the oracle on the Vulkan GPU on box
   exactly"; "the Vulkan render matches tests/golden/canvas/polyline.png (ok
   worst=1 differing=0.5366%)"; every earlier row still passes; "canvas Vulkan
   runtime tests passed".
-Commit: —
+Commit: bfaae88cf
 
 ## Validation Plan
 
