@@ -5,8 +5,22 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Memory-safety (leak)
 
-Status: Open
+Status: Fixed (see STATUS below)
 Regression Test: `scripts/test-winleak.sh` (box 2230); `marshal_ownership_tests` in `src/target/win_x86_64/code.rs`
+
+## STATUS: FIXED (bde4da375, merged into main from worktree-B-696)
+
+Shipped: seams + consumers + Findings 1–2 (05296eca3), Finding 3 (8eb5f7031),
+`scripts/test-winleak.sh` (ab490d531), spec + Finding 4 (de1e8ff38), test
+table (d264ddf05), goldens (427d04a4a), `main` merges (505e9930e, d55df2748 —
+the second folds bug-694's `emit_realpath` rewrite in with this doc's buffer
+ownership). Deviations from this doc: the fix also right-sizes every buffer
+(Fix Design said "where it is cheap"), and four bugs found on the way were
+fixed here (Findings). Also landed alongside: bcabe655c classified
+`canvas::FrameStats` in the self-update census (main red at 13892fd22, later
+fixed on main independently; the duplicate rows were dropped in d55df2748).
+The final post-merge full suite was stopped at the user's request and
+replaced by the fs/os/Windows subset (see Phase 3).
 
 The Windows x86-64 backend marshals UTF-8 strings to and from UTF-16 through
 scratch buffers it allocates from the arena, and it never frees any of them.

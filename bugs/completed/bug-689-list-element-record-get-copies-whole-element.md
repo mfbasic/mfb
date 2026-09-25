@@ -410,7 +410,7 @@ Commit: c0a6c1d97 (fix, tests, goldens, docs); 83d5f25bc (wind comment);
   on macOS and Linux aarch64 (box 2226) — showed 262,144 bytes live at exit on
   Windows only. It is the probe's one `os::getEnvOr`: the Windows backend never
   frees its UTF-16 marshalling buffers. Pre-existing and independent; filed as
-  `bugs/bug-696-windows-marshal-buffers-leak.md`.
+  `bugs/completed/bug-696-windows-marshal-buffers-leak.md` (fixed, bde4da375).
 - **C8 — found: a stale golden.** `syntax/app/app-window-surface`'s
   `linux-x86_64.app.ncodesum` (`91b6f6cd…`, written by `b7abf9c0e`) is produced
   by no committed compiler: `694ce7095` (the implementation it pins) and
