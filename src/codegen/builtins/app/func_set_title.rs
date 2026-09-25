@@ -118,12 +118,12 @@ pub(crate) fn lower_set_title(
         &mut relocations,
     )?;
     instructions.push(abi::label(&no_old));
-    if let Some(result) =
-        ctx.platform
-            .emit_app_window_sync(
+    if let Some(result) = ctx.platform.emit_app_window_sync(
         &symbol,
-        ctx.platform_imports, &mut instructions, &mut relocations)
-    {
+        ctx.platform_imports,
+        &mut instructions,
+        &mut relocations,
+    ) {
         result?;
     }
     instructions.extend([
