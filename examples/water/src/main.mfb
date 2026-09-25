@@ -40,30 +40,23 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT errorCode
-IMPORT fs
 IMPORT io
 IMPORT math
-IMPORT os
 
 ' ---------------------------------------------------------------------------
 ' The font
 ' ---------------------------------------------------------------------------
 
-' canvas::loadFont reads TrueType outlines, so every candidate here is a plain
-' .ttf. The font is only for the line of hints along the bottom, so a machine
-' without any of these still runs the program, just without the hints.
-FUNC systemFontPath AS String
-  MUT candidates AS List OF String = []
-  IF os::name() = "macos" THEN
-    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
-  ELSEIF os::name() = "windows" THEN
-    candidates = ["C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", "C:\\Windows\\Fonts\\verdana.ttf"]
-  ELSE
-    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
-  END IF
+' The first of these fonts that is installed, or "" when none is. They are the
+' everyday sans-serif faces of macOS, Windows and the common Linux desktops. The
+' font is only for the line of hints along the bottom, so a machine without any
+' of them still runs the program, just without the hints.
+LET PREFERRED_FONTS AS List OF String = ["Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
 
-  FOR EACH path IN candidates
-    IF fs::fileExists(path) THEN RETURN path
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
   NEXT
   RETURN ""
 END FUNC
@@ -256,12 +249,12 @@ FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   app::setTitle("Water")
 
-  LET fontPath AS String = systemFontPath()
-  LET hints AS Boolean = fontPath <> ""
+  LET fontName AS String = systemFontName()
+  LET hints AS Boolean = fontName <> ""
   ' A RES binding must hold an open handle, so the font is kept in a list that
   ' is simply left empty when no font was found; the hints are then not drawn.
   MUT faces AS List OF RES canvas::Font = []
-  IF hints THEN faces = [canvas::loadFont(fontPath)]
+  IF hints THEN faces = [canvas::loadSystemFont(fontName)]
 
   fillPool()
   canvas::enableMouse(TRUE)

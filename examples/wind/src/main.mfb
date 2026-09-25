@@ -46,30 +46,25 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT errorCode
-IMPORT fs
 IMPORT io
 IMPORT math
-IMPORT os
+IMPORT strings
 IMPORT thread
 
 ' ---------------------------------------------------------------------------
 ' The font
 ' ---------------------------------------------------------------------------
 
-' canvas::loadFont reads TrueType outlines, so every candidate here is a plain
-' .ttf - not a .ttc collection and not an .otf with PostScript outlines. The
+' The first of these fonts that is installed, or "" when none is. They are the
+' everyday sans-serif faces of macOS, Windows and the common Linux desktops. The
 ' captions are the only text in the program, so a missing font is fatal but
 ' cheap to diagnose.
-FUNC systemFontPath AS String
-  MUT candidates AS List OF String = []
-  IF os::name() = "macos" THEN
-    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
-  ELSE
-    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
-  END IF
+LET PREFERRED_FONTS AS List OF String = ["Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
 
-  FOR EACH path IN candidates
-    IF fs::fileExists(path) THEN RETURN path
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
   NEXT
   RETURN ""
 END FUNC
@@ -361,12 +356,12 @@ FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   app::setTitle("Wind")
 
-  LET fontPath AS String = systemFontPath()
-  IF fontPath = "" THEN
-    io::printError("wind: no TrueType font found in the usual system locations.")
+  LET fontName AS String = systemFontName()
+  IF fontName = "" THEN
+    io::printError("wind: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
-  RES face AS canvas::Font = canvas::loadFont(fontPath)
+  RES face AS canvas::Font = canvas::loadSystemFont(fontName)
 
   canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS 10 m wind from NOAA NOMADS", "about half a megabyte of GRIB2, then a moment to unpack it"))
 

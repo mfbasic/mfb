@@ -3,10 +3,8 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT datetime
-IMPORT fs
 IMPORT io
 IMPORT math
-IMPORT os
 IMPORT strings
 
 ' Bugs - click the bugs, spare the plants. The canvas edition of
@@ -686,18 +684,15 @@ FUNC readKey AS String
   RETURN ""
 END FUNC
 
-' The first TrueType font on this platform that is actually installed, or ""
-' when none is. canvas::loadFont reads plain .ttf files only, so the list names
-' those (the same list examples/emoji uses).
-FUNC systemFontPath AS String
-  MUT candidates AS List OF String = []
-  IF os::name() = "macos" THEN
-    candidates = ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf"]
-  ELSE
-    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"]
-  END IF
-  FOR EACH path IN candidates
-    IF fs::fileExists(path) THEN RETURN path
+' The first of these fonts that is installed, or "" when none is: a bold face
+' when the machine has one, else the regular face. They are the everyday
+' sans-serif faces of macOS, Windows and the common Linux desktops.
+LET PREFERRED_FONTS AS List OF String = ["Arial Bold", "Helvetica Bold", "Verdana Bold", "Segoe UI Bold", "DejaVu Sans Bold", "Liberation Sans Bold", "Noto Sans Bold", "Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
+
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
   NEXT
   RETURN ""
 END FUNC
@@ -709,13 +704,13 @@ END FUNC
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
 
-  LET fontPath AS String = systemFontPath()
-  IF fontPath = "" THEN
-    io::printError("bugs: no TrueType font found in the usual system locations.")
+  LET fontName AS String = systemFontName()
+  IF fontName = "" THEN
+    io::printError("bugs: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
-  RES face AS canvas::Font = canvas::loadFont(fontPath) TRAP(e)
-    io::printError("bugs: cannot load " & fontPath & ": " & e.message)
+  RES face AS canvas::Font = canvas::loadSystemFont(fontName) TRAP(e)
+    io::printError("bugs: cannot load " & fontName & ": " & e.message)
     RETURN 1
   END TRAP
 
