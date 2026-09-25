@@ -123,8 +123,10 @@ a `cargo test` target, another script, or a person.
   Run by: by hand (boxes 2228/2227).
 - **test-canvas-gpu-rows.sh** — The bug-686 scale rows (5,000 quads, 40,000 polygon
   edges, 4,200 gradient stops, a tilemap, a 1080p background, 300-64,000-edge polygons,
-  layers) on the Vulkan backend: each scene in `tests/canvas/scenes/` must draw on the GPU
-  (`gpuFrames` non-zero) and agree with the software oracle within tolerance. Every run
+  layers), plus bug-687's polygons over black (three star polygons and the large-polygon
+  scene without its grey ground), on the Vulkan backend: each scene in
+  `tests/canvas/scenes/` must draw on the GPU (`gpuFrames` non-zero) and agree with the
+  software oracle within tolerance. Every run
   sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows run the `rt_canvas_geo_native`
   programs, including the publish race, so the shared native geometry paths are checked
   on x86-64 and AArch64 Linux and Windows (bug-688). Usage:
