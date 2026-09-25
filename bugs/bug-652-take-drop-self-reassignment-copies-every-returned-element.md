@@ -9,6 +9,8 @@ Status: Open — **rescoped 2026-09-25.** The original defect (no in-place arm, 
 copy plus a per-element graph deep copy) was fixed by plan-142-B (`a70924e35`,
 2026-09-21) and the flat `List OF Integer` case is now linear. What remains is the
 variable-width compaction's cost: it is O(count) per call even when it removes nothing.
+**2026-09-25:** Phases 1–2 landed on `worktree-B-652`, along with the Phase 3 re-measure
+(linear). The full suite is still owed. The other audit offenders are filed as bug-703.
 Regression Test: `tests/runtime/rt_list_take_drop_in_place.rs`. Repro: `bugs/repro/bug-652-take-drop-variable-width-compaction.mfb`
 
 `pending = collections::take(pending, len(pending))` and
@@ -433,29 +435,121 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] `KeepSource::Range` fast path in `lower_list_compact_in_place` /
+- [x] `KeepSource::Range` fast path in `lower_list_compact_in_place` /
       `emit_compact_entries` (Fix Design).
-- [ ] Spec: `12_collections.md` — replace "Destructive update is an optimization only
+      → `src/codegen/collection/list/list_compact.rs`:
+      - The dropped-element pass jumps its index over a range's kept run, so it visits
+        only `[0, start)` and `[start + len, count)`. The keep test is unchanged for
+        Marks.
+      - The new `emit_compact_range_truncate` runs before the probe for a Range:
+        - `len == count` does nothing (O(1));
+        - `start == 0 && len == 0` resets `count` and `dataLength`;
+        - `start == 0` walks the removed entries from last to first, retracting
+          `dataLength` while each payload ends (aligned) at it, then writes `count` and
+          `dataLength`;
+        - anything else, and a removed payload that is not the tail, falls through to
+          the unchanged probe/slide path (C1).
+      - `start > 0` keeps the general path. That path's walk is O(len + removed), which
+        is the call's own work, because every kept element moves.
+      - `KeepSource::Marks` is unchanged.
+      - New label tests in `src/codegen/builtins/tests/inplace_compact.rs`:
+        `compact_in_place_range_form_on_an_entry_list_tries_the_truncation_first` and
+        `compact_in_place_range_drop_pass_skips_the_kept_run`.
+      - The existing `compact_in_place_on_an_entry_list_probes_the_payload_order` still
+        passes unedited, because the general path is still emitted as the fallback.
+- [x] Spec: `12_collections.md` — replace "Destructive update is an optimization only
       for the assignment-back-to-the-same-`MUT` pattern" with the guarantee: a `MUT`
       self-update is performed in place, and its cost is proportional to the elements it
       adds, removes or moves, at every optimization level. State where the guarantee does
       not apply (the old value is still read by another live binding, so a copy is
       required). `14_memory-semantics.md` (opening paragraph) "may choose … destructive update" —
       align with the guarantee. Cite the arms (`[[path:Symbol]]`, `.ai/specifications.md`).
-- [ ] `.ai/collections.md` — replace "**Declining is always correct**" with: declining
+      → §12 now states the guarantee and the value-semantics limit, and links to
+      `mfb spec memory collections`. §14's opening paragraph is aligned with it.
+      `memory/05_collections.md` Self-updates gains a **Cost** bullet with the
+      take/drop/mid cost model. It also lists the forms not yet within the bound
+      (bug-703's six findings), as the as-is rule requires. Every claim is cited
+      (`try_inplace_self_update`, `emit_compact_range_truncate`,
+      `lower_list_compact_in_place`, `emit_offset_compaction_fixup`,
+      `lower_map_remove_key_in_place`, `try_inplace_filter_set`,
+      `try_inplace_symmetric_difference_assign`,
+      `try_inplace_string_window_assign`).
+      "At every optimization level" was measured: `wideTake`/`wideDropAll 100000`
+      built `-O0` gave 0.07 / 0.07 s user, and `-O3` gave 0.06 / 0.08 s.
+- [x] `.ai/collections.md` — replace "**Declining is always correct**" with: declining
       is correct only where the spec says a copy is required; an arm that declines
       anywhere else, or accepts but costs O(size), is a bug.
-- [ ] `mfb man collections` — check `take`/`drop`/`mid`/`append` pages describe the
+      → Done. Also added a "Shrink compaction cost" bullet explaining why an
+      out-of-order truncation cannot skip the live-byte walk.
+- [x] `mfb man collections` — check `take`/`drop`/`mid`/`append` pages describe the
       in-place self-update in developer terms (`.ai/man-content.md`: "mutate", "copy").
+      → `append` already did. `take`/`drop`/`mid` (`func_take.rs`, `func_drop.rs`,
+      `func_mid.rs` DESC) each gain an "Assigning straight back to the same `MUT`
+      variable" paragraph modeled on `append`'s. Verified by rendering
+      `mfb man collections take|drop|mid`. `MFB=… scripts/man-census.sh --memory-scope`
+      → `unclassified memory-vocabulary hits: 0`.
+      `MFB=… scripts/man-run-examples.sh collections --run` →
+      `examples: 140 built: 140 ran: 140 not run: 0 failed: 0`.
 
 Acceptance: Phase 1's scaling test passes; value, leak and linear guards unchanged.
+**GREEN:** `CARGO_TARGET_DIR=/tmp/b652-target MFB_TEST_EXE=/tmp/b652-target/release/mfb cargo test --test rt_list_take_drop_in_place -- --test-threads=1 --nocapture`
+→ `5 passed`:
+- `wideTake: 8×5000 = 0.020 s CPU; 1×40000 = 0.047 s CPU`
+- `wideDropAll: 8×5000 = 0.019 s CPU; 1×40000 = 0.038 s CPU`
+- guards: `wideAppend` ×1.70, `wideDrop` ×1.29, `intTake` ×1.24, `intDropAll` ×1.28
+- value and leak tests pass unchanged
+
+Other checks:
+- `cargo test --bin mfb compact_in_place` → 6 passed.
+- `cargo test --bin mfb self_update` → 11 passed (the arm matrix).
+- The `rt_inplace_failure_atomic`, `rt_recursive_value_collection_drops`,
+  `rt_inplace_field_{loop,mixed,nested}`, `rt_inplace_global_record`,
+  `rt_for_each_self_update`, `rt_global_self_update` and `inplace_self_update_census`
+  suites all pass.
+- `rt_inplace_self_update` status: see the Phase 3 note.
+
 Commit: —
 
 ### Phase 3 — full validation
 
-- [ ] Re-run the table above at n = 8,000 / 32,000 / 100,000; every shape linear.
+- [x] Re-run the table above at n = 8,000 / 32,000 / 100,000; every shape linear.
+      Same commands as "Re-measured" (release `mfb` from this tree, `/tmp/b652/app`,
+      default `-O1`). Each cell is `real / user` seconds. The box was at load average
+      ≈ 207, so `user` is the reliable column.
+
+      | shape | n=8,000 | n=32,000 | n=100,000 |
+      | --- | --- | --- | --- |
+      | `wideAppend` | 0.16 / 0.00 | 0.02 / 0.02 | 0.09 / 0.07 |
+      | `wideTake` | 0.01 / 0.01 | 0.03 / 0.02 | 0.11 / 0.07 |
+      | `wideDropAll` | 0.00 / 0.00 | 0.03 / 0.02 | 0.16 / 0.07 |
+      | `wideDrop` | 0.02 / 0.01 | 0.05 / 0.04 | 0.27 / 0.12 |
+      | `intTake` | 0.00 / 0.00 | 0.00 / 0.00 | 0.01 / 0.00 |
+      | `intDropAll` | 0.00 / 0.00 | 0.00 / 0.00 | 0.01 / 0.00 |
+
+      `wideTake`/`wideDropAll` now track `wideAppend`: 0.07 s user at 100,000, down
+      from 42.14 / 24.47 s. The HEAD tree on this box measured `wideTake` at 0.21 s real
+      for 8,000 and 7.23 s real for 32,000. (The 8,000 `wideAppend` 0.16 s real is a
+      first-launch cost; user is 0.00.)
 - [ ] Full suite; `.ncode` deltas confined to the compaction sites.
-- [ ] `cargo build`, `cargo test --bin mfb spec`.
+      Left for the coordinator. **Expected golden shift: none (prediction, from a
+      grep).** The change emits new code only for a *variable-width* `take`/`drop`/`mid`
+      self-update: the `compact_range_*` block before the probe, plus
+      `compact_drop_outside` in the drop pass for a graph-owning element.
+      - Fixed-width lists and `filter`/`distinct` are byte-identical by construction.
+      - `git ls-files 'tests/**/*.mfb' | xargs perl -ne 'print if /(\w+) = collections::(take|drop|mid)\(\1\s*,/'`
+        finds no self-update fixture.
+      - The `RETURN collections::mid(…)` last-use forms in library and fixture sources
+        (`grep -rnE "RETURN (collections::|__collections_)(take|drop|mid)\(" src/codegen/builtins tests packages`)
+        are all `List OF Byte`/`Integer`, which is fixed-width.
+
+      Any `.ncode` diff outside a variable-width take/drop/mid site is a bug-hunt
+      trigger.
+- [x] `cargo build`, `cargo test --bin mfb spec`.
+      → `CARGO_TARGET_DIR=/tmp/b652-target cargo build --release --bin mfb` is clean.
+      `cargo test --bin mfb spec` → 44 passed, and `cargo test --bin mfb citations_resolve`
+      → `spec_citations_resolve ... ok`. `mfb spec memory collections`,
+      `mfb spec language collections` and `mfb spec language memory-semantics` render
+      with 0 leaked `[[`.
 
 Commit: —
 
