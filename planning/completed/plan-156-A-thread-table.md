@@ -444,7 +444,7 @@ Acceptance: the timeout, cancel and interrupt fixtures pass; the benchmark is
 within 10%.
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**'`
   → 0 failures (est. 4 min); `cargo test --bin mfb spec` → pass (est. 2 min).
-Commit: eee0801a0, 1745376a7, af005746b, and the spec-pass commit that follows
+Commit: eee0801a0, 1745376a7, af005746b, b05f8061b
 
 ## Validation Plan
 
