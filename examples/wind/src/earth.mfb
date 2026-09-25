@@ -57,58 +57,42 @@ TYPE Box
 END TYPE
 
 ' The four coefficients of the projection's polynomials.
-FUNC eeA1 AS Float
-  RETURN 1.340264
-END FUNC
+LET EE_A1 AS Float = 1.340264
 
-FUNC eeA2 AS Float
-  RETURN -0.081106
-END FUNC
+LET EE_A2 AS Float = -0.081106
 
-FUNC eeA3 AS Float
-  RETURN 0.000893
-END FUNC
+LET EE_A3 AS Float = 0.000893
 
-FUNC eeA4 AS Float
-  RETURN 0.003796
-END FUNC
+LET EE_A4 AS Float = 0.003796
 
 ' M = sqrt(3)/2, the sine of the latitude the projection holds true.
-FUNC eeM AS Float
-  RETURN 0.8660254037844386
-END FUNC
+LET EE_M AS Float = 0.8660254037844386
 
 ' The largest theta the projection reaches, at the poles. asin(sqrt(3)/2) is
 ' exactly 60 degrees, so this is pi/3 - not an approximation, and the reason
 ' unproject can clamp to it and still hand asin a value it accepts.
-FUNC thetaMax AS Float
-  RETURN 1.0471975511965976
-END FUNC
+LET THETA_MAX AS Float = 1.0471975511965976
 
 ' Half the width of the projected world, which is x at the equator on the
 ' antimeridian.
-FUNC planeHalfWidth AS Float
-  RETURN 2.7066299836960748
-END FUNC
+LET PLANE_HALF_WIDTH AS Float = 2.7066299836960748
 
 ' Half its height, which is y at a pole.
-FUNC planeHalfHeight AS Float
-  RETURN 1.3173627591574133
-END FUNC
+LET PLANE_HALF_HEIGHT AS Float = 1.3173627591574133
 
 ' The derivative of the y polynomial, which both the forward x and the inverse
 ' need.
 FUNC eeDenominator(theta AS Float) AS Float
   LET t2 AS Float = theta * theta
   LET t6 AS Float = t2 * t2 * t2
-  RETURN eeA1() + 3.0 * eeA2() * t2 + t6 * (7.0 * eeA3() + 9.0 * eeA4() * t2)
+  RETURN EE_A1 + 3.0 * EE_A2 * t2 + t6 * (7.0 * EE_A3 + 9.0 * EE_A4 * t2)
 END FUNC
 
 ' The y polynomial itself.
 FUNC eeY(theta AS Float) AS Float
   LET t2 AS Float = theta * theta
   LET t6 AS Float = t2 * t2 * t2
-  RETURN theta * (eeA1() + eeA2() * t2 + t6 * (eeA3() + eeA4() * t2))
+  RETURN theta * (EE_A1 + EE_A2 * t2 + t6 * (EE_A3 + EE_A4 * t2))
 END FUNC
 
 FUNC radians(degrees AS Float) AS Float
@@ -141,13 +125,13 @@ END FUNC
 
 ' The projection's auxiliary angle for a latitude.
 FUNC thetaOf(lat AS Float) AS Float
-  RETURN math::asin(math::clamp(eeM() * math::sin(radians(math::clamp(lat, -90.0, 90.0))), -1.0, 1.0))
+  RETURN math::asin(math::clamp(EE_M * math::sin(radians(math::clamp(lat, -90.0, 90.0))), -1.0, 1.0))
 END FUNC
 
 ' Plane x per radian of relative longitude at an auxiliary angle. Largest at the
 ' equator and falling towards the poles.
 FUNC xScale(theta AS Float) AS Float
-  RETURN math::cos(theta) / (eeM() * eeDenominator(theta))
+  RETURN math::cos(theta) / (EE_M * eeDenominator(theta))
 END FUNC
 
 ' Where a place lands on the projected plane of a map centred on longitude lon0.
@@ -171,16 +155,16 @@ FUNC unproject(p AS Plane, lon0 AS Float) AS Unprojected
   ' theta can take, and theta = y is already within a few per cent of the
   ' answer, so four Newton steps are far more than it takes to converge to the
   ' precision of a Float.
-  MUT theta AS Float = math::clamp(p.y, -thetaMax(), thetaMax())
+  MUT theta AS Float = math::clamp(p.y, -THETA_MAX, THETA_MAX)
   FOR pass = 1 TO 8
     LET delta AS Float = (eeY(theta) - p.y) / eeDenominator(theta)
-    theta = math::clamp(theta - delta, -thetaMax(), thetaMax())
+    theta = math::clamp(theta - delta, -THETA_MAX, THETA_MAX)
     IF math::abs(delta) < 0.000000000001 THEN EXIT FOR
   NEXT
 
-  LET lat AS Float = degrees(math::asin(math::clamp(math::sin(theta) / eeM(), -1.0, 1.0)))
-  LET lon AS Float = degrees(eeM() * p.x * eeDenominator(theta) / math::cos(theta))
-  LET inside AS Boolean = math::abs(lon) <= 180.0 AND math::abs(p.y) <= planeHalfHeight()
+  LET lat AS Float = degrees(math::asin(math::clamp(math::sin(theta) / EE_M, -1.0, 1.0)))
+  LET lon AS Float = degrees(EE_M * p.x * eeDenominator(theta) / math::cos(theta))
+  LET inside AS Boolean = math::abs(lon) <= 180.0 AND math::abs(p.y) <= PLANE_HALF_HEIGHT
   RETURN Unprojected[place := Geo[lon := wrapLon(math::clamp(lon, -180.0, 180.0) + lon0), lat := lat], inside := inside]
 END FUNC
 
@@ -203,8 +187,8 @@ END TYPE
 ' The scale at which the whole world just fits the window, with a little air
 ' around it.
 FUNC fitScale(size AS canvas::Size) AS Float
-  LET byWidth AS Float = toFloat(size.width) / (2.0 * planeHalfWidth())
-  LET byHeight AS Float = toFloat(size.height) / (2.0 * planeHalfHeight())
+  LET byWidth AS Float = toFloat(size.width) / (2.0 * PLANE_HALF_WIDTH)
+  LET byHeight AS Float = toFloat(size.height) / (2.0 * PLANE_HALF_HEIGHT)
   RETURN math::min(byWidth, byHeight) * 0.94
 END FUNC
 
@@ -268,13 +252,9 @@ END FUNC
 
 ' How far out you may pull back, as a multiple of the fitted scale, and how far
 ' in you may push.
-FUNC minZoom AS Float
-  RETURN 0.9
-END FUNC
+LET MIN_ZOOM AS Float = 0.9
 
-FUNC maxZoom AS Float
-  RETURN 60.0
-END FUNC
+LET MAX_ZOOM AS Float = 60.0
 
 ' Keep the view over the map. The centre may not leave the projected world, so
 ' the map cannot be pushed off the edge of the window and lost; when the whole
@@ -285,15 +265,15 @@ FUNC clampedView(v AS View) AS View
   LET halfY AS Float = v.height * 0.5 / v.scale
   MUT cx AS Float = v.cx
   MUT cy AS Float = v.cy
-  IF halfX >= planeHalfWidth() THEN
+  IF halfX >= PLANE_HALF_WIDTH THEN
     cx = 0.0
   ELSE
-    cx = math::clamp(cx, -(planeHalfWidth() - halfX), planeHalfWidth() - halfX)
+    cx = math::clamp(cx, -(PLANE_HALF_WIDTH - halfX), PLANE_HALF_WIDTH - halfX)
   END IF
-  IF halfY >= planeHalfHeight() THEN
+  IF halfY >= PLANE_HALF_HEIGHT THEN
     cy = 0.0
   ELSE
-    cy = math::clamp(cy, -(planeHalfHeight() - halfY), planeHalfHeight() - halfY)
+    cy = math::clamp(cy, -(PLANE_HALF_HEIGHT - halfY), PLANE_HALF_HEIGHT - halfY)
   END IF
   RETURN WITH v { cx := cx, cy := cy }
 END FUNC
@@ -301,7 +281,7 @@ END FUNC
 ' Zoom about the middle of the window by a factor - above 1 to move in.
 FUNC zoomed(v AS View, factor AS Float, size AS canvas::Size) AS View
   LET fitted AS Float = fitScale(size)
-  LET scale AS Float = math::clamp(v.scale * factor, fitted * minZoom(), fitted * maxZoom())
+  LET scale AS Float = math::clamp(v.scale * factor, fitted * MIN_ZOOM, fitted * MAX_ZOOM)
   RETURN clampedView(WITH v { scale := scale })
 END FUNC
 
@@ -317,6 +297,6 @@ END FUNC
 ' moves the same apparent distance a pan of that fraction would at the equator,
 ' and wraps all the way round.
 FUNC spun(v AS View, fraction AS Float) AS View
-  LET degreesPerPlaneX AS Float = 180.0 / planeHalfWidth()
+  LET degreesPerPlaneX AS Float = 180.0 / PLANE_HALF_WIDTH
   RETURN WITH v { lon0 := wrapLon(v.lon0 + fraction * v.width / v.scale * degreesPerPlaneX) }
 END FUNC

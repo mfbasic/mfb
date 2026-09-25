@@ -56,7 +56,7 @@ Rules:
 - **Collection representation follows the binding.** A collection bound with `LET` is an immutable, fixed snapshot. A collection bound with `MUT` is a locally mutable, growable buffer while it remains in that live binding. Binding a `MUT` collection to `LET`, such as `LET snap = pts`, creates an immutable snapshot; if `pts` is used afterward the snapshot is an independent copy, and if `pts` is not used afterward the compiler may freeze and move the buffer.
 - **Bindings die at `END`/scope exit.**
 - **Compile-time constants.** A `LET` bound to a constant expression *is* a constant expression (usable where one is required). There is no separate `CONST`.
-- **Module-level state.** A top-level `MUT` is module state. There is no `GLOBAL` keyword; visibility (§13) governs sharing, and top-level `MUT` is discouraged.
+- **Module-level state.** A top-level `MUT` is module state: one cell per package instance, set from its declaration before the language entry runs (`./mfb spec memory program-startup`) and live for the whole of that instance. Every started thread gets a fresh instance of the project that declares its entry, so no thread can see another thread's module state (§16). There is no `GLOBAL` keyword, and module state is not an implicit global in the sense of principle 3. It is declared, and only code that can name it under §13 visibility can read or write it. Importers see it only through an explicit `EXPORT MUT`. A self-update of a module-level collection, or of a field of a module-level record, runs in place exactly as it does on a local (`./mfb spec memory collections`, *Self-updates*).
 
 ```basic
 LET x = 10

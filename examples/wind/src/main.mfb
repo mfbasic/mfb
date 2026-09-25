@@ -36,6 +36,7 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT datetime
+IMPORT errorCode
 IMPORT fs
 IMPORT io
 IMPORT math
@@ -69,17 +70,19 @@ END FUNC
 
 FUNC pending(ms AS Integer) AS Boolean
   RETURN io::pollInput(ms)
-
-  TRAP(e)
-    RETURN FALSE
-  END TRAP
 END FUNC
 
+' One character of input, or "" once there is no more. Only the two failures a
+' keyboard can actually produce are answered here: the end of input, which
+' readKey turns into a quit, and a byte that is not UTF-8, which is a key this
+' program has no use for. Anything else is a real failure and goes on up.
 FUNC nextChar AS String
   RETURN io::readChar()
 
   TRAP(e)
-    RETURN ""
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN ""
+    IF e.code = errorCode::ErrEncoding THEN RETURN "\u{FFFD}"
+    PROPAGATE
   END TRAP
 END FUNC
 
@@ -163,23 +166,19 @@ UNION Command
 END UNION
 
 ' How far one press pans or spins, as a fraction of the window.
-FUNC panStep AS Float
-  RETURN 0.09
-END FUNC
+LET PAN_STEP AS Float = 0.09
 
 ' What one press of the zoom keys multiplies the scale by.
-FUNC zoomStep AS Float
-  RETURN 1.18
-END FUNC
+LET ZOOM_STEP AS Float = 1.18
 
 FUNC commandFor(key AS String) AS Command
   MATCH key
-    CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := panStep()]
-    CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -panStep()]
-    CASE "a", "A", "LEFT" : RETURN Spin[fraction := -panStep()]
-    CASE "d", "D", "RIGHT" : RETURN Spin[fraction := panStep()]
-    CASE "q", "Q" : RETURN Zoom[factor := zoomStep()]
-    CASE "e", "E" : RETURN Zoom[factor := 1.0 / zoomStep()]
+    CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
+    CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "a", "A", "LEFT" : RETURN Spin[fraction := -PAN_STEP]
+    CASE "d", "D", "RIGHT" : RETURN Spin[fraction := PAN_STEP]
+    CASE "q", "Q" : RETURN Zoom[factor := ZOOM_STEP]
+    CASE "e", "E" : RETURN Zoom[factor := 1.0 / ZOOM_STEP]
     CASE "r", "R" : RETURN Reset[]
     CASE "h", "H" : RETURN ToggleCaptions[]
     CASE "f", "F" : RETURN ToggleFullscreen[]
@@ -192,13 +191,9 @@ END FUNC
 ' The captions
 ' ---------------------------------------------------------------------------
 
-FUNC captionColor AS color::Color
-  RETURN color::rgb(198, 214, 226)
-END FUNC
+LET CAPTION_COLOR AS color::Color = color::rgb(198, 214, 226)
 
-FUNC hintColor AS color::Color
-  RETURN color::rgb(120, 140, 158)
-END FUNC
+LET HINT_COLOR AS color::Color = color::rgb(120, 140, 158)
 
 ' A caption size that holds still at any window size, within readable bounds.
 FUNC captionSize(v AS View) AS Float
@@ -217,14 +212,14 @@ FUNC noticeScene(size AS canvas::Size, face AS canvas::Font, headline AS String,
   LET big AS Float = math::clamp(height * 0.030, 14.0, 24.0)
   LET small AS Float = big * 0.75
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(voidColor())]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(VOID_COLOR)]]
 
   LET headlineWidth AS Float = canvas::measureText(face, big, headline).width
-  items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, captionColor(), headline))
+  items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, CAPTION_COLOR, headline))
 
   IF detail <> "" THEN
     LET detailWidth AS Float = canvas::measureText(face, small, detail).width
-    items = collections::append(items, textItem(face, (width - detailWidth) / 2.0, height / 2.0 + big * 1.8, small, hintColor(), detail))
+    items = collections::append(items, textItem(face, (width - detailWidth) / 2.0, height / 2.0 + big * 1.8, small, HINT_COLOR, detail))
   END IF
 
   RETURN items
@@ -247,10 +242,10 @@ FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size
   IF captions THEN
     LET size1 AS Float = captionSize(v)
     LET margin AS Float = size1 * 1.2
-    items = collections::append(items, textItem(face, margin, margin + size1, size1, captionColor(), w.label))
-    items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, hintColor(), zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
+    items = collections::append(items, textItem(face, margin, margin + size1, size1, CAPTION_COLOR, w.label))
+    items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, HINT_COLOR, zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
     LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
-    items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, hintColor(), hint))
+    items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, HINT_COLOR, hint))
   END IF
 
   RETURN items
@@ -264,16 +259,12 @@ END FUNC
 ' waiting for the screen, so nothing here blocks on the display and the loop
 ' would otherwise spin as fast as the machine allows - burning a core to compute
 ' frames nobody sees.
-FUNC frameMillis AS Integer
-  RETURN 16
-END FUNC
+LET FRAME_MILLIS AS Integer = 16
 
 ' The longest step the simulation will take at once. Without it, a window
 ' dragged to another desktop or a machine that went to sleep comes back with a
 ' multi-second dt and every tracer teleports across an ocean.
-FUNC maxStepSeconds AS Float
-  RETURN 0.05
-END FUNC
+LET MAX_STEP_SECONDS AS Float = 0.05
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -323,8 +314,8 @@ FUNC main AS Integer
         CASE Zoom(z) : view = zoomed(view, z.factor, size)
         CASE Reset : view = wholeWorld(size)
         CASE ToggleCaptions : captions = NOT captions
-        ' The window resizes as it goes in or out, and the resize is picked up
-        ' at the top of the next frame like any other.
+          ' The window resizes as it goes in or out, and the resize is picked up
+          ' at the top of the next frame like any other.
         CASE ToggleFullscreen : app::setFullscreen(NOT app::getFullscreen())
         CASE Quit : running = FALSE
         CASE Ignore
@@ -332,7 +323,7 @@ FUNC main AS Integer
     LOOP
 
     LET startNanos AS Integer = datetime::monotonicNanos()
-    LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, maxStepSeconds())
+    LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, MAX_STEP_SECONDS)
     lastNanos = startNanos
 
     reprojectTrails(view.lon0)
@@ -340,7 +331,7 @@ FUNC main AS Integer
     canvas::present(frameScene(world, view, winds, face, size, captions))
 
     LET spentMillis AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
-    IF spentMillis < frameMillis() THEN os::sleep(frameMillis() - spentMillis)
+    IF spentMillis < FRAME_MILLIS THEN os::sleep(FRAME_MILLIS - spentMillis)
   LOOP
 
   RETURN 0
